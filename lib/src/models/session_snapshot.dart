@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../network/request_record.dart';
 import 'capture_buffer.dart';
+import 'heap_sample.dart';
 import 'performance_issue.dart';
 
 /// A point-in-time snapshot of a watchdog session for export.
@@ -15,6 +16,7 @@ class SessionSnapshot {
     this.isVmConnected = false,
     this.isDebugMode = false,
     this.recentRequests,
+    this.heapSamples,
   });
 
   final DateTime exportedAt;
@@ -35,6 +37,9 @@ class SessionSnapshot {
   /// Recent HTTP request records from network monitoring (if active).
   final List<RequestRecord>? recentRequests;
 
+  /// Rolling window of heap memory samples (if VM was connected).
+  final List<HeapSample>? heapSamples;
+
   Map<String, dynamic> toJson() => {
         'exportedAt': exportedAt.toIso8601String(),
         'packageVersion': packageVersion,
@@ -45,6 +50,8 @@ class SessionSnapshot {
         'currentIssues': currentIssues.map((i) => i.toJson()).toList(),
         if (recentRequests != null && recentRequests!.isNotEmpty)
           'recentRequests': recentRequests!.map((r) => r.toJson()).toList(),
+        if (heapSamples != null && heapSamples!.isNotEmpty)
+          'heapSamples': heapSamples!.map((s) => s.toJson()).toList(),
       };
 
   /// Pretty-printed JSON string for export/sharing.
@@ -64,7 +71,7 @@ class SessionSnapshot {
         currentIssues: (json['currentIssues'] as List<dynamic>)
             .map((e) => PerformanceIssue.fromJson(e as Map<String, dynamic>))
             .toList(),
-        // recentRequests is export-only; not deserialized
+        // recentRequests and heapSamples are export-only; not deserialized
       );
 }
 

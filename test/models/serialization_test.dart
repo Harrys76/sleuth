@@ -498,5 +498,48 @@ void main() {
       expect(() => jsonDecode(jsonStr), returnsNormally);
       expect(jsonStr, contains('\n')); // pretty-printed
     });
+
+    test('toJson includes heapSamples when non-null and non-empty', () {
+      final snapshot = SessionSnapshot(
+        exportedAt: DateTime.utc(2026, 3, 28),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 0,
+          jankFrames: 0,
+          averageFps: 0,
+          worstFrameTimeUs: 0,
+        ),
+        heapSamples: [
+          HeapSample(
+            heapUsage: 50000000,
+            heapCapacity: 100000000,
+            externalUsage: 0,
+            timestamp: DateTime.utc(2026, 3, 28, 12, 0, 0),
+          ),
+        ],
+      );
+
+      final json = snapshot.toJson();
+      expect(json.containsKey('heapSamples'), isTrue);
+      expect((json['heapSamples'] as List), hasLength(1));
+    });
+
+    test('toJson omits heapSamples when null', () {
+      final snapshot = SessionSnapshot(
+        exportedAt: DateTime.utc(2026, 3, 28),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 0,
+          jankFrames: 0,
+          averageFps: 0,
+          worstFrameTimeUs: 0,
+        ),
+      );
+
+      final json = snapshot.toJson();
+      expect(json.containsKey('heapSamples'), isFalse);
+    });
   });
 }

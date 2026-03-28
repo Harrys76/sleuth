@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
+import '../models/heap_sample.dart';
 import 'timeline_parser.dart';
 
 /// Callback type for receiving parsed timeline data.
@@ -10,6 +11,9 @@ typedef TimelineDataCallback = void Function(ParsedTimelineData data);
 
 /// Callback type for receiving VM events (GC, etc.).
 typedef VmEventCallback = void Function(Event event);
+
+/// Callback type for receiving heap memory samples.
+typedef HeapSampleCallback = void Function(HeapSample sample);
 
 /// Connects to the app's own VM Service for exact performance data.
 ///
@@ -22,12 +26,14 @@ class VmServiceClient {
   VmServiceClient({
     this.onTimelineData,
     this.onGcEvent,
+    this.onHeapSample,
     this.onExtensionEvent,
     this.onConnectionChanged,
   });
 
   final TimelineDataCallback? onTimelineData;
   final VmEventCallback? onGcEvent;
+  final HeapSampleCallback? onHeapSample;
   final VmEventCallback? onExtensionEvent;
   final void Function(bool connected)? onConnectionChanged;
 
@@ -39,6 +45,9 @@ class VmServiceClient {
   bool _disposed = false;
   bool _connected = false;
   bool _reconnecting = false;
+
+  /// Cached main isolate ID, resolved during [connect].
+  String? _mainIsolateId;
 
   /// Whether the VM service is connected and streaming data.
   bool get isConnected => _connected;
@@ -83,6 +92,9 @@ class VmServiceClient {
           'Embedder',
           'GC',
         ]);
+
+        // Resolve main isolate ID for getMemoryUsage() polling
+        _mainIsolateId = await _resolveMainIsolateId();
 
         // Subscribe to event streams
         await _subscribeToStreams();
@@ -168,6 +180,25 @@ class VmServiceClient {
       }
       // Clear the timeline buffer to avoid re-processing
       await _service!.clearVMTimeline();
+
+      // Poll heap memory (piggybacked on timeline poll, near-zero cost)
+      if (_mainIsolateId != null && onHeapSample != null) {
+        try {
+          final mem = await _service!.getMemoryUsage(_mainIsolateId!);
+          onHeapSample?.call(HeapSample(
+            heapUsage: mem.heapUsage ?? 0,
+            heapCapacity: mem.heapCapacity ?? 0,
+            externalUsage: mem.externalUsage ?? 0,
+            timestamp: DateTime.now(),
+          ));
+        } on SentinelException {
+          // Isolate ID stale (e.g., after hot restart) — re-fetch
+          _mainIsolateId = await _resolveMainIsolateId();
+        } catch (_) {
+          // Memory poll failed but timeline poll succeeded — don't reconnect.
+          // Will retry on next poll cycle.
+        }
+      }
     } catch (e) {
       // Connection may have been lost
       if (!_disposed && !_reconnecting) {
@@ -176,6 +207,22 @@ class VmServiceClient {
         // Fire-and-forget is intentional — reconnect runs in background
         unawaited(reconnect());
       }
+    }
+  }
+
+  /// Resolve the main (non-system) isolate ID for memory polling.
+  Future<String?> _resolveMainIsolateId() async {
+    try {
+      final vm = await _service!.getVM();
+      final isolates = vm.isolates;
+      if (isolates == null || isolates.isEmpty) return null;
+      final main = isolates.firstWhere(
+        (ref) => ref.isSystemIsolate != true,
+        orElse: () => isolates.first,
+      );
+      return main.id;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -197,6 +244,7 @@ class VmServiceClient {
     _gcSub = null;
     _extensionSub?.cancel();
     _extensionSub = null;
+    _mainIsolateId = null;
     _connected = false;
     try {
       _service?.dispose();

@@ -874,7 +874,7 @@ Mini flame chart is explicitly out of scope — it adds visualization complexity
 | Feature | New Detector? | VM Required? | Release Safe? | Priority |
 |---------|:---:|:---:|:---:|:---:|
 | Network monitoring | Yes (21st) | No | Yes | #1 — **Done** |
-| Heap trend monitoring | No (enhances MemoryPressure) | Yes | No | #2 |
+| Heap trend monitoring | No (enhances MemoryPressure) | Yes | No | #2 — **Done** |
 | Jank CPU attribution | No (enhances FrameVerdict) | Yes | No | #3 |
 | Source location enrichment | No (enhances ancestorChain) | No | No (debug only) | #4 |
 
@@ -1038,7 +1038,7 @@ Deviations from spec:
 
 ---
 
-### v2.2: Heap Trend Monitoring
+### v2.2: Heap Trend Monitoring — **Done**
 
 **Problem:**
 
@@ -1142,6 +1142,22 @@ VmServiceClient poll (every 500ms)
 - Rolling window bounds: verify oldest sample evicted when 61st arrives
 - VM disconnect: verify window cleared and no stale issues carry over
 - Integration with existing GC issues: both heap trend and GC frequency issues can coexist
+
+**Implementation notes (v2.2):**
+
+All files listed above were created/edited except `test/vm/vm_service_client_test.dart` (VmServiceClient has no test file — VM service is integration-only). Added `test/models/heap_sample_test.dart` (3 tests) and updated `test/models/serialization_test.dart` (2 new tests for heapSamples in SessionSnapshot). 31 detector tests (rewrite of existing + 20 new). Total test count: 689.
+
+Deviations from spec:
+
+1. **Callback named `onHeapSample`, not `onHeapUsage`.** Spec data flow diagram shows `onHeapUsage` callback. Implementation uses `onHeapSample` to match the `HeapSample` type name, consistent with the `onTimelineData`/`ParsedTimelineData` naming pattern.
+
+2. **`updateHeapStats()` fully replaced by `processHeapSample()`.** Spec didn't explicitly call for removing the old method. Since `updateHeapStats()` was never wired from production code and its percentage-based growth logic is superseded by rolling-window regression, it was removed entirely. No dead code retained.
+
+3. **`_initialized` guard in `exportSnapshot()`.** `_memoryPressure` is `late final` (initialized during `initialize()`). Accessing `heapSamples` before `initialize()` would throw `LateInitializationError`. Added `_initialized &&` guard, matching the nullable pattern used by `_networkMonitor`.
+
+4. **`SentinelException` inner catch in `_pollTimeline()`.** Spec design decision #4 mentions handling `SentinelException` for stale isolate IDs. Implementation adds a second catch-all inside the memory poll try block to prevent non-Sentinel errors (e.g., transient `RPCError`) from escaping to the outer catch and triggering a full reconnect when the timeline poll succeeded.
+
+5. **Shared `_evaluate()` with split elapsed guard.** Spec mentioned both `processTimelineData()` and `processHeapSample()` calling a shared evaluation. Implementation splits the `elapsed > 0` guard: only `_evaluateGcPressure()` is guarded (needs it for division by zero in GC/min calc). Heap evaluations (`_evaluateHeapTrend()`, `_evaluateHeapCapacity()`) work immediately with no elapsed guard, allowing heap capacity to alert on the very first sample.
 
 ---
 

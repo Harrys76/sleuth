@@ -33,6 +33,7 @@ import '../detectors/opacity_detector.dart';
 import '../detectors/font_loading_detector.dart';
 import '../detectors/network_monitor_detector.dart';
 import '../models/base_detector.dart';
+import '../models/heap_sample.dart';
 import '../models/capture_buffer.dart';
 import '../models/frame_stats.dart';
 import '../models/frame_verdict.dart';
@@ -280,6 +281,7 @@ class WatchdogController {
     final client = VmServiceClient(
       onTimelineData: _onTimelineData,
       onGcEvent: _onGcEvent,
+      onHeapSample: _onHeapSample,
       onConnectionChanged: _onVmConnectionChanged,
     );
     _vmClient = client;
@@ -453,6 +455,9 @@ class WatchdogController {
           _networkMonitor != null && _networkMonitor!.records.isNotEmpty
               ? _networkMonitor!.records
               : null,
+      heapSamples: _initialized && _memoryPressure.heapSamples.isNotEmpty
+          ? _memoryPressure.heapSamples
+          : null,
     );
   }
 
@@ -836,6 +841,10 @@ class WatchdogController {
         ));
       }
     }
+  }
+
+  void _onHeapSample(HeapSample sample) {
+    _memoryPressure.processHeapSample(sample);
   }
 
   void _onGcEvent(Event event) {

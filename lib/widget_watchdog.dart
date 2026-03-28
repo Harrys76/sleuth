@@ -37,6 +37,7 @@ export 'src/models/session_snapshot.dart';
 export 'src/controller/watchdog_controller.dart' show WatchdogConfig;
 export 'src/debug/debug_instrumentation_config.dart';
 export 'src/models/base_detector.dart' show DetectorType, DetectorLifecycle;
+export 'src/models/heap_sample.dart';
 export 'src/network/request_record.dart';
 
 /// Entry point for the Widget Watchdog package.

@@ -119,7 +119,7 @@ Issues include a confidence level reflecting evidence quality:
 | Shader Jank | VM Timeline | Shader compilation occurred | Confirmed | Requires VM connection |
 | Heavy Compute | VM Timeline | Long UI-thread event | Confirmed | Requires VM connection |
 | Platform Channel | VM Timeline | High call frequency | Confirmed | Requires VM connection |
-| Memory Pressure | VM GC events | GC frequency elevated | Likely | Heap growth requires VM stats |
+| Memory Pressure | VM GC events + heap polling | GC frequency elevated, heap growing steadily, heap near capacity | Likely / Confirmed | Requires VM connection |
 | Repaint | VM Timeline | High paint frequency | Confirmed | Requires VM connection |
 
 ### Hybrid Detectors (VM + tree scan, degrade without VM)
