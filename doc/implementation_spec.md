@@ -876,7 +876,7 @@ Mini flame chart is explicitly out of scope — it adds visualization complexity
 | Network monitoring | Yes (21st) | No | Yes | #1 — **Done** |
 | Heap trend monitoring | No (enhances MemoryPressure) | Yes | No | #2 — **Done** |
 | Jank CPU attribution | No (enhances FrameVerdict) | Yes | No | #3 — **Done** |
-| Source location enrichment | No (enhances ancestorChain) | No | No (debug only) | #4 |
+| Source location enrichment | No (enhances ancestorChain) | No | No (debug only) | #4 — **Done** |
 
 ### Design Principle
 
@@ -1299,7 +1299,7 @@ Raw CPU samples include Dart framework internals (`ComponentElement.performRebui
 
 ---
 
-### v2.4: Source Location Enrichment
+### v2.4: Source Location Enrichment — **Done**
 
 **Problem:**
 
@@ -1371,6 +1371,18 @@ During tree scans, when building ancestor chains for structural issues, call `Wi
 - Path abbreviation: full path → `lib/` prefix, no `lib/` in path → last 2 segments, edge cases (root path, empty path)
 - Null handling: `getCreationLocation` returns null → chain unchanged
 - Integration with existing ancestor chain tests: verify chain format with and without file:line
+
+**Implementation notes (deviations from spec):**
+
+1. **API path:** `WidgetInspectorService.getCreationLocation(Object?)` does not exist as a public method. Both `_getCreationLocation` and `_Location` are private to `widget_inspector.dart`. Used `InspectorSerializationDelegate.additionalNodeProperties(DiagnosticsNode)` instead — a public method on a public class that includes `creationLocation` in its output map. Same underlying data, different access path.
+
+2. **No detector edits needed:** Instead of editing 4 structural detectors + DebugInstrumentationCoordinator individually, modified `buildAncestorChain()` directly to append file:line. All 14+ consumers get enrichment automatically with zero individual edits.
+
+3. **No LRU eviction:** Cache uses simple bounded map (insert until full, then skip new types). True LRU is unnecessary — source locations are stable per widget type and 200 entries covers virtually all user-defined types.
+
+4. **Module-level cache:** `sourceLocationCache` is a module-level `SourceLocationCache` instance in `widget_location.dart`. Simpler than threading a cache instance through all detector constructors. `clear()` method available for test isolation.
+
+5. **24 new tests** (10 cache unit + 7 path abbreviation + 7 widget location integration), 757 total pass.
 
 ---
 
