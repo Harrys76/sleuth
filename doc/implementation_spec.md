@@ -1384,6 +1384,10 @@ During tree scans, when building ancestor chains for structural issues, call `Wi
 
 5. **24 new tests** (10 cache unit + 7 path abbreviation + 7 widget location integration), 757 total pass.
 
+6. **Expanded framework widget filter:** Added 16 framework widgets to `_frameworkNames` in `widget_location.dart`: transition/animation widgets (`SlideTransition`, `FadeTransition`, `ScaleTransition`, `RotationTransition`, `SizeTransition`, `FractionalTranslation`, `PositionedTransition`, `DecoratedBoxTransition`), builder plumbing (`Builder`, `ListenableBuilder`, `NotificationListener`), pointer infrastructure (`IgnorePointer`, `AbsorbPointer`), and render infrastructure (`RepaintBoundary`, `Offstage`, `TickerMode`, `KeyedSubtree`). These produced long chains that pushed the file:line suffix off-screen in issue cards.
+
+7. **Issue card deduplication:** Added `!issue.detail.contains(issue.ancestorChain!)` guard to the "Widget:" line in `issue_card.dart`. When the detail text already contains the ancestor chain (common for structural detectors), the redundant "Widget:" line is suppressed.
+
 ---
 
 ### v2 Config Changes Summary

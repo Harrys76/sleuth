@@ -119,7 +119,7 @@ Issues include a confidence level reflecting evidence quality:
 | Shader Jank | VM Timeline | Shader compilation occurred | Confirmed | Requires VM connection |
 | Heavy Compute | VM Timeline | Long UI-thread event | Confirmed | Requires VM connection |
 | Platform Channel | VM Timeline | High call frequency | Confirmed | Requires VM connection |
-| Memory Pressure | VM GC events + heap polling | GC frequency elevated, heap growing steadily, heap near capacity | Likely / Confirmed | Requires VM connection |
+| Memory Pressure | VM GC events + heap polling | GC frequency elevated, heap growing steadily (linear regression), heap near capacity (>80%) | Likely / Confirmed | Requires VM connection |
 | Repaint | VM Timeline | High paint frequency | Confirmed | Requires VM connection |
 
 ### Hybrid Detectors (VM + tree scan, degrade without VM)
@@ -151,16 +151,16 @@ Issues include a confidence level reflecting evidence quality:
 - **Always on**: no separate tool window, no connection setup — performance data is visible as you use your app
 - **Structural analysis**: finds anti-patterns (non-lazy lists, uncached images, excessive GlobalKeys) that DevTools does not flag
 - **Network monitoring**: in-app detection of slow requests, request floods, and oversized responses with actionable fix hints
+- **Heap trend monitoring**: detects sustained memory growth and near-capacity conditions without heap snapshots
+- **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed
+- **Source-location enrichment**: ancestor chains include file:line in debug mode, linking issues directly to source code
 - **Actionable fix hints**: every issue includes what to change, not just what went wrong
 - **Zero setup**: one line of code, no browser tab, no port forwarding
 
 ## What DevTools Still Does Better
 
-- **Exact timeline analysis**: DevTools provides precise per-frame timeline with full event detail
-- **Memory inspection**: DevTools has heap snapshots, allocation tracking, and real leak detection
-- **CPU profiling**: DevTools can profile Dart code execution with call stacks
-- **Network inspection**: DevTools monitors individual HTTP request/response bodies and WebSocket traffic (Watchdog only tracks timing, size, and frequency — not payloads)
-- **Widget-exact attribution**: DevTools can trace rebuilds to specific widgets via the inspector
+- **Heap snapshots & object graph**: DevTools can browse every object in the heap, inspect retention paths, and track individual allocations. Widget Watchdog monitors heap trends and GC pressure but cannot drill into specific objects.
+- **Full flame chart & call tree**: DevTools provides zoomable, interactive per-frame timelines with complete call tree visualization. Widget Watchdog shows phase breakdowns with top-5 function attribution per jank frame.
 
 Widget Watchdog is best used for **fast in-app triage** — catch the problem, understand the category, then use DevTools when you need deeper investigation.
 
@@ -169,9 +169,10 @@ Widget Watchdog is best used for **fast in-app triage** — catch the problem, u
 To set clear expectations:
 
 - This package is **not a replacement** for full DevTools timeline analysis
-- It **cannot attribute exact offending widgets** in profile mode (only structural heuristics)
+- It **cannot attribute exact offending widgets** in profile mode — in debug mode, source file:line is available via `--track-widget-creation`, but profile mode falls back to structural heuristics only
 - **VM full mode availability** depends on runtime environment and is not guaranteed on all platforms
-- **Memory pressure detection** monitors GC frequency and heap trends, not individual object leaks
+- **Memory pressure detection** monitors GC frequency, heap growth trends (linear regression), and capacity thresholds — not individual object leaks or retention paths
+- **CPU attribution** is statistical (~1 kHz sampling) — functions running <1 ms may not appear; use DevTools CPU profiler for complete call trees
 
 ## Example App
 

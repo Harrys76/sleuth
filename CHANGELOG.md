@@ -1,3 +1,52 @@
+## 0.3.0
+
+### Added
+
+- **Heap trend monitoring** (v2.2): `MemoryPressureDetector` now polls
+  `getMemoryUsage()` alongside the existing VM timeline poll. Tracks a rolling
+  window of 60 heap samples (30 seconds) and applies linear regression to detect
+  sustained growth. Two new issue types:
+  - *Heap Growing* — positive slope > 500 KB/sec for 10+ consecutive seconds
+    (severity: warning, confidence: likely).
+  - *Heap Near Capacity* — heap usage > 80% of heap capacity (severity:
+    critical, confidence: confirmed).
+  - `HeapSample` data class exported for session snapshot consumers.
+- **Jank CPU attribution** (v2.3): when a jank frame is detected and VM is
+  connected, `getCpuSamples()` is queried for that frame's time window.
+  `CpuSampleAggregator` ranks functions by exclusive ticks and surfaces the
+  top 5 in `FrameVerdict.topFunctions`. Two-phase verdict emission: the verdict
+  is emitted immediately, then updated with CPU attribution when samples arrive
+  (or after 500 ms timeout).
+  - `CpuAttribution` data class exported for snapshot consumers.
+  - Dashboard shows "Top: ClassName.method (N%)" on jank verdicts.
+- **Source file:line in ancestor chains** (v2.4): `buildAncestorChain()` appends
+  `(lib/path/file.dart:line)` to the leaf widget when `--track-widget-creation`
+  is active (debug mode default). Uses `InspectorSerializationDelegate` to
+  access creation location data. Results cached per widget runtime type
+  (bounded at 200 entries). Zero behavior change in profile mode.
+  - `SourceLocationCache` utility with `abbreviatePath()` for `lib/`-relative
+    path display.
+
+### Changed
+
+- `MemoryPressureDetector` enhanced: `processHeapSample()` replaces the old
+  `updateHeapStats()` method. Rolling window with linear regression replaces
+  percentage-based growth detection.
+- `FrameVerdict` gains `topFunctions: List<CpuAttribution>?` field and
+  `withTopFunctions()` copy method for two-phase enrichment.
+- Session export (`exportSnapshot()`) now includes `heapSamples` array and
+  CPU attribution data when available.
+- Barrel file exports `CpuAttribution`, `HeapSample`, and updated
+  `FrameVerdict`.
+- Ancestor chain framework filter expanded: 16 additional framework widgets
+  (transitions, builders, pointer/render infrastructure) are now excluded
+  from ancestor chains, producing shorter and more user-relevant paths.
+- Issue card no longer shows redundant "Widget:" line when the detail text
+  already contains the ancestor chain.
+- README "What DevTools Still Does Better" narrowed from 5 items to 2
+  (heap snapshots & full flame chart). Network inspection, memory trends,
+  CPU profiling, and widget-exact attribution are no longer DevTools-only.
+
 ## 0.2.0
 
 ### Breaking Changes

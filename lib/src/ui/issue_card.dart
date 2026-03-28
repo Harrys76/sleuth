@@ -179,7 +179,8 @@ class _IssueCardState extends State<IssueCard> {
                               ),
                             ),
                           ),
-                        if (issue.ancestorChain != null)
+                        if (issue.ancestorChain != null &&
+                            !issue.detail.contains(issue.ancestorChain!))
                           Padding(
                             padding: const EdgeInsets.only(top: 2),
                             child: Text(

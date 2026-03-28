@@ -43,6 +43,27 @@ const _frameworkNames = {
   'MergeSemantics',
   'ExcludeSemantics',
   'BlockSemantics',
+  // Transition / animation framework widgets
+  'SlideTransition',
+  'FadeTransition',
+  'ScaleTransition',
+  'RotationTransition',
+  'SizeTransition',
+  'FractionalTranslation',
+  'PositionedTransition',
+  'DecoratedBoxTransition',
+  // Builder / listener plumbing
+  'Builder',
+  'ListenableBuilder',
+  'NotificationListener',
+  // Pointer / hit-test infrastructure
+  'IgnorePointer',
+  'AbsorbPointer',
+  // Render optimisation infrastructure
+  'RepaintBoundary',
+  'Offstage',
+  'TickerMode',
+  'KeyedSubtree',
 };
 
 /// Builds a human-readable ancestor chain from an Element, helping
