@@ -1,0 +1,263 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:widget_watchdog/src/detectors/gpu_pressure_detector.dart';
+import 'package:widget_watchdog/src/models/performance_issue.dart';
+
+import '../helpers/timeline_test_helpers.dart';
+
+void main() {
+  group('GpuPressureDetector', () {
+    late GpuPressureDetector detector;
+
+    setUp(() {
+      detector = GpuPressureDetector();
+    });
+
+    testWidgets('no issues when disabled', (tester) async {
+      detector.isEnabled = false;
+      detector.vmConnected = true;
+      detector.processTimelineData(rasterDominantData());
+
+      await tester.pumpWidget(const _GpuTestApp());
+      detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+
+      expect(detector.issues, isEmpty);
+    });
+
+    group('VM connected — raster ratio', () {
+      setUp(() {
+        detector.vmConnected = true;
+      });
+
+      testWidgets('no issue when raster <= UI x threshold', (tester) async {
+        // Raster 10ms, UI 10ms — ratio = 1.0 (below 1.5 threshold)
+        detector.processTimelineData(rasterDominantData(
+          rasterUs: 10000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ));
+
+        await tester.pumpWidget(const _GpuTestApp());
+        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets('warning when raster > UI x 1.5', (tester) async {
+        // Raster 20ms, UI 10ms — ratio = 2.0
+        detector.processTimelineData(rasterDominantData(
+          rasterUs: 20000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ));
+
+        await tester.pumpWidget(const _GpuTestApp());
+        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.severity, IssueSeverity.warning);
+        expect(detector.issues.first.title, contains('Raster Dominance'));
+      });
+
+      testWidgets('critical when raster > UI x 3.0', (tester) async {
+        // Raster 40ms, UI 10ms — ratio = 4.0
+        detector.processTimelineData(rasterDominantData(
+          rasterUs: 40000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ));
+
+        await tester.pumpWidget(const _GpuTestApp());
+        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.severity, IssueSeverity.critical);
+      });
+
+      testWidgets('confidence is confirmed without expensive nodes',
+          (tester) async {
+        detector.processTimelineData(rasterDominantData(
+          rasterUs: 20000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ));
+
+        // Simple tree — no expensive render objects
+        await tester.pumpWidget(const _GpuTestApp());
+        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.confidence, IssueConfidence.confirmed);
+      });
+
+      testWidgets('splits observed raster signal from likely node cause',
+          (tester) async {
+        detector.processTimelineData(rasterDominantData(
+          rasterUs: 20000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ));
+
+        await tester.pumpWidget(const _OpacityDeepTree());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(2));
+
+        final rasterIssue = detector.issues.firstWhere(
+          (issue) => issue.stableId == 'raster_dominance',
+        );
+        final nodeIssue = detector.issues.firstWhere(
+          (issue) => issue.stableId == 'expensive_gpu_nodes',
+        );
+
+        expect(rasterIssue.confidence, IssueConfidence.confirmed);
+        expect(rasterIssue.detail, isNot(contains('Suspected cause')));
+        expect(nodeIssue.confidence, IssueConfidence.likely);
+        expect(nodeIssue.detail, contains('Raster-dominant frames coincided'));
+      });
+    });
+
+    group('structural-only — expensive nodes', () {
+      testWidgets('reports expensive nodes as possible', (tester) async {
+        // No VM data, but tree has an Opacity with many descendants
+        detector.vmConnected = false;
+
+        await tester.pumpWidget(const _OpacityDeepTree());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        // RenderOpacity with >5 descendants should produce a structural issue
+        expect(detector.issues, isNotEmpty,
+            reason: 'RenderOpacity with deep subtree should be flagged');
+        expect(detector.issues.first.confidence, IssueConfidence.possible);
+        expect(detector.issues.first.category, IssueCategory.raster);
+        expect(detector.issues.first.title, contains('Expensive Render Nodes'));
+      });
+
+      testWidgets('mentions VM unavailable when disconnected', (tester) async {
+        detector.vmConnected = false;
+
+        await tester.pumpWidget(const _OpacityDeepTree());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isNotEmpty,
+            reason: 'Should flag expensive nodes even without VM');
+        final rasterIssues =
+            detector.issues.where((i) => i.category == IssueCategory.raster);
+        expect(rasterIssues, isNotEmpty);
+        expect(rasterIssues.first.detail, contains('VM unavailable'));
+      });
+    });
+
+    group('vmConnected setter', () {
+      testWidgets('confirmed/likely issues cleared immediately on disconnect',
+          (tester) async {
+        detector.vmConnected = true;
+        detector.processTimelineData(rasterDominantData(
+          rasterUs: 20000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ));
+
+        await tester.pumpWidget(const _GpuTestApp());
+        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+        expect(detector.issues, isNotEmpty);
+
+        detector.vmConnected = false;
+        // Confirmed/likely issues should be cleared
+        expect(
+          detector.issues.where(
+            (i) =>
+                i.confidence == IssueConfidence.confirmed ||
+                i.confidence == IssueConfidence.likely,
+          ),
+          isEmpty,
+        );
+      });
+
+      testWidgets(
+          'after disconnect, next scanTree only produces structural issues',
+          (tester) async {
+        detector.vmConnected = true;
+        detector.processTimelineData(rasterDominantData(
+          rasterUs: 20000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ));
+
+        await tester.pumpWidget(const _GpuTestApp());
+        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+        expect(detector.issues, isNotEmpty);
+
+        // Disconnect
+        detector.vmConnected = false;
+
+        // Next scan should not produce raster ratio issues
+        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+        for (final issue in detector.issues) {
+          expect(issue.confidence, IssueConfidence.possible);
+        }
+      });
+    });
+
+    group('highlights', () {
+      testWidgets('no highlights when no expensive nodes found',
+          (tester) async {
+        await tester.pumpWidget(const _GpuTestApp());
+        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+
+        expect(detector.highlights, isEmpty);
+      });
+
+      test('highlights cleared on dispose', () {
+        detector.dispose();
+        expect(detector.highlights, isEmpty);
+      });
+    });
+  });
+}
+
+/// Simple widget tree with no expensive render objects.
+class _GpuTestApp extends StatelessWidget {
+  const _GpuTestApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Directionality(
+      textDirection: TextDirection.ltr,
+      child: Column(
+        children: [
+          SizedBox(width: 10, height: 10),
+          SizedBox(width: 10, height: 10),
+        ],
+      ),
+    );
+  }
+}
+
+/// Widget tree with Opacity wrapping many descendants.
+class _OpacityDeepTree extends StatelessWidget {
+  const _OpacityDeepTree();
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Opacity(
+        opacity: 0.5,
+        child: Column(
+          children: List.generate(
+            10,
+            (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+          ),
+        ),
+      ),
+    );
+  }
+}

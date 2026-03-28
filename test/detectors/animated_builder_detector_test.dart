@@ -1,0 +1,249 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:widget_watchdog/src/debug/debug_snapshot.dart';
+import 'package:widget_watchdog/src/detectors/animated_builder_detector.dart';
+import 'package:widget_watchdog/src/models/performance_issue.dart';
+
+void main() {
+  group('AnimatedBuilderDetector', () {
+    late AnimatedBuilderDetector detector;
+
+    setUp(() {
+      detector = AnimatedBuilderDetector();
+    });
+
+    testWidgets('no issues when disabled', (tester) async {
+      detector.isEnabled = false;
+
+      await tester.pumpWidget(const TestAnimatedApp(useChild: false));
+      detector.scanTree(tester.element(find.byType(TestAnimatedApp)));
+
+      expect(detector.issues, isEmpty);
+    });
+
+    testWidgets('flags AnimatedBuilder without child param', (tester) async {
+      await tester.pumpWidget(const TestAnimatedApp(useChild: false));
+      detector.scanTree(tester.element(find.byType(TestAnimatedApp)));
+
+      expect(detector.issues, isNotEmpty);
+      expect(
+        detector.issues.first.title,
+        contains('AnimatedBuilder without child'),
+      );
+    });
+
+    testWidgets('no issues when AnimatedBuilder uses child', (tester) async {
+      await tester.pumpWidget(const TestAnimatedApp(useChild: true));
+      detector.scanTree(tester.element(find.byType(TestAnimatedApp)));
+
+      expect(detector.issues, isEmpty);
+    });
+
+    testWidgets('ignores small subtrees (<=5 widgets)', (tester) async {
+      await tester.pumpWidget(const TinyAnimatedBuilder());
+      detector.scanTree(tester.element(find.byType(TinyAnimatedBuilder)));
+
+      expect(detector.issues, isEmpty);
+    });
+
+    testWidgets('no false positive on scroll page without AnimatedBuilder', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const ScrollPageNoAnimatedBuilder());
+      detector.scanTree(
+        tester.element(find.byType(ScrollPageNoAnimatedBuilder)),
+      );
+
+      // Framework-internal AnimatedBuilders (from Scaffold, scroll widgets)
+      // should be filtered out — no user AnimatedBuilder exists here.
+      expect(detector.issues, isEmpty);
+    });
+
+    test('dispose clears issues', () {
+      detector.dispose();
+      expect(detector.issues, isEmpty);
+    });
+
+    group('debug rebuild evidence', () {
+      testWidgets('detail includes rebuild rate when high', (tester) async {
+        detector.updateDebugSnapshot(const DebugSnapshot(
+          rebuildCounts: {'AnimatedBuilder': 60},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ));
+
+        await tester.pumpWidget(const TestAnimatedApp(useChild: false));
+        detector.scanTree(tester.element(find.byType(TestAnimatedApp)));
+
+        expect(detector.issues, isNotEmpty);
+        expect(
+          detector.issues.first.detail,
+          contains('AnimatedBuilder rebuilding at 60/sec'),
+        );
+        expect(detector.issues.first.observationSource,
+            ObservationSource.debugCallbackAndStructural);
+      });
+
+      testWidgets('confidence stays likely (not confirmed)', (tester) async {
+        detector.updateDebugSnapshot(const DebugSnapshot(
+          rebuildCounts: {'AnimatedBuilder': 60},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ));
+
+        await tester.pumpWidget(const TestAnimatedApp(useChild: false));
+        detector.scanTree(tester.element(find.byType(TestAnimatedApp)));
+
+        expect(detector.issues.first.confidence, IssueConfidence.likely);
+      });
+
+      testWidgets('no debug evidence when rate is low', (tester) async {
+        detector.updateDebugSnapshot(const DebugSnapshot(
+          rebuildCounts: {'AnimatedBuilder': 10},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ));
+
+        await tester.pumpWidget(const TestAnimatedApp(useChild: false));
+        detector.scanTree(tester.element(find.byType(TestAnimatedApp)));
+
+        expect(detector.issues, isNotEmpty);
+        expect(
+          detector.issues.first.detail,
+          isNot(contains('rebuilding at')),
+        );
+        expect(detector.issues.first.observationSource, isNull);
+      });
+
+      testWidgets('no debug evidence when no snapshot', (tester) async {
+        await tester.pumpWidget(const TestAnimatedApp(useChild: false));
+        detector.scanTree(tester.element(find.byType(TestAnimatedApp)));
+
+        expect(detector.issues, isNotEmpty);
+        expect(
+          detector.issues.first.detail,
+          isNot(contains('rebuilding at')),
+        );
+      });
+    });
+  });
+}
+
+// --- Test widgets (public names so isFrameworkOwned returns false) ---
+
+class TestAnimatedApp extends StatefulWidget {
+  const TestAnimatedApp({super.key, required this.useChild});
+
+  final bool useChild;
+
+  @override
+  State<TestAnimatedApp> createState() => TestAnimatedAppState();
+}
+
+class TestAnimatedAppState extends State<TestAnimatedApp>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: AnimatedBuilder(
+        animation: controller,
+        child: widget.useChild
+            ? Column(
+                children: List.generate(
+                  10,
+                  (i) => SizedBox(key: ValueKey(i), height: 10),
+                ),
+              )
+            : null,
+        builder: (context, child) {
+          if (child != null) return child;
+          return Column(
+            children: List.generate(
+              10,
+              (i) => SizedBox(key: ValueKey(i), height: 10),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class TinyAnimatedBuilder extends StatefulWidget {
+  const TinyAnimatedBuilder({super.key});
+
+  @override
+  State<TinyAnimatedBuilder> createState() => TinyAnimatedBuilderState();
+}
+
+class TinyAnimatedBuilderState extends State<TinyAnimatedBuilder>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: AnimatedBuilder(
+        animation: controller,
+        builder: (context, child) {
+          return const SizedBox(width: 10, height: 10);
+        },
+      ),
+    );
+  }
+}
+
+/// A scroll-heavy page with NO user AnimatedBuilder.
+/// Any AnimatedBuilder found here is framework-internal and should be ignored.
+class ScrollPageNoAnimatedBuilder extends StatelessWidget {
+  const ScrollPageNoAnimatedBuilder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: SingleChildScrollView(
+        child: Column(
+          children: List.generate(
+            30,
+            (i) => SizedBox(key: ValueKey(i), height: 10),
+          ),
+        ),
+      ),
+    );
+  }
+}

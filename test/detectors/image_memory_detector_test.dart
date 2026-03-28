@@ -1,0 +1,199 @@
+import 'dart:typed_data';
+
+import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:widget_watchdog/src/detectors/image_memory_detector.dart';
+import 'package:widget_watchdog/src/models/performance_issue.dart';
+
+// 1x1 transparent PNG bytes for creating test Image widgets.
+final Uint8List _kTransparentPng = Uint8List.fromList(const [
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1
+  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, // RGBA
+  0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, // IDAT chunk
+  0x78, 0x9C, 0x62, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xE5,
+  0x27, 0xDE, 0xFC,
+  0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, // IEND chunk
+  0xAE, 0x42, 0x60, 0x82,
+]);
+
+void main() {
+  group('ImageMemoryDetector', () {
+    late ImageMemoryDetector detector;
+
+    setUp(() {
+      detector = ImageMemoryDetector();
+    });
+
+    testWidgets('no issues when disabled', (tester) async {
+      detector.isEnabled = false;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Image(image: MemoryImage(_kTransparentPng)),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, isEmpty);
+    });
+
+    testWidgets('flags Image without ResizeImage', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Image(image: MemoryImage(_kTransparentPng)),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.title, contains('1 found'));
+      expect(detector.issues.first.observationSource,
+          ObservationSource.structural);
+    });
+
+    testWidgets('no issue when Image uses ResizeImage', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Image(
+            image: ResizeImage(MemoryImage(_kTransparentPng), width: 100),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, isEmpty);
+    });
+
+    testWidgets('counts multiple uncached images', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              Image(image: MemoryImage(_kTransparentPng)),
+              Image(image: MemoryImage(_kTransparentPng)),
+              Image(image: MemoryImage(_kTransparentPng)),
+            ],
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.title, contains('3 found'));
+    });
+
+    testWidgets('warning severity when count <= 5', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              3,
+              (_) => Image(image: MemoryImage(_kTransparentPng)),
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+    });
+
+    testWidgets('critical severity when count > 5', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              6,
+              (_) => Image(image: MemoryImage(_kTransparentPng)),
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+    });
+
+    testWidgets('stableId, confidence, and category', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Image(image: MemoryImage(_kTransparentPng)),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      final issue = detector.issues.first;
+      expect(issue.stableId, 'uncached_images');
+      expect(issue.confidence, IssueConfidence.possible);
+      expect(issue.category, IssueCategory.memory);
+    });
+
+    testWidgets('highlights produced per uncached image', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              Image(image: MemoryImage(_kTransparentPng)),
+              Image(image: MemoryImage(_kTransparentPng)),
+            ],
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.highlights, hasLength(2));
+      expect(detector.highlights.first.detectorName, 'Image');
+    });
+
+    testWidgets('uncachedImages list populated', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Image(image: MemoryImage(_kTransparentPng)),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.uncachedImages, hasLength(1));
+      expect(detector.uncachedImages.first.sourceName, contains('MemoryImage'));
+    });
+
+    testWidgets('no highlights when all images use ResizeImage',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Image(
+            image: ResizeImage(MemoryImage(_kTransparentPng), width: 100),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.highlights, isEmpty);
+    });
+
+    testWidgets('dispose clears issues, highlights, and uncachedImages',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Image(image: MemoryImage(_kTransparentPng)),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, isNotEmpty);
+      expect(detector.highlights, isNotEmpty);
+      expect(detector.uncachedImages, isNotEmpty);
+
+      detector.dispose();
+      expect(detector.issues, isEmpty);
+      expect(detector.highlights, isEmpty);
+      expect(detector.uncachedImages, isEmpty);
+    });
+  });
+}

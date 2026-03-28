@@ -1,0 +1,6 @@
+build/
+example/build/
+example/.dart_tool/
+example/.fvm/
+doc/
+*.iml

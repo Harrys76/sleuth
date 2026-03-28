@@ -1,0 +1,1096 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/widgets.dart';
+import 'package:vm_service/vm_service.dart' show Event;
+
+import '../analyzer/frame_event_correlator.dart';
+import '../analyzer/render_pipeline_analyzer.dart';
+import '../debug/debug_instrumentation_config.dart';
+import '../debug/debug_instrumentation_coordinator.dart';
+import '../debug/debug_snapshot.dart';
+import '../detectors/frame_timing_detector.dart';
+import '../detectors/shader_jank_detector.dart';
+import '../detectors/heavy_compute_detector.dart';
+import '../detectors/platform_channel_detector.dart';
+import '../detectors/memory_pressure_detector.dart';
+import '../detectors/repaint_detector.dart';
+import '../detectors/rebuild_detector.dart';
+import '../detectors/setstate_scope_detector.dart';
+import '../detectors/gpu_pressure_detector.dart';
+import '../detectors/shallow_rebuild_risk_detector.dart';
+import '../detectors/layout_bottleneck_detector.dart';
+import '../detectors/listview_detector.dart';
+import '../detectors/image_memory_detector.dart';
+import '../detectors/global_key_detector.dart';
+import '../detectors/nested_scroll_detector.dart';
+import '../detectors/custom_painter_detector.dart';
+import '../detectors/keep_alive_detector.dart';
+import '../detectors/animated_builder_detector.dart';
+import '../detectors/opacity_detector.dart';
+import '../detectors/font_loading_detector.dart';
+import '../models/base_detector.dart';
+import '../models/capture_buffer.dart';
+import '../models/frame_stats.dart';
+import '../models/frame_verdict.dart';
+import '../models/performance_issue.dart';
+import '../models/session_snapshot.dart';
+import '../models/widget_highlight.dart';
+import '../ranking/issue_ranker.dart';
+import '../vm/vm_service_client.dart';
+import '../vm/timeline_parser.dart';
+
+/// Central controller aggregating all detectors and the pipeline analyzer.
+class WatchdogController {
+  WatchdogController({WatchdogConfig? config})
+      : config = config ?? const WatchdogConfig(),
+        _captureBuffer = JankCaptureBuffer(
+          capacity: (config ?? const WatchdogConfig()).captureBufferCapacity,
+        );
+
+  final WatchdogConfig config;
+
+  // Capture buffer — eager init so exportSnapshot() is safe before initialize()
+  final JankCaptureBuffer _captureBuffer;
+  int _lastCapturedFrameNumber = -1;
+
+  // VM layer
+  VmServiceClient? _vmClient;
+
+  // Analyzer
+  final RenderPipelineAnalyzer _analyzer = RenderPipelineAnalyzer();
+  final FrameEventCorrelator _correlator = const FrameEventCorrelator();
+
+  // VM-only detectors
+  late final FrameTimingDetector _frameTiming;
+  late final ShaderJankDetector _shaderJank;
+  late final HeavyComputeDetector _heavyCompute;
+  late final PlatformChannelDetector _platformChannel;
+  late final MemoryPressureDetector _memoryPressure;
+  late final RepaintDetector _repaint;
+
+  // Hybrid detectors
+  late final RebuildDetector _rebuild;
+  late final GpuPressureDetector _gpuPressure;
+  late final ShallowRebuildRiskDetector _shallowRebuildRisk;
+
+  // Structural detectors
+  late final LayoutBottleneckDetector _layoutBottleneck;
+  late final ListviewDetector _listview;
+  late final ImageMemoryDetector _imageMemory;
+  late final GlobalKeyDetector _globalKey;
+  late final NestedScrollDetector _nestedScroll;
+  late final CustomPainterDetector _customPainter;
+  late final SetStateScopeDetector _setStateScope;
+  late final KeepAliveDetector _keepAlive;
+  late final AnimatedBuilderDetector _animatedBuilder;
+  late final OpacityDetector _opacity;
+  late final FontLoadingDetector _fontLoading;
+
+  // Ranking
+  final IssueRanker _ranker = const IssueRanker();
+  final Map<String, int> _recurrenceCounts = {};
+
+  // Interaction context
+  InteractionContext _interactionState = InteractionContext.idle;
+  Timer? _scrollIdleTimer;
+
+  // Debug instrumentation
+  DebugInstrumentationCoordinator? _debugCoordinator;
+  bool? _prevProfileBuildsEnabled;
+  bool? _prevProfilePaintsEnabled;
+  bool? _prevProfileLayoutsEnabled;
+  bool? _prevEnhanceBuildArgs;
+  bool? _prevEnhanceLayoutArgs;
+  bool? _prevEnhancePaintArgs;
+
+  // State
+  bool _initialized = false;
+  Timer? _treeScanTimer;
+
+  /// Notifies listeners when issues change.
+  final ValueNotifier<List<PerformanceIssue>> issuesNotifier = ValueNotifier(
+    [],
+  );
+
+  /// Notifies listeners when frame stats update.
+  final ValueNotifier<FrameStatsBuffer> frameStatsNotifier = ValueNotifier(
+    FrameStatsBuffer(),
+  );
+
+  /// Notifies listeners when a new verdict is available.
+  final ValueNotifier<FrameVerdict?> verdictNotifier = ValueNotifier(null);
+
+  /// Whether VM service is connected (full mode).
+  final ValueNotifier<bool> vmConnectedNotifier = ValueNotifier(false);
+
+  /// Widget highlights for the visual overlay.
+  final ValueNotifier<List<WidgetHighlight>> highlightsNotifier = ValueNotifier(
+    [],
+  );
+
+  /// Whether the highlight overlay is active.
+  final ValueNotifier<bool> highlightEnabledNotifier = ValueNotifier(false);
+
+  /// The currently selected/focused highlight (from tapping an issue).
+  final ValueNotifier<WidgetHighlight?> selectedHighlightNotifier =
+      ValueNotifier(null);
+
+  /// Issue waiting to be highlighted after the next tree scan populates
+  /// the highlights list. Set by the UI when highlights aren't ready yet.
+  PerformanceIssue? pendingIssueSelection;
+
+  /// Clear the selected highlight.
+  void clearSelectedHighlight() {
+    selectedHighlightNotifier.value = null;
+    pendingIssueSelection = null;
+  }
+
+  /// Select the best matching highlight for a given issue.
+  /// Returns true if a match was found.
+  bool selectHighlightForIssue(PerformanceIssue issue) {
+    final highlights = highlightsNotifier.value;
+    if (highlights.isEmpty) return false;
+
+    // Try exact match on widgetName first
+    if (issue.widgetName != null) {
+      for (final h in highlights) {
+        if (h.widgetName == issue.widgetName) {
+          selectedHighlightNotifier.value = h;
+          highlightEnabledNotifier.value = true;
+          return true;
+        }
+      }
+    }
+
+    // Map issue category to likely detector names
+    final detectorNames = detectorNamesForCategory(issue.category);
+    for (final name in detectorNames) {
+      for (final h in highlights) {
+        if (h.detectorName == name) {
+          selectedHighlightNotifier.value = h;
+          highlightEnabledNotifier.value = true;
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  static List<String> detectorNamesForCategory(IssueCategory category) {
+    return switch (category) {
+      IssueCategory.layout => ['Layout', 'Opacity'],
+      IssueCategory.build => [
+          'Non-lazy',
+          'GlobalKey',
+          'setState',
+          'AnimatedBuilder',
+          'Rebuild',
+        ],
+      IssueCategory.paint => ['Painter', 'Repaint'],
+      IssueCategory.raster => ['GPU'],
+      IssueCategory.memory => ['Image', 'KeepAlive'],
+      IssueCategory.channel => [],
+      IssueCategory.font => [],
+    };
+  }
+
+  /// Whether running in debug mode.
+  bool get isDebugMode => kDebugMode;
+
+  /// Whether debug callbacks are currently installed.
+  bool get isDebugCallbacksActive {
+    bool result = false;
+    assert(() {
+      result = _debugCoordinator?.isInstalled ?? false;
+      return true;
+    }());
+    return result;
+  }
+
+  /// Whether any heavy debug profiling flags are actually active.
+  ///
+  /// Returns `true` only when at least one Flutter debug flag was saved and
+  /// overridden. If `enableDeepDebugInstrumentation` is `true` but all
+  /// advanced sub-flags are `false`, this returns `false`.
+  bool get isDeepInstrumentationActive {
+    bool result = false;
+    assert(() {
+      result = _prevProfileBuildsEnabled != null ||
+          _prevProfileLayoutsEnabled != null ||
+          _prevProfilePaintsEnabled != null ||
+          _prevEnhanceBuildArgs != null ||
+          _prevEnhanceLayoutArgs != null ||
+          _prevEnhancePaintArgs != null;
+      return true;
+    }());
+    return result;
+  }
+
+  /// Whether VM service is connected.
+  bool get isVmConnected =>
+      _vmConnectedOverride ?? _vmClient?.isConnected ?? false;
+
+  /// Test-only override for [isVmConnected]. When non-null, takes precedence
+  /// over [_vmClient?.isConnected].
+  bool? _vmConnectedOverride;
+
+  @visibleForTesting
+  set vmConnectedForTest(bool value) => _vmConnectedOverride = value;
+
+  /// Simulate a VM connection state change in tests. Sets the override,
+  /// updates [vmConnectedNotifier], and propagates to hybrid detectors
+  /// via [_syncVmState] — mirroring the production [_onVmConnectionChanged].
+  @visibleForTesting
+  void simulateVmStateChangeForTest(bool connected) {
+    _vmConnectedOverride = connected;
+    vmConnectedNotifier.value = connected;
+    _syncVmState(connected);
+  }
+
+  /// Initialize all detectors and connect to VM service.
+  Future<void> initialize() async {
+    if (_initialized || kReleaseMode) return;
+
+    _initializeDetectors();
+
+    _installDebugInstrumentation();
+
+    // Connect to VM service
+    final client = VmServiceClient(
+      onTimelineData: _onTimelineData,
+      onGcEvent: _onGcEvent,
+      onConnectionChanged: _onVmConnectionChanged,
+    );
+    _vmClient = client;
+
+    final connected = await client.connect();
+    vmConnectedNotifier.value = connected;
+    _syncVmState(connected);
+
+    // Start frame timing
+    _frameTiming.start();
+
+    _initialized = true;
+  }
+
+  void _initializeDetectors() {
+    final enabled = config.enabledDetectors;
+
+    _frameTiming = FrameTimingDetector(
+      fpsTarget: config.fpsTarget,
+      onFrameStats: _onFrameStats,
+    )..isEnabled = enabled.contains(DetectorType.frameTiming);
+
+    _shaderJank = ShaderJankDetector()
+      ..isEnabled = enabled.contains(DetectorType.shaderJank);
+
+    _heavyCompute = HeavyComputeDetector()
+      ..isEnabled = enabled.contains(DetectorType.heavyCompute);
+
+    _platformChannel = PlatformChannelDetector(
+      callsPerSecThreshold: config.platformChannelLimit,
+    )..isEnabled = enabled.contains(DetectorType.platformChannel);
+
+    _memoryPressure = MemoryPressureDetector()
+      ..isEnabled = enabled.contains(DetectorType.memoryPressure);
+
+    _repaint = RepaintDetector()
+      ..isEnabled = enabled.contains(DetectorType.repaint);
+
+    _rebuild = RebuildDetector(rebuildsPerSecThreshold: config.rebuildThreshold)
+      ..isEnabled = enabled.contains(DetectorType.rebuild);
+
+    _setStateScope = SetStateScopeDetector()
+      ..isEnabled = enabled.contains(DetectorType.setStateScope);
+
+    _gpuPressure = GpuPressureDetector()
+      ..isEnabled = enabled.contains(DetectorType.gpuPressure);
+
+    _shallowRebuildRisk = ShallowRebuildRiskDetector()
+      ..isEnabled = enabled.contains(DetectorType.shallowRebuildRisk);
+
+    _layoutBottleneck = LayoutBottleneckDetector()
+      ..isEnabled = enabled.contains(DetectorType.layoutBottleneck);
+
+    _listview = ListviewDetector(childThreshold: config.maxListChildren)
+      ..isEnabled = enabled.contains(DetectorType.listview);
+
+    _imageMemory = ImageMemoryDetector()
+      ..isEnabled = enabled.contains(DetectorType.imageMemory);
+
+    _globalKey = GlobalKeyDetector(threshold: config.maxGlobalKeys)
+      ..isEnabled = enabled.contains(DetectorType.globalKey);
+
+    _nestedScroll = NestedScrollDetector(childThreshold: config.maxListChildren)
+      ..isEnabled = enabled.contains(DetectorType.nestedScroll);
+
+    _customPainter = CustomPainterDetector()
+      ..isEnabled = enabled.contains(DetectorType.customPainter);
+
+    _keepAlive = KeepAliveDetector()
+      ..isEnabled = enabled.contains(DetectorType.keepAlive);
+
+    _animatedBuilder = AnimatedBuilderDetector()
+      ..isEnabled = enabled.contains(DetectorType.animatedBuilder);
+
+    _opacity = OpacityDetector()
+      ..isEnabled = enabled.contains(DetectorType.opacity);
+
+    _fontLoading = FontLoadingDetector()
+      ..isEnabled = enabled.contains(DetectorType.fontLoading);
+  }
+
+  /// Initialize detectors without VM client or SchedulerBinding.
+  @visibleForTesting
+  void initializeDetectorsForTest() {
+    _initializeDetectors();
+    _installDebugInstrumentation();
+  }
+
+  /// Feed a synthetic frame into the controller's [FrameTimingDetector],
+  /// triggering [_onFrameStats] and the fallback verdict path.
+  @visibleForTesting
+  // ignore: invalid_use_of_visible_for_testing_member
+  void addFrameForTest(FrameStats stats) => _frameTiming.addFrameForTest(stats);
+
+  /// Exposes recurrence counts for testing ranking integration.
+  @visibleForTesting
+  Map<String, int> get recurrenceCountsForTest =>
+      Map.unmodifiable(_recurrenceCounts);
+
+  @visibleForTesting
+  void runTreeScanForTest(BuildContext context) {
+    _lastScanContext = context;
+    _runStructuralScans(context);
+    _collectHighlights();
+    _aggregateIssues();
+    _updateRecurrence(issuesNotifier.value);
+  }
+
+  /// Feeds timeline data through the same path as production VM polling.
+  /// Distributes data to all VM-only and hybrid detectors, then re-aggregates.
+  @visibleForTesting
+  void feedTimelineDataForTest(ParsedTimelineData data) =>
+      _onTimelineData(data);
+
+  /// Simulates the timeline path: re-aggregates and ranks issues without
+  /// updating recurrence. Mirrors what [_onTimelineData] does.
+  @visibleForTesting
+  void aggregateIssuesForTest() => _aggregateIssues();
+
+  /// Exposes interaction state for testing.
+  @visibleForTesting
+  InteractionContext get interactionStateForTest => _interactionState;
+
+  @visibleForTesting
+  set interactionStateForTest(InteractionContext state) =>
+      _interactionState = state;
+
+  /// Calls the real [_scanTree] path (including [_findVisiblePageContext]
+  /// null-check and navigation state handling). Unlike [runTreeScanForTest],
+  /// this does NOT bypass the null-context early return.
+  @visibleForTesting
+  void scanTreeFullPathForTest(BuildContext context) {
+    _initialized = true;
+    _scanTree(context);
+  }
+
+  /// Exposes capture buffer for testing.
+  @visibleForTesting
+  JankCaptureBuffer get captureBufferForTest => _captureBuffer;
+
+  /// Build a session snapshot for programmatic use.
+  SessionSnapshot exportSnapshot() {
+    final buffer = frameStatsNotifier.value;
+    final frames = buffer.frames;
+    final worstUs = frames.isEmpty
+        ? 0
+        : frames
+            .map((f) => f.effectiveTotalDuration.inMicroseconds)
+            .reduce((a, b) => a > b ? a : b);
+
+    return SessionSnapshot(
+      exportedAt: DateTime.now(),
+      capturedFrames: _captureBuffer.entries,
+      currentIssues: List.unmodifiable(issuesNotifier.value),
+      frameStatsSummary: FrameStatsSummary(
+        totalFrames: buffer.length,
+        jankFrames: buffer.jankCount,
+        averageFps: buffer.averageFps,
+        worstFrameTimeUs: worstUs,
+      ),
+      packageVersion: '0.2.0',
+      isVmConnected: isVmConnected,
+      isDebugMode: isDebugMode,
+    );
+  }
+
+  /// Export session snapshot as a formatted JSON string.
+  String exportSnapshotJson() => exportSnapshot().toJsonString();
+
+  /// The overlay element — set by the overlay widget.
+  BuildContext? _overlayContext;
+
+  /// The last successfully resolved visible-page context from [_findVisiblePageContext].
+  /// Used by [_currentRouteName] to stamp issues with the scanned page's route,
+  /// not the overlay root. Cleared during route transitions to avoid stale stamps.
+  BuildContext? _lastScanContext;
+
+  /// Start periodic tree scanning. Call from widget with BuildContext.
+  void startTreeScanning(BuildContext context) {
+    _overlayContext = context;
+    _treeScanTimer?.cancel();
+    _treeScanTimer = Timer.periodic(
+      Duration(milliseconds: config.treeScanIntervalMs),
+      (_) {
+        final ctx = _overlayContext;
+        if (ctx != null) {
+          final element = ctx as Element;
+          if (element.mounted) {
+            SchedulerBinding.instance.addPostFrameCallback((_) {
+              if (element.mounted) _scanTree(ctx);
+            });
+          }
+        }
+      },
+    );
+  }
+
+  void _scanTree(BuildContext context) {
+    if (!_initialized || kReleaseMode) return;
+
+    // Always drain debug counts so they don't carry over across page transitions
+    DebugSnapshot? debugSnapshot;
+    assert(() {
+      debugSnapshot = _debugCoordinator?.snapshot();
+      return true;
+    }());
+
+    // Find the current visible page's context by skipping Offstage routes.
+    // Returns null during route transitions (multiple Scaffolds visible).
+    final scanContext = _findVisiblePageContext(context);
+    if (scanContext == null) {
+      _lastScanContext = null;
+      // Route transition in progress — clear highlights, stale state,
+      // and set interaction state to navigating.
+      // debugSnapshot is drained and discarded — counts from transition
+      // period are lost (intentionally: attributing them to an unknown
+      // page is worse than losing them).
+      _scrollIdleTimer?.cancel();
+      _interactionState = InteractionContext.navigating;
+      if (highlightsNotifier.value.isNotEmpty) {
+        highlightsNotifier.value = [];
+      }
+      selectedHighlightNotifier.value = null;
+      _setStateScope.clearSnapshots();
+      return;
+    }
+    // Navigation complete — return to idle
+    if (_interactionState == InteractionContext.navigating) {
+      _interactionState = InteractionContext.idle;
+    }
+    _lastScanContext = scanContext;
+
+    // Pass debug snapshot to detectors
+    if (debugSnapshot != null) {
+      _rebuild.updateDebugSnapshot(debugSnapshot!);
+      _repaint.updateDebugSnapshot(debugSnapshot!);
+      _setStateScope.updateDebugSnapshot(debugSnapshot!);
+      _shallowRebuildRisk.updateDebugSnapshot(debugSnapshot!);
+      _animatedBuilder.updateDebugSnapshot(debugSnapshot!);
+      _customPainter.updateDebugSnapshot(debugSnapshot!);
+    }
+
+    // Run all tree-scanning detectors
+    _runStructuralScans(scanContext);
+
+    // Aggregate and rank all issues
+    _aggregateIssues();
+
+    // Update recurrence from scan path only (not timeline path) so all
+    // detectors increment at the same rate regardless of lifecycle.
+    _updateRecurrence(issuesNotifier.value);
+
+    // Collect widget highlights if overlay is active
+    if (highlightEnabledNotifier.value) {
+      _collectHighlights();
+
+      // Fulfill pending issue selection now that highlights are populated
+      if (pendingIssueSelection != null) {
+        selectHighlightForIssue(pendingIssueSelection!);
+        pendingIssueSelection = null;
+      }
+    } else if (highlightsNotifier.value.isNotEmpty) {
+      highlightsNotifier.value = [];
+    }
+  }
+
+  BuildContext? _findVisiblePageContext(BuildContext root) {
+    final scaffolds = <Element>[];
+
+    void visitor(Element element) {
+      final widget = element.widget;
+
+      // Skip offstage subtrees — inactive Navigator routes
+      if (widget is Offstage && widget.offstage) return;
+
+      // Skip ticker-disabled subtrees — background Navigator routes
+      if (widget is TickerMode && !widget.enabled) return;
+
+      // Skip our own overlay widgets
+      final name = widget.runtimeType.toString();
+      if (name == 'DashboardSheet' ||
+          name == 'TriggerButton' ||
+          name == 'HighlightOverlay') {
+        return;
+      }
+
+      // Collect all visible Scaffolds
+      if (name == 'Scaffold') {
+        scaffolds.add(element);
+      }
+
+      element.visitChildren(visitor);
+    }
+
+    try {
+      root.visitChildElements(visitor);
+    } catch (_) {}
+
+    if (scaffolds.isEmpty) return null;
+
+    // Multiple visible Scaffolds = route transition in progress.
+    // Return null so the caller skips scanning during transitions.
+    if (scaffolds.length > 1) return null;
+
+    // Walk up from Scaffold to include the user's page widget in the scan.
+    // Go one level past the user widget so visitChildElements includes it.
+    Element result = scaffolds.first;
+    bool foundUserWidget = false;
+    scaffolds.first.visitAncestorElements((ancestor) {
+      if (foundUserWidget) {
+        result = ancestor;
+        return false;
+      }
+      if (ancestor is StatefulElement) {
+        final name = ancestor.widget.runtimeType.toString();
+        if (name.startsWith('_')) return false;
+        if (SetStateScopeDetector.isFrameworkWidget(ancestor.widget)) {
+          return false;
+        }
+        foundUserWidget = true;
+        return true;
+      }
+      return true;
+    });
+
+    return result;
+  }
+
+  /// Re-collect highlights using fresh screen rects (e.g. after scroll).
+  ///
+  /// Re-runs structural detector scans to get fresh rects, then
+  /// aggregates highlights from all detectors.
+  void refreshHighlights() {
+    if (!highlightEnabledNotifier.value) return;
+    if (_interactionState == InteractionContext.navigating) return;
+    final ctx = _overlayContext;
+    if (ctx == null) return;
+    final element = ctx as Element;
+    if (!element.mounted) return;
+    final scanContext = _findVisiblePageContext(ctx) ?? ctx;
+    _lastScanContext = scanContext;
+    _runStructuralScans(scanContext);
+    _collectHighlights();
+  }
+
+  /// Update interaction state from app scroll notifications.
+  ///
+  /// Called by the overlay's [NotificationListener] which is scoped to the
+  /// app child only (not the dashboard). Scroll notifications from the
+  /// watchdog UI are excluded.
+  void onScrollActivity(ScrollNotification notification) {
+    if (_interactionState == InteractionContext.navigating) return;
+    if (notification is ScrollStartNotification) {
+      _scrollIdleTimer?.cancel();
+      if (_interactionState != InteractionContext.scrolling) {
+        _interactionState = InteractionContext.scrolling;
+        _aggregateIssues();
+      }
+    } else if (notification is ScrollEndNotification) {
+      _scrollIdleTimer?.cancel();
+      _scrollIdleTimer = Timer(const Duration(milliseconds: 300), () {
+        _interactionState = InteractionContext.idle;
+        _aggregateIssues();
+      });
+    }
+  }
+
+  /// Run all tree-scanning detectors (hybrid + structural).
+  void _runStructuralScans(BuildContext scanContext) {
+    // Hybrid detectors — need tree access (or use scanTree as evaluation trigger)
+    _rebuild.scanTree(scanContext);
+    _repaint.scanTree(scanContext);
+    _gpuPressure.scanTree(scanContext);
+    _shallowRebuildRisk.scanTree(scanContext);
+
+    // Structural detectors
+    _setStateScope.scanTree(scanContext);
+    _layoutBottleneck.scanTree(scanContext);
+    _listview.scanTree(scanContext);
+    _imageMemory.scanTree(scanContext);
+    _globalKey.scanTree(scanContext);
+    _nestedScroll.scanTree(scanContext);
+    _customPainter.scanTree(scanContext);
+    _keepAlive.scanTree(scanContext);
+    _animatedBuilder.scanTree(scanContext);
+    _opacity.scanTree(scanContext);
+    _fontLoading.scanTree(scanContext);
+  }
+
+  /// Aggregate highlights from all detectors that produce them.
+  ///
+  /// Detectors collect highlights during their scanTree() calls.
+  /// This method just gathers them — no tree walking or re-detection.
+  void _collectHighlights() {
+    highlightsNotifier.value = <WidgetHighlight>[
+      ..._setStateScope.highlights,
+      ..._layoutBottleneck.highlights,
+      ..._listview.highlights,
+      ..._imageMemory.highlights,
+      ..._globalKey.highlights,
+      ..._customPainter.highlights,
+      ..._gpuPressure.highlights,
+      ..._animatedBuilder.highlights,
+      ..._opacity.highlights,
+      ..._keepAlive.highlights,
+      ..._rebuild.highlights,
+      ..._repaint.highlights,
+    ];
+  }
+
+  void _onTimelineData(ParsedTimelineData data) {
+    // Feed to VM-only detectors
+    _frameTiming.updateTimelineData(data);
+    _shaderJank.processTimelineData(data);
+    _heavyCompute.processTimelineData(data);
+    _platformChannel.processTimelineData(data);
+    _memoryPressure.processTimelineData(data);
+    _repaint.processTimelineData(data);
+
+    // Feed to hybrid detectors
+    _rebuild.processTimelineData(data);
+    // _setStateScope is now structural-only, no timeline data needed
+    _gpuPressure.processTimelineData(data);
+    _shallowRebuildRisk.processTimelineData(data);
+
+    // Flush staged data in refactored detectors so _getAllIssues() sees current state
+    _rebuild.evaluateNow();
+    _repaint.evaluateNow();
+
+    // Generate verdict for slow frames (full mode with VM timeline data)
+    // Local variables bridge jank decision → post-aggregation capture.
+    FrameStats? captureFrame;
+    FrameVerdict? captureVerdict;
+
+    // Try correlated mode first: match events to specific frames by timestamp.
+    // Falls back to legacy full mode if correlation fails.
+    if (data.phaseEvents.isNotEmpty) {
+      final allFrames = _frameTiming.frameBuffer.frames;
+
+      // Compute the batch time window from phaseEvents
+      var batchStartUs = data.phaseEvents.first.timestampUs;
+      var batchEndUs = data.phaseEvents.first.endUs;
+      for (final e in data.phaseEvents) {
+        if (e.timestampUs < batchStartUs) batchStartUs = e.timestampUs;
+        if (e.endUs > batchEndUs) batchEndUs = e.endUs;
+      }
+
+      // Filter frames to those that overlap the batch window
+      final batchFrames = allFrames.where((f) {
+        if (!f.hasPhaseTimestamps) return false;
+        return f.vsyncStartUs! < batchEndUs && f.rasterFinishUs! > batchStartUs;
+      }).toList();
+
+      if (batchFrames.isNotEmpty) {
+        final correlations = _correlator.correlate(
+          recentFrames: batchFrames,
+          phaseEvents: data.phaseEvents,
+        );
+
+        // Find worst jank frame with trustworthy correlation
+        FrameStats? worstFrame;
+        CorrelatedFrameData? worstCorrelation;
+        for (final frame in batchFrames) {
+          if (!frame.isJank) continue;
+          final corr = correlations[frame.frameNumber];
+          if (corr == null || !corr.isTrustworthy) continue;
+          if (worstFrame == null ||
+              frame.effectiveTotalDuration >
+                  worstFrame.effectiveTotalDuration) {
+            worstFrame = frame;
+            worstCorrelation = corr;
+          }
+        }
+
+        if (worstFrame != null && worstCorrelation != null) {
+          final allIssues = _getAllIssues();
+          final verdict = _analyzer.analyzeCorrelatedMode(
+            frameStats: worstFrame,
+            correlation: worstCorrelation,
+            relatedIssues: allIssues,
+          );
+          verdictNotifier.value = verdict;
+          captureFrame = worstFrame;
+          captureVerdict = verdict;
+        }
+      }
+    }
+
+    // Fallback: legacy full mode (batch-attributed)
+    if (captureVerdict == null) {
+      final latest = _frameTiming.frameBuffer.latest;
+      if (latest != null && latest.isJank) {
+        final allIssues = _getAllIssues();
+        final verdict = _analyzer.analyzeFullMode(
+          frameStats: latest,
+          timelineData: data,
+          relatedIssues: allIssues,
+        );
+        verdictNotifier.value = verdict;
+        captureFrame = latest;
+        captureVerdict = verdict;
+      }
+    }
+
+    // frameStatsNotifier is already updated by _onFrameStats callback
+    _aggregateIssues();
+
+    // Capture AFTER aggregation so relatedIssues carry route/context tags.
+    if (captureFrame != null &&
+        captureVerdict != null &&
+        captureFrame.frameNumber != _lastCapturedFrameNumber) {
+      _lastCapturedFrameNumber = captureFrame.frameNumber;
+      _captureBuffer.add(CaptureEntry(
+        frameStats: captureFrame,
+        verdict: captureVerdict,
+        relatedIssues: List.of(issuesNotifier.value),
+        capturedAt: DateTime.now(),
+      ));
+    }
+  }
+
+  void _onFrameStats(FrameStatsBuffer buffer) {
+    // Must create a new FrameStatsBuffer so ValueNotifier detects the change
+    // (same instance identity won't trigger listeners).
+    final snapshot = FrameStatsBuffer.from(buffer);
+    frameStatsNotifier.value = snapshot;
+
+    // Generate FRAME-mode verdict for jank frames when VM is not connected.
+    final latest = buffer.latest;
+    if (latest != null && latest.isJank && !isVmConnected) {
+      verdictNotifier.value = _analyzer.analyzeBasicMode(
+        frameStats: latest,
+        relatedIssues: _getAllIssues(),
+      );
+
+      // Capture inside the jank guard with most-recently-stamped issues.
+      if (latest.frameNumber != _lastCapturedFrameNumber) {
+        _lastCapturedFrameNumber = latest.frameNumber;
+        _captureBuffer.add(CaptureEntry(
+          frameStats: latest,
+          verdict: verdictNotifier.value!,
+          relatedIssues: List.of(issuesNotifier.value),
+          capturedAt: DateTime.now(),
+        ));
+      }
+    }
+  }
+
+  void _onGcEvent(Event event) {
+    // GC events are already counted via timeline data.
+    // No fake empty signal needed — MemoryPressureDetector
+    // evaluates only when real GC events arrive in timeline data.
+  }
+
+  void _onVmConnectionChanged(bool connected) {
+    vmConnectedNotifier.value = connected;
+    _syncVmState(connected);
+  }
+
+  /// Propagate current VM connectivity to hybrid detectors so they
+  /// degrade correctly on disconnect (not just on "never connected").
+  void _syncVmState(bool connected) {
+    _rebuild.vmConnected = connected;
+    _repaint.vmConnected = connected;
+    _gpuPressure.vmConnected = connected;
+    _shallowRebuildRisk.vmConnected = connected;
+  }
+
+  String? _currentRouteName() {
+    final ctx = _lastScanContext;
+    if (ctx == null) return null;
+    return ModalRoute.of(ctx)?.settings.name;
+  }
+
+  void _aggregateIssues() {
+    final all = _getAllIssues();
+    final route = _currentRouteName();
+
+    // Stamp debug disclaimer, route name, and interaction context.
+    // For VM-only issues arriving via _onTimelineData, routeName reflects the
+    // last successfully scanned page (best-effort, not real-time).
+    // interactionContext reflects the current interaction state at stamp time.
+    final stamped = all
+        .map((i) => i.copyWith(
+              debugModeDisclaimer: kDebugMode ? true : null,
+              routeName: route,
+              interactionContext: _interactionState,
+            ))
+        .toList();
+
+    // Rank by impact: severity dominates, then frame impact, confidence,
+    // recurrence. See IssueRanker for score formula and tier guarantees.
+    final ranked = _ranker.rank(stamped, _buildRankingContext());
+
+    // IssueCard is a StatefulWidget with ValueKey(stableId), so expansion
+    // state survives list rebuilds. Safe to always update the notifier —
+    // titles with live counters (e.g. "45 GC/min") will reflect fresh data.
+    issuesNotifier.value = ranked;
+  }
+
+  IssueRankingContext _buildRankingContext() {
+    final latest = _frameTiming.frameBuffer.latest;
+    final latestIsJank = latest != null && latest.isJank;
+
+    // Active frame impact: triggered by EITHER a sustained jank pattern
+    // (FrameTimingDetector issues) OR the most recent frame being janky.
+    // This ensures fresh single-frame jank influences ranking immediately,
+    // not just after the sustained-pattern threshold is met.
+    final jankActive = _frameTiming.issues.isNotEmpty || latestIsJank;
+
+    PipelinePhase? phase;
+    if (jankActive && latestIsJank) {
+      // Derive phase from the latest janky frame — same approach as the
+      // verdict paths. Reflects the current bottleneck.
+      phase = latest.uiDuration > latest.rasterDuration
+          ? PipelinePhase.build
+          : PipelinePhase.raster;
+    }
+    // If jankActive but latest is not janky (sustained pattern, current
+    // frame ok), phase stays null — all categories get equal partial boost.
+
+    return IssueRankingContext(
+      jankActive: jankActive,
+      suspectedPhase: phase,
+      recurrenceCounts: _recurrenceCounts,
+    );
+  }
+
+  /// Increment recurrence for present issues, remove absent ones.
+  /// Called only from the scan path to keep rates consistent across lifecycles.
+  void _updateRecurrence(List<PerformanceIssue> currentIssues) {
+    final currentIds = <String>{};
+    for (final issue in currentIssues) {
+      final id = issue.stableId ?? issue.title;
+      currentIds.add(id);
+      _recurrenceCounts[id] = (_recurrenceCounts[id] ?? 0) + 1;
+    }
+    _recurrenceCounts.removeWhere((id, _) => !currentIds.contains(id));
+  }
+
+  List<PerformanceIssue> _getAllIssues() {
+    return [
+      ..._frameTiming.issues,
+      ..._shaderJank.issues,
+      ..._heavyCompute.issues,
+      ..._platformChannel.issues,
+      ..._memoryPressure.issues,
+      ..._repaint.issues,
+      ..._rebuild.issues,
+      ..._setStateScope.issues,
+      ..._gpuPressure.issues,
+      ..._shallowRebuildRisk.issues,
+      ..._layoutBottleneck.issues,
+      ..._listview.issues,
+      ..._imageMemory.issues,
+      ..._globalKey.issues,
+      ..._nestedScroll.issues,
+      ..._customPainter.issues,
+      ..._keepAlive.issues,
+      ..._animatedBuilder.issues,
+      ..._opacity.issues,
+      ..._fontLoading.issues,
+    ];
+  }
+
+  // -- Debug instrumentation helpers --
+
+  void _installDebugInstrumentation() {
+    assert(() {
+      if (config.enableDebugCallbacks) {
+        final adv = config.advanced ?? const DebugInstrumentationConfig();
+        _debugCoordinator = DebugInstrumentationCoordinator(
+          maxTrackedTypes: config.maxTrackedTypes,
+          installRebuild: adv.rebuildAttribution,
+          installPaint: adv.paintAttribution,
+        );
+        _debugCoordinator!.install();
+      }
+      // Independent from enableDebugCallbacks.
+      if (config.enableDeepDebugInstrumentation) {
+        _installHeavyFlags();
+      }
+      return true;
+    }());
+  }
+
+  void _installHeavyFlags() {
+    final adv = config.advanced ?? const DebugInstrumentationConfig();
+    if (adv.widgetBuildProfiling) {
+      _prevProfileBuildsEnabled = debugProfileBuildsEnabledUserWidgets;
+      debugProfileBuildsEnabledUserWidgets = true;
+    }
+    if (adv.layoutProfiling) {
+      _prevProfileLayoutsEnabled = debugProfileLayoutsEnabled;
+      debugProfileLayoutsEnabled = true;
+    }
+    if (adv.paintProfiling) {
+      _prevProfilePaintsEnabled = debugProfilePaintsEnabled;
+      debugProfilePaintsEnabled = true;
+    }
+    if (adv.timelineEnrichment) {
+      _prevEnhanceBuildArgs = debugEnhanceBuildTimelineArguments;
+      _prevEnhanceLayoutArgs = debugEnhanceLayoutTimelineArguments;
+      _prevEnhancePaintArgs = debugEnhancePaintTimelineArguments;
+      debugEnhanceBuildTimelineArguments = true;
+      debugEnhanceLayoutTimelineArguments = true;
+      debugEnhancePaintTimelineArguments = true;
+    }
+  }
+
+  void _restoreHeavyFlags() {
+    if (_prevProfileBuildsEnabled != null) {
+      debugProfileBuildsEnabledUserWidgets = _prevProfileBuildsEnabled!;
+      _prevProfileBuildsEnabled = null;
+    }
+    if (_prevProfileLayoutsEnabled != null) {
+      debugProfileLayoutsEnabled = _prevProfileLayoutsEnabled!;
+      _prevProfileLayoutsEnabled = null;
+    }
+    if (_prevProfilePaintsEnabled != null) {
+      debugProfilePaintsEnabled = _prevProfilePaintsEnabled!;
+      _prevProfilePaintsEnabled = null;
+    }
+    if (_prevEnhanceBuildArgs != null) {
+      debugEnhanceBuildTimelineArguments = _prevEnhanceBuildArgs!;
+      _prevEnhanceBuildArgs = null;
+    }
+    if (_prevEnhanceLayoutArgs != null) {
+      debugEnhanceLayoutTimelineArguments = _prevEnhanceLayoutArgs!;
+      _prevEnhanceLayoutArgs = null;
+    }
+    if (_prevEnhancePaintArgs != null) {
+      debugEnhancePaintTimelineArguments = _prevEnhancePaintArgs!;
+      _prevEnhancePaintArgs = null;
+    }
+  }
+
+  /// Dispose all resources.
+  void dispose() {
+    _treeScanTimer?.cancel();
+    _scrollIdleTimer?.cancel();
+    _overlayContext = null;
+    _lastScanContext = null;
+    _recurrenceCounts.clear();
+    _captureBuffer.clear();
+
+    assert(() {
+      _debugCoordinator?.dispose();
+      _debugCoordinator = null;
+      _restoreHeavyFlags();
+      return true;
+    }());
+
+    _vmClient?.dispose();
+    _frameTiming.dispose();
+    _shaderJank.dispose();
+    _heavyCompute.dispose();
+    _platformChannel.dispose();
+    _memoryPressure.dispose();
+    _repaint.dispose();
+    _rebuild.dispose();
+    _setStateScope.dispose();
+    _gpuPressure.dispose();
+    _shallowRebuildRisk.dispose();
+    _layoutBottleneck.dispose();
+    _listview.dispose();
+    _imageMemory.dispose();
+    _globalKey.dispose();
+    _nestedScroll.dispose();
+    _customPainter.dispose();
+    _keepAlive.dispose();
+    _animatedBuilder.dispose();
+    _opacity.dispose();
+    _fontLoading.dispose();
+    issuesNotifier.dispose();
+    frameStatsNotifier.dispose();
+    verdictNotifier.dispose();
+    vmConnectedNotifier.dispose();
+    highlightsNotifier.dispose();
+    highlightEnabledNotifier.dispose();
+    selectedHighlightNotifier.dispose();
+  }
+}
+
+/// Configuration for [WatchdogController].
+class WatchdogConfig {
+  const WatchdogConfig({
+    this.fpsTarget = 60,
+    this.rebuildThreshold = 10,
+    this.maxListChildren = 20,
+    this.maxGlobalKeys = 10,
+    this.platformChannelLimit = 20,
+    this.treeScanIntervalMs = 1000,
+    this.enabledDetectors = const {...DetectorType.values},
+    this.captureBufferCapacity = 50,
+    this.enableDebugCallbacks = false,
+    this.enableDeepDebugInstrumentation = false,
+    this.maxTrackedTypes = 200,
+    this.advanced,
+  });
+
+  final int fpsTarget;
+  final int rebuildThreshold;
+  final int maxListChildren;
+  final int maxGlobalKeys;
+  final int platformChannelLimit;
+  final int treeScanIntervalMs;
+  final Set<DetectorType> enabledDetectors;
+
+  /// Maximum number of jank frames to retain in the capture buffer.
+  final int captureBufferCapacity;
+
+  /// Enables debug-only rebuild/repaint attribution hooks.
+  ///
+  /// WARNING: Conflicts with DevTools "Track Widget Rebuilds" — only one can
+  /// be active at a time. Default false to avoid surprising DevTools users.
+  final bool enableDebugCallbacks;
+
+  /// Enables heavy debug flags independently of [enableDebugCallbacks].
+  /// Adds per-widget timeline events with higher overhead than callbacks alone.
+  final bool enableDeepDebugInstrumentation;
+
+  /// Maximum widget types to track in rebuild counters.
+  /// Prevents unbounded memory in apps with many widget types.
+  final int maxTrackedTypes;
+
+  /// Advanced sub-flag configuration for debug instrumentation.
+  /// When null, equivalent to `const DebugInstrumentationConfig()` (all
+  /// defaults). Sub-flags only take effect when their parent switch is enabled.
+  final DebugInstrumentationConfig? advanced;
+}

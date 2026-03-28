@@ -1,0 +1,23 @@
+name: widget_watchdog
+description: "Runtime performance diagnostics for Flutter apps — frame timing, VM timeline, and widget-tree heuristics to surface bottlenecks and actionable fixes."
+version: 0.2.0
+homepage: https://github.com/widget-watchdog/widget_watchdog
+topics:
+  - performance
+  - debugging
+  - developer-tools
+  - profiling
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  vm_service: ^14.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0

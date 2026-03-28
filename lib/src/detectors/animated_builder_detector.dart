@@ -1,0 +1,161 @@
+import 'package:flutter/widgets.dart';
+
+import '../debug/debug_snapshot.dart';
+import '../models/base_detector.dart';
+import '../models/performance_issue.dart';
+import '../models/widget_highlight.dart';
+import '../utils/widget_location.dart';
+import 'setstate_scope_detector.dart';
+
+/// Detects AnimatedBuilder widgets that don't use the `child` parameter.
+///
+/// **Structural Detector** — without `child`, the entire builder subtree
+/// rebuilds on every animation tick (60x/sec), causing unnecessary work.
+class AnimatedBuilderDetector extends BaseDetector {
+  AnimatedBuilderDetector()
+      : super(
+          type: DetectorType.animatedBuilder,
+          lifecycle: DetectorLifecycle.structural,
+          name: 'AnimatedBuilder',
+          description: 'Detects AnimatedBuilder without child parameter',
+        );
+
+  final List<PerformanceIssue> _issues = [];
+  final List<WidgetHighlight> _highlights = [];
+  bool _isEnabled = true;
+  DebugSnapshot? _lastDebugSnapshot;
+
+  @override
+  void updateDebugSnapshot(DebugSnapshot snapshot) {
+    _lastDebugSnapshot = snapshot;
+  }
+
+  @override
+  List<PerformanceIssue> get issues => List.unmodifiable(_issues);
+
+  @override
+  List<WidgetHighlight> get highlights => List.unmodifiable(_highlights);
+
+  @override
+  bool get isEnabled => _isEnabled;
+
+  @override
+  set isEnabled(bool value) => _isEnabled = value;
+
+  @override
+  void scanTree(BuildContext context) {
+    if (!_isEnabled) return;
+    _issues.clear();
+    _highlights.clear();
+
+    final found = <String>[];
+
+    void visitor(Element element) {
+      final widget = element.widget;
+
+      if (widget is AnimatedBuilder && widget.child == null) {
+        if (isFrameworkOwned(element)) {
+          element.visitChildren(visitor);
+          return;
+        }
+
+        int subtreeSize = 0;
+        void countSubtree(Element child) {
+          subtreeSize++;
+          child.visitChildren(countSubtree);
+        }
+
+        element.visitChildren(countSubtree);
+
+        if (subtreeSize > 5) {
+          found.add(buildAncestorChain(element));
+          final ro = element.renderObject;
+          if (ro != null) {
+            final rect = getGlobalRect(ro);
+            if (rect != null) {
+              _highlights.add(WidgetHighlight(
+                rect: rect,
+                widgetName: 'AnimatedBuilder',
+                severity: IssueSeverity.warning,
+                detectorName: 'AnimatedBuilder',
+                detail: 'No child — $subtreeSize widgets rebuild per tick',
+              ));
+            }
+          }
+        }
+      }
+
+      element.visitChildren(visitor);
+    }
+
+    try {
+      context.visitChildElements(visitor);
+    } catch (_) {}
+
+    if (found.isNotEmpty) {
+      final locations = found.take(5).map((chain) => '  • $chain').join('\n');
+
+      // Check debug snapshot for AnimatedBuilder rebuild evidence.
+      String? debugEvidence;
+      ObservationSource? source;
+      final ds = _lastDebugSnapshot;
+      if (ds != null) {
+        final abRate = ds.rebuildsPerSecond('AnimatedBuilder');
+        if (abRate > 30) {
+          debugEvidence = 'AnimatedBuilder rebuilding at ${abRate.round()}/sec '
+              '(debug callback).';
+          source = ObservationSource.debugCallbackAndStructural;
+        }
+      }
+
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'animated_builder_no_child',
+          severity: IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+          title: 'AnimatedBuilder without child: ${found.length} found',
+          detail: '${found.length} AnimatedBuilder(s) do not use the child '
+              'parameter. The entire builder subtree rebuilds on every '
+              'animation tick (60x/sec).'
+              '${debugEvidence != null ? '\n\n$debugEvidence' : ''}'
+              '\n\n$locations',
+          fixHint: 'Pass static widgets via the child parameter:\n'
+              'AnimatedBuilder(\n'
+              '  animation: _controller,\n'
+              '  child: const ExpensiveWidget(), // built once\n'
+              '  builder: (context, child) => Transform.rotate(\n'
+              '    angle: _controller.value,\n'
+              '    child: child, // reused, not rebuilt\n'
+              '  ),\n'
+              ')',
+          observationSource: source,
+          detectedAt: DateTime.now(),
+        ),
+      );
+    }
+  }
+
+  /// Check if this AnimatedBuilder is owned by framework code by walking
+  /// up to the nearest StatefulElement and checking if it's a framework widget.
+  static bool isFrameworkOwned(Element element) {
+    bool frameworkOwned = false;
+    element.visitAncestorElements((ancestor) {
+      if (ancestor is StatefulElement) {
+        final name = ancestor.widget.runtimeType.toString();
+        frameworkOwned = name.startsWith('_') ||
+            SetStateScopeDetector.isFrameworkWidget(ancestor.widget);
+        return false; // stop walking
+      }
+      return true; // keep walking up
+    });
+    return frameworkOwned;
+  }
+
+  @override
+  void dispose() {
+    _issues.clear();
+    _highlights.clear();
+    _lastDebugSnapshot = null;
+  }
+}
