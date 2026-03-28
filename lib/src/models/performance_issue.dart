@@ -2,7 +2,16 @@
 enum IssueSeverity { ok, warning, critical }
 
 /// Categories mapping to Flutter rendering pipeline phases.
-enum IssueCategory { build, layout, paint, raster, memory, channel, font }
+enum IssueCategory {
+  build,
+  layout,
+  paint,
+  raster,
+  memory,
+  channel,
+  font,
+  network
+}
 
 /// Confidence levels reflecting the strength of evidence behind a detection.
 ///

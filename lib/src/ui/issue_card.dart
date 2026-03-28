@@ -317,6 +317,7 @@ class _IssueCardState extends State<IssueCard> {
       IssueCategory.memory => ('MEMORY', const Color(0xFF8B5CF6)),
       IssueCategory.channel => ('CHANNEL', const Color(0xFF06B6D4)),
       IssueCategory.font => ('FONT', const Color(0xFF6B7280)),
+      IssueCategory.network => ('NETWORK', const Color(0xFFF97316)),
     };
 
     return Container(

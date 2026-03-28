@@ -26,6 +26,7 @@ enum DetectorType {
   animatedBuilder,
   opacity,
   fontLoading,
+  networkMonitor,
 }
 
 /// Lifecycle classification for detectors.

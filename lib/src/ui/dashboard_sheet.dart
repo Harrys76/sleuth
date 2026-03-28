@@ -532,6 +532,7 @@ class _DashboardSheetState extends State<DashboardSheet>
       IssueCategory.raster => false, // GPU pressure (timeline-only)
       IssueCategory.channel => false, // Platform channel (timeline-only)
       IssueCategory.font => false, // Font loading (timeline-only)
+      IssueCategory.network => false, // HTTP timing (no widget tree equivalent)
     };
   }
 

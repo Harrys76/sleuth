@@ -13,7 +13,7 @@
 /// ```
 ///
 /// ## Features
-/// - 20 performance detectors (VM-powered, hybrid, and structural)
+/// - 21 performance detectors (VM-powered, hybrid, structural, and runtime)
 /// - Actionable fix hints for every issue
 /// - In-app overlay with live FPS chart and issue dashboard
 /// - Debug mode warning (run with --profile for accurate data)
@@ -37,6 +37,7 @@ export 'src/models/session_snapshot.dart';
 export 'src/controller/watchdog_controller.dart' show WatchdogConfig;
 export 'src/debug/debug_instrumentation_config.dart';
 export 'src/models/base_detector.dart' show DetectorType, DetectorLifecycle;
+export 'src/network/request_record.dart';
 
 /// Entry point for the Widget Watchdog package.
 ///
@@ -51,7 +52,7 @@ class WidgetWatchdog {
   /// Wrap your app with the performance overlay.
   ///
   /// In release mode, this returns [child] unchanged (zero cost).
-  /// In debug/profile mode, adds the 🐕 overlay with all 20 detectors.
+  /// In debug/profile mode, adds the 🐕 overlay with all 21 detectors.
   ///
   /// Optionally pass [config] to customize thresholds and enable/disable
   /// specific detectors.

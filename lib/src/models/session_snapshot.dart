@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../network/request_record.dart';
 import 'capture_buffer.dart';
 import 'performance_issue.dart';
 
@@ -13,6 +14,7 @@ class SessionSnapshot {
     this.packageVersion = '',
     this.isVmConnected = false,
     this.isDebugMode = false,
+    this.recentRequests,
   });
 
   final DateTime exportedAt;
@@ -30,6 +32,9 @@ class SessionSnapshot {
   final bool isVmConnected;
   final bool isDebugMode;
 
+  /// Recent HTTP request records from network monitoring (if active).
+  final List<RequestRecord>? recentRequests;
+
   Map<String, dynamic> toJson() => {
         'exportedAt': exportedAt.toIso8601String(),
         'packageVersion': packageVersion,
@@ -38,6 +43,8 @@ class SessionSnapshot {
         'frameStatsSummary': frameStatsSummary.toJson(),
         'capturedFrames': capturedFrames.map((e) => e.toJson()).toList(),
         'currentIssues': currentIssues.map((i) => i.toJson()).toList(),
+        if (recentRequests != null && recentRequests!.isNotEmpty)
+          'recentRequests': recentRequests!.map((r) => r.toJson()).toList(),
       };
 
   /// Pretty-printed JSON string for export/sharing.
@@ -57,6 +64,7 @@ class SessionSnapshot {
         currentIssues: (json['currentIssues'] as List<dynamic>)
             .map((e) => PerformanceIssue.fromJson(e as Map<String, dynamic>))
             .toList(),
+        // recentRequests is export-only; not deserialized
       );
 }
 

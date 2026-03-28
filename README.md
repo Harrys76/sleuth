@@ -9,6 +9,7 @@ Widget Watchdog runs three layers of analysis:
 1. **Frame timing** (FrameTiming API) — per-frame build and raster duration, vsync overhead, cache stats. Works on every platform in debug and profile mode. This is the primary signal.
 2. **VM timeline** (vm_service) — when connected, provides sub-phase breakdowns (buildScope, flushLayout, flushPaint, raster). Best-effort; availability depends on platform and runtime environment.
 3. **Widget tree scan** (post-frame walk, 1x/sec) — finds structural anti-patterns like non-lazy lists, uncached images, excessive GlobalKeys, and more.
+4. **Network monitoring** (HttpOverrides) — transparent HTTP interception that detects slow requests, frequency spikes, and oversized responses without modifying app networking code.
 
 ## Quick Start
 
@@ -59,6 +60,11 @@ WidgetWatchdog.wrap(
     enableDebugCallbacks: false,       // opt-in: per-widget rebuild/repaint hooks (conflicts with DevTools)
     enableDeepDebugInstrumentation: false, // opt-in: heavy per-widget timeline events
     maxTrackedTypes: 200,              // cap on tracked widget types in debug callbacks
+    enableNetworkMonitoring: true,     // HTTP interception via HttpOverrides
+    slowRequestThresholdMs: 2000,      // flag requests slower than this
+    requestFrequencyLimit: 30,         // max requests per 5s window
+    largeResponseThresholdBytes: 1048576, // flag responses larger than 1MB
+    networkExcludePatterns: ['analytics.example.com'], // exclude URLs from monitoring
     enabledDetectors: {
       DetectorType.frameTiming,
       DetectorType.rebuild,
@@ -99,11 +105,12 @@ Issues include a confidence level reflecting evidence quality:
 
 ## Detector Matrix
 
-### Runtime Detector (always available)
+### Runtime Detectors (always available)
 
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
 | Frame Timing | FrameTiming API | Frame exceeded budget | Confirmed | Cannot attribute to specific widget |
+| Network Monitor | HttpOverrides | Slow, excessive, or oversized HTTP requests | Confirmed | Only intercepts dart:io HttpClient (not package:http directly) |
 
 ### VM-Only Detectors (require VM connection)
 
@@ -143,6 +150,7 @@ Issues include a confidence level reflecting evidence quality:
 
 - **Always on**: no separate tool window, no connection setup — performance data is visible as you use your app
 - **Structural analysis**: finds anti-patterns (non-lazy lists, uncached images, excessive GlobalKeys) that DevTools does not flag
+- **Network monitoring**: in-app detection of slow requests, request floods, and oversized responses with actionable fix hints
 - **Actionable fix hints**: every issue includes what to change, not just what went wrong
 - **Zero setup**: one line of code, no browser tab, no port forwarding
 
@@ -151,7 +159,7 @@ Issues include a confidence level reflecting evidence quality:
 - **Exact timeline analysis**: DevTools provides precise per-frame timeline with full event detail
 - **Memory inspection**: DevTools has heap snapshots, allocation tracking, and real leak detection
 - **CPU profiling**: DevTools can profile Dart code execution with call stacks
-- **Network inspection**: DevTools monitors HTTP requests and WebSocket traffic
+- **Network inspection**: DevTools monitors individual HTTP request/response bodies and WebSocket traffic (Watchdog only tracks timing, size, and frequency — not payloads)
 - **Widget-exact attribution**: DevTools can trace rebuilds to specific widgets via the inspector
 
 Widget Watchdog is best used for **fast in-app triage** — catch the problem, understand the category, then use DevTools when you need deeper investigation.
@@ -167,14 +175,14 @@ To set clear expectations:
 
 ## Example App
 
-The `example/` directory includes 14 demo screens, each triggering a specific detector:
+The `example/` directory includes 15 demo screens, each triggering a specific detector:
 
 ```bash
 cd example
 flutter run
 ```
 
-Demos cover: high-level setState, non-lazy ListView, IntrinsicHeight abuse, always-repaint CustomPainter, uncached images, GlobalKey overuse, nested scroll, heavy compute, KeepAlive overuse, Opacity zero, AnimatedBuilder without child, shallow rebuild risk, font loading stress, and repaint stress.
+Demos cover: high-level setState, non-lazy ListView, IntrinsicHeight abuse, always-repaint CustomPainter, uncached images, GlobalKey overuse, nested scroll, heavy compute, KeepAlive overuse, Opacity zero, AnimatedBuilder without child, shallow rebuild risk, font loading stress, repaint stress, and network stress.
 
 Each demo includes `BAD:` and `FIX:` annotations explaining the anti-pattern and its fix.
 

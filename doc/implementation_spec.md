@@ -873,7 +873,7 @@ Mini flame chart is explicitly out of scope — it adds visualization complexity
 
 | Feature | New Detector? | VM Required? | Release Safe? | Priority |
 |---------|:---:|:---:|:---:|:---:|
-| Network monitoring | Yes (21st) | No | Yes | #1 |
+| Network monitoring | Yes (21st) | No | Yes | #1 — **Done** |
 | Heap trend monitoring | No (enhances MemoryPressure) | Yes | No | #2 |
 | Jank CPU attribution | No (enhances FrameVerdict) | Yes | No | #3 |
 | Source location enrichment | No (enhances ancestorChain) | No | No (debug only) | #4 |
@@ -884,7 +884,7 @@ Each feature must produce **issues with actionable fix hints** that fit the exis
 
 ---
 
-### v2.1: Network Monitoring
+### v2.1: Network Monitoring — **Done**
 
 **Problem:**
 
@@ -1019,6 +1019,22 @@ None needed — this detector has no VM dependency. Only degradation path is `en
 - Ring buffer bounds (201st record evicts first)
 - Request record `toJson()` serialization
 - Benchmark: per-record processing overhead < 100µs
+
+**Implementation notes (v0.2.0):**
+
+All files listed above were created/edited. 37 new tests (25 detector, 8 http_monitor, 4 request_record). 15th example demo screen with 4 trigger buttons (slow, burst, large, all-3). Total test count: 667.
+
+Deviations from spec:
+
+1. **`_MonitoringResponse` extends `Stream<List<int>>`** instead of implementing all stream methods manually. By extending `Stream`, all convenience methods (`toList()`, `drain()`, `forEach()`, `fold()`, etc.) inherit the base `Stream` implementation which calls our `listen()` override. This eliminated ~130 lines of manual delegation and fixed a critical bypass bug where convenience methods would call `_inner.listen()` directly, skipping byte counting and record emission.
+
+2. **Stream error handling in `listen()`:** The `onError` handler emits a partial record (bytes received so far) before forwarding the error. A `recorded` boolean guard prevents double-emission when both `onError` and `onDone` fire. Spec design decision #8 mentioned `StreamTransformer` for byte counting; the actual implementation uses direct `listen()` wrapping which is simpler and avoids an extra stream layer.
+
+3. **Frequency timer auto-cancels when buffer empties.** Spec decision #9 said timer is cancelled in `dispose()`. The implementation also cancels the timer in `_evaluate()` when `_records.isEmpty` — no point ticking on stale state. Timer restarts on next `processRecord()`.
+
+4. **`_networkMonitor` is nullable, not `late final`.** `WatchdogController` uses `NetworkMonitorDetector?` to handle the case where `exportSnapshot()` is called before `initialize()`. All access sites use null-safe operators.
+
+5. **`open()` scheme inference:** `_MonitoringHttpClient.open()` infers `https` for port 443, `http` for all others. This only affects the recorded URL string, not the actual connection. `HttpClient.open()` has no scheme parameter, so this is best-effort.
 
 ---
 

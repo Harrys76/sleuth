@@ -31,6 +31,7 @@ import '../detectors/keep_alive_detector.dart';
 import '../detectors/animated_builder_detector.dart';
 import '../detectors/opacity_detector.dart';
 import '../detectors/font_loading_detector.dart';
+import '../detectors/network_monitor_detector.dart';
 import '../models/base_detector.dart';
 import '../models/capture_buffer.dart';
 import '../models/frame_stats.dart';
@@ -38,6 +39,7 @@ import '../models/frame_verdict.dart';
 import '../models/performance_issue.dart';
 import '../models/session_snapshot.dart';
 import '../models/widget_highlight.dart';
+import '../network/http_monitor.dart';
 import '../ranking/issue_ranker.dart';
 import '../vm/vm_service_client.dart';
 import '../vm/timeline_parser.dart';
@@ -75,6 +77,10 @@ class WatchdogController {
   late final RebuildDetector _rebuild;
   late final GpuPressureDetector _gpuPressure;
   late final ShallowRebuildRiskDetector _shallowRebuildRisk;
+
+  // Network monitoring
+  NetworkMonitorDetector? _networkMonitor;
+  WatchdogHttpOverrides? _httpOverrides;
 
   // Structural detectors
   late final LayoutBottleneckDetector _layoutBottleneck;
@@ -195,6 +201,7 @@ class WatchdogController {
       IssueCategory.memory => ['Image', 'KeepAlive'],
       IssueCategory.channel => [],
       IssueCategory.font => [],
+      IssueCategory.network => [],
     };
   }
 
@@ -256,6 +263,16 @@ class WatchdogController {
     if (_initialized || kReleaseMode) return;
 
     _initializeDetectors();
+
+    // Install HTTP monitoring proxy before any network requests start
+    if (config.enableNetworkMonitoring &&
+        config.enabledDetectors.contains(DetectorType.networkMonitor)) {
+      _httpOverrides = WatchdogHttpOverrides(
+        onRecord: _networkMonitor!.processRecord,
+        excludePatterns: config.networkExcludePatterns,
+      );
+      WatchdogHttpOverrides.install(_httpOverrides!);
+    }
 
     _installDebugInstrumentation();
 
@@ -342,6 +359,12 @@ class WatchdogController {
 
     _fontLoading = FontLoadingDetector()
       ..isEnabled = enabled.contains(DetectorType.fontLoading);
+
+    _networkMonitor = NetworkMonitorDetector(
+      slowThresholdMs: config.slowRequestThresholdMs,
+      frequencyLimit: config.requestFrequencyLimit,
+      largeResponseBytes: config.largeResponseThresholdBytes,
+    )..isEnabled = enabled.contains(DetectorType.networkMonitor);
   }
 
   /// Initialize detectors without VM client or SchedulerBinding.
@@ -426,6 +449,10 @@ class WatchdogController {
       packageVersion: '0.2.0',
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
+      recentRequests:
+          _networkMonitor != null && _networkMonitor!.records.isNotEmpty
+              ? _networkMonitor!.records
+              : null,
     );
   }
 
@@ -925,6 +952,7 @@ class WatchdogController {
       ..._animatedBuilder.issues,
       ..._opacity.issues,
       ..._fontLoading.issues,
+      ...?_networkMonitor?.issues,
     ];
   }
 
@@ -1009,6 +1037,12 @@ class WatchdogController {
     _recurrenceCounts.clear();
     _captureBuffer.clear();
 
+    // Restore HttpOverrides before disposing detector
+    if (_httpOverrides != null) {
+      WatchdogHttpOverrides.uninstall(_httpOverrides!);
+      _httpOverrides = null;
+    }
+
     assert(() {
       _debugCoordinator?.dispose();
       _debugCoordinator = null;
@@ -1037,6 +1071,7 @@ class WatchdogController {
     _animatedBuilder.dispose();
     _opacity.dispose();
     _fontLoading.dispose();
+    _networkMonitor?.dispose();
     issuesNotifier.dispose();
     frameStatsNotifier.dispose();
     verdictNotifier.dispose();
@@ -1062,6 +1097,11 @@ class WatchdogConfig {
     this.enableDeepDebugInstrumentation = false,
     this.maxTrackedTypes = 200,
     this.advanced,
+    this.enableNetworkMonitoring = true,
+    this.slowRequestThresholdMs = 2000,
+    this.requestFrequencyLimit = 30,
+    this.largeResponseThresholdBytes = 1048576,
+    this.networkExcludePatterns,
   });
 
   final int fpsTarget;
@@ -1093,4 +1133,22 @@ class WatchdogConfig {
   /// When null, equivalent to `const DebugInstrumentationConfig()` (all
   /// defaults). Sub-flags only take effect when their parent switch is enabled.
   final DebugInstrumentationConfig? advanced;
+
+  /// Master switch for HTTP network monitoring.
+  /// When true and [DetectorType.networkMonitor] is in [enabledDetectors],
+  /// installs an [HttpOverrides] proxy that records request timing and size.
+  final bool enableNetworkMonitoring;
+
+  /// Slow request detection threshold in milliseconds.
+  final int slowRequestThresholdMs;
+
+  /// Maximum HTTP requests allowed per 5-second window.
+  final int requestFrequencyLimit;
+
+  /// Large response detection threshold in bytes (default 1MB).
+  final int largeResponseThresholdBytes;
+
+  /// URL substring patterns to exclude from monitoring
+  /// (e.g. `['/analytics', 'crashlytics']`).
+  final List<String>? networkExcludePatterns;
 }
