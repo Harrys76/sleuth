@@ -93,5 +93,55 @@ void main() {
       buffer.add(_entry(totalDurationUs: 25000)); // evicts 20ms
       expect(buffer.length, 2);
     });
+
+    test('updateVerdict replaces verdict for matching frame', () {
+      final buffer = JankCaptureBuffer();
+      buffer.add(_entry(totalDurationUs: 20000, frameNumber: 42));
+      buffer.add(_entry(totalDurationUs: 30000, frameNumber: 43));
+
+      expect(buffer.entries[0].verdict.topFunctions, isNull);
+
+      const enrichedVerdict = FrameVerdict(
+        frameNumber: 42,
+        totalFrameTime: Duration.zero,
+        uiThreadTime: Duration.zero,
+        rasterThreadTime: Duration.zero,
+        suspectedPhase: PipelinePhase.build,
+        reason: 'enriched',
+        topFunctions: [
+          CpuAttribution(
+            functionName: 'build',
+            className: 'W',
+            libraryUri: 'package:app/w.dart',
+            percentage: 80.0,
+          ),
+        ],
+      );
+
+      buffer.updateVerdict(42, enrichedVerdict);
+
+      // Frame 42 updated
+      expect(buffer.entries[0].verdict.topFunctions, hasLength(1));
+      expect(buffer.entries[0].verdict.reason, 'enriched');
+      // Frame 43 unchanged
+      expect(buffer.entries[1].verdict.topFunctions, isNull);
+    });
+
+    test('updateVerdict no-ops for non-existent frame', () {
+      final buffer = JankCaptureBuffer();
+      buffer.add(_entry(totalDurationUs: 20000, frameNumber: 1));
+
+      const newVerdict = FrameVerdict(
+        frameNumber: 999,
+        totalFrameTime: Duration.zero,
+        uiThreadTime: Duration.zero,
+        rasterThreadTime: Duration.zero,
+        suspectedPhase: PipelinePhase.unknown,
+        reason: 'should not appear',
+      );
+
+      buffer.updateVerdict(999, newVerdict);
+      expect(buffer.entries[0].verdict.reason, '');
+    });
   });
 }

@@ -82,5 +82,22 @@ class JankCaptureBuffer {
     _entries.add(entry);
   }
 
+  /// Update the verdict for a captured frame (used for async CPU attribution).
+  ///
+  /// Replaces the entire [CaptureEntry] since it is immutable.
+  void updateVerdict(int frameNumber, FrameVerdict verdict) {
+    for (int i = 0; i < _entries.length; i++) {
+      if (_entries[i].frameStats.frameNumber == frameNumber) {
+        _entries[i] = CaptureEntry(
+          frameStats: _entries[i].frameStats,
+          verdict: verdict,
+          relatedIssues: _entries[i].relatedIssues,
+          capturedAt: _entries[i].capturedAt,
+        );
+        return;
+      }
+    }
+  }
+
   void clear() => _entries.clear();
 }

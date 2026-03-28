@@ -406,6 +406,44 @@ void main() {
     });
   });
 
+  group('CaptureEntry verdict with topFunctions', () {
+    test('toJson includes topFunctions when verdict has them', () {
+      final entry = CaptureEntry(
+        frameStats: FrameStats(
+          frameNumber: 7,
+          uiDuration: const Duration(microseconds: 30000),
+          rasterDuration: const Duration(microseconds: 5000),
+          timestamp: DateTime.utc(2026, 3, 28),
+        ),
+        verdict: const FrameVerdict(
+          frameNumber: 7,
+          totalFrameTime: Duration(microseconds: 30000),
+          uiThreadTime: Duration(microseconds: 25000),
+          rasterThreadTime: Duration(microseconds: 5000),
+          suspectedPhase: PipelinePhase.build,
+          reason: 'Build dominant',
+          topFunctions: [
+            CpuAttribution(
+              functionName: 'build',
+              className: 'MyWidget',
+              libraryUri: 'package:app/w.dart',
+              percentage: 42.5,
+            ),
+          ],
+        ),
+        relatedIssues: [],
+        capturedAt: DateTime.utc(2026, 3, 28, 12, 0, 0),
+      );
+
+      final json = entry.toJson();
+      final verdictJson = json['verdict'] as Map<String, dynamic>;
+      expect(verdictJson.containsKey('topFunctions'), isTrue);
+      final topFunctions = verdictJson['topFunctions'] as List;
+      expect(topFunctions, hasLength(1));
+      expect((topFunctions[0] as Map)['displayName'], 'MyWidget.build');
+    });
+  });
+
   group('FrameStatsSummary serialization', () {
     test('roundtrip', () {
       const original = FrameStatsSummary(

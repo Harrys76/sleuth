@@ -42,6 +42,7 @@ import '../models/session_snapshot.dart';
 import '../models/widget_highlight.dart';
 import '../network/http_monitor.dart';
 import '../ranking/issue_ranker.dart';
+import '../vm/cpu_sample_aggregator.dart';
 import '../vm/vm_service_client.dart';
 import '../vm/timeline_parser.dart';
 
@@ -65,6 +66,7 @@ class WatchdogController {
   // Analyzer
   final RenderPipelineAnalyzer _analyzer = RenderPipelineAnalyzer();
   final FrameEventCorrelator _correlator = const FrameEventCorrelator();
+  final CpuSampleAggregator _cpuAggregator = const CpuSampleAggregator();
 
   // VM-only detectors
   late final FrameTimingDetector _frameTiming;
@@ -814,6 +816,13 @@ class WatchdogController {
         capturedAt: DateTime.now(),
       ));
     }
+
+    // Two-phase verdict: enrich with CPU attribution asynchronously.
+    // Phase 1 (verdict) already emitted above. Phase 2 re-emits with
+    // topFunctions when CPU samples arrive (or silently skips on timeout).
+    if (captureFrame != null && captureVerdict != null) {
+      _enrichVerdictWithCpuAttribution(captureFrame, captureVerdict);
+    }
   }
 
   void _onFrameStats(FrameStatsBuffer buffer) {
@@ -851,6 +860,39 @@ class WatchdogController {
     // GC events are already counted via timeline data.
     // No fake empty signal needed — MemoryPressureDetector
     // evaluates only when real GC events arrive in timeline data.
+  }
+
+  /// Query CPU samples for a jank frame and re-emit the verdict with attribution.
+  ///
+  /// Non-blocking — the verdict is already emitted without attribution (phase 1).
+  /// When CPU samples arrive, the verdict is re-emitted with [topFunctions]
+  /// (phase 2). If the query fails or times out, the original verdict stands.
+  void _enrichVerdictWithCpuAttribution(
+    FrameStats frame,
+    FrameVerdict verdict,
+  ) {
+    if (_vmClient == null || !frame.hasPhaseTimestamps) return;
+
+    final timeOriginUs = frame.vsyncStartUs!;
+    final timeExtentUs = frame.rasterFinishUs! - frame.vsyncStartUs!;
+    if (timeExtentUs <= 0) return;
+
+    _vmClient!
+        .getCpuSamples(timeOriginUs: timeOriginUs, timeExtentUs: timeExtentUs)
+        .then((cpuSamples) {
+      if (cpuSamples == null) return;
+      final topFunctions = _cpuAggregator.aggregate(cpuSamples);
+      if (topFunctions.isEmpty) return;
+
+      // Re-emit verdict with CPU attribution (phase 2)
+      final enriched = verdict.withTopFunctions(topFunctions);
+      verdictNotifier.value = enriched;
+
+      // Update capture buffer entry if it was captured
+      _captureBuffer.updateVerdict(frame.frameNumber, enriched);
+    }).catchError((_) {
+      // CPU attribution failed — verdict already emitted without it
+    });
   }
 
   void _onVmConnectionChanged(bool connected) {

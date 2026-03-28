@@ -252,6 +252,32 @@ class VmServiceClient {
     _service = null;
   }
 
+  /// Query CPU samples for a time window. Returns null on error or timeout.
+  ///
+  /// Used by the controller to attribute jank frames to specific functions.
+  /// Only called on-demand when a jank frame is detected — not continuous.
+  Future<CpuSamples?> getCpuSamples({
+    required int timeOriginUs,
+    required int timeExtentUs,
+  }) async {
+    final service = _service;
+    final isolateId = _mainIsolateId;
+    if (service == null || isolateId == null) return null;
+
+    try {
+      return await service
+          .getCpuSamples(isolateId, timeOriginUs, timeExtentUs)
+          .timeout(const Duration(milliseconds: 500));
+    } on SentinelException {
+      // Isolate ID stale (e.g., after hot restart) — re-fetch
+      _mainIsolateId = await _resolveMainIsolateId();
+      return null;
+    } catch (_) {
+      // CPU sample query failed — non-fatal, don't trigger reconnect
+      return null;
+    }
+  }
+
   /// Dispose all resources.
   void dispose() {
     _disposed = true;

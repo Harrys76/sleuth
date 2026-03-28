@@ -1,3 +1,4 @@
+import 'cpu_attribution.dart';
 import 'performance_issue.dart';
 
 /// Rendering pipeline phase suspected as bottleneck.
@@ -34,6 +35,7 @@ class FrameVerdict {
     this.isFullMode = false,
     this.isCorrelated = false,
     this.correlationCoverage,
+    this.topFunctions,
   });
 
   final int frameNumber;
@@ -78,6 +80,33 @@ class FrameVerdict {
   /// Fraction of batch events that matched this frame (null when not correlated).
   final double? correlationCoverage;
 
+  /// Top CPU-consuming functions during this frame (null when unavailable).
+  ///
+  /// Populated asynchronously via two-phase verdict emission when VM is
+  /// connected and CPU samples are available for the frame's time window.
+  final List<CpuAttribution>? topFunctions;
+
+  /// Returns a copy with [topFunctions] attached.
+  FrameVerdict withTopFunctions(List<CpuAttribution>? topFunctions) =>
+      FrameVerdict(
+        frameNumber: frameNumber,
+        totalFrameTime: totalFrameTime,
+        uiThreadTime: uiThreadTime,
+        rasterThreadTime: rasterThreadTime,
+        buildScopeTime: buildScopeTime,
+        flushLayoutTime: flushLayoutTime,
+        flushPaintTime: flushPaintTime,
+        totalSpan: totalSpan,
+        buildToRasterGapTime: buildToRasterGapTime,
+        suspectedPhase: suspectedPhase,
+        reason: reason,
+        relatedIssues: relatedIssues,
+        isFullMode: isFullMode,
+        isCorrelated: isCorrelated,
+        correlationCoverage: correlationCoverage,
+        topFunctions: topFunctions,
+      );
+
   Map<String, dynamic> toJson() => {
         'frameNumber': frameNumber,
         'totalFrameTimeUs': totalFrameTime.inMicroseconds,
@@ -99,6 +128,8 @@ class FrameVerdict {
         'isCorrelated': isCorrelated,
         if (correlationCoverage != null)
           'correlationCoverage': correlationCoverage,
+        if (topFunctions != null && topFunctions!.isNotEmpty)
+          'topFunctions': topFunctions!.map((f) => f.toJson()).toList(),
       };
 
   factory FrameVerdict.fromJson(Map<String, dynamic> json) => FrameVerdict(
@@ -133,6 +164,9 @@ class FrameVerdict {
         isFullMode: json['isFullMode'] as bool? ?? false,
         isCorrelated: json['isCorrelated'] as bool? ?? false,
         correlationCoverage: (json['correlationCoverage'] as num?)?.toDouble(),
+        topFunctions: (json['topFunctions'] as List<dynamic>?)
+            ?.map((e) => CpuAttribution.fromJson(e as Map<String, dynamic>))
+            .toList(),
       );
 
   @override

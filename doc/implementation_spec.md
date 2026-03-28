@@ -875,7 +875,7 @@ Mini flame chart is explicitly out of scope — it adds visualization complexity
 |---------|:---:|:---:|:---:|:---:|
 | Network monitoring | Yes (21st) | No | Yes | #1 — **Done** |
 | Heap trend monitoring | No (enhances MemoryPressure) | Yes | No | #2 — **Done** |
-| Jank CPU attribution | No (enhances FrameVerdict) | Yes | No | #3 |
+| Jank CPU attribution | No (enhances FrameVerdict) | Yes | No | #3 — **Done** |
 | Source location enrichment | No (enhances ancestorChain) | No | No (debug only) | #4 |
 
 ### Design Principle
@@ -1161,7 +1161,7 @@ Deviations from spec:
 
 ---
 
-### v2.3: Jank CPU Attribution
+### v2.3: Jank CPU Attribution — **Done**
 
 **Problem:**
 
@@ -1280,6 +1280,22 @@ Raw CPU samples include Dart framework internals (`ComponentElement.performRebui
 - Serialization: `CpuAttribution.toJson()` round-trip
 - Integration: jank frame + mock getCpuSamples → verify verdict includes attribution
 - Benchmark: aggregation of 1000 samples < 5ms
+
+**Implementation notes (deviations from spec):**
+
+1. **`getCpuSamples()` on VmServiceClient, not controller.** The spec suggested the controller could call the VM service directly. Instead, `getCpuSamples()` is a public method on `VmServiceClient`, following the existing pattern where the controller accesses VM features through the client (same as `onHeapSample` callback and `_resolveMainIsolateId`). This keeps VM error handling (SentinelException, reconnection) encapsulated.
+
+2. **`CpuSampleAggregator` is a pure const class.** Takes `CpuSamples` (vm_service type) and returns `List<CpuAttribution>`. No async, no state, no VM dependency. Easily testable with synthetic `CpuSamples` data.
+
+3. **`JankCaptureBuffer.updateVerdict()` added.** Since `CaptureEntry` is immutable (`const` constructor), updating the verdict for async CPU attribution requires replacing the entire entry. The method searches by `frameNumber` and creates a new `CaptureEntry`.
+
+4. **Dashboard display uses Column widget.** Replaced bare `Text(verdict.reason)` with a `Column` containing the reason text + a blue "Top: ..." line showing CPU attribution. The top functions line only appears when `topFunctions` is non-null and non-empty.
+
+5. **No IssueCard changes.** The spec mentioned "IssueCard shows top functions in expanded verdict view" but `IssueCard` displays `PerformanceIssue` objects, not `FrameVerdict`. CPU attribution is displayed in the dashboard's verdict section instead.
+
+6. **`FrameVerdict.withTopFunctions()` instead of full `copyWith`.** Focused copy method since only `topFunctions` changes in the two-phase flow. Avoids a 16-parameter copyWith.
+
+7. **vmTag blocklist filtering.** Excludes samples with vmTag in `{GC, CompileOptimized, CompileUnoptimized, Native, Idle, VM}`. Samples with null or empty vmTag are kept.
 
 ---
 

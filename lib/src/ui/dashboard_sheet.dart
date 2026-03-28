@@ -419,15 +419,35 @@ class _DashboardSheetState extends State<DashboardSheet>
                     style: TextStyle(color: Color(0xFF6B7280), fontSize: 11),
                   );
                 }
-                return Text(
-                  verdict.reason,
-                  style: const TextStyle(
-                    color: Color(0xFFD1D5DB),
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                  ),
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      verdict.reason,
+                      style: const TextStyle(
+                        color: Color(0xFFD1D5DB),
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                      ),
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (verdict.topFunctions != null &&
+                        verdict.topFunctions!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Top: ${verdict.topFunctions!.map((f) => '${f.displayName} (${f.percentage.toStringAsFixed(0)}%)').join(', ')}',
+                        style: const TextStyle(
+                          color: Color(0xFF93C5FD),
+                          fontSize: 10,
+                          fontFamily: 'monospace',
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
                 );
               },
             ),
