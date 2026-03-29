@@ -198,7 +198,7 @@ void main() {
   });
 
   group('IssueCard ancestor chain display (R6)', () {
-    testWidgets('expanded card with ancestorChain shows Widget: line',
+    testWidgets('expanded card with ancestorChain shows Ancestors: line',
         (tester) async {
       await tester.pumpWidget(_buildCard(
         _testIssue(ancestorChain: 'MyPage > Column > Image'),
@@ -206,7 +206,7 @@ void main() {
       ));
 
       expect(
-        find.text('Widget: MyPage > Column > Image'),
+        find.text('Ancestors: MyPage > Column > Image'),
         findsOneWidget,
       );
     });
@@ -239,7 +239,7 @@ void main() {
       expect(find.textContaining('Widget: MyWidget'), findsNothing);
     });
 
-    testWidgets('collapsed card does not show Widget: line', (tester) async {
+    testWidgets('collapsed card does not show Ancestors: line', (tester) async {
       await tester.pumpWidget(_buildCard(
         _testIssue(ancestorChain: 'MyPage > Column > Image'),
       ));
@@ -247,7 +247,7 @@ void main() {
       // Card is collapsed by default
       expect(find.text('Test detail'), findsNothing);
       expect(
-        find.text('Widget: MyPage > Column > Image'),
+        find.text('Ancestors: MyPage > Column > Image'),
         findsNothing,
       );
     });
@@ -259,7 +259,7 @@ void main() {
       ));
 
       final textWidget = tester.widget<Text>(
-        find.text('Widget: MyPage > Column > Image'),
+        find.text('Ancestors: MyPage > Column > Image'),
       );
       expect(textWidget.style?.fontSize, 10);
       expect(textWidget.style?.fontStyle, FontStyle.italic);

@@ -60,12 +60,16 @@ class IssueRanker {
       _score(issue, context);
 
   int _score(PerformanceIssue issue, IssueRankingContext context) {
+    var recurrence = _recurrenceScore(
+        issue.stableId ?? issue.title, context.recurrenceCounts);
+    // Deprioritize scrolling-context issues — they're usually transient
+    if (issue.interactionContext == InteractionContext.scrolling) {
+      recurrence = (recurrence * 0.7).round();
+    }
     return (_severityScore(issue.severity) * 100) +
         (_frameImpactScore(issue.category, context) * 8) +
         (_confidenceScore(issue.confidence) * 5) +
-        (_recurrenceScore(
-                issue.stableId ?? issue.title, context.recurrenceCounts) *
-            2);
+        (recurrence * 2);
   }
 
   int _severityScore(IssueSeverity s) => switch (s) {

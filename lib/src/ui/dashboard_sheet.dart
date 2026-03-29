@@ -50,6 +50,12 @@ class _DashboardSheetState extends State<DashboardSheet>
   /// Cleared automatically after 2 seconds.
   Set<String> _jankFlashIds = {};
 
+  /// Shown when a highlight checkbox is checked but the widget isn't in the tree.
+  bool _highlightNotFoundVisible = false;
+
+  /// Interaction context filter for the Issues tab. Null = show all.
+  InteractionContext? _interactionFilter;
+
   static const double _collapsedHeight = 400;
 
   @override
@@ -143,6 +149,32 @@ class _DashboardSheetState extends State<DashboardSheet>
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _jankFlashIds = {});
     });
+  }
+
+  Widget _filterChip(String label, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xFF3B82F6).withValues(alpha: 0.2)
+              : Colors.transparent,
+          border: Border.all(
+            color: selected ? const Color(0xFF3B82F6) : const Color(0xFF4B5563),
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? const Color(0xFF3B82F6) : const Color(0xFF9CA3AF),
+            fontSize: 10,
+            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -553,9 +585,71 @@ class _DashboardSheetState extends State<DashboardSheet>
           );
         }
 
+        final filteredIssues = _interactionFilter == null
+            ? issues
+            : issues
+                .where((i) => _interactionFilter == InteractionContext.idle
+                    ? (i.interactionContext == null ||
+                        i.interactionContext == InteractionContext.idle)
+                    : i.interactionContext == _interactionFilter)
+                .toList();
+
         return Column(
           children: [
-            _IssuesSummaryBar(issues: issues),
+            _IssuesSummaryBar(issues: filteredIssues),
+            // Interaction context filter row
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                children: [
+                  _filterChip('All', _interactionFilter == null,
+                      () => setState(() => _interactionFilter = null)),
+                  const SizedBox(width: 6),
+                  _filterChip(
+                      'Idle',
+                      _interactionFilter == InteractionContext.idle,
+                      () => setState(
+                          () => _interactionFilter = InteractionContext.idle)),
+                  const SizedBox(width: 6),
+                  _filterChip(
+                      'Scrolling',
+                      _interactionFilter == InteractionContext.scrolling,
+                      () => setState(() =>
+                          _interactionFilter = InteractionContext.scrolling)),
+                  const SizedBox(width: 6),
+                  _filterChip(
+                      'Navigating',
+                      _interactionFilter == InteractionContext.navigating,
+                      () => setState(() =>
+                          _interactionFilter = InteractionContext.navigating)),
+                ],
+              ),
+            ),
+            // Highlight not-found feedback banner
+            if (_highlightNotFoundVisible)
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF78350F),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.visibility_off,
+                        color: Color(0xFFFCD34D), size: 14),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Widget not currently visible. Navigate to the screen where this issue occurs.',
+                        style:
+                            TextStyle(color: Color(0xFFFCD34D), fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Expanded(
               child: ValueListenableBuilder<FrameVerdict?>(
                 valueListenable: widget.controller.verdictNotifier,
@@ -566,9 +660,9 @@ class _DashboardSheetState extends State<DashboardSheet>
                         widget.controller.selectedHighlightNotifier,
                     builder: (_, selectedHighlight, __) => ListView.builder(
                       padding: const EdgeInsets.all(8),
-                      itemCount: issues.length,
+                      itemCount: filteredIssues.length,
                       itemBuilder: (_, index) {
-                        final issue = issues[index];
+                        final issue = filteredIssues[index];
                         final locatable = _isLocatableIssue(issue);
                         final issueKey = issue.stableId ?? issue.title;
                         final isHighlighted = selectedHighlight != null &&
@@ -601,6 +695,16 @@ class _DashboardSheetState extends State<DashboardSheet>
                                     if (!found) {
                                       widget.controller.pendingIssueSelection =
                                           issue;
+                                      setState(() =>
+                                          _highlightNotFoundVisible = true);
+                                      Future.delayed(const Duration(seconds: 3),
+                                          () {
+                                        if (mounted) {
+                                          setState(() =>
+                                              _highlightNotFoundVisible =
+                                                  false);
+                                        }
+                                      });
                                     }
                                   } else {
                                     setState(() => _selectedIssueId = null);
@@ -643,46 +747,218 @@ class _DashboardSheetState extends State<DashboardSheet>
   }
 
   Widget _buildGuideTab() {
-    return const SingleChildScrollView(
-      padding: EdgeInsets.all(12),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '🐕 Performance Detective Guide',
+          const Text(
+            '\u{1F415} Performance Detective Guide',
             style: TextStyle(
               color: Colors.white,
               fontSize: 14,
               fontWeight: FontWeight.bold,
             ),
           ),
-          SizedBox(height: 12),
-          _GuideStep(
+          const SizedBox(height: 12),
+          const _GuideStep(
             step: '1',
             title: 'Run in Profile Mode',
-            detail: 'flutter run --profile — for accurate data',
+            detail: 'flutter run --profile \u2014 for accurate data',
           ),
-          _GuideStep(
+          const _GuideStep(
             step: '2',
             title: 'Navigate Your App',
             detail: 'Use as normal. Watchdog monitors every frame.',
           ),
-          _GuideStep(
+          const _GuideStep(
             step: '3',
             title: 'Check the Live Tab',
-            detail: 'Watch for red bars — those are janky frames.',
+            detail: 'Watch for red bars \u2014 those are janky frames.',
           ),
-          _GuideStep(
+          const _GuideStep(
             step: '4',
             title: 'Review Issues',
             detail: 'Each issue has a severity, confidence, and fix hint.',
           ),
-          _GuideStep(
+          const _GuideStep(
             step: '5',
             title: 'Apply Fixes',
             detail: 'Follow the fix hints. Hot reload to see improvement.',
           ),
+
+          // Color Legend section
+          const SizedBox(height: 16),
+          const Divider(color: Color(0xFF374151)),
+          const SizedBox(height: 12),
+          const Text(
+            'Color Legend',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Severity',
+            style: TextStyle(
+              color: Color(0xFF9CA3AF),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const _LegendRow(
+              icon: '\u{1F534}', label: 'Critical \u2014 immediate attention'),
+          const _LegendRow(
+              icon: '\u{1F7E1}', label: 'Warning \u2014 should investigate'),
+          const _LegendRow(icon: '\u{1F7E2}', label: 'OK \u2014 informational'),
+
+          const SizedBox(height: 8),
+          const Text(
+            'Confidence Badges',
+            style: TextStyle(
+              color: Color(0xFF9CA3AF),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          _badgeLegendRow(
+              'CONFIRMED', const Color(0xFF10B981), 'Directly observed'),
+          _badgeLegendRow('LIKELY', const Color(0xFFF59E0B),
+              'Runtime + structural evidence'),
+          _badgeLegendRow(
+              'POSSIBLE', const Color(0xFF6B7280), 'Structural pattern only'),
+
+          const SizedBox(height: 8),
+          const Text(
+            'Source Accent (left bar)',
+            style: TextStyle(
+              color: Color(0xFF9CA3AF),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          _colorBarLegendRow(const Color(0xFF10B981), 'VM timeline event'),
+          _colorBarLegendRow(const Color(0xFF8B5CF6), 'Debug callback'),
+          _colorBarLegendRow(const Color(0xFF6B7280), 'Structural scan'),
+
+          const SizedBox(height: 8),
+          const Text(
+            'Category Badges',
+            style: TextStyle(
+              color: Color(0xFF9CA3AF),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              _categoryLegendChip('BUILD', const Color(0xFF3B82F6)),
+              _categoryLegendChip('LAYOUT', const Color(0xFFF59E0B)),
+              _categoryLegendChip('PAINT', const Color(0xFF10B981)),
+              _categoryLegendChip('RASTER', const Color(0xFFEF4444)),
+              _categoryLegendChip('MEMORY', const Color(0xFF8B5CF6)),
+              _categoryLegendChip('CHANNEL', const Color(0xFF06B6D4)),
+              _categoryLegendChip('FONT', const Color(0xFF6B7280)),
+              _categoryLegendChip('NETWORK', const Color(0xFFF97316)),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+          const Text(
+            'Effort Badges',
+            style: TextStyle(
+              color: Color(0xFF9CA3AF),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          _badgeLegendRow(
+              'QUICK FIX', const Color(0xFF10B981), 'Simple change'),
+          _badgeLegendRow(
+              'MEDIUM FIX', const Color(0xFFF59E0B), 'Some refactoring'),
+          _badgeLegendRow(
+              'INVOLVED FIX', const Color(0xFFEF4444), 'Architecture change'),
         ],
+      ),
+    );
+  }
+
+  Widget _badgeLegendRow(String label, Color color, String description) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 8,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            description,
+            style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _colorBarLegendRow(Color color, String description) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 14,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            description,
+            style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _categoryLegendChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 8,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
@@ -872,6 +1148,30 @@ class _GuideStep extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LegendRow extends StatelessWidget {
+  const _LegendRow({required this.icon, required this.label});
+
+  final String icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 10)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
           ),
         ],
       ),

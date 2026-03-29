@@ -2353,3 +2353,73 @@ The verdict's `relatedIssues` are populated from `_getAllIssues()` (pre-stamp). 
 | `test/ui/jank_verdict_linking_test.dart` | New file — 14 widget tests across 4 groups (banner visibility, tap behavior, badge rendering, edge cases) |
 
 No changes to: models, controller, detectors, barrel file, config.
+
+---
+
+## v3.8 Post-Implementation Notes
+
+v3.8 implements Overlay UX Improvements — six targeted UI enhancements that improve the diagnostic workflow. 877 tests passing (up from 863), 0 analysis issues. No model, detector, or controller changes needed.
+
+### Implementation Summary
+
+| Item | Status | New Tests | Spec Deviations |
+|------|:------:|:---------:|:---------------:|
+| 3.8.1 Widget name before ancestor chain | Done | 3 | 0 |
+| 3.8.2 Highlight not-found feedback | Done | 2 | 1 (see below) |
+| 3.8.3 Interaction context filter | Done | 3 | 0 |
+| 3.8.4 "About this detection" section | Done | 2 | 0 |
+| 3.8.5 Effort indicators on fix hints | Done | 3 | 0 |
+| 3.8.6 Color legend in Guide tab | Done | 1 | 0 |
+| **Total** | **6/6** | **14** | **1** |
+
+### Design Decisions
+
+#### 1. Banner instead of SnackBar for highlight not-found (3.8.2)
+
+Spec called for a SnackBar, but `DashboardSheet` is hosted inside a `Material` widget, not a `Scaffold`. `ScaffoldMessenger` requires `Scaffold` ancestry to display SnackBars. Instead, used the same temporary-banner pattern as `_exportFeedbackVisible` and `_jankFlashIds`: amber-tinted `Container` with `Future.delayed(3s)` + `mounted` guard for auto-clear. This is the only spec deviation.
+
+#### 2. UI-layer effort inference (3.8.5)
+
+Spec said "effort is determined per-detector, not computed." Adding an `effortLevel` field to `PerformanceIssue` would require touching all 21 detector files — disproportionate for a UX improvement. Instead, `_fixEffort()` infers effort from `fixHint` keyword patterns at the UI layer:
+
+- **Quick:** `const constructor`, `cacheWidth`, `ListView.builder`, `RepaintBoundary`, `Visibility`, `child parameter`, etc.
+- **Involved:** `Isolate.run`, `compute()`, `cache-sksl`, `sparse fieldsets`, `GraphQL`, `growing steadily`, etc.
+- **Medium:** Default for everything else.
+
+This is explicitly a bridge solution. v3.2 (Context-Aware Fix Hints) already plans to rewrite all fix hints and will add an explicit `fixEffort` field to the model at that time.
+
+#### 3. Interaction filter semantics (3.8.3)
+
+The "Idle" filter includes issues with `null` `interactionContext`, because most structural and hybrid detectors don't set an interaction context — they fire during normal idle operation. Treating `null` as "Idle" ensures the filter is useful rather than showing an empty list when "Idle" is selected.
+
+Scrolling deprioritization applies a 0.7× multiplier to the recurrence component only (not the full score). A scrolling-context issue with max recurrence 5 gets `(5*0.7).round() = 4` instead of 5, costing ~2 rank points. Subtle enough to distinguish without burying legitimate scroll jank.
+
+#### 4. Text.rich for testability (3.8.4)
+
+The "About this detection" content uses `Text.rich(TextSpan(...))` instead of `RichText(text: TextSpan(...))`. `RichText` creates a `RichText` widget that `find.textContaining()` cannot locate — it only searches `Text` widgets. `Text.rich` creates a `Text` widget with a `TextSpan` tree, making all label/value pairs findable in widget tests.
+
+#### 5. Color legend scope (3.8.6)
+
+The legend covers all visual indicators in the overlay: severity colors, confidence badges (CONFIRMED/LIKELY/POSSIBLE), source accent bars (VM timeline/debug callback/structural), category badges (all 8 categories with matching colors from `issue_card.dart`), and effort badges (QUICK/MEDIUM/INVOLVED). The `_buildGuideTab` method lost its `const` qualifier to accommodate the dynamic legend content.
+
+### Files Changed
+
+| File | Change | Items |
+|------|--------|-------|
+| `lib/src/ui/issue_card.dart` | Widget name reorder, "About this detection" collapsible, effort badge in fix hint box | 3.8.1, 3.8.4, 3.8.5 |
+| `lib/src/ui/dashboard_sheet.dart` | Highlight not-found banner, interaction filter chips + logic, color legend section | 3.8.2, 3.8.3, 3.8.6 |
+| `lib/src/ranking/issue_ranker.dart` | 0.7× recurrence multiplier for scrolling-context issues | 3.8.3 |
+| `test/ui/overlay_ux_improvements_test.dart` | New file — 14 widget tests across 6 groups | All |
+| `test/ui/issue_card_attribution_test.dart` | Updated 3 assertions for "Ancestors:" label change | 3.8.1 |
+
+No changes to: models, controller, detectors, barrel file, config.
+
+### Spec vs. Implementation Corrections
+
+The original spec (v3.8 section above) has minor inaccuracies relative to the implementation:
+
+| Spec | Actual |
+|------|--------|
+| 3.8.2: "Show a SnackBar" | Temporary banner (no Scaffold ancestor) |
+| Files: `issue_card.dart` — items 3.8.1, **3.8.2**, 3.8.4, 3.8.5 | 3.8.2 is in `dashboard_sheet.dart` (highlight checkbox is in the dashboard, not the card) |
+| Testing: "10 widget tests" | 14 widget tests (expanded coverage) |
