@@ -181,6 +181,43 @@ void main() {
       });
 
       testWidgets(
+          'structural issue survives disconnect with downgraded confidence',
+          (tester) async {
+        detector.vmConnected = true;
+        detector.processTimelineData(rasterDominantData(
+          rasterUs: 20000,
+          buildUs: 5000,
+          layoutUs: 3000,
+          paintUs: 2000,
+        ));
+
+        // Use OpacityDeepTree to generate both raster_dominance + expensive_gpu_nodes
+        await tester.pumpWidget(const _OpacityDeepTree());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(detector.issues, hasLength(2));
+
+        // Verify expensive_gpu_nodes starts as likely (corroborated by raster dominance)
+        final nodesBefore = detector.issues
+            .firstWhere((i) => i.stableId == 'expensive_gpu_nodes');
+        expect(nodesBefore.confidence, IssueConfidence.likely);
+
+        // Disconnect
+        detector.vmConnected = false;
+
+        // raster_dominance should be removed
+        expect(
+          detector.issues.where((i) => i.stableId == 'raster_dominance'),
+          isEmpty,
+        );
+
+        // expensive_gpu_nodes should survive but downgraded to possible
+        final nodesAfter =
+            detector.issues.where((i) => i.stableId == 'expensive_gpu_nodes');
+        expect(nodesAfter, hasLength(1));
+        expect(nodesAfter.first.confidence, IssueConfidence.possible);
+      });
+
+      testWidgets(
           'after disconnect, next scanTree only produces structural issues',
           (tester) async {
         detector.vmConnected = true;

@@ -47,7 +47,7 @@ class OpacityDetector extends BaseDetector {
     void visitor(Element element) {
       final widget = element.widget;
 
-      if (widget is Opacity && widget.opacity == 0.0) {
+      if (widget is Opacity && widget.opacity < 0.01) {
         found.add(buildAncestorChain(element));
         final ro = element.renderObject;
         if (ro != null) {
@@ -58,7 +58,8 @@ class OpacityDetector extends BaseDetector {
               widgetName: 'Opacity',
               severity: IssueSeverity.warning,
               detectorName: 'Opacity',
-              detail: 'opacity: 0.0 — invisible but still active',
+              detail:
+                  'opacity: ${widget.opacity.toStringAsFixed(3)} — invisible but still active',
             ));
           }
         }
@@ -80,9 +81,9 @@ class OpacityDetector extends BaseDetector {
           category: IssueCategory.layout,
           confidence: IssueConfidence.possible,
           title: 'Invisible Opacity Widgets Still Active: ${found.length}',
-          detail: '${found.length} Opacity widget(s) have opacity set to 0.0. '
-              'Painting is skipped, but the widget still participates in '
-              'hit testing, layout, and semantics.\n\n$locations',
+          detail: '${found.length} Opacity widget(s) have near-zero opacity '
+              '(< 0.01). Painting is skipped, but the widget still '
+              'participates in hit testing, layout, and semantics.\n\n$locations',
           fixHint: 'If the widget should disappear entirely, remove it from '
               'the tree. If it should stay in layout, use Visibility with the '
               'maintain* flags chosen intentionally. Add IgnorePointer or '

@@ -205,6 +205,111 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
 
+    testWidgets('no issue for horizontal ListView inside vertical ScrollView',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SingleChildScrollView(
+            // vertical (default)
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 200,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: const [SizedBox(width: 100)],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isEmpty,
+          reason: 'Cross-axis nesting is a standard pattern');
+    });
+
+    testWidgets('flags vertical ListView inside vertical ScrollView',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SingleChildScrollView(
+            // vertical (default)
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 200,
+                  child: ListView(
+                    // vertical (default) — same axis
+                    children: const [SizedBox(height: 10)],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, hasLength(1),
+          reason: 'Same-axis nesting should be flagged');
+    });
+
+    testWidgets('no issue for horizontal GridView inside vertical ScrollView',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 200,
+                  child: GridView.count(
+                    scrollDirection: Axis.horizontal,
+                    crossAxisCount: 2,
+                    children: const [SizedBox(), SizedBox()],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isEmpty,
+          reason: 'Cross-axis nesting is a standard pattern');
+    });
+
+    testWidgets('flags same-axis nested CustomScrollView', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 200,
+                  child: ListView(
+                    children: const [SizedBox(height: 10)],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, hasLength(1),
+          reason: 'Same-axis (vertical) nesting should be flagged');
+    });
+
     testWidgets('dispose clears issues', (tester) async {
       await tester.pumpWidget(
         Directionality(

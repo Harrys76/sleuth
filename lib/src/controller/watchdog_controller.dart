@@ -314,10 +314,12 @@ class WatchdogController {
 
     _platformChannel = PlatformChannelDetector(
       callsPerSecThreshold: config.platformChannelLimit,
+      durationThresholdUs: config.platformChannelDurationThresholdMs * 1000,
     )..isEnabled = enabled.contains(DetectorType.platformChannel);
 
-    _memoryPressure = MemoryPressureDetector()
-      ..isEnabled = enabled.contains(DetectorType.memoryPressure);
+    _memoryPressure = MemoryPressureDetector(
+      warmupDurationMs: config.memoryWarmupDurationMs,
+    )..isEnabled = enabled.contains(DetectorType.memoryPressure);
 
     _repaint = RepaintDetector()
       ..isEnabled = enabled.contains(DetectorType.repaint);
@@ -1153,6 +1155,8 @@ class WatchdogConfig {
     this.requestFrequencyLimit = 30,
     this.largeResponseThresholdBytes = 1048576,
     this.networkExcludePatterns,
+    this.memoryWarmupDurationMs = 5000,
+    this.platformChannelDurationThresholdMs = 8,
   });
 
   /// Target frames per second (60 or 120). Drives jank detection thresholds.
@@ -1215,4 +1219,12 @@ class WatchdogConfig {
   /// URL substring patterns to exclude from monitoring
   /// (e.g. `['/analytics', 'crashlytics']`).
   final List<String>? networkExcludePatterns;
+
+  /// Duration in milliseconds to suppress heap growth alerts after the first
+  /// heap sample. Prevents false positives from normal app startup allocation.
+  final int memoryWarmupDurationMs;
+
+  /// Cumulative platform channel duration threshold in milliseconds per window.
+  /// Fires when total channel call time exceeds this even if call count is low.
+  final int platformChannelDurationThresholdMs;
 }

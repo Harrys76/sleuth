@@ -123,6 +123,43 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
 
+    testWidgets('flags near-zero opacity (0.005)', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Opacity(opacity: 0.005, child: SizedBox()),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isNotEmpty);
+      expect(detector.issues.first.detail, contains('near-zero opacity'));
+    });
+
+    testWidgets('flags opacity just below threshold (0.009)', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Opacity(opacity: 0.009, child: SizedBox()),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isNotEmpty);
+    });
+
+    testWidgets('no issue at boundary (0.01)', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Opacity(opacity: 0.01, child: SizedBox()),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isEmpty);
+    });
+
     test('dispose clears issues and highlights', () {
       detector.dispose();
       expect(detector.issues, isEmpty);

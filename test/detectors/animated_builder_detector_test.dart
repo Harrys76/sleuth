@@ -39,11 +39,20 @@ void main() {
       expect(detector.issues, isEmpty);
     });
 
-    testWidgets('ignores small subtrees (<=5 widgets)', (tester) async {
+    testWidgets('ignores small subtrees (<=20 widgets)', (tester) async {
       await tester.pumpWidget(const TinyAnimatedBuilder());
       detector.scanTree(tester.element(find.byType(TinyAnimatedBuilder)));
 
       expect(detector.issues, isEmpty);
+    });
+
+    testWidgets('ignores medium subtrees at threshold boundary',
+        (tester) async {
+      await tester.pumpWidget(const MediumAnimatedBuilder());
+      detector.scanTree(tester.element(find.byType(MediumAnimatedBuilder)));
+
+      expect(detector.issues, isEmpty,
+          reason: 'Subtree of ~15 widgets should not trigger (threshold 20)');
     });
 
     testWidgets('no false positive on scroll page without AnimatedBuilder', (
@@ -84,7 +93,8 @@ void main() {
             ObservationSource.debugCallbackAndStructural);
       });
 
-      testWidgets('confidence stays likely (not confirmed)', (tester) async {
+      testWidgets('confidence upgrades to likely with high rebuild rate',
+          (tester) async {
         detector.updateDebugSnapshot(const DebugSnapshot(
           rebuildCounts: {'AnimatedBuilder': 60},
           totalPaintCount: 0,
@@ -97,7 +107,8 @@ void main() {
         expect(detector.issues.first.confidence, IssueConfidence.likely);
       });
 
-      testWidgets('no debug evidence when rate is low', (tester) async {
+      testWidgets('confidence stays possible with low rebuild rate',
+          (tester) async {
         detector.updateDebugSnapshot(const DebugSnapshot(
           rebuildCounts: {'AnimatedBuilder': 10},
           totalPaintCount: 0,
@@ -108,21 +119,35 @@ void main() {
         detector.scanTree(tester.element(find.byType(TestAnimatedApp)));
 
         expect(detector.issues, isNotEmpty);
-        expect(
-          detector.issues.first.detail,
-          isNot(contains('rebuilding at')),
-        );
+        expect(detector.issues.first.confidence, IssueConfidence.possible);
         expect(detector.issues.first.observationSource, isNull);
       });
 
-      testWidgets('no debug evidence when no snapshot', (tester) async {
+      testWidgets('confidence is possible without debug snapshot',
+          (tester) async {
+        await tester.pumpWidget(const TestAnimatedApp(useChild: false));
+        detector.scanTree(tester.element(find.byType(TestAnimatedApp)));
+
+        expect(detector.issues, isNotEmpty);
+        expect(detector.issues.first.confidence, IssueConfidence.possible);
+      });
+
+      testWidgets('debug evidence includes paint rate when high',
+          (tester) async {
+        detector.updateDebugSnapshot(const DebugSnapshot(
+          rebuildCounts: {'AnimatedBuilder': 60},
+          totalPaintCount: 40,
+          elapsed: Duration(seconds: 1),
+          paintCounts: {'AnimatedBuilder': 40},
+        ));
+
         await tester.pumpWidget(const TestAnimatedApp(useChild: false));
         detector.scanTree(tester.element(find.byType(TestAnimatedApp)));
 
         expect(detector.issues, isNotEmpty);
         expect(
           detector.issues.first.detail,
-          isNot(contains('rebuilding at')),
+          contains('painting at 40/sec'),
         );
       });
     });
@@ -168,7 +193,7 @@ class TestAnimatedAppState extends State<TestAnimatedApp>
         child: widget.useChild
             ? Column(
                 children: List.generate(
-                  10,
+                  25,
                   (i) => SizedBox(key: ValueKey(i), height: 10),
                 ),
               )
@@ -177,7 +202,7 @@ class TestAnimatedAppState extends State<TestAnimatedApp>
           if (child != null) return child;
           return Column(
             children: List.generate(
-              10,
+              25,
               (i) => SizedBox(key: ValueKey(i), height: 10),
             ),
           );
@@ -221,6 +246,52 @@ class TinyAnimatedBuilderState extends State<TinyAnimatedBuilder>
         animation: controller,
         builder: (context, child) {
           return const SizedBox(width: 10, height: 10);
+        },
+      ),
+    );
+  }
+}
+
+/// Medium-sized subtree (15 children) — should NOT trigger at threshold 20.
+class MediumAnimatedBuilder extends StatefulWidget {
+  const MediumAnimatedBuilder({super.key});
+
+  @override
+  State<MediumAnimatedBuilder> createState() => MediumAnimatedBuilderState();
+}
+
+class MediumAnimatedBuilderState extends State<MediumAnimatedBuilder>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: AnimatedBuilder(
+        animation: controller,
+        builder: (context, child) {
+          return Column(
+            children: List.generate(
+              15,
+              (i) => SizedBox(key: ValueKey(i), height: 10),
+            ),
+          );
         },
       ),
     );

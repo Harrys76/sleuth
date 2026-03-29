@@ -112,6 +112,34 @@ class CustomPainterDetector extends BaseDetector {
         ),
       );
     }
+
+    // Secondary heuristic: painters that passed self-comparison but have
+    // high paint rates may have problematic shouldRepaint logic that
+    // only manifests with different old/new instances.
+    if (found.isEmpty) {
+      final ds = _lastDebugSnapshot;
+      if (ds != null && ds.paintCounts.isNotEmpty) {
+        final cpRate = ds.paintsPerSecondForType('CustomPaint');
+        if (cpRate > 30) {
+          _issues.add(PerformanceIssue(
+            stableId: 'frequent_repaint_painter',
+            severity: IssueSeverity.warning,
+            category: IssueCategory.paint,
+            confidence: IssueConfidence.possible,
+            title: 'Frequent CustomPainter Repaints: ${cpRate.round()}/sec',
+            detail: 'CustomPainter is repainting at ${cpRate.round()}/sec. '
+                'Verify shouldRepaint() returns false when visual state '
+                "hasn't changed.",
+            fixHint:
+                'Override shouldRepaint() to compare only fields that affect '
+                'painting:\n'
+                'bool shouldRepaint(MyPainter old) => old.color != color;',
+            observationSource: ObservationSource.debugCallbackAndStructural,
+            detectedAt: DateTime.now(),
+          ));
+        }
+      }
+    }
   }
 
   @override

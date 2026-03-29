@@ -35,27 +35,39 @@ class NestedScrollDetector extends BaseDetector {
     if (!_isEnabled) return;
     _issues.clear();
 
-    void visitor(Element element, bool insideScroll) {
+    void visitor(Element element, Axis? parentScrollAxis) {
       final widget = element.widget;
 
-      final isScrollable = widget is SingleChildScrollView ||
-          widget is ListView ||
-          widget is GridView ||
-          widget is CustomScrollView;
+      final scrollAxis = _scrollAxis(widget);
+      final isScrollable = scrollAxis != null;
 
-      // Detect scroll-inside-scroll
-      if (isScrollable && insideScroll) {
-        _checkNestedScroll(element, widget);
+      // Detect scroll-inside-scroll (same axis only)
+      if (isScrollable && parentScrollAxis != null) {
+        if (scrollAxis == parentScrollAxis) {
+          // Same-axis nesting — always flag
+          _checkNestedScroll(element, widget);
+        }
+        // Cross-axis nesting is a standard pattern (e.g. horizontal
+        // ListView inside vertical ScrollView) — suppress.
       }
 
       element.visitChildren(
-        (child) => visitor(child, insideScroll || isScrollable),
+        (child) => visitor(child, parentScrollAxis ?? scrollAxis),
       );
     }
 
     try {
-      context.visitChildElements((child) => visitor(child, false));
+      context.visitChildElements((child) => visitor(child, null));
     } catch (_) {}
+  }
+
+  /// Extract scroll axis from a scrollable widget, or null if not scrollable.
+  static Axis? _scrollAxis(Widget widget) {
+    if (widget is SingleChildScrollView) return widget.scrollDirection;
+    if (widget is ListView) return widget.scrollDirection;
+    if (widget is GridView) return widget.scrollDirection;
+    if (widget is CustomScrollView) return widget.scrollDirection;
+    return null;
   }
 
   void _checkNestedScroll(Element element, Widget widget) {

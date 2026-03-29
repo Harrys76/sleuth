@@ -10,6 +10,7 @@ import '../vm/timeline_parser.dart';
 class MemoryPressureDetector extends BaseDetector {
   MemoryPressureDetector({
     DateTime Function()? clock,
+    this.warmupDurationMs = 5000,
   })  : _clock = clock ?? DateTime.now,
         _trackingStart = (clock ?? DateTime.now)(),
         super(
@@ -19,12 +20,17 @@ class MemoryPressureDetector extends BaseDetector {
           description: 'Detects memory pressure via GC frequency + heap trends',
         );
 
+  /// Duration in milliseconds to suppress heap trend alerts after first sample.
+  /// Prevents false positives from normal startup allocation.
+  final int warmupDurationMs;
+
   final DateTime Function() _clock;
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
 
   int _gcEventCount = 0;
   DateTime _trackingStart;
+  DateTime? _firstHeapSampleTime;
 
   // -- Heap trend rolling window --
 
@@ -63,6 +69,7 @@ class MemoryPressureDetector extends BaseDetector {
   void processHeapSample(HeapSample sample) {
     if (!_isEnabled) return;
 
+    _firstHeapSampleTime ??= _clock();
     _heapSamples.add(sample);
     if (_heapSamples.length > _windowCapacity) _heapSamples.removeAt(0);
 
@@ -107,6 +114,13 @@ class MemoryPressureDetector extends BaseDetector {
 
   void _evaluateHeapTrend() {
     if (_heapSamples.length < 4) return;
+
+    // Suppress heap trend alerts during warmup to avoid false positives
+    // from normal startup allocation (class loading, widget tree, images).
+    if (_firstHeapSampleTime != null) {
+      final sinceFirst = _clock().difference(_firstHeapSampleTime!);
+      if (sinceFirst.inMilliseconds < warmupDurationMs) return;
+    }
 
     final slope = _computeSlopeBytesPerSec();
 
@@ -201,6 +215,7 @@ class MemoryPressureDetector extends BaseDetector {
     _gcEventCount = 0;
     _heapSamples.clear();
     _sustainedGrowthStart = null;
+    _firstHeapSampleTime = null;
     _trackingStart = _clock();
     _issues.clear();
   }
@@ -209,6 +224,7 @@ class MemoryPressureDetector extends BaseDetector {
   void dispose() {
     _heapSamples.clear();
     _sustainedGrowthStart = null;
+    _firstHeapSampleTime = null;
     _issues.clear();
   }
 }

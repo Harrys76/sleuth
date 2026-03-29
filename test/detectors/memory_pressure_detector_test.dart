@@ -25,7 +25,10 @@ void main() {
 
     setUp(() {
       fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
-      detector = MemoryPressureDetector(clock: () => fakeNow);
+      detector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 0, // Disable warmup for existing tests
+      );
     });
 
     // -- Disabled / No-Data --
@@ -478,6 +481,86 @@ void main() {
       final heapIssues =
           detector.issues.where((i) => i.stableId == 'heap_growing');
       expect(heapIssues, isEmpty);
+    });
+
+    // -- Warmup exclusion --
+
+    test('no heap_growing during warmup period', () {
+      final warmupDetector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 5000,
+      );
+
+      // Feed 1MB/s growth for 4 seconds (within warmup)
+      for (var i = 0; i < 8; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        warmupDetector.processHeapSample(_sample(
+          heapUsage: 50000000 + i * 512000,
+          timestamp: fakeNow,
+        ));
+      }
+
+      final heapIssues =
+          warmupDetector.issues.where((i) => i.stableId == 'heap_growing');
+      expect(heapIssues, isEmpty, reason: 'Should not alert during warmup');
+    });
+
+    test('heap_growing fires after warmup ends', () {
+      final warmupDetector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 5000,
+      );
+
+      // Feed 1MB/s growth for 20 seconds (warmup expires at 5s,
+      // sustained threshold of 10s met at ~15s)
+      for (var i = 0; i < 40; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        warmupDetector.processHeapSample(_sample(
+          heapUsage: 50000000 + i * 512000,
+          timestamp: fakeNow,
+        ));
+      }
+
+      final heapIssues =
+          warmupDetector.issues.where((i) => i.stableId == 'heap_growing');
+      expect(heapIssues, hasLength(1),
+          reason: 'Should alert after warmup + sustained threshold');
+    });
+
+    test('GC pressure still fires during warmup', () {
+      final warmupDetector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 5000,
+      );
+
+      // Advance clock and feed GC events during warmup period
+      fakeNow = fakeNow.add(const Duration(seconds: 3));
+      warmupDetector.processTimelineData(gcHeavyData(gcCount: 10));
+
+      final gcIssues =
+          warmupDetector.issues.where((i) => i.stableId == 'gc_pressure');
+      expect(gcIssues, hasLength(1),
+          reason: 'GC pressure should not be affected by warmup');
+    });
+
+    test('heap_near_capacity still fires during warmup', () {
+      final warmupDetector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 5000,
+      );
+
+      // Feed a near-capacity sample during warmup
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      warmupDetector.processHeapSample(_sample(
+        heapUsage: 90000000,
+        heapCapacity: 100000000,
+        timestamp: fakeNow,
+      ));
+
+      final capacityIssues = warmupDetector.issues
+          .where((i) => i.stableId == 'heap_near_capacity');
+      expect(capacityIssues, hasLength(1),
+          reason: 'Heap capacity should not be affected by warmup');
     });
 
     test('dispose clears heap samples and issues', () {

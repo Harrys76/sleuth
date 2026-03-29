@@ -224,6 +224,60 @@ void main() {
         expect(detector.issues.first.observationSource, isNull);
       });
 
+      testWidgets(
+          'flags frequent repainting when shouldRepaint returns false for self',
+          (tester) async {
+        detector.updateDebugSnapshot(const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 50,
+          paintCounts: {'CustomPaint': 50},
+          elapsed: Duration(seconds: 1),
+        ));
+
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: CustomPaint(
+              painter: _NeverRepaintPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.stableId, 'frequent_repaint_painter');
+        expect(detector.issues.first.severity, IssueSeverity.warning);
+        expect(detector.issues.first.confidence, IssueConfidence.possible);
+        expect(detector.issues.first.title, contains('50/sec'));
+      });
+
+      testWidgets(
+          'no duplicate issue when always-repaint painter has high paint rate',
+          (tester) async {
+        detector.updateDebugSnapshot(const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 50,
+          paintCounts: {'CustomPaint': 50},
+          elapsed: Duration(seconds: 1),
+        ));
+
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: CustomPaint(
+              painter: _AlwaysRepaintPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        // Only the always_repaint_painter issue, NOT frequent_repaint_painter
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.stableId, 'always_repaint_painter');
+      });
+
       testWidgets('remains possible when paintCounts empty', (tester) async {
         detector.updateDebugSnapshot(const DebugSnapshot(
           rebuildCounts: {},

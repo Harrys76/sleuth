@@ -124,15 +124,19 @@ ParsedTimelineData shaderCompileData({
     ParsedTimelineData(shaderCompileDurations: shaderDurationsUs);
 
 /// Factory for timeline data with platform channel events (for PlatformChannelDetector).
-ParsedTimelineData platformChannelData({int channelEventCount = 0}) =>
+ParsedTimelineData platformChannelData({
+  int channelEventCount = 0,
+  int durUs = 100,
+  String? methodName,
+}) =>
     ParsedTimelineData(
       platformChannelEvents: List.generate(
         channelEventCount,
         (i) => TimelineEvent.parse({
-          'name': 'PlatformChannel',
+          'name': methodName ?? 'PlatformChannel',
           'cat': 'embedder',
           'ph': 'X',
-          'dur': 100,
+          'dur': durUs,
           'ts': i * 1000,
           'pid': 1,
           'tid': 1,

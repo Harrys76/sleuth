@@ -38,8 +38,15 @@ class GpuPressureDetector extends BaseDetector {
     if (!value) {
       _lastRasterUs = 0;
       _lastUiUs = 0;
-      // Remove any confirmed/likely issues that relied on VM timing data.
-      _issues.removeWhere((i) => i.confidence != IssueConfidence.possible);
+      // Remove VM-backed raster dominance issue entirely.
+      _issues.removeWhere((i) => i.stableId == 'raster_dominance');
+      // Downgrade remaining structural issues to possible confidence.
+      for (int i = 0; i < _issues.length; i++) {
+        if (_issues[i].confidence != IssueConfidence.possible) {
+          _issues[i] =
+              _issues[i].copyWith(confidence: IssueConfidence.possible);
+        }
+      }
     }
   }
 

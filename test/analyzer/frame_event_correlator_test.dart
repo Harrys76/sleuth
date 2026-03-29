@@ -327,6 +327,55 @@ void main() {
       expect(result.containsKey(2), isFalse);
     });
 
+    test('binary search handles large frame sets efficiently', () {
+      // 60 frames × 500 events — verifies O(E log F) vs O(E×F)
+      const frameCount = 60;
+      const eventCount = 500;
+      const frameDurationUs = 16000; // ~16ms per frame
+
+      final frames = List.generate(frameCount, (i) {
+        final buildStart = i * frameDurationUs;
+        final buildFinish = buildStart + 10000;
+        final rasterStart = buildFinish;
+        final rasterFinish = rasterStart + 6000;
+        return makeFrame(
+          frameNumber: i + 1,
+          buildStartUs: buildStart,
+          buildFinishUs: buildFinish,
+          rasterStartUs: rasterStart,
+          rasterFinishUs: rasterFinish,
+        );
+      });
+
+      final events = List.generate(eventCount, (i) {
+        final frameIdx = i % frameCount;
+        final buildStart = frameIdx * frameDurationUs;
+        return PhaseEvent(
+          phase: i.isEven ? TimelinePhase.build : TimelinePhase.raster,
+          timestampUs: i.isEven
+              ? buildStart + 2000 // inside build window
+              : buildStart + 12000, // inside raster window
+          durationUs: 500,
+        );
+      });
+
+      final stopwatch = Stopwatch()..start();
+      final result = correlator.correlate(
+        recentFrames: frames,
+        phaseEvents: events,
+      );
+      stopwatch.stop();
+
+      // All 500 events should match some frame
+      final totalMatched =
+          result.values.fold(0, (sum, d) => sum + d.matchedEventCount);
+      expect(totalMatched, eventCount);
+      expect(result, hasLength(frameCount));
+
+      // Binary search should complete well under 50ms even in debug mode
+      expect(stopwatch.elapsedMilliseconds, lessThan(50));
+    });
+
     test('coverage calculation across multiple frames', () {
       final frame = makeFrame(
         frameNumber: 1,

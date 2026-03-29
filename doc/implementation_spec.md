@@ -2242,3 +2242,70 @@ These items were evaluated during the v3 research phase but deferred due to high
 | GC mode recommendations (`requestPerformanceMode`) | `DartPerformanceMode` is useful but auto-switching could cause unexpected behavior. | After gathering real-world data on GC pressure patterns from v3.4/v3.5. |
 | Hot reload detection + detector state reset | Timeline `HotReload` events could trigger detector reset, preventing stale state. Low priority — stale state resolves within one scan cycle. | If users report false positives after hot reload. |
 | `UserTag` for overhead isolation | Tag Widget Watchdog's own code to filter from CPU samples. Low impact — package overhead is < 1% in profile mode. | If self-overhead ever becomes measurable in CPU attribution. |
+
+---
+
+## v0.4.0 Post-Implementation Notes
+
+v0.4.0 implements v3.1 (7 detection accuracy fixes) and v3.9 (FrameEventCorrelator binary search optimization). 849 tests passing (up from 828), 0 analysis issues. No breaking API changes.
+
+### Implementation Summary
+
+| Item | Status | New Tests | Spec Deviations |
+|------|:------:|:---------:|:---------------:|
+| v3.1.1 AnimatedBuilder threshold + corroboration | Done | 4 | 1 |
+| v3.1.2 CustomPainter secondary heuristic | Done | 2 | 1 |
+| v3.1.3 MemoryPressure warmup exclusion | Done | 4 | 0 |
+| v3.1.4 NestedScroll cross-axis suppression | Done | 4 | 1 |
+| v3.1.5 Opacity threshold `< 0.01` | Done | 3 | 0 |
+| v3.1.6 GpuPressure structural issue preservation | Done | 2 | 0 |
+| v3.1.7 PlatformChannel duration tracking | Done | 4 | 0 |
+| v3.9 FrameEventCorrelator binary search | Done | 1 | 2 |
+| **Total** | **8/8** | **24** | **5** |
+
+### Spec Deviations
+
+All deviations are simplifications that produce better or equivalent results with less complexity.
+
+#### 1. v3.1.1 — Corroboration source changed
+
+**Spec:** Require corroboration from RepaintDetector (paint rate > 30/sec on same widget type).
+**Actual:** Uses DebugSnapshot `rebuildsPerSecond('AnimatedBuilder')` instead. RepaintDetector tracks types at a coarser level and isn't directly accessible from AnimatedBuilderDetector (hub architecture prevents inter-detector access). DebugSnapshot is already piped to the detector via `updateDebugSnapshot()` and provides widget-type-specific rebuild rates.
+**Impact:** Better — uses existing data flow, no architectural coupling. Same confidence outcome.
+
+#### 2. v3.1.2 — Self-comparison kept, secondary heuristic added
+
+**Spec:** Replace self-comparison test with a second instance or reflection-based check.
+**Actual:** Kept self-comparison (correctly catches `=> true` pattern). Added a secondary heuristic: when no always-true painters are found but DebugSnapshot shows CustomPaint paint rate > 30/sec, emit a `frequent_repaint_painter` warning at `possible` confidence. Uses `IssueSeverity.warning` (not `info` — enum doesn't include `info`).
+**Impact:** Simpler and more robust. The self-comparison correctly flags the `=> true` pattern without requiring reflection or second-instance creation (both fragile). The secondary heuristic catches the remaining class of problematic painters via runtime evidence.
+
+#### 3. v3.1.4 — Cross-axis always suppressed
+
+**Spec:** Cross-axis nesting should flag when `NeverScrollableScrollPhysics` is NOT applied (both axes live-scrollable → gesture conflict).
+**Actual:** Cross-axis nesting is always suppressed. The spec's acceptance criteria ("Horizontal ListView inside vertical ScrollView → no issue") uses default physics (AlwaysScrollableScrollPhysics), which would be flagged under the spec's rule. The acceptance criteria contradicts the rule.
+**Impact:** The simpler rule matches the acceptance criteria exactly and avoids false positives on the most common cross-axis pattern. Gesture conflicts in cross-axis nesting are rare and better caught by user testing than static analysis.
+
+#### 4. v3.9 — Separate UI/raster sorted lists instead of single tuple list
+
+**Spec:** Build a sorted list of `(buildStartUs, rasterFinishUs, frameIndex)` tuples and binary search on `buildStartUs`.
+**Actual:** Two separate sorted lists: `uiSorted` (by `buildStartUs`) and `rasterSorted` (by `rasterStartUs`). UI-thread events search `uiSorted`, raster-thread events search `rasterSorted`.
+**Impact:** Better — a single sorted list by `buildStartUs` cannot efficiently search raster windows (which may be in different order). Separate lists give O(log F) for both thread types with correct matching.
+
+#### 5. v3.9 — Cross-frame event splitting not implemented
+
+**Spec:** If an event's duration spans two frame boundaries, assign proportionally by time overlap.
+**Actual:** Not implemented — events are assigned to the first matching frame (same as original linear scan). This maintains exact behavioral equivalence with the original implementation.
+**Impact:** Low — cross-frame events are rare in practice (events are typically much shorter than frame windows). Implementing proportional splitting would change the output and is better done as a separate follow-up with its own tests.
+
+### WatchdogConfig Additions
+
+Two new optional fields with sensible defaults:
+
+| Field | Default | Used By |
+|-------|---------|---------|
+| `memoryWarmupDurationMs` | `5000` | `MemoryPressureDetector` — suppresses heap trend alerts during first N ms |
+| `platformChannelDurationThresholdMs` | `8` | `PlatformChannelDetector` — cumulative duration threshold per window |
+
+### Test Helper Changes
+
+`platformChannelData()` in `test/helpers/timeline_test_helpers.dart` gained two optional params: `durUs` (per-event duration, default 100) and `methodName` (event name, default `'PlatformChannel'`). Existing test callsites unchanged (use defaults).

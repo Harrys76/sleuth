@@ -67,7 +67,7 @@ class AnimatedBuilderDetector extends BaseDetector {
 
         element.visitChildren(countSubtree);
 
-        if (subtreeSize > 5) {
+        if (subtreeSize > 20) {
           found.add(buildAncestorChain(element));
           final ro = element.renderObject;
           if (ro != null) {
@@ -95,15 +95,19 @@ class AnimatedBuilderDetector extends BaseDetector {
     if (found.isNotEmpty) {
       final locations = found.take(5).map((chain) => '  • $chain').join('\n');
 
-      // Check debug snapshot for AnimatedBuilder rebuild evidence.
+      // Check debug snapshot for AnimatedBuilder rebuild/paint evidence.
       String? debugEvidence;
+      IssueConfidence confidence = IssueConfidence.possible;
       ObservationSource? source;
       final ds = _lastDebugSnapshot;
       if (ds != null) {
         final abRate = ds.rebuildsPerSecond('AnimatedBuilder');
+        final paintRate = ds.paintsPerSecondForType('AnimatedBuilder');
         if (abRate > 30) {
-          debugEvidence = 'AnimatedBuilder rebuilding at ${abRate.round()}/sec '
-              '(debug callback).';
+          debugEvidence = 'AnimatedBuilder rebuilding at ${abRate.round()}/sec'
+              '${paintRate > 30 ? ', painting at ${paintRate.round()}/sec' : ''}'
+              ' (debug callback).';
+          confidence = IssueConfidence.likely;
           source = ObservationSource.debugCallbackAndStructural;
         }
       }
@@ -113,7 +117,7 @@ class AnimatedBuilderDetector extends BaseDetector {
           stableId: 'animated_builder_no_child',
           severity: IssueSeverity.warning,
           category: IssueCategory.build,
-          confidence: IssueConfidence.likely,
+          confidence: confidence,
           title: 'AnimatedBuilder without child: ${found.length} found',
           detail: '${found.length} AnimatedBuilder(s) do not use the child '
               'parameter. The entire builder subtree rebuilds on every '

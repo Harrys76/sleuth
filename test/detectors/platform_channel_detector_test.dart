@@ -111,7 +111,7 @@ void main() {
       expect(detector.issues, hasLength(1));
     });
 
-    test('detail mentions call count and threshold', () {
+    test('detail mentions call count, duration, and thresholds', () {
       detector.processTimelineData(
         platformChannelData(channelEventCount: 25),
       );
@@ -119,8 +119,9 @@ void main() {
       detector.processTimelineData(emptyTimelineData());
 
       final issue = detector.issues.first;
-      expect(issue.detail, contains('25'));
-      expect(issue.detail, contains('Threshold: 20/sec'));
+      expect(issue.detail, contains('25 calls'));
+      expect(issue.detail, contains('Thresholds: 20 calls/sec'));
+      expect(issue.detail, contains('8ms cumulative'));
     });
 
     test('fixHint recommends batching and Pigeon', () {
@@ -132,6 +133,55 @@ void main() {
 
       expect(detector.issues.first.fixHint, contains('Batch'));
       expect(detector.issues.first.fixHint, contains('Pigeon'));
+    });
+
+    test('no issue when duration below threshold despite moderate frequency',
+        () {
+      // 15 calls × 100µs each = 1.5ms (below 8ms threshold)
+      // 15 calls (below 20 threshold)
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 15, durUs: 100),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, isEmpty);
+    });
+
+    test('warning when cumulative duration exceeds threshold', () {
+      // 3 calls × 5000µs = 15ms (> 8ms threshold), but only 3 calls (< 20)
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 3, durUs: 5000),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+      expect(detector.issues.first.title, contains('Slow Platform Channels'));
+      expect(detector.issues.first.title, contains('15.0ms'));
+    });
+
+    test('critical when cumulative duration far exceeds threshold', () {
+      // 3 calls × 50000µs = 150ms (> 8ms × 2 = 16ms)
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 3, durUs: 50000),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+    });
+
+    test('detail includes method names', () {
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 25, methodName: 'getLocation'),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.detail, contains('getLocation: 25×'));
     });
 
     test('dispose clears issues', () {

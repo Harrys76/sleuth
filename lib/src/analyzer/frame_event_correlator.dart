@@ -66,31 +66,21 @@ class FrameEventCorrelator {
 
     final totalEvents = phaseEvents.length;
 
-    // For each event, find the matching frame
+    // Pre-sort frames by build/raster start for binary search (O(F log F))
+    final uiSorted = List<FrameStats>.from(eligibleFrames)
+      ..sort((a, b) => a.buildStartUs!.compareTo(b.buildStartUs!));
+    final rasterSorted = List<FrameStats>.from(eligibleFrames)
+      ..sort((a, b) => a.rasterStartUs!.compareTo(b.rasterStartUs!));
+
+    // For each event, binary search for the matching frame (O(E log F))
     for (final event in phaseEvents) {
       final isUiThread = event.phase == TimelinePhase.build ||
           event.phase == TimelinePhase.layout ||
           event.phase == TimelinePhase.paint;
 
-      int? matchedFrameNumber;
-
-      for (final frame in eligibleFrames) {
-        if (isUiThread) {
-          // UI-thread events: match against build window
-          if (event.timestampUs >= frame.buildStartUs! &&
-              event.timestampUs <= frame.buildFinishUs!) {
-            matchedFrameNumber = frame.frameNumber;
-            break;
-          }
-        } else {
-          // Raster-thread events: match against raster window
-          if (event.timestampUs >= frame.rasterStartUs! &&
-              event.timestampUs <= frame.rasterFinishUs!) {
-            matchedFrameNumber = frame.frameNumber;
-            break;
-          }
-        }
-      }
+      final matchedFrameNumber = isUiThread
+          ? _binarySearchUi(uiSorted, event.timestampUs)
+          : _binarySearchRaster(rasterSorted, event.timestampUs);
 
       if (matchedFrameNumber != null) {
         final bucket = buckets[matchedFrameNumber]!;
@@ -126,6 +116,40 @@ class FrameEventCorrelator {
     }
 
     return result;
+  }
+
+  /// Binary search for a UI-thread timestamp within build windows.
+  static int? _binarySearchUi(List<FrameStats> frames, int timestampUs) {
+    int lo = 0, hi = frames.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) ~/ 2;
+      final f = frames[mid];
+      if (timestampUs < f.buildStartUs!) {
+        hi = mid - 1;
+      } else if (timestampUs > f.buildFinishUs!) {
+        lo = mid + 1;
+      } else {
+        return f.frameNumber;
+      }
+    }
+    return null;
+  }
+
+  /// Binary search for a raster-thread timestamp within raster windows.
+  static int? _binarySearchRaster(List<FrameStats> frames, int timestampUs) {
+    int lo = 0, hi = frames.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) ~/ 2;
+      final f = frames[mid];
+      if (timestampUs < f.rasterStartUs!) {
+        hi = mid - 1;
+      } else if (timestampUs > f.rasterFinishUs!) {
+        lo = mid + 1;
+      } else {
+        return f.frameNumber;
+      }
+    }
+    return null;
   }
 }
 

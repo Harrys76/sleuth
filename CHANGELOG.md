@@ -1,3 +1,44 @@
+## 0.4.0
+
+### Improved
+
+- **AnimatedBuilder threshold raised** (v3.1.1): subtree size threshold increased
+  from 5 to 20, reducing false positives on normal animations. Confidence defaults
+  to `possible` and upgrades to `likely` only when DebugSnapshot confirms rebuild
+  rate > 30/sec.
+- **CustomPainter secondary heuristic** (v3.1.2): added `frequent_repaint_painter`
+  detection — when no always-true painters are found but CustomPaint paint rate
+  exceeds 30/sec, a warning is emitted to prompt `shouldRepaint` review.
+- **MemoryPressure warmup exclusion** (v3.1.3): heap trend alerts are suppressed
+  during the first 5 seconds after the initial heap sample, preventing false
+  positives from normal app startup allocation. GC pressure and heap capacity
+  alerts are unaffected. Configurable via `WatchdogConfig.memoryWarmupDurationMs`.
+- **NestedScroll cross-axis suppression** (v3.1.4): horizontal ListView inside
+  vertical ScrollView (and other cross-axis combinations) no longer produces
+  false positives. Only same-axis nesting is flagged.
+- **Opacity near-zero detection** (v3.1.5): threshold widened from exact `0.0`
+  to `< 0.01`, catching visually invisible widgets that still pay layout and
+  hit-testing costs. Detail text includes the actual opacity value.
+- **GpuPressure structural issue preservation** (v3.1.6): when VM disconnects,
+  structural issues (expensive render nodes) are preserved at `possible`
+  confidence instead of being cleared entirely. Only the VM-backed raster
+  dominance issue is removed.
+- **PlatformChannel duration tracking** (v3.1.7): tracks cumulative per-call
+  duration alongside frequency. Fires when either frequency exceeds threshold
+  OR cumulative duration exceeds 8ms (configurable via
+  `WatchdogConfig.platformChannelDurationThresholdMs`). Detail includes top
+  method names.
+- **FrameEventCorrelator binary search** (v3.9): O(E×F) linear scan replaced
+  with O(E log F) binary search using pre-sorted frame lists. Behavioral
+  equivalence maintained for all existing tests.
+
+### Added
+
+- `WatchdogConfig.memoryWarmupDurationMs` — warmup period for heap trend alerts
+  (default 5000ms).
+- `WatchdogConfig.platformChannelDurationThresholdMs` — cumulative duration
+  threshold for platform channel detection (default 8ms).
+
 ## 0.3.0
 
 ### Added
