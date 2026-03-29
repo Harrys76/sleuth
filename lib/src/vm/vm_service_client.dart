@@ -55,6 +55,14 @@ class VmServiceClient {
   /// Whether the client has been disposed.
   bool get isDisposed => _disposed;
 
+  /// Test-only: inject a mock VmService and isolate ID to test polling/CPU paths.
+  @visibleForTesting
+  void setServiceForTest(VmService service, {String? isolateId}) {
+    _service = service;
+    _mainIsolateId = isolateId;
+    _connected = true;
+  }
+
   /// Attempt to connect to the VM service with retry logic.
   ///
   /// Retries [maxRetries] times with [retryDelay] between attempts.
@@ -165,6 +173,10 @@ class VmServiceClient {
       (_) => _pollTimeline(),
     );
   }
+
+  /// Test-only: run one poll cycle without the periodic timer.
+  @visibleForTesting
+  Future<void> pollTimelineForTest() => _pollTimeline();
 
   Future<void> _pollTimeline() async {
     if (_service == null || _disposed) return;

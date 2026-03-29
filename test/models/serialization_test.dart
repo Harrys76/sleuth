@@ -444,6 +444,122 @@ void main() {
     });
   });
 
+  group('CaptureEntry fromJson with topFunctions (Gap 5)', () {
+    test('fromJson restores topFunctions from verdict JSON', () {
+      // This tests the deserialization direction — toJson is tested above.
+      final json = {
+        'frameStats': {
+          'frameNumber': 7,
+          'uiDurationUs': 30000,
+          'rasterDurationUs': 5000,
+          'timestamp': '2026-03-28T00:00:00.000Z',
+        },
+        'verdict': {
+          'frameNumber': 7,
+          'totalFrameTimeUs': 30000,
+          'uiThreadTimeUs': 25000,
+          'rasterThreadTimeUs': 5000,
+          'suspectedPhase': 'build',
+          'reason': 'Build dominant',
+          'topFunctions': [
+            {
+              'functionName': 'build',
+              'className': 'MyWidget',
+              'libraryUri': 'package:app/w.dart',
+              'percentage': 42.5,
+              'displayName': 'MyWidget.build',
+            },
+            {
+              'functionName': 'layout',
+              'className': 'RenderFlex',
+              'libraryUri': 'package:flutter/rendering.dart',
+              'percentage': 15.3,
+              'displayName': 'RenderFlex.layout',
+            },
+          ],
+        },
+        'relatedIssues': <dynamic>[],
+        'capturedAt': '2026-03-28T12:00:00.000Z',
+      };
+
+      final entry = CaptureEntry.fromJson(json);
+      expect(entry.verdict.topFunctions, isNotNull);
+      expect(entry.verdict.topFunctions, hasLength(2));
+      expect(entry.verdict.topFunctions![0].functionName, 'build');
+      expect(entry.verdict.topFunctions![0].className, 'MyWidget');
+      expect(entry.verdict.topFunctions![0].percentage, 42.5);
+      expect(entry.verdict.topFunctions![0].displayName, 'MyWidget.build');
+      expect(entry.verdict.topFunctions![1].functionName, 'layout');
+      expect(entry.verdict.topFunctions![1].percentage, 15.3);
+    });
+
+    test('fromJson handles absent topFunctions (null)', () {
+      final json = {
+        'frameStats': {
+          'frameNumber': 1,
+          'uiDurationUs': 20000,
+          'rasterDurationUs': 5000,
+          'timestamp': '2026-03-28T00:00:00.000Z',
+        },
+        'verdict': {
+          'frameNumber': 1,
+          'totalFrameTimeUs': 20000,
+          'uiThreadTimeUs': 15000,
+          'rasterThreadTimeUs': 5000,
+          'suspectedPhase': 'build',
+          'reason': 'Test',
+        },
+        'relatedIssues': <dynamic>[],
+        'capturedAt': '2026-03-28T12:00:00.000Z',
+      };
+
+      final entry = CaptureEntry.fromJson(json);
+      expect(entry.verdict.topFunctions, isNull);
+    });
+
+    test('full roundtrip: toJson → fromJson preserves topFunctions', () {
+      final entry = CaptureEntry(
+        frameStats: FrameStats(
+          frameNumber: 10,
+          uiDuration: const Duration(microseconds: 30000),
+          rasterDuration: const Duration(microseconds: 5000),
+          timestamp: DateTime.utc(2026, 3, 28),
+        ),
+        verdict: const FrameVerdict(
+          frameNumber: 10,
+          totalFrameTime: Duration(microseconds: 30000),
+          uiThreadTime: Duration(microseconds: 25000),
+          rasterThreadTime: Duration(microseconds: 5000),
+          suspectedPhase: PipelinePhase.build,
+          reason: 'Build dominant',
+          topFunctions: [
+            CpuAttribution(
+              functionName: 'build',
+              className: 'ExpensiveWidget',
+              libraryUri: 'package:app/expensive.dart',
+              percentage: 67.2,
+            ),
+          ],
+        ),
+        relatedIssues: const [],
+        capturedAt: DateTime.utc(2026, 3, 28, 12, 0, 0),
+      );
+
+      final json = entry.toJson();
+      final restored = CaptureEntry.fromJson(json);
+
+      expect(restored.verdict.topFunctions, isNotNull);
+      expect(restored.verdict.topFunctions, hasLength(1));
+      expect(restored.verdict.topFunctions![0].className, 'ExpensiveWidget');
+      expect(restored.verdict.topFunctions![0].functionName, 'build');
+      expect(restored.verdict.topFunctions![0].percentage, 67.2);
+      expect(
+        restored.verdict.topFunctions![0].libraryUri,
+        'package:app/expensive.dart',
+      );
+    });
+  });
+
   group('FrameStatsSummary serialization', () {
     test('roundtrip', () {
       const original = FrameStatsSummary(

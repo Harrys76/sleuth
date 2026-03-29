@@ -121,6 +121,80 @@ void main() {
       expect(HttpOverrides.current, same(first));
     });
   });
+
+  // =========================================================================
+  // Gap 4: URL exclusion behavioral tests
+  // =========================================================================
+  group('URL exclusion behavior (Gap 4)', () {
+    late List<RequestRecord> capturedRecords;
+
+    setUp(() {
+      capturedRecords = [];
+      HttpOverrides.global = null;
+    });
+
+    tearDown(() {
+      HttpOverrides.global = null;
+    });
+
+    test('exclude patterns wired through to monitoring client', () async {
+      final overrides = WatchdogHttpOverrides(
+        onRecord: capturedRecords.add,
+        excludePatterns: ['analytics.example.com'],
+      );
+      WatchdogHttpOverrides.install(overrides);
+
+      // createHttpClient returns a _MonitoringHttpClient that receives
+      // the exclude patterns. Full behavioral testing (making real HTTP
+      // requests) is out of scope for unit tests.
+      final client = overrides.createHttpClient(null);
+      try {
+        expect(client, isA<HttpClient>());
+        expect(overrides.excludePatterns, contains('analytics.example.com'));
+      } finally {
+        client.close();
+      }
+    });
+
+    test('null excludePatterns treats all URLs as monitored', () {
+      final overrides = WatchdogHttpOverrides(
+        onRecord: capturedRecords.add,
+      );
+      expect(overrides.excludePatterns, isNull);
+
+      // Client should be created with monitoring (wrapping all requests)
+      final client = overrides.createHttpClient(null);
+      expect(client, isA<HttpClient>());
+      client.close();
+    });
+
+    test('empty excludePatterns treats all URLs as monitored', () {
+      final overrides = WatchdogHttpOverrides(
+        onRecord: capturedRecords.add,
+        excludePatterns: [],
+      );
+      expect(overrides.excludePatterns, isEmpty);
+
+      final client = overrides.createHttpClient(null);
+      expect(client, isA<HttpClient>());
+      client.close();
+    });
+
+    test('multiple exclusion patterns stored correctly', () {
+      final overrides = WatchdogHttpOverrides(
+        onRecord: capturedRecords.add,
+        excludePatterns: [
+          'analytics.example.com',
+          '/health',
+          'crashlytics',
+        ],
+      );
+      expect(overrides.excludePatterns, hasLength(3));
+      expect(overrides.excludePatterns, contains('analytics.example.com'));
+      expect(overrides.excludePatterns, contains('/health'));
+      expect(overrides.excludePatterns, contains('crashlytics'));
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

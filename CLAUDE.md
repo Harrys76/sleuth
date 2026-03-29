@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 21 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~667 tests, ~8s)
+fvm flutter test                    # Run all tests (~828 tests, ~9s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -52,6 +52,7 @@ test/
 
 ## Current state
 
-- v0.2.0 published and tagged
-- v2.1 Network Monitoring complete (21st detector)
-- v2 roadmap in `doc/implementation_spec.md` (lines 864+): Source Location, Heap Trend, CPU Attribution
+- v0.3.0 published and tagged
+- v2 roadmap complete: all 4 features shipped (v2.1 Network, v2.2 Heap Trend, v2.3 CPU Attribution, v2.4 Source Location)
+- Post-implementation audit in `doc/implementation_spec.md` (search "v2 Post-Implementation Audit")
+- ~828 tests, 0 analysis issues

@@ -38,7 +38,7 @@
   CPU attribution data when available.
 - Barrel file exports `CpuAttribution`, `HeapSample`, and updated
   `FrameVerdict`.
-- Ancestor chain framework filter expanded: 16 additional framework widgets
+- Ancestor chain framework filter expanded: 17 additional framework widgets
   (transitions, builders, pointer/render infrastructure) are now excluded
   from ancestor chains, producing shorter and more user-relevant paths.
 - Issue card no longer shows redundant "Widget:" line when the detail text
