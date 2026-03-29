@@ -9,6 +9,7 @@ HeapSample _sample({
   int heapUsage = 50000000,
   int heapCapacity = 100000000,
   int externalUsage = 0,
+  int? rssBytes,
   required DateTime timestamp,
 }) =>
     HeapSample(
@@ -16,6 +17,7 @@ HeapSample _sample({
       heapCapacity: heapCapacity,
       externalUsage: externalUsage,
       timestamp: timestamp,
+      rssBytes: rssBytes,
     );
 
 void main() {
@@ -589,6 +591,220 @@ void main() {
       final heapIssues = detector.issues.where((i) =>
           i.stableId == 'heap_growing' || i.stableId == 'heap_near_capacity');
       expect(heapIssues, isEmpty);
+    });
+
+    // -- Native Memory Growth (native_memory_growing) --
+
+    test('no native_memory_growing when rssBytes is null', () {
+      // 24 samples with growing heap but no rssBytes
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000 + i * 512000,
+          timestamp: fakeNow,
+        ));
+      }
+
+      final nativeIssues =
+          detector.issues.where((i) => i.stableId == 'native_memory_growing');
+      expect(nativeIssues, isEmpty);
+    });
+
+    test('no native_memory_growing with flat native memory', () {
+      // RSS and heap grow together — native gap stays constant
+      for (var i = 0; i < 30; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        final heap = 50000000 + i * 512000;
+        detector.processHeapSample(_sample(
+          heapUsage: heap,
+          rssBytes: heap + 100000000, // constant 100MB native
+          timestamp: fakeNow,
+        ));
+      }
+
+      final nativeIssues =
+          detector.issues.where((i) => i.stableId == 'native_memory_growing');
+      expect(nativeIssues, isEmpty);
+    });
+
+    test('no native_memory_growing when growth < 1MB/s', () {
+      // ~800KB/s native growth (below 1MB/s threshold)
+      for (var i = 0; i < 30; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000, // flat heap
+          rssBytes: 150000000 + i * 400000, // ~800KB/s native
+          timestamp: fakeNow,
+        ));
+      }
+
+      final nativeIssues =
+          detector.issues.where((i) => i.stableId == 'native_memory_growing');
+      expect(nativeIssues, isEmpty);
+    });
+
+    test('no native_memory_growing when growth < 10s sustained', () {
+      // 2MB/s native growth but only 8 seconds (16 samples)
+      for (var i = 0; i < 16; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000, // flat heap
+          rssBytes: 150000000 + i * 1048576, // ~2MB/s native
+          timestamp: fakeNow,
+        ));
+      }
+
+      final nativeIssues =
+          detector.issues.where((i) => i.stableId == 'native_memory_growing');
+      expect(nativeIssues, isEmpty);
+    });
+
+    test(
+        'flags native_memory_growing when growth > 1MB/s sustained 10+ seconds',
+        () {
+      // 2MB/s native growth for 12 seconds (24 samples), flat heap
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000, // flat heap
+          rssBytes: 150000000 + i * 1048576, // ~2MB/s native
+          timestamp: fakeNow,
+        ));
+      }
+
+      final nativeIssues = detector.issues
+          .where((i) => i.stableId == 'native_memory_growing')
+          .toList();
+      expect(nativeIssues, hasLength(1));
+    });
+
+    test('native_memory_growing stableId, confidence, category correct', () {
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000,
+          rssBytes: 150000000 + i * 1048576,
+          timestamp: fakeNow,
+        ));
+      }
+
+      final issue = detector.issues
+          .firstWhere((i) => i.stableId == 'native_memory_growing');
+      expect(issue.stableId, 'native_memory_growing');
+      expect(issue.confidence, IssueConfidence.likely);
+      expect(issue.category, IssueCategory.memory);
+      expect(issue.severity, IssueSeverity.warning);
+      expect(issue.observationSource, ObservationSource.vmTimeline);
+    });
+
+    test('native_memory_growing detail contains rate and native estimate', () {
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000,
+          rssBytes: 150000000 + i * 1048576,
+          timestamp: fakeNow,
+        ));
+      }
+
+      final issue = detector.issues
+          .firstWhere((i) => i.stableId == 'native_memory_growing');
+      expect(issue.detail, contains('MB/sec'));
+      expect(issue.detail, contains('native estimate'));
+      expect(issue.title, contains('MB/s'));
+    });
+
+    test('native_memory_growing coexists with heap_growing', () {
+      // Both heap and native growing
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000 + i * 600000, // ~1.2MB/s heap growth
+          rssBytes: 200000000 + i * 2000000, // ~4MB/s RSS growth
+          timestamp: fakeNow,
+        ));
+      }
+
+      final stableIds = detector.issues.map((i) => i.stableId).toSet();
+      expect(stableIds, contains('heap_growing'));
+      expect(stableIds, contains('native_memory_growing'));
+    });
+
+    test('native_memory_growing suppressed during warmup', () {
+      final warmupDetector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 5000,
+      );
+
+      // 2MB/s native growth for 4 seconds (within warmup)
+      for (var i = 0; i < 8; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        warmupDetector.processHeapSample(_sample(
+          heapUsage: 50000000,
+          rssBytes: 150000000 + i * 1048576,
+          timestamp: fakeNow,
+        ));
+      }
+
+      final nativeIssues = warmupDetector.issues
+          .where((i) => i.stableId == 'native_memory_growing');
+      expect(nativeIssues, isEmpty, reason: 'Should not alert during warmup');
+    });
+
+    test('native_memory_growing fires after warmup ends', () {
+      final warmupDetector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 5000,
+      );
+
+      // 2MB/s native growth for 20 seconds (warmup expires at 5s,
+      // sustained threshold of 10s met at ~15s)
+      for (var i = 0; i < 40; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        warmupDetector.processHeapSample(_sample(
+          heapUsage: 50000000,
+          rssBytes: 150000000 + i * 1048576,
+          timestamp: fakeNow,
+        ));
+      }
+
+      final nativeIssues = warmupDetector.issues
+          .where((i) => i.stableId == 'native_memory_growing');
+      expect(nativeIssues, hasLength(1),
+          reason: 'Should alert after warmup + sustained threshold');
+    });
+
+    test('reset clears native sustained growth tracking', () {
+      // Trigger native_memory_growing
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000,
+          rssBytes: 150000000 + i * 1048576,
+          timestamp: fakeNow,
+        ));
+      }
+      expect(
+        detector.issues.where((i) => i.stableId == 'native_memory_growing'),
+        isNotEmpty,
+      );
+
+      detector.reset();
+
+      // Re-feed with < 10s native growth — should NOT trigger
+      for (var i = 0; i < 16; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000,
+          rssBytes: 150000000 + i * 1048576,
+          timestamp: fakeNow,
+        ));
+      }
+
+      final nativeIssues =
+          detector.issues.where((i) => i.stableId == 'native_memory_growing');
+      expect(nativeIssues, isEmpty,
+          reason: '<10s sustained growth after reset should not trigger');
     });
   });
 }

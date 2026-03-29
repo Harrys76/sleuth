@@ -2490,3 +2490,63 @@ No changes to: controller, ranking, debug, vm, analyzer, network.
 | "No model changes needed" | Added `FixEffort` enum + `fixEffort` field to `PerformanceIssue` (nullable, backward compatible) |
 | "~21 tests (one per detector)" | 97 new tests: 86 builder tests + 13 model/serialization tests + 1 UI test |
 | Files: "Modified: `performance_issue.dart` (no model changes)" | Model changes required for explicit effort classification |
+
+---
+
+## v3.4 Post-Implementation Notes
+
+v3.4 implements Native Memory Tracking — adding process-level RSS monitoring alongside existing Dart heap polling to detect native memory growth (GPU textures, decoded images, platform channel buffers). 996 tests passing (up from 974), 0 analysis issues.
+
+### Implementation Summary
+
+| Item | Status | New Tests | Spec Deviations |
+|------|:------:|:---------:|:---------------:|
+| `rssBytes` field + `nativeBytes` getter on `HeapSample` | Done | 8 | 1 (see below) |
+| `_readRssBytes()` platform guard in `VmServiceClient` | Done | 0 (runtime-only) | 0 |
+| `_evaluateNativeGrowth()` in `MemoryPressureDetector` | Done | 11 | 0 |
+| `nativeMemoryGrowth()` in `FixHintBuilder` | Done | 3 | 0 |
+| **Total** | **4/4** | **22** | **1** |
+
+### Design Decisions
+
+#### 1. `nativeBytes` as a computed getter, not a stored field (spec deviation)
+
+The spec said "add `rssBytes: int?`, `nativeBytes: int?`" as two stored fields. In practice, `nativeBytes` is always `rssBytes - heapUsage`, so storing it would create a consistency risk (stale value if either input changes). Implemented as a getter instead: `int? get nativeBytes => rssBytes != null ? (rssBytes! - heapUsage).clamp(0, rssBytes!) : null`. The clamp to `[0, rssBytes]` handles the edge case where RSS lags behind a heap expansion (would produce a confusing negative value). `toJson()` still serializes both `rssBytes` and `nativeBytes` for export consumers.
+
+#### 2. try/catch platform guard over `kIsWeb`
+
+The spec said "platform guard" and suggested try/catch. Implemented `_readRssBytes()` as a top-level function with try/catch. This is more robust than a `kIsWeb` check because `ProcessInfo.currentRss` can also fail on Fuchsia or unusual embeddings. Zero cost on success (< 50μs syscall).
+
+#### 3. No session_snapshot.dart changes needed
+
+The spec listed `session_snapshot.dart` as a changed file. In practice, no changes were needed — the existing `heapSamples!.map((s) => s.toJson()).toList()` at line 60 automatically picks up the new `rssBytes` and `nativeBytes` fields from the updated `HeapSample.toJson()`. Conditional serialization (`if (rssBytes != null)`) ensures backward compatibility.
+
+#### 4. Linear regression reuse
+
+`_computeNativeSlopeBytesPerSec()` duplicates the least-squares regression logic from `_computeSlopeBytesPerSec()` with only the Y-axis value changed (`nativeBytes` vs `heapUsage`). Could be refactored to accept a `double Function(HeapSample)` extractor, but for 2 usages the duplication is clearer and avoids premature abstraction.
+
+#### 5. Reuses existing thresholds and constants
+
+Native growth detection reuses `_sustainedGrowthDurationSec = 10` and `warmupDurationMs` from the heap trend evaluator. Only the slope threshold differs: 1MB/sec for native (vs 500KB/sec for heap). No new `WatchdogConfig` knob added — can be added later if users request configurability.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `lib/src/models/heap_sample.dart` | `rssBytes: int?` field, `nativeBytes` computed getter, conditional `toJson` |
+| `lib/src/vm/vm_service_client.dart` | `dart:io` import, `_readRssBytes()` helper, `rssBytes:` in HeapSample constructor |
+| `lib/src/detectors/memory_pressure_detector.dart` | `_nativeGrowthThresholdBytesPerSec` constant, `_sustainedNativeGrowthStart` tracker, `_evaluateNativeGrowth()`, `_computeNativeSlopeBytesPerSec()`, wired into `_evaluate()`, reset/dispose cleanup |
+| `lib/src/utils/fix_hint_builder.dart` | `nativeMemoryGrowth()` static method (involved effort) |
+| `test/models/heap_sample_test.dart` | 8 new tests: rssBytes serialization, nativeBytes computation, clamping, null handling |
+| `test/detectors/memory_pressure_detector_test.dart` | `_sample` helper updated, 11 new tests in Native Memory Growth group |
+| `test/utils/fix_hint_builder_test.dart` | 3 new tests: effort level, DevTools keyword, cacheWidth keyword |
+
+No changes to: session_snapshot.dart, watchdog_controller.dart, barrel file, UI files, WatchdogConfig.
+
+### Spec vs. Implementation Corrections
+
+| Spec | Actual |
+|------|--------|
+| "`nativeBytes: int?` stored field on HeapSample" | Computed getter `int? get nativeBytes` (clamped to [0, rssBytes]) — avoids stale value risk |
+| "Files changed: `session_snapshot.dart`" | No changes needed — existing `s.toJson()` call picks up new fields automatically |
+| "8 tests" | 22 new tests: 8 model + 11 detector + 3 FixHintBuilder |

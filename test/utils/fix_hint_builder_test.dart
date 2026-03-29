@@ -653,4 +653,25 @@ void main() {
       expect(hint, contains('Run in profile mode'));
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // nativeMemoryGrowth
+  // ---------------------------------------------------------------------------
+
+  group('nativeMemoryGrowth', () {
+    test('returns involved effort', () {
+      final (_, effort) = FixHintBuilder.nativeMemoryGrowth();
+      expect(effort, FixEffort.involved);
+    });
+
+    test('hint mentions DevTools', () {
+      final (hint, _) = FixHintBuilder.nativeMemoryGrowth();
+      expect(hint, contains('DevTools'));
+    });
+
+    test('hint mentions cacheWidth', () {
+      final (hint, _) = FixHintBuilder.nativeMemoryGrowth();
+      expect(hint, contains('cacheWidth'));
+    });
+  });
 }

@@ -277,6 +277,17 @@ class FixHintBuilder {
     );
   }
 
+  static (String, FixEffort) nativeMemoryGrowth() {
+    return (
+      'Process memory outside the Dart heap is growing. Check for '
+          'undisposed GPU textures (Image.dispose()), images decoded at full '
+          'resolution (use cacheWidth/cacheHeight), platform channel buffers, '
+          'or native plugin allocations. Use DevTools Memory view to compare '
+          'RSS vs Dart heap.',
+      FixEffort.involved,
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // NestedScrollDetector
   // ---------------------------------------------------------------------------

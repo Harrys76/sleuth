@@ -39,9 +39,11 @@ class MemoryPressureDetector extends BaseDetector {
   static const int _growthThresholdBytesPerSec = 512000; // ~500 KB/sec
   static const int _sustainedGrowthDurationSec = 10;
   static const double _capacityThresholdPercent = 0.80;
+  static const int _nativeGrowthThresholdBytesPerSec = 1048576; // 1 MB/sec
 
   final List<HeapSample> _heapSamples = [];
   DateTime? _sustainedGrowthStart;
+  DateTime? _sustainedNativeGrowthStart;
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -90,6 +92,7 @@ class MemoryPressureDetector extends BaseDetector {
 
     _evaluateHeapTrend();
     _evaluateHeapCapacity();
+    _evaluateNativeGrowth();
   }
 
   void _evaluateGcPressure(Duration elapsed) {
@@ -205,6 +208,75 @@ class MemoryPressureDetector extends BaseDetector {
     }
   }
 
+  void _evaluateNativeGrowth() {
+    final nativeSamples =
+        _heapSamples.where((s) => s.nativeBytes != null).toList();
+    if (nativeSamples.length < 4) return;
+
+    // Suppress during warmup (same guard as heap trend)
+    if (_firstHeapSampleTime != null) {
+      final sinceFirst = _clock().difference(_firstHeapSampleTime!);
+      if (sinceFirst.inMilliseconds < warmupDurationMs) return;
+    }
+
+    final slope = _computeNativeSlopeBytesPerSec(nativeSamples);
+
+    if (slope > _nativeGrowthThresholdBytesPerSec) {
+      _sustainedNativeGrowthStart ??= nativeSamples.last.timestamp;
+      final sustained =
+          nativeSamples.last.timestamp.difference(_sustainedNativeGrowthStart!);
+      if (sustained.inSeconds >= _sustainedGrowthDurationSec) {
+        final slopeMbSec = slope / (1024 * 1024);
+        final (hint, effort) = FixHintBuilder.nativeMemoryGrowth();
+        _issues.add(PerformanceIssue(
+          stableId: 'native_memory_growing',
+          severity: IssueSeverity.warning,
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+          title: 'Native Memory Growing: '
+              '+${slopeMbSec.toStringAsFixed(1)} MB/s '
+              'for ${sustained.inSeconds}s',
+          detail: 'Process memory outside the Dart heap is growing at '
+              '${slopeMbSec.toStringAsFixed(2)} MB/sec for '
+              '${sustained.inSeconds} seconds. This may indicate undisposed '
+              'GPU textures, decoded images at full resolution, or platform '
+              'channel buffer accumulation. '
+              'Current native estimate: '
+              '${_formatBytes(nativeSamples.last.nativeBytes!)}.',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.vmTimeline,
+          detectedAt: _clock(),
+        ));
+      }
+    } else {
+      _sustainedNativeGrowthStart = null;
+    }
+  }
+
+  /// Compute native memory growth rate in bytes/sec via linear regression.
+  double _computeNativeSlopeBytesPerSec(List<HeapSample> samples) {
+    final n = samples.length;
+    if (n < 2) return 0;
+
+    final firstTs = samples.first.timestamp;
+    double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+
+    for (final sample in samples) {
+      final x = sample.timestamp.difference(firstTs).inMilliseconds / 1000.0;
+      final y = sample.nativeBytes!.toDouble();
+      sumX += x;
+      sumY += y;
+      sumXY += x * y;
+      sumX2 += x * x;
+    }
+
+    final denominator = n * sumX2 - sumX * sumX;
+    if (denominator.abs() < 1e-10) return 0;
+
+    return (n * sumXY - sumX * sumY) / denominator;
+  }
+
   String _formatBytes(int bytes) {
     if (bytes < 1024) return '${bytes}B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)}KB';
@@ -215,6 +287,7 @@ class MemoryPressureDetector extends BaseDetector {
     _gcEventCount = 0;
     _heapSamples.clear();
     _sustainedGrowthStart = null;
+    _sustainedNativeGrowthStart = null;
     _firstHeapSampleTime = null;
     _trackingStart = _clock();
     _issues.clear();
@@ -224,6 +297,7 @@ class MemoryPressureDetector extends BaseDetector {
   void dispose() {
     _heapSamples.clear();
     _sustainedGrowthStart = null;
+    _sustainedNativeGrowthStart = null;
     _firstHeapSampleTime = null;
     _issues.clear();
   }

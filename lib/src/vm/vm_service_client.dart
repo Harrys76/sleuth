@@ -1,10 +1,21 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:io' show ProcessInfo;
 import 'package:flutter/foundation.dart';
 import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
 import '../models/heap_sample.dart';
 import 'timeline_parser.dart';
+
+/// Read current process RSS in bytes. Returns null on platforms where
+/// [ProcessInfo] is unavailable (web, unusual embeddings).
+int? _readRssBytes() {
+  try {
+    return ProcessInfo.currentRss;
+  } catch (_) {
+    return null;
+  }
+}
 
 /// Callback type for receiving parsed timeline data.
 typedef TimelineDataCallback = void Function(ParsedTimelineData data);
@@ -202,6 +213,7 @@ class VmServiceClient {
             heapCapacity: mem.heapCapacity ?? 0,
             externalUsage: mem.externalUsage ?? 0,
             timestamp: DateTime.now(),
+            rssBytes: _readRssBytes(),
           ));
         } on SentinelException {
           // Isolate ID stale (e.g., after hot restart) — re-fetch
