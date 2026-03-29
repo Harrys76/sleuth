@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 21 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~828 tests, ~9s)
+fvm flutter test                    # Run all tests (~974 tests, ~10s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -31,7 +31,7 @@ lib/
     debug/                      # DebugInstrumentationCoordinator, DebugSnapshot
     ranking/                    # IssueRanker (weighted composite scoring)
     ui/                         # Overlay widgets: dashboard, chart, issue cards, trigger button
-    utils/                      # WidgetLocation helper
+    utils/                      # WidgetLocation helper, FixHintBuilder
 test/
     mirrors lib/src/ structure + helpers/ and benchmark/
 ```
@@ -47,12 +47,13 @@ test/
 
 - New detectors: add enum value to `DetectorType`, create detector file in `detectors/`, register in `WatchdogController`, add tests mirroring existing detector test structure.
 - Issues use `IssueConfidence`: confirmed (directly observed), likely (runtime + structural), possible (structural only).
+- Fix hints use `FixHintBuilder` (in `utils/fix_hint_builder.dart`) — never hardcode fixHint strings in detectors.
 - All public API goes through `lib/widget_watchdog.dart` barrel file.
 - Package is completely disabled in release mode (`kReleaseMode` guard).
 
 ## Current state
 
-- v0.3.0 published and tagged
-- v2 roadmap complete: all 4 features shipped (v2.1 Network, v2.2 Heap Trend, v2.3 CPU Attribution, v2.4 Source Location)
-- Post-implementation audit in `doc/implementation_spec.md` (search "v2 Post-Implementation Audit")
-- ~828 tests, 0 analysis issues
+- v0.5.0 tagged (v0.4.0: accuracy fixes + correlator optimization; v0.5.0: context-aware hints, verdict linking, UX improvements)
+- v3 roadmap: v3.1–v3.3, v3.8, v3.9 shipped. Remaining: v3.4, v3.5, v3.6, v3.7, v3.10 (see `doc/implementation_spec.md`)
+- Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
+- ~974 tests, 0 analysis issues

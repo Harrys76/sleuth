@@ -1,3 +1,39 @@
+## 0.5.0
+
+### Added
+
+- **Context-aware fix hints** (v3.2): centralized `FixHintBuilder` generates
+  widget-specific, location-aware fix suggestions instead of generic textbook
+  advice. Hints reference the detected widget name, ancestor chain, and
+  interaction context when available. `FixEffort` enum (`quick`, `medium`,
+  `involved`) classifies every hint by estimated developer effort.
+  - New `FixHintBuilder` utility with 28 static methods (one per issue type).
+  - `fixEffort` field on `PerformanceIssue` — nullable for backward compat.
+  - UI effort badge now reads from model field; keyword fallback for legacy JSON.
+- **Issue-to-verdict linking** (v3.3): jank verdicts in the Live tab now connect
+  to related issues in the Issues tab.
+  - Amber "Jank detected" banner on Live tab when a verdict has related issues.
+  - "JANK" badge on issue cards correlated with the current jank verdict.
+  - Tap the jank banner to flash correlated issue cards in the Issues tab.
+- **Overlay UX improvements** (v3.8): six targeted UI enhancements for the
+  diagnostic workflow.
+  - Widget name shown before ancestor chain in expanded issue cards.
+  - "Widget not currently visible" feedback when highlight target not found.
+  - Interaction context filter chips on the Issues tab (All / Idle / Scrolling).
+  - "About this detection" collapsible section with source, confidence, and
+    verification guidance.
+  - Effort indicators (QUICK / MEDIUM / INVOLVED) on fix hint boxes.
+  - Color legend in the Guide tab explaining severity and source colors.
+
+### Changed
+
+- All 21 detectors now use `FixHintBuilder` instead of hardcoded fix hint
+  strings. No detector logic changes — only hint generation centralized.
+- `PerformanceIssue` model gains `fixEffort` field (nullable, backward
+  compatible). JSON without the field deserializes to null.
+- Barrel file exports `FixHintBuilder` for consumers who want to generate
+  custom hints.
+
 ## 0.4.0
 
 ### Improved
