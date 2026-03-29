@@ -2551,6 +2551,58 @@ No changes to: session_snapshot.dart, watchdog_controller.dart, barrel file, UI 
 | "Files changed: `session_snapshot.dart`" | No changes needed — existing `s.toJson()` call picks up new fields automatically |
 | "8 tests" | 22 new tests: 8 model + 11 detector + 3 FixHintBuilder |
 
+## v3.7 Post-Implementation Notes
+
+v3.7 implements CPU Attribution Call Chains — extending CPU profiling from flat function names to full call chains with inclusive percentages. 1045 tests passing (up from 1032), 0 analysis issues.
+
+### Implementation Summary
+
+| Item | Status | New Tests | Spec Deviations |
+|------|:------:|:---------:|:---------------:|
+| `callChain` + `inclusivePercentage` on `CpuAttribution` | Done | 5 | 0 |
+| Inclusive tick counting in `CpuSampleAggregator` | Done | 1 (inclusive invariant) | 1 (see below) |
+| Call chain extraction in `CpuSampleAggregator` | Done | 7 | 0 |
+| Dashboard UI chain rendering | Done | 0 (visual) | 1 (see below) |
+| **Total** | **4/4** | **13** | **2** |
+
+### Design Decisions
+
+#### 1. Inclusive denominator differs from exclusive denominator
+
+Exclusive percentage uses `totalFiltered` (after framework filter) as denominator for backward compatibility. Inclusive percentage uses `totalUsableSamples` (all samples after vmTag filtering) because inclusive measures "how often was this function on any stack" — framework filtering the denominator would inflate percentages artificially. A floor clamp ensures inclusive >= exclusive despite the different denominators.
+
+#### 2. UI shows top 3 functions (spec deviation — reduction from 5)
+
+The spec's dashboard section said to render call chains in the existing verdict detail area. With chains, each function needs its own line (chains are too long for comma-joining). Reduced from 5 to 3 displayed functions to fit the compact overlay. All 5 are still in the data (toJson, session export, capture buffer).
+
+#### 3. Most-common-chain frequency selection
+
+When a function appears at stack[0] across multiple samples, different stacks may show different call paths. Rather than using the first sample's chain or merging all paths, we frequency-count full chains and pick the most common. This gives the most representative call path without the complexity of a merged tree view.
+
+#### 4. No controller or FrameVerdict changes needed
+
+The controller calls `_cpuAggregator.aggregate()` and passes the result through `verdict.withTopFunctions()`. The new `callChain` and `inclusivePercentage` fields ride along in the CpuAttribution objects automatically. Zero coupling — no changes to `watchdog_controller.dart`, `frame_verdict.dart`, `session_snapshot.dart`, or `capture_buffer.dart`.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `lib/src/models/cpu_attribution.dart` | `callChain: List<String>?`, `inclusivePercentage: double?` fields, `chainDisplay` getter, toJson/fromJson/toString |
+| `lib/src/vm/cpu_sample_aggregator.dart` | Inclusive tick counting (Step 1b), `_extractCallChain()`, `_truncateChain()`, `_maxChainDepth` constant, updated Step 4 |
+| `lib/src/ui/dashboard_sheet.dart` | Per-function line rendering with chain display, take(3), inclusive percentage parenthetical |
+| `test/vm/cpu_sample_aggregator_test.dart` | 8 new tests: basic chain, single entry, framework-only, truncation, inclusive invariant, most-common-wins, null chain, first-user-root |
+| `test/models/serialization_test.dart` | 5 new tests: toJson with/without new fields, fromJson with/without, chainDisplay |
+
+### Spec vs. Implementation Corrections
+
+| Spec | Actual |
+|------|--------|
+| "8 tests" | 13 new tests: 8 aggregator + 5 serialization |
+| UI "render call chains in verdict detail" | Top 3 (not 5) functions, each on own line with chain + inclusive % |
+| No mention of denominator difference | Inclusive uses totalUsableSamples, exclusive uses totalFiltered, with floor clamp |
+
+---
+
 ## v3.5 Post-Implementation Notes
 
 v3.5 implements Allocation-Rate Detection — on-demand per-class allocation profiling that enriches existing `heap_growing` issues with the top allocating classes. 1034 tests passing (up from 1014), 0 analysis issues.

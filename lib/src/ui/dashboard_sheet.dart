@@ -544,16 +544,23 @@ class _DashboardSheetState extends State<DashboardSheet>
                     if (verdict.topFunctions != null &&
                         verdict.topFunctions!.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Text(
-                        'Top: ${verdict.topFunctions!.map((f) => '${f.displayName} (${f.percentage.toStringAsFixed(0)}%)').join(', ')}',
-                        style: const TextStyle(
-                          color: Color(0xFF93C5FD),
-                          fontSize: 10,
-                          fontFamily: 'monospace',
+                      for (final f in verdict.topFunctions!.take(3))
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Text(
+                            f.chainDisplay != null
+                                ? '${f.chainDisplay}: ${f.percentage.toStringAsFixed(0)}%'
+                                    '${f.inclusivePercentage != null ? ' (${f.inclusivePercentage!.toStringAsFixed(0)}% incl)' : ''}'
+                                : '${f.displayName} (${f.percentage.toStringAsFixed(0)}%)',
+                            style: const TextStyle(
+                              color: Color(0xFF93C5FD),
+                              fontSize: 10,
+                              fontFamily: 'monospace',
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
                     ],
                   ],
                 );

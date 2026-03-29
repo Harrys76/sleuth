@@ -741,6 +741,95 @@ void main() {
     });
   });
 
+  group('CpuAttribution call chain serialization', () {
+    test('toJson includes callChain and inclusivePercentage when non-null', () {
+      const attr = CpuAttribution(
+        functionName: 'layout',
+        className: 'RenderFlex',
+        libraryUri: 'package:flutter/rendering.dart',
+        percentage: 42.0,
+        callChain: ['MyWidget.build', 'performLayout', 'RenderFlex.layout'],
+        inclusivePercentage: 58.3,
+      );
+
+      final json = attr.toJson();
+      expect(json['callChain'],
+          ['MyWidget.build', 'performLayout', 'RenderFlex.layout']);
+      expect(json['inclusivePercentage'], 58.3);
+    });
+
+    test('toJson omits callChain and inclusivePercentage when null', () {
+      const attr = CpuAttribution(
+        functionName: 'build',
+        className: 'MyWidget',
+        libraryUri: 'package:app/w.dart',
+        percentage: 30.0,
+      );
+
+      final json = attr.toJson();
+      expect(json.containsKey('callChain'), isFalse);
+      expect(json.containsKey('inclusivePercentage'), isFalse);
+    });
+
+    test('fromJson restores callChain and inclusivePercentage', () {
+      final json = {
+        'functionName': 'layout',
+        'className': 'RenderFlex',
+        'libraryUri': 'package:flutter/rendering.dart',
+        'percentage': 42.0,
+        'callChain': ['MyWidget.build', 'performLayout', 'RenderFlex.layout'],
+        'inclusivePercentage': 58.3,
+      };
+
+      final attr = CpuAttribution.fromJson(json);
+      expect(attr.callChain, hasLength(3));
+      expect(attr.callChain![0], 'MyWidget.build');
+      expect(attr.callChain![2], 'RenderFlex.layout');
+      expect(attr.inclusivePercentage, 58.3);
+    });
+
+    test('fromJson defaults to null when fields missing', () {
+      final json = {
+        'functionName': 'build',
+        'className': 'MyWidget',
+        'libraryUri': 'package:app/w.dart',
+        'percentage': 30.0,
+      };
+
+      final attr = CpuAttribution.fromJson(json);
+      expect(attr.callChain, isNull);
+      expect(attr.inclusivePercentage, isNull);
+    });
+
+    test('chainDisplay computed property', () {
+      const withChain = CpuAttribution(
+        functionName: 'layout',
+        className: '',
+        libraryUri: '',
+        percentage: 10.0,
+        callChain: ['MyWidget.build', 'performLayout', 'layout'],
+      );
+      expect(withChain.chainDisplay, 'MyWidget.build → performLayout → layout');
+
+      const withoutChain = CpuAttribution(
+        functionName: 'build',
+        className: '',
+        libraryUri: '',
+        percentage: 10.0,
+      );
+      expect(withoutChain.chainDisplay, isNull);
+
+      const emptyChain = CpuAttribution(
+        functionName: 'build',
+        className: '',
+        libraryUri: '',
+        percentage: 10.0,
+        callChain: [],
+      );
+      expect(emptyChain.chainDisplay, isNull);
+    });
+  });
+
   group('FrameStatsSummary serialization', () {
     test('roundtrip', () {
       const original = FrameStatsSummary(

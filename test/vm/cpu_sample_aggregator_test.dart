@@ -644,4 +644,263 @@ void main() {
       expect(result, hasLength(3));
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Call chain extraction
+  // ---------------------------------------------------------------------------
+  group('call chain extraction', () {
+    test('basic chain from user root to hot function', () {
+      // Stack: [layout(0), performLayout(1), MyWidget.build(2)]
+      // Chain should be: MyWidget.build → performLayout → layout
+      final funcs = [
+        makeClassFunc(
+            funcName: 'layout',
+            className: 'RenderBox',
+            libraryUri: 'package:flutter/rendering.dart'),
+        makeClassFunc(
+            funcName: 'performLayout',
+            className: 'RenderFlex',
+            libraryUri: 'package:flutter/rendering.dart'),
+        makeClassFunc(
+            funcName: 'build',
+            className: 'MyWidget',
+            libraryUri: 'package:app/my_widget.dart'),
+      ];
+      final samples = [
+        makeSample(stack: [0, 1, 2]),
+        makeSample(stack: [0, 1, 2]),
+      ];
+
+      final result = aggregator.aggregate(
+        makeCpuSamples(functions: funcs, samples: samples),
+      );
+
+      expect(result, hasLength(1));
+      expect(result[0].callChain, isNotNull);
+      expect(result[0].callChain, [
+        'MyWidget.build',
+        'RenderFlex.performLayout',
+        'RenderBox.layout',
+      ]);
+    });
+
+    test('user code at top of stack produces single-entry chain', () {
+      // Stack: [MyWidget.build(0)] — user code is already at top
+      final funcs = [
+        makeClassFunc(
+            funcName: 'build',
+            className: 'MyWidget',
+            libraryUri: 'package:app/my_widget.dart'),
+      ];
+      final samples = [
+        makeSample(stack: [0])
+      ];
+
+      final result = aggregator.aggregate(
+        makeCpuSamples(functions: funcs, samples: samples),
+      );
+
+      expect(result, hasLength(1));
+      expect(result[0].callChain, ['MyWidget.build']);
+    });
+
+    test('framework-only stack annotated with (framework)', () {
+      // All framework — no user code in stack
+      final funcs = [
+        makeClassFunc(
+            funcName: 'layout',
+            className: 'RenderBox',
+            libraryUri: 'package:flutter/rendering.dart'),
+        makeClassFunc(
+            funcName: 'performLayout',
+            className: 'RenderFlex',
+            libraryUri: 'package:flutter/rendering.dart'),
+        makeClassFunc(
+            funcName: 'buildScope',
+            className: 'BuildOwner',
+            libraryUri: 'package:flutter/widgets.dart'),
+      ];
+      // Need >50% framework to keep these in results
+      final samples = [
+        makeSample(stack: [0, 1, 2]),
+        makeSample(stack: [0, 1, 2]),
+      ];
+
+      final result = aggregator.aggregate(
+        makeCpuSamples(functions: funcs, samples: samples),
+      );
+
+      expect(result, hasLength(1));
+      expect(result[0].callChain, isNotNull);
+      expect(result[0].callChain![0], contains('(framework)'));
+    });
+
+    test('chain truncated at depth 5', () {
+      // 8 frames deep: user root at [7], hot at [0]
+      final funcs = List.generate(
+        8,
+        (i) => makeClassFunc(
+          funcName: 'f$i',
+          className: 'C$i',
+          libraryUri: i == 7
+              ? 'package:app/root.dart'
+              : 'package:flutter/rendering.dart',
+        ),
+      );
+      // Need framework >50% since 7/8 are framework
+      final samples = [
+        makeSample(stack: [0, 1, 2, 3, 4, 5, 6, 7])
+      ];
+
+      final result = aggregator.aggregate(
+        makeCpuSamples(functions: funcs, samples: samples),
+      );
+
+      expect(result, hasLength(1));
+      expect(result[0].callChain, isNotNull);
+      expect(result[0].callChain!.length, 5);
+      // Root preserved
+      expect(result[0].callChain![0], 'C7.f7');
+      // Truncation marker
+      expect(result[0].callChain![2], '...');
+      // Hot function preserved
+      expect(result[0].callChain![4], 'C0.f0');
+    });
+
+    test('inclusive percentage >= exclusive percentage', () {
+      // Function at index 0 is top of stack in 2 samples,
+      // but appears anywhere in 4 samples total
+      final funcs = [
+        makeClassFunc(
+            funcName: 'build',
+            className: 'MyWidget',
+            libraryUri: 'package:app/w.dart'),
+        makeClassFunc(
+            funcName: 'render',
+            className: 'Renderer',
+            libraryUri: 'package:app/r.dart'),
+      ];
+      final samples = [
+        makeSample(stack: [0]), // func 0 exclusive + inclusive
+        makeSample(stack: [0]), // func 0 exclusive + inclusive
+        makeSample(stack: [1, 0]), // func 0 inclusive only (func 1 exclusive)
+        makeSample(stack: [1, 0]), // func 0 inclusive only (func 1 exclusive)
+      ];
+
+      final result = aggregator.aggregate(
+        makeCpuSamples(functions: funcs, samples: samples),
+      );
+
+      for (final attr in result) {
+        expect(
+          attr.inclusivePercentage,
+          greaterThanOrEqualTo(attr.percentage),
+          reason:
+              '${attr.displayName}: inclusive ${attr.inclusivePercentage} should be >= exclusive ${attr.percentage}',
+        );
+      }
+
+      // Verify specific values for func 0
+      final myWidget = result.firstWhere((a) => a.className == 'MyWidget');
+      expect(myWidget.percentage, 50.0); // 2/4 exclusive
+      expect(myWidget.inclusivePercentage, 100.0); // 4/4 inclusive
+    });
+
+    test('most common chain wins when multiple paths exist', () {
+      // func 0 (hot) reached via two different paths
+      final funcs = [
+        makeClassFunc(
+            funcName: 'layout',
+            className: 'RenderBox',
+            libraryUri: 'package:flutter/rendering.dart'),
+        makeClassFunc(
+            funcName: 'buildA',
+            className: 'WidgetA',
+            libraryUri: 'package:app/a.dart'),
+        makeClassFunc(
+            funcName: 'buildB',
+            className: 'WidgetB',
+            libraryUri: 'package:app/b.dart'),
+      ];
+      // Path via WidgetA: 3 samples, path via WidgetB: 1 sample
+      // Framework >50% so all kept
+      final samples = [
+        makeSample(stack: [0, 1]),
+        makeSample(stack: [0, 1]),
+        makeSample(stack: [0, 1]),
+        makeSample(stack: [0, 2]),
+      ];
+
+      final result = aggregator.aggregate(
+        makeCpuSamples(functions: funcs, samples: samples),
+      );
+
+      final layoutAttr = result.firstWhere((a) => a.functionName == 'layout');
+      expect(layoutAttr.callChain, isNotNull);
+      // Path A (via WidgetA) should win — 3 samples vs 1
+      expect(layoutAttr.callChain!, contains('WidgetA.buildA'));
+    });
+
+    test('null chain when no matching samples', () {
+      // No samples at all
+      final funcs = [
+        makeClassFunc(
+            funcName: 'build',
+            className: 'MyWidget',
+            libraryUri: 'package:app/w.dart'),
+      ];
+
+      final result = aggregator.aggregate(
+        makeCpuSamples(functions: funcs, samples: []),
+      );
+
+      expect(result, isEmpty);
+    });
+
+    test('chain stops at first user root from top', () {
+      // Stack: [layout(0/fw), MyHelper.run(1/user), performLayout(2/fw), MyWidget.build(3/user)]
+      // First user code from top (index 0) is MyHelper.run at index 1
+      // Chain should root at MyHelper.run, NOT go up to MyWidget.build
+      // Framework 3/5 = 60% > 50%, so all functions kept
+      final funcs2 = [
+        makeClassFunc(
+            funcName: 'layout',
+            className: 'RenderBox',
+            libraryUri: 'package:flutter/rendering.dart'),
+        makeClassFunc(
+            funcName: 'run',
+            className: 'MyHelper',
+            libraryUri: 'package:app/helper.dart'),
+        makeClassFunc(
+            funcName: 'performLayout',
+            className: 'RenderFlex',
+            libraryUri: 'package:flutter/rendering.dart'),
+        makeClassFunc(
+            funcName: 'build',
+            className: 'MyWidget',
+            libraryUri: 'package:app/my_widget.dart'),
+        makeClassFunc(
+            funcName: 'buildScope',
+            className: 'BuildOwner',
+            libraryUri: 'package:flutter/widgets.dart'),
+      ];
+      // 3 framework + 2 user = 5. Framework = 3/5 = 60% > 50%, all kept
+      final samples = [
+        makeSample(stack: [0, 1, 2, 3, 4]),
+        makeSample(stack: [0, 1, 2, 3, 4]),
+        makeSample(stack: [0, 1, 2, 3, 4]),
+      ];
+
+      final result = aggregator.aggregate(
+        makeCpuSamples(functions: funcs2, samples: samples),
+      );
+
+      final layoutAttr = result.firstWhere((a) => a.functionName == 'layout');
+      expect(layoutAttr.callChain, isNotNull);
+      // Chain should root at MyHelper.run (first user code from top),
+      // not MyWidget.build (further up the stack)
+      expect(layoutAttr.callChain![0], 'MyHelper.run');
+      expect(layoutAttr.callChain!.last, 'RenderBox.layout');
+    });
+  });
 }
