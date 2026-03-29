@@ -302,6 +302,30 @@ class VmServiceClient {
     }
   }
 
+  /// Query allocation profile for the main isolate. Returns null on error or timeout.
+  ///
+  /// Called with [reset: true] to get deltas since last call. First call
+  /// establishes baseline; subsequent calls show allocation activity.
+  /// Only called on-demand when heap growth is detected — not continuous.
+  Future<AllocationProfile?> getAllocationProfile({
+    bool reset = false,
+  }) async {
+    final service = _service;
+    final isolateId = _mainIsolateId;
+    if (service == null || isolateId == null) return null;
+
+    try {
+      return await service
+          .getAllocationProfile(isolateId, reset: reset)
+          .timeout(const Duration(milliseconds: 500));
+    } on SentinelException {
+      _mainIsolateId = await _resolveMainIsolateId();
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Dispose all resources.
   void dispose() {
     _disposed = true;

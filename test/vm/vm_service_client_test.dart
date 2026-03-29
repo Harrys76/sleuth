@@ -170,6 +170,88 @@ void main() {
   });
 
   // =========================================================================
+  // 3b. getAllocationProfile
+  // =========================================================================
+  group('getAllocationProfile', () {
+    test('returns null when service is null', () async {
+      final client = VmServiceClient();
+      final result = await client.getAllocationProfile();
+      expect(result, isNull);
+      client.dispose();
+    });
+
+    test('returns null when isolateId is null', () async {
+      final client = VmServiceClient();
+      client.setServiceForTest(_MockVmService());
+      final result = await client.getAllocationProfile();
+      expect(result, isNull);
+      client.dispose();
+    });
+
+    test('returns AllocationProfile on success', () async {
+      final mock = _MockVmService();
+      mock.allocationProfileResult = AllocationProfile(
+        members: [
+          ClassHeapStats(
+            classRef: ClassRef(
+              id: 'class-1',
+              name: 'MyWidget',
+              library: LibraryRef(
+                id: 'lib-1',
+                name: 'my_app',
+                uri: 'package:my_app/widgets/my_widget.dart',
+              ),
+            ),
+            bytesCurrent: 50000,
+            instancesCurrent: 100,
+          ),
+        ],
+      );
+
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      final result = await client.getAllocationProfile(reset: true);
+      expect(result, isNotNull);
+      expect(result!.members, hasLength(1));
+      expect(mock.getAllocationProfileCalled, isTrue);
+      client.dispose();
+    });
+
+    test('returns null on SentinelException', () async {
+      final mock = _MockVmService();
+      mock.allocationProfileThrows = SentinelException.parse(
+        'isolate-1',
+        <String, dynamic>{
+          'type': 'Sentinel',
+          'kind': 'Collected',
+          'valueAsString': 'test',
+        },
+      );
+
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      final result = await client.getAllocationProfile();
+      expect(result, isNull);
+      client.dispose();
+    });
+
+    test('returns null on timeout (500ms)', () async {
+      final mock = _MockVmService();
+      mock.allocationProfileDelay = const Duration(seconds: 2);
+      mock.allocationProfileResult = AllocationProfile(members: []);
+
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      final result = await client.getAllocationProfile();
+      expect(result, isNull);
+      client.dispose();
+    });
+  });
+
+  // =========================================================================
   // 4. Timeline polling
   // =========================================================================
   group('Timeline polling', () {
@@ -424,6 +506,10 @@ class _MockVmService implements VmService {
   CpuSamples? cpuSamplesResult;
   Object? cpuSamplesThrows;
   Duration? cpuSamplesDelay;
+  AllocationProfile? allocationProfileResult;
+  Object? allocationProfileThrows;
+  Duration? allocationProfileDelay;
+  bool getAllocationProfileCalled = false;
   VM? vmResult;
 
   @override
@@ -470,6 +556,20 @@ class _MockVmService implements VmService {
           functions: [],
           samples: [],
         );
+  }
+
+  @override
+  Future<AllocationProfile> getAllocationProfile(
+    String isolateId, {
+    bool? reset,
+    bool? gc,
+  }) async {
+    getAllocationProfileCalled = true;
+    if (allocationProfileDelay != null) {
+      await Future<void>.delayed(allocationProfileDelay!);
+    }
+    if (allocationProfileThrows != null) throw allocationProfileThrows!;
+    return allocationProfileResult ?? AllocationProfile(members: []);
   }
 
   @override

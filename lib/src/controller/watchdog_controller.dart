@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
-import 'package:vm_service/vm_service.dart' show Event;
+import 'package:vm_service/vm_service.dart' show AllocationProfile, Event;
 
 import '../analyzer/frame_event_correlator.dart';
 import '../analyzer/render_pipeline_analyzer.dart';
@@ -32,6 +32,7 @@ import '../detectors/animated_builder_detector.dart';
 import '../detectors/opacity_detector.dart';
 import '../detectors/font_loading_detector.dart';
 import '../detectors/network_monitor_detector.dart';
+import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
 import '../models/heap_sample.dart';
 import '../models/capture_buffer.dart';
@@ -105,6 +106,31 @@ class WatchdogController {
   // Interaction context
   InteractionContext _interactionState = InteractionContext.idle;
   Timer? _scrollIdleTimer;
+
+  // Allocation enrichment
+  DateTime? _lastAllocationEnrichmentTime;
+
+  /// SDK/framework classes excluded from allocation attribution unless
+  /// they dominate > 50% of total allocations.
+  static const _frameworkClassPrefixes = [
+    '_List',
+    '_GrowableList',
+    '_InternalLinkedHashMap',
+    '_LinkedHashMap',
+    '_String',
+    '_Uint8List',
+    '_Int32List',
+    '_Double',
+    '_Smi',
+    '_Mint',
+    '_OneByteString',
+    '_TwoByteString',
+    '_ExternalOneByteString',
+    '_CompactLinkedHashSet',
+    '_HashSet',
+    '_Type',
+    '_Closure',
+  ];
 
   // Debug instrumentation
   DebugInstrumentationCoordinator? _debugCoordinator;
@@ -855,7 +881,25 @@ class WatchdogController {
   }
 
   void _onHeapSample(HeapSample sample) {
+    final hadHeapGrowing =
+        _memoryPressure.issues.any((i) => i.stableId == 'heap_growing');
+
     _memoryPressure.processHeapSample(sample);
+
+    final hasHeapGrowing =
+        _memoryPressure.issues.any((i) => i.stableId == 'heap_growing');
+
+    // Trigger allocation profiling when heap growth is first detected.
+    // Cooldown prevents repeated queries if slope oscillates near threshold.
+    if (!hadHeapGrowing && hasHeapGrowing) {
+      final now = DateTime.now();
+      final cooldownExpired = _lastAllocationEnrichmentTime == null ||
+          now.difference(_lastAllocationEnrichmentTime!).inSeconds >= 10;
+      if (cooldownExpired) {
+        _lastAllocationEnrichmentTime = now;
+        _enrichWithAllocationProfile();
+      }
+    }
   }
 
   void _onGcEvent(Event event) {
@@ -895,6 +939,110 @@ class WatchdogController {
     }).catchError((_) {
       // CPU attribution failed — verdict already emitted without it
     });
+  }
+
+  /// Query allocation profile when heap growth is detected and re-emit
+  /// enriched issues with top allocators (phase 2).
+  ///
+  /// Non-blocking — the heap_growing issue is already visible (phase 1).
+  /// When the profile arrives, the issue is re-emitted with [topAllocators].
+  /// If the query fails or times out, the original issue stands.
+  void _enrichWithAllocationProfile() {
+    if (_vmClient == null) return;
+
+    // Phase 1: establish baseline (reset accumulators)
+    _vmClient!.getAllocationProfile(reset: true).then((_) {
+      // Brief delay to accumulate meaningful deltas
+      Future<void>.delayed(const Duration(milliseconds: 300)).then((_) {
+        // Phase 2: get delta since reset
+        _vmClient!.getAllocationProfile(reset: true).then((profile) {
+          if (profile == null) return;
+          final entries = _extractTopAllocators(profile);
+          if (entries.isEmpty) return;
+
+          // Re-emit memory pressure issues with enrichment
+          _memoryPressure.enrichHeapGrowingIssue(entries);
+          _aggregateIssues();
+        }).catchError((_) {});
+      });
+    }).catchError((_) {});
+  }
+
+  /// Extract top-5 allocating classes from allocation profile.
+  ///
+  /// Filters SDK internals unless they dominate >50% of total bytes.
+  List<AllocationEntry> _extractTopAllocators(AllocationProfile profile) {
+    final members = profile.members;
+    if (members == null || members.isEmpty) return [];
+
+    final stats = <_AllocStat>[];
+    int totalBytes = 0;
+
+    for (final cls in members) {
+      final bytes = cls.bytesCurrent ?? 0;
+      final instances = cls.instancesCurrent ?? 0;
+      if (bytes <= 0) continue;
+
+      final name = cls.classRef?.name ?? '';
+      final lib = cls.classRef?.library?.uri ?? '';
+      totalBytes += bytes;
+      stats.add(_AllocStat(name, lib, instances, bytes));
+    }
+
+    if (totalBytes == 0) return [];
+
+    // Sort by bytes descending
+    stats.sort((a, b) => b.bytes.compareTo(a.bytes));
+
+    // Separate framework and user classes
+    final userClasses = <_AllocStat>[];
+    final frameworkClasses = <_AllocStat>[];
+
+    for (final s in stats) {
+      if (_isFrameworkClass(s.name)) {
+        frameworkClasses.add(s);
+      } else {
+        userClasses.add(s);
+      }
+    }
+
+    // Use user classes preferentially; include framework classes only
+    // if they dominate > 50% of total allocations
+    final result = <AllocationEntry>[];
+
+    for (final s in userClasses.take(5)) {
+      result.add(AllocationEntry(
+        className: s.name,
+        libraryUri: s.lib,
+        instancesDelta: s.instances,
+        bytesDelta: s.bytes,
+        percentage: (s.bytes / totalBytes * 100),
+      ));
+    }
+
+    // If fewer than 5 user classes, fill with framework classes
+    // that are > 50% of total
+    if (result.length < 5) {
+      for (final s in frameworkClasses) {
+        if (result.length >= 5) break;
+        final pct = s.bytes / totalBytes * 100;
+        if (pct > 50) {
+          result.add(AllocationEntry(
+            className: s.name,
+            libraryUri: s.lib,
+            instancesDelta: s.instances,
+            bytesDelta: s.bytes,
+            percentage: pct,
+          ));
+        }
+      }
+    }
+
+    return result;
+  }
+
+  static bool _isFrameworkClass(String name) {
+    return _frameworkClassPrefixes.any((prefix) => name.startsWith(prefix));
   }
 
   void _onVmConnectionChanged(bool connected) {
@@ -1227,4 +1375,13 @@ class WatchdogConfig {
   /// Cumulative platform channel duration threshold in milliseconds per window.
   /// Fires when total channel call time exceeds this even if call count is low.
   final int platformChannelDurationThresholdMs;
+}
+
+/// Lightweight struct for sorting allocation profile entries.
+class _AllocStat {
+  _AllocStat(this.name, this.lib, this.instances, this.bytes);
+  final String name;
+  final String lib;
+  final int instances;
+  final int bytes;
 }

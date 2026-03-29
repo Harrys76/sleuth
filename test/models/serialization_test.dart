@@ -120,6 +120,105 @@ void main() {
       final json = issue.toJson();
       expect(json['fixEffort'], 'involved');
     });
+
+    test('toJson includes topAllocators when non-null', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.memory,
+        confidence: IssueConfidence.likely,
+        title: 'Heap Growing',
+        detail: 'D',
+        fixHint: 'F',
+        topAllocators: [
+          AllocationEntry(
+            className: 'MyWidget',
+            libraryUri: 'package:app/w.dart',
+            instancesDelta: 100,
+            bytesDelta: 50000,
+            percentage: 35.0,
+          ),
+        ],
+      );
+
+      final json = issue.toJson();
+      expect(json.containsKey('topAllocators'), isTrue);
+      final allocators = json['topAllocators'] as List;
+      expect(allocators, hasLength(1));
+      expect((allocators[0] as Map)['className'], 'MyWidget');
+    });
+
+    test('fromJson restores topAllocators', () {
+      final json = {
+        'severity': 'warning',
+        'category': 'memory',
+        'confidence': 'likely',
+        'title': 'Heap Growing',
+        'detail': 'D',
+        'fixHint': 'F',
+        'debugModeDisclaimer': false,
+        'topAllocators': [
+          {
+            'className': 'Item',
+            'libraryUri': 'package:app/item.dart',
+            'instancesDelta': 200,
+            'bytesDelta': 80000,
+            'percentage': 60.0,
+          },
+        ],
+      };
+
+      final issue = PerformanceIssue.fromJson(json);
+      expect(issue.topAllocators, isNotNull);
+      expect(issue.topAllocators, hasLength(1));
+      expect(issue.topAllocators![0].className, 'Item');
+      expect(issue.topAllocators![0].bytesDelta, 80000);
+      expect(issue.topAllocators![0].percentage, 60.0);
+    });
+
+    test('fromJson defaults topAllocators to null when missing', () {
+      final json = {
+        'severity': 'warning',
+        'category': 'memory',
+        'confidence': 'likely',
+        'title': 'T',
+        'detail': 'D',
+        'fixHint': 'F',
+        'debugModeDisclaimer': false,
+      };
+
+      final issue = PerformanceIssue.fromJson(json);
+      expect(issue.topAllocators, isNull);
+    });
+
+    test('copyWith preserves topAllocators', () {
+      const allocators = [
+        AllocationEntry(
+          className: 'A',
+          libraryUri: '',
+          instancesDelta: 10,
+          bytesDelta: 1024,
+          percentage: 50.0,
+        ),
+      ];
+
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.memory,
+        confidence: IssueConfidence.likely,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+      );
+
+      final enriched = issue.copyWith(topAllocators: allocators);
+      expect(enriched.topAllocators, hasLength(1));
+      expect(enriched.topAllocators![0].className, 'A');
+
+      // copyWith without topAllocators preserves existing value
+      final updated = enriched.copyWith(title: 'Updated');
+      expect(updated.topAllocators, hasLength(1));
+      expect(updated.title, 'Updated');
+    });
   });
 
   group('FrameStats serialization', () {

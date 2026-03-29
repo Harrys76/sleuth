@@ -1,3 +1,5 @@
+import 'allocation_entry.dart';
+
 /// Severity levels for detected performance issues.
 enum IssueSeverity { ok, warning, critical }
 
@@ -75,6 +77,7 @@ class PerformanceIssue {
     this.detectedAt,
     this.ancestorChain,
     this.fixEffort,
+    this.topAllocators,
   });
 
   /// How severe this issue is (ok, warning, critical).
@@ -125,6 +128,10 @@ class PerformanceIssue {
   /// Null for legacy issues deserialized from JSON without this field.
   final FixEffort? fixEffort;
 
+  /// Top allocating classes when heap growth is detected.
+  /// Populated by phase-2 enrichment from getAllocationProfile.
+  final List<AllocationEntry>? topAllocators;
+
   Map<String, dynamic> toJson() => {
         'severity': severity.name,
         'category': category.name,
@@ -143,6 +150,8 @@ class PerformanceIssue {
         if (detectedAt != null) 'detectedAt': detectedAt!.toIso8601String(),
         if (ancestorChain != null) 'ancestorChain': ancestorChain,
         if (fixEffort != null) 'fixEffort': fixEffort!.name,
+        if (topAllocators != null)
+          'topAllocators': topAllocators!.map((a) => a.toJson()).toList(),
       };
 
   factory PerformanceIssue.fromJson(Map<String, dynamic> json) =>
@@ -172,6 +181,11 @@ class PerformanceIssue {
         fixEffort: json['fixEffort'] != null
             ? FixEffort.values.byName(json['fixEffort'] as String)
             : null,
+        topAllocators: json['topAllocators'] != null
+            ? (json['topAllocators'] as List)
+                .map((a) => AllocationEntry.fromJson(a as Map<String, dynamic>))
+                .toList()
+            : null,
       );
 
   PerformanceIssue copyWith({
@@ -190,6 +204,7 @@ class PerformanceIssue {
     DateTime? detectedAt,
     String? ancestorChain,
     FixEffort? fixEffort,
+    List<AllocationEntry>? topAllocators,
   }) {
     return PerformanceIssue(
       severity: severity ?? this.severity,
@@ -207,6 +222,7 @@ class PerformanceIssue {
       detectedAt: detectedAt ?? this.detectedAt,
       ancestorChain: ancestorChain ?? this.ancestorChain,
       fixEffort: fixEffort ?? this.fixEffort,
+      topAllocators: topAllocators ?? this.topAllocators,
     );
   }
 
@@ -219,7 +235,9 @@ class PerformanceIssue {
         interactionContext != null ? ', interaction: $interactionContext' : '';
     final chain = ancestorChain != null ? ', chain: $ancestorChain' : '';
     final effort = fixEffort != null ? ', effort: $fixEffort' : '';
-    return 'PerformanceIssue($severity, $category, $confidence, "$title"$route$source$interaction$chain$effort)';
+    final allocs =
+        topAllocators != null ? ', allocators: ${topAllocators!.length}' : '';
+    return 'PerformanceIssue($severity, $category, $confidence, "$title"$route$source$interaction$chain$effort$allocs)';
   }
 }
 

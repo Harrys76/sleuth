@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:widget_watchdog/src/detectors/memory_pressure_detector.dart';
+import 'package:widget_watchdog/src/models/allocation_entry.dart';
 import 'package:widget_watchdog/src/models/heap_sample.dart';
 import 'package:widget_watchdog/src/models/performance_issue.dart';
 
@@ -805,6 +806,158 @@ void main() {
           detector.issues.where((i) => i.stableId == 'native_memory_growing');
       expect(nativeIssues, isEmpty,
           reason: '<10s sustained growth after reset should not trigger');
+    });
+
+    // -- Allocation Enrichment --
+
+    test('enrichHeapGrowingIssue adds topAllocators to existing issue', () {
+      // Trigger heap_growing first
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000 + i * 600000,
+          timestamp: fakeNow,
+        ));
+      }
+
+      final heapIssues =
+          detector.issues.where((i) => i.stableId == 'heap_growing');
+      expect(heapIssues, hasLength(1));
+      expect(heapIssues.first.topAllocators, isNull);
+
+      // Enrich with allocation data
+      const allocators = [
+        AllocationEntry(
+          className: 'MyWidget',
+          libraryUri: 'package:app/w.dart',
+          instancesDelta: 100,
+          bytesDelta: 50000,
+          percentage: 35.0,
+        ),
+      ];
+      detector.enrichHeapGrowingIssue(allocators);
+
+      final enriched =
+          detector.issues.where((i) => i.stableId == 'heap_growing');
+      expect(enriched, hasLength(1));
+      expect(enriched.first.topAllocators, hasLength(1));
+      expect(enriched.first.topAllocators![0].className, 'MyWidget');
+    });
+
+    test('enrichHeapGrowingIssue no-ops when heap_growing not present', () {
+      // No issues present
+      expect(detector.issues, isEmpty);
+
+      const allocators = [
+        AllocationEntry(
+          className: 'A',
+          libraryUri: '',
+          instancesDelta: 1,
+          bytesDelta: 100,
+          percentage: 100.0,
+        ),
+      ];
+
+      // Should not throw
+      detector.enrichHeapGrowingIssue(allocators);
+      expect(detector.issues, isEmpty);
+    });
+
+    test('enrichment survives _evaluate() rebuild', () {
+      // Trigger heap_growing
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000 + i * 600000,
+          timestamp: fakeNow,
+        ));
+      }
+
+      expect(
+        detector.issues.where((i) => i.stableId == 'heap_growing'),
+        hasLength(1),
+      );
+
+      // Enrich
+      const allocators = [
+        AllocationEntry(
+          className: 'Item',
+          libraryUri: 'package:app/item.dart',
+          instancesDelta: 200,
+          bytesDelta: 80000,
+          percentage: 60.0,
+        ),
+      ];
+      detector.enrichHeapGrowingIssue(allocators);
+
+      // Process another sample (triggers _evaluate() → _issues.clear() → rebuild)
+      fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+      detector.processHeapSample(_sample(
+        heapUsage: 50000000 + 24 * 600000 + 600000,
+        timestamp: fakeNow,
+      ));
+
+      // Enrichment should survive the rebuild
+      final heapIssue =
+          detector.issues.firstWhere((i) => i.stableId == 'heap_growing');
+      expect(heapIssue.topAllocators, isNotNull);
+      expect(heapIssue.topAllocators, hasLength(1));
+      expect(heapIssue.topAllocators![0].className, 'Item');
+    });
+
+    test('enrichment cleared when heap growth stops', () {
+      // Trigger heap_growing
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000 + i * 600000,
+          timestamp: fakeNow,
+        ));
+      }
+
+      // Enrich
+      const allocators = [
+        AllocationEntry(
+          className: 'Leaky',
+          libraryUri: 'package:app/leaky.dart',
+          instancesDelta: 50,
+          bytesDelta: 40000,
+          percentage: 45.0,
+        ),
+      ];
+      detector.enrichHeapGrowingIssue(allocators);
+
+      // Stabilize heap — growth stops, slope drops
+      final plateau = 50000000 + 24 * 600000;
+      for (var i = 0; i < 60; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: plateau,
+          timestamp: fakeNow,
+        ));
+      }
+
+      // heap_growing should be gone (slope dropped)
+      expect(
+        detector.issues.where((i) => i.stableId == 'heap_growing'),
+        isEmpty,
+      );
+
+      // Now trigger growth again — should NOT have stale enrichment
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: plateau + i * 600000,
+          timestamp: fakeNow,
+        ));
+      }
+
+      final regrown =
+          detector.issues.where((i) => i.stableId == 'heap_growing');
+      if (regrown.isNotEmpty) {
+        expect(regrown.first.topAllocators, isNull,
+            reason: 'Stale enrichment from prior episode should be cleared');
+      }
     });
   });
 }

@@ -1,3 +1,4 @@
+import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
 import '../models/heap_sample.dart';
 import '../models/performance_issue.dart';
@@ -45,6 +46,10 @@ class MemoryPressureDetector extends BaseDetector {
   DateTime? _sustainedGrowthStart;
   DateTime? _sustainedNativeGrowthStart;
 
+  /// Cached allocation enrichment data. Preserved across _evaluate() cycles
+  /// so the top-allocator data survives issue rebuilds.
+  List<AllocationEntry>? _lastTopAllocators;
+
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
@@ -77,6 +82,17 @@ class MemoryPressureDetector extends BaseDetector {
     if (_heapSamples.length > _windowCapacity) _heapSamples.removeAt(0);
 
     _evaluate();
+  }
+
+  /// Enrich the existing heap_growing issue with top allocator data.
+  /// Called by the controller after getAllocationProfile returns (phase 2).
+  void enrichHeapGrowingIssue(List<AllocationEntry> allocators) {
+    _lastTopAllocators = allocators;
+
+    // Apply to current issue immediately (if it exists)
+    final idx = _issues.indexWhere((i) => i.stableId == 'heap_growing');
+    if (idx == -1) return;
+    _issues[idx] = _issues[idx].copyWith(topAllocators: allocators);
   }
 
   /// Clear and rebuild all issues from current state.
@@ -152,10 +168,12 @@ class MemoryPressureDetector extends BaseDetector {
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: _clock(),
+          topAllocators: _lastTopAllocators,
         ));
       }
     } else {
       _sustainedGrowthStart = null;
+      _lastTopAllocators = null;
     }
   }
 
@@ -289,6 +307,7 @@ class MemoryPressureDetector extends BaseDetector {
     _sustainedGrowthStart = null;
     _sustainedNativeGrowthStart = null;
     _firstHeapSampleTime = null;
+    _lastTopAllocators = null;
     _trackingStart = _clock();
     _issues.clear();
   }
@@ -299,6 +318,7 @@ class MemoryPressureDetector extends BaseDetector {
     _sustainedGrowthStart = null;
     _sustainedNativeGrowthStart = null;
     _firstHeapSampleTime = null;
+    _lastTopAllocators = null;
     _issues.clear();
   }
 }

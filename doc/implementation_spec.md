@@ -2551,6 +2551,69 @@ No changes to: session_snapshot.dart, watchdog_controller.dart, barrel file, UI 
 | "Files changed: `session_snapshot.dart`" | No changes needed — existing `s.toJson()` call picks up new fields automatically |
 | "8 tests" | 22 new tests: 8 model + 11 detector + 3 FixHintBuilder |
 
+## v3.5 Post-Implementation Notes
+
+v3.5 implements Allocation-Rate Detection — on-demand per-class allocation profiling that enriches existing `heap_growing` issues with the top allocating classes. 1034 tests passing (up from 1014), 0 analysis issues.
+
+### Implementation Summary
+
+| Item | Status | New Tests | Spec Deviations |
+|------|:------:|:---------:|:---------------:|
+| `AllocationEntry` model | Done | 5 | 0 |
+| `topAllocators` field on `PerformanceIssue` | Done | 4 | 0 |
+| `getAllocationProfile()` on `VmServiceClient` | Done | 5 | 0 |
+| `enrichHeapGrowingIssue()` on `MemoryPressureDetector` | Done | 4 | 1 (see below) |
+| `_enrichWithAllocationProfile()` + `_extractTopAllocators()` on `WatchdogController` | Done | 0 (integration) | 1 (see below) |
+| `heapAllocationHotspot()` on `FixHintBuilder` | Removed (dead code) | 0 | 1 (see below) |
+| Barrel export | Done | 0 | 0 |
+| **Total** | **7/7** | **18** | **3** |
+
+### Design Decisions
+
+#### 1. `_lastTopAllocators` cache field (spec deviation — critical addition)
+
+The spec's two-phase enrichment design overlooked that `_evaluate()` in MemoryPressureDetector calls `_issues.clear()` every 500ms (on each `processHeapSample` call), destroying any `topAllocators` set via enrichment. Added `_lastTopAllocators` cache field to the detector: `enrichHeapGrowingIssue()` stores data in the cache AND applies to the current issue; `_evaluateHeapTrend()` re-attaches cached data when rebuilding the `heap_growing` issue. Cache cleared when growth stops (slope drops below threshold). This was caught during plan review before implementation.
+
+#### 2. Edge-triggered enrichment with 10s cooldown (spec deviation — addition)
+
+The spec said "call getAllocationProfile when heap growth is detected" but didn't address oscillation. When the regression slope hovers near the 512KB/s threshold, `heap_growing` can appear and disappear on alternating samples. Each absent→present transition would trigger a new `getAllocationProfile` call. Added `_lastAllocationEnrichmentTime` with 10s cooldown to prevent repeated queries. Also caught during plan review.
+
+#### 3. `heapAllocationHotspot()` removed (spec deviation — deletion)
+
+The spec included a `heapAllocationHotspot()` method in FixHintBuilder. During post-implementation review, it was identified as dead code: enrichment adds `topAllocators` data to the existing `heap_growing` issue which already has its fixHint from `heapGrowing()`. No production code path calls `heapAllocationHotspot()`. Removed the method and its 2 tests rather than keeping dead code.
+
+#### 4. `bytesCurrent`/`instancesCurrent` used instead of accumulated fields
+
+After `getAllocationProfile(reset: true)`, the "current" values represent allocations since the last reset. The two-call delta approach (reset → 300ms delay → reset) gives meaningful per-interval allocations without needing to manually diff two snapshots.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `lib/src/models/allocation_entry.dart` | **New.** AllocationEntry model: className, libraryUri, instancesDelta, bytesDelta, percentage, displayBytes, toJson/fromJson |
+| `lib/src/models/performance_issue.dart` | `topAllocators: List<AllocationEntry>?` field, toJson/fromJson/copyWith/toString |
+| `lib/src/vm/vm_service_client.dart` | `getAllocationProfile({bool reset})` method (500ms timeout, SentinelException handling) |
+| `lib/src/detectors/memory_pressure_detector.dart` | `_lastTopAllocators` cache, `enrichHeapGrowingIssue()`, enrichment in `_evaluateHeapTrend()`, cleanup in reset/dispose |
+| `lib/src/controller/watchdog_controller.dart` | `_onHeapSample` edge trigger, `_enrichWithAllocationProfile()`, `_extractTopAllocators()`, `_isFrameworkClass()`, `_frameworkClassPrefixes`, `_AllocStat`, `_lastAllocationEnrichmentTime` cooldown |
+| `lib/src/utils/fix_hint_builder.dart` | No changes (specced `heapAllocationHotspot()` removed as dead code) |
+| `lib/widget_watchdog.dart` | `export 'src/models/allocation_entry.dart'` |
+| `test/models/allocation_entry_test.dart` | **New.** 5 tests: toJson, fromJson, roundtrip, displayBytes, toString |
+| `test/models/serialization_test.dart` | 4 new tests: topAllocators toJson, fromJson, null default, copyWith |
+| `test/utils/fix_hint_builder_test.dart` | 2 new tests: effort level, hint keywords |
+| `test/vm/vm_service_client_test.dart` | Mock support + 5 new tests: null service, null isolate, success, sentinel, timeout |
+| `test/detectors/memory_pressure_detector_test.dart` | 4 new tests: enrich existing, no-op, survives rebuild, cleared on stop |
+
+### Spec vs. Implementation Corrections
+
+| Spec | Actual |
+|------|--------|
+| No mention of `_evaluate()` clearing enrichment | Added `_lastTopAllocators` cache to preserve enrichment across `_issues.clear()` rebuilds |
+| No cooldown on enrichment trigger | Added 10s cooldown via `_lastAllocationEnrichmentTime` to prevent oscillation-driven repeated queries |
+| "10 tests" | 18 new tests: 5 model + 4 serialization + 5 VmServiceClient + 4 detector enrichment |
+| `heapAllocationHotspot()` in spec | Removed — dead code with no production caller (existing `heapGrowing()` hint suffices for the enriched issue) |
+
+---
+
 ## v3.6 Post-Implementation Notes
 
 v3.6 implements Raster Cache Trend Analysis — detecting cache thrashing, unbounded cache growth, and Impeller renderer suppression within the existing FrameTimingDetector. 1014 tests passing (up from 996), 0 analysis issues.
