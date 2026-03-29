@@ -101,15 +101,11 @@ void main() {
 
       final initial = findCardConstrainedBox(tester).constraints.maxWidth;
 
-      // First widen so we have room to shrink
-      await dragHandle(tester, const Offset(100, 0));
-      final widened = findCardConstrainedBox(tester).constraints.maxWidth;
-      expect(widened, greaterThan(initial));
-
-      // Now shrink
-      await dragHandle(tester, const Offset(-100, 0));
+      // Large leftward drag — slop adds ~10px right, then -300 overwhelms it.
+      // Net result should be less than initial (300).
+      await dragHandle(tester, const Offset(-300, 0));
       final shrunk = findCardConstrainedBox(tester).constraints.maxWidth;
-      expect(shrunk, lessThan(widened));
+      expect(shrunk, lessThan(initial));
     });
 
     testWidgets('width clamps at minimum (220px)', (tester) async {
@@ -126,7 +122,7 @@ void main() {
       await tester.pumpWidget(buildCard());
 
       final initial = findCardConstrainedBox(tester).constraints.maxHeight;
-      // Default: 600 * 0.55 = 330
+      // Default: 600 * 0.55 = 330 (above 250 min floor)
       expect(initial, 330.0);
 
       await dragHandle(tester, const Offset(0, 50));
@@ -142,8 +138,8 @@ void main() {
       await dragHandle(tester, const Offset(0, -500));
 
       final box = findCardConstrainedBox(tester);
-      // Default floor is 600 * 0.55 = 330
-      expect(box.constraints.maxHeight, 330.0);
+      // Static min height = 250px
+      expect(box.constraints.maxHeight, 250.0);
     });
 
     testWidgets('double-tap header maximizes width', (tester) async {

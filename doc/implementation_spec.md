@@ -3051,3 +3051,40 @@ Code review after initial implementation identified 6 issues (2 critical, 3 medi
 ### Net result
 
 ~800 lines added, ~1,340 lines removed. Net: -540 lines. Simpler widget tree, better UX, lower performance cost (no TabBarView keep-alive, no AnimationController, no CustomPaint chart).
+
+## v0.6.0 Enhancements Post-Implementation Notes
+
+Two batches of improvements after the initial floating card implementation: GuidePage redesign with animations and expanded content, and resizable card with corner grip handle. 70 UI tests passing, 0 analysis issues.
+
+### What changed
+
+| File | Action | Details |
+|------|--------|---------|
+| `lib/src/ui/guide_page.dart` | **Rewritten** | StatelessWidget → StatefulWidget with `SingleTickerProviderStateMixin`. Added staggered entrance animations (fade+slide per section, 120ms offset). 4 expandable sections: Quick Start, Understanding the Card, Color Legend, Tips & Tricks. Color Legend expanded with 6 subsections: Severity (with detail descriptions), Confidence Badges, Source Accent, Category Badges (all 8 with chip+description), Effort Badges, Special Indicators (JANK badge, card state swatches). |
+| `lib/src/ui/floating_issues_card.dart` | **Enhanced** | Added resizable width+height via corner drag handle. `_cardWidth` state (default 300, min 220, max screen width). `_cardHeight` nullable state (default 55% screen, min 250px static, max screen-topPadding-20). Double-tap header toggles maximize. `_CornerGripPainter` (const, `shouldRepaint => false`) draws 6 diagonal grip dots inside card's 16px corner radius. `effectiveWidth` local computed from `_cardWidth.clamp()` — no state mutation during build. Summary bar: `Spacer` + `Flexible` → single `Expanded` with `textAlign: TextAlign.right` for flush-right "confirmed · heuristic" label. |
+| `test/ui/card_resize_test.dart` | **Created** | 9 tests: handle presence, CustomPaint child, drag-right width increase, drag-left width decrease, min-width clamp (220px), drag-down height increase, min-height clamp (250px), double-tap maximize, double-tap restore. Uses `startGesture` + `moveBy` (two-step: exceed pan slop, then apply delta). |
+| `test/ui/guide_page_test.dart` | **Updated** | Added assertions for category descriptions, effort badge descriptions, and Special Indicators section (JANK, Highlighted, Jank flash). |
+
+### Design decisions
+
+- **`effectiveWidth` computed local** (not mutating `_cardWidth` in build): The card width needs clamping to screen bounds which may change on rotation. Rather than mutating state during `build()`, a local `effectiveWidth` is computed from `_cardWidth.clamp(min, max)` each frame. The stored `_cardWidth` is only mutated in `setState` callbacks (resize drag, double-tap).
+- **Nullable `_cardHeight`**: Default card height (55% screen) is computed from `MediaQuery` each build. `_cardHeight` is null until the user first drags the resize handle, at which point it captures the user's preference. This avoids storing a stale pixel value that breaks on rotation. Static minimum of 250px (`_minCardHeight`) — decoupled from default so the card can be shrunk below 55% but not to unusable dimensions.
+- **Corner grip inside card radius**: The 32×32 `Positioned` handle sits at `right: 0, bottom: 0` inside the inner Stack (not overflowing). `_CornerGripPainter` draws dots inset 6px from edges to stay within the 16px corner radius. No separate container/background — just dot circles on the card's existing Material surface.
+- **Pan slop in tests**: `tester.drag()` loses unpredictable amounts to pan gesture slop. Tests use `tester.startGesture()` + two `moveBy()` calls (first exceeds 36px slop threshold, second delivers exact delta). Width/height assertions use `greaterThan`/`lessThan` for direction, `closeTo` only where exact values are known (clamp floors, maximize).
+- **Double-tap timer drain**: `GestureDetector.onDoubleTap` uses a 40ms countdown timer internally. Tests pump 300ms after the second tap to drain it, preventing "Timer still pending" failures.
+
+### Post-review fixes
+
+Code review after enhancement implementation identified 3 issues. All fixed:
+
+| ID | Severity | Issue | Fix |
+|----|----------|-------|-----|
+| R1 | Medium | State mutation during `build()` — `_cardWidth = _cardWidth.clamp(...)` | Changed to computed local `effectiveWidth`; `_cardWidth` only mutated in setState callbacks |
+| R2 | Medium | GuidePage resize description said "right edge" — stale after corner-handle refactor | Updated to "bottom-right corner to resize width and height" |
+| R3 | Low | `_CornerGripPainter()` allocated new object each rebuild | Added `const` constructor, call site uses `const _CornerGripPainter()` |
+| R4 | Low | Min card height (400px) was higher than default (55% = 330px on small screens), forcing cards to be taller than intended | Changed to static 250px `_minCardHeight` constant — allows shrinking below default without being unusable |
+| R5 | Low | Summary bar "confirmed · heuristic" label not flush-right — `Spacer` + `Flexible` split remaining space 50/50 | Replaced with single `Expanded` + `textAlign: TextAlign.right` |
+
+### Test count
+
+70 UI tests across 9 files (was 61 across 8). Full suite: ~1,070 tests.

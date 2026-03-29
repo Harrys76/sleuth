@@ -62,6 +62,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   double _cardWidth = _defaultCardWidth;
   static const double _defaultCardWidth = 300;
   static const double _minCardWidth = 220;
+  static const double _minCardHeight = 250;
 
   /// User-set card height. Null = default (55% of screen).
   double? _cardHeight;
@@ -180,7 +181,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     final defaultCardHeight = screenSize.height * 0.55;
     final maxAllowedHeight = screenSize.height - topPadding - 20;
     final cardHeight = (_cardHeight ?? defaultCardHeight)
-        .clamp(defaultCardHeight, maxAllowedHeight);
+        .clamp(_minCardHeight, maxAllowedHeight);
 
     // Effective width clamped to screen — computed, not mutated during build.
     final maxCardWidth = screenSize.width;
@@ -263,7 +264,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                           _cardWidth = (_cardWidth + details.delta.dx).clamp(
                               _minCardWidth, screenSize.width - clamped.dx);
                           _cardHeight = (cardHeight + details.delta.dy)
-                              .clamp(defaultCardHeight, maxAllowedHeight);
+                              .clamp(_minCardHeight, maxAllowedHeight);
                         });
                       },
                       child: CustomPaint(
@@ -781,8 +782,7 @@ class _IssuesSummaryBar extends StatelessWidget {
             ),
             const SizedBox(width: 8),
           ],
-          const Spacer(),
-          Flexible(
+          Expanded(
             child: Text(
               [
                 if (confirmed > 0) '$confirmed confirmed',
@@ -792,6 +792,7 @@ class _IssuesSummaryBar extends StatelessWidget {
                 color: Color(0xFF9CA3AF),
                 fontSize: 10,
               ),
+              textAlign: TextAlign.right,
               overflow: TextOverflow.ellipsis,
             ),
           ),

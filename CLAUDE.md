@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 21 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~974 tests, ~10s)
+fvm flutter test                    # Run all tests (~1,070 tests, ~10s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -54,7 +54,7 @@ test/
 ## Current state
 
 - v0.5.0 tagged (v0.4.0: accuracy fixes + correlator optimization; v0.5.0: context-aware hints, verdict linking, UX improvements)
-- v0.6.0: Replaced DashboardSheet (bottom sheet, 1,241 lines) with FloatingIssuesCard (draggable floating card, ~630 lines). Removed FrameChart, tabs, filter chips. FPS now shown on TriggerButton. Guide is a full-screen GuidePage.
+- v0.6.0: Replaced DashboardSheet (bottom sheet, 1,241 lines) with FloatingIssuesCard (draggable floating card, ~830 lines). Removed FrameChart, tabs, filter chips. FPS now shown on TriggerButton. Guide is a full-screen GuidePage with staggered animations and 4 expandable sections. Card is resizable (width + height) via corner grip handle; double-tap header to maximize.
 - v3 roadmap: v3.1–v3.3, v3.8, v3.9 shipped. Remaining: v3.4, v3.5, v3.6, v3.7, v3.10 (see `doc/implementation_spec.md`)
 - Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
-- ~1,060 tests, 0 analysis issues
+- ~1,070 tests, 0 analysis issues
