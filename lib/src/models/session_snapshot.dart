@@ -19,6 +19,7 @@ class SessionSnapshot {
     this.heapSamples,
   });
 
+  /// Wall-clock time when this snapshot was exported.
   final DateTime exportedAt;
 
   /// Worst jank frames captured during the session.
@@ -30,8 +31,13 @@ class SessionSnapshot {
   /// Aggregate frame stats from the live buffer.
   final FrameStatsSummary frameStatsSummary;
 
+  /// Package version string for snapshot provenance.
   final String packageVersion;
+
+  /// Whether VM service was connected at export time.
   final bool isVmConnected;
+
+  /// Whether the app was running in debug mode at export time.
   final bool isDebugMode;
 
   /// Recent HTTP request records from network monitoring (if active).
@@ -84,9 +90,16 @@ class FrameStatsSummary {
     required this.worstFrameTimeUs,
   });
 
+  /// Total frames observed since monitoring started.
   final int totalFrames;
+
+  /// Number of frames that exceeded the frame budget.
   final int jankFrames;
+
+  /// Average FPS across the live frame buffer.
   final double averageFps;
+
+  /// Duration of the worst single frame in microseconds.
   final int worstFrameTimeUs;
 
   Map<String, dynamic> toJson() => {

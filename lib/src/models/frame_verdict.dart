@@ -38,7 +38,10 @@ class FrameVerdict {
     this.topFunctions,
   });
 
+  /// Sequential frame number matching [FrameStats.frameNumber].
   final int frameNumber;
+
+  /// Max of UI and raster thread durations (primary jank indicator).
   final Duration totalFrameTime;
 
   /// End-to-end frame latency (vsyncStart → rasterFinish).

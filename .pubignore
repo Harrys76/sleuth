@@ -2,5 +2,10 @@ build/
 example/build/
 example/.dart_tool/
 example/.fvm/
+example/web/
+example/linux/
+example/windows/
 doc/
 *.iml
+CLAUDE.md
+HANDOFF.md

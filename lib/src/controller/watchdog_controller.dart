@@ -1155,12 +1155,25 @@ class WatchdogConfig {
     this.networkExcludePatterns,
   });
 
+  /// Target frames per second (60 or 120). Drives jank detection thresholds.
   final int fpsTarget;
+
+  /// Rebuild count per second above which the rebuild detector fires.
   final int rebuildThreshold;
+
+  /// Maximum children in a non-lazy list before the ListView detector fires.
   final int maxListChildren;
+
+  /// Maximum GlobalKeys in scrollable contexts before the detector fires.
   final int maxGlobalKeys;
+
+  /// Maximum platform channel calls per second before the detector fires.
   final int platformChannelLimit;
+
+  /// Interval in milliseconds between widget tree scans.
   final int treeScanIntervalMs;
+
+  /// Which detectors are active. Defaults to all [DetectorType] values.
   final Set<DetectorType> enabledDetectors;
 
   /// Maximum number of jank frames to retain in the capture buffer.

@@ -4,7 +4,7 @@ A runtime performance diagnostics package for Flutter mobile apps. Combines fram
 
 ## How It Works
 
-Widget Watchdog runs three layers of analysis:
+Widget Watchdog runs four layers of analysis:
 
 1. **Frame timing** (FrameTiming API) — per-frame build and raster duration, vsync overhead, cache stats. Works on every platform in debug and profile mode. This is the primary signal.
 2. **VM timeline** (vm_service) — when connected, provides sub-phase breakdowns (buildScope, flushLayout, flushPaint, raster). Best-effort; availability depends on platform and runtime environment.

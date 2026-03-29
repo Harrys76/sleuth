@@ -20,9 +20,16 @@ class FrameStats {
     this.rasterFinishUs,
   });
 
+  /// Sequential frame number since monitoring started.
   final int frameNumber;
+
+  /// Time spent on the UI thread (build + layout + paint).
   final Duration uiDuration;
+
+  /// Time spent on the raster thread (compositing + GPU submission).
   final Duration rasterDuration;
+
+  /// Wall-clock time when this frame was recorded.
   final DateTime timestamp;
 
   /// Time waiting for vsync before build starts — indicates scheduler pressure.
@@ -120,7 +127,7 @@ class FrameStats {
       effectiveTotalDuration.inMilliseconds > frameBudgetMs * 2;
 }
 
-/// Circular buffer holding the last [capacity] frames.
+/// Circular buffer holding the last [capacity] frames for live display.
 class FrameStatsBuffer {
   FrameStatsBuffer({this.capacity = 60});
 

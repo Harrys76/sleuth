@@ -61,23 +61,48 @@ class PerformanceIssue {
     this.ancestorChain,
   });
 
+  /// How severe this issue is (ok, warning, critical).
   final IssueSeverity severity;
+
+  /// Which rendering pipeline phase this issue relates to.
   final IssueCategory category;
+
+  /// Strength of evidence behind this detection.
   final IssueConfidence confidence;
+
+  /// Short human-readable title describing the issue.
   final String title;
+
+  /// Detailed explanation of what was observed.
   final String detail;
+
+  /// Actionable suggestion for how to fix the issue.
   final String fixHint;
 
   /// Stable identifier that does not change when dynamic values in [title]
   /// update (e.g. rebuild counts, GC frequency). Used by the UI to maintain
   /// checkbox selection across scan cycles. When null, falls back to [title].
   final String? stableId;
+
+  /// Name of the widget most relevant to this issue (if attributable).
   final String? widgetName;
+
+  /// Active route name when this issue was detected.
   final String? routeName;
+
+  /// Data source that produced this detection.
   final ObservationSource? observationSource;
+
+  /// User interaction state when this issue was observed.
   final InteractionContext? interactionContext;
+
+  /// Whether this issue's accuracy is reduced in debug mode.
   final bool debugModeDisclaimer;
+
+  /// Wall-clock time when the issue was first detected.
   final DateTime? detectedAt;
+
+  /// Widget ancestor chain providing source-location context.
   final String? ancestorChain;
 
   Map<String, dynamic> toJson() => {
