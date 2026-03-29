@@ -1,5 +1,6 @@
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
+import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
 
 /// Detects excessive platform channel calls.
@@ -85,6 +86,9 @@ class PlatformChannelDetector extends BaseDetector {
       final methodSummary =
           topMethods.take(3).map((e) => '${e.key}: ${e.value}×').join(', ');
 
+      final topMethod = topMethods.isNotEmpty ? topMethods.first.key : null;
+      final (hint, effort) =
+          FixHintBuilder.platformChannelTraffic(topMethod: topMethod);
       _issues.add(PerformanceIssue(
         stableId: 'platform_channel_traffic',
         severity: (frequencyExceeded &&
@@ -104,9 +108,8 @@ class PlatformChannelDetector extends BaseDetector {
             '${methodSummary.isNotEmpty ? '\nTop methods: $methodSummary' : ''}'
             '\nThresholds: $callsPerSecThreshold calls/sec, '
             '${durationThresholdUs ~/ 1000}ms cumulative.',
-        fixHint: 'Batch platform channel calls where possible. '
-            'Consider using Pigeon for type-safe communication '
-            'or cache results to reduce call frequency.',
+        fixHint: hint,
+        fixEffort: effort,
         observationSource: ObservationSource.vmTimeline,
         detectedAt: _clock(),
       ));

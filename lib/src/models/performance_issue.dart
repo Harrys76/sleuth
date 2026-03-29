@@ -42,6 +42,21 @@ enum ObservationSource {
   debugCallbackAndStructural,
 }
 
+/// Estimated developer effort to apply the suggested fix.
+///
+/// Human-classified per detector via [FixHintBuilder]. Used by the UI to show
+/// effort badges and by consumers to prioritize which fixes to attempt first.
+enum FixEffort {
+  /// < 5 min: add a parameter, wrap in const, swap a widget.
+  quick,
+
+  /// < 30 min: extract widgets, add boundaries, restructure.
+  medium,
+
+  /// > 30 min: isolate migration, caching layer, architecture change.
+  involved,
+}
+
 /// A detected performance issue with actionable fix hint.
 class PerformanceIssue {
   const PerformanceIssue({
@@ -59,6 +74,7 @@ class PerformanceIssue {
     this.debugModeDisclaimer = false,
     this.detectedAt,
     this.ancestorChain,
+    this.fixEffort,
   });
 
   /// How severe this issue is (ok, warning, critical).
@@ -105,6 +121,10 @@ class PerformanceIssue {
   /// Widget ancestor chain providing source-location context.
   final String? ancestorChain;
 
+  /// Estimated effort to implement the suggested fix.
+  /// Null for legacy issues deserialized from JSON without this field.
+  final FixEffort? fixEffort;
+
   Map<String, dynamic> toJson() => {
         'severity': severity.name,
         'category': category.name,
@@ -122,6 +142,7 @@ class PerformanceIssue {
         'debugModeDisclaimer': debugModeDisclaimer,
         if (detectedAt != null) 'detectedAt': detectedAt!.toIso8601String(),
         if (ancestorChain != null) 'ancestorChain': ancestorChain,
+        if (fixEffort != null) 'fixEffort': fixEffort!.name,
       };
 
   factory PerformanceIssue.fromJson(Map<String, dynamic> json) =>
@@ -148,6 +169,9 @@ class PerformanceIssue {
             ? DateTime.parse(json['detectedAt'] as String)
             : null,
         ancestorChain: json['ancestorChain'] as String?,
+        fixEffort: json['fixEffort'] != null
+            ? FixEffort.values.byName(json['fixEffort'] as String)
+            : null,
       );
 
   PerformanceIssue copyWith({
@@ -165,6 +189,7 @@ class PerformanceIssue {
     bool? debugModeDisclaimer,
     DateTime? detectedAt,
     String? ancestorChain,
+    FixEffort? fixEffort,
   }) {
     return PerformanceIssue(
       severity: severity ?? this.severity,
@@ -181,6 +206,7 @@ class PerformanceIssue {
       debugModeDisclaimer: debugModeDisclaimer ?? this.debugModeDisclaimer,
       detectedAt: detectedAt ?? this.detectedAt,
       ancestorChain: ancestorChain ?? this.ancestorChain,
+      fixEffort: fixEffort ?? this.fixEffort,
     );
   }
 
@@ -192,7 +218,8 @@ class PerformanceIssue {
     final interaction =
         interactionContext != null ? ', interaction: $interactionContext' : '';
     final chain = ancestorChain != null ? ', chain: $ancestorChain' : '';
-    return 'PerformanceIssue($severity, $category, $confidence, "$title"$route$source$interaction$chain)';
+    final effort = fixEffort != null ? ', effort: $fixEffort' : '';
+    return 'PerformanceIssue($severity, $category, $confidence, "$title"$route$source$interaction$chain$effort)';
   }
 }
 

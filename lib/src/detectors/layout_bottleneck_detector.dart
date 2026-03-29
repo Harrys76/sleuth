@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
 /// Detects intrinsic dimension render objects that cause layout bottlenecks.
@@ -71,6 +72,8 @@ class LayoutBottleneckDetector extends BaseDetector {
 
     if (found.isNotEmpty) {
       final locations = found.take(5).map((chain) => '  • $chain').join('\n');
+      final (hint, effort) = FixHintBuilder.layoutBottleneck();
+
       _issues.add(PerformanceIssue(
         stableId: 'layout_bottleneck',
         severity: IssueSeverity.warning,
@@ -79,9 +82,8 @@ class LayoutBottleneckDetector extends BaseDetector {
         title: 'Layout Bottleneck: ${found.length} intrinsic nodes',
         detail: 'Found ${found.length} IntrinsicHeight/IntrinsicWidth '
             'widgets. These cause O(N²) layout passes.\n\n$locations',
-        fixHint: 'Replace IntrinsicHeight/Width with fixed sizes, '
-            'Expanded, or SizedBox where possible. '
-            'Use Row/Column crossAxisAlignment instead.',
+        fixHint: hint,
+        fixEffort: effort,
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
       ));

@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
 /// Detects SingleChildScrollView wrapping Column with many children.
@@ -86,6 +87,11 @@ class NestedScrollDetector extends BaseDetector {
       element.visitChildren(findFlex);
 
       if (childCount > childThreshold) {
+        final (hint1, effort1) = FixHintBuilder.nestedScrollChildren(
+          childCount: childCount,
+          widgetName: 'SingleChildScrollView',
+          ancestorChain: location,
+        );
         _issues.add(
           PerformanceIssue(
             stableId: 'nested_scroll',
@@ -98,8 +104,8 @@ class NestedScrollDetector extends BaseDetector {
             detail: 'A SingleChildScrollView with $childCount children is '
                 'nested inside another scrollable. This defeats '
                 'virtualization.\n\n  • $location',
-            fixHint: 'Use CustomScrollView with slivers, or '
-                'NestedScrollView to coordinate scrolling.',
+            fixHint: hint1,
+            fixEffort: effort1,
             widgetName: 'SingleChildScrollView',
             ancestorChain: location,
             observationSource: ObservationSource.structural,
@@ -111,6 +117,10 @@ class NestedScrollDetector extends BaseDetector {
     }
 
     // Generic nested scrollable warning
+    final (hint2, effort2) = FixHintBuilder.nestedScrollGeneric(
+      widgetName: widget.runtimeType.toString(),
+      ancestorChain: location,
+    );
     _issues.add(
       PerformanceIssue(
         stableId: 'nested_scroll',
@@ -121,8 +131,8 @@ class NestedScrollDetector extends BaseDetector {
         detail: '${widget.runtimeType} is nested inside another scrollable '
             'widget. This can cause scroll conflicts and performance '
             'issues.\n\n  • $location',
-        fixHint: 'Use CustomScrollView with slivers, or set '
-            'physics: NeverScrollableScrollPhysics() on the inner scroll.',
+        fixHint: hint2,
+        fixEffort: effort2,
         widgetName: widget.runtimeType.toString(),
         ancestorChain: location,
         observationSource: ObservationSource.structural,

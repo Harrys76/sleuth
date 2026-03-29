@@ -4,6 +4,7 @@ import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
 /// Detects StatefulWidgets that own too large a portion of the widget tree
@@ -161,6 +162,12 @@ class SetStateScopeDetector extends BaseDetector {
       final baseConfidence =
           hasAnimScope ? IssueConfidence.possible : IssueConfidence.likely;
 
+      final (hint, effort) = FixHintBuilder.setStateScope(
+        widgetName: widestStatefulWidget ?? 'Unknown',
+        subtreePercent: int.tryParse(percent) ?? 0,
+        ancestorChain: rawChain,
+      );
+
       _issues.add(
         PerformanceIssue(
           stableId: 'setstate_scope',
@@ -173,9 +180,8 @@ class SetStateScopeDetector extends BaseDetector {
           detail: '$widestStatefulWidget has $maxSubtreeSize of $totalElements '
               'elements (~$percent%) in its subtree. setState() was detected '
               'rebuilding this wide subtree.$location',
-          fixHint: 'Move setState() calls to smaller, focused widgets. '
-              'Use Builder or ValueListenableBuilder to scope rebuilds. '
-              'Extract stateful logic into the lowest possible subtree.',
+          fixHint: hint,
+          fixEffort: effort,
           widgetName: widestStatefulWidget,
           ancestorChain: rawChain,
           observationSource:
@@ -186,6 +192,12 @@ class SetStateScopeDetector extends BaseDetector {
       _addHighlight(widestElement!, widestStatefulWidget!, hasEvidence, percent,
           maxSubtreeSize);
     } else if (!hasAnimScope) {
+      final (hint2, effort2) = FixHintBuilder.setStateScope(
+        widgetName: widestStatefulWidget ?? 'Unknown',
+        subtreePercent: int.tryParse(percent) ?? 0,
+        ancestorChain: rawChain,
+      );
+
       _issues.add(
         PerformanceIssue(
           stableId: 'setstate_scope',
@@ -197,9 +209,8 @@ class SetStateScopeDetector extends BaseDetector {
           detail: '$widestStatefulWidget has $maxSubtreeSize of $totalElements '
               'elements (~$percent%) in its subtree. Any setState() on this '
               'widget would rebuild most of the visible tree.$location',
-          fixHint: 'Move setState() calls to smaller, focused widgets. '
-              'Use Builder or ValueListenableBuilder to scope rebuilds. '
-              'Extract stateful logic into the lowest possible subtree.',
+          fixHint: hint2,
+          fixEffort: effort2,
           widgetName: widestStatefulWidget,
           ancestorChain: rawChain,
           observationSource:

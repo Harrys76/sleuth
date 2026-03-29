@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
+import '../utils/fix_hint_builder.dart';
 
 /// Detects unloaded custom fonts in use.
 ///
@@ -84,6 +85,11 @@ class FontLoadingDetector extends BaseDetector {
     // Note: We can detect custom font usage but can't confirm loading
     // status from the widget tree alone. Flag as informational.
     if (customFonts.length > 3) {
+      final (hint, effort) = FixHintBuilder.multipleCustomFonts(
+        fontCount: customFonts.length,
+        families: customFonts.toList(),
+      );
+
       _issues.add(PerformanceIssue(
         stableId: 'multiple_custom_fonts',
         severity: IssueSeverity.warning,
@@ -93,9 +99,8 @@ class FontLoadingDetector extends BaseDetector {
         detail: 'Using ${customFonts.length} custom font families: '
             '${customFonts.take(5).join(", ")}.\n'
             'Each font adds to download/load time.',
-        fixHint: 'Limit custom fonts to 2-3 families max. '
-            'Pre-load fonts using FontLoader or ensure they\'re '
-            'bundled in pubspec.yaml.',
+        fixHint: hint,
+        fixEffort: effort,
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
       ));

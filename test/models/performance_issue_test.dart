@@ -180,6 +180,65 @@ void main() {
     });
   });
 
+  group('PerformanceIssue fixEffort', () {
+    const base = PerformanceIssue(
+      severity: IssueSeverity.warning,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.confirmed,
+      title: 'Test Issue',
+      detail: 'detail',
+      fixHint: 'fix',
+    );
+
+    test('fixEffort defaults to null', () {
+      expect(base.fixEffort, isNull);
+    });
+
+    test('fixEffort preserved in copyWith when not overridden', () {
+      final withEffort = base.copyWith(fixEffort: FixEffort.quick);
+      final copied = withEffort.copyWith(title: 'Changed');
+      expect(copied.fixEffort, FixEffort.quick);
+    });
+
+    test('fixEffort overridden in copyWith', () {
+      final withEffort = base.copyWith(fixEffort: FixEffort.quick);
+      final changed = withEffort.copyWith(fixEffort: FixEffort.involved);
+      expect(changed.fixEffort, FixEffort.involved);
+    });
+
+    test('toString includes fixEffort when present', () {
+      final withEffort = base.copyWith(fixEffort: FixEffort.medium);
+      expect(withEffort.toString(), contains('effort: FixEffort.medium'));
+    });
+
+    test('toString omits fixEffort when null', () {
+      expect(base.toString(), isNot(contains('effort:')));
+    });
+
+    test('toJson includes fixEffort when non-null', () {
+      final withEffort = base.copyWith(fixEffort: FixEffort.involved);
+      final json = withEffort.toJson();
+      expect(json['fixEffort'], 'involved');
+    });
+
+    test('toJson omits fixEffort when null', () {
+      final json = base.toJson();
+      expect(json.containsKey('fixEffort'), isFalse);
+    });
+
+    test('fromJson parses fixEffort', () {
+      final json = base.copyWith(fixEffort: FixEffort.quick).toJson();
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.fixEffort, FixEffort.quick);
+    });
+
+    test('fromJson handles missing fixEffort', () {
+      final json = base.toJson();
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.fixEffort, isNull);
+    });
+  });
+
   group('InteractionContext displayName', () {
     test('idle', () {
       expect(InteractionContext.idle.displayName, 'idle');

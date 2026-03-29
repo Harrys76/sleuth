@@ -4,6 +4,7 @@ import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
 /// Detects CustomPainter where shouldRepaint always returns true.
@@ -95,6 +96,8 @@ class CustomPainterDetector extends BaseDetector {
         }
       }
 
+      final (hint1, effort1) = FixHintBuilder.alwaysRepaintPainter();
+
       _issues.add(
         PerformanceIssue(
           stableId: 'always_repaint_painter',
@@ -105,8 +108,8 @@ class CustomPainterDetector extends BaseDetector {
           detail: '${found.length} CustomPainter(s) return true from '
               'shouldRepaint(). This causes unnecessary repaint on every '
               'frame.\n\n$locations',
-          fixHint: 'Override shouldRepaint() to compare relevant fields:\n'
-              'bool shouldRepaint(MyPainter old) => old.color != color;',
+          fixHint: hint1,
+          fixEffort: effort1,
           observationSource: source,
           detectedAt: DateTime.now(),
         ),
@@ -121,6 +124,8 @@ class CustomPainterDetector extends BaseDetector {
       if (ds != null && ds.paintCounts.isNotEmpty) {
         final cpRate = ds.paintsPerSecondForType('CustomPaint');
         if (cpRate > 30) {
+          final (hint2, effort2) = FixHintBuilder.frequentRepaintPainter();
+
           _issues.add(PerformanceIssue(
             stableId: 'frequent_repaint_painter',
             severity: IssueSeverity.warning,
@@ -130,10 +135,8 @@ class CustomPainterDetector extends BaseDetector {
             detail: 'CustomPainter is repainting at ${cpRate.round()}/sec. '
                 'Verify shouldRepaint() returns false when visual state '
                 "hasn't changed.",
-            fixHint:
-                'Override shouldRepaint() to compare only fields that affect '
-                'painting:\n'
-                'bool shouldRepaint(MyPainter old) => old.color != color;',
+            fixHint: hint2,
+            fixEffort: effort2,
             observationSource: ObservationSource.debugCallbackAndStructural,
             detectedAt: DateTime.now(),
           ));

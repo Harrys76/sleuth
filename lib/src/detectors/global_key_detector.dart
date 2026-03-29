@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
 /// Detects excessive GlobalKey usage inside scrollable widgets.
@@ -100,6 +101,9 @@ class GlobalKeyDetector extends BaseDetector {
       }
       final locations =
           scrollableLocations.take(5).map((chain) => '  • $chain').join('\n');
+      final (hint, effort) =
+          FixHintBuilder.excessiveGlobalKeys(count: globalKeyCount);
+
       _issues.add(
         PerformanceIssue(
           stableId: 'excessive_global_keys',
@@ -112,10 +116,8 @@ class GlobalKeyDetector extends BaseDetector {
           detail: '$globalKeyCount GlobalKey instances found on children of '
               'scrollable widgets. GlobalKeys prevent element '
               'recycling.\n\n$locations',
-          fixHint:
-              'Replace GlobalKey with ValueKey or UniqueKey where possible. '
-              'Only use GlobalKey when you need to access widget state '
-              'across different parts of the tree.',
+          fixHint: hint,
+          fixEffort: effort,
           widgetName: 'Container',
           observationSource: ObservationSource.structural,
           detectedAt: DateTime.now(),

@@ -129,6 +129,28 @@ void main() {
 
       expect(find.text('MEDIUM FIX'), findsOneWidget);
     });
+
+    testWidgets('Explicit fixEffort takes precedence over keyword inference',
+        (tester) async {
+      // fixHint contains "ListView.builder" (quick keyword) but model says involved
+      await tester.pumpWidget(_buildCard(
+        PerformanceIssue(
+          severity: IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.possible,
+          title: 'Test',
+          detail: 'Detail',
+          fixHint: 'Use ListView.builder() for this list.',
+          stableId: 'test',
+          fixEffort: FixEffort.involved,
+        ),
+        initiallyExpanded: true,
+      ));
+
+      // Model fixEffort (involved) wins over keyword (quick)
+      expect(find.text('INVOLVED FIX'), findsOneWidget);
+      expect(find.text('QUICK FIX'), findsNothing);
+    });
   });
 
   group('About this detection (3.8.4)', () {

@@ -1,6 +1,7 @@
 import '../models/base_detector.dart';
 import '../models/phase_event.dart';
 import '../models/performance_issue.dart';
+import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
 
 /// Detects heavy computation blocking the UI thread.
@@ -63,6 +64,10 @@ class HeavyComputeDetector extends BaseDetector {
     final enriched =
         event.hasEnrichment && dirtyWidgets != null && dirtyWidgets.isNotEmpty;
 
+    final (hint, effort) = FixHintBuilder.heavyCompute(
+      durationMs: ms,
+      dirtyWidgets: enriched ? dirtyWidgets : null,
+    );
     return PerformanceIssue(
       stableId: 'heavy_compute',
       severity: ms >= 16 ? IssueSeverity.critical : IssueSeverity.warning,
@@ -73,15 +78,15 @@ class HeavyComputeDetector extends BaseDetector {
               '(${_summarizeWidgets(dirtyWidgets)})'
           : 'Heavy Computation: ${ms.toStringAsFixed(1)}ms',
       detail: _buildDetail(ms, event),
-      fixHint: 'Move heavy work to a background isolate using '
-          'Isolate.run() or compute(). Avoid synchronous '
-          'JSON parsing, image processing, or complex calculations in build().',
+      fixHint: hint,
+      fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
     );
   }
 
   PerformanceIssue _createGenericIssue(double ms) {
+    final (hint, effort) = FixHintBuilder.heavyCompute(durationMs: ms);
     return PerformanceIssue(
       stableId: 'heavy_compute',
       severity: ms >= 16 ? IssueSeverity.critical : IssueSeverity.warning,
@@ -90,9 +95,8 @@ class HeavyComputeDetector extends BaseDetector {
       title: 'Heavy Computation: ${ms.toStringAsFixed(1)}ms',
       detail: 'Long-running operation detected on UI thread '
           '(${ms.toStringAsFixed(1)}ms). This blocks frame rendering.',
-      fixHint: 'Move heavy work to a background isolate using '
-          'Isolate.run() or compute(). Avoid synchronous '
-          'JSON parsing, image processing, or complex calculations in build().',
+      fixHint: hint,
+      fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
     );

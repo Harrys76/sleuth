@@ -1,5 +1,6 @@
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
+import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
 
 /// Detects shader compilation jank from VM Timeline events.
@@ -36,6 +37,7 @@ class ShaderJankDetector extends BaseDetector {
       _totalShaderEvents++;
       final ms = durationUs / 1000;
       if (ms >= thresholdMs) {
+        final (hint, effort) = FixHintBuilder.shaderCompilation();
         _issues.add(PerformanceIssue(
           stableId: 'shader_compilation',
           severity: ms >= 200 ? IssueSeverity.critical : IssueSeverity.warning,
@@ -45,9 +47,8 @@ class ShaderJankDetector extends BaseDetector {
           detail:
               'A shader was compiled on-the-fly causing a ${ms.toStringAsFixed(0)}ms '
               'spike. Total shader events so far: $_totalShaderEvents.',
-          fixHint:
-              'Use "flutter run --profile --cache-sksl" to warm up shaders, '
-              'then "flutter build --bundle-sksl-path" to pre-compile them.',
+          fixHint: hint,
+          fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: DateTime.now(),
         ));

@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
 /// Info about a single uncached image found during a scan.
@@ -102,6 +103,8 @@ class ImageMemoryDetector extends BaseDetector {
           .map((img) => '  • ${img.sourceName}\n    in ${img.ancestorChain}')
           .join('\n');
 
+      final (hint, effort) = FixHintBuilder.uncachedImages(count: count);
+
       _issues.add(PerformanceIssue(
         stableId: 'uncached_images',
         severity: count > 5 ? IssueSeverity.critical : IssueSeverity.warning,
@@ -110,8 +113,8 @@ class ImageMemoryDetector extends BaseDetector {
         title: 'Uncached Images: $count found',
         detail: '$count Image widgets without decode-time resizing. '
             'Full-resolution images are decoded into memory.\n\n$imageList',
-        fixHint: 'Add cacheWidth and/or cacheHeight to Image widgets:\n'
-            'Image.asset("photo.jpg", cacheWidth: 300)',
+        fixHint: hint,
+        fixEffort: effort,
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
       ));

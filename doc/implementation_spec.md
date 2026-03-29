@@ -2423,3 +2423,70 @@ The original spec (v3.8 section above) has minor inaccuracies relative to the im
 | 3.8.2: "Show a SnackBar" | Temporary banner (no Scaffold ancestor) |
 | Files: `issue_card.dart` — items 3.8.1, **3.8.2**, 3.8.4, 3.8.5 | 3.8.2 is in `dashboard_sheet.dart` (highlight checkbox is in the dashboard, not the card) |
 | Testing: "10 widget tests" | 14 widget tests (expanded coverage) |
+
+---
+
+## v3.2 Post-Implementation Notes
+
+v3.2 implements Context-Aware Fix Hints — centralizing all fix hint generation into a `FixHintBuilder` utility with explicit effort classification. 974 tests passing (up from 877), 0 analysis issues.
+
+### Implementation Summary
+
+| Item | Status | New Tests | Spec Deviations |
+|------|:------:|:---------:|:---------------:|
+| `FixEffort` enum + `fixEffort` field on `PerformanceIssue` | Done | 13 | 1 (see below) |
+| `FixHintBuilder` utility (28 static methods) | Done | 86 | 0 |
+| All 21 detectors migrated to builder calls | Done | 0 (existing 358 pass) | 0 |
+| UI `_fixEffort()` updated to prefer model field | Done | 1 | 0 |
+| Barrel file export | Done | 0 | 0 |
+| **Total** | **5/5** | **97** (+ 2 file updates) | **1** |
+
+### Design Decisions
+
+#### 1. FixEffort as a model field (spec deviation)
+
+The spec said "no model changes needed — `fixHint` remains a String." In practice, the effort classification needs to live on the model for two reasons: (a) the UI's keyword-inference approach from v3.8.5 was always a bridge solution, and (b) consumers of `SessionSnapshot` JSON need effort data without re-parsing hint text. Added `FixEffort?` as a nullable field on `PerformanceIssue` — backward compatible, no existing constructor calls break, JSON without the field deserializes to null.
+
+#### 2. Record return type `(String, FixEffort)`
+
+Each `FixHintBuilder` method returns a Dart 3 positional record. This keeps the hint text and effort classification atomic — detectors destructure with `final (hint, effort) = FixHintBuilder.xxx(...)` and pass both to the `PerformanceIssue` constructor in one step. No risk of mismatched effort/hint pairs.
+
+#### 3. UI keyword fallback preserved
+
+The `_fixEffort()` function in `issue_card.dart` now checks `issue.fixEffort` first (model field from builder). If null (legacy issue deserialized from pre-v0.5.0 JSON), it falls back to the existing keyword-scanning logic from v3.8.5. This ensures backward compatibility for exported snapshots.
+
+#### 4. Context-aware vs. generic fallback
+
+Every builder method that accepts optional context (`widgetName`, `ancestorChain`, `interactionContext`) produces a generic fallback when context is null. The two private helpers `_locationSuffix()` and `_contextPrefix()` standardize the format: " in WidgetName (AncestorChain)" suffix or "In WidgetName (AncestorChain): " prefix. No regression from current behavior when context is unavailable.
+
+#### 5. Effort classification is human-authored, not computed
+
+Each of the 28 builder methods hardcodes its `FixEffort` value based on the actual developer work required. This matches the spec's "human-written per detector" design. The classification is:
+
+- **quick** (12 methods): single-parameter additions, widget swaps, mixin removal
+- **medium** (11 methods): widget extraction, boundary additions, profiling-guided changes
+- **involved** (5 methods): isolate migration, caching layers, API redesign, shader pipeline
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `lib/src/models/performance_issue.dart` | `FixEffort` enum + nullable `fixEffort` field, toJson/fromJson/copyWith/toString |
+| `lib/src/utils/fix_hint_builder.dart` | **New** — 28 static methods + 2 private helpers |
+| `lib/src/detectors/*.dart` (21 files) | Import builder, replace hardcoded fixHint strings, set `fixEffort:` from builder |
+| `lib/src/ui/issue_card.dart` | `_fixEffort()` checks model field first, keyword fallback for legacy |
+| `lib/widget_watchdog.dart` | Export `fix_hint_builder.dart` |
+| `test/utils/fix_hint_builder_test.dart` | **New** — 86 tests across 28 groups |
+| `test/models/performance_issue_test.dart` | 9 tests in new `fixEffort` group |
+| `test/models/serialization_test.dart` | 4 assertions added across existing tests + 1 new test |
+| `test/ui/overlay_ux_improvements_test.dart` | 1 test: explicit fixEffort takes precedence over keyword inference |
+
+No changes to: controller, ranking, debug, vm, analyzer, network.
+
+### Spec vs. Implementation Corrections
+
+| Spec | Actual |
+|------|--------|
+| "No model changes needed" | Added `FixEffort` enum + `fixEffort` field to `PerformanceIssue` (nullable, backward compatible) |
+| "~21 tests (one per detector)" | 97 new tests: 86 builder tests + 13 model/serialization tests + 1 UI test |
+| Files: "Modified: `performance_issue.dart` (no model changes)" | Model changes required for explicit effort classification |

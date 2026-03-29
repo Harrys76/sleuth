@@ -5,6 +5,7 @@ import '../models/base_detector.dart';
 import '../models/phase_event.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
@@ -277,6 +278,12 @@ class RebuildDetector extends BaseDetector {
       final elapsedSec =
           snapshot.elapsed.inMicroseconds / Duration.microsecondsPerSecond;
 
+      final (hint, effort) = FixHintBuilder.rebuildDebug(
+        typeName: typeName,
+        rate: rate.round(),
+        ancestorChain: snapshot.ancestorChains[typeName],
+      );
+
       _issues.add(PerformanceIssue(
         stableId: 'rebuild_debug_$typeName',
         severity: rate > rebuildsPerSecThreshold * 3
@@ -288,9 +295,8 @@ class RebuildDetector extends BaseDetector {
         detail: '$typeName: $count rebuilds in '
             '${elapsedSec.toStringAsFixed(1)}s '
             '(${rate.round()}/sec).',
-        fixHint: 'Use const constructors, extract child widgets, or use '
-            'Selector/Consumer instead of BlocBuilder/Provider.of for '
-            'targeted rebuilds.',
+        fixHint: hint,
+        fixEffort: effort,
         widgetName: typeName,
         ancestorChain: snapshot.ancestorChains[typeName],
         observationSource: ObservationSource.debugCallback,
@@ -330,6 +336,10 @@ class RebuildDetector extends BaseDetector {
           : '';
     }
 
+    final (hint, effort) = FixHintBuilder.rebuildActivity(
+      buildCount: buildCount,
+    );
+
     _issues.add(PerformanceIssue(
       stableId: 'rebuild_activity',
       severity: buildCount > rebuildsPerSecThreshold * 3
@@ -339,9 +349,8 @@ class RebuildDetector extends BaseDetector {
       confidence: IssueConfidence.confirmed,
       title: 'High Rebuild Activity: $buildCount builds/sec',
       detail: '$buildCount widget rebuilds in the last second.$detailSuffix',
-      fixHint: 'Use const constructors, extract child widgets, or use '
-          'Selector/Consumer instead of BlocBuilder/Provider.of for '
-          'targeted rebuilds.',
+      fixHint: hint,
+      fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
     ));
@@ -359,6 +368,10 @@ class RebuildDetector extends BaseDetector {
     final topWidget =
         topRebuilders.isNotEmpty ? topRebuilders.first.key : 'Unknown';
 
+    final (hint, effort) = FixHintBuilder.statefulDensity(
+      topWidget: topRebuilders.isNotEmpty ? topWidget : null,
+    );
+
     _issues.add(PerformanceIssue(
       stableId: 'stateful_density',
       severity: IssueSeverity.warning,
@@ -369,9 +382,8 @@ class RebuildDetector extends BaseDetector {
           '(VM unavailable — rebuild rate unknown).'
           '${topRebuilders.isNotEmpty ? '\nMost common: $topWidget '
               '(${topRebuilders.first.value} instances).' : ''}',
-      fixHint: 'Use const constructors, extract child widgets, or use '
-          'Selector/Consumer instead of BlocBuilder/Provider.of for '
-          'targeted rebuilds. Run in profile mode with VM for exact counts.',
+      fixHint: hint,
+      fixEffort: effort,
       observationSource: ObservationSource.structural,
       detectedAt: DateTime.now(),
     ));

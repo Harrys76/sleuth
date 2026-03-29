@@ -20,6 +20,7 @@ void main() {
         interactionContext: InteractionContext.scrolling,
         debugModeDisclaimer: true,
         detectedAt: DateTime.utc(2026, 3, 26, 12, 0, 0),
+        fixEffort: FixEffort.quick,
       );
 
       final json = original.toJson();
@@ -38,6 +39,7 @@ void main() {
       expect(restored.interactionContext, original.interactionContext);
       expect(restored.debugModeDisclaimer, original.debugModeDisclaimer);
       expect(restored.detectedAt, original.detectedAt);
+      expect(restored.fixEffort, original.fixEffort);
     });
 
     test('nullable fields omitted when null', () {
@@ -58,6 +60,7 @@ void main() {
       expect(json.containsKey('observationSource'), isFalse);
       expect(json.containsKey('interactionContext'), isFalse);
       expect(json.containsKey('detectedAt'), isFalse);
+      expect(json.containsKey('fixEffort'), isFalse);
     });
 
     test('fromJson handles absent nullable fields', () {
@@ -80,6 +83,7 @@ void main() {
       expect(issue.interactionContext, isNull);
       expect(issue.detectedAt, isNull);
       expect(issue.debugModeDisclaimer, isFalse);
+      expect(issue.fixEffort, isNull);
     });
 
     test('enums serialize as .name strings', () {
@@ -100,6 +104,21 @@ void main() {
       expect(json['confidence'], 'likely');
       expect(json['observationSource'], 'debugCallbackAndStructural');
       expect(json['interactionContext'], 'navigating');
+    });
+
+    test('fixEffort serializes as .name string', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        fixEffort: FixEffort.involved,
+      );
+
+      final json = issue.toJson();
+      expect(json['fixEffort'], 'involved');
     });
   });
 

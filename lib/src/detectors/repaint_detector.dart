@@ -5,6 +5,7 @@ import '../models/base_detector.dart';
 import '../models/phase_event.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
@@ -244,6 +245,8 @@ class RepaintDetector extends BaseDetector {
             '(from timeline enrichment).'
         : '';
 
+    final (hint, effort) = FixHintBuilder.excessiveRepaintVm();
+
     _issues.add(PerformanceIssue(
       stableId: 'excessive_repaint',
       severity: paintCount > paintFrequencyThreshold * 2
@@ -254,9 +257,8 @@ class RepaintDetector extends BaseDetector {
       title: 'Excessive Repainting: $paintCount paints/sec',
       detail: '$paintCount paint events detected in 1 second. '
           'Threshold: $paintFrequencyThreshold/sec.$detailSuffix',
-      fixHint: 'Add RepaintBoundary widgets to isolate frequently '
-          'repainting subtrees. Check for animations that '
-          'trigger unnecessary repaints in parent widgets.',
+      fixHint: hint,
+      fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
     ));
@@ -274,6 +276,12 @@ class RepaintDetector extends BaseDetector {
       final elapsedSec =
           snapshot.elapsed.inMicroseconds / Duration.microsecondsPerSecond;
 
+      final (hint, effort) = FixHintBuilder.repaintDebugType(
+        typeName: typeName,
+        rate: rate.round(),
+        ancestorChain: snapshot.ancestorChains[typeName],
+      );
+
       _issues.add(PerformanceIssue(
         stableId: 'repaint_debug_$typeName',
         severity: rate > paintFrequencyThreshold * 2
@@ -285,8 +293,8 @@ class RepaintDetector extends BaseDetector {
         detail: '$typeName: $count repaints in '
             '${elapsedSec.toStringAsFixed(1)}s '
             '(${rate.round()}/sec).',
-        fixHint: 'Add RepaintBoundary above $typeName to isolate its '
-            'repaints from parent widgets.',
+        fixHint: hint,
+        fixEffort: effort,
         widgetName: typeName,
         ancestorChain: snapshot.ancestorChains[typeName],
         observationSource: ObservationSource.debugCallback,
@@ -303,6 +311,8 @@ class RepaintDetector extends BaseDetector {
     final elapsedSec =
         snapshot.elapsed.inMicroseconds / Duration.microsecondsPerSecond;
 
+    final (hint, effort) = FixHintBuilder.excessiveRepaintDebug();
+
     _issues.add(PerformanceIssue(
       stableId: 'excessive_repaint_debug',
       severity: rate > paintFrequencyThreshold * 2
@@ -314,9 +324,8 @@ class RepaintDetector extends BaseDetector {
       detail: '${snapshot.totalPaintCount} paint calls in '
           '${elapsedSec.toStringAsFixed(1)}s '
           '(~${rate.round()}/sec, aggregate debug callback count).',
-      fixHint: 'Add RepaintBoundary widgets to isolate frequently '
-          'repainting subtrees. Check for animations that '
-          'trigger unnecessary repaints in parent widgets.',
+      fixHint: hint,
+      fixEffort: effort,
       observationSource: ObservationSource.debugCallback,
       detectedAt: DateTime.now(),
     ));

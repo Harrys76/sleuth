@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
@@ -145,6 +146,10 @@ class ShallowRebuildRiskDetector extends BaseDetector {
       }
 
       // VM-backed: elevated build activity confirmed.
+      final (hint, effort) = FixHintBuilder.shallowRebuildRisk(
+        widgetName: topUsage.widgetName,
+        hasVmData: true,
+      );
       _issues.add(
         PerformanceIssue(
           stableId: 'shallow_rebuild_risk',
@@ -159,9 +164,8 @@ class ShallowRebuildRiskDetector extends BaseDetector {
               'depend on frequently-changing inherited widgets.'
               '${debugDetail != null ? '\n\n$debugDetail' : ''}'
               '\n\n$usageList',
-          fixHint: 'Use specific inherited widget accessors (e.g. '
-              'MediaQuery.sizeOf instead of MediaQuery.of) to reduce '
-              'rebuild scope. Move state-dependent logic to leaf widgets.',
+          fixHint: hint,
+          fixEffort: effort,
           widgetName: topUsage.widgetName,
           ancestorChain: topUsage.location,
           observationSource: source,
@@ -186,6 +190,10 @@ class ShallowRebuildRiskDetector extends BaseDetector {
       }
 
       // Report shallow StatefulWidgets as risk without build-rate evidence.
+      final (hint, effort) = FixHintBuilder.shallowRebuildRisk(
+        widgetName: topUsage.widgetName,
+        hasVmData: false,
+      );
       _issues.add(
         PerformanceIssue(
           stableId: 'shallow_rebuild_risk',
@@ -201,9 +209,8 @@ class ShallowRebuildRiskDetector extends BaseDetector {
               'widgets.'
               '${debugDetail != null ? '\n\n$debugDetail' : ''}'
               '\n\n$usageList',
-          fixHint: 'Use specific inherited widget accessors (e.g. '
-              'MediaQuery.sizeOf instead of MediaQuery.of) to reduce '
-              'rebuild scope. Run in profile mode with VM for build counts.',
+          fixHint: hint,
+          fixEffort: effort,
           widgetName: topUsage.widgetName,
           ancestorChain: topUsage.location,
           observationSource: source,

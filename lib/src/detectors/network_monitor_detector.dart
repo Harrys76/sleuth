@@ -3,6 +3,7 @@ import 'dart:async';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../network/request_record.dart';
+import '../utils/fix_hint_builder.dart';
 
 /// Detects slow, excessive, or oversized HTTP requests.
 ///
@@ -116,6 +117,9 @@ class NetworkMonitorDetector extends BaseDetector {
             '${(r.durationMs / 1000).toStringAsFixed(1)}s')
         .join('\n');
 
+    final (hint, effort) = FixHintBuilder.slowRequest(
+      worstUrl: slowRecords.isNotEmpty ? slowRecords.first.url : null,
+    );
     _issues.add(PerformanceIssue(
       stableId: 'slow_request',
       severity: severity,
@@ -129,9 +133,8 @@ class NetworkMonitorDetector extends BaseDetector {
           'Threshold: ${(slowThresholdMs / 1000).toStringAsFixed(0)}s. '
           '${slowRecords.length} slow request${slowRecords.length > 1 ? 's' : ''} '
           'in buffer.',
-      fixHint: 'Consider pagination, caching, or moving this request to app '
-          'startup. If the endpoint is slow, add a loading indicator to mask '
-          'latency.',
+      fixHint: hint,
+      fixEffort: effort,
       detectedAt: _clock(),
     ));
   }
@@ -150,6 +153,9 @@ class NetworkMonitorDetector extends BaseDetector {
             '${_formatBytes(r.responseBytes)}')
         .join('\n');
 
+    final (hint, effort) = FixHintBuilder.largeResponse(
+      worstUrl: largeRecords.isNotEmpty ? largeRecords.first.url : null,
+    );
     _issues.add(PerformanceIssue(
       stableId: 'large_response',
       severity: IssueSeverity.warning,
@@ -163,8 +169,8 @@ class NetworkMonitorDetector extends BaseDetector {
           'Threshold: ${_formatBytes(largeResponseBytes)}. '
           '${largeRecords.length} large response${largeRecords.length > 1 ? 's' : ''} '
           'in buffer.',
-      fixHint: 'Request only needed fields (sparse fieldsets / GraphQL). '
-          'Paginate large collections. Compress responses (gzip).',
+      fixHint: hint,
+      fixEffort: effort,
       detectedAt: _clock(),
     ));
   }
@@ -178,6 +184,7 @@ class NetworkMonitorDetector extends BaseDetector {
 
     if (recentCount <= frequencyLimit) return;
 
+    final (hint, effort) = FixHintBuilder.requestFrequency();
     _issues.add(PerformanceIssue(
       stableId: 'request_frequency',
       severity: IssueSeverity.warning,
@@ -187,8 +194,8 @@ class NetworkMonitorDetector extends BaseDetector {
           '(limit: $frequencyLimit)',
       detail: '$recentCount HTTP requests in the last 5 seconds. '
           'Threshold: $frequencyLimit/5s.',
-      fixHint: 'Batch or debounce repeated requests. Consider caching '
-          'responses or using a single stream subscription instead of polling.',
+      fixHint: hint,
+      fixEffort: effort,
       detectedAt: _clock(),
     ));
   }

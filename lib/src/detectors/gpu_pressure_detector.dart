@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
@@ -134,6 +135,7 @@ class GpuPressureDetector extends BaseDetector {
         hasRasterTiming && ratio > rasterMultiplierThreshold;
 
     if (hasRasterDominance) {
+      final (hint, effort) = FixHintBuilder.rasterDominance();
       _issues.add(
         PerformanceIssue(
           stableId: 'raster_dominance',
@@ -146,8 +148,8 @@ class GpuPressureDetector extends BaseDetector {
               'Raster thread (${(_lastRasterUs / 1000).toStringAsFixed(1)}ms) '
               'is ${ratio.toStringAsFixed(1)}× slower than UI thread '
               '(${(_lastUiUs / 1000).toStringAsFixed(1)}ms).',
-          fixHint: 'Reduce the amount of work done during rasterization or '
-              'simplify the scene so the GPU has less to draw each frame.',
+          fixHint: hint,
+          fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: DateTime.now(),
         ),
@@ -155,6 +157,7 @@ class GpuPressureDetector extends BaseDetector {
     }
 
     if (_expensiveNodes.isNotEmpty) {
+      final (hint, effort) = FixHintBuilder.expensiveGpuNodes();
       _issues.add(
         PerformanceIssue(
           stableId: 'expensive_gpu_nodes',
@@ -171,8 +174,8 @@ class GpuPressureDetector extends BaseDetector {
               'expensive render objects with deep subtrees:\n'
               '${_expensiveNodes.join("\n")}'
               '${!vmConnected ? '\nVM unavailable — raster timing unknown.' : ''}',
-          fixHint: 'Consider simplifying visual effects or adding '
-              'RepaintBoundary around expensive subtrees.',
+          fixHint: hint,
+          fixEffort: effort,
           observationSource: ObservationSource.structural,
           detectedAt: DateTime.now(),
         ),

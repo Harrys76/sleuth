@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
 /// Detects non-lazy ListView/GridView with many children.
@@ -82,6 +83,11 @@ class ListviewDetector extends BaseDetector {
               ));
             }
           }
+          final (hint, effort) = FixHintBuilder.nonLazyList(
+            childCount: directChildCount,
+            widgetName: 'SingleChildScrollView',
+            ancestorChain: location,
+          );
           _issues.add(PerformanceIssue(
             stableId: 'non_lazy_list',
             severity: directChildCount > childThreshold * 3
@@ -94,8 +100,8 @@ class ListviewDetector extends BaseDetector {
             detail: 'SingleChildScrollView + ${widget.runtimeType} with '
                 '$directChildCount children builds all items at once '
                 'instead of lazily.\n\n  • $location',
-            fixHint: 'Use ListView.builder() or ListView.separated() '
-                'to lazily build visible items only.',
+            fixHint: hint,
+            fixEffort: effort,
             widgetName: 'SingleChildScrollView',
             ancestorChain: location,
             observationSource: ObservationSource.structural,

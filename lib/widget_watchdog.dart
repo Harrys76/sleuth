@@ -40,6 +40,7 @@ export 'src/models/base_detector.dart' show DetectorType, DetectorLifecycle;
 export 'src/models/cpu_attribution.dart';
 export 'src/models/heap_sample.dart';
 export 'src/network/request_record.dart';
+export 'src/utils/fix_hint_builder.dart';
 
 /// Entry point for the Widget Watchdog package.
 ///

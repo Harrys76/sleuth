@@ -4,6 +4,7 @@ import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 import 'setstate_scope_detector.dart';
 
@@ -112,6 +113,11 @@ class AnimatedBuilderDetector extends BaseDetector {
         }
       }
 
+      final (hint, effort) = FixHintBuilder.animatedBuilderNoChild(
+        widgetName: 'AnimatedBuilder',
+        ancestorChain: found.isNotEmpty ? found.first : null,
+      );
+
       _issues.add(
         PerformanceIssue(
           stableId: 'animated_builder_no_child',
@@ -124,15 +130,8 @@ class AnimatedBuilderDetector extends BaseDetector {
               'animation tick (60x/sec).'
               '${debugEvidence != null ? '\n\n$debugEvidence' : ''}'
               '\n\n$locations',
-          fixHint: 'Pass static widgets via the child parameter:\n'
-              'AnimatedBuilder(\n'
-              '  animation: _controller,\n'
-              '  child: const ExpensiveWidget(), // built once\n'
-              '  builder: (context, child) => Transform.rotate(\n'
-              '    angle: _controller.value,\n'
-              '    child: child, // reused, not rebuilt\n'
-              '  ),\n'
-              ')',
+          fixHint: hint,
+          fixEffort: effort,
           observationSource: source,
           detectedAt: DateTime.now(),
         ),

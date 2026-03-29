@@ -1,6 +1,7 @@
 import '../models/base_detector.dart';
 import '../models/heap_sample.dart';
 import '../models/performance_issue.dart';
+import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
 
 /// Detects memory pressure using VM GC events and heap growth trends.
@@ -94,6 +95,7 @@ class MemoryPressureDetector extends BaseDetector {
   void _evaluateGcPressure(Duration elapsed) {
     final gcPerMinute = (_gcEventCount / elapsed.inSeconds) * 60;
     if (gcPerMinute > 30) {
+      final (hint, effort) = FixHintBuilder.gcPressure();
       _issues.add(PerformanceIssue(
         stableId: 'gc_pressure',
         severity: IssueSeverity.warning,
@@ -103,9 +105,8 @@ class MemoryPressureDetector extends BaseDetector {
         detail: 'Garbage collection is running frequently '
             '(${gcPerMinute.toStringAsFixed(0)}/min), indicating high '
             'object creation/disposal rate.',
-        fixHint: 'Reduce object allocations in hot paths. '
-            'Reuse objects, use const constructors, '
-            'and avoid creating objects in build().',
+        fixHint: hint,
+        fixEffort: effort,
         observationSource: ObservationSource.vmTimeline,
         detectedAt: _clock(),
       ));
@@ -130,6 +131,7 @@ class MemoryPressureDetector extends BaseDetector {
           _heapSamples.last.timestamp.difference(_sustainedGrowthStart!);
       if (sustained.inSeconds >= _sustainedGrowthDurationSec) {
         final slopeKbSec = slope / 1024;
+        final (hint, effort) = FixHintBuilder.heapGrowing();
         _issues.add(PerformanceIssue(
           stableId: 'heap_growing',
           severity: IssueSeverity.warning,
@@ -143,10 +145,8 @@ class MemoryPressureDetector extends BaseDetector {
               'Current: ${_formatBytes(_heapSamples.last.heapUsage)}, '
               'Window: ${_heapSamples.length} samples over '
               '${_heapSamples.last.timestamp.difference(_heapSamples.first.timestamp).inSeconds}s.',
-          fixHint:
-              'Memory is growing steadily. Check for undisposed controllers, '
-              'uncancelled streams, growing caches, or images decoded at full '
-              'resolution. Use DevTools Memory view for per-object investigation.',
+          fixHint: hint,
+          fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: _clock(),
         ));
@@ -187,6 +187,7 @@ class MemoryPressureDetector extends BaseDetector {
     final ratio = latest.heapUsage / latest.heapCapacity;
     if (ratio > _capacityThresholdPercent) {
       final pct = (ratio * 100).toStringAsFixed(0);
+      final (hint, effort) = FixHintBuilder.heapNearCapacity();
       _issues.add(PerformanceIssue(
         stableId: 'heap_near_capacity',
         severity: IssueSeverity.critical,
@@ -196,9 +197,8 @@ class MemoryPressureDetector extends BaseDetector {
         detail: 'App is using ${_formatBytes(latest.heapUsage)} of '
             '${_formatBytes(latest.heapCapacity)} available heap ($pct%). '
             'GC may become frequent and cause jank.',
-        fixHint: 'Consider releasing image caches, disposing unused '
-            'controllers, or paginating large data sets. '
-            'Use DevTools Memory view for per-object investigation.',
+        fixHint: hint,
+        fixEffort: effort,
         observationSource: ObservationSource.vmTimeline,
         detectedAt: _clock(),
       ));

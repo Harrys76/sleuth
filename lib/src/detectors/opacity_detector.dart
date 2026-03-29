@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
 /// Detects Opacity widgets with opacity == 0.0.
@@ -74,6 +75,7 @@ class OpacityDetector extends BaseDetector {
 
     if (found.isNotEmpty) {
       final locations = found.take(5).map((chain) => '  • $chain').join('\n');
+      final (hint, effort) = FixHintBuilder.opacityZero();
       _issues.add(
         PerformanceIssue(
           stableId: 'opacity_zero',
@@ -84,11 +86,8 @@ class OpacityDetector extends BaseDetector {
           detail: '${found.length} Opacity widget(s) have near-zero opacity '
               '(< 0.01). Painting is skipped, but the widget still '
               'participates in hit testing, layout, and semantics.\n\n$locations',
-          fixHint: 'If the widget should disappear entirely, remove it from '
-              'the tree. If it should stay in layout, use Visibility with the '
-              'maintain* flags chosen intentionally. Add IgnorePointer or '
-              'ExcludeSemantics if hidden content should also stop receiving '
-              'taps or accessibility focus.',
+          fixHint: hint,
+          fixEffort: effort,
           observationSource: ObservationSource.structural,
           detectedAt: DateTime.now(),
         ),

@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/frame_stats.dart';
+import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
 
 /// Detects jank frames using [SchedulerBinding.addTimingsCallback] (fast,
@@ -163,6 +164,7 @@ class FrameTimingDetector extends BaseDetector {
       final worstFrame = frames.reduce(
         (a, b) => a.effectiveTotalDuration > b.effectiveTotalDuration ? a : b,
       );
+      final (hint1, effort1) = FixHintBuilder.sustainedJank();
       _issues.add(
         PerformanceIssue(
           stableId: 'sustained_jank',
@@ -172,8 +174,8 @@ class FrameTimingDetector extends BaseDetector {
           title:
               'Sustained Jank: $severeCount severe frames ($jankPercent% janky)',
           detail: _buildDetail(worstFrame),
-          fixHint: 'Check for heavy computations in build(), setState() scope, '
-              'or offscreen painting. Use profile mode for exact breakdown.',
+          fixHint: hint1,
+          fixEffort: effort1,
           detectedAt: DateTime.now(),
         ),
       );
@@ -181,6 +183,7 @@ class FrameTimingDetector extends BaseDetector {
       final worstFrame = frames.reduce(
         (a, b) => a.effectiveTotalDuration > b.effectiveTotalDuration ? a : b,
       );
+      final (hint2, effort2) = FixHintBuilder.jankDetected();
       _issues.add(
         PerformanceIssue(
           stableId: 'jank_detected',
@@ -189,8 +192,8 @@ class FrameTimingDetector extends BaseDetector {
           confidence: IssueConfidence.confirmed,
           title: 'Jank Detected: $jankPercent% of frames over budget',
           detail: _buildDetail(worstFrame),
-          fixHint: 'Minor jank detected. Consider const constructors, '
-              'RepaintBoundary, or reducing widget tree depth.',
+          fixHint: hint2,
+          fixEffort: effort2,
           detectedAt: DateTime.now(),
         ),
       );

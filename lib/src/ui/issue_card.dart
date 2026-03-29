@@ -539,9 +539,20 @@ bool _isDebugCallbackSource(ObservationSource? source) =>
     source == ObservationSource.debugCallback ||
     source == ObservationSource.debugCallbackAndStructural;
 
-/// Infers fix effort from the issue's fixHint text.
 /// Returns (label, color) for the effort badge.
+/// Prefers explicit [FixEffort] from the model; falls back to keyword
+/// inference for legacy issues deserialized without the field.
 (String, Color) _fixEffort(PerformanceIssue issue) {
+  final effort = issue.fixEffort;
+  if (effort != null) {
+    return switch (effort) {
+      FixEffort.quick => ('QUICK FIX', const Color(0xFF10B981)),
+      FixEffort.medium => ('MEDIUM FIX', const Color(0xFFF59E0B)),
+      FixEffort.involved => ('INVOLVED FIX', const Color(0xFFEF4444)),
+    };
+  }
+
+  // Legacy fallback: keyword inference for issues without fixEffort
   final hint = issue.fixHint.toLowerCase();
 
   // Quick: simple config/wrapper changes

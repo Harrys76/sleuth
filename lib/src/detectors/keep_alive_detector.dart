@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
 /// Detects excessive AutomaticKeepAlive usage in PageView/TabBarView.
@@ -90,6 +91,9 @@ class KeepAliveDetector extends BaseDetector {
       }
       final locations =
           parentLocations.take(5).map((chain) => '  • $chain').join('\n');
+      final (hint, effort) =
+          FixHintBuilder.excessiveKeepAlive(count: keepAliveCount);
+
       _issues.add(
         PerformanceIssue(
           stableId: 'excessive_keep_alive',
@@ -102,9 +106,8 @@ class KeepAliveDetector extends BaseDetector {
           detail: '$keepAliveCount widgets are using '
               'AutomaticKeepAliveClientMixin, keeping them all in '
               'memory.\n\n$locations',
-          fixHint: 'Remove AutomaticKeepAliveClientMixin from most items. '
-              'Only keep alive items with expensive state. Let others '
-              'rebuild naturally when scrolled back to.',
+          fixHint: hint,
+          fixEffort: effort,
           widgetName: 'Scrollable',
           observationSource: ObservationSource.structural,
           detectedAt: DateTime.now(),
