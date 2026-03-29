@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:vm_service/vm_service.dart' show AllocationProfile, Event;
 
+import '../analyzer/detector_correlator.dart';
 import '../analyzer/frame_event_correlator.dart';
 import '../analyzer/render_pipeline_analyzer.dart';
 import '../debug/debug_instrumentation_config.dart';
@@ -99,7 +100,8 @@ class WatchdogController {
   late final OpacityDetector _opacity;
   late final FontLoadingDetector _fontLoading;
 
-  // Ranking
+  // Ranking & correlation
+  final DetectorCorrelator _detectorCorrelator = const DetectorCorrelator();
   final IssueRanker _ranker = const IssueRanker();
   final Map<String, int> _recurrenceCounts = {};
 
@@ -1067,13 +1069,14 @@ class WatchdogController {
 
   void _aggregateIssues() {
     final all = _getAllIssues();
+    final correlated = _detectorCorrelator.correlate(all);
     final route = _currentRouteName();
 
     // Stamp debug disclaimer, route name, and interaction context.
     // For VM-only issues arriving via _onTimelineData, routeName reflects the
     // last successfully scanned page (best-effort, not real-time).
     // interactionContext reflects the current interaction state at stamp time.
-    final stamped = all
+    final stamped = correlated
         .map((i) => i.copyWith(
               debugModeDisclaimer: kDebugMode ? true : null,
               routeName: route,

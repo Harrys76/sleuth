@@ -2551,6 +2551,64 @@ No changes to: session_snapshot.dart, watchdog_controller.dart, barrel file, UI 
 | "Files changed: `session_snapshot.dart`" | No changes needed — existing `s.toJson()` call picks up new fields automatically |
 | "8 tests" | 22 new tests: 8 model + 11 detector + 3 FixHintBuilder |
 
+## v3.10 Post-Implementation Notes
+
+v3.10 implements Inter-Detector Correlation — a post-processing step that merges, suppresses, or escalates issues based on cross-detector evidence. 1062 tests passing (up from 1045), 0 analysis issues.
+
+### Implementation Summary
+
+| Item | Status | New Tests | Spec Deviations |
+|------|:------:|:---------:|:---------------:|
+| `DetectorCorrelator` class + `CorrelationRule` interface | Done | 3 (passthrough) | 0 |
+| Rule 4: SuppressAnimatedBuilderRule | Done | 3 | 1 (see below) |
+| Rule 1: MergeRebuildSetStateRule | Done | 4 | 0 |
+| Rule 2: EscalateGpuCustomPainterRule | Done | 2 | 0 |
+| Rule 3: EscalateMemoryImageRule | Done | 1 | 0 |
+| Rule 5: DeduplicateRebuildRepaintRule | Done | 2 | 0 |
+| Rule ordering tests | Done | 2 | 0 |
+| Controller integration | Done | 0 (pipeline) | 0 |
+| **Total** | **8/8** | **17** | **1** |
+
+### Design Decisions
+
+#### 1. Rule ordering: suppress → merge → escalate → deduplicate
+
+Order is critical because rules interact. Suppress runs first to remove false positives before other rules see them. Merge runs second to consume `rebuild_debug_$TYPE` issues — if dedup ran first it could remove that same rebuild (if a matching repaint existed), and then merge would find nothing to merge with. Escalate is order-independent (disjoint stableIds). Dedup runs last to handle remaining rebuild/repaint overlaps. Test #17 validates the ordering property.
+
+#### 2. AnimatedBuilder suppress condition (spec deviation)
+
+The spec said "AnimatedBuilder flagged but RepaintDetector has no elevated paint rate for that widget type." Research revealed this is fragile — RepaintDetector's per-widget path only fires when individual types cross the threshold (30 paints/sec). Broadened to: suppress when `confidence == possible` AND no `IssueCategory.paint` issues exist at all. This is more robust: if any paint pressure exists (from any source), AnimatedBuilder is retained as a potential contributor.
+
+#### 3. Merge preserves stableId for recurrence tracking
+
+The controller tracks issue recurrence via `stableId` (`_recurrenceCounts` map). Merged issues keep the `setstate_scope` stableId rather than creating a new `correlated_wide_setstate` ID. This preserves recurrence history and IssueCard expansion state (which uses `ValueKey(stableId)`).
+
+#### 4. Escalate only upgrades `possible` → `likely`, never touches higher
+
+If a detector already promoted confidence to `likely` (via debug callbacks) or `confirmed` (via VM timeline), the detector's own evidence is stronger than cross-detector co-occurrence. The correlator never overrides that signal.
+
+#### 5. No new PerformanceIssue fields needed
+
+All correlation uses existing fields (`stableId`, `widgetName`, `category`, `confidence`) and `copyWith`. No model changes, no serialization changes, no barrel file changes.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `lib/src/analyzer/detector_correlator.dart` | NEW — `DetectorCorrelator`, `CorrelationRule` abstract class, 5 rule implementations |
+| `lib/src/controller/watchdog_controller.dart` | Import, `_detectorCorrelator` field, 2-line change in `_aggregateIssues()` |
+| `test/analyzer/detector_correlator_test.dart` | NEW — 17 tests: 3 passthrough, 3 suppress, 4 merge, 2 GPU escalate, 1 memory escalate, 2 dedup, 2 ordering |
+
+### Spec vs. Implementation Corrections
+
+| Spec | Actual |
+|------|--------|
+| "12 tests" | 17 tests: 3 passthrough + 3 suppress + 4 merge + 2 escalate GPU + 1 escalate memory + 2 dedup + 2 ordering |
+| Rule 4: "RepaintDetector has no elevated paint rate for widget type" | Broadened to: no `IssueCategory.paint` issues exist at all (more robust) |
+| "New: `lib/src/analyzer/detector_correlator.dart`" | Confirmed — single file with class + 5 rules |
+
+---
+
 ## v3.7 Post-Implementation Notes
 
 v3.7 implements CPU Attribution Call Chains — extending CPU profiling from flat function names to full call chains with inclusive percentages. 1045 tests passing (up from 1032), 0 analysis issues.
