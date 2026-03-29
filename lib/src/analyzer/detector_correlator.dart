@@ -44,7 +44,7 @@ class DetectorCorrelator {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 4: Suppress AnimatedBuilder without paint pressure (applied first)
+// Rule 1: Suppress AnimatedBuilder without paint pressure (applied first)
 // ---------------------------------------------------------------------------
 
 /// Suppresses `animated_builder_no_child` when confidence is [possible]
@@ -84,7 +84,7 @@ class SuppressAnimatedBuilderRule extends CorrelationRule {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 1: Merge Rebuild + SetState Scope (applied second)
+// Rule 2: Merge Rebuild + SetState Scope (applied second)
 // ---------------------------------------------------------------------------
 
 /// Merges rebuild issues with setState scope issues when they share a
@@ -159,7 +159,7 @@ class MergeRebuildSetStateRule extends CorrelationRule {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 2: Escalate CustomPainter with GPU Pressure (applied third)
+// Rule 3: Escalate CustomPainter with GPU Pressure (applied third)
 // ---------------------------------------------------------------------------
 
 /// When `raster_dominance` and `always_repaint_painter` co-occur,
@@ -200,7 +200,7 @@ class EscalateGpuCustomPainterRule extends CorrelationRule {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 3: Escalate ImageMemory with Heap Growth (applied fourth)
+// Rule 4: Escalate ImageMemory with Heap Growth (applied fourth)
 // ---------------------------------------------------------------------------
 
 /// When `heap_growing` and `uncached_images` co-occur, escalates

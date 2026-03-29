@@ -59,8 +59,8 @@ void main() {
       expect(detector.issues.first.severity, IssueSeverity.critical);
     });
 
-    test('window reset clears issues via double-flush', () {
-      // First window: 25 events → warning
+    test('window reset clears issues after cooldown expires', () {
+      // First window: 25 events → warning, sets cooldown = 3
       detector.processTimelineData(
         platformChannelData(channelEventCount: 25),
       );
@@ -68,7 +68,14 @@ void main() {
       detector.processTimelineData(emptyTimelineData());
       expect(detector.issues, hasLength(1));
 
-      // Second window: 0 events → clears
+      // Cooldown cycles: issue persists for 3 empty evaluations,
+      // then one more evaluation to reach the else branch that clears.
+      for (var i = 0; i < 3; i++) {
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        detector.processTimelineData(emptyTimelineData());
+        expect(detector.issues, hasLength(1), reason: 'cooldown cycle $i');
+      }
+      // Final evaluation after cooldown expired
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(emptyTimelineData());
       expect(detector.issues, isEmpty);
@@ -182,6 +189,29 @@ void main() {
 
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.detail, contains('getLocation: 25×'));
+    });
+
+    test(
+        'single critical issue when both frequency and duration exceed thresholds',
+        () {
+      // 45 calls × 500µs = 22,500µs (> 8,000µs duration threshold)
+      // 45 calls > 20 frequency threshold
+      // 45 > 20 * 2 = 40 → critical severity
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 45, durUs: 500),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+      // Title uses frequency variant when frequency is exceeded
+      expect(detector.issues.first.title,
+          contains('High Platform Channel Traffic'));
+      expect(detector.issues.first.title, contains('45'));
+      // Detail includes both call count and duration
+      expect(detector.issues.first.detail, contains('45 calls'));
+      expect(detector.issues.first.detail, contains('22.5ms'));
     });
 
     test('dispose clears issues', () {

@@ -93,15 +93,15 @@ class GpuPressureDetector extends BaseDetector {
             typeName.contains('RenderClipPath') ||
             typeName.contains('RenderBackdropFilter')) {
           // Check if it has a deep subtree (more than 5 descendants)
-          int depth = 0;
-          void countDepth(Element child) {
-            depth++;
-            if (depth < 20) child.visitChildren(countDepth);
+          int nodeCount = 0;
+          void countNodes(Element child) {
+            nodeCount++;
+            if (nodeCount < 20) child.visitChildren(countNodes);
           }
 
-          element.visitChildren(countDepth);
-          if (depth > 5) {
-            _expensiveNodes.add('$typeName ($depth descendants)');
+          element.visitChildren(countNodes);
+          if (nodeCount > 5) {
+            _expensiveNodes.add('$typeName ($nodeCount descendants)');
             final rect = getGlobalRect(ro);
             if (rect != null) {
               _highlights.add(WidgetHighlight(
@@ -109,7 +109,7 @@ class GpuPressureDetector extends BaseDetector {
                 widgetName: element.widget.runtimeType.toString(),
                 severity: IssueSeverity.warning,
                 detectorName: 'GPU',
-                detail: '$typeName with $depth descendants',
+                detail: '$typeName with $nodeCount descendants',
               ));
             }
           }

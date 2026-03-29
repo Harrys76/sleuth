@@ -145,8 +145,7 @@ class AnimatedBuilderDetector extends BaseDetector {
     bool frameworkOwned = false;
     element.visitAncestorElements((ancestor) {
       if (ancestor is StatefulElement) {
-        final name = ancestor.widget.runtimeType.toString();
-        frameworkOwned = name.startsWith('_') ||
+        frameworkOwned =
             SetStateScopeDetector.isFrameworkWidget(ancestor.widget);
         return false; // stop walking
       }

@@ -145,6 +145,7 @@ class WatchdogController {
 
   // State
   bool _initialized = false;
+  bool _disposed = false;
   Timer? _treeScanTimer;
 
   /// Notifies listeners when issues change.
@@ -188,6 +189,13 @@ class WatchdogController {
   /// Select the best matching highlight for a given issue.
   /// Returns true if a match was found.
   bool selectHighlightForIssue(PerformanceIssue issue) {
+    // Eagerly collect highlights if empty — detectors already computed them
+    // during their last scanTree(), but _collectHighlights() only runs when
+    // highlightEnabled was true at scan time. On the first checkbox tap,
+    // highlighting was just enabled so highlights haven't been gathered yet.
+    if (highlightsNotifier.value.isEmpty) {
+      _collectHighlights();
+    }
     final highlights = highlightsNotifier.value;
     if (highlights.isEmpty) return false;
 
@@ -480,7 +488,7 @@ class WatchdogController {
         averageFps: buffer.averageFps,
         worstFrameTimeUs: worstUs,
       ),
-      packageVersion: '0.2.0',
+      packageVersion: '0.5.0',
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
       recentRequests:
@@ -928,7 +936,7 @@ class WatchdogController {
     _vmClient!
         .getCpuSamples(timeOriginUs: timeOriginUs, timeExtentUs: timeExtentUs)
         .then((cpuSamples) {
-      if (cpuSamples == null) return;
+      if (_disposed || cpuSamples == null) return;
       final topFunctions = _cpuAggregator.aggregate(cpuSamples);
       if (topFunctions.isEmpty) return;
 
@@ -954,11 +962,13 @@ class WatchdogController {
 
     // Phase 1: establish baseline (reset accumulators)
     _vmClient!.getAllocationProfile(reset: true).then((_) {
+      if (_disposed) return;
       // Brief delay to accumulate meaningful deltas
       Future<void>.delayed(const Duration(milliseconds: 300)).then((_) {
+        if (_disposed) return;
         // Phase 2: get delta since reset
         _vmClient!.getAllocationProfile(reset: true).then((profile) {
-          if (profile == null) return;
+          if (_disposed || profile == null) return;
           final entries = _extractTopAllocators(profile);
           if (entries.isEmpty) return;
 
@@ -1234,6 +1244,7 @@ class WatchdogController {
 
   /// Dispose all resources.
   void dispose() {
+    _disposed = true;
     _treeScanTimer?.cancel();
     _scrollIdleTimer?.cancel();
     _overlayContext = null;

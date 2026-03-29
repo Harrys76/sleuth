@@ -337,5 +337,6 @@ class RepaintDetector extends BaseDetector {
     _highlights.clear();
     _pendingEnrichedDirtyTotal = 0;
     _stagedEnrichedDirtyTotal = null;
+    _pendingDebugSnapshot = null;
   }
 }

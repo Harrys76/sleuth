@@ -105,45 +105,57 @@ class CpuSampleAggregator {
 
     if (filteredCounts.isEmpty) return const [];
 
-    // Step 4: Compute percentages, extract chains, and build attributions.
+    // Step 4: Compute percentages and build attributions (without chains).
     final totalFiltered =
         filteredCounts.values.fold<int>(0, (sum, c) => sum + c);
 
-    final attributions = <CpuAttribution>[];
+    final attributions = <(CpuAttribution, int)>[];
     for (final entry in filteredCounts.entries) {
       final pf = functions[entry.key];
       final (functionName, className, libraryUri) = _extractInfo(pf);
       final exclusivePct = (entry.value / totalFiltered) * 100.0;
 
-      // Inclusive uses totalUsableSamples as denominator
+      // Inclusive uses same denominator as exclusive (totalFiltered)
       final inclCount = inclusiveCounts[entry.key] ?? 0;
-      final inclusivePct = totalUsableSamples > 0
-          ? (inclCount / totalUsableSamples) * 100.0
-          : 0.0;
+      final inclusivePct =
+          totalFiltered > 0 ? (inclCount / totalFiltered) * 100.0 : 0.0;
 
       // Clamp: inclusive must be >= exclusive
       final clampedInclusivePct =
           inclusivePct < exclusivePct ? exclusivePct : inclusivePct;
 
-      final callChain = _extractCallChain(
-        targetFuncIndex: entry.key,
-        samples: samples,
-        functions: functions,
-      );
-
-      attributions.add(CpuAttribution(
-        functionName: functionName,
-        className: className,
-        libraryUri: libraryUri,
-        percentage: exclusivePct,
-        inclusivePercentage: clampedInclusivePct,
-        callChain: callChain,
+      attributions.add((
+        CpuAttribution(
+          functionName: functionName,
+          className: className,
+          libraryUri: libraryUri,
+          percentage: exclusivePct,
+          inclusivePercentage: clampedInclusivePct,
+        ),
+        entry.key, // funcIndex for chain extraction
       ));
     }
 
-    // Step 5: Sort descending by percentage, take top N.
-    attributions.sort((a, b) => b.percentage.compareTo(a.percentage));
-    return attributions.take(topN).toList();
+    // Step 5: Sort descending by percentage, take top N, THEN extract chains.
+    attributions.sort((a, b) => b.$1.percentage.compareTo(a.$1.percentage));
+    final topEntries = attributions.take(topN).toList();
+
+    return topEntries.map((pair) {
+      final (attr, funcIndex) = pair;
+      final callChain = _extractCallChain(
+        targetFuncIndex: funcIndex,
+        samples: samples,
+        functions: functions,
+      );
+      return CpuAttribution(
+        functionName: attr.functionName,
+        className: attr.className,
+        libraryUri: attr.libraryUri,
+        percentage: attr.percentage,
+        inclusivePercentage: attr.inclusivePercentage,
+        callChain: callChain,
+      );
+    }).toList();
   }
 
   /// Check if a sample should be excluded based on its VM tag.
@@ -255,6 +267,9 @@ class CpuSampleAggregator {
   /// Truncate chain to [_maxChainDepth] entries, preserving root and hot function.
   List<String> _truncateChain(List<String> chain) {
     if (chain.length <= _maxChainDepth) return chain;
+    // Guard: need at least 3 entries for truncation to make sense
+    // (root, middle, leaf). Shorter chains are returned as-is above.
+    if (chain.length < 3) return chain;
     return [
       chain[0], // user root
       chain[1], // first callee

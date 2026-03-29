@@ -34,21 +34,25 @@ Widget _buildCard(PerformanceIssue issue, {bool initiallyExpanded = false}) {
 }
 
 void main() {
+  /// Find a Container whose BoxDecoration has a left Border with the given color.
+  bool hasLeftBorderColor(Container c, Color color) {
+    final decoration = c.decoration;
+    if (decoration is! BoxDecoration) return false;
+    final border = decoration.border;
+    if (border is! Border) return false;
+    return border.left.color == color && border.left.width == 3;
+  }
+
   group('IssueCard left border accent (R1)', () {
     testWidgets('vmTimeline source shows green accent', (tester) async {
       await tester.pumpWidget(_buildCard(
         _testIssue(observationSource: ObservationSource.vmTimeline),
       ));
 
-      // Find the accent strip — a Container(width:3) with the green color
+      // Find the accent — a Container with left border in green
       final containers = tester.widgetList<Container>(find.byType(Container));
-      final accent = containers.where((c) {
-        final constraints = c.constraints;
-        if (constraints == null) return false;
-        return constraints.maxWidth == 3 &&
-            constraints.minWidth == 3 &&
-            c.color == const Color(0xFF10B981);
-      });
+      final accent = containers
+          .where((c) => hasLeftBorderColor(c, const Color(0xFF10B981)));
       expect(accent, isNotEmpty);
     });
 
@@ -58,13 +62,8 @@ void main() {
       ));
 
       final containers = tester.widgetList<Container>(find.byType(Container));
-      final accent = containers.where((c) {
-        final constraints = c.constraints;
-        if (constraints == null) return false;
-        return constraints.maxWidth == 3 &&
-            constraints.minWidth == 3 &&
-            c.color == const Color(0xFF8B5CF6);
-      });
+      final accent = containers
+          .where((c) => hasLeftBorderColor(c, const Color(0xFF8B5CF6)));
       expect(accent, isNotEmpty);
     });
 
@@ -76,13 +75,8 @@ void main() {
       ));
 
       final containers = tester.widgetList<Container>(find.byType(Container));
-      final accent = containers.where((c) {
-        final constraints = c.constraints;
-        if (constraints == null) return false;
-        return constraints.maxWidth == 3 &&
-            constraints.minWidth == 3 &&
-            c.color == const Color(0xFF8B5CF6);
-      });
+      final accent = containers
+          .where((c) => hasLeftBorderColor(c, const Color(0xFF8B5CF6)));
       expect(accent, isNotEmpty);
     });
 
@@ -92,13 +86,8 @@ void main() {
       ));
 
       final containers = tester.widgetList<Container>(find.byType(Container));
-      final accent = containers.where((c) {
-        final constraints = c.constraints;
-        if (constraints == null) return false;
-        return constraints.maxWidth == 3 &&
-            constraints.minWidth == 3 &&
-            c.color == const Color(0xFF6B7280);
-      });
+      final accent = containers
+          .where((c) => hasLeftBorderColor(c, const Color(0xFF6B7280)));
       expect(accent, isNotEmpty);
     });
 
@@ -108,13 +97,8 @@ void main() {
       ));
 
       final containers = tester.widgetList<Container>(find.byType(Container));
-      final accent = containers.where((c) {
-        final constraints = c.constraints;
-        if (constraints == null) return false;
-        return constraints.maxWidth == 3 &&
-            constraints.minWidth == 3 &&
-            c.color == const Color(0xFF4B5563);
-      });
+      final accent = containers
+          .where((c) => hasLeftBorderColor(c, const Color(0xFF4B5563)));
       expect(accent, isNotEmpty);
     });
 
@@ -127,9 +111,11 @@ void main() {
       expect(find.text('Test detail'), findsNothing); // collapsed
       final containers = tester.widgetList<Container>(find.byType(Container));
       final accent = containers.where((c) {
-        final constraints = c.constraints;
-        if (constraints == null) return false;
-        return constraints.maxWidth == 3 && constraints.minWidth == 3;
+        final decoration = c.decoration;
+        if (decoration is! BoxDecoration) return false;
+        final border = decoration.border;
+        if (border is! Border) return false;
+        return border.left.width == 3;
       });
       expect(accent, isNotEmpty);
     });
@@ -264,6 +250,24 @@ void main() {
       expect(textWidget.style?.fontSize, 10);
       expect(textWidget.style?.fontStyle, FontStyle.italic);
       expect(textWidget.style?.color, const Color(0xFF9CA3AF));
+    });
+  });
+
+  group('IssueCard edge cases', () {
+    testWidgets('empty fixHint does not crash when expanded', (tester) async {
+      final issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.confirmed,
+        title: 'Test',
+        detail: 'Detail',
+        fixHint: '',
+      );
+
+      await tester.pumpWidget(_buildCard(issue, initiallyExpanded: true));
+
+      // Should render without crash
+      expect(find.text('Detail'), findsOneWidget);
     });
   });
 }

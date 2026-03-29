@@ -517,6 +517,35 @@ void main() {
       expect(result[0].percentage, closeTo(75.0, 0.1));
     });
 
+    test('exact 50% framework boundary excludes framework (threshold is >50%)',
+        () {
+      final funcs = [
+        makeClassFunc(
+            funcName: 'build',
+            className: 'W',
+            libraryUri: 'package:app/w.dart'),
+        makeClassFunc(
+          funcName: 'performRebuild',
+          className: 'ComponentElement',
+          libraryUri: 'package:flutter/src/widgets/framework.dart',
+        ),
+      ];
+      // User: 2, framework: 2 → framework = 50% — NOT > 50% → excluded
+      final samples = [
+        makeSample(stack: [0]),
+        makeSample(stack: [0]),
+        makeSample(stack: [1]),
+        makeSample(stack: [1]),
+      ];
+
+      final result = aggregator
+          .aggregate(makeCpuSamples(functions: funcs, samples: samples));
+      // Framework at exactly 50% should be excluded (threshold is strictly >50%)
+      expect(result, hasLength(1));
+      expect(result[0].functionName, 'build');
+      expect(result[0].percentage, 100.0); // recomputed from user-only
+    });
+
     test('mixed user + framework functions — correct ranking', () {
       final funcs = [
         makeClassFunc(
@@ -584,6 +613,23 @@ void main() {
       final result = aggregator
           .aggregate(makeCpuSamples(functions: funcs, samples: samples));
       expect(result, hasLength(1));
+    });
+
+    test('sample with negative function index is skipped gracefully', () {
+      final funcs = [
+        makeClassFunc(
+            funcName: 'f', className: 'C', libraryUri: 'package:app/a.dart'),
+      ];
+      final samples = [
+        makeSample(stack: [-1]), // negative index
+        makeSample(stack: [0]),
+      ];
+
+      final result = aggregator
+          .aggregate(makeCpuSamples(functions: funcs, samples: samples));
+      expect(result, hasLength(1));
+      expect(result[0].functionName, 'f');
+      expect(result[0].percentage, 100.0);
     });
 
     test('sample with out-of-bounds function index is skipped', () {

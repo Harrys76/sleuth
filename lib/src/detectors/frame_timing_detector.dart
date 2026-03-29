@@ -390,5 +390,6 @@ class FrameTimingDetector extends BaseDetector {
     _consecutiveGrowthFrames = 0;
     _consecutiveZeroCacheFrames = 0;
     _impellerDetected = false;
+    _lastTimelineData = null;
   }
 }

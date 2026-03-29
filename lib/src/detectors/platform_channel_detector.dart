@@ -33,6 +33,8 @@ class PlatformChannelDetector extends BaseDetector {
   int _cumulativeDurationUs = 0;
   final Map<String, int> _methodCounts = {};
   late DateTime _windowStart;
+  int _cooldownCyclesRemaining = 0;
+  PerformanceIssue? _lastEmittedIssue;
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -74,12 +76,11 @@ class PlatformChannelDetector extends BaseDetector {
   }
 
   void _evaluateWindow() {
-    _issues.clear();
-
     final frequencyExceeded = _recentCallCount > callsPerSecThreshold;
     final durationExceeded = _cumulativeDurationUs > durationThresholdUs;
 
     if (frequencyExceeded || durationExceeded) {
+      _cooldownCyclesRemaining = 3;
       final durationMs = _cumulativeDurationUs / 1000;
       final topMethods = _methodCounts.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
@@ -89,7 +90,7 @@ class PlatformChannelDetector extends BaseDetector {
       final topMethod = topMethods.isNotEmpty ? topMethods.first.key : null;
       final (hint, effort) =
           FixHintBuilder.platformChannelTraffic(topMethod: topMethod);
-      _issues.add(PerformanceIssue(
+      _lastEmittedIssue = PerformanceIssue(
         stableId: 'platform_channel_traffic',
         severity: (frequencyExceeded &&
                     _recentCallCount > callsPerSecThreshold * 2) ||
@@ -112,7 +113,17 @@ class PlatformChannelDetector extends BaseDetector {
         fixEffort: effort,
         observationSource: ObservationSource.vmTimeline,
         detectedAt: _clock(),
-      ));
+      );
+      _issues
+        ..clear()
+        ..add(_lastEmittedIssue!);
+    } else if (_cooldownCyclesRemaining > 0) {
+      _cooldownCyclesRemaining--;
+      _issues.clear();
+      if (_lastEmittedIssue != null) _issues.add(_lastEmittedIssue!);
+    } else {
+      _issues.clear();
+      _lastEmittedIssue = null;
     }
   }
 
@@ -120,5 +131,7 @@ class PlatformChannelDetector extends BaseDetector {
   void dispose() {
     _issues.clear();
     _methodCounts.clear();
+    _cooldownCyclesRemaining = 0;
+    _lastEmittedIssue = null;
   }
 }

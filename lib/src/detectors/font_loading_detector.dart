@@ -48,6 +48,8 @@ class FontLoadingDetector extends BaseDetector {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
+  // Known limitation: does not detect fonts applied via DefaultTextStyle
+  // or Theme.textTheme inheritance. Only scans direct Text/RichText styles.
   @override
   void scanTree(BuildContext context) {
     if (!_isEnabled) return;

@@ -55,6 +55,9 @@ class CustomPainterDetector extends BaseDetector {
       if (widget is CustomPaint && widget.painter != null) {
         final painter = widget.painter!;
         try {
+          // Known limitation: self-comparison only catches trivially wrong
+          // implementations (=> true). Secondary heuristic (debug paint rate)
+          // handles painters that correctly compare fields.
           if (painter.shouldRepaint(painter)) {
             found.add(buildAncestorChain(element));
             final ro = element.renderObject;

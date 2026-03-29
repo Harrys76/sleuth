@@ -291,6 +291,29 @@ void main() {
       expect(images.detail, contains('[Correlated]'));
       expect(images.detail, contains('Heap growth'));
     });
+
+    test('does NOT escalate already-confirmed uncached_images', () {
+      final issues = [
+        makeIssue(
+          stableId: 'heap_growing',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'uncached_images',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.confirmed,
+          detail: '5 Image widgets without resizing.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final images = result.firstWhere(
+        (i) => i.stableId == 'uncached_images',
+      );
+      expect(images.confidence, IssueConfidence.confirmed);
+      expect(images.detail, isNot(contains('[Correlated]')));
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -498,6 +521,49 @@ void main() {
       );
 
       expect(result, hasLength(2));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Duplicate stableIds
+  // ---------------------------------------------------------------------------
+
+  group('duplicate stableIds', () {
+    test('deterministic output when duplicate stableIds exist', () {
+      final issues = [
+        makeIssue(
+          stableId: 'layout_bottleneck',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.likely,
+          detail: 'First layout bottleneck.',
+        ),
+        makeIssue(
+          stableId: 'layout_bottleneck',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.possible,
+          detail: 'Second layout bottleneck.',
+        ),
+        makeIssue(
+          stableId: 'slow_request',
+          category: IssueCategory.network,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+
+      // Run twice to verify deterministic output.
+      final result1 = correlator.correlate(issues);
+      final result2 = correlator.correlate(issues);
+
+      // No crash, all issues preserved (no rule targets these stableIds).
+      expect(result1, hasLength(3));
+      expect(result2, hasLength(3));
+
+      // Output order and content are identical across runs.
+      for (var i = 0; i < result1.length; i++) {
+        expect(result1[i].stableId, result2[i].stableId);
+        expect(result1[i].confidence, result2[i].confidence);
+        expect(result1[i].detail, result2[i].detail);
+      }
     });
   });
 }

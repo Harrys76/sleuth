@@ -2781,3 +2781,160 @@ No changes to: performance_issue.dart (IssueCategory.raster already existed), wa
 | "`_issues.clear()` in `_evaluateJank()`" | Changed to selective `removeWhere` — allows jank and cache issues to coexist |
 | "6 tests" | 18 new tests: 4 serialization + 10 detector + 4 FixHintBuilder |
 | "Impeller note shown when metrics unavailable" | Silent suppression — no informational issue emitted (avoids clutter) |
+
+---
+
+## v0.5.0 Review Fixes Post-Implementation Notes
+
+Comprehensive code review of all v3 implementation changes (v3.1–v3.10, ~57 files, ~7000 lines) identified 3 critical, 17 medium, and 26 low issues plus 10 test gaps. This pass addresses 47 of those findings. 1072 tests passing (up from 1062), 0 analysis issues. No breaking API changes.
+
+### Phase 1: Non-UI Fixes (17 items)
+
+| Fix | File | Change |
+|-----|------|--------|
+| M1: Post-dispose async safety | `watchdog_controller.dart` | `_disposed` flag guards all `.then()` callbacks in `_enrichVerdictWithCpuAttribution` and `_enrichWithAllocationProfile` |
+| M2: Stale packageVersion | `watchdog_controller.dart` | `'0.2.0'` → `'0.5.0'` in config |
+| M3: Duplicate stableId | `nested_scroll_detector.dart` | Generic nested-scroll stableId changed from `'nested_scroll'` → `'nested_scroll_same_axis'` to distinguish from SCSV-specific `'nested_scroll'` |
+| M4: isFrameworkOwned false negatives | `animated_builder_detector.dart` | Removed `name.startsWith('_')` check — private widgets are not necessarily framework-owned |
+| M5: KeepAlive string check | `keep_alive_detector.dart` | Match both `'KeepAlive'` and `'_KeepAlive'` variants |
+| M6: Platform channel flickering | `platform_channel_detector.dart` | 3-cycle cooldown with `_lastEmittedIssue` — issues persist for 3 empty evaluations after last detection |
+| M7: Shader issues lost between polls | `shader_jank_detector.dart` | `_emptyPollsSinceLastShader` counter — only clear after 3 consecutive empty polls |
+| M8: CPU denominator mismatch | `cpu_sample_aggregator.dart` | Inclusive percentage now uses `totalFiltered` (same as exclusive) instead of `totalUsableSamples` |
+| M9: Call chain extraction optimization | `cpu_sample_aggregator.dart` | Sort+topN before extracting chains using `(CpuAttribution, int)` record tuples — O(topN) chain extraction instead of O(N) |
+| L1: Memory dispose cleanup | `memory_pressure_detector.dart` | Reset `_gcEventCount` and `_trackingStart` in `dispose()` |
+| L2: Repaint dispose cleanup | `repaint_detector.dart` | Clear `_pendingDebugSnapshot` in `dispose()` |
+| L3: Frame timing dispose cleanup | `frame_timing_detector.dart` | Clear `_lastTimelineData` in `dispose()` |
+| L4: GPU pressure variable naming | `gpu_pressure_detector.dart` | Renamed `depth`→`nodeCount`, `countDepth`→`countNodes` for clarity |
+| L5: Font loading doc comment | `font_loading_detector.dart` | Documented DefaultTextStyle/Theme limitation |
+| L6: Network timer on disable | `network_monitor_detector.dart` | Cancel `_frequencyTimer` in `set isEnabled` when disabling |
+| L7: CustomPainter doc comment | `custom_painter_detector.dart` | Documented self-comparison limitation |
+| L10+L11+L15+L16+L24 | Various models/analyzers | Assertion on inclusivePercentage, `_truncateChain` guard, bytesDelta clamp, toJson doc comment, rule comment renumbering |
+
+### Phase 2: UI Performance Fixes (4 items)
+
+| Fix | File | Change |
+|-----|------|--------|
+| C1: IntrinsicHeight removal | `issue_card.dart` | Replaced `IntrinsicHeight` + `Row` + `Container(width:3)` + `Expanded` with `Container(decoration: BoxDecoration(border: Border(left: BorderSide(color, width: 3))))` — eliminates two-pass layout cost in ListView |
+| C2+C3: VLB flattening + jank key caching | `dashboard_sheet.dart` | Replaced triple-nested `ValueListenableBuilder` with `_cachedJankKeys`/`_cachedJankMatchCount` computed via listeners on both `verdictNotifier` and `issuesNotifier`. Initial state computed in `initState()` |
+| M10: Cancellable timers | `dashboard_sheet.dart` | Replaced 3 `Future.delayed` calls with `Timer` fields (`_exportFeedbackTimer`, `_jankFlashTimer`, `_highlightNotFoundTimer`), all cancelled in `dispose()` |
+| M12: Checkbox touch target | `issue_card.dart` | Removed `SizedBox(20x20)`, `MaterialTapTargetSize.shrinkWrap`, and `VisualDensity.compact` — checkbox now uses Material default 48×48 touch target |
+
+### Phase 3: UI Polish (7 items)
+
+| Fix | File | Change |
+|-----|------|--------|
+| M11: Filter chip overflow | `dashboard_sheet.dart` | Wrapped filter chips in `SingleChildScrollView(scrollDirection: Axis.horizontal)` |
+| M13: Reset aboutExpanded on collapse | `issue_card.dart` | `if (!_expanded) _aboutExpanded = false;` in `_toggle()` |
+| M15: Prune _expandedIssueIds | `dashboard_sheet.dart` | `retainWhere` on current issue keys before rendering |
+| M15b: Prune _selectedIssueId | `dashboard_sheet.dart` | Clear stale selection when issue no longer in list |
+| M16: Dynamic collapsed height | `dashboard_sheet.dart` | `_maxCollapsedHeight.clamp(0.0, screenHeight * 0.65)` prevents overflow on small screens |
+| U1: Filter chip counts | `dashboard_sheet.dart` | Added `(N)` suffix: `'All (5)'`, `'Idle (3)'`, etc. |
+| U2: Empty filter state | `dashboard_sheet.dart` | Shows "No issues match the selected filter" when filtering produces empty list |
+| U3: Export error handling | `dashboard_sheet.dart` | `async` + `try/catch` on `Clipboard.setData` |
+
+### Phase 4: Test Gaps (10 new tests)
+
+| Test | File | Covers |
+|------|------|--------|
+| T1 | `detector_correlator_test.dart` | EscalateMemoryImageRule does NOT escalate confirmed uncached_images |
+| T2 | `frame_event_correlator_test.dart` | Empty `recentFrames` returns empty map |
+| T3 | `frame_timing_detector_test.dart` | Layer cache growth triggers `raster_cache_growing` (35 frames with monotonic `layerCacheBytes`) |
+| T4 | `platform_channel_detector_test.dart` | Simultaneous frequency + duration threshold produces single critical issue |
+| T5 | `memory_pressure_detector_test.dart` | Exact 80% heap capacity boundary (strict `>`, no issue at boundary) |
+| T6 | `memory_pressure_detector_test.dart` | Zero `heapCapacity` does not crash (division-by-zero guard) |
+| T7 | `cpu_sample_aggregator_test.dart` | Exact 50% framework filter boundary (strict `>`, excluded at boundary) |
+| T8 | `cpu_sample_aggregator_test.dart` | Negative function index gracefully skipped |
+| T9 | `detector_correlator_test.dart` | Duplicate stableIds produce deterministic output |
+| T10 | `issue_card_attribution_test.dart` | Empty `fixHint` string does not crash when card expanded |
+
+### Remaining Low-Priority Items (not implemented)
+
+These are polish items deferred to a future pass. None affect correctness or performance.
+
+| ID | Description | Rationale for deferral |
+|----|-------------|----------------------|
+| M14 | Semantic labels on severity icons, JANK badge, confidence badge | Accessibility improvement — no functional impact |
+| L17 | Extract `_WatchdogColors` class for ~50 hardcoded `Color(0xFF...)` values | Maintainability — no runtime impact |
+| L19 | CPU chain display order (percentage before chain name) | UX preference — no functional impact |
+| L20 | Extract `_GuideTabContent` to const StatelessWidget | Minor build optimization — Guide tab is rarely visible |
+| L22 | Animate jank flash with `AnimatedContainer` | Visual polish — current instant flash works correctly |
+
+### Files Changed Summary
+
+| File | Changes |
+|------|---------|
+| `controller/watchdog_controller.dart` | `_disposed` flag + async guards, version `0.5.0` |
+| `detectors/nested_scroll_detector.dart` | stableId `nested_scroll_same_axis` |
+| `detectors/animated_builder_detector.dart` | Removed `name.startsWith('_')` + unused variable |
+| `detectors/keep_alive_detector.dart` | Both KeepAlive variants + doc comment |
+| `detectors/platform_channel_detector.dart` | 3-cycle cooldown mechanism |
+| `detectors/shader_jank_detector.dart` | 3-poll delayed clear |
+| `detectors/memory_pressure_detector.dart` | dispose cleanup |
+| `detectors/repaint_detector.dart` | dispose cleanup |
+| `detectors/frame_timing_detector.dart` | dispose cleanup |
+| `detectors/gpu_pressure_detector.dart` | `depth`→`nodeCount` rename |
+| `detectors/font_loading_detector.dart` | Limitation doc comment |
+| `detectors/network_monitor_detector.dart` | Timer cancel on disable |
+| `detectors/custom_painter_detector.dart` | Limitation doc comment |
+| `vm/cpu_sample_aggregator.dart` | Denominator fix, chain optimization, truncate guard |
+| `models/cpu_attribution.dart` | Assertion + doc comment |
+| `models/allocation_entry.dart` | Negative bytesDelta clamp |
+| `analyzer/detector_correlator.dart` | Rule comment renumbering |
+| `ui/issue_card.dart` | IntrinsicHeight removal, aboutExpanded reset, checkbox touch target |
+| `ui/dashboard_sheet.dart` | VLB flattening, timers, filter chips, dynamic height, pruning, empty state, export error handling |
+| `test/` (10 files) | 10 new tests, updated assertions for stableId/version/border/filter changes |
+
+---
+
+## Confidence Audit + Highlight Fix Post-Implementation Notes
+
+Three targeted fixes arising from manual testing of the example app overlay. 1072 tests passing, 0 analysis issues.
+
+### Fixes
+
+#### 1. Eager highlight collection on first checkbox tap
+
+**File:** `controller/watchdog_controller.dart`
+**Problem:** First checkbox tap on Issues tab always showed "Widget not currently visible" banner, even when the widget was in the tree. Highlights were only collected during the scan loop when `highlightEnabledNotifier` was already true — but on the first tap, highlighting was just enabled, so the previous scan cycle hadn't gathered them.
+**Fix:** `selectHighlightForIssue()` now calls `_collectHighlights()` eagerly if `highlightsNotifier.value` is empty. This is safe because `_collectHighlights()` just gathers already-computed highlights from each detector's last `scanTree()` — no tree walking.
+
+#### 2. Confidence audit — 2 structural detectors upgraded to `confirmed`
+
+Full audit of all 21 detectors against the confidence definition: `confirmed` = directly observed with framework-guaranteed performance impact.
+
+**Test:** A detector should use `confirmed` only when (a) it reads a provable widget/render property AND (b) the framework guarantees performance waste unconditionally.
+
+| Detector | Before | After | Justification |
+|----------|--------|-------|---------------|
+| `opacity_detector` | `possible` | `confirmed` | `Opacity(0.0)` — widget IS invisible, IS doing layout + hit-test + saveLayer. Framework guarantee, zero false positive risk. |
+| `layout_bottleneck_detector` | `possible` | `confirmed` | `IntrinsicHeight`/`IntrinsicWidth` — always triggers two-pass layout (O(N^2)). Framework guarantee, no condition needed. |
+
+**7 detectors correctly remain `possible`** — they read properties but performance impact depends on runtime conditions:
+
+| Detector | Why `possible` is correct |
+|----------|------------------------|
+| `listview_detector` | Eager build confirmed, but impact depends on child complexity (unknown) |
+| `image_memory_detector` | Missing ResizeImage confirmed, but waste depends on image dimensions (unknown) |
+| `keep_alive_detector` | KeepAlive count confirmed, but may be intentional and low-cost |
+| `nested_scroll_detector` | Same-axis nesting confirmed, but may use custom physics |
+| `global_key_detector` | GlobalKey presence confirmed, but cost only during reparenting |
+| `font_loading_detector` | Can't confirm font is actually missing/loading |
+| `custom_painter_detector` | Self-comparison is a heuristic (only catches `=> true`) |
+
+**3 detectors correctly use tiered confidence** (`possible` → `likely` with runtime evidence):
+`animated_builder_detector`, `setstate_scope_detector`, `shallow_rebuild_risk_detector`
+
+**10 runtime/VM detectors already correct** — all use `confirmed` or well-calibrated tiered confidence.
+
+### Ranking Impact
+
+The confidence upgrade gives these detectors +10 ranking points (from `possible`×5=5 to `confirmed`×5=15). This prevents provably-wasteful issues from ranking below less-certain issues at the same severity tier.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `controller/watchdog_controller.dart` | Eager `_collectHighlights()` in `selectHighlightForIssue()` |
+| `detectors/opacity_detector.dart` | `possible` → `confirmed` |
+| `detectors/layout_bottleneck_detector.dart` | `possible` → `confirmed` |
+| `test/detectors/layout_bottleneck_detector_test.dart` | Updated confidence assertion |

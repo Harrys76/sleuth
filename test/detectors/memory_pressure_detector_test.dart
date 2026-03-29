@@ -380,6 +380,39 @@ void main() {
       expect(issue.detail, contains('MB'));
     });
 
+    test('no heap_near_capacity at exact 80% boundary (uses strict >)', () {
+      // Threshold comparison is `ratio > 0.80`, so exactly 80% should NOT fire
+      fakeNow = fakeNow.add(const Duration(seconds: 1));
+      detector.processHeapSample(_sample(
+        heapUsage: 80000000,
+        heapCapacity: 100000000,
+        timestamp: fakeNow,
+      ));
+
+      final capIssues =
+          detector.issues.where((i) => i.stableId == 'heap_near_capacity');
+      expect(capIssues, isEmpty,
+          reason: 'Exactly 80% should not trigger (strict > comparison)');
+    });
+
+    test('zero heapCapacity does not cause division-by-zero crash', () {
+      fakeNow = fakeNow.add(const Duration(seconds: 1));
+
+      // Should not throw — guard returns early when heapCapacity <= 0
+      expect(
+        () => detector.processHeapSample(_sample(
+          heapUsage: 50000000,
+          heapCapacity: 0,
+          timestamp: fakeNow,
+        )),
+        returnsNormally,
+      );
+
+      final capIssues =
+          detector.issues.where((i) => i.stableId == 'heap_near_capacity');
+      expect(capIssues, isEmpty);
+    });
+
     // -- Rolling Window --
 
     test('rolling window evicts oldest sample at capacity', () {

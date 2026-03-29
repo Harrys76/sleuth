@@ -314,6 +314,8 @@ class MemoryPressureDetector extends BaseDetector {
 
   @override
   void dispose() {
+    _gcEventCount = 0;
+    _trackingStart = _clock();
     _heapSamples.clear();
     _sustainedGrowthStart = null;
     _sustainedNativeGrowthStart = null;

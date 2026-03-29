@@ -78,7 +78,9 @@ class LayoutBottleneckDetector extends BaseDetector {
         stableId: 'layout_bottleneck',
         severity: IssueSeverity.warning,
         category: IssueCategory.layout,
-        confidence: IssueConfidence.possible,
+        // confirmed: IntrinsicHeight/Width always triggers two-pass layout
+        // (framework guarantee — not a heuristic)
+        confidence: IssueConfidence.confirmed,
         title: 'Layout Bottleneck: ${found.length} intrinsic nodes',
         detail: 'Found ${found.length} IntrinsicHeight/IntrinsicWidth '
             'widgets. These cause O(N²) layout passes.\n\n$locations',

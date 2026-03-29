@@ -57,7 +57,13 @@ class NetworkMonitorDetector extends BaseDetector {
   bool get isEnabled => _isEnabled;
 
   @override
-  set isEnabled(bool value) => _isEnabled = value;
+  set isEnabled(bool value) {
+    _isEnabled = value;
+    if (!value) {
+      _frequencyTimer?.cancel();
+      _frequencyTimer = null;
+    }
+  }
 
   /// Unmodifiable view of the ring buffer for session export.
   List<RequestRecord> get records => List.unmodifiable(_records);

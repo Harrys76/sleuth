@@ -81,7 +81,7 @@ void main() {
 
       final issue = detector.issues.first;
       expect(issue.stableId, 'layout_bottleneck');
-      expect(issue.confidence, IssueConfidence.possible);
+      expect(issue.confidence, IssueConfidence.confirmed);
       expect(issue.category, IssueCategory.layout);
       expect(issue.severity, IssueSeverity.warning);
     });

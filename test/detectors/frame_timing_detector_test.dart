@@ -403,6 +403,28 @@ void main() {
         expect(growth, isEmpty);
       });
 
+      test('layer cache growth triggers raster_cache_growing issue', () {
+        // layerCacheBytes increasing monotonically for 35 frames
+        // (growth window is 30 frames)
+        for (var i = 0; i < 35; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+            pictureCacheCount: 10,
+            pictureCacheBytes: 50000, // stable
+            layerCacheCount: 5 + i,
+            layerCacheBytes: 20000 + i * 2048, // growing
+          ));
+        }
+
+        final growth = detector.issues
+            .where((i) => i.stableId == 'raster_cache_growing')
+            .toList();
+        expect(growth, hasLength(1));
+        expect(growth.first.detail, contains('Layer cache'));
+      });
+
       test('suppresses cache analysis when all metrics zero for 30 frames', () {
         // 31 frames with all-zero cache → Impeller detected
         for (var i = 0; i < 31; i++) {

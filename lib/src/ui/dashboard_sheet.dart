@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -56,7 +58,16 @@ class _DashboardSheetState extends State<DashboardSheet>
   /// Interaction context filter for the Issues tab. Null = show all.
   InteractionContext? _interactionFilter;
 
-  static const double _collapsedHeight = 400;
+  /// Cached jank-correlated issue keys from verdict, updated via listener.
+  Set<String> _cachedJankKeys = const {};
+  int _cachedJankMatchCount = 0;
+
+  /// Cancellable timers for UI feedback (replacing Future.delayed).
+  Timer? _exportFeedbackTimer;
+  Timer? _jankFlashTimer;
+  Timer? _highlightNotFoundTimer;
+
+  static const double _maxCollapsedHeight = 400;
 
   @override
   void initState() {
@@ -74,18 +85,36 @@ class _DashboardSheetState extends State<DashboardSheet>
         });
       }
     });
+    widget.controller.verdictNotifier.addListener(_onVerdictChanged);
+    widget.controller.issuesNotifier.addListener(_onVerdictChanged);
+    _onVerdictChanged(); // Compute initial cached state
   }
 
   @override
   void dispose() {
+    widget.controller.verdictNotifier.removeListener(_onVerdictChanged);
+    widget.controller.issuesNotifier.removeListener(_onVerdictChanged);
+    _exportFeedbackTimer?.cancel();
+    _jankFlashTimer?.cancel();
+    _highlightNotFoundTimer?.cancel();
     _tabController.dispose();
     _heightController.dispose();
     super.dispose();
   }
 
+  void _onVerdictChanged() {
+    final newKeys = _matchingIssueKeys(widget.controller.verdictNotifier.value);
+    if (!setEquals(newKeys, _cachedJankKeys)) {
+      setState(() {
+        _cachedJankKeys = newKeys;
+        _cachedJankMatchCount = newKeys.length;
+      });
+    }
+  }
+
   void _onDragUpdate(DragUpdateDetails details) {
     final screenHeight = MediaQuery.of(context).size.height;
-    final expandableHeight = screenHeight - _collapsedHeight;
+    final expandableHeight = screenHeight - _collapsedHeight(context);
     if (expandableHeight <= 0) return;
     final delta = -details.primaryDelta! / expandableHeight;
     setState(() {
@@ -116,11 +145,17 @@ class _DashboardSheetState extends State<DashboardSheet>
     _heightController.forward(from: 0);
   }
 
-  void _exportToClipboard() {
+  Future<void> _exportToClipboard() async {
     final json = widget.controller.exportSnapshotJson();
-    Clipboard.setData(ClipboardData(text: json));
+    try {
+      await Clipboard.setData(ClipboardData(text: json));
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
     setState(() => _exportFeedbackVisible = true);
-    Future.delayed(const Duration(seconds: 2), () {
+    _exportFeedbackTimer?.cancel();
+    _exportFeedbackTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) setState(() => _exportFeedbackVisible = false);
     });
   }
@@ -146,7 +181,8 @@ class _DashboardSheetState extends State<DashboardSheet>
     setState(() => _jankFlashIds = keys);
     _tabController.animateTo(1); // Switch to Issues tab
 
-    Future.delayed(const Duration(seconds: 2), () {
+    _jankFlashTimer?.cancel();
+    _jankFlashTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) setState(() => _jankFlashIds = {});
     });
   }
@@ -177,13 +213,19 @@ class _DashboardSheetState extends State<DashboardSheet>
     );
   }
 
+  double _collapsedHeight(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    return _maxCollapsedHeight.clamp(0.0, screenHeight * 0.65);
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
     final topPadding = MediaQuery.of(context).padding.top;
     final maxHeight = screenHeight - topPadding;
+    final collapsed = _collapsedHeight(context);
     final currentHeight =
-        _collapsedHeight + (_sheetFraction * (maxHeight - _collapsedHeight));
+        collapsed + (_sheetFraction * (maxHeight - collapsed));
     final isExpanded = _sheetFraction > 0.1;
 
     return Container(
@@ -471,50 +513,44 @@ class _DashboardSheetState extends State<DashboardSheet>
             Expanded(child: FrameChart(buffer: buffer)),
 
             // Jank banner — links to Issues tab
-            ValueListenableBuilder<FrameVerdict?>(
-              valueListenable: widget.controller.verdictNotifier,
-              builder: (_, verdict, __) {
-                final matchCount = _matchingIssueKeys(verdict).length;
-                if (matchCount == 0) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: GestureDetector(
-                    onTap: _onJankBannerTap,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF7F1D1D),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.warning_amber_rounded,
-                              color: Color(0xFFFCA5A5), size: 16),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '$matchCount issue${matchCount == 1 ? '' : 's'}'
-                              ' may be causing jank',
-                              style: const TextStyle(
-                                  color: Color(0xFFFCA5A5), fontSize: 11),
-                            ),
+            if (_cachedJankMatchCount > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: GestureDetector(
+                  onTap: _onJankBannerTap,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF7F1D1D),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded,
+                            color: Color(0xFFFCA5A5), size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '$_cachedJankMatchCount issue${_cachedJankMatchCount == 1 ? '' : 's'}'
+                            ' may be causing jank',
+                            style: const TextStyle(
+                                color: Color(0xFFFCA5A5), fontSize: 11),
                           ),
-                          const Text(
-                            'View Issues \u203A',
-                            style: TextStyle(
-                              color: Color(0xFFFCA5A5),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
+                        ),
+                        const Text(
+                          'View Issues \u203A',
+                          style: TextStyle(
+                            color: Color(0xFFFCA5A5),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                );
-              },
-            ),
+                ),
+              ),
 
             // Latest verdict
             const SizedBox(height: 8),
@@ -592,6 +628,14 @@ class _DashboardSheetState extends State<DashboardSheet>
           );
         }
 
+        // Prune stale state that no longer exists in the issue list
+        final currentKeys = {for (final i in issues) i.stableId ?? i.title};
+        _expandedIssueIds.retainWhere(currentKeys.contains);
+        if (_selectedIssueId != null &&
+            !currentKeys.contains(_selectedIssueId)) {
+          _selectedIssueId = null;
+        }
+
         final filteredIssues = _interactionFilter == null
             ? issues
             : issues
@@ -607,29 +651,34 @@ class _DashboardSheetState extends State<DashboardSheet>
             // Interaction context filter row
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Row(
-                children: [
-                  _filterChip('All', _interactionFilter == null,
-                      () => setState(() => _interactionFilter = null)),
-                  const SizedBox(width: 6),
-                  _filterChip(
-                      'Idle',
-                      _interactionFilter == InteractionContext.idle,
-                      () => setState(
-                          () => _interactionFilter = InteractionContext.idle)),
-                  const SizedBox(width: 6),
-                  _filterChip(
-                      'Scrolling',
-                      _interactionFilter == InteractionContext.scrolling,
-                      () => setState(() =>
-                          _interactionFilter = InteractionContext.scrolling)),
-                  const SizedBox(width: 6),
-                  _filterChip(
-                      'Navigating',
-                      _interactionFilter == InteractionContext.navigating,
-                      () => setState(() =>
-                          _interactionFilter = InteractionContext.navigating)),
-                ],
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _filterChip(
+                        'All (${issues.length})',
+                        _interactionFilter == null,
+                        () => setState(() => _interactionFilter = null)),
+                    const SizedBox(width: 6),
+                    _filterChip(
+                        'Idle (${issues.where((i) => i.interactionContext == null || i.interactionContext == InteractionContext.idle).length})',
+                        _interactionFilter == InteractionContext.idle,
+                        () => setState(() =>
+                            _interactionFilter = InteractionContext.idle)),
+                    const SizedBox(width: 6),
+                    _filterChip(
+                        'Scrolling (${issues.where((i) => i.interactionContext == InteractionContext.scrolling).length})',
+                        _interactionFilter == InteractionContext.scrolling,
+                        () => setState(() =>
+                            _interactionFilter = InteractionContext.scrolling)),
+                    const SizedBox(width: 6),
+                    _filterChip(
+                        'Navigating (${issues.where((i) => i.interactionContext == InteractionContext.navigating).length})',
+                        _interactionFilter == InteractionContext.navigating,
+                        () => setState(() => _interactionFilter =
+                            InteractionContext.navigating)),
+                  ],
+                ),
               ),
             ),
             // Highlight not-found feedback banner
@@ -658,75 +707,80 @@ class _DashboardSheetState extends State<DashboardSheet>
                 ),
               ),
             Expanded(
-              child: ValueListenableBuilder<FrameVerdict?>(
-                valueListenable: widget.controller.verdictNotifier,
-                builder: (_, verdict, __) {
-                  final jankKeys = _matchingIssueKeys(verdict);
-                  return ValueListenableBuilder<WidgetHighlight?>(
-                    valueListenable:
-                        widget.controller.selectedHighlightNotifier,
-                    builder: (_, selectedHighlight, __) => ListView.builder(
-                      padding: const EdgeInsets.all(8),
-                      itemCount: filteredIssues.length,
-                      itemBuilder: (_, index) {
-                        final issue = filteredIssues[index];
-                        final locatable = _isLocatableIssue(issue);
-                        final issueKey = issue.stableId ?? issue.title;
-                        final isHighlighted = selectedHighlight != null &&
-                            locatable &&
-                            _selectedIssueId == issueKey;
-                        return IssueCard(
-                          key: ValueKey(issueKey),
-                          issue: issue,
-                          deepInstrumentationActive:
-                              widget.controller.isDeepInstrumentationActive,
-                          initiallyExpanded:
-                              _expandedIssueIds.contains(issueKey),
-                          onExpandedChanged: (expanded) {
-                            if (expanded) {
-                              _expandedIssueIds.add(issueKey);
-                            } else {
-                              _expandedIssueIds.remove(issueKey);
-                            }
-                          },
-                          locatable: locatable,
-                          highlighted: isHighlighted,
-                          onHighlightChanged: locatable
-                              ? (checked) {
-                                  if (checked) {
-                                    setState(() => _selectedIssueId = issueKey);
-                                    widget.controller.highlightEnabledNotifier
-                                        .value = true;
-                                    final found = widget.controller
-                                        .selectHighlightForIssue(issue);
-                                    if (!found) {
-                                      widget.controller.pendingIssueSelection =
-                                          issue;
-                                      setState(() =>
-                                          _highlightNotFoundVisible = true);
-                                      Future.delayed(const Duration(seconds: 3),
-                                          () {
-                                        if (mounted) {
-                                          setState(() =>
-                                              _highlightNotFoundVisible =
-                                                  false);
-                                        }
-                                      });
+              child: filteredIssues.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No issues match the selected filter',
+                        style:
+                            TextStyle(color: Color(0xFF6B7280), fontSize: 12),
+                      ),
+                    )
+                  : ValueListenableBuilder<WidgetHighlight?>(
+                      valueListenable:
+                          widget.controller.selectedHighlightNotifier,
+                      builder: (_, selectedHighlight, __) => ListView.builder(
+                        padding: const EdgeInsets.all(8),
+                        itemCount: filteredIssues.length,
+                        itemBuilder: (_, index) {
+                          final issue = filteredIssues[index];
+                          final locatable = _isLocatableIssue(issue);
+                          final issueKey = issue.stableId ?? issue.title;
+                          final isHighlighted = selectedHighlight != null &&
+                              locatable &&
+                              _selectedIssueId == issueKey;
+                          return IssueCard(
+                            key: ValueKey(issueKey),
+                            issue: issue,
+                            deepInstrumentationActive:
+                                widget.controller.isDeepInstrumentationActive,
+                            initiallyExpanded:
+                                _expandedIssueIds.contains(issueKey),
+                            onExpandedChanged: (expanded) {
+                              if (expanded) {
+                                _expandedIssueIds.add(issueKey);
+                              } else {
+                                _expandedIssueIds.remove(issueKey);
+                              }
+                            },
+                            locatable: locatable,
+                            highlighted: isHighlighted,
+                            onHighlightChanged: locatable
+                                ? (checked) {
+                                    if (checked) {
+                                      setState(
+                                          () => _selectedIssueId = issueKey);
+                                      widget.controller.highlightEnabledNotifier
+                                          .value = true;
+                                      final found = widget.controller
+                                          .selectHighlightForIssue(issue);
+                                      if (!found) {
+                                        widget.controller
+                                            .pendingIssueSelection = issue;
+                                        setState(() =>
+                                            _highlightNotFoundVisible = true);
+                                        _highlightNotFoundTimer?.cancel();
+                                        _highlightNotFoundTimer = Timer(
+                                            const Duration(seconds: 3), () {
+                                          if (mounted) {
+                                            setState(() =>
+                                                _highlightNotFoundVisible =
+                                                    false);
+                                          }
+                                        });
+                                      }
+                                    } else {
+                                      setState(() => _selectedIssueId = null);
+                                      widget.controller
+                                          .clearSelectedHighlight();
                                     }
-                                  } else {
-                                    setState(() => _selectedIssueId = null);
-                                    widget.controller.clearSelectedHighlight();
                                   }
-                                }
-                              : null,
-                          jankCorrelated: jankKeys.contains(issueKey),
-                          jankFlash: _jankFlashIds.contains(issueKey),
-                        );
-                      },
+                                : null,
+                            jankCorrelated: _cachedJankKeys.contains(issueKey),
+                            jankFlash: _jankFlashIds.contains(issueKey),
+                          );
+                        },
+                      ),
                     ),
-                  );
-                },
-              ),
             ),
           ],
         );

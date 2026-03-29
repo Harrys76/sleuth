@@ -302,10 +302,10 @@ void main() {
       await tester.tap(find.text('Issues'));
       await tester.pumpAndSettle();
 
-      expect(find.text('All'), findsOneWidget);
-      expect(find.text('Idle'), findsOneWidget);
-      expect(find.text('Scrolling'), findsOneWidget);
-      expect(find.text('Navigating'), findsOneWidget);
+      expect(find.textContaining('All'), findsOneWidget);
+      expect(find.textContaining('Idle'), findsOneWidget);
+      expect(find.textContaining('Scrolling'), findsOneWidget);
+      expect(find.textContaining('Navigating'), findsOneWidget);
     });
 
     testWidgets('filtering by Scrolling shows only scrolling issues',
@@ -331,8 +331,8 @@ void main() {
       expect(find.text('Idle Issue'), findsOneWidget);
       expect(find.text('Scrolling Issue'), findsOneWidget);
 
-      // Tap "Scrolling" filter
-      await tester.tap(find.text('Scrolling'));
+      // Tap "Scrolling" filter chip (not the issue title)
+      await tester.tap(find.textContaining(RegExp(r'^Scrolling \(')));
       await tester.pump();
 
       // Only scrolling issue visible

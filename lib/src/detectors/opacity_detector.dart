@@ -81,7 +81,8 @@ class OpacityDetector extends BaseDetector {
           stableId: 'opacity_zero',
           severity: IssueSeverity.warning,
           category: IssueCategory.layout,
-          confidence: IssueConfidence.possible,
+          // confirmed: directly reading widget.opacity — not a heuristic
+          confidence: IssueConfidence.confirmed,
           title: 'Invisible Opacity Widgets Still Active: ${found.length}',
           detail: '${found.length} Opacity widget(s) have near-zero opacity '
               '(< 0.01). Painting is skipped, but the widget still '

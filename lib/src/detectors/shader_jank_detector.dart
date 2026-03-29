@@ -19,6 +19,7 @@ class ShaderJankDetector extends BaseDetector {
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
   int _totalShaderEvents = 0;
+  int _emptyPollsSinceLastShader = 0;
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -31,6 +32,14 @@ class ShaderJankDetector extends BaseDetector {
 
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
+
+    if (data.shaderCompileDurations.isEmpty) {
+      _emptyPollsSinceLastShader++;
+      if (_emptyPollsSinceLastShader > 3) _issues.clear();
+      return;
+    }
+
+    _emptyPollsSinceLastShader = 0;
     _issues.clear();
 
     for (final durationUs in data.shaderCompileDurations) {
@@ -57,5 +66,8 @@ class ShaderJankDetector extends BaseDetector {
   }
 
   @override
-  void dispose() => _issues.clear();
+  void dispose() {
+    _issues.clear();
+    _emptyPollsSinceLastShader = 0;
+  }
 }

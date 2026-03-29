@@ -178,7 +178,7 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       final issue = detector.issues.first;
-      expect(issue.stableId, 'nested_scroll');
+      expect(issue.stableId, 'nested_scroll_same_axis');
       expect(issue.confidence, IssueConfidence.possible);
       expect(issue.category, IssueCategory.build);
     });

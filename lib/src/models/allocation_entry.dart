@@ -28,11 +28,12 @@ class AllocationEntry {
 
   /// Display-friendly byte size.
   String get displayBytes {
-    if (bytesDelta < 1024) return '${bytesDelta}B';
-    if (bytesDelta < 1024 * 1024) {
-      return '${(bytesDelta / 1024).toStringAsFixed(1)}KB';
+    final bytes = bytesDelta < 0 ? 0 : bytesDelta;
+    if (bytes < 1024) return '${bytes}B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)}KB';
     }
-    return '${(bytesDelta / (1024 * 1024)).toStringAsFixed(1)}MB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
   }
 
   Map<String, dynamic> toJson() => {

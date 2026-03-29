@@ -123,7 +123,7 @@ class NestedScrollDetector extends BaseDetector {
     );
     _issues.add(
       PerformanceIssue(
-        stableId: 'nested_scroll',
+        stableId: 'nested_scroll_same_axis',
         severity: IssueSeverity.warning,
         category: IssueCategory.build,
         confidence: IssueConfidence.possible,

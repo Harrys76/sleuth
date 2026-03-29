@@ -11,7 +11,8 @@ class CpuAttribution {
     required this.percentage,
     this.callChain,
     this.inclusivePercentage,
-  });
+  }) : assert(inclusivePercentage == null || inclusivePercentage >= percentage,
+            'Inclusive percentage must be >= exclusive percentage');
 
   /// The function name (e.g. "build", "jsonDecode").
   final String functionName;
@@ -45,6 +46,8 @@ class CpuAttribution {
       ? callChain!.join(' → ')
       : null;
 
+  /// Includes [displayName] for convenience — consumers can display
+  /// "ClassName.method" without recomputing from separate fields.
   Map<String, dynamic> toJson() => {
         'functionName': functionName,
         'className': className,

@@ -414,5 +414,20 @@ void main() {
       expect(result[1]!.totalBatchEventCount, 3);
       expect(result[1]!.coverageRatio, closeTo(0.333, 0.01));
     });
+
+    test('empty recentFrames returns empty map', () {
+      final result = correlator.correlate(
+        recentFrames: [],
+        phaseEvents: const [
+          PhaseEvent(
+            phase: TimelinePhase.build,
+            timestampUs: 5000,
+            durationUs: 3000,
+          ),
+        ],
+      );
+
+      expect(result, isEmpty);
+    });
   });
 }

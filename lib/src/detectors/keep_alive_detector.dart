@@ -49,7 +49,8 @@ class KeepAliveDetector extends BaseDetector {
     Rect? parentRect;
 
     void countKeepAlives(Element element) {
-      if (element.widget.runtimeType.toString() == 'KeepAlive') {
+      final typeName = element.widget.runtimeType.toString();
+      if (typeName == 'KeepAlive' || typeName == '_KeepAlive') {
         keepAliveCount++;
       }
       element.visitChildren(countKeepAlives);
@@ -59,6 +60,7 @@ class KeepAliveDetector extends BaseDetector {
       final widget = element.widget;
       final name = widget.runtimeType.toString();
 
+      // TabBarView checked by string to avoid material.dart import.
       if (widget is PageView || name == 'TabBarView') {
         final before = keepAliveCount;
         element.visitChildren(countKeepAlives);

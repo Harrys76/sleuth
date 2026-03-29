@@ -66,7 +66,10 @@ class _IssueCardState extends State<IssueCard> {
   }
 
   void _toggle() {
-    setState(() => _expanded = !_expanded);
+    setState(() {
+      _expanded = !_expanded;
+      if (!_expanded) _aboutExpanded = false;
+    });
     widget.onExpandedChanged?.call(_expanded);
   }
 
@@ -82,325 +85,312 @@ class _IssueCardState extends State<IssueCard> {
       margin: const EdgeInsets.only(bottom: 6),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       clipBehavior: Clip.antiAlias,
-      child: IntrinsicHeight(
-        child: Row(
-          children: [
-            Container(
-              width: 3,
-              color: _sourceAccentColor(issue.observationSource),
-            ),
-            Expanded(
-              child: InkWell(
-                onTap: _toggle,
-                borderRadius: const BorderRadius.only(
-                  topRight: Radius.circular(10),
-                  bottomRight: Radius.circular(10),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Header row
-                      Row(
-                        children: [
-                          _severityIcon(issue.severity),
-                          const SizedBox(width: 4),
-                          _categoryBadge(issue.category),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              issue.title,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          _confidenceBadge(issue.confidence),
-                          if (widget.jankCorrelated) ...[
-                            const SizedBox(width: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEF4444)
-                                    .withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'JANK',
-                                style: TextStyle(
-                                  color: Color(0xFFEF4444),
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                          if (widget.locatable) ...[
-                            const SizedBox(width: 4),
-                            SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: Checkbox(
-                                value: widget.highlighted,
-                                onChanged: (v) =>
-                                    widget.onHighlightChanged?.call(v ?? false),
-                                side: const BorderSide(
-                                  color: Color(0xFF6B7280),
-                                  width: 1.5,
-                                ),
-                                activeColor: const Color(0xFF3B82F6),
-                                materialTapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                                visualDensity: VisualDensity.compact,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-
-                      // Debug mode disclaimer
-                      if (issue.debugModeDisclaimer)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 4),
-                          child: Text(
-                            '[DEBUG MODE — verify in profile]',
-                            style: TextStyle(
-                              color: Color(0xFFFCD34D),
-                              fontSize: 9,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        ),
-
-                      // Expanded detail + fix hint
-                      if (_expanded) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          issue.detail,
-                          style: const TextStyle(
-                            color: Color(0xFFD1D5DB),
-                            fontSize: 11,
-                          ),
-                        ),
-                        if (issue.routeName != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              'Route: ${issue.routeName}',
-                              style: const TextStyle(
-                                color: Color(0xFF9CA3AF),
-                                fontSize: 10,
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                          ),
-                        if (issue.interactionContext != null &&
-                            issue.interactionContext != InteractionContext.idle)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Text(
-                              'During: ${issue.interactionContext!.displayName}',
-                              style: const TextStyle(
-                                color: Color(0xFF9CA3AF),
-                                fontSize: 10,
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                          ),
-                        if (issue.widgetName != null &&
-                            !issue.title.contains(issue.widgetName!))
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Text(
-                              'Widget: ${issue.widgetName}',
-                              style: const TextStyle(
-                                color: Color(0xFF9CA3AF),
-                                fontSize: 10,
-                                fontStyle: FontStyle.italic,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        if (issue.ancestorChain != null &&
-                            !issue.detail.contains(issue.ancestorChain!) &&
-                            issue.ancestorChain != issue.widgetName)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Text(
-                              'Ancestors: ${issue.ancestorChain}',
-                              style: const TextStyle(
-                                color: Color(0xFF9CA3AF),
-                                fontSize: 10,
-                                fontStyle: FontStyle.italic,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        if (issue.observationSource != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Text(
-                              'Source: ${issue.observationSource!._displayName}',
-                              style: const TextStyle(
-                                color: Color(0xFF6B7280),
-                                fontSize: 9,
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                          ),
-                        // "About this detection" collapsible section
-                        GestureDetector(
-                          onTap: () =>
-                              setState(() => _aboutExpanded = !_aboutExpanded),
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  _aboutExpanded
-                                      ? Icons.expand_less
-                                      : Icons.expand_more,
-                                  color: const Color(0xFF6B7280),
-                                  size: 14,
-                                ),
-                                const SizedBox(width: 4),
-                                const Text(
-                                  'About this detection',
-                                  style: TextStyle(
-                                    color: Color(0xFF6B7280),
-                                    fontSize: 9,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        if (_aboutExpanded)
-                          Container(
-                            margin: const EdgeInsets.only(top: 4),
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF111827),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                for (final entry in _aboutContent(issue))
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 3),
-                                    child: Text.rich(
-                                      TextSpan(
-                                        children: [
-                                          TextSpan(
-                                            text: '${entry.$1} ',
-                                            style: const TextStyle(
-                                              color: Color(0xFF9CA3AF),
-                                              fontSize: 9,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          TextSpan(
-                                            text: entry.$2,
-                                            style: const TextStyle(
-                                              color: Color(0xFF9CA3AF),
-                                              fontSize: 9,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        if (widget.deepInstrumentationActive &&
-                            _isDebugCallbackSource(issue.observationSource))
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 4, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF065F46),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    'Attribution: high fidelity',
-                                    style: TextStyle(
-                                      color: Color(0xFF6EE7B7),
-                                      fontSize: 9,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 4, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF78350F),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    'Timing: overhead present',
-                                    style: TextStyle(
-                                      color: Color(0xFFFCD34D),
-                                      fontSize: 9,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1F2937),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _effortBadge(issue),
-                              const SizedBox(height: 4),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('\u{1F4A1}',
-                                      style: TextStyle(fontSize: 12)),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      issue.fixHint,
-                                      style: const TextStyle(
-                                        color: Color(0xFF93C5FD),
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
+      child: InkWell(
+        onTap: _toggle,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border(
+              left: BorderSide(
+                color: _sourceAccentColor(issue.observationSource),
+                width: 3,
               ),
             ),
-          ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header row
+                Row(
+                  children: [
+                    _severityIcon(issue.severity),
+                    const SizedBox(width: 4),
+                    _categoryBadge(issue.category),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        issue.title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    _confidenceBadge(issue.confidence),
+                    if (widget.jankCorrelated) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'JANK',
+                          style: TextStyle(
+                            color: Color(0xFFEF4444),
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (widget.locatable) ...[
+                      const SizedBox(width: 4),
+                      Checkbox(
+                        value: widget.highlighted,
+                        onChanged: (v) =>
+                            widget.onHighlightChanged?.call(v ?? false),
+                        side: const BorderSide(
+                          color: Color(0xFF6B7280),
+                          width: 1.5,
+                        ),
+                        activeColor: const Color(0xFF3B82F6),
+                      ),
+                    ],
+                  ],
+                ),
+
+                // Debug mode disclaimer
+                if (issue.debugModeDisclaimer)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Text(
+                      '[DEBUG MODE — verify in profile]',
+                      style: TextStyle(
+                        color: Color(0xFFFCD34D),
+                        fontSize: 9,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+
+                // Expanded detail + fix hint
+                if (_expanded) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    issue.detail,
+                    style: const TextStyle(
+                      color: Color(0xFFD1D5DB),
+                      fontSize: 11,
+                    ),
+                  ),
+                  if (issue.routeName != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Route: ${issue.routeName}',
+                        style: const TextStyle(
+                          color: Color(0xFF9CA3AF),
+                          fontSize: 10,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  if (issue.interactionContext != null &&
+                      issue.interactionContext != InteractionContext.idle)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        'During: ${issue.interactionContext!.displayName}',
+                        style: const TextStyle(
+                          color: Color(0xFF9CA3AF),
+                          fontSize: 10,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  if (issue.widgetName != null &&
+                      !issue.title.contains(issue.widgetName!))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        'Widget: ${issue.widgetName}',
+                        style: const TextStyle(
+                          color: Color(0xFF9CA3AF),
+                          fontSize: 10,
+                          fontStyle: FontStyle.italic,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  if (issue.ancestorChain != null &&
+                      !issue.detail.contains(issue.ancestorChain!) &&
+                      issue.ancestorChain != issue.widgetName)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        'Ancestors: ${issue.ancestorChain}',
+                        style: const TextStyle(
+                          color: Color(0xFF9CA3AF),
+                          fontSize: 10,
+                          fontStyle: FontStyle.italic,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  if (issue.observationSource != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        'Source: ${issue.observationSource!._displayName}',
+                        style: const TextStyle(
+                          color: Color(0xFF6B7280),
+                          fontSize: 9,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  // "About this detection" collapsible section
+                  GestureDetector(
+                    onTap: () =>
+                        setState(() => _aboutExpanded = !_aboutExpanded),
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _aboutExpanded
+                                ? Icons.expand_less
+                                : Icons.expand_more,
+                            color: const Color(0xFF6B7280),
+                            size: 14,
+                          ),
+                          const SizedBox(width: 4),
+                          const Text(
+                            'About this detection',
+                            style: TextStyle(
+                              color: Color(0xFF6B7280),
+                              fontSize: 9,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (_aboutExpanded)
+                    Container(
+                      margin: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF111827),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          for (final entry in _aboutContent(issue))
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 3),
+                              child: Text.rich(
+                                TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: '${entry.$1} ',
+                                      style: const TextStyle(
+                                        color: Color(0xFF9CA3AF),
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: entry.$2,
+                                      style: const TextStyle(
+                                        color: Color(0xFF9CA3AF),
+                                        fontSize: 9,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  if (widget.deepInstrumentationActive &&
+                      _isDebugCallbackSource(issue.observationSource))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF065F46),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'Attribution: high fidelity',
+                              style: TextStyle(
+                                color: Color(0xFF6EE7B7),
+                                fontSize: 9,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF78350F),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'Timing: overhead present',
+                              style: TextStyle(
+                                color: Color(0xFFFCD34D),
+                                fontSize: 9,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1F2937),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _effortBadge(issue),
+                        const SizedBox(height: 4),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('\u{1F4A1}',
+                                style: TextStyle(fontSize: 12)),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                issue.fixHint,
+                                style: const TextStyle(
+                                  color: Color(0xFF93C5FD),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );
