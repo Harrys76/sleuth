@@ -143,6 +143,21 @@ class DemoHome extends StatelessWidget {
         color: Colors.orange,
         builder: (_) => const NetworkStressDemo(),
       ),
+      // ── Combined multi-detector demos ──
+      _DemoRoute(
+        icon: Icons.dynamic_feed,
+        title: 'Combined: Social Feed',
+        subtitle: 'Image • Opacity • Layout • setState • Correlator escalation',
+        color: Colors.deepPurple,
+        builder: (_) => const CombinedSocialFeedDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.dashboard,
+        title: 'Combined: Analytics Dashboard',
+        subtitle: 'Painter • AnimBuilder • GlobalKey • Font • Non-lazy list',
+        color: Colors.teal,
+        builder: (_) => const CombinedAnalyticsDashboardDemo(),
+      ),
     ];
 
     return Scaffold(
@@ -1251,4 +1266,405 @@ class _NetworkStressDemoState extends State<NetworkStressDemo> {
       ),
     );
   }
+}
+
+// ───────────────────────────────────────────────
+// Combined Demo 1: Social Feed
+// ───────────────────────────────────────────────
+// Triggers: ImageMemory, Opacity, LayoutBottleneck, Rebuild/SetStateScope
+// Correlation: Rule 2 (merge rebuild+setState), Rule 4 (escalate image+memory)
+
+class CombinedSocialFeedDemo extends StatefulWidget {
+  const CombinedSocialFeedDemo({super.key});
+
+  @override
+  State<CombinedSocialFeedDemo> createState() => _CombinedSocialFeedDemoState();
+}
+
+class _CombinedSocialFeedDemoState extends State<CombinedSocialFeedDemo> {
+  int _likeCount = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    // ❌ setState at top level rebuilds entire feed
+    return Scaffold(
+      appBar: AppBar(title: const Text('Social Feed (Combined)')),
+      body: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: Colors.deepPurple.withValues(alpha: 0.05),
+            child: const Text(
+              'This screen combines 4+ anti-patterns you\'d find in a '
+              'real social media feed. Open the Watchdog overlay to see '
+              'how issues are correlated, merged, and ranked.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+
+          // ❌ Opacity(0.0) hides a "load more" banner — invisible but
+          //    still laid out, hit-tested, and painted.
+          Opacity(
+            opacity: 0.0,
+            child: Container(
+              height: 48,
+              alignment: Alignment.center,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Text('Loading more posts…'),
+                ],
+              ),
+            ),
+          ),
+
+          // ❌ Feed items
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: List.generate(8, (i) => _buildFeedCard(i)),
+              ),
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        // ❌ Top-level setState rebuilds all 8 cards + images
+        onPressed: () => setState(() => _likeCount++),
+        icon: const Icon(Icons.favorite),
+        label: Text('Like ($_likeCount)'),
+      ),
+    );
+  }
+
+  Widget _buildFeedCard(int index) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ❌ IntrinsicHeight forces two-pass layout for the header row
+          IntrinsicHeight(
+            child: Row(
+              children: [
+                const SizedBox(width: 12),
+                // ❌ Avatar — no cacheWidth
+                ClipOval(
+                  child: Image.network(
+                    'https://picsum.photos/seed/avatar$index/200/200',
+                    width: 40,
+                    height: 40,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      width: 40,
+                      height: 40,
+                      color: Colors.grey.shade300,
+                      child: const Icon(Icons.person, size: 20),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'User ${index + 1}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        '${index + 1}h ago',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: 3,
+                  color: Colors.deepPurple.withValues(alpha: 0.3),
+                ),
+              ],
+            ),
+          ),
+
+          // ❌ Post image — no cacheWidth, full 800×600 decoded
+          Image.network(
+            'https://picsum.photos/seed/post$index/800/600',
+            height: 200,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => Container(
+              height: 200,
+              color: Colors.grey.shade200,
+              alignment: Alignment.center,
+              child: const Icon(Icons.broken_image, size: 40),
+            ),
+          ),
+
+          // Caption and like count
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$_likeCount likes',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Post #${index + 1} — a beautiful scene captured on '
+                  'a sunny afternoon. #photography #nature',
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ───────────────────────────────────────────────
+// Combined Demo 2: Analytics Dashboard
+// ───────────────────────────────────────────────
+// Triggers: CustomPainter, AnimatedBuilder, GlobalKey, FontLoading, ListView
+// Correlation: Rule 1 (suppress AnimBuilder if no paint), Rule 3 (escalate GPU+Painter)
+
+class CombinedAnalyticsDashboardDemo extends StatefulWidget {
+  const CombinedAnalyticsDashboardDemo({super.key});
+
+  @override
+  State<CombinedAnalyticsDashboardDemo> createState() =>
+      _CombinedAnalyticsDashboardDemoState();
+}
+
+class _CombinedAnalyticsDashboardDemoState
+    extends State<CombinedAnalyticsDashboardDemo>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  // ❌ GlobalKeys on dashboard tiles — unnecessary
+  final _tileKeys = List.generate(12, (_) => GlobalKey());
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Analytics (Combined)')),
+      body: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: Colors.teal.withValues(alpha: 0.05),
+            child: const Text(
+              'This screen combines 5 anti-patterns common in analytics '
+              'dashboards. The Watchdog correlator may suppress or '
+              'escalate issues based on cross-detector evidence.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+
+          // ❌ AnimatedBuilder without child — rebuilds the chart + all
+          //    labels on every animation tick
+          SizedBox(
+            height: 200,
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, _) {
+                return CustomPaint(
+                  // ❌ shouldRepaint always true
+                  painter: _DashboardChartPainter(_controller.value),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        // ❌ 4 custom font families on one screen
+                        Text(
+                          'Revenue',
+                          style: TextStyle(
+                            fontFamily: 'Lobster',
+                            fontSize: 18,
+                            color: Colors.white.withValues(alpha: 0.9),
+                          ),
+                        ),
+                        Text(
+                          '\$${(12450 * (1 + _controller.value * 0.1)).toStringAsFixed(0)}',
+                          style: TextStyle(
+                            fontFamily: 'Pacifico',
+                            fontSize: 24,
+                            color: Colors.white.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // Stats row with more custom fonts
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    children: [
+                      Text(
+                        'Users',
+                        style: TextStyle(
+                          fontFamily: 'DancingScript',
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      const Text(
+                        '3,842',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      Text(
+                        'Sessions',
+                        style: TextStyle(
+                          fontFamily: 'IndieFlower',
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      const Text(
+                        '12,091',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const Divider(),
+
+          // ❌ Non-lazy list: all 12 tiles built eagerly
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: List.generate(12, (i) {
+                  return Card(
+                    // ❌ GlobalKey on every tile
+                    key: _tileKeys[i],
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors
+                            .primaries[i % Colors.primaries.length]
+                            .withValues(alpha: 0.15),
+                        child: Text('${i + 1}'),
+                      ),
+                      title: Text('Metric ${i + 1}'),
+                      subtitle: Text(
+                        'Value: ${(Random(i).nextDouble() * 1000).toStringAsFixed(1)}',
+                      ),
+                      trailing: Icon(
+                        i % 3 == 0
+                            ? Icons.trending_up
+                            : i % 3 == 1
+                            ? Icons.trending_down
+                            : Icons.trending_flat,
+                        color: i % 3 == 0
+                            ? Colors.green
+                            : i % 3 == 1
+                            ? Colors.red
+                            : Colors.grey,
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashboardChartPainter extends CustomPainter {
+  _DashboardChartPainter(this.progress);
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Background gradient
+    final bgPaint = Paint()
+      ..shader = const LinearGradient(
+        colors: [Color(0xFF0D9488), Color(0xFF0891B2)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
+
+    // Animated bar chart
+    final barPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.3)
+      ..style = PaintingStyle.fill;
+
+    const barCount = 12;
+    final barWidth = (size.width - 32) / barCount - 4;
+    for (var i = 0; i < barCount; i++) {
+      final barHeight =
+          (sin((progress * 2 * pi) + i * 0.5) * 0.3 + 0.5) * size.height;
+      final x = 16.0 + i * (barWidth + 4);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, size.height - barHeight, barWidth, barHeight),
+          const Radius.circular(3),
+        ),
+        barPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true; // ❌ Always
 }

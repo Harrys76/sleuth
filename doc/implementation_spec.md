@@ -2938,3 +2938,65 @@ The confidence upgrade gives these detectors +10 ranking points (from `possible`
 | `detectors/opacity_detector.dart` | `possible` → `confirmed` |
 | `detectors/layout_bottleneck_detector.dart` | `possible` → `confirmed` |
 | `test/detectors/layout_bottleneck_detector_test.dart` | Updated confidence assertion |
+
+## Combined Demo Screens Post-Implementation Notes
+
+**Date:** 2026-03-30
+**Scope:** Added 2 combined multi-detector demo screens to the example app to demonstrate realistic multi-issue scenarios and the correlation pipeline in action.
+
+### Motivation
+
+The existing 15 demo screens each target a single detector in isolation. Real-world apps trigger multiple detectors simultaneously, and the correlation pipeline (suppress, merge, escalate, deduplicate) is invisible when only one issue appears at a time. Combined screens let developers see how Watchdog handles overlapping issues.
+
+### Combined Demo 1: Social Feed
+
+Simulates a social media feed with 4+ simultaneous anti-patterns:
+
+| Anti-pattern | Detector | Confidence |
+|---|---|---|
+| `Opacity(0.0)` hidden "loading more" banner | Opacity | confirmed |
+| 8× `IntrinsicHeight` on user header rows | LayoutBottleneck | confirmed |
+| 16 network images without `cacheWidth` (avatars + posts) | ImageMemory | possible → likely* |
+| Top-level `setState` rebuilds all 8 cards | Rebuild + SetStateScope | merged by Rule 2 |
+
+*Escalated to `likely` by correlation Rule 4 (EscalateMemoryImage) when VM detects heap growth from full-resolution image decodes.
+
+**Correlation rules exercised:**
+- Rule 2 (MergeRebuildSetState): Rebuild evidence merged into setState scope issue
+- Rule 4 (EscalateMemoryImage): Uncached images escalated when heap growth co-occurs
+
+### Combined Demo 2: Analytics Dashboard
+
+Simulates a data dashboard with 5 simultaneous anti-patterns:
+
+| Anti-pattern | Detector | Confidence |
+|---|---|---|
+| `AnimatedBuilder` without `child` parameter | AnimatedBuilder | possible (may be suppressed*) |
+| `CustomPainter` with `shouldRepaint → true` | CustomPainter | possible → likely** |
+| 12 `GlobalKey` instances on metric tiles | GlobalKey | possible |
+| 4 custom font families (Lobster, Pacifico, DancingScript, IndieFlower) | FontLoading | possible |
+| `SingleChildScrollView` + `Column` (12 items, non-lazy) | ListView | confirmed |
+
+*Suppressed by correlation Rule 1 (SuppressAnimatedBuilder) when no paint-category issues exist.
+**Escalated by correlation Rule 3 (EscalateGpuCustomPainter) when raster dominance co-occurs.
+
+**Correlation rules exercised:**
+- Rule 1 (SuppressAnimatedBuilder): May suppress AnimatedBuilder if no paint pressure detected
+- Rule 3 (EscalateGpuCustomPainter): May escalate CustomPainter when GPU raster pressure co-occurs
+
+### Demo Home Registration
+
+Both screens added to the `DemoHome` route list after the existing 15 demos, with distinctive icons and colors:
+- Social Feed: `Icons.dynamic_feed`, deepPurple
+- Analytics Dashboard: `Icons.dashboard`, teal
+
+### Verification
+
+- `fvm flutter analyze` — 0 issues
+- `fvm flutter test` — all 1072 tests pass (no new tests needed — these are example app screens, not library code)
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `example/lib/main.dart` | Added `CombinedSocialFeedDemo`, `CombinedAnalyticsDashboardDemo`, `_DashboardChartPainter`, and 2 route entries |
