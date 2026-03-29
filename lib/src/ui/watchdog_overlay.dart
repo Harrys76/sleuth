@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../../widget_watchdog.dart' show WidgetWatchdog;
 import '../controller/watchdog_controller.dart';
 import 'trigger_button.dart';
-import 'dashboard_sheet.dart';
+import 'floating_issues_card.dart';
 import 'highlight_overlay.dart';
 
 /// The main overlay widget wrapping the app.
@@ -71,21 +71,16 @@ class _WatchdogOverlayState extends State<WatchdogOverlay> {
 
           // Overlay — isolated to prevent app repaints
           if (_dashboardOpen)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: RepaintBoundary(
-                child: Localizations(
-                  locale: const Locale('en', 'US'),
-                  delegates: const [
-                    DefaultMaterialLocalizations.delegate,
-                    DefaultWidgetsLocalizations.delegate,
-                  ],
-                  child: DashboardSheet(
-                    controller: widget.controller,
-                    onClose: () => setState(() => _dashboardOpen = false),
-                  ),
+            RepaintBoundary(
+              child: Localizations(
+                locale: const Locale('en', 'US'),
+                delegates: const [
+                  DefaultMaterialLocalizations.delegate,
+                  DefaultWidgetsLocalizations.delegate,
+                ],
+                child: FloatingIssuesCard(
+                  controller: widget.controller,
+                  onClose: () => setState(() => _dashboardOpen = false),
                 ),
               ),
             )
@@ -102,6 +97,7 @@ class _WatchdogOverlayState extends State<WatchdogOverlay> {
                   child: TriggerButton(
                     issuesNotifier: widget.controller.issuesNotifier,
                     vmConnectedNotifier: widget.controller.vmConnectedNotifier,
+                    frameStatsNotifier: widget.controller.frameStatsNotifier,
                     isDebugMode: widget.controller.isDebugMode,
                     onTap: () => setState(() => _dashboardOpen = true),
                   ),

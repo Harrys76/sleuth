@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
 import 'package:widget_watchdog/src/models/performance_issue.dart';
 import 'package:widget_watchdog/src/ranking/issue_ranker.dart';
-import 'package:widget_watchdog/src/ui/dashboard_sheet.dart';
+import 'package:widget_watchdog/src/ui/floating_issues_card.dart';
 import 'package:widget_watchdog/src/ui/issue_card.dart';
 
 PerformanceIssue _testIssue({
@@ -200,10 +200,10 @@ void main() {
       controller.dispose();
     });
 
-    Widget buildDashboard() {
+    Widget buildCard() {
       return MaterialApp(
         home: Scaffold(
-          body: DashboardSheet(
+          body: FloatingIssuesCard(
             controller: controller,
             onClose: () {},
           ),
@@ -221,11 +221,7 @@ void main() {
       );
       controller.issuesNotifier.value = [issue];
 
-      await tester.pumpWidget(buildDashboard());
-
-      // Navigate to Issues tab
-      await tester.tap(find.text('Issues'));
-      await tester.pumpAndSettle();
+      await tester.pumpWidget(buildCard());
 
       // Find and tap the checkbox (highlight toggle)
       final checkboxes = find.byType(Checkbox);
@@ -253,11 +249,9 @@ void main() {
       );
       controller.issuesNotifier.value = [issue];
 
-      await tester.pumpWidget(buildDashboard());
+      await tester.pumpWidget(buildCard());
 
-      // Navigate to Issues tab and tap highlight
-      await tester.tap(find.text('Issues'));
-      await tester.pumpAndSettle();
+      // Tap highlight checkbox
       await tester.tap(find.byType(Checkbox));
       await tester.pump();
 
@@ -272,74 +266,7 @@ void main() {
     });
   });
 
-  group('Interaction context filter (3.8.3)', () {
-    late WatchdogController controller;
-
-    setUp(() {
-      controller = WatchdogController();
-      controller.initializeDetectorsForTest();
-    });
-
-    tearDown(() {
-      controller.dispose();
-    });
-
-    Widget buildDashboard() {
-      return MaterialApp(
-        home: Scaffold(
-          body: DashboardSheet(
-            controller: controller,
-            onClose: () {},
-          ),
-        ),
-      );
-    }
-
-    testWidgets('filter chips visible on Issues tab', (tester) async {
-      controller.issuesNotifier.value = [_testIssue()];
-
-      await tester.pumpWidget(buildDashboard());
-      await tester.tap(find.text('Issues'));
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('All'), findsOneWidget);
-      expect(find.textContaining('Idle'), findsOneWidget);
-      expect(find.textContaining('Scrolling'), findsOneWidget);
-      expect(find.textContaining('Navigating'), findsOneWidget);
-    });
-
-    testWidgets('filtering by Scrolling shows only scrolling issues',
-        (tester) async {
-      final idleIssue = _testIssue(
-        title: 'Idle Issue',
-        stableId: 'idle',
-        interactionContext: InteractionContext.idle,
-      );
-      final scrollingIssue = _testIssue(
-        title: 'Scrolling Issue',
-        stableId: 'scrolling',
-        interactionContext: InteractionContext.scrolling,
-      );
-
-      controller.issuesNotifier.value = [idleIssue, scrollingIssue];
-
-      await tester.pumpWidget(buildDashboard());
-      await tester.tap(find.text('Issues'));
-      await tester.pumpAndSettle();
-
-      // Both visible by default
-      expect(find.text('Idle Issue'), findsOneWidget);
-      expect(find.text('Scrolling Issue'), findsOneWidget);
-
-      // Tap "Scrolling" filter chip (not the issue title)
-      await tester.tap(find.textContaining(RegExp(r'^Scrolling \(')));
-      await tester.pump();
-
-      // Only scrolling issue visible
-      expect(find.text('Idle Issue'), findsNothing);
-      expect(find.text('Scrolling Issue'), findsOneWidget);
-    });
-
+  group('Interaction context scoring (3.8.3)', () {
     test('scrolling deprioritization in ranker', () {
       const ranker = IssueRanker();
       const ctx = IssueRankingContext(
@@ -362,52 +289,6 @@ void main() {
 
       // Idle issue should score higher (scrolling gets 0.7× recurrence)
       expect(idleScore, greaterThan(scrollScore));
-    });
-  });
-
-  group('Color legend (3.8.6)', () {
-    testWidgets('legend visible on Guide tab', (tester) async {
-      final controller = WatchdogController();
-      controller.initializeDetectorsForTest();
-
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: DashboardSheet(controller: controller, onClose: () {}),
-        ),
-      ));
-
-      // Navigate to Guide tab
-      await tester.tap(find.text('Guide'));
-      await tester.pumpAndSettle();
-
-      // Color Legend section visible
-      expect(find.text('Color Legend'), findsOneWidget);
-
-      // Severity section
-      expect(find.textContaining('Critical'), findsOneWidget);
-      expect(find.textContaining('Warning'), findsOneWidget);
-
-      // Confidence badges
-      expect(find.text('CONFIRMED'), findsOneWidget);
-      expect(find.text('LIKELY'), findsOneWidget);
-      expect(find.text('POSSIBLE'), findsOneWidget);
-
-      // Source accents
-      expect(find.text('VM timeline event'), findsOneWidget);
-      expect(find.text('Debug callback'), findsOneWidget);
-      expect(find.text('Structural scan'), findsOneWidget);
-
-      // Category badges
-      expect(find.text('BUILD'), findsOneWidget);
-      expect(find.text('LAYOUT'), findsOneWidget);
-      expect(find.text('NETWORK'), findsOneWidget);
-
-      // Effort badges
-      expect(find.text('QUICK FIX'), findsOneWidget);
-      expect(find.text('MEDIUM FIX'), findsOneWidget);
-      expect(find.text('INVOLVED FIX'), findsOneWidget);
-
-      controller.dispose();
     });
   });
 }

@@ -47,8 +47,8 @@ class IssueCard extends StatefulWidget {
   /// appears in the current verdict's relatedIssues.
   final bool jankCorrelated;
 
-  /// When true, applies a temporary amber tint to draw attention after
-  /// navigating from the Live tab jank banner. Clears after 2 seconds.
+  /// When true, applies a temporary amber tint to draw attention to
+  /// jank-correlated issues. Takes priority over [highlighted] color.
   final bool jankFlash;
 
   @override

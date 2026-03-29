@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/ui/dashboard_sheet.dart';
+import 'package:widget_watchdog/src/ui/floating_issues_card.dart';
 
 void main() {
   group('DBG badge', () {
@@ -25,7 +25,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: DashboardSheet(
+            body: FloatingIssuesCard(
               controller: controller,
               onClose: () {},
             ),
@@ -41,7 +41,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: DashboardSheet(
+            body: FloatingIssuesCard(
               controller: controller,
               onClose: () {},
             ),
@@ -65,7 +65,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: DashboardSheet(
+            body: FloatingIssuesCard(
               controller: dbgController,
               onClose: () {},
             ),

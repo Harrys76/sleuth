@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/ui/dashboard_sheet.dart';
+import 'package:widget_watchdog/src/ui/floating_issues_card.dart';
 
 void main() {
-  group('DashboardSheet export', () {
+  group('FloatingIssuesCard export', () {
     late WatchdogController controller;
 
     setUp(() {
@@ -17,10 +17,10 @@ void main() {
       controller.dispose();
     });
 
-    Widget buildDashboard() {
+    Widget buildCard() {
       return MaterialApp(
         home: Scaffold(
-          body: DashboardSheet(
+          body: FloatingIssuesCard(
             controller: controller,
             onClose: () {},
           ),
@@ -29,7 +29,7 @@ void main() {
     }
 
     testWidgets('export button is present in header', (tester) async {
-      await tester.pumpWidget(buildDashboard());
+      await tester.pumpWidget(buildCard());
 
       expect(
         find.widgetWithIcon(IconButton, Icons.ios_share),
@@ -51,7 +51,7 @@ void main() {
         },
       );
 
-      await tester.pumpWidget(buildDashboard());
+      await tester.pumpWidget(buildCard());
       await tester.tap(find.widgetWithIcon(IconButton, Icons.ios_share));
       await tester.pump();
 
@@ -69,7 +69,7 @@ void main() {
         (call) async => null,
       );
 
-      await tester.pumpWidget(buildDashboard());
+      await tester.pumpWidget(buildCard());
       await tester.tap(find.widgetWithIcon(IconButton, Icons.ios_share));
       await tester.pump();
 
@@ -85,7 +85,7 @@ void main() {
         (call) async => null,
       );
 
-      await tester.pumpWidget(buildDashboard());
+      await tester.pumpWidget(buildCard());
       await tester.tap(find.widgetWithIcon(IconButton, Icons.ios_share));
       await tester.pump();
       expect(find.text('Snapshot copied to clipboard'), findsOneWidget);

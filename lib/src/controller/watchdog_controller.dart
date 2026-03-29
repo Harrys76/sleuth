@@ -615,7 +615,7 @@ class WatchdogController {
 
       // Skip our own overlay widgets
       final name = widget.runtimeType.toString();
-      if (name == 'DashboardSheet' ||
+      if (name == 'FloatingIssuesCard' ||
           name == 'TriggerButton' ||
           name == 'HighlightOverlay') {
         return;

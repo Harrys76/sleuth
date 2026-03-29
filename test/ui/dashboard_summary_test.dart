@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
 import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/ui/dashboard_sheet.dart';
+import 'package:widget_watchdog/src/ui/floating_issues_card.dart';
 
 PerformanceIssue _testIssue({
   IssueSeverity severity = IssueSeverity.warning,
@@ -22,7 +22,7 @@ PerformanceIssue _testIssue({
 }
 
 void main() {
-  group('Issues tab summary bar (R3)', () {
+  group('Issues summary bar', () {
     late WatchdogController controller;
 
     setUp(() {
@@ -34,10 +34,10 @@ void main() {
       controller.dispose();
     });
 
-    Widget buildDashboard() {
+    Widget buildCard() {
       return MaterialApp(
         home: Scaffold(
-          body: DashboardSheet(
+          body: FloatingIssuesCard(
             controller: controller,
             onClose: () {},
           ),
@@ -45,17 +45,11 @@ void main() {
       );
     }
 
-    Future<void> navigateToIssuesTab(WidgetTester tester) async {
-      await tester.tap(find.text('Issues'));
-      await tester.pumpAndSettle();
-    }
-
     testWidgets('no issues — summary bar not rendered', (tester) async {
-      await tester.pumpWidget(buildDashboard());
-      await navigateToIssuesTab(tester);
+      await tester.pumpWidget(buildCard());
 
-      // Empty state checkmark shown
-      expect(find.text('No issues detected'), findsOneWidget);
+      // Empty state shown
+      expect(find.textContaining('No issues detected'), findsOneWidget);
       // "confirmed" text from summary bar should not be present
       expect(find.textContaining('confirmed'), findsNothing);
     });
@@ -66,8 +60,7 @@ void main() {
         _testIssue(severity: IssueSeverity.warning, title: 'Issue 2'),
       ];
 
-      await tester.pumpWidget(buildDashboard());
-      await navigateToIssuesTab(tester);
+      await tester.pumpWidget(buildCard());
 
       expect(find.textContaining('confirmed'), findsOneWidget);
     });
@@ -79,12 +72,10 @@ void main() {
         _testIssue(severity: IssueSeverity.warning, title: 'W1'),
       ];
 
-      await tester.pumpWidget(buildDashboard());
-      await navigateToIssuesTab(tester);
+      await tester.pumpWidget(buildCard());
 
       // Find the severity count texts in the summary bar.
       // Critical count = 2, warning count = 1
-      // The summary bar shows colored dots + count numbers.
       final texts = tester.widgetList<Text>(find.byType(Text));
       final countTexts = texts
           .where((t) =>
@@ -113,11 +104,10 @@ void main() {
         ),
       ];
 
-      await tester.pumpWidget(buildDashboard());
-      await navigateToIssuesTab(tester);
+      await tester.pumpWidget(buildCard());
 
-      expect(find.text('2 confirmed'), findsOneWidget);
-      expect(find.text('1 heuristic'), findsOneWidget);
+      expect(find.textContaining('2 confirmed'), findsOneWidget);
+      expect(find.textContaining('1 heuristic'), findsOneWidget);
     });
 
     testWidgets('summary bar updates when issues change', (tester) async {
@@ -125,8 +115,7 @@ void main() {
         _testIssue(severity: IssueSeverity.warning, title: 'W1'),
       ];
 
-      await tester.pumpWidget(buildDashboard());
-      await navigateToIssuesTab(tester);
+      await tester.pumpWidget(buildCard());
 
       // Initially 1 warning
       final textsInitial = tester.widgetList<Text>(find.byType(Text));
@@ -146,28 +135,7 @@ void main() {
       await tester.pump();
 
       // Now should show both counts
-      expect(find.text('2 confirmed'), findsOneWidget);
-    });
-
-    testWidgets('summary bar only on Issues tab, not Live or Guide',
-        (tester) async {
-      controller.issuesNotifier.value = [
-        _testIssue(title: 'Issue 1'),
-      ];
-
-      await tester.pumpWidget(buildDashboard());
-
-      // Live tab (default)
-      expect(find.textContaining('confirmed'), findsNothing);
-
-      // Guide tab
-      await tester.tap(find.text('Guide'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('confirmed'), findsNothing);
-
-      // Issues tab — summary bar present
-      await navigateToIssuesTab(tester);
-      expect(find.textContaining('confirmed'), findsOneWidget);
+      expect(find.textContaining('2 confirmed'), findsOneWidget);
     });
   });
 }

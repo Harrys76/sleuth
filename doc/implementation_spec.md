@@ -3000,3 +3000,54 @@ Both screens added to the `DemoHome` route list after the existing 15 demos, wit
 | File | Change |
 |------|--------|
 | `example/lib/main.dart` | Added `CombinedSocialFeedDemo`, `CombinedAnalyticsDashboardDemo`, `_DashboardChartPainter`, and 2 route entries |
+
+---
+
+## v0.6.0 Floating Issues Card Post-Implementation Notes
+
+Replaced the 1,241-line `DashboardSheet` bottom sheet with a ~630-line `FloatingIssuesCard` draggable floating card. Developers can now interact with their app while viewing diagnostics. 1,060 tests passing, 0 analysis issues.
+
+### What changed
+
+| File | Action | Details |
+|------|--------|---------|
+| `lib/src/ui/floating_issues_card.dart` | **Created** | Draggable floating card replacing DashboardSheet. Stack-based self-positioning, GestureDetector drag on header, ConstrainedBox(300px, 55%). Preserves: export, highlight, jank correlation, warning banners. Removed: TabController, AnimationController, drag-to-expand, filter chips, FPS chart, jank flash/banner. |
+| `lib/src/ui/guide_page.dart` | **Created** | Full-screen StatelessWidget with color legend, guide steps. Shown via `_showGuide` state toggle (not Navigator — card is outside app's Navigator context). |
+| `lib/src/ui/trigger_button.dart` | **Modified** | Added `frameStatsNotifier` parameter. Shows color-coded FPS number below the circle button (green ≥50, amber ≥30, red <30). Height 56→78. |
+| `lib/src/ui/watchdog_overlay.dart` | **Modified** | Swapped DashboardSheet→FloatingIssuesCard, removed bottom-sheet Positioned wrapper, passed frameStatsNotifier to TriggerButton. |
+| `lib/src/ui/dashboard_sheet.dart` | **Deleted** | Was 1,241 lines, replaced by floating_issues_card.dart. |
+| `lib/src/ui/frame_chart.dart` | **Deleted** | FPS chart removed — FPS is now a number on TriggerButton. |
+| `lib/src/controller/watchdog_controller.dart` | **Modified** | Updated overlay self-skip from `'DashboardSheet'` to `'FloatingIssuesCard'`. |
+| `test/ui/guide_page_test.dart` | **Created** | 2 tests: legend content, back button. |
+| `test/ui/dashboard_summary_test.dart` | **Adapted** | Removed tab navigation, deleted tab-specific test. 5 tests remain. |
+| `test/ui/jank_verdict_linking_test.dart` | **Adapted** | Deleted jank banner tests (no banner), kept JANK badge + flash tests. 4 tests remain. |
+| `test/ui/overlay_ux_improvements_test.dart` | **Adapted** | Deleted filter chip tests, moved legend test to guide_page_test. Kept highlight, effort, about-section, ranker tests. |
+| `test/ui/dashboard_export_test.dart` | **Updated** | Import → floating_issues_card.dart. |
+| `test/ui/dashboard_dbg_badge_test.dart` | **Updated** | Import → floating_issues_card.dart. |
+| `test/ui/instrumentation_warning_test.dart` | **Updated** | Import → floating_issues_card.dart. |
+
+### Design decisions
+
+- **Stack-based positioning** (not Transform.translate): card uses `Positioned` within the overlay's Stack so the card is self-contained and hit-testing works correctly.
+- **`_showGuide` toggle** (not Navigator.push): the overlay lives outside the app's Navigator context, so GuidePage is shown by swapping it into the same Stack.
+- **Compact header icons**: Custom `_headerIconButton` (GestureDetector + Padding(8) + Icon(16) = 32px each) instead of IconButton (30px+ minimum) to fit in 300px card width while staying close to recommended touch target sizes.
+- **Single Flexible text for summary bar**: Combined confirmed/heuristic counts into one `Flexible(Text(...join(' · ')))` to prevent overflow with the Ahem test font.
+
+### Post-review fixes
+
+Code review after initial implementation identified 6 issues (2 critical, 3 medium, 3 low). All fixed:
+
+| ID | Severity | Issue | Fix |
+|----|----------|-------|-----|
+| C1 | Critical | Doc comment claimed `Transform.translate`, actual code uses `Positioned` | Updated doc to match implementation |
+| C2 | Critical | `jankFlash` IssueCard doc referenced deleted Live tab | Updated doc; kept parameter as IssueCard capability |
+| M1 | Medium | FPS color thresholds duplicated in floating_issues_card.dart and trigger_button.dart | Extracted shared `fpsColor()` helper in floating_issues_card.dart, trigger_button imports it |
+| M2 | Medium | State mutated during build (clamping `_cardOffset` + pruning stale expanded/selected IDs) | Clamping uses local `clamped` variable; pruning moved to `_pruneStaleState` listener on issuesNotifier |
+| M3 | Medium | Sentinel offset `Offset(-1, -1)` was fragile | Changed to `Offset?` with null-coalescing `??=` initialization |
+| L1 | Low | Header icon touch targets were 24px (below 44px minimum) | Bumped padding 4→8px for 32px targets |
+| L2 | Low | Test group names still said "DashboardSheet" | Renamed to "FloatingIssuesCard" |
+| L3 | Low | No `RepaintBoundary` between header and issues list | Added `RepaintBoundary` wrapping issues list to isolate from header/FPS repaints |
+
+### Net result
+
+~800 lines added, ~1,340 lines removed. Net: -540 lines. Simpler widget tree, better UX, lower performance cost (no TabBarView keep-alive, no AnimationController, no CustomPaint chart).

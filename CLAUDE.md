@@ -30,7 +30,7 @@ lib/
     vm/                         # VmServiceClient, TimelineParser
     debug/                      # DebugInstrumentationCoordinator, DebugSnapshot
     ranking/                    # IssueRanker (weighted composite scoring)
-    ui/                         # Overlay widgets: dashboard, chart, issue cards, trigger button
+    ui/                         # Overlay widgets: FloatingIssuesCard, GuidePage, IssueCard, TriggerButton
     utils/                      # WidgetLocation helper, FixHintBuilder
 test/
     mirrors lib/src/ structure + helpers/ and benchmark/
@@ -54,6 +54,7 @@ test/
 ## Current state
 
 - v0.5.0 tagged (v0.4.0: accuracy fixes + correlator optimization; v0.5.0: context-aware hints, verdict linking, UX improvements)
+- v0.6.0: Replaced DashboardSheet (bottom sheet, 1,241 lines) with FloatingIssuesCard (draggable floating card, ~630 lines). Removed FrameChart, tabs, filter chips. FPS now shown on TriggerButton. Guide is a full-screen GuidePage.
 - v3 roadmap: v3.1–v3.3, v3.8, v3.9 shipped. Remaining: v3.4, v3.5, v3.6, v3.7, v3.10 (see `doc/implementation_spec.md`)
 - Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
-- ~974 tests, 0 analysis issues
+- ~1,060 tests, 0 analysis issues
