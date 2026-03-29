@@ -141,6 +141,33 @@ class FixHintBuilder {
   }
 
   // ---------------------------------------------------------------------------
+  // FrameTimingDetector — Raster Cache Trends
+  // ---------------------------------------------------------------------------
+
+  static (String, FixEffort) rasterCacheThrashing() {
+    return (
+      'The raster cache is repeatedly allocating and evicting entries. '
+          'Ensure painted widgets use const constructors where possible, '
+          'avoid rebuilding CustomPainter canvases every frame, and check '
+          'that RepaintBoundary is used around complex static subtrees. '
+          'Use DevTools Performance overlay to visualize cache behavior.',
+      FixEffort.involved,
+    );
+  }
+
+  static (String, FixEffort) rasterCacheGrowing() {
+    return (
+      'Raster cache bytes are growing without bound. This may indicate '
+          'that cached layers or pictures are never evicted. Check for '
+          'an ever-growing number of unique visual elements (e.g., '
+          'dynamically-created widgets with unique paint), or animations '
+          'that create new cache entries per frame. Consider using '
+          'RepaintBoundary strategically to limit cache scope.',
+      FixEffort.involved,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // HeavyComputeDetector
   // ---------------------------------------------------------------------------
 

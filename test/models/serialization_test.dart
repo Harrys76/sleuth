@@ -181,6 +181,8 @@ void main() {
       final stats = FrameStats.fromJson(json);
       expect(stats.vsyncOverhead, Duration.zero);
       expect(stats.layerCacheCount, 0);
+      expect(stats.layerCacheBytes, 0);
+      expect(stats.pictureCacheCount, 0);
       expect(stats.pictureCacheBytes, 0);
       expect(stats.frameBudgetMs, 16);
       expect(stats.totalSpan, isNull);
@@ -232,6 +234,67 @@ void main() {
       expect(restored.vsyncStartUs, isNull);
       expect(restored.buildStartUs, isNull);
       expect(restored.hasPhaseTimestamps, isFalse);
+    });
+
+    test('pictureCacheCount and layerCacheBytes included in toJson', () {
+      final stats = FrameStats(
+        frameNumber: 1,
+        uiDuration: const Duration(microseconds: 1000),
+        rasterDuration: const Duration(microseconds: 2000),
+        timestamp: DateTime.utc(2026),
+        pictureCacheCount: 12,
+        layerCacheBytes: 204800,
+      );
+
+      final json = stats.toJson();
+      expect(json['pictureCacheCount'], 12);
+      expect(json['layerCacheBytes'], 204800);
+    });
+
+    test('pictureCacheCount and layerCacheBytes restored by fromJson', () {
+      final original = FrameStats(
+        frameNumber: 1,
+        uiDuration: const Duration(microseconds: 1000),
+        rasterDuration: const Duration(microseconds: 2000),
+        timestamp: DateTime.utc(2026),
+        pictureCacheCount: 8,
+        layerCacheBytes: 102400,
+        pictureCacheBytes: 51200,
+        layerCacheCount: 3,
+      );
+
+      final restored = FrameStats.fromJson(original.toJson());
+      expect(restored.pictureCacheCount, 8);
+      expect(restored.layerCacheBytes, 102400);
+      expect(restored.pictureCacheBytes, 51200);
+      expect(restored.layerCacheCount, 3);
+    });
+
+    test('totalCacheBytes computes sum of picture and layer bytes', () {
+      final stats = FrameStats(
+        frameNumber: 1,
+        uiDuration: const Duration(microseconds: 1000),
+        rasterDuration: const Duration(microseconds: 2000),
+        timestamp: DateTime.utc(2026),
+        pictureCacheBytes: 30000,
+        layerCacheBytes: 20000,
+      );
+
+      expect(stats.totalCacheBytes, 50000);
+    });
+
+    test('fromJson defaults pictureCacheCount and layerCacheBytes to 0', () {
+      final json = {
+        'frameNumber': 1,
+        'uiDurationUs': 1000,
+        'rasterDurationUs': 2000,
+        'timestamp': '2026-01-01T00:00:00.000Z',
+      };
+
+      final stats = FrameStats.fromJson(json);
+      expect(stats.pictureCacheCount, 0);
+      expect(stats.layerCacheBytes, 0);
+      expect(stats.totalCacheBytes, 0);
     });
   });
 

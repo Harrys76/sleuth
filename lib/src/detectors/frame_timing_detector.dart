@@ -40,6 +40,17 @@ class FrameTimingDetector extends BaseDetector {
   int _frameNumber = 0;
   TimingsCallback? _callback;
 
+  // -- Raster cache trend thresholds --
+  static const int _thrashingWindowFrames = 15;
+  static const double _thrashingVariationPercent = 0.20;
+  static const int _growthWindowFrames = 30;
+  static const int _impellerZeroWindowFrames = 30;
+
+  int _consecutiveThrashingFrames = 0;
+  int _consecutiveGrowthFrames = 0;
+  int _consecutiveZeroCacheFrames = 0;
+  bool _impellerDetected = false;
+
   // Latest VM timeline data for enrichment
   ParsedTimelineData? _lastTimelineData;
 
@@ -74,6 +85,7 @@ class FrameTimingDetector extends BaseDetector {
     if (!_isEnabled) return;
     _buffer.add(stats);
     _evaluateJank();
+    _evaluateCacheTrends();
     onFrameStats?.call(_buffer);
   }
 
@@ -126,6 +138,8 @@ class FrameTimingDetector extends BaseDetector {
         timestamp: DateTime.now(),
         vsyncOverhead: timing.vsyncOverhead,
         layerCacheCount: timing.layerCacheCount,
+        layerCacheBytes: timing.layerCacheBytes,
+        pictureCacheCount: timing.pictureCacheCount,
         pictureCacheBytes: timing.pictureCacheBytes,
         frameBudgetMs: warningThresholdMs,
         totalSpan: timing.totalSpan,
@@ -143,6 +157,7 @@ class FrameTimingDetector extends BaseDetector {
     // Evaluate jank based on recent buffer pattern, not individual frames.
     // This avoids noisy single-frame alerts (e.g. 16ms from the overlay itself).
     _evaluateJank();
+    _evaluateCacheTrends();
 
     onFrameStats?.call(_buffer);
   }
@@ -151,7 +166,8 @@ class FrameTimingDetector extends BaseDetector {
   /// - Critical: ≥3 severe jank frames (>33ms) in the last 60 frames
   /// - Warning: >15% of recent frames are janky (>16ms)
   void _evaluateJank() {
-    _issues.clear();
+    _issues.removeWhere(
+        (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected');
 
     final frames = _buffer.frames;
     if (frames.length < 5) return; // Need enough data
@@ -197,6 +213,110 @@ class FrameTimingDetector extends BaseDetector {
           detectedAt: DateTime.now(),
         ),
       );
+    }
+  }
+
+  void _evaluateCacheTrends() {
+    final frames = _buffer.frames;
+    if (frames.length < 2) return;
+
+    final latest = frames.last;
+    final previous = frames[frames.length - 2];
+
+    // --- Impeller detection: all four metrics zero ---
+    final allZero = latest.layerCacheCount == 0 &&
+        latest.layerCacheBytes == 0 &&
+        latest.pictureCacheCount == 0 &&
+        latest.pictureCacheBytes == 0;
+
+    if (allZero) {
+      _consecutiveZeroCacheFrames++;
+      if (_consecutiveZeroCacheFrames >= _impellerZeroWindowFrames) {
+        _impellerDetected = true;
+      }
+    } else {
+      _consecutiveZeroCacheFrames = 0;
+      _impellerDetected = false;
+    }
+
+    // Suppress cache analysis when Impeller detected
+    if (_impellerDetected) {
+      _consecutiveThrashingFrames = 0;
+      _consecutiveGrowthFrames = 0;
+      _issues.removeWhere((i) =>
+          i.stableId == 'raster_cache_thrashing' ||
+          i.stableId == 'raster_cache_growing');
+      return;
+    }
+
+    // --- Cache thrashing: pictureCacheCount fluctuates > 20% ---
+    if (previous.pictureCacheCount > 0) {
+      final delta =
+          (latest.pictureCacheCount - previous.pictureCacheCount).abs();
+      final variation = delta / previous.pictureCacheCount;
+      if (variation > _thrashingVariationPercent) {
+        _consecutiveThrashingFrames++;
+      } else {
+        _consecutiveThrashingFrames = 0;
+      }
+    } else if (latest.pictureCacheCount > 0) {
+      // Jump from 0 to non-zero counts as thrashing
+      _consecutiveThrashingFrames++;
+    }
+
+    // --- Cache growth: totalCacheBytes monotonically increasing ---
+    if (latest.totalCacheBytes > previous.totalCacheBytes &&
+        latest.totalCacheBytes > 0) {
+      _consecutiveGrowthFrames++;
+    } else {
+      _consecutiveGrowthFrames = 0;
+    }
+
+    // --- Emit issues ---
+    _issues.removeWhere((i) =>
+        i.stableId == 'raster_cache_thrashing' ||
+        i.stableId == 'raster_cache_growing');
+
+    if (_consecutiveThrashingFrames >= _thrashingWindowFrames) {
+      final (hint, effort) = FixHintBuilder.rasterCacheThrashing();
+      _issues.add(PerformanceIssue(
+        stableId: 'raster_cache_thrashing',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.raster,
+        confidence: IssueConfidence.confirmed,
+        title: 'Raster Cache Thrashing: '
+            '$_consecutiveThrashingFrames consecutive frames',
+        detail: 'Picture cache count is fluctuating by >20% between '
+            'consecutive frames for $_consecutiveThrashingFrames frames. '
+            'Current count: ${latest.pictureCacheCount}, '
+            'previous: ${previous.pictureCacheCount}. '
+            'The cache is too small or content is not reusable.',
+        fixHint: hint,
+        fixEffort: effort,
+        detectedAt: DateTime.now(),
+      ));
+    }
+
+    if (_consecutiveGrowthFrames >= _growthWindowFrames) {
+      final totalKb = latest.totalCacheBytes / 1024;
+      final (hint, effort) = FixHintBuilder.rasterCacheGrowing();
+      _issues.add(PerformanceIssue(
+        stableId: 'raster_cache_growing',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.raster,
+        confidence: IssueConfidence.confirmed,
+        title: 'Raster Cache Growing: '
+            '${totalKb.toStringAsFixed(0)} KB over '
+            '$_consecutiveGrowthFrames frames',
+        detail: 'Total raster cache bytes have been growing monotonically '
+            'for $_consecutiveGrowthFrames consecutive frames. '
+            'Picture cache: ${(latest.pictureCacheBytes / 1024).toStringAsFixed(0)} KB, '
+            'Layer cache: ${(latest.layerCacheBytes / 1024).toStringAsFixed(0)} KB. '
+            'This may indicate unbounded cache accumulation.',
+        fixHint: hint,
+        fixEffort: effort,
+        detectedAt: DateTime.now(),
+      ));
     }
   }
 
@@ -266,5 +386,9 @@ class FrameTimingDetector extends BaseDetector {
     _stopListening();
     _buffer.clear();
     _issues.clear();
+    _consecutiveThrashingFrames = 0;
+    _consecutiveGrowthFrames = 0;
+    _consecutiveZeroCacheFrames = 0;
+    _impellerDetected = false;
   }
 }

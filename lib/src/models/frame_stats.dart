@@ -9,6 +9,8 @@ class FrameStats {
     required this.timestamp,
     this.vsyncOverhead = Duration.zero,
     this.layerCacheCount = 0,
+    this.layerCacheBytes = 0,
+    this.pictureCacheCount = 0,
     this.pictureCacheBytes = 0,
     this.frameBudgetMs = 16,
     this.totalSpan,
@@ -38,8 +40,17 @@ class FrameStats {
   /// Number of layers stored in the raster cache during this frame.
   final int layerCacheCount;
 
+  /// Raster cache size in bytes for layer cache.
+  final int layerCacheBytes;
+
+  /// Number of pictures stored in the raster cache during this frame.
+  final int pictureCacheCount;
+
   /// Raster cache size in bytes for picture cache.
   final int pictureCacheBytes;
+
+  /// Combined raster cache size: picture cache + layer cache.
+  int get totalCacheBytes => pictureCacheBytes + layerCacheBytes;
 
   /// Frame time budget in milliseconds, derived from target FPS.
   /// 60 fps → 16ms, 120 fps → 8ms.
@@ -77,6 +88,8 @@ class FrameStats {
         'timestamp': timestamp.toIso8601String(),
         'vsyncOverheadUs': vsyncOverhead.inMicroseconds,
         'layerCacheCount': layerCacheCount,
+        'layerCacheBytes': layerCacheBytes,
+        'pictureCacheCount': pictureCacheCount,
         'pictureCacheBytes': pictureCacheBytes,
         'frameBudgetMs': frameBudgetMs,
         if (totalSpan != null) 'totalSpanUs': totalSpan!.inMicroseconds,
@@ -97,6 +110,8 @@ class FrameStats {
         vsyncOverhead:
             Duration(microseconds: json['vsyncOverheadUs'] as int? ?? 0),
         layerCacheCount: json['layerCacheCount'] as int? ?? 0,
+        layerCacheBytes: json['layerCacheBytes'] as int? ?? 0,
+        pictureCacheCount: json['pictureCacheCount'] as int? ?? 0,
         pictureCacheBytes: json['pictureCacheBytes'] as int? ?? 0,
         frameBudgetMs: json['frameBudgetMs'] as int? ?? 16,
         totalSpan: json['totalSpanUs'] != null

@@ -2550,3 +2550,61 @@ No changes to: session_snapshot.dart, watchdog_controller.dart, barrel file, UI 
 | "`nativeBytes: int?` stored field on HeapSample" | Computed getter `int? get nativeBytes` (clamped to [0, rssBytes]) — avoids stale value risk |
 | "Files changed: `session_snapshot.dart`" | No changes needed — existing `s.toJson()` call picks up new fields automatically |
 | "8 tests" | 22 new tests: 8 model + 11 detector + 3 FixHintBuilder |
+
+## v3.6 Post-Implementation Notes
+
+v3.6 implements Raster Cache Trend Analysis — detecting cache thrashing, unbounded cache growth, and Impeller renderer suppression within the existing FrameTimingDetector. 1014 tests passing (up from 996), 0 analysis issues.
+
+### Implementation Summary
+
+| Item | Status | New Tests | Spec Deviations |
+|------|:------:|:---------:|:---------------:|
+| `pictureCacheCount` + `layerCacheBytes` fields on `FrameStats` | Done | 4 | 1 (see below) |
+| `_evaluateCacheTrends()` in `FrameTimingDetector` | Done | 10 | 2 (see below) |
+| `rasterCacheThrashing()` + `rasterCacheGrowing()` in `FixHintBuilder` | Done | 4 | 0 |
+| **Total** | **3/3** | **18** | **3** |
+
+### Design Decisions
+
+#### 1. Added `totalCacheBytes` computed getter (spec deviation — addition)
+
+The spec said to add `pictureCacheCount` to FrameStats. Implementation also added `layerCacheBytes` (the other missing metric from `FrameTiming`) and a `totalCacheBytes` getter (`pictureCacheBytes + layerCacheBytes`) to simplify growth detection math. All four `FrameTiming` cache properties are now captured: `layerCacheCount`, `layerCacheBytes`, `pictureCacheCount`, `pictureCacheBytes`.
+
+#### 2. `_evaluateJank()` changed from `_issues.clear()` to selective `removeWhere` (spec deviation)
+
+The spec assumed cache issues would be managed separately. In practice, `_evaluateJank()` previously called `_issues.clear()` which would wipe cache issues on every evaluation cycle. Changed to `_issues.removeWhere((i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected')` so each method owns its own stableIds and cache/jank issues coexist correctly.
+
+#### 3. Thrashing uses 15 frames, not 10 (spec body vs acceptance criteria)
+
+The spec body said "10+ consecutive frames" but the acceptance criteria said "15 consecutive frames". Used 15 as the acceptance criteria is authoritative, and 15 frames (~250ms at 60fps) provides better noise immunity for brief layout transitions.
+
+#### 4. Impeller detection resets immediately on non-zero frame
+
+When Impeller suppression is active (30+ all-zero frames), a single non-zero frame immediately clears the `_impellerDetected` flag. This is conservative — false positives from brief metric availability are preferable to silently missing real cache issues on Skia.
+
+#### 5. No Impeller note issue emitted
+
+The spec mentioned "add a note: Raster cache metrics unavailable (Impeller renderer)." Implementation suppresses analysis silently rather than emitting an informational issue. Rationale: an informational issue about unavailable metrics would clutter the issue list without being actionable by the developer. The suppression prevents false positives, which is the primary goal.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `lib/src/models/frame_stats.dart` | `pictureCacheCount`, `layerCacheBytes` fields, `totalCacheBytes` getter, toJson/fromJson |
+| `lib/src/detectors/frame_timing_detector.dart` | Captures all 4 cache metrics, 4 tracking constants, 4 state fields, `_evaluateCacheTrends()`, `_evaluateJank()` selective clear, dispose cleanup |
+| `lib/src/utils/fix_hint_builder.dart` | `rasterCacheThrashing()` and `rasterCacheGrowing()` static methods |
+| `test/models/serialization_test.dart` | 4 new tests: toJson, fromJson, totalCacheBytes, backward compat defaults |
+| `test/detectors/frame_timing_detector_test.dart` | `makeFrame()` helper extended with cache params, 10 new tests in Raster Cache Trends group |
+| `test/utils/fix_hint_builder_test.dart` | 4 new tests: effort levels, keyword checks |
+
+No changes to: performance_issue.dart (IssueCategory.raster already existed), watchdog_controller.dart, barrel file, session_snapshot.dart, UI files.
+
+### Spec vs. Implementation Corrections
+
+| Spec | Actual |
+|------|--------|
+| "add `pictureCacheCount` field" | Added `pictureCacheCount` + `layerCacheBytes` + `totalCacheBytes` getter — captured all 4 FrameTiming cache properties |
+| "10+ consecutive frames" for thrashing | 15 consecutive frames (acceptance criteria is authoritative over body text) |
+| "`_issues.clear()` in `_evaluateJank()`" | Changed to selective `removeWhere` — allows jank and cache issues to coexist |
+| "6 tests" | 18 new tests: 4 serialization + 10 detector + 4 FixHintBuilder |
+| "Impeller note shown when metrics unavailable" | Silent suppression — no informational issue emitted (avoids clutter) |

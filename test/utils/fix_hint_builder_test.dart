@@ -674,4 +674,32 @@ void main() {
       expect(hint, contains('cacheWidth'));
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // FrameTimingDetector — Raster Cache Trends
+  // ---------------------------------------------------------------------------
+
+  group('rasterCacheThrashing', () {
+    test('returns involved effort', () {
+      final (_, effort) = FixHintBuilder.rasterCacheThrashing();
+      expect(effort, FixEffort.involved);
+    });
+
+    test('hint mentions RepaintBoundary', () {
+      final (hint, _) = FixHintBuilder.rasterCacheThrashing();
+      expect(hint, contains('RepaintBoundary'));
+    });
+  });
+
+  group('rasterCacheGrowing', () {
+    test('returns involved effort', () {
+      final (_, effort) = FixHintBuilder.rasterCacheGrowing();
+      expect(effort, FixEffort.involved);
+    });
+
+    test('hint mentions cache entries', () {
+      final (hint, _) = FixHintBuilder.rasterCacheGrowing();
+      expect(hint, contains('cache entries'));
+    });
+  });
 }

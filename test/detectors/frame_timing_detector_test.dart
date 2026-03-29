@@ -17,6 +17,10 @@ void main() {
       required int rasterMs,
       int frameNumber = 1,
       int frameBudgetMs = 16,
+      int pictureCacheCount = 0,
+      int pictureCacheBytes = 0,
+      int layerCacheCount = 0,
+      int layerCacheBytes = 0,
     }) {
       return FrameStats(
         frameNumber: frameNumber,
@@ -24,6 +28,10 @@ void main() {
         rasterDuration: Duration(milliseconds: rasterMs),
         timestamp: DateTime.now(),
         frameBudgetMs: frameBudgetMs,
+        pictureCacheCount: pictureCacheCount,
+        pictureCacheBytes: pictureCacheBytes,
+        layerCacheCount: layerCacheCount,
+        layerCacheBytes: layerCacheBytes,
       );
     }
 
@@ -209,6 +217,278 @@ void main() {
       detector.dispose();
       expect(detector.issues, isEmpty);
       expect(detector.frameBuffer.isEmpty, isTrue);
+    });
+
+    // -- Raster Cache Trends --
+
+    group('Raster Cache Trends', () {
+      test('no cache issues with stable cache metrics', () {
+        for (var i = 0; i < 20; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+            pictureCacheCount: 10,
+            pictureCacheBytes: 50000,
+            layerCacheCount: 5,
+            layerCacheBytes: 20000,
+          ));
+        }
+
+        final cacheIssues = detector.issues
+            .where((i) => i.category == IssueCategory.raster)
+            .toList();
+        expect(cacheIssues, isEmpty);
+      });
+
+      test('no thrashing when variation <= 20%', () {
+        // pictureCacheCount alternates between 10 and 12 → 20% variation (boundary)
+        for (var i = 0; i < 20; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+            pictureCacheCount: i.isEven ? 10 : 12,
+            pictureCacheBytes: 50000,
+          ));
+        }
+
+        final thrashing = detector.issues
+            .where((i) => i.stableId == 'raster_cache_thrashing')
+            .toList();
+        expect(thrashing, isEmpty);
+      });
+
+      test('detects cache thrashing after 15 consecutive fluctuating frames',
+          () {
+        // Seed with one stable frame first
+        detector.addFrameForTest(makeFrame(
+          uiMs: 8,
+          rasterMs: 6,
+          frameNumber: 1,
+          pictureCacheCount: 10,
+          pictureCacheBytes: 50000,
+        ));
+
+        // 16 frames alternating between 10 and 15 → 50% variation
+        for (var i = 0; i < 16; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 2,
+            pictureCacheCount: i.isEven ? 15 : 10,
+            pictureCacheBytes: 50000,
+          ));
+        }
+
+        final thrashing = detector.issues
+            .where((i) => i.stableId == 'raster_cache_thrashing')
+            .toList();
+        expect(thrashing, hasLength(1));
+        expect(thrashing.first.severity, IssueSeverity.warning);
+        expect(thrashing.first.category, IssueCategory.raster);
+        expect(thrashing.first.confidence, IssueConfidence.confirmed);
+      });
+
+      test('thrashing counter resets when variation drops', () {
+        // Seed frame
+        detector.addFrameForTest(makeFrame(
+          uiMs: 8,
+          rasterMs: 6,
+          frameNumber: 1,
+          pictureCacheCount: 10,
+          pictureCacheBytes: 50000,
+        ));
+
+        // 10 thrashing frames (not enough for threshold of 15)
+        for (var i = 0; i < 10; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 2,
+            pictureCacheCount: i.isEven ? 15 : 10,
+            pictureCacheBytes: 50000,
+          ));
+        }
+
+        // Then stable frames → counter resets
+        for (var i = 0; i < 20; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 12,
+            pictureCacheCount: 10,
+            pictureCacheBytes: 50000,
+          ));
+        }
+
+        final thrashing = detector.issues
+            .where((i) => i.stableId == 'raster_cache_thrashing')
+            .toList();
+        expect(thrashing, isEmpty);
+      });
+
+      test('no growth when cache bytes fluctuate', () {
+        for (var i = 0; i < 40; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+            pictureCacheBytes: i.isEven ? 50000 : 48000,
+            layerCacheBytes: 20000,
+          ));
+        }
+
+        final growth = detector.issues
+            .where((i) => i.stableId == 'raster_cache_growing')
+            .toList();
+        expect(growth, isEmpty);
+      });
+
+      test('detects cache growth after 30 consecutive monotonic frames', () {
+        for (var i = 0; i < 32; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+            pictureCacheBytes: 50000 + i * 1024,
+            layerCacheBytes: 20000,
+          ));
+        }
+
+        final growth = detector.issues
+            .where((i) => i.stableId == 'raster_cache_growing')
+            .toList();
+        expect(growth, hasLength(1));
+        expect(growth.first.severity, IssueSeverity.warning);
+        expect(growth.first.category, IssueCategory.raster);
+        expect(growth.first.title, contains('KB'));
+      });
+
+      test('growth counter resets on decrease', () {
+        // 25 growing frames
+        for (var i = 0; i < 25; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+            pictureCacheBytes: 50000 + i * 1024,
+            layerCacheBytes: 20000,
+          ));
+        }
+
+        // One decrease
+        detector.addFrameForTest(makeFrame(
+          uiMs: 8,
+          rasterMs: 6,
+          frameNumber: 26,
+          pictureCacheBytes: 40000,
+          layerCacheBytes: 20000,
+        ));
+
+        // Then 25 more growing
+        for (var i = 0; i < 25; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: 27 + i,
+            pictureCacheBytes: 50000 + i * 1024,
+            layerCacheBytes: 20000,
+          ));
+        }
+
+        final growth = detector.issues
+            .where((i) => i.stableId == 'raster_cache_growing')
+            .toList();
+        expect(growth, isEmpty);
+      });
+
+      test('suppresses cache analysis when all metrics zero for 30 frames', () {
+        // 31 frames with all-zero cache → Impeller detected
+        for (var i = 0; i < 31; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+          ));
+        }
+
+        final cacheIssues = detector.issues
+            .where((i) => i.category == IssueCategory.raster)
+            .toList();
+        expect(cacheIssues, isEmpty);
+      });
+
+      test('Impeller suppression resets on non-zero frame', () {
+        // 35 zero frames → Impeller detected
+        for (var i = 0; i < 35; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+          ));
+        }
+
+        // Non-zero frame → suppression lifted, then thrashing frames
+        detector.addFrameForTest(makeFrame(
+          uiMs: 8,
+          rasterMs: 6,
+          frameNumber: 36,
+          pictureCacheCount: 10,
+          pictureCacheBytes: 50000,
+        ));
+
+        // Followed by enough thrashing frames to trigger
+        for (var i = 0; i < 16; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: 37 + i,
+            pictureCacheCount: i.isEven ? 15 : 10,
+            pictureCacheBytes: 50000,
+          ));
+        }
+
+        final thrashing = detector.issues
+            .where((i) => i.stableId == 'raster_cache_thrashing')
+            .toList();
+        expect(thrashing, hasLength(1));
+      });
+
+      test('cache issues coexist with jank issues', () {
+        // Seed with one stable frame
+        detector.addFrameForTest(makeFrame(
+          uiMs: 8,
+          rasterMs: 6,
+          frameNumber: 1,
+          pictureCacheCount: 10,
+          pictureCacheBytes: 50000,
+        ));
+
+        // 17 severe jank frames with alternating cache count (50% variation)
+        // All frames alternate: 15, 10, 15, 10... ensuring continuous thrashing
+        for (var i = 0; i < 17; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 40,
+            rasterMs: 40,
+            frameNumber: 2 + i,
+            pictureCacheCount: i.isEven ? 15 : 10,
+            pictureCacheBytes: 50000,
+          ));
+        }
+
+        // Jank: 17 severe frames in 18 total → critical sustained jank
+        final jankIssues = detector.issues
+            .where((i) => i.category == IssueCategory.build)
+            .toList();
+        expect(jankIssues, isNotEmpty);
+
+        // Cache: seed(10)→15→10→15→10... = 17 consecutive thrashing frames
+        final thrashing = detector.issues
+            .where((i) => i.stableId == 'raster_cache_thrashing')
+            .toList();
+        expect(thrashing, hasLength(1));
+      });
     });
   });
 }
