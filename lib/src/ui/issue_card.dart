@@ -22,6 +22,8 @@ class IssueCard extends StatefulWidget {
     this.highlighted = false,
     this.onHighlightChanged,
     this.deepInstrumentationActive = false,
+    this.jankCorrelated = false,
+    this.jankFlash = false,
   });
 
   final PerformanceIssue issue;
@@ -39,6 +41,14 @@ class IssueCard extends StatefulWidget {
   /// When true and the issue source is debug-callback-based, shows fidelity
   /// annotations distinguishing attribution quality from timing fidelity.
   final bool deepInstrumentationActive;
+
+  /// When true, shows a "JANK" badge in the collapsed header — this issue
+  /// appears in the current verdict's relatedIssues.
+  final bool jankCorrelated;
+
+  /// When true, applies a temporary amber tint to draw attention after
+  /// navigating from the Live tab jank banner. Clears after 2 seconds.
+  final bool jankFlash;
 
   @override
   State<IssueCard> createState() => _IssueCardState();
@@ -62,9 +72,11 @@ class _IssueCardState extends State<IssueCard> {
   Widget build(BuildContext context) {
     final issue = widget.issue;
     return Card(
-      color: widget.highlighted
-          ? const Color(0xFF1E3A5F)
-          : const Color(0xFF374151),
+      color: widget.jankFlash
+          ? const Color(0xFF5F2D1E)
+          : widget.highlighted
+              ? const Color(0xFF1E3A5F)
+              : const Color(0xFF374151),
       margin: const EdgeInsets.only(bottom: 6),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       clipBehavior: Clip.antiAlias,
@@ -107,6 +119,26 @@ class _IssueCardState extends State<IssueCard> {
                             ),
                           ),
                           _confidenceBadge(issue.confidence),
+                          if (widget.jankCorrelated) ...[
+                            const SizedBox(width: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEF4444)
+                                    .withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'JANK',
+                                style: TextStyle(
+                                  color: Color(0xFFEF4444),
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
                           if (widget.locatable) ...[
                             const SizedBox(width: 4),
                             SizedBox(

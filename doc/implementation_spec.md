@@ -2309,3 +2309,47 @@ Two new optional fields with sensible defaults:
 ### Test Helper Changes
 
 `platformChannelData()` in `test/helpers/timeline_test_helpers.dart` gained two optional params: `durUs` (per-event duration, default 100) and `methodName` (event name, default `'PlatformChannel'`). Existing test callsites unchanged (use defaults).
+
+---
+
+## v3.3 Post-Implementation Notes
+
+v3.3 implements Issue-to-Verdict Linking — three UI additions that connect the Live tab's jank verdicts to the Issues tab. 863 tests passing (up from 849), 0 analysis issues. No model or controller changes needed.
+
+### Implementation Summary
+
+| Item | Status | New Tests | Spec Deviations |
+|------|:------:|:---------:|:---------------:|
+| Jank banner on Live tab | Done | 7 | 0 |
+| "JANK" badge on issue cards | Done | 4 | 0 |
+| Issue flash on banner tap | Done | 3 | 0 |
+| **Total** | **3/3** | **14** | **0** |
+
+### Design Decisions
+
+#### 1. Jank detection from verdict
+
+Verdicts are only created for jank frames (controller guards: `latest.isJank` at lines 838, 765, 793 of `watchdog_controller.dart`). Any non-null verdict with `relatedIssues.isNotEmpty` is a jank-with-issues verdict. No separate "isJank" field needed on `FrameVerdict`.
+
+#### 2. Issue matching by intersection
+
+The verdict's `relatedIssues` are populated from `_getAllIssues()` (pre-stamp). The `issuesNotifier` holds the stamped/ranked version. Matching uses `stableId ?? title` — the same key already used for expansion persistence and highlight selection. An intersection with `issuesNotifier.value` handles staleness when issues are removed between verdict creation and UI render.
+
+#### 3. Flash vs badge — two separate concerns
+
+- **"JANK" badge** (`jankCorrelated` param): persistent indicator on issue cards in the current verdict's `relatedIssues`. Driven by `verdictNotifier` via `ValueListenableBuilder`.
+- **Flash** (`jankFlash` param): temporary 2-second amber tint when the user taps the banner. Driven by `_jankFlashIds` state + `Future.delayed` with `mounted` guard. Same pattern as `_exportFeedbackVisible`.
+
+#### 4. Card background precedence
+
+`jankFlash` (amber `0xFF5F2D1E`) > `highlighted` (blue `0xFF1E3A5F`, widget-locate) > normal (gray `0xFF374151`). Flash is transient and meant to draw attention, so it takes priority.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `lib/src/ui/issue_card.dart` | Added `jankCorrelated` and `jankFlash` params (default `false`); three-way card color; "JANK" badge in collapsed header row |
+| `lib/src/ui/dashboard_sheet.dart` | Added `_jankFlashIds` state, `_matchingIssueKeys()` helper, `_onJankBannerTap()` handler; jank banner in Live tab; `ValueListenableBuilder<FrameVerdict?>` wrapping Issues tab list |
+| `test/ui/jank_verdict_linking_test.dart` | New file — 14 widget tests across 4 groups (banner visibility, tap behavior, badge rendering, edge cases) |
+
+No changes to: models, controller, detectors, barrel file, config.
