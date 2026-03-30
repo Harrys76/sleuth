@@ -3458,80 +3458,6 @@ Shipped as planned with minor refinements:
 
 ---
 
-### v4.3: Shake-to-Open Overlay
-
-**Problem:** The floating trigger button (🐕) is always visible. Some teams want the overlay hidden during demos, user testing, or QA sessions — but still quickly accessible. A device shake gesture provides a hands-free alternative without touching the screen or keeping the button visible.
-
-**Current overlay architecture:**
-- `WatchdogOverlay` manages `_dashboardOpen` state (line 30 in `watchdog_overlay.dart`)
-- `TriggerButton.onTap` sets `_dashboardOpen = true`
-- The overlay is an always-present `Stack` layer wrapping the app child
-- `kReleaseMode` guard disables everything in production
-
-**Platform constraint:** Flutter has no built-in accelerometer API. Shake detection requires native platform channel access to device motion sensors.
-
-**Approach:** Implement a minimal platform channel-based shake detector using `MethodChannel` — no external package dependency. The shake detector sends a `'shake'` event from native iOS (CoreMotion) and Android (SensorManager) when acceleration exceeds a threshold.
-
-**Design decisions:**
-
-1. **No external package dependency.** The package currently depends only on `flutter` SDK and `vm_service`. Adding `sensors_plus` (~15 transitive deps) would be disproportionate for a single feature. A lightweight platform channel implementation keeps the dependency footprint minimal.
-
-2. **Opt-in via config flag.** `WatchdogConfig(enableShakeToOpen: false)` — disabled by default. When disabled, no platform channel is registered and no native code executes. This is important because:
-   - Not all apps want accelerometer access
-   - Some apps have strict permission policies
-   - The trigger button is sufficient for most use cases
-
-3. **Hide trigger button when shake is enabled.** `WatchdogConfig(hideTriggerButton: false)` — separate flag. Teams can use shake + visible button, shake only (button hidden), or button only (default). Shake without hiding the button is useful during development; shake with hidden button is for demos.
-
-4. **Shake detection algorithm.** Classic high-pass filter approach:
-   - Sample accelerometer at ~50Hz
-   - Compute magnitude: `sqrt(x² + y² + z²)`
-   - Subtract gravity (~9.8 m/s²)
-   - If magnitude > 2.5g for 3+ samples within 500ms → shake detected
-   - Cooldown: 2 seconds between shake events (prevent rapid toggling)
-
-5. **Platform implementation:**
-   - **iOS:** `CMMotionManager.startAccelerometerUpdates()` with 50Hz interval. Event channel sends shake events.
-   - **Android:** `SensorManager.registerListener()` with `SENSOR_DELAY_UI` (~60Hz). Same threshold logic.
-   - **Fallback:** If platform channel not available (web, desktop), shake detection silently disabled. Log message in debug mode.
-
-6. **Integration point:** `WatchdogOverlay` listens to shake events and toggles `_dashboardOpen`. Same effect as tapping the trigger button.
-
-**Files changed:**
-- `lib/src/controller/watchdog_controller.dart` — add `enableShakeToOpen`, `hideTriggerButton` to `WatchdogConfig`
-- `lib/src/ui/watchdog_overlay.dart` — listen to shake channel, toggle dashboard, conditionally hide trigger button
-- `lib/src/platform/shake_detector.dart` — new: platform channel wrapper with shake algorithm
-- `android/src/main/kotlin/.../ShakeDetectorPlugin.kt` — new: native Android shake detection
-- `ios/Classes/ShakeDetectorPlugin.swift` — new: native iOS shake detection
-
-**Note:** Adding native code (`android/`, `ios/` directories) changes the package from a pure Dart package to a plugin package. This is a significant architectural decision:
-- Requires `pluginClass` in pubspec.yaml
-- Changes pub.dev package type
-- Requires native build tooling for consumers
-- May conflict with other sensor plugins
-
-**Alternative: Pure Dart approach using `GestureBinding`.** Monitor rapid back-and-forth pan gestures on the trigger button area. Less reliable than accelerometer but zero native code. Could serve as MVP.
-
-**Acceptance criteria:**
-- `enableShakeToOpen: true` + shake device → overlay toggles open/closed
-- `hideTriggerButton: true` → no visible button, only shake access
-- 2-second cooldown between shake events
-- Desktop/web → shake silently disabled, falls back to button
-- Default config (both false) → zero overhead, no platform channel registered
-- Release mode → entire feature disabled (existing `kReleaseMode` guard)
-
-**Testing:** 6 tests:
-1. Shake event toggles dashboard open
-2. Shake event toggles dashboard closed (when open)
-3. Cooldown prevents rapid toggling
-4. `hideTriggerButton: true` hides button
-5. `enableShakeToOpen: false` — no platform channel registered
-6. Platform channel unavailable → graceful fallback
-
-**Performance budget:** Accelerometer polling at 50Hz = 50 reads/sec. Each read: magnitude calculation + threshold check = <1μs. Total: ~50μs/sec. Negligible.
-
----
-
 **Post-Implementation Notes (v4.4):**
 
 Shipped as planned. Pure refactor — zero behavior change.
@@ -3696,12 +3622,532 @@ example/lib/
 
 ### Implementation Order
 
+| Priority | Milestone | Effort | Status |
+|----------|-----------|--------|--------|
+| 1 | v4.1: Issue Suppression | Small | Shipped |
+| 2 | v4.4: Card Widget Extraction | Small | Shipped |
+| 3 | v4.5: Example App Extraction | Small | Shipped |
+| 4 | v4.2: Custom Detector API | Medium | Shipped |
+
+All v4 milestones complete. v4.3 (Shake-to-Open) was removed — native platform code would change the package type from pure Dart to plugin, which is disproportionate for this feature.
+
+---
+
+## v5 Roadmap
+
+Eight milestones across three themes: overlay polish, detection accuracy, and export/correlation.
+
+---
+
+### v5.1: Overlay Theming — WatchdogTheme + Light/Dark Mode
+
+**Problem:** The entire overlay UI is hardcoded to a dark theme. Every color (~40 hex literals), font size (~15 values), and dimension (~12 sizing constants) are scattered across 6 files (`floating_issues_card.dart`, `issue_card.dart`, `trigger_button.dart`, `guide_page.dart`, `watchdog_overlay.dart`, `highlight_overlay.dart`). Light-theme apps get an unreadable overlay. Consumers have zero customization path.
+
+**Current state:**
+- Card background: `Color(0xF51E1E2E)` — unique dark value
+- Header: `Color(0xFF374151)`, text: `Color(0xFFD1D5DB)`, `Color(0xFF9CA3AF)`
+- FPS colors: 3 hardcoded RGB values in `fpsColor()` free function
+- Issue card: 3 background states (jank flash, highlighted, default), 5 severity accent colors, 8 category badge colors
+- Guide page: `Color(0xFF1E1E2E)` background
+- Trigger button: size 56x78, initial position `Offset(16, 100)` — all hardcoded
+- Card sizing: min 220x250, default 300px wide, corner radius 16px — all hardcoded
+- No `Theme.of(context).brightness` checks anywhere
+
+**Approach:** Create a `WatchdogThemeData` class containing all visual tokens. The overlay reads from this theme, with a sensible dark default and an auto-generated light variant. Consumers optionally provide their own via `WatchdogConfig`.
+
+**Design decisions:**
+
+1. **`WatchdogThemeData` class** — immutable data class with all color, sizing, and typography tokens. Provides `WatchdogThemeData.dark()` and `WatchdogThemeData.light()` factory constructors. Consumers can extend either with `copyWith()`.
+
+2. **Auto-detect brightness** — If no explicit theme provided in config, read `MediaQuery.platformBrightnessOf(context)` and select dark/light defaults. Consumers can override with `WatchdogConfig(theme: WatchdogThemeData.dark())` to force a specific mode.
+
+3. **Token categories:**
+   - `cardBackground`, `cardBorder`, `headerBackground` — card chrome
+   - `textPrimary`, `textSecondary`, `textMuted` — text hierarchy
+   - `severityCritical`, `severityWarning`, `severityOk` — issue severity
+   - `categoryBuild`, `categoryRaster`, `categoryMemory`, `categoryNetwork`, `categoryLayout`, `categoryStructural`, `categoryGeneral`, `categoryPlatform` — category badges
+   - `fpsGood`, `fpsWarning`, `fpsCritical` — FPS indicator
+   - `accentPrimary`, `accentSecondary` — interactive elements
+   - `triggerButtonSize`, `cardMinWidth`, `cardMinHeight`, `cardDefaultWidth`, `cardCornerRadius` — sizing
+   - `fontSizeSmall`, `fontSizeMedium`, `fontSizeLarge` — typography scale
+
+4. **Propagation via InheritedWidget** — `_WatchdogTheme` InheritedWidget placed above overlay in the widget tree. All overlay widgets read via `_WatchdogTheme.of(context)`. No parameter drilling.
+
+5. **Migration strategy** — Replace hardcoded values file-by-file: issue_card.dart first (most colors), then floating_issues_card.dart, trigger_button.dart, guide_page.dart, highlight_overlay.dart. Each file is a standalone commit.
+
+**Files changed:**
+- `lib/src/ui/watchdog_theme.dart` — new: `WatchdogThemeData` class + `_WatchdogTheme` InheritedWidget
+- `lib/src/ui/floating_issues_card.dart` — replace ~15 hardcoded colors with theme reads
+- `lib/src/ui/issue_card.dart` — replace ~20 hardcoded colors with theme reads
+- `lib/src/ui/trigger_button.dart` — replace sizing/colors with theme reads
+- `lib/src/ui/guide_page.dart` — replace background/text colors with theme reads
+- `lib/src/ui/highlight_overlay.dart` — replace highlight colors with theme reads
+- `lib/src/ui/watchdog_overlay.dart` — wrap overlay tree in `_WatchdogTheme`
+- `lib/src/controller/watchdog_controller.dart` — add `theme` field to `WatchdogConfig`
+- `lib/widget_watchdog.dart` — export `WatchdogThemeData`
+
+**Acceptance criteria:**
+- Default overlay looks identical to current dark theme (visual regression test)
+- Light-theme app → overlay auto-selects light colors
+- `WatchdogConfig(theme: WatchdogThemeData.dark().copyWith(cardBackground: Colors.blue))` works
+- All 6 overlay files read from theme, zero hardcoded color hex literals remain
+- Existing UI tests pass unchanged
+
+**Testing:** 8–10 tests:
+1. Default theme matches dark factory
+2. Light factory has distinct colors from dark
+3. `copyWith` overrides individual tokens
+4. InheritedWidget propagation to child widgets
+5. Brightness auto-detection (mock MediaQuery)
+6. Explicit theme overrides auto-detection
+7. Sizing tokens applied to card/trigger
+8. FPS color function reads from theme
+
+**Risk:** Medium. Touches all UI files but is a mechanical find-and-replace. Main risk is visual regressions in edge cases (transparency compositing with different background colors).
+
+**Post-Implementation Notes (v5.1):**
+
+Shipped. All acceptance criteria met. Implementation details vs. original spec:
+
+- **60 color tokens** (not ~40 + sizing + typography as originally spec'd). Sizing and typography tokens were excluded — they're layout concerns that break layouts if changed and don't need theme-awareness.
+- **`WatchdogThemeData`** is `const`-constructable with const redirecting constructors for `.dark()` and `.light()`. All `Color(...)` literals are const, so this works without factory constructors.
+- **`WatchdogTheme`** (public class, not `_WatchdogTheme`) — `of(context)` returns `const WatchdogThemeData()` (dark) when no ancestor exists, ensuring all existing tests pass without modification.
+- **Token naming** uses semantic names (`textPrimary`/`textSecondary`/`textTertiary`/`textQuaternary`/`textSubtle` instead of `textMuted`). Category tokens match `IssueCategory` enum values exactly (`categoryBuild`, `categoryLayout`, etc.).
+- **Badge and banner pairs** (bg + text) are separate tokens for independent override. Doc comments warn to always override both together.
+- **`fpsColor()` free function deleted** — replaced by `WatchdogThemeData.fpsColor()` method. Both consumers (trigger_button, floating_issues_card) migrated before deletion.
+- **`_fixEffort()` free function** now takes `WatchdogThemeData theme` parameter instead of hardcoded colors.
+- **CustomPainters** (`_HighlightPainter`, `_CornerGripPainter`) receive theme/colors via constructor since `paint()` has no BuildContext. `shouldRepaint` includes theme comparison.
+- **Guide page static helpers** take `WatchdogThemeData theme` parameter. `_GuideStep` and `_LegendRow` StatelessWidgets read `WatchdogTheme.of(context)` in their own `build()`.
+- **Auto-detection** uses `MediaQuery.maybeOf(context)?.platformBrightness` (not `platformBrightnessOf`). Re-resolves on system brightness changes because `MediaQuery` dependency triggers rebuild.
+- **Tests:** 20 new tests in `test/ui/watchdog_theme_test.dart` (17) and `test/ui/theme_auto_detect_test.dart` (3). Total: 1,121 tests, 0 analysis issues.
+- **Files changed:** 9 modified + 2 new (theme data class, 2 test files). Zero `Color(0x` references remain in any UI file except `watchdog_theme.dart`.
+
+---
+
+### v5.2: Export Enrichment — Phase Events, GC, FPS Percentiles
+
+**Problem:** `SessionSnapshot` exports aggregate stats but drops granular data that consumers need for offline root-cause analysis. Phase events (per-frame build/layout/paint/raster breakdowns), GC events, platform channel events, and FPS trend data are all computed internally but never included in exports.
+
+**Current export fields:**
+- `frameStatsSummary` — aggregate (jank count, avg FPS, worst frame)
+- `capturedFrames` — worst 50 frames with verdict + related issues
+- `currentIssues` — latest ranked list
+- `recentRequests` — HTTP records
+- `heapSamples` — memory samples
+- `suppressedCount` — hidden issue count
+
+**Missing data identified during research:**
+1. Phase events (`ParsedTimelineData.phaseEvents`) — per-frame build/layout/paint/raster with dirty widget names
+2. GC events — frequency, pause durations, types
+3. Platform channel events — call frequency, latency
+4. FPS percentiles — p50, p95, p99 over session
+5. Frame sequence — last N frames (not just worst), for trend analysis
+6. Ranking metadata — `rankingScore` and breakdown on each issue
+7. Schema version — for forward-compatible parsing
+
+**Approach:** Extend `SessionSnapshot` with optional fields. All new fields default to null/empty so existing consumers aren't broken. Add `schemaVersion: 2` for parsers to detect new format.
+
+**Design decisions:**
+
+1. **Opt-in granularity** — New fields are nullable. `exportSnapshot()` always includes them when data is available. Consumers that don't need granularity ignore null fields.
+
+2. **Phase events capped** — Store last 100 phase events (rolling buffer in controller). Each event includes: `timestamp`, `phaseName`, `durationUs`, `dirtyWidgets: List<String>?`.
+
+3. **FPS percentiles** — Computed from the existing `_frameStatsBuffer` (capacity 50). Add `fpsP50`, `fpsP95`, `fpsP99` calculated at export time.
+
+4. **Ranking score on issues** — Add `rankingScore: double` and `rankingBreakdown: Map<String, double>` to `PerformanceIssue`. Populated by `IssueRanker` during ranking pass.
+
+5. **Schema version** — `schemaVersion: 2` (v1 is the current implicit format). Increment on breaking changes.
+
+**Files changed:**
+- `lib/src/models/session_snapshot.dart` — add phaseEvents, gcEvents, platformChannelEvents, fpsPercentiles, frameSequence, schemaVersion fields
+- `lib/src/models/performance_issue.dart` — add rankingScore, rankingBreakdown fields
+- `lib/src/ranking/issue_ranker.dart` — populate rankingScore during rank()
+- `lib/src/controller/watchdog_controller.dart` — store phase event buffer, populate new snapshot fields in exportSnapshot()
+- `lib/widget_watchdog.dart` — no barrel changes needed (types already exported)
+
+**Acceptance criteria:**
+- `exportSnapshotJson()` includes phaseEvents, gcEvents, fpsPercentiles when data available
+- Issues include `rankingScore` in export
+- `schemaVersion: 2` in all exports
+- Existing tests pass unchanged (new fields are additive)
+- Export size stays reasonable (<500KB for typical 60-second session)
+
+**Testing:** 6–8 tests:
+1. Schema version is 2
+2. Phase events capped at 100
+3. FPS percentiles computed correctly from buffer
+4. Ranking score populated on exported issues
+5. Empty session produces valid export (all new fields null/empty)
+6. Export round-trip (toJson → fromJson preserves new fields)
+
+**Risk:** Low. Additive changes only. No behavior change for existing consumers.
+
+---
+
+### v5.3: Causal Issue Graph — Root-Cause Clustering
+
+**Problem:** Detectors run independently and report issues individually. When a high-level setState causes rebuilds, which cause layout bottlenecks, which cause heavy compute, the user sees 3–4 separate issues instead of one root cause with downstream effects. This clutters the issue list and makes prioritization harder.
+
+**Current correlation (5 rules in `detector_correlator.dart`):**
+1. Suppress AnimatedBuilder if no paint issues
+2. Merge rebuild + setState evidence
+3. Escalate GPU + CustomPainter confidence
+4. Escalate memory + image confidence
+5. Deduplicate rebuild/repaint (keep higher confidence)
+
+**What's missing:**
+- No multi-hop causal chains (A → B → C)
+- No root-cause identification (which issue is the origin?)
+- No downstream suppression (low-confidence effects hidden when root is clear)
+- Issues reported independently even when clearly related
+
+**Approach:** Add a post-correlation pass that builds a directed graph of issue relationships, identifies root causes, and collapses downstream issues into the root's detail section.
+
+**Design decisions:**
+
+1. **Causal rules (6 initial chains):**
+   - `setState_scope` → `rebuild_*` → `heavy_compute` (setState triggers rebuilds, rebuilds block main thread)
+   - `setState_scope` → `rebuild_*` → `layout_bottleneck` (rebuilds cause layout passes)
+   - `uncached_image` → `memory_pressure` (large images cause heap growth)
+   - `always_repaint_painter` → `repaint_*` → `gpu_pressure` (paint thrashing causes raster work)
+   - `animated_builder_no_child` → `rebuild_*` (AnimatedBuilder rebuilds subtree every tick)
+   - `non_lazy_list` → `rebuild_*` → `heavy_compute` (eager list builds all children)
+
+2. **Graph structure** — `Map<String, Set<String>>` adjacency list keyed by stableId. Built from causal rule matching after standard correlation.
+
+3. **Root identification** — Issues with no incoming edges in the graph are roots. Downstream issues get `rootCause: String?` field pointing to root's stableId.
+
+4. **UI presentation** — Root issues shown normally. Downstream issues collapsed into root's expanded detail as "Related effects: ..." with muted styling. Count shown as badge.
+
+5. **Confidence adjustment** — Downstream issues with `possible` confidence suppressed entirely when root is `confirmed` or `likely`. Downstream `likely` issues demoted to sub-items.
+
+**Files changed:**
+- `lib/src/analyzer/causal_graph.dart` — new: `CausalGraphAnalyzer` with rule definitions and graph builder
+- `lib/src/analyzer/detector_correlator.dart` — call `CausalGraphAnalyzer` after existing 5 rules
+- `lib/src/models/performance_issue.dart` — add `rootCause: String?`, `downstreamIssues: List<String>?`
+- `lib/src/ui/issue_card.dart` — render downstream issues in expanded section
+
+**Acceptance criteria:**
+- setState → rebuild → heavy_compute chain collapses to single root issue with 2 downstream
+- Root issue shows "2 related effects" badge
+- Expanding root shows downstream details
+- Standalone issues (no causal chain) render unchanged
+- Existing 5 correlation rules still applied first
+
+**Testing:** 10–12 tests:
+1. Single-hop chain detected (A → B)
+2. Multi-hop chain detected (A → B → C)
+3. Root identification (no incoming edges)
+4. Downstream suppression at `possible` confidence
+5. Multiple independent chains in same scan
+6. No chain when issues have different stableId patterns
+7. Cycle prevention (A → B → A doesn't infinite loop)
+8. Empty graph (no chains) produces unchanged output
+9. UI: root shows downstream count badge
+10. UI: expanding root shows downstream detail
+
+**Risk:** Medium. Core correlation logic changes could affect existing issue ordering. Requires careful regression testing against all 5 existing rules.
+
+---
+
+### v5.4: Configurable Detector Thresholds
+
+**Problem:** 13 of 21 detectors have thresholds buried in their class bodies with no exposure via `WatchdogConfig`. Consumers cannot tune detection sensitivity for their specific app characteristics (e.g., high-refresh 120Hz displays need tighter shader jank thresholds, battery-critical apps need lower platform channel limits).
+
+**Currently configurable (8 detectors):**
+- FrameTiming: `warningThresholdMs`, `criticalThresholdMs`, `fpsTarget`
+- Rebuild: `rebuildsPerSecThreshold`
+- Network: `slowRequestThresholdMs`, `frequencyLimit`, `largeResponseThresholdBytes`
+- Memory: `warmupDurationMs`
+- ListView: `maxListChildren`
+- GlobalKey: `maxGlobalKeys`
+- PlatformChannel: `platformChannelLimit`, `platformChannelDurationThresholdMs`
+- Repaint: (via constructor but not config-exposed)
+
+**Not configurable (13 detectors):**
+- ShaderJank: 100ms threshold
+- HeavyCompute: 8ms gap threshold
+- GpuPressure: 1.5× raster/UI ratio
+- MemoryPressure: 512 KB/sec growth, 80% capacity
+- ShallowRebuildRisk: depth ≤3, >2 rebuilds
+- SetStateScope: >50% tree ownership, >2 rebuilds
+- Opacity: <0.01 opacity
+- KeepAlive: >5 alive
+- NestedScroll: >20 children
+- LayoutBottleneck: (binary — any IntrinsicHeight/Width)
+- CustomPainter: (binary — shouldRepaint always true)
+- AnimatedBuilder: >20 subtree size
+- FontLoading: >3 custom font families
+- ImageMemory: (binary — missing cacheWidth/cacheHeight)
+
+**Approach:** Add a `DetectorThresholds` nested config class to `WatchdogConfig`. Each detector reads its threshold from config if provided, falling back to current hardcoded defaults.
+
+**Design decisions:**
+
+1. **`DetectorThresholds` class** — flat structure with named parameters matching detector names. All optional with current values as defaults.
+
+2. **Only expose meaningful thresholds** — Skip binary detectors (LayoutBottleneck, CustomPainter, ImageMemory) where the threshold is "present or not." Focus on numeric thresholds that consumers might reasonably tune.
+
+3. **Thresholds exposed (10 new parameters):**
+   - `shaderJankMs` (default 100)
+   - `heavyComputeGapMs` (default 8)
+   - `gpuPressureRatio` (default 1.5)
+   - `memoryGrowthBytesPerSec` (default 512000)
+   - `memoryCapacityPercent` (default 0.8)
+   - `shallowRebuildMaxDepth` (default 3)
+   - `setStateScopeOwnershipPercent` (default 0.5)
+   - `keepAliveMax` (default 5)
+   - `animatedBuilderMinSubtreeSize` (default 20)
+   - `fontLoadingMaxFamilies` (default 3)
+
+4. **Controller wiring** — `_initializeDetectors()` passes config thresholds to detector constructors. No detector reads config directly.
+
+**Files changed:**
+- `lib/src/controller/watchdog_controller.dart` — add `DetectorThresholds` class, wire to detector constructors in `_initializeDetectors()`
+- 10 detector files — add constructor parameters for thresholds (replace hardcoded values)
+- `lib/widget_watchdog.dart` — export `DetectorThresholds`
+
+**Acceptance criteria:**
+- `WatchdogConfig(thresholds: DetectorThresholds(shaderJankMs: 50))` lowers shader detection sensitivity
+- Default behavior identical (all defaults match current hardcoded values)
+- All detector tests pass unchanged (tests use default thresholds)
+- New tests verify custom thresholds are respected
+
+**Testing:** 10 tests (one per new threshold):
+1. Each new threshold parameter overrides detector default
+2. Default thresholds produce identical behavior to current code
+
+**Risk:** Low. Mechanical refactor — replace hardcoded constant with constructor parameter. Main risk is missing a usage site inside a detector.
+
+---
+
+### v5.5: Detector Registry Pattern
+
+**Problem:** The controller has 21 hardcoded `late final` detector fields (lines 74–101). Adding or removing a detector requires touching 6+ methods: `_initializeDetectors()`, `_getAllIssues()`, `_runStructuralScans()`, `_collectHighlights()`, debug snapshot routing, and `dispose()`. This is error-prone and makes the controller file grow linearly with detector count.
+
+**Current pattern:**
+```dart
+late final RebuildDetector _rebuildDetector;
+late final OpacityDetector _opacityDetector;
+// ... 19 more
+```
+
+Each referenced explicitly in `_getAllIssues()`:
+```dart
+..._rebuildDetector.issues,
+..._opacityDetector.issues,
+// ... 19 more spreads
+```
+
+**Approach:** Replace individual fields with a `List<BaseDetector>` registry. Lifecycle dispatch uses detector metadata (`DetectorLifecycle`, `isEnabled`) instead of hardcoded per-detector calls.
+
+**Design decisions:**
+
+1. **Single `_detectors` list** — `late final List<BaseDetector> _detectors`. Built in `_initializeDetectors()` from both built-in and custom detectors.
+
+2. **Lifecycle-based dispatch** — Replace hardcoded detector calls with filtered iterations:
+   ```dart
+   // Before: _rebuildDetector.scanTree(ctx); _opacityDetector.scanTree(ctx); ...
+   // After: for (final d in _detectors) if (d.isEnabled && d.requiresTreeScan) d.scanTree(ctx);
+   ```
+
+3. **Named access preserved** — For detectors that need specific access (e.g., `_networkMonitor` for HTTP overrides), keep typed getters:
+   ```dart
+   NetworkMonitorDetector get _networkMonitor => _detectors.whereType<NetworkMonitorDetector>().first;
+   ```
+
+4. **Debug snapshot routing** — Currently hardcoded to 9 specific detectors. Replace with `for (final d in _detectors) if (d.isEnabled) d.updateDebugSnapshot(snapshot)`.
+
+5. **`_getAllIssues()` simplification:**
+   ```dart
+   // Before: 21 explicit spreads
+   // After: _detectors.expand((d) => d.issues).toList()
+   ```
+
+6. **Disposal:**
+   ```dart
+   // Before: 21 explicit .dispose() calls
+   // After: for (final d in _detectors) d.dispose();
+   ```
+
+**Files changed:**
+- `lib/src/controller/watchdog_controller.dart` — replace 21 `late final` fields with `_detectors` list, refactor 6 methods
+- `lib/src/models/base_detector.dart` — add `requiresTreeScan` getter (already implicitly there via lifecycle check)
+
+**Acceptance criteria:**
+- Controller has single `_detectors` list, no individual detector fields (except typed getters for special access)
+- `_initializeDetectors()`, `_getAllIssues()`, `_runStructuralScans()`, `_collectHighlights()`, debug snapshot routing, and `dispose()` all use list iteration
+- All 1,101 tests pass unchanged
+- Adding a new detector requires: create class + add to `_initializeDetectors()` list (1 method, 1 line)
+
+**Testing:** Existing tests provide full coverage. No new tests needed — this is a pure internal refactor.
+
+**Risk:** Medium. Touches the core controller file heavily. Any missed dispatch point silently drops detector functionality. Must verify every lifecycle path dispatches to all detectors.
+
+---
+
+### v5.6: Network-to-Frame Correlation
+
+**Problem:** Network monitoring and frame analysis are completely decoupled. The system cannot answer "was this jank frame caused by a pending slow request?" or "did this HTTP response parsing block the UI thread?" Frame verdicts have no awareness of concurrent network activity.
+
+**Current state:**
+- `NetworkMonitorDetector` records requests in a ring buffer (200 max) with timestamps, durations, and sizes
+- `FrameVerdict` knows about UI/raster timing, CPU attribution, and phase events
+- No linkage between the two — network issues and frame issues are reported independently
+
+**Approach:** Enrich `FrameVerdict` with network context: count of pending requests and slowest pending duration during the frame window. Add a correlation rule that escalates network issues when they co-occur with jank frames.
+
+**Design decisions:**
+
+1. **`FrameVerdict` enrichment** — Add `pendingRequestCount: int` and `slowestPendingMs: int?` fields. Populated from `NetworkMonitorDetector`'s active request tracking.
+
+2. **Active request tracking** — `NetworkMonitorDetector` already records `startedAt` and completion. Add `_activeRequests: Set<RequestRecord>` for in-flight requests. On frame verdict generation, query count and max duration.
+
+3. **New correlation rule** — `EscalateNetworkJankRule`: If jank frame has `pendingRequestCount > 0` and `slowestPendingMs > slowThreshold`, escalate any `network_slow_request` issue from `possible` to `likely`.
+
+4. **Export inclusion** — `pendingRequestCount` and `slowestPendingMs` included in `SessionSnapshot.capturedFrames` for offline analysis.
+
+**Files changed:**
+- `lib/src/models/frame_verdict.dart` — add `pendingRequestCount`, `slowestPendingMs` fields
+- `lib/src/detectors/network_monitor_detector.dart` — add `_activeRequests` tracking, expose `pendingRequestSnapshot()` method
+- `lib/src/controller/watchdog_controller.dart` — populate network fields when generating verdict
+- `lib/src/analyzer/detector_correlator.dart` — add `EscalateNetworkJankRule`
+
+**Acceptance criteria:**
+- Jank frame during slow request shows `pendingRequestCount: 1` in verdict
+- Network issue escalated from `possible` to `likely` when co-occurring with jank
+- Export includes network context per captured frame
+- No overhead when no network requests are active
+
+**Testing:** 6 tests:
+1. Pending request count populated during jank
+2. Pending request count is 0 when no active requests
+3. Slowest pending duration calculated correctly
+4. Correlation rule escalates confidence
+5. No escalation when request completes before frame
+6. Export includes network context
+
+**Risk:** Low. Additive fields on existing models. Network detector already tracks all needed data.
+
+---
+
+### v5.7: Accessibility — Semantics & Screen Reader Support
+
+**Problem:** The overlay has minimal accessibility support. The trigger button has no `Semantics` wrapper, issue card checkboxes have no semantic labels, expandable sections don't announce state changes, and transient feedback messages (export confirmation, highlight-not-found) are invisible to screen readers.
+
+**Current gaps:**
+- Trigger button: No `Semantics(button: true, label: ...)` — screen readers skip it entirely
+- Issue card expand/collapse: `InkWell` with no `Semantics.button` or expanded state
+- Highlight checkbox: No semantic label explaining what the checkbox does
+- Severity/confidence/category badges: Purely visual, no screen reader text
+- FPS counter: Changes rapidly with no live region announcement
+- Export feedback banner: Auto-hides after 2 seconds, never announced
+- Guide page sections: No semantic structure for navigation
+
+**Approach:** Add `Semantics` wrappers to all interactive elements. Use `SemanticsService.announce()` for transient messages. Mark dynamic content regions appropriately.
+
+**Design decisions:**
+
+1. **Trigger button** — Wrap in `Semantics(button: true, enabled: true, label: 'Open performance dashboard. Current FPS: $fps')`.
+
+2. **Issue cards** — Add `Semantics(button: true, label: '$title, $severity severity, $confidence confidence', expanded: isExpanded)` to each card's InkWell.
+
+3. **Highlight checkbox** — `Semantics(label: 'Highlight widget for $issueTitle in app', checked: isChecked)`.
+
+4. **Badges** — Ensure badge text is already in the semantic tree via `Text` widget (most are, but verify no `ExcludeSemantics` wrappers).
+
+5. **Transient announcements** — Call `SemanticsService.announce('Snapshot copied to clipboard', TextDirection.ltr)` on export, and similar for highlight-not-found.
+
+6. **FPS live region** — Use `Semantics(liveRegion: true)` on FPS display, but throttle updates to avoid noise (announce only when FPS category changes: good → warning → critical).
+
+**Files changed:**
+- `lib/src/ui/trigger_button.dart` — wrap in Semantics
+- `lib/src/ui/issue_card.dart` — add Semantics to card, checkbox, badges
+- `lib/src/ui/floating_issues_card.dart` — add announcements for export/highlight feedback, FPS live region
+- `lib/src/ui/guide_page.dart` — semantic labels on expandable sections
+
+**Acceptance criteria:**
+- TalkBack (Android) and VoiceOver (iOS) can navigate all overlay elements
+- Trigger button announced with FPS context
+- Issue cards announce severity, confidence, and expanded state
+- Export feedback announced to screen readers
+- No duplicate or noisy announcements
+
+**Testing:** 6 widget tests:
+1. Trigger button has semantic button label
+2. Issue card has semantic expanded state
+3. Checkbox has semantic checked state and label
+4. Export triggers `SemanticsService.announce`
+5. FPS live region present
+6. Guide sections have semantic labels
+
+**Risk:** Low. Additive Semantics wrappers. No visual or behavioral change.
+
+---
+
+### v5.8: RepaintBoundary Coverage Detector
+
+**Problem:** Flutter developers often forget to add `RepaintBoundary` widgets around expensive animated subtrees. When a deep subtree with GPU-heavy operations (Opacity, ClipPath, BackdropFilter, CustomPaint) repaints, the repaint propagates up the tree, causing unnecessary work. No existing detector flags this gap.
+
+**Current related detectors:**
+- `RepaintDetector` — flags high repaint frequency but doesn't suggest where to add boundaries
+- `GpuPressureDetector` — flags raster-heavy operations but doesn't check for boundary presence
+- `CustomPainterDetector` — flags always-repaint painters but doesn't check parent boundary
+
+**Approach:** New structural detector that identifies deep subtrees containing expensive GPU operations (Opacity, ClipPath, BackdropFilter, ShaderMask, CustomPaint) without a `RepaintBoundary` ancestor within 3 levels. Combined with repaint evidence from the debug snapshot, the detector can escalate from structural observation to confirmed performance issue.
+
+**Design decisions:**
+
+1. **Detection logic** — During `scanTree()`, walk the render tree looking for expensive render objects (`RenderOpacity`, `RenderClipPath`, `RenderBackdropFilter`, `RenderShaderMask`, `RenderCustomPaint`). For each, check if a `RenderRepaintBoundary` exists within 3 ancestor levels. If not, flag as structural finding.
+
+2. **Confidence escalation** — `possible` if structural only (expensive node without boundary). `likely` if co-occurring with high repaint count from debug snapshot. `confirmed` if VM repaint evidence shows >30 repaints/sec on the subtree.
+
+3. **Lifecycle** — Hybrid detector. Structural scan provides the "where" (which widget), debug snapshot provides the "how bad" (repaint frequency).
+
+4. **Fix hint** — `FixHintBuilder.missingRepaintBoundary(widgetName, ancestorChain)` suggesting `RepaintBoundary` insertion point.
+
+5. **DetectorType** — Add `DetectorType.repaintBoundary` to the enum.
+
+**Files changed:**
+- `lib/src/models/base_detector.dart` — add `DetectorType.repaintBoundary`
+- `lib/src/detectors/repaint_boundary_detector.dart` — new detector
+- `lib/src/utils/fix_hint_builder.dart` — add `missingRepaintBoundary()` method
+- `lib/src/controller/watchdog_controller.dart` — register in detector list
+- `lib/widget_watchdog.dart` — no changes needed (DetectorType already exported)
+
+**Acceptance criteria:**
+- Expensive GPU widget without RepaintBoundary ancestor → `possible` issue
+- Same + high repaint rate → `likely` or `confirmed`
+- Fix hint suggests specific insertion point
+- No false positives on widgets already inside RepaintBoundary
+- Widget tree with RepaintBoundary at root → no issue
+
+**Testing:** 8 tests:
+1. CustomPaint without boundary → flagged
+2. CustomPaint with direct RepaintBoundary parent → not flagged
+3. CustomPaint with boundary 2 levels up → not flagged
+4. CustomPaint with boundary 4+ levels up → flagged
+5. Multiple expensive nodes, one boundary covers all → not flagged
+6. High repaint evidence escalates confidence
+7. Fix hint includes widget name and ancestor chain
+8. Detector disabled → no issues
+
+**Risk:** Low. New detector — additive. No changes to existing detection behavior.
+
+---
+
+### v5 Implementation Order
+
 | Priority | Milestone | Effort | Dependencies |
 |----------|-----------|--------|--------------|
-| 1 | v4.1: Issue Suppression | Small (1 file + tests) | None |
-| 2 | v4.4: Card Widget Extraction | Small (refactor, no behavior change) | None |
-| 3 | v4.5: Example App Extraction | Small (file moves only) | None |
-| 4 | v4.2: Custom Detector API | Medium (controller + base detector + tests) | None |
-| 5 | v4.3: Shake-to-Open | Large (native platform code) | None |
+| 1 | v5.1: Overlay Theming | Medium | None |
+| 2 | v5.2: Export Enrichment | Low-Medium | None |
+| 3 | v5.4: Configurable Thresholds | Low | None |
+| 4 | v5.5: Detector Registry | Medium | None (but makes v5.8 easier) |
+| 5 | v5.3: Causal Issue Graph | Medium | None |
+| 6 | v5.6: Network-to-Frame Correlation | Low-Medium | None |
+| 7 | v5.7: Accessibility | Low | v5.1 (reads from theme) |
+| 8 | v5.8: RepaintBoundary Detector | Low-Medium | v5.5 (uses registry) |
 
-v4.1, v4.4, and v4.5 can be done in parallel — they touch different files with no overlap. v4.2 modifies the controller but doesn't conflict with v4.1 (different sections). v4.3 is the largest and most architecturally significant (Dart package → plugin package), so it should be last and may warrant its own evaluation before committing.
+v5.1–v5.4 are independent and can be done in any order. v5.7 depends on v5.1 (theme tokens for semantic labels). v5.8 benefits from v5.5 (registry simplifies detector registration). v5.3 and v5.6 are independent correlation improvements.

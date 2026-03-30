@@ -18,6 +18,31 @@
 /// - In-app overlay with live FPS chart and issue dashboard
 /// - Debug mode warning (run with --profile for accurate data)
 /// - Completely disabled in release builds
+///
+/// ## Theming
+///
+/// The overlay auto-detects dark/light mode from the system brightness.
+/// To force a specific theme or customize colors:
+///
+/// ```dart
+/// // Light theme for light-background apps
+/// WidgetWatchdog.wrap(
+///   child: MyApp(),
+///   config: WatchdogConfig(theme: WatchdogThemeData.light()),
+/// );
+///
+/// // Custom brand colors
+/// WidgetWatchdog.wrap(
+///   child: MyApp(),
+///   config: WatchdogConfig(
+///     theme: WatchdogThemeData.light().copyWith(
+///       severityCritical: Color(0xFFDC2626),
+///     ),
+///   ),
+/// );
+/// ```
+///
+/// See [WatchdogThemeData] for all available color tokens.
 library;
 
 import 'package:flutter/foundation.dart';
@@ -35,6 +60,7 @@ export 'src/models/widget_highlight.dart';
 export 'src/models/capture_buffer.dart';
 export 'src/models/session_snapshot.dart';
 export 'src/controller/watchdog_controller.dart' show WatchdogConfig;
+export 'src/ui/watchdog_theme.dart' show WatchdogThemeData;
 export 'src/debug/debug_instrumentation_config.dart';
 export 'src/models/base_detector.dart'
     show DetectorType, DetectorLifecycle, BaseDetector;
@@ -59,10 +85,12 @@ class WidgetWatchdog {
   /// Wrap your app with the performance overlay.
   ///
   /// In release mode, this returns [child] unchanged (zero cost).
-  /// In debug/profile mode, adds the 🐕 overlay with all 21 detectors.
+  /// In debug/profile mode, adds the overlay with all 21 detectors.
   ///
-  /// Optionally pass [config] to customize thresholds and enable/disable
-  /// specific detectors.
+  /// Optionally pass [config] to customize thresholds, enable/disable
+  /// specific detectors, or set a custom [WatchdogConfig.theme].
+  /// When no theme is provided, the overlay auto-selects dark or light
+  /// based on the system brightness.
   static Widget wrap({required Widget child, WatchdogConfig? config}) {
     // Complete no-op in release mode
     if (kReleaseMode) return child;

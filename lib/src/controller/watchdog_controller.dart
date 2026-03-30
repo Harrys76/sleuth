@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:vm_service/vm_service.dart' show AllocationProfile, Event;
 
+import '../ui/watchdog_theme.dart';
 import '../analyzer/detector_correlator.dart';
 import '../analyzer/frame_event_correlator.dart';
 import '../analyzer/render_pipeline_analyzer.dart';
@@ -1366,6 +1367,7 @@ class WatchdogController {
 /// Configuration for [WatchdogController].
 class WatchdogConfig {
   const WatchdogConfig({
+    this.theme,
     this.fpsTarget = 60,
     this.rebuildThreshold = 10,
     this.maxListChildren = 20,
@@ -1388,6 +1390,25 @@ class WatchdogConfig {
     this.suppressedIssues = const {},
     this.customDetectors = const [],
   });
+
+  /// Custom theme for the overlay UI.
+  ///
+  /// When null (default), the overlay auto-selects dark or light based on
+  /// [MediaQuery.platformBrightness]. If no [MediaQuery] is available
+  /// (rare), defaults to dark.
+  ///
+  /// ```dart
+  /// // Force light theme
+  /// WatchdogConfig(theme: WatchdogThemeData.light())
+  ///
+  /// // Light theme with custom severity colors
+  /// WatchdogConfig(
+  ///   theme: WatchdogThemeData.light().copyWith(
+  ///     severityCritical: Color(0xFFDC2626),
+  ///   ),
+  /// )
+  /// ```
+  final WatchdogThemeData? theme;
 
   /// Target frames per second (60 or 120). Drives jank detection thresholds.
   final int fpsTarget;

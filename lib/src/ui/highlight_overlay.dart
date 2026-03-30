@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
+import 'watchdog_theme.dart';
 
 /// Two-mode highlight overlay:
 ///
@@ -21,6 +22,7 @@ class HighlightOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = WatchdogTheme.of(context);
     return IgnorePointer(
       child: ValueListenableBuilder<List<WidgetHighlight>>(
         valueListenable: highlights,
@@ -31,7 +33,8 @@ class HighlightOverlay extends StatelessWidget {
               return const SizedBox.shrink();
             }
             return CustomPaint(
-              painter: _HighlightPainter(highlights: items, selected: selected),
+              painter: _HighlightPainter(
+                  highlights: items, selected: selected, theme: theme),
               size: Size.infinite,
             );
           },
@@ -42,20 +45,19 @@ class HighlightOverlay extends StatelessWidget {
 }
 
 class _HighlightPainter extends CustomPainter {
-  _HighlightPainter({required this.highlights, this.selected});
+  _HighlightPainter(
+      {required this.highlights, this.selected, required this.theme});
 
   final List<WidgetHighlight> highlights;
   final WidgetHighlight? selected;
+  final WatchdogThemeData theme;
 
-  static const _criticalColor = Color(0xFFEF4444);
-  static const _warningColor = Color(0xFFF59E0B);
-  static const _okColor = Color(0xFF10B981);
   static const _markerSize = 8.0;
 
   Color _colorFor(IssueSeverity severity) => switch (severity) {
-        IssueSeverity.critical => _criticalColor,
-        IssueSeverity.warning => _warningColor,
-        IssueSeverity.ok => _okColor,
+        IssueSeverity.critical => theme.severityCritical,
+        IssueSeverity.warning => theme.severityWarning,
+        IssueSeverity.ok => theme.severityOk,
       };
 
   @override
@@ -91,7 +93,7 @@ class _HighlightPainter extends CustomPainter {
     canvas.drawCircle(
       Offset(h.rect.left + 3, h.rect.top + 3),
       2,
-      Paint()..color = Colors.white,
+      Paint()..color = theme.highlightDot,
     );
   }
 
@@ -100,7 +102,7 @@ class _HighlightPainter extends CustomPainter {
     final color = _colorFor(h.severity);
 
     // Dim the rest of the screen
-    final dimPaint = Paint()..color = const Color(0x44000000);
+    final dimPaint = Paint()..color = theme.dimOverlay;
     final screenRect = Offset.zero & size;
     canvas.saveLayer(screenRect, Paint());
     canvas.drawRect(screenRect, dimPaint);
@@ -127,8 +129,8 @@ class _HighlightPainter extends CustomPainter {
         '${h.detail != null ? ' — ${h.detail}' : ''}';
     final textSpan = TextSpan(
       text: label,
-      style: const TextStyle(
-        color: Colors.white,
+      style: TextStyle(
+        color: theme.highlightLabelText,
         fontSize: 10,
         fontWeight: FontWeight.bold,
         height: 1.2,
@@ -157,5 +159,6 @@ class _HighlightPainter extends CustomPainter {
   @override
   bool shouldRepaint(_HighlightPainter old) =>
       !identical(old.highlights, highlights) ||
-      !identical(old.selected, selected);
+      !identical(old.selected, selected) ||
+      !identical(old.theme, theme);
 }

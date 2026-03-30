@@ -11,23 +11,13 @@ import '../models/frame_verdict.dart';
 import '../models/widget_highlight.dart';
 import 'issue_card.dart';
 import 'guide_page.dart';
+import 'watchdog_theme.dart';
 
 /// Draggable floating card showing FPS, issue count, and ranked issues list.
 ///
 /// Replaces the old DashboardSheet. Uses [Positioned] within an internal
 /// [Stack] for drag positioning. Wrapped in a [RepaintBoundary] by the
 /// parent overlay to isolate repaints from the app.
-/// Returns a color for the given FPS value relative to [target]:
-/// green (≥ 83% of target), amber (≥ 50% of target), red (< 50%).
-///
-/// At 60 fps target: green ≥ 50, amber ≥ 30 (same as original thresholds).
-/// At 120 fps target: green ≥ 100, amber ≥ 60.
-Color fpsColor(double fps, {int target = 60}) {
-  if (fps >= target * 0.83) return const Color(0xFF10B981);
-  if (fps >= target * 0.50) return const Color(0xFFF59E0B);
-  return const Color(0xFFEF4444);
-}
-
 class FloatingIssuesCard extends StatefulWidget {
   const FloatingIssuesCard({
     super.key,
@@ -189,6 +179,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     // Effective width clamped to screen — computed, not mutated during build.
     final maxCardWidth = screenSize.width;
     final effectiveWidth = _cardWidth.clamp(_minCardWidth, maxCardWidth);
+    final theme = WatchdogTheme.of(context);
 
     // Initialize position to right side on first build.
     // 5px right margin = handle visual (5px overflow) flush with screen edge.
@@ -224,13 +215,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                   child: Material(
                     elevation: 8,
                     borderRadius: BorderRadius.circular(16),
-                    color: const Color(0xF51E1E2E),
+                    color: theme.cardBackground,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _buildHeader(screenSize),
+                        _buildHeader(screenSize, theme),
                         _StatusRow(controller: widget.controller),
-                        const Divider(color: Color(0xFF374151), height: 1),
+                        Divider(color: theme.border, height: 1),
 
                         // Warning banners
                         _WarningBanners(
@@ -272,7 +263,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                         });
                       },
                       child: CustomPaint(
-                        painter: const _CornerGripPainter(),
+                        painter: _CornerGripPainter(gripColor: theme.gripDots),
                       ),
                     ),
                   ),
@@ -292,7 +283,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   // ─── Header ──────────────────────────────────────────────────────────
 
-  Widget _buildHeader(Size screenSize) {
+  Widget _buildHeader(Size screenSize, WatchdogThemeData theme) {
     return GestureDetector(
       onPanUpdate: (details) {
         setState(
@@ -318,11 +309,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
           children: [
             const Text('🐕', style: TextStyle(fontSize: 14)),
             const SizedBox(width: 4),
-            const Expanded(
+            Expanded(
               child: Text(
                 'Watchdog',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: theme.textPrimary,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                 ),
@@ -335,17 +326,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               builder: (_, connected, __) => Container(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
-                  color: connected
-                      ? const Color(0xFF065F46)
-                      : const Color(0xFF1E3A5F),
+                  color: connected ? theme.badgeVmBg : theme.badgeFrameBg,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   connected ? 'VM+' : 'FRAME',
                   style: TextStyle(
-                    color: connected
-                        ? const Color(0xFF6EE7B7)
-                        : const Color(0xFF93C5FD),
+                    color: connected ? theme.badgeVmText : theme.badgeFrameText,
                     fontSize: 8,
                     fontWeight: FontWeight.bold,
                   ),
@@ -358,13 +345,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                 margin: const EdgeInsets.only(left: 3),
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF5B21B6),
+                  color: theme.badgeDbgBg,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Text(
+                child: Text(
                   'DBG',
                   style: TextStyle(
-                    color: Color(0xFFC4B5FD),
+                    color: theme.badgeDbgText,
                     fontSize: 8,
                     fontWeight: FontWeight.bold,
                   ),
@@ -373,6 +360,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             // Guide button
             _headerIconButton(
               icon: Icons.help_outline,
+              color: theme.textTertiary,
               onTap: () => setState(() => _showGuide = true),
             ),
             // Highlight overlay toggle
@@ -380,8 +368,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               valueListenable: widget.controller.highlightEnabledNotifier,
               builder: (_, enabled, __) => _headerIconButton(
                 icon: enabled ? Icons.layers : Icons.layers_outlined,
-                color:
-                    enabled ? const Color(0xFF3B82F6) : const Color(0xFF9CA3AF),
+                color: enabled ? theme.checkboxActive : theme.textTertiary,
                 onTap: () {
                   final newValue = !enabled;
                   widget.controller.highlightEnabledNotifier.value = newValue;
@@ -394,6 +381,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             // Close button
             _headerIconButton(
               icon: Icons.close,
+              color: theme.textTertiary,
               onTap: widget.onClose,
             ),
           ],
@@ -405,7 +393,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   Widget _headerIconButton({
     required IconData icon,
     required VoidCallback onTap,
-    Color color = const Color(0xFF9CA3AF),
+    required Color color,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -422,12 +410,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   Widget _buildIssuesList() {
     return ValueListenableBuilder<List<PerformanceIssue>>(
       valueListenable: widget.controller.issuesNotifier,
-      builder: (_, issues, __) {
+      builder: (context, issues, __) {
         if (issues.isEmpty) {
-          return const Center(
+          final theme = WatchdogTheme.of(context);
+          return Center(
             child: Text(
               '✅ No issues detected',
-              style: TextStyle(color: Color(0xFF10B981), fontSize: 11),
+              style: TextStyle(color: theme.severityOk, fontSize: 11),
             ),
           );
         }
@@ -486,6 +475,7 @@ class _StatusRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = WatchdogTheme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Row(
@@ -496,7 +486,7 @@ class _StatusRow extends StatelessWidget {
             builder: (_, buffer, __) {
               final target = controller.config.fpsTarget;
               final fps = buffer.averageFps.clamp(0.0, target.toDouble());
-              final color = fpsColor(fps, target: target);
+              final color = theme.fpsColor(fps, target: target);
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -509,9 +499,9 @@ class _StatusRow extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 2),
-                  const Text(
+                  Text(
                     'FPS',
-                    style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
+                    style: TextStyle(color: theme.textTertiary, fontSize: 10),
                   ),
                 ],
               );
@@ -523,24 +513,22 @@ class _StatusRow extends StatelessWidget {
             valueListenable: controller.issuesNotifier,
             builder: (_, issues, __) {
               if (issues.isEmpty) {
-                return const Row(
+                return Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.check_circle,
-                        color: Color(0xFF10B981), size: 14),
-                    SizedBox(width: 4),
+                    Icon(Icons.check_circle, color: theme.severityOk, size: 14),
+                    const SizedBox(width: 4),
                     Text(
                       '0 issues',
-                      style: TextStyle(color: Color(0xFF10B981), fontSize: 11),
+                      style: TextStyle(color: theme.severityOk, fontSize: 11),
                     ),
                   ],
                 );
               }
               final hasCritical =
                   issues.any((i) => i.severity == IssueSeverity.critical);
-              final severityColor = hasCritical
-                  ? const Color(0xFFEF4444)
-                  : const Color(0xFFF59E0B);
+              final severityColor =
+                  hasCritical ? theme.severityCritical : theme.severityWarning;
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -582,6 +570,7 @@ class _WarningBanners extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = WatchdogTheme.of(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -590,17 +579,18 @@ class _WarningBanners extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: const Color(0xFF92400E),
+              color: theme.bannerDebugBg,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Text('⚠️', style: TextStyle(fontSize: 12)),
-                SizedBox(width: 6),
+                const Text('⚠️', style: TextStyle(fontSize: 12)),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     'Debug mode — data inaccurate.\nRun: flutter run --profile',
-                    style: TextStyle(color: Color(0xFFFCD34D), fontSize: 10),
+                    style:
+                        TextStyle(color: theme.bannerDebugText, fontSize: 10),
                   ),
                 ),
               ],
@@ -611,18 +601,19 @@ class _WarningBanners extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: const Color(0xFF5B21B6),
+              color: theme.bannerInstrumentationBg,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Text('🔬', style: TextStyle(fontSize: 12)),
-                SizedBox(width: 6),
+                const Text('🔬', style: TextStyle(fontSize: 12)),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     'Instrumentation active — rebuild/paint counts useful for '
                     'attribution. Timings not representative of real performance.',
-                    style: TextStyle(color: Color(0xFFDDD6FE), fontSize: 10),
+                    style: TextStyle(
+                        color: theme.bannerInstrumentationText, fontSize: 10),
                   ),
                 ),
               ],
@@ -633,17 +624,19 @@ class _WarningBanners extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: const Color(0xFF065F46),
+              color: theme.bannerSuccessBg,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.check_circle, color: Color(0xFF6EE7B7), size: 12),
-                SizedBox(width: 6),
+                Icon(Icons.check_circle,
+                    color: theme.bannerSuccessText, size: 12),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     'Snapshot copied to clipboard',
-                    style: TextStyle(color: Color(0xFF6EE7B7), fontSize: 10),
+                    style:
+                        TextStyle(color: theme.bannerSuccessText, fontSize: 10),
                   ),
                 ),
               ],
@@ -654,17 +647,19 @@ class _WarningBanners extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: const Color(0xFF78350F),
+              color: theme.bannerWarningBg,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.visibility_off, color: Color(0xFFFCD34D), size: 12),
-                SizedBox(width: 6),
+                Icon(Icons.visibility_off,
+                    color: theme.bannerWarningText, size: 12),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     'Widget not currently visible. Navigate to the screen where this issue occurs.',
-                    style: TextStyle(color: Color(0xFFFCD34D), fontSize: 10),
+                    style:
+                        TextStyle(color: theme.bannerWarningText, fontSize: 10),
                   ),
                 ),
               ],
@@ -685,11 +680,12 @@ class _CardFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = WatchdogTheme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(
-          top: BorderSide(color: Color(0xFF374151), width: 1),
+          top: BorderSide(color: theme.border, width: 1),
         ),
       ),
       child: Row(
@@ -697,17 +693,16 @@ class _CardFooter extends StatelessWidget {
         children: [
           IconButton(
             onPressed: onExport,
-            icon:
-                const Icon(Icons.ios_share, color: Color(0xFF9CA3AF), size: 16),
+            icon: Icon(Icons.ios_share, color: theme.textTertiary, size: 16),
             tooltip: 'Export session snapshot',
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             visualDensity: VisualDensity.compact,
           ),
           const SizedBox(width: 4),
-          const Text(
+          Text(
             'Export JSON',
-            style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
+            style: TextStyle(color: theme.textTertiary, fontSize: 10),
           ),
           ValueListenableBuilder<int>(
             valueListenable: controller.suppressedCountNotifier,
@@ -717,8 +712,8 @@ class _CardFooter extends StatelessWidget {
                 padding: const EdgeInsets.only(left: 8),
                 child: Text(
                   '$count suppressed',
-                  style: const TextStyle(
-                    color: Color(0xFF6B7280),
+                  style: TextStyle(
+                    color: theme.textQuaternary,
                     fontSize: 10,
                     fontStyle: FontStyle.italic,
                   ),
@@ -741,6 +736,7 @@ class _IssuesSummaryBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = WatchdogTheme.of(context);
     var critical = 0;
     var warning = 0;
     var ok = 0;
@@ -765,9 +761,9 @@ class _IssuesSummaryBar extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: Color(0xFF374151), width: 1),
+          bottom: BorderSide(color: theme.border, width: 1),
         ),
       ),
       child: Row(
@@ -776,16 +772,16 @@ class _IssuesSummaryBar extends StatelessWidget {
             Container(
               width: 6,
               height: 6,
-              decoration: const BoxDecoration(
-                color: Color(0xFFEF4444),
+              decoration: BoxDecoration(
+                color: theme.severityCritical,
                 shape: BoxShape.circle,
               ),
             ),
             const SizedBox(width: 3),
             Text(
               '$critical',
-              style: const TextStyle(
-                color: Color(0xFFEF4444),
+              style: TextStyle(
+                color: theme.severityCritical,
                 fontSize: 10,
                 fontWeight: FontWeight.bold,
               ),
@@ -796,16 +792,16 @@ class _IssuesSummaryBar extends StatelessWidget {
             Container(
               width: 6,
               height: 6,
-              decoration: const BoxDecoration(
-                color: Color(0xFFF59E0B),
+              decoration: BoxDecoration(
+                color: theme.severityWarning,
                 shape: BoxShape.circle,
               ),
             ),
             const SizedBox(width: 3),
             Text(
               '$warning',
-              style: const TextStyle(
-                color: Color(0xFFF59E0B),
+              style: TextStyle(
+                color: theme.severityWarning,
                 fontSize: 10,
                 fontWeight: FontWeight.bold,
               ),
@@ -816,16 +812,16 @@ class _IssuesSummaryBar extends StatelessWidget {
             Container(
               width: 6,
               height: 6,
-              decoration: const BoxDecoration(
-                color: Color(0xFF10B981),
+              decoration: BoxDecoration(
+                color: theme.severityOk,
                 shape: BoxShape.circle,
               ),
             ),
             const SizedBox(width: 3),
             Text(
               '$ok',
-              style: const TextStyle(
-                color: Color(0xFF10B981),
+              style: TextStyle(
+                color: theme.severityOk,
                 fontSize: 10,
                 fontWeight: FontWeight.bold,
               ),
@@ -838,8 +834,8 @@ class _IssuesSummaryBar extends StatelessWidget {
                 if (confirmed > 0) '$confirmed confirmed',
                 if (heuristic > 0) '$heuristic heuristic',
               ].join(' · '),
-              style: const TextStyle(
-                color: Color(0xFF9CA3AF),
+              style: TextStyle(
+                color: theme.textTertiary,
                 fontSize: 10,
               ),
               textAlign: TextAlign.right,
@@ -855,12 +851,14 @@ class _IssuesSummaryBar extends StatelessWidget {
 /// Paints diagonal grip dots in the bottom-right corner.
 /// 6 dots in a triangle pattern, inset to sit within the card's 16px corner radius.
 class _CornerGripPainter extends CustomPainter {
-  const _CornerGripPainter();
+  const _CornerGripPainter({required this.gripColor});
+
+  final Color gripColor;
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFF9CA3AF)
+      ..color = gripColor
       ..style = PaintingStyle.fill;
 
     const r = 1.3; // dot radius
@@ -882,5 +880,6 @@ class _CornerGripPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _CornerGripPainter oldDelegate) =>
+      gripColor != oldDelegate.gripColor;
 }

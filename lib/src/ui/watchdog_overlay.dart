@@ -6,6 +6,7 @@ import '../controller/watchdog_controller.dart';
 import 'trigger_button.dart';
 import 'floating_issues_card.dart';
 import 'highlight_overlay.dart';
+import 'watchdog_theme.dart';
 
 /// The main overlay widget wrapping the app.
 ///
@@ -46,68 +47,82 @@ class _WatchdogOverlayState extends State<WatchdogOverlay> {
     // No-op in release mode
     if (kReleaseMode) return widget.child;
 
+    final theme = widget.controller.config.theme ?? _resolveTheme(context);
+
     return Directionality(
       textDirection: TextDirection.ltr,
-      child: Stack(
-        children: [
-          // The actual app — scoped listener captures only app scroll,
-          // not dashboard/overlay scroll. Also updates interaction state.
-          NotificationListener<ScrollNotification>(
-            onNotification: (notification) {
-              widget.controller.refreshHighlights();
-              widget.controller.onScrollActivity(notification);
-              return false;
-            },
-            child: widget.child,
-          ),
-
-          // Widget highlight borders (when enabled)
-          RepaintBoundary(
-            child: HighlightOverlay(
-              highlights: widget.controller.highlightsNotifier,
-              selectedHighlight: widget.controller.selectedHighlightNotifier,
+      child: WatchdogTheme(
+        data: theme,
+        child: Stack(
+          children: [
+            // The actual app — scoped listener captures only app scroll,
+            // not dashboard/overlay scroll. Also updates interaction state.
+            NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                widget.controller.refreshHighlights();
+                widget.controller.onScrollActivity(notification);
+                return false;
+              },
+              child: widget.child,
             ),
-          ),
 
-          // Overlay — isolated to prevent app repaints
-          if (_dashboardOpen)
+            // Widget highlight borders (when enabled)
             RepaintBoundary(
-              child: Localizations(
-                locale: const Locale('en', 'US'),
-                delegates: const [
-                  DefaultMaterialLocalizations.delegate,
-                  DefaultWidgetsLocalizations.delegate,
-                ],
-                child: FloatingIssuesCard(
-                  controller: widget.controller,
-                  onClose: () => setState(() => _dashboardOpen = false),
-                ),
+              child: HighlightOverlay(
+                highlights: widget.controller.highlightsNotifier,
+                selectedHighlight: widget.controller.selectedHighlightNotifier,
               ),
-            )
-          else
-            Align(
-              alignment: Alignment.topLeft,
-              child: RepaintBoundary(
+            ),
+
+            // Overlay — isolated to prevent app repaints
+            if (_dashboardOpen)
+              RepaintBoundary(
                 child: Localizations(
                   locale: const Locale('en', 'US'),
                   delegates: const [
                     DefaultMaterialLocalizations.delegate,
                     DefaultWidgetsLocalizations.delegate,
                   ],
-                  child: TriggerButton(
-                    issuesNotifier: widget.controller.issuesNotifier,
-                    vmConnectedNotifier: widget.controller.vmConnectedNotifier,
-                    frameStatsNotifier: widget.controller.frameStatsNotifier,
-                    isDebugMode: widget.controller.isDebugMode,
-                    fpsTarget: widget.controller.config.fpsTarget,
-                    onTap: () => setState(() => _dashboardOpen = true),
+                  child: FloatingIssuesCard(
+                    controller: widget.controller,
+                    onClose: () => setState(() => _dashboardOpen = false),
+                  ),
+                ),
+              )
+            else
+              Align(
+                alignment: Alignment.topLeft,
+                child: RepaintBoundary(
+                  child: Localizations(
+                    locale: const Locale('en', 'US'),
+                    delegates: const [
+                      DefaultMaterialLocalizations.delegate,
+                      DefaultWidgetsLocalizations.delegate,
+                    ],
+                    child: TriggerButton(
+                      issuesNotifier: widget.controller.issuesNotifier,
+                      vmConnectedNotifier:
+                          widget.controller.vmConnectedNotifier,
+                      frameStatsNotifier: widget.controller.frameStatsNotifier,
+                      isDebugMode: widget.controller.isDebugMode,
+                      fpsTarget: widget.controller.config.fpsTarget,
+                      onTap: () => setState(() => _dashboardOpen = true),
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
+  }
+
+  WatchdogThemeData _resolveTheme(BuildContext context) {
+    final mqData = MediaQuery.maybeOf(context);
+    if (mqData == null) return const WatchdogThemeData();
+    return mqData.platformBrightness == Brightness.light
+        ? const WatchdogThemeData.light()
+        : const WatchdogThemeData();
   }
 
   @override

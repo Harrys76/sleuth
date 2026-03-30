@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 21 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~1,070 tests, ~10s)
+fvm flutter test                    # Run all tests (~1,121 tests, ~12s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -57,10 +57,11 @@ test/
 - v0.6.0: Replaced DashboardSheet (bottom sheet, 1,241 lines) with FloatingIssuesCard (draggable floating card, ~830 lines). Removed FrameChart, tabs, filter chips. FPS now shown on TriggerButton. Guide is a full-screen GuidePage with staggered animations and 4 expandable sections. Card is resizable (width + height) via corner grip handle; double-tap header to maximize.
 - v0.6.1: FPS counter fixes — throughput-based calculation with microsecond precision, startup timing fix (frames captured during VM connect), target-aware `fpsColor`, FPS capped at `fpsTarget` in UI, `exportSnapshot` reads live detector buffer.
 - v3 roadmap: v3.1–v3.10 all shipped
-- v4 roadmap: v4.1 issue suppression (shipped), v4.2 custom detector API (shipped), v4.3 shake-to-open, v4.4 card widget extraction (shipped), v4.5 example app extraction (shipped) (see `doc/implementation_spec.md`)
+- v4 roadmap: v4.1 issue suppression (shipped), v4.2 custom detector API (shipped), v4.4 card widget extraction (shipped), v4.5 example app extraction (shipped) — all complete (see `doc/implementation_spec.md`)
 - v4.1: `suppressedIssues: Set<String>` on `WatchdogConfig` — filters by stableId pattern (exact or trailing `*` wildcard) post-correlate, pre-rank. `suppressedCountNotifier` for UI. `SessionSnapshot.suppressedCount` for export.
 - v4.2: `customDetectors: List<BaseDetector>` on `WatchdogConfig` — plugin API for domain-specific detectors. Custom detectors extend `BaseDetector`, declare `DetectorLifecycle`, and integrate into all 7 controller lifecycle points (init, debug snapshot, structural scans, highlights, timeline data, issue aggregation, dispose). Always enabled regardless of `enabledDetectors`. Barrel file exports `BaseDetector`, `ParsedTimelineData`, `DebugSnapshot`.
 - v4.4: Extracted 3 private widgets (`_StatusRow`, `_CardFooter`, `_WarningBanners`) from `_FloatingIssuesCardState` — reduced state class from 659 to 433 lines. Zero behavior change.
 - v4.5: Extracted 18 demo screens from `example/lib/main.dart` (1,807 lines) into individual files under `example/lib/demos/`. `main.dart` reduced to 239 lines (app + router + route model).
+- v5.1: Overlay theming — extracted ~150 hardcoded hex colors from 6 UI files into `WatchdogThemeData` (60 tokens). Dark defaults match every original value exactly. `WatchdogThemeData.light()` for light-background apps. Auto-brightness detection via `MediaQuery.platformBrightness`. `copyWith()` for custom overrides. `WatchdogTheme` InheritedWidget with dark fallback for test compatibility. Zero visual change for existing users.
 - Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
-- ~1,101 tests, 0 analysis issues
+- ~1,121 tests, 0 analysis issues

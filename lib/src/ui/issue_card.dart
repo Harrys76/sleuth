@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/performance_issue.dart';
+import 'watchdog_theme.dart';
 
 /// A card displaying a single performance issue.
 ///
@@ -75,13 +76,14 @@ class _IssueCardState extends State<IssueCard> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = WatchdogTheme.of(context);
     final issue = widget.issue;
     return Card(
       color: widget.jankFlash
-          ? const Color(0xFF5F2D1E)
+          ? theme.cardJankFlash
           : widget.highlighted
-              ? const Color(0xFF1E3A5F)
-              : const Color(0xFF374151),
+              ? theme.cardHighlighted
+              : theme.cardDefault,
       margin: const EdgeInsets.only(bottom: 6),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       clipBehavior: Clip.antiAlias,
@@ -92,7 +94,7 @@ class _IssueCardState extends State<IssueCard> {
           decoration: BoxDecoration(
             border: Border(
               left: BorderSide(
-                color: _sourceAccentColor(issue.observationSource),
+                color: theme.sourceAccentColor(issue.observationSource),
                 width: 3,
               ),
             ),
@@ -107,13 +109,13 @@ class _IssueCardState extends State<IssueCard> {
                   children: [
                     _severityIcon(issue.severity),
                     const SizedBox(width: 4),
-                    _categoryBadge(issue.category),
+                    _categoryBadge(issue.category, theme),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
                         issue.title,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: theme.textPrimary,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -121,20 +123,20 @@ class _IssueCardState extends State<IssueCard> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    _confidenceBadge(issue.confidence),
+                    _confidenceBadge(issue.confidence, theme),
                     if (widget.jankCorrelated) ...[
                       const SizedBox(width: 4),
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEF4444).withValues(alpha: 0.2),
+                          color: theme.severityCritical.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: const Text(
+                        child: Text(
                           'JANK',
                           style: TextStyle(
-                            color: Color(0xFFEF4444),
+                            color: theme.severityCritical,
                             fontSize: 8,
                             fontWeight: FontWeight.bold,
                           ),
@@ -147,11 +149,11 @@ class _IssueCardState extends State<IssueCard> {
                         value: widget.highlighted,
                         onChanged: (v) =>
                             widget.onHighlightChanged?.call(v ?? false),
-                        side: const BorderSide(
-                          color: Color(0xFF6B7280),
+                        side: BorderSide(
+                          color: theme.textQuaternary,
                           width: 1.5,
                         ),
-                        activeColor: const Color(0xFF3B82F6),
+                        activeColor: theme.checkboxActive,
                       ),
                     ],
                   ],
@@ -159,12 +161,12 @@ class _IssueCardState extends State<IssueCard> {
 
                 // Debug mode disclaimer
                 if (issue.debugModeDisclaimer)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 4),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
                     child: Text(
                       '[DEBUG MODE — verify in profile]',
                       style: TextStyle(
-                        color: Color(0xFFFCD34D),
+                        color: theme.disclaimerText,
                         fontSize: 9,
                         fontStyle: FontStyle.italic,
                       ),
@@ -176,8 +178,8 @@ class _IssueCardState extends State<IssueCard> {
                   const SizedBox(height: 8),
                   Text(
                     issue.detail,
-                    style: const TextStyle(
-                      color: Color(0xFFD1D5DB),
+                    style: TextStyle(
+                      color: theme.textSecondary,
                       fontSize: 11,
                     ),
                   ),
@@ -186,8 +188,8 @@ class _IssueCardState extends State<IssueCard> {
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
                         'Route: ${issue.routeName}',
-                        style: const TextStyle(
-                          color: Color(0xFF9CA3AF),
+                        style: TextStyle(
+                          color: theme.textTertiary,
                           fontSize: 10,
                           fontStyle: FontStyle.italic,
                         ),
@@ -199,8 +201,8 @@ class _IssueCardState extends State<IssueCard> {
                       padding: const EdgeInsets.only(top: 2),
                       child: Text(
                         'During: ${issue.interactionContext!.displayName}',
-                        style: const TextStyle(
-                          color: Color(0xFF9CA3AF),
+                        style: TextStyle(
+                          color: theme.textTertiary,
                           fontSize: 10,
                           fontStyle: FontStyle.italic,
                         ),
@@ -212,8 +214,8 @@ class _IssueCardState extends State<IssueCard> {
                       padding: const EdgeInsets.only(top: 2),
                       child: Text(
                         'Widget: ${issue.widgetName}',
-                        style: const TextStyle(
-                          color: Color(0xFF9CA3AF),
+                        style: TextStyle(
+                          color: theme.textTertiary,
                           fontSize: 10,
                           fontStyle: FontStyle.italic,
                         ),
@@ -228,8 +230,8 @@ class _IssueCardState extends State<IssueCard> {
                       padding: const EdgeInsets.only(top: 2),
                       child: Text(
                         'Ancestors: ${issue.ancestorChain}',
-                        style: const TextStyle(
-                          color: Color(0xFF9CA3AF),
+                        style: TextStyle(
+                          color: theme.textTertiary,
                           fontSize: 10,
                           fontStyle: FontStyle.italic,
                         ),
@@ -242,8 +244,8 @@ class _IssueCardState extends State<IssueCard> {
                       padding: const EdgeInsets.only(top: 2),
                       child: Text(
                         'Source: ${issue.observationSource!._displayName}',
-                        style: const TextStyle(
-                          color: Color(0xFF6B7280),
+                        style: TextStyle(
+                          color: theme.textQuaternary,
                           fontSize: 9,
                           fontStyle: FontStyle.italic,
                         ),
@@ -261,14 +263,14 @@ class _IssueCardState extends State<IssueCard> {
                             _aboutExpanded
                                 ? Icons.expand_less
                                 : Icons.expand_more,
-                            color: const Color(0xFF6B7280),
+                            color: theme.textQuaternary,
                             size: 14,
                           ),
                           const SizedBox(width: 4),
-                          const Text(
+                          Text(
                             'About this detection',
                             style: TextStyle(
-                              color: Color(0xFF6B7280),
+                              color: theme.textQuaternary,
                               fontSize: 9,
                             ),
                           ),
@@ -281,7 +283,7 @@ class _IssueCardState extends State<IssueCard> {
                       margin: const EdgeInsets.only(top: 4),
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF111827),
+                        color: theme.aboutBackground,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Column(
@@ -295,16 +297,16 @@ class _IssueCardState extends State<IssueCard> {
                                   children: [
                                     TextSpan(
                                       text: '${entry.$1} ',
-                                      style: const TextStyle(
-                                        color: Color(0xFF9CA3AF),
+                                      style: TextStyle(
+                                        color: theme.textTertiary,
                                         fontSize: 9,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                     TextSpan(
                                       text: entry.$2,
-                                      style: const TextStyle(
-                                        color: Color(0xFF9CA3AF),
+                                      style: TextStyle(
+                                        color: theme.textTertiary,
                                         fontSize: 9,
                                       ),
                                     ),
@@ -325,13 +327,13 @@ class _IssueCardState extends State<IssueCard> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 4, vertical: 1),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF065F46),
+                              color: theme.bannerSuccessBg,
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: const Text(
+                            child: Text(
                               'Attribution: high fidelity',
                               style: TextStyle(
-                                color: Color(0xFF6EE7B7),
+                                color: theme.bannerSuccessText,
                                 fontSize: 9,
                               ),
                             ),
@@ -341,13 +343,13 @@ class _IssueCardState extends State<IssueCard> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 4, vertical: 1),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF78350F),
+                              color: theme.bannerWarningBg,
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: const Text(
+                            child: Text(
                               'Timing: overhead present',
                               style: TextStyle(
-                                color: Color(0xFFFCD34D),
+                                color: theme.bannerWarningText,
                                 fontSize: 9,
                               ),
                             ),
@@ -359,13 +361,13 @@ class _IssueCardState extends State<IssueCard> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1F2937),
+                      color: theme.fixHintBackground,
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _effortBadge(issue),
+                        _effortBadge(issue, theme),
                         const SizedBox(height: 4),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -376,8 +378,8 @@ class _IssueCardState extends State<IssueCard> {
                             Expanded(
                               child: Text(
                                 issue.fixHint,
-                                style: const TextStyle(
-                                  color: Color(0xFF93C5FD),
+                                style: TextStyle(
+                                  color: theme.fixHintText,
                                   fontSize: 11,
                                 ),
                               ),
@@ -431,26 +433,17 @@ class _IssueCardState extends State<IssueCard> {
     ];
   }
 
-  Color _sourceAccentColor(ObservationSource? source) {
-    return switch (source) {
-      ObservationSource.vmTimeline => const Color(0xFF10B981),
-      ObservationSource.debugCallback => const Color(0xFF8B5CF6),
-      ObservationSource.debugCallbackAndStructural => const Color(0xFF8B5CF6),
-      ObservationSource.structural => const Color(0xFF6B7280),
-      null => const Color(0xFF4B5563),
-    };
-  }
-
-  Widget _categoryBadge(IssueCategory category) {
-    final (label, color) = switch (category) {
-      IssueCategory.build => ('BUILD', const Color(0xFF3B82F6)),
-      IssueCategory.layout => ('LAYOUT', const Color(0xFFF59E0B)),
-      IssueCategory.paint => ('PAINT', const Color(0xFF10B981)),
-      IssueCategory.raster => ('RASTER', const Color(0xFFEF4444)),
-      IssueCategory.memory => ('MEMORY', const Color(0xFF8B5CF6)),
-      IssueCategory.channel => ('CHANNEL', const Color(0xFF06B6D4)),
-      IssueCategory.font => ('FONT', const Color(0xFF6B7280)),
-      IssueCategory.network => ('NETWORK', const Color(0xFFF97316)),
+  Widget _categoryBadge(IssueCategory category, WatchdogThemeData theme) {
+    final color = theme.categoryColor(category);
+    final label = switch (category) {
+      IssueCategory.build => 'BUILD',
+      IssueCategory.layout => 'LAYOUT',
+      IssueCategory.paint => 'PAINT',
+      IssueCategory.raster => 'RASTER',
+      IssueCategory.memory => 'MEMORY',
+      IssueCategory.channel => 'CHANNEL',
+      IssueCategory.font => 'FONT',
+      IssueCategory.network => 'NETWORK',
     };
 
     return Container(
@@ -481,8 +474,8 @@ class _IssueCardState extends State<IssueCard> {
     }
   }
 
-  Widget _effortBadge(PerformanceIssue issue) {
-    final (label, color) = _fixEffort(issue);
+  Widget _effortBadge(PerformanceIssue issue, WatchdogThemeData theme) {
+    final (label, color) = _fixEffort(issue, theme);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
       decoration: BoxDecoration(
@@ -500,11 +493,12 @@ class _IssueCardState extends State<IssueCard> {
     );
   }
 
-  Widget _confidenceBadge(IssueConfidence confidence) {
-    final (label, color) = switch (confidence) {
-      IssueConfidence.confirmed => ('CONFIRMED', const Color(0xFF10B981)),
-      IssueConfidence.likely => ('LIKELY', const Color(0xFFF59E0B)),
-      IssueConfidence.possible => ('POSSIBLE', const Color(0xFF6B7280)),
+  Widget _confidenceBadge(IssueConfidence confidence, WatchdogThemeData theme) {
+    final color = theme.confidenceColor(confidence);
+    final label = switch (confidence) {
+      IssueConfidence.confirmed => 'CONFIRMED',
+      IssueConfidence.likely => 'LIKELY',
+      IssueConfidence.possible => 'POSSIBLE',
     };
 
     return Container(
@@ -532,13 +526,13 @@ bool _isDebugCallbackSource(ObservationSource? source) =>
 /// Returns (label, color) for the effort badge.
 /// Prefers explicit [FixEffort] from the model; falls back to keyword
 /// inference for legacy issues deserialized without the field.
-(String, Color) _fixEffort(PerformanceIssue issue) {
+(String, Color) _fixEffort(PerformanceIssue issue, WatchdogThemeData theme) {
   final effort = issue.fixEffort;
   if (effort != null) {
     return switch (effort) {
-      FixEffort.quick => ('QUICK FIX', const Color(0xFF10B981)),
-      FixEffort.medium => ('MEDIUM FIX', const Color(0xFFF59E0B)),
-      FixEffort.involved => ('INVOLVED FIX', const Color(0xFFEF4444)),
+      FixEffort.quick => ('QUICK FIX', theme.effortQuick),
+      FixEffort.medium => ('MEDIUM FIX', theme.effortMedium),
+      FixEffort.involved => ('INVOLVED FIX', theme.effortInvolved),
     };
   }
 
@@ -565,7 +559,7 @@ bool _isDebugCallbackSource(ObservationSource? source) =>
   ];
   for (final kw in quickKeywords) {
     if (hint.contains(kw)) {
-      return ('QUICK FIX', const Color(0xFF10B981));
+      return ('QUICK FIX', theme.effortQuick);
     }
   }
 
@@ -582,12 +576,12 @@ bool _isDebugCallbackSource(ObservationSource? source) =>
   ];
   for (final kw in involvedKeywords) {
     if (hint.contains(kw)) {
-      return ('INVOLVED FIX', const Color(0xFFEF4444));
+      return ('INVOLVED FIX', theme.effortInvolved);
     }
   }
 
   // Default: medium
-  return ('MEDIUM FIX', const Color(0xFFF59E0B));
+  return ('MEDIUM FIX', theme.effortMedium);
 }
 
 extension on ObservationSource {

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'watchdog_theme.dart';
+
 /// Full-screen guide page with staggered entrance animations and expandable
 /// sections. Opened from the floating card's [?] button.
 ///
@@ -62,8 +64,10 @@ class _GuidePageState extends State<GuidePage>
 
   @override
   Widget build(BuildContext context) {
+    final theme = WatchdogTheme.of(context);
+
     return Material(
-      color: const Color(0xFF1E1E2E),
+      color: theme.pageBackground,
       child: SafeArea(
         child: Column(
           children: [
@@ -76,13 +80,13 @@ class _GuidePageState extends State<GuidePage>
                   children: [
                     IconButton(
                       onPressed: widget.onClose,
-                      icon: const Icon(Icons.arrow_back,
-                          color: Colors.white, size: 22),
+                      icon: Icon(Icons.arrow_back,
+                          color: theme.textPrimary, size: 22),
                     ),
-                    const Text(
+                    Text(
                       '\u{1F415} Watchdog Guide',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: theme.textPrimary,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
@@ -91,7 +95,7 @@ class _GuidePageState extends State<GuidePage>
                 ),
               ),
             ),
-            const Divider(color: Color(0xFF374151), height: 1),
+            Divider(color: theme.border, height: 1),
 
             // Scrollable sections
             Expanded(
@@ -103,7 +107,8 @@ class _GuidePageState extends State<GuidePage>
                       index: 0,
                       icon: Icons.rocket_launch_outlined,
                       title: 'Quick Start',
-                      accent: const Color(0xFF3B82F6),
+                      accent: theme.categoryBuild,
+                      theme: theme,
                       child: _quickStartContent(),
                     ),
                     const SizedBox(height: 10),
@@ -111,32 +116,34 @@ class _GuidePageState extends State<GuidePage>
                       index: 1,
                       icon: Icons.dashboard_customize_outlined,
                       title: 'Understanding the Card',
-                      accent: const Color(0xFF8B5CF6),
-                      child: _cardExplanation(),
+                      accent: theme.categoryMemory,
+                      theme: theme,
+                      child: _cardExplanation(theme),
                     ),
                     const SizedBox(height: 10),
                     _section(
                       index: 2,
                       icon: Icons.palette_outlined,
                       title: 'Color Legend',
-                      accent: const Color(0xFF10B981),
-                      child: _colorLegend(),
+                      accent: theme.severityOk,
+                      theme: theme,
+                      child: _colorLegend(theme),
                     ),
                     const SizedBox(height: 10),
                     _section(
                       index: 3,
                       icon: Icons.tips_and_updates_outlined,
                       title: 'Tips & Tricks',
-                      accent: const Color(0xFFF59E0B),
-                      child: _tipsContent(),
+                      accent: theme.severityWarning,
+                      theme: theme,
+                      child: _tipsContent(theme),
                     ),
                     const SizedBox(height: 20),
                     FadeTransition(
                       opacity: _staggered(4),
-                      child: const Text(
+                      child: Text(
                         'Widget Watchdog',
-                        style:
-                            TextStyle(color: Color(0xFF4B5563), fontSize: 10),
+                        style: TextStyle(color: theme.textSubtle, fontSize: 10),
                       ),
                     ),
                   ],
@@ -156,6 +163,7 @@ class _GuidePageState extends State<GuidePage>
     required IconData icon,
     required String title,
     required Color accent,
+    required WatchdogThemeData theme,
     required Widget child,
   }) {
     final animation = _staggered(index);
@@ -170,9 +178,9 @@ class _GuidePageState extends State<GuidePage>
         opacity: animation,
         child: Container(
           decoration: BoxDecoration(
-            color: const Color(0xFF252536),
+            color: theme.sectionBackground,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF374151), width: 0.5),
+            border: Border.all(color: theme.border, width: 0.5),
           ),
           child: Column(
             children: [
@@ -198,8 +206,8 @@ class _GuidePageState extends State<GuidePage>
                       Expanded(
                         child: Text(
                           title,
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: theme.textPrimary,
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
                           ),
@@ -208,9 +216,9 @@ class _GuidePageState extends State<GuidePage>
                       AnimatedRotation(
                         turns: isExpanded ? 0.5 : 0,
                         duration: const Duration(milliseconds: 200),
-                        child: const Icon(
+                        child: Icon(
                           Icons.expand_more,
-                          color: Color(0xFF6B7280),
+                          color: theme.textQuaternary,
                           size: 20,
                         ),
                       ),
@@ -274,36 +282,42 @@ class _GuidePageState extends State<GuidePage>
 
   // ─── Section 1: Understanding the Card ────────────────────────────────
 
-  Widget _cardExplanation() {
+  Widget _cardExplanation(WatchdogThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _infoTile(
+            theme,
             '\u{1F4CA}',
             'FPS Display',
             'The number on the trigger button and card header. Color-coded: '
                 'green (\u2265 50), amber (\u2265 30), red (< 30).'),
         _infoTile(
+            theme,
             '\u{1F534}',
             'Severity Dot',
             'Red = at least one critical issue. Amber = warnings only. '
                 'Green = no issues detected.'),
         _infoTile(
+            theme,
             '\u{2705}',
             'Summary Bar',
             'Shows severity counts and evidence quality '
                 '(confirmed vs heuristic) below the divider.'),
         _infoTile(
+            theme,
             '\u{1F50D}',
             'Highlight Toggle',
             'Check the box on a locatable issue to highlight the widget '
                 'on screen with a blue border.'),
         _infoTile(
+            theme,
             '\u{2194}\u{FE0F}',
             'Resize',
             'Drag the bottom-right corner to resize width and height. '
                 'Double-tap the header to toggle between compact and full-width.'),
         _infoTile(
+            theme,
             '\u{1F4CB}',
             'Export',
             'Tap the export button in the footer to copy a JSON snapshot '
@@ -312,7 +326,8 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _infoTile(String emoji, String title, String detail) {
+  static Widget _infoTile(
+      WatchdogThemeData theme, String emoji, String title, String detail) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -328,8 +343,8 @@ class _GuidePageState extends State<GuidePage>
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: theme.textPrimary,
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                   ),
@@ -337,8 +352,7 @@ class _GuidePageState extends State<GuidePage>
                 const SizedBox(height: 2),
                 Text(
                   detail,
-                  style:
-                      const TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
+                  style: TextStyle(color: theme.textTertiary, fontSize: 10),
                 ),
               ],
             ),
@@ -351,101 +365,106 @@ class _GuidePageState extends State<GuidePage>
   // ─── Section 2: Color Legend ───────────────────────────────────────────
   // All text strings are preserved for test compatibility.
 
-  Widget _colorLegend() {
+  Widget _colorLegend(WatchdogThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Severity ──────────────────────────────────────────────────
-        _legendHeading('Severity'),
-        _legendSubtext('Emoji at the start of each issue card header.'),
+        _legendHeading(theme, 'Severity'),
+        _legendSubtext(theme, 'Emoji at the start of each issue card header.'),
         const _LegendRow(
             icon: '\u{1F534}', label: 'Critical \u2014 immediate attention'),
-        _legendDetail(
+        _legendDetail(theme,
             'Observed impact: dropped frames, high memory, or severe bottleneck.'),
         const _LegendRow(
             icon: '\u{1F7E1}', label: 'Warning \u2014 should investigate'),
-        _legendDetail(
+        _legendDetail(theme,
             'Pattern detected that could degrade performance under load.'),
         const _LegendRow(icon: '\u{1F7E2}', label: 'OK \u2014 informational'),
-        _legendDetail('Minor observation with no measurable impact yet.'),
+        _legendDetail(
+            theme, 'Minor observation with no measurable impact yet.'),
 
         // ── Confidence Badges ─────────────────────────────────────────
-        _legendDivider(),
-        _legendHeading('Confidence Badges'),
-        _legendSubtext(
+        _legendDivider(theme),
+        _legendHeading(theme, 'Confidence Badges'),
+        _legendSubtext(theme,
             'Shown at the top-right of each issue. Reflects how the issue was detected.'),
-        _badgeLegendRow('CONFIRMED', const Color(0xFF10B981),
+        _badgeLegendRow(theme, 'CONFIRMED', theme.confidenceConfirmed,
             'Directly observed \u2014 caught in real-time profiling data'),
-        _badgeLegendRow('LIKELY', const Color(0xFFF59E0B),
+        _badgeLegendRow(theme, 'LIKELY', theme.confidenceLikely,
             'Runtime + structural evidence \u2014 two independent signals'),
-        _badgeLegendRow('POSSIBLE', const Color(0xFF6B7280),
+        _badgeLegendRow(theme, 'POSSIBLE', theme.confidencePossible,
             'Structural pattern only \u2014 code analysis, no runtime confirmation'),
 
         // ── Source Accent ─────────────────────────────────────────────
-        _legendDivider(),
-        _legendHeading('Source Accent (left bar)'),
-        _legendSubtext(
+        _legendDivider(theme),
+        _legendHeading(theme, 'Source Accent (left bar)'),
+        _legendSubtext(theme,
             'Colored bar on the left edge of each issue card. Shows where data came from.'),
-        _colorBarLegendRow(const Color(0xFF10B981), 'VM timeline event',
+        _colorBarLegendRow(theme, theme.sourceVmTimeline, 'VM timeline event',
             detail: 'Dart VM performance timeline (most accurate)'),
-        _colorBarLegendRow(const Color(0xFF8B5CF6), 'Debug callback',
+        _colorBarLegendRow(theme, theme.sourceDebugCallback, 'Debug callback',
             detail: 'Framework debug instrumentation (adds some overhead)'),
-        _colorBarLegendRow(const Color(0xFF6B7280), 'Structural scan',
+        _colorBarLegendRow(theme, theme.sourceStructural, 'Structural scan',
             detail: 'Static widget tree analysis (no runtime cost)'),
 
         // ── Category Badges ───────────────────────────────────────────
-        _legendDivider(),
-        _legendHeading('Category Badges'),
-        _legendSubtext(
+        _legendDivider(theme),
+        _legendHeading(theme, 'Category Badges'),
+        _legendSubtext(theme,
             'Pipeline stage tag next to severity. Shows which part of rendering is affected.'),
-        _categoryLegendRow('BUILD', const Color(0xFF3B82F6),
+        _categoryLegendRow(theme, 'BUILD', theme.categoryBuild,
             'Widget rebuild overhead \u2014 missing const, broad setState'),
-        _categoryLegendRow('LAYOUT', const Color(0xFFF59E0B),
+        _categoryLegendRow(theme, 'LAYOUT', theme.categoryLayout,
             'Layout constraint issues \u2014 unconstrained lists, overflow'),
-        _categoryLegendRow('PAINT', const Color(0xFF10B981),
+        _categoryLegendRow(theme, 'PAINT', theme.categoryPaint,
             'Paint layer complexity \u2014 heavy CustomPaint, missing RepaintBoundary'),
-        _categoryLegendRow('RASTER', const Color(0xFFEF4444),
+        _categoryLegendRow(theme, 'RASTER', theme.categoryRaster,
             'GPU rasterization cost \u2014 shader compilation, saveLayer'),
-        _categoryLegendRow('MEMORY', const Color(0xFF8B5CF6),
+        _categoryLegendRow(theme, 'MEMORY', theme.categoryMemory,
             'Memory allocation patterns \u2014 leaks, unbounded growth'),
-        _categoryLegendRow('CHANNEL', const Color(0xFF06B6D4),
+        _categoryLegendRow(theme, 'CHANNEL', theme.categoryChannel,
             'Platform channel latency \u2014 slow method channel calls'),
-        _categoryLegendRow('FONT', const Color(0xFF6B7280),
+        _categoryLegendRow(theme, 'FONT', theme.categoryFont,
             'Font loading & rendering \u2014 too many custom font families'),
-        _categoryLegendRow('NETWORK', const Color(0xFFF97316),
+        _categoryLegendRow(theme, 'NETWORK', theme.categoryNetwork,
             'HTTP request performance \u2014 slow responses, large payloads'),
 
         // ── Effort Badges ─────────────────────────────────────────────
-        _legendDivider(),
-        _legendHeading('Effort Badges'),
-        _legendSubtext('Shown in the fix hint box when an issue is expanded.'),
-        _badgeLegendRow('QUICK FIX', const Color(0xFF10B981),
+        _legendDivider(theme),
+        _legendHeading(theme, 'Effort Badges'),
+        _legendSubtext(
+            theme, 'Shown in the fix hint box when an issue is expanded.'),
+        _badgeLegendRow(theme, 'QUICK FIX', theme.effortQuick,
             'Simple change \u2014 add const, swap a widget, tweak a parameter'),
-        _badgeLegendRow('MEDIUM FIX', const Color(0xFFF59E0B),
+        _badgeLegendRow(theme, 'MEDIUM FIX', theme.effortMedium,
             'Some refactoring \u2014 restructure widget tree, add caching'),
-        _badgeLegendRow('INVOLVED FIX', const Color(0xFFEF4444),
+        _badgeLegendRow(theme, 'INVOLVED FIX', theme.effortInvolved,
             'Architecture change \u2014 isolate work, redesign data flow'),
 
         // ── Special Indicators ────────────────────────────────────────
-        _legendDivider(),
-        _legendHeading('Special Indicators'),
-        _legendSubtext(
+        _legendDivider(theme),
+        _legendHeading(theme, 'Special Indicators'),
+        _legendSubtext(theme,
             'Contextual badges and colors that appear under specific conditions.'),
-        _badgeLegendRow('JANK', const Color(0xFFEF4444),
+        _badgeLegendRow(theme, 'JANK', theme.severityCritical,
             'This issue was active during a dropped frame'),
         const SizedBox(height: 4),
         _cardStateLegendRow(
-          const Color(0xFF1E3A5F),
+          theme,
+          theme.cardHighlighted,
           'Highlighted',
           'Widget highlight checkbox is checked \u2014 affected widget is outlined on screen',
         ),
         _cardStateLegendRow(
-          const Color(0xFF5F2D1E),
+          theme,
+          theme.cardJankFlash,
           'Jank flash',
           'Momentary amber tint when a new jank correlation is detected',
         ),
         _cardStateLegendRow(
-          const Color(0xFF374151),
+          theme,
+          theme.cardDefault,
           'Default',
           'Normal issue card background',
         ),
@@ -453,13 +472,13 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _legendHeading(String text) {
+  static Widget _legendHeading(WatchdogThemeData theme, String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Text(
         text,
-        style: const TextStyle(
-          color: Color(0xFF9CA3AF),
+        style: TextStyle(
+          color: theme.textTertiary,
           fontSize: 11,
           fontWeight: FontWeight.w600,
         ),
@@ -467,23 +486,23 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _legendSubtext(String text) {
+  static Widget _legendSubtext(WatchdogThemeData theme, String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
         text,
-        style: const TextStyle(color: Color(0xFF6B7280), fontSize: 9),
+        style: TextStyle(color: theme.textQuaternary, fontSize: 9),
       ),
     );
   }
 
-  static Widget _legendDetail(String text) {
+  static Widget _legendDetail(WatchdogThemeData theme, String text) {
     return Padding(
       padding: const EdgeInsets.only(left: 22, bottom: 6),
       child: Text(
         text,
-        style: const TextStyle(
-          color: Color(0xFF6B7280),
+        style: TextStyle(
+          color: theme.textQuaternary,
           fontSize: 9,
           fontStyle: FontStyle.italic,
         ),
@@ -491,14 +510,15 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _legendDivider() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 8),
-      child: Divider(color: Color(0xFF374151), height: 1),
+  static Widget _legendDivider(WatchdogThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Divider(color: theme.border, height: 1),
     );
   }
 
-  static Widget _badgeLegendRow(String label, Color color, String description) {
+  static Widget _badgeLegendRow(
+      WatchdogThemeData theme, String label, Color color, String description) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
@@ -522,7 +542,7 @@ class _GuidePageState extends State<GuidePage>
           Expanded(
             child: Text(
               description,
-              style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
+              style: TextStyle(color: theme.textTertiary, fontSize: 10),
             ),
           ),
         ],
@@ -530,7 +550,8 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _colorBarLegendRow(Color color, String description,
+  static Widget _colorBarLegendRow(
+      WatchdogThemeData theme, Color color, String description,
       {String? detail}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -555,14 +576,12 @@ class _GuidePageState extends State<GuidePage>
               children: [
                 Text(
                   description,
-                  style:
-                      const TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
+                  style: TextStyle(color: theme.textTertiary, fontSize: 10),
                 ),
                 if (detail != null)
                   Text(
                     detail,
-                    style:
-                        const TextStyle(color: Color(0xFF6B7280), fontSize: 9),
+                    style: TextStyle(color: theme.textQuaternary, fontSize: 9),
                   ),
               ],
             ),
@@ -591,7 +610,7 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _categoryLegendRow(
-      String label, Color color, String description) {
+      WatchdogThemeData theme, String label, Color color, String description) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 5),
       child: Row(
@@ -605,7 +624,7 @@ class _GuidePageState extends State<GuidePage>
           Expanded(
             child: Text(
               description,
-              style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
+              style: TextStyle(color: theme.textTertiary, fontSize: 10),
             ),
           ),
         ],
@@ -614,7 +633,7 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _cardStateLegendRow(
-      Color color, String label, String description) {
+      WatchdogThemeData theme, Color color, String label, String description) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
@@ -627,7 +646,7 @@ class _GuidePageState extends State<GuidePage>
               color: color,
               borderRadius: BorderRadius.circular(3),
               border: Border.all(
-                color: const Color(0xFF4B5563),
+                color: theme.textSubtle,
                 width: 0.5,
               ),
             ),
@@ -639,15 +658,15 @@ class _GuidePageState extends State<GuidePage>
               children: [
                 Text(
                   label,
-                  style: const TextStyle(
-                    color: Color(0xFFD1D5DB),
+                  style: TextStyle(
+                    color: theme.textSecondary,
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
                   description,
-                  style: const TextStyle(color: Color(0xFF6B7280), fontSize: 9),
+                  style: TextStyle(color: theme.textQuaternary, fontSize: 9),
                 ),
               ],
             ),
@@ -659,37 +678,37 @@ class _GuidePageState extends State<GuidePage>
 
   // ─── Section 3: Tips & Tricks ─────────────────────────────────────────
 
-  Widget _tipsContent() {
+  Widget _tipsContent(WatchdogThemeData theme) {
     return Column(
       children: [
-        _tipRow(Icons.flash_on_outlined,
+        _tipRow(theme, Icons.flash_on_outlined,
             'A JANK badge means this issue was active during a dropped frame.'),
-        _tipRow(Icons.layers_outlined,
+        _tipRow(theme, Icons.layers_outlined,
             'The layers icon in the header toggles highlight borders on all detected widgets.'),
-        _tipRow(Icons.ios_share,
+        _tipRow(theme, Icons.ios_share,
             'Export a JSON snapshot to share with teammates or attach to bug reports.'),
-        _tipRow(Icons.sort,
+        _tipRow(theme, Icons.sort,
             'Issues are ranked by severity, confidence, and recurrence count.'),
-        _tipRow(Icons.info_outline,
+        _tipRow(theme, Icons.info_outline,
             '"About this detection" inside each issue explains how it was found and how to verify.'),
-        _tipRow(Icons.speed,
+        _tipRow(theme, Icons.speed,
             'Always profile (not debug) for accurate frame timings. Debug overhead skews results.'),
       ],
     );
   }
 
-  static Widget _tipRow(IconData icon, String text) {
+  static Widget _tipRow(WatchdogThemeData theme, IconData icon, String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: const Color(0xFFF59E0B), size: 14),
+          Icon(icon, color: theme.guideTipIcon, size: 14),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
+              style: TextStyle(color: theme.textTertiary, fontSize: 10),
             ),
           ),
         ],
@@ -713,6 +732,8 @@ class _GuideStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = WatchdogTheme.of(context);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
@@ -721,15 +742,15 @@ class _GuideStep extends StatelessWidget {
           Container(
             width: 22,
             height: 22,
-            decoration: const BoxDecoration(
-              color: Color(0xFF3B82F6),
+            decoration: BoxDecoration(
+              color: theme.guideStepAccent,
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
             child: Text(
               step,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: theme.textPrimary,
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
               ),
@@ -742,8 +763,8 @@ class _GuideStep extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: theme.textPrimary,
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                   ),
@@ -751,8 +772,8 @@ class _GuideStep extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   detail,
-                  style: const TextStyle(
-                    color: Color(0xFF9CA3AF),
+                  style: TextStyle(
+                    color: theme.textTertiary,
                     fontSize: 10,
                   ),
                 ),
@@ -773,6 +794,8 @@ class _LegendRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = WatchdogTheme.of(context);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 3),
       child: Row(
@@ -781,7 +804,7 @@ class _LegendRow extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
+            style: TextStyle(color: theme.textTertiary, fontSize: 10),
           ),
         ],
       ),
