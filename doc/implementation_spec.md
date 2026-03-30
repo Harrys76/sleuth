@@ -4248,3 +4248,487 @@ Files changed: `base_detector.dart` (+2), `fix_hint_builder.dart` (+20), `repain
 | 7 | v5.8: RepaintBoundary Detector | Low-Medium | v5.5 (uses registry) | Shipped |
 
 v5.7 (Accessibility) was removed — low value for a developer-only diagnostics overlay that is disabled in release builds. All other v5 milestones shipped.
+
+---
+
+## v6 Roadmap: Robustness, Accuracy & Polish
+
+Twenty-two improvements across four themes: controller safety, detector accuracy, UI polish, and test coverage. Identified via comprehensive package audit after v0.7.0 release.
+
+---
+
+### v6.1: Controller Async Safety — VM Service Timeouts & Dispose Guards
+
+**Problem:** Three async safety issues in `WatchdogController`:
+
+1. **No timeouts on VM service calls.** `getCpuSamples()` and `getAllocationProfile()` are called via `.then()` chains with no timeout. If the VM service hangs (e.g., device disconnects mid-call), these futures block indefinitely, and late callbacks may update disposed notifiers.
+
+2. **Future callbacks survive dispose.** The `.then()` chain at line ~998 can complete after `dispose()` is called. While `_disposed` is checked at a few points, the chain between checks is not atomic — a dispose between the check and the notifier update causes a use-after-dispose.
+
+3. **Silent error swallowing.** `.catchError((_) {})` on lines ~1026-1042 silently discards all errors from `getAllocationProfile` and `getIsolate`. Failures are invisible — no logging, no metrics, no way to debug enrichment gaps.
+
+**Approach:**
+
+1. Wrap all VM service future calls with `.timeout(Duration(seconds: 5))`.
+2. Capture a `_disposeGeneration` counter. Increment on dispose. In every `.then()` callback, check `if (_disposeGeneration != gen) return` before touching any state.
+3. Replace `catchError((_) {})` with `catchError((e) { debugPrint('Watchdog: allocation enrichment failed: $e'); })` — visible in debug, silent in release.
+
+**Files changed:**
+- `lib/src/controller/watchdog_controller.dart` — add timeout, generation guard, and debug logging to enrichment chains
+
+**Testing:**
+1. VM call that exceeds timeout → enrichment skipped, no hang
+2. Dispose during in-flight CPU attribution → callback is no-op
+3. Dispose during in-flight allocation profile → callback is no-op
+4. VM service throws → error logged in debug, issue still emitted without enrichment
+
+**Risk:** Low. Changes are confined to async callback chains. No public API changes.
+
+---
+
+### v6.2: OpacityDetector — Add AnimatedOpacity Detection
+
+**Problem:** `OpacityDetector` only checks `widget is Opacity` (line 51). An `AnimatedOpacity(opacity: 0.0, ...)` with zero opacity is functionally identical waste — the widget still participates in layout, hit testing, and semantics — but is never flagged.
+
+**Current state:** The detector checks `widget is Opacity && widget.opacity < 0.01`. `AnimatedOpacity` is a different class that wraps `RenderAnimatedOpacity`, not `RenderOpacity`.
+
+**Approach:** Add `widget is AnimatedOpacity` check. For `AnimatedOpacity`, read the current opacity from the render object (`RenderAnimatedOpacity.opacity.value`) since the widget's `opacity` field is the target value (animation may still be in progress).
+
+**Design decisions:**
+- Only flag `AnimatedOpacity` when the render object's **current** opacity is < 0.01 (not the target). This avoids false positives during fade-out animations where the target is 0 but the widget is still partially visible.
+- Same stableId (`opacity_zero`) since the fix is the same: use `Visibility` instead.
+- If `renderObject` is null or not `RenderAnimatedOpacity`, skip (defensive).
+
+**Files changed:**
+- `lib/src/detectors/opacity_detector.dart` — add `AnimatedOpacity` branch in visitor
+
+**Testing:**
+1. `AnimatedOpacity(opacity: 0.0)` → flagged
+2. `AnimatedOpacity(opacity: 0.5)` → not flagged
+3. Regular `Opacity(opacity: 0.0)` → still flagged (regression check)
+
+**Risk:** Low. Additive detection logic, same stableId.
+
+---
+
+### v6.3: GpuPressureDetector — Add RenderShaderMask to Render Tree Check
+
+**Problem:** `GpuPressureDetector` lists `ShaderMask` in the widget-level detection (line 74) but never checks for `RenderShaderMask` in the render tree visitor (lines 94-96). Only `RenderOpacity`, `RenderClipPath`, and `RenderBackdropFilter` are checked. This means ShaderMask widgets are counted as GPU-expensive at the widget level but never detected at the render level, creating an inconsistency.
+
+**Approach:** Add `ro is RenderShaderMask` to the render tree visitor's type check alongside the existing three types.
+
+**Files changed:**
+- `lib/src/detectors/gpu_pressure_detector.dart` — add `RenderShaderMask` to render visitor
+
+**Testing:**
+1. Widget tree with `ShaderMask` → detected in render tree node count
+2. Render tree counts match widget tree counts for all 4 types
+
+**Risk:** Very low. One line change.
+
+---
+
+### v6.4: NestedScrollDetector — Add Widget Highlights
+
+**Problem:** `NestedScrollDetector` is the only structural detector that doesn't generate `WidgetHighlight` entries. When highlights are enabled, nested scroll issues are invisible in the overlay while all other structural issues are visually marked.
+
+**Approach:** Add `_highlights` list, generate a `WidgetHighlight` for the parent scrollable when a nested scroll pattern is detected. Use severity `warning` and include the inner/outer scroll types in the detail string.
+
+**Files changed:**
+- `lib/src/detectors/nested_scroll_detector.dart` — add `_highlights` list, override `highlights` getter, generate highlights in `scanTree()`
+
+**Testing:**
+1. Nested scroll detected → highlight generated with correct rect
+2. No nested scroll → highlights empty
+3. Dispose → highlights cleared
+
+**Risk:** Very low. Additive.
+
+---
+
+### v6.5: UI Tap Targets — Increase Header Icon Button Size
+
+**Problem:** Header icon buttons in `FloatingIssuesCard` use `padding: EdgeInsets.all(8)` around a 16px icon, yielding ~32x32 tap targets. The minimum recommended touch target on mobile is 48x48 (Material Design guidelines, WCAG 2.5.5).
+
+**Approach:** Increase padding to `EdgeInsets.all(14)` (14 + 16 + 14 = 44, close enough with GestureDetector's built-in hit slop of 8px extending the effective target to ~52x52). Alternatively, switch `_headerIconButton` to use Flutter's `IconButton` with `constraints: BoxConstraints(minWidth: 44, minHeight: 44)` and `visualDensity: VisualDensity.compact`.
+
+**Design decision:** Use `IconButton` with compact density — it provides built-in ink splash, semantics, and proper hit testing while maintaining the current visual size.
+
+**Files changed:**
+- `lib/src/ui/floating_issues_card.dart` — replace `_headerIconButton` GestureDetector with `IconButton`
+
+**Testing:**
+1. Visually verify tap targets are at least 44x44
+2. Existing card interaction tests still pass
+
+**Risk:** Low. Visual-only change.
+
+---
+
+### v6.6: UI Drag Safety — Clamp Offset in onPanUpdate
+
+**Problem:** The drag handler updates `_cardOffset` in `onPanUpdate` without bounds checking. The clamp happens in `build()`, meaning there's a one-frame delay where the card can render partially off-screen. On fast drags, this creates visible visual glitches.
+
+**Approach:** Move the clamping logic into `onPanUpdate` so the offset is always valid before `setState()` is called. Extract the clamping calculation into a `_clampOffset(Offset raw, Size screenSize)` helper shared by both `onPanUpdate` and `build()`.
+
+**Files changed:**
+- `lib/src/ui/floating_issues_card.dart` — extract `_clampOffset()`, use in `onPanUpdate`
+
+**Testing:**
+1. Drag to screen edge → card stays within bounds every frame
+2. Rapid drag gestures → no visual glitch
+
+**Risk:** Low.
+
+---
+
+### v6.7: UI Keyboard Awareness
+
+**Problem:** The card's vertical position is clamped to `screenSize.height - 100`, but doesn't account for keyboard height. On mobile with a soft keyboard visible, the card can be completely hidden behind the keyboard with no way to reposition it.
+
+**Approach:** Read `MediaQuery.of(context).viewInsets.bottom` and subtract it from the available height when clamping the card's Y position. This automatically pushes the card up when the keyboard appears.
+
+**Files changed:**
+- `lib/src/ui/floating_issues_card.dart` — account for `viewInsets.bottom` in vertical clamping
+
+**Testing:**
+1. Keyboard visible → card pushed above keyboard
+2. Keyboard dismissed → card returns to previous position
+
+**Risk:** Low.
+
+---
+
+### v6.8: UI Listener Deduplication
+
+**Problem:** `FloatingIssuesCard` registers two separate listeners on the same `issuesNotifier` (line 66-68):
+```dart
+widget.controller.issuesNotifier.addListener(_onVerdictChanged);
+widget.controller.issuesNotifier.addListener(_pruneStaleState);
+```
+Both call `setState()`, causing two rebuilds per notification. On a jank-heavy app, this doubles the overlay's rebuild frequency unnecessarily.
+
+**Approach:** Combine into a single listener that calls both functions:
+```dart
+void _onIssuesChanged() {
+  _pruneStaleState();
+  _onVerdictChanged();
+}
+```
+
+**Files changed:**
+- `lib/src/ui/floating_issues_card.dart` — merge two listeners into one
+
+**Testing:**
+1. Issue notification → single rebuild (verify with debugPrintRebuildDirtyWidgets or counter)
+2. Prune + verdict logic both still execute
+
+**Risk:** Very low.
+
+---
+
+### v6.9: UI Text Overflow Protection
+
+**Problem:** Several `Text` widgets in banner and warning areas lack `maxLines` + `overflow: TextOverflow.ellipsis`. When the card is resized to a narrow width, these texts overflow horizontally:
+- Debug mode banner (line ~620)
+- Instrumentation active message (line ~643)
+- "Widget not visible" message (line ~690)
+
+**Approach:** Add `maxLines` and `overflow: TextOverflow.ellipsis` to all banner Text widgets. Use `softWrap: true` where multiline is intentional.
+
+**Files changed:**
+- `lib/src/ui/floating_issues_card.dart` — add overflow protection to banner texts
+
+**Testing:**
+1. Resize card to minimum width → no text overflow
+2. Full-width card → text displays normally
+
+**Risk:** Very low.
+
+---
+
+### v6.10: UI Build Method Extraction — FloatingIssuesCard
+
+**Problem:** `FloatingIssuesCard.build()` is 112 lines — well above the 50-line guideline. It mixes position clamping math, gesture handling, and widget tree construction in one method, making it hard to understand and modify.
+
+**Approach:** Extract into focused methods:
+- `_clampOffset()` — position math (already needed for v6.6)
+- `_buildCardStack()` — the inner Stack with header + content
+- `_buildResizeHandle()` — the resize gesture area
+
+The `build()` method becomes a ~30 line method that computes position and delegates to these builders.
+
+**Files changed:**
+- `lib/src/ui/floating_issues_card.dart` — extract 3 methods from build()
+
+**Testing:** Existing UI tests pass unchanged.
+
+**Risk:** Low. Refactoring only.
+
+---
+
+### v6.11: UI Build Method Extraction — IssueCard
+
+**Problem:** `IssueCard.build()` spans 345 lines. The Column children array runs from line 111 to 421 — nearly impossible to navigate.
+
+**Approach:** Extract the expanded content section (lines ~202-421) into `_buildExpandedContent()`. This single extraction cuts the build method roughly in half.
+
+**Files changed:**
+- `lib/src/ui/issue_card.dart` — extract `_buildExpandedContent()`
+
+**Testing:** Existing UI tests pass unchanged.
+
+**Risk:** Low. Refactoring only.
+
+---
+
+### v6.12: GuidePage Back Navigation
+
+**Problem:** GuidePage handles only its own back-arrow `IconButton`. On Android, pressing the system back button closes the app instead of the guide. On iOS, the edge-swipe gesture doesn't work either.
+
+**Approach:** Wrap GuidePage content in `PopScope(canPop: false, onPopInvokedWithResult: ...)` that calls the close callback when the system back gesture is triggered.
+
+**Files changed:**
+- `lib/src/ui/guide_page.dart` — add `PopScope` wrapper
+
+**Testing:**
+1. System back gesture → guide closes (not the app)
+2. Back arrow button → still works
+
+**Risk:** Very low.
+
+---
+
+### v6.13: Model Equality — PerformanceIssue
+
+**Problem:** `PerformanceIssue` doesn't override `==` / `hashCode`. If issues are stored in Sets (e.g., for deduplication) or used as Map keys, identity-based comparison causes subtle bugs — two identical issues from consecutive scans are treated as different objects.
+
+**Approach:** Override `==` and `hashCode` based on `stableId` — the field designed for identity. Two issues with the same `stableId` are the same issue (possibly with updated severity/confidence). This matches how suppression and causal graph matching already work.
+
+**Design decision:** Use `stableId` only (not all fields) because issues update their severity/confidence/detail across scans while remaining the "same" issue. `stableId` is the semantic identity.
+
+**Files changed:**
+- `lib/src/models/performance_issue.dart` — add `==` and `hashCode` overrides on `stableId`
+
+**Testing:**
+1. Two issues with same stableId → equal
+2. Two issues with different stableId → not equal
+3. Set<PerformanceIssue> deduplicates by stableId
+
+**Risk:** Medium. Any code relying on identity-based inequality of same-stableId issues would break. Audit all `Set<PerformanceIssue>` and `Map<PerformanceIssue, ...>` usages first.
+
+---
+
+### v6.14: Controller Error Logging — Enrichment Chain Visibility
+
+**Problem:** Enrichment chain errors are silently swallowed by `.catchError((_) {})`. When `getAllocationProfile` or `getIsolate` fail, there's zero visibility into why enrichment data is missing from snapshots.
+
+**Note:** This is a subset of v6.1 but can be implemented independently if v6.1's generation-guard pattern is deferred.
+
+**Approach:** Replace `catchError((_) {})` with `catchError((e) { assert(() { debugPrint('Watchdog: $e'); return true; }()); })` — visible in debug mode, zero-cost in release.
+
+**Files changed:**
+- `lib/src/controller/watchdog_controller.dart` — replace 3 silent catch blocks
+
+**Testing:**
+1. VM service throws → debug message printed
+2. Release mode → no output (assert removed by tree shaking)
+
+**Risk:** Very low.
+
+---
+
+### v6.15: Suppression Pattern Precompilation
+
+**Problem:** `_matchesSuppression` rebuilds wildcard-to-regex conversion on every call. With 22 detectors emitting issues every scan cycle and a non-trivial suppression list, this is repeated work.
+
+**Approach:** Precompile suppression patterns to `RegExp` objects at controller construction time. Store as `List<RegExp> _compiledSuppressions`. Match against these in `_matchesSuppression`.
+
+**Files changed:**
+- `lib/src/controller/watchdog_controller.dart` — precompile patterns in constructor, use in matching
+
+**Testing:**
+1. Wildcard pattern `opacity_*` still suppresses `opacity_zero`
+2. Exact pattern `non_lazy_list` still works
+3. Performance: matching 100 issues against 10 patterns is faster (benchmark optional)
+
+**Risk:** Very low.
+
+---
+
+### v6.16: Pubspec Platform Declarations
+
+**Problem:** `pubspec.yaml` doesn't include `platforms:` section. While optional, declaring platforms improves pub.dev discoverability and communicates supported targets explicitly.
+
+**Approach:** Add platform declarations matching the README's platform support matrix.
+
+**Files changed:**
+- `pubspec.yaml` — add `platforms:` section
+
+```yaml
+platforms:
+  android:
+  ios:
+  macos:
+  linux:
+  windows:
+```
+
+**Risk:** None.
+
+---
+
+### v6.17: Test Gap — Controller Lifecycle Tests
+
+**Problem:** No tests for `WatchdogController.initialize()` (only `initializeDetectorsForTest()` is tested), dispose-during-active-scan, concurrent frame processing, or config changes mid-session. These are the highest-risk untested code paths.
+
+**Approach:** Add 8 new tests:
+1. `initialize()` creates all detectors and starts scan loop
+2. `dispose()` during active scan → no crash, no late callbacks
+3. Two frames arriving before first completes processing → no crash
+4. Config change (enable/disable detector) mid-session → reflected in next scan
+5. Suppression list change mid-session → next scan respects new list
+6. `initialize()` → `dispose()` → `initialize()` cycle works
+7. Export during active scan → returns current state snapshot
+8. Dispose with pending VM service call → call is dropped
+
+**Files changed:**
+- `test/controller/lifecycle_test.dart` — new file
+
+**Risk:** Low. Test-only changes.
+
+---
+
+### v6.18: Test Gap — UI Widget Tests
+
+**Problem:** Five core UI widgets have zero direct tests: `floating_issues_card`, `highlight_overlay`, `issue_card`, `trigger_button`, `watchdog_overlay`. While some are tested indirectly, there are no tests verifying:
+- Card renders without errors with empty/populated issue lists
+- Drag moves the card position
+- Expand/collapse toggles content visibility
+- Highlight overlay paints at correct positions
+- Trigger button accepts taps
+
+**Approach:** Add basic "smoke" widget tests for each:
+1. `floating_issues_card_test.dart` — pump with empty issues → renders, pump with 3 issues → renders, tap expand → content visible
+2. `issue_card_test.dart` — pump collapsed → title visible, pump expanded → detail visible
+3. `trigger_button_test.dart` — pump → button visible, tap → callback fired
+4. `highlight_overlay_test.dart` — pump with highlights → no error
+5. `watchdog_overlay_test.dart` — pump → overlay renders
+
+**Files changed:**
+- `test/ui/floating_issues_card_test.dart` — new or expand existing
+- `test/ui/issue_card_test.dart` — new or expand existing
+- `test/ui/trigger_button_test.dart` — new or expand existing
+- `test/ui/highlight_overlay_test.dart` — new
+- `test/ui/watchdog_overlay_test.dart` — new
+
+**Risk:** Low. Test-only changes.
+
+---
+
+### v6.19: ListviewDetector Threshold Tuning
+
+**Problem:** The non-lazy list threshold of 20 children is aggressive. A login form with 25 static `TextFormField` widgets in a `SingleChildScrollView + Column` gets flagged, but this is an intentional design choice — the list is small enough that lazy building adds no benefit.
+
+**Approach:** Increase default threshold from 20 to 50. The existing `maxListChildren` config parameter already allows user override, so this is just a default change. At 50 items, the performance cost of non-lazy rendering is measurable; below that, it's noise.
+
+**Files changed:**
+- `lib/src/controller/watchdog_controller.dart` — change `maxListChildren` default from 20 to 50
+- `test/detectors/listview_detector_test.dart` — update threshold-boundary tests
+
+**Risk:** Low. Reduces false positives. Users who want the stricter threshold can set `maxListChildren: 20`.
+
+---
+
+### v6.20: TriggerButton Adaptive Initial Position
+
+**Problem:** TriggerButton's initial position is hardcoded to `Offset(16, 100)`. On very small screens or landscape orientation, this may place the button at an awkward position or partially off-screen.
+
+**Approach:** Initialize position based on screen size in `didChangeDependencies()` (first call only): bottom-right quadrant at `Offset(screenWidth - 72, screenHeight * 0.4)`. Still draggable to any position after that.
+
+**Files changed:**
+- `lib/src/ui/trigger_button.dart` — adaptive initial position
+
+**Testing:**
+1. Small screen → button visible and accessible
+2. Large screen → button visible in right area
+3. After drag → position persists regardless of initial
+
+**Risk:** Very low.
+
+---
+
+### v6.21: Hardcoded Spacing → Theme Tokens
+
+**Problem:** While `WatchdogThemeData` centralizes all colors, spacing and sizing remain hardcoded throughout UI files: `EdgeInsets.fromLTRB(10, 6, 4, 4)`, `screenSize.height * 0.30`, `SizedBox(height: 6)`, etc. This makes the overlay's density impossible to customize and creates maintenance burden.
+
+**Approach:** Add spacing tokens to `WatchdogThemeData`:
+```dart
+final double spacingXs;  // 4
+final double spacingSm;  // 6
+final double spacingMd;  // 8
+final double spacingLg;  // 12
+final double spacingXl;  // 16
+```
+
+Replace hardcoded values in all UI files with `theme.spacingMd`, `theme.spacingLg`, etc.
+
+**Files changed:**
+- `lib/src/ui/watchdog_theme.dart` — add spacing tokens
+- `lib/src/ui/floating_issues_card.dart` — use spacing tokens
+- `lib/src/ui/issue_card.dart` — use spacing tokens
+- `lib/src/ui/trigger_button.dart` — use spacing tokens
+- `lib/src/ui/guide_page.dart` — use spacing tokens
+
+**Risk:** Low. Visual change — verify overlay looks identical with default spacing values.
+
+---
+
+### v6.22: Benchmark Test Robustness
+
+**Problem:** Benchmark tests use wall-clock `Stopwatch` measurements with fixed budgets. On loaded CI runners or slower devices, tests flake because actual timing varies. The warmup period (5 iterations) may be insufficient for JIT compilation.
+
+**Approach:**
+1. Increase warmup from 5 to 10 iterations
+2. Add 2x tolerance multiplier when `Platform.environment['CI'] != null`
+3. Add variance check: if standard deviation > 50% of mean, log a warning instead of hard-failing
+
+**Files changed:**
+- `test/helpers/benchmark_helpers.dart` — add CI tolerance, increase warmup, add variance tracking
+
+**Risk:** Very low. Test infrastructure only.
+
+---
+
+### v6 Implementation Order
+
+| Priority | Milestone | Effort | Theme | Dependencies |
+|----------|-----------|--------|-------|--------------|
+| 1 | v6.1: Controller Async Safety | Medium | Safety | None |
+| 2 | v6.14: Error Logging | Low | Safety | None (subset of v6.1) |
+| 3 | v6.2: OpacityDetector AnimatedOpacity | Low | Accuracy | None |
+| 4 | v6.3: GpuPressure ShaderMask | Very Low | Accuracy | None |
+| 5 | v6.4: NestedScroll Highlights | Low | Accuracy | None |
+| 6 | v6.5: Tap Targets | Low | UI Polish | None |
+| 7 | v6.6: Drag Clamping | Low | UI Polish | None |
+| 8 | v6.7: Keyboard Awareness | Low | UI Polish | None |
+| 9 | v6.8: Listener Dedup | Very Low | UI Polish | None |
+| 10 | v6.9: Text Overflow | Very Low | UI Polish | None |
+| 11 | v6.10: FloatingIssuesCard Extract | Low | UI Polish | v6.6 (shared helper) |
+| 12 | v6.11: IssueCard Extract | Low | UI Polish | None |
+| 13 | v6.12: GuidePage Back Nav | Very Low | UI Polish | None |
+| 14 | v6.13: Model Equality | Low | Safety | None |
+| 15 | v6.15: Suppression Precompile | Very Low | Performance | None |
+| 16 | v6.16: Platform Declarations | Very Low | Pub.dev | None |
+| 17 | v6.17: Controller Lifecycle Tests | Medium | Tests | v6.1 (tests the fixes) |
+| 18 | v6.18: UI Widget Tests | Medium | Tests | v6.5–v6.12 (tests after refactor) |
+| 19 | v6.19: ListView Threshold | Very Low | Accuracy | None |
+| 20 | v6.20: TriggerButton Position | Very Low | UI Polish | None |
+| 21 | v6.21: Spacing Tokens | Medium | UI Polish | None |
+| 22 | v6.22: Benchmark Robustness | Low | Tests | None |
+
+**Grouping suggestion:** Milestones can be batched into 4 releases:
+- **v0.7.1** (safety): v6.1, v6.14, v6.13 — async safety + error visibility + model equality
+- **v0.7.2** (accuracy): v6.2, v6.3, v6.4, v6.19 — detector accuracy improvements
+- **v0.7.3** (UI): v6.5–v6.12, v6.20, v6.21 — all UI polish
+- **v0.7.4** (tests): v6.17, v6.18, v6.22, v6.15, v6.16 — test coverage + infra
