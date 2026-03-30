@@ -311,5 +311,60 @@ void main() {
       expect(() => (detector.records as List).add(makeRecord()),
           throwsUnsupportedError);
     });
+
+    // ---------------------------------------------------------------
+    // Active request tracking (v5.6)
+    // ---------------------------------------------------------------
+
+    test('pendingRequestSnapshot returns (0, null) when no active requests',
+        () {
+      final (count, slowestMs) = detector.pendingRequestSnapshot();
+      expect(count, 0);
+      expect(slowestMs, isNull);
+    });
+
+    test('startRequest/endRequest tracks in-flight requests correctly', () {
+      detector.startRequest(1, fakeNow);
+      detector.startRequest(2, fakeNow);
+
+      var (count, _) = detector.pendingRequestSnapshot();
+      expect(count, 2);
+
+      detector.endRequest(1);
+      (count, _) = detector.pendingRequestSnapshot();
+      expect(count, 1);
+
+      detector.endRequest(2);
+      (count, _) = detector.pendingRequestSnapshot();
+      expect(count, 0);
+    });
+
+    test('pendingRequestSnapshot reports slowest pending duration', () {
+      final earlyStart = fakeNow.subtract(const Duration(seconds: 3));
+      final lateStart = fakeNow.subtract(const Duration(seconds: 1));
+
+      detector.startRequest(1, earlyStart);
+      detector.startRequest(2, lateStart);
+
+      final (count, slowestMs) = detector.pendingRequestSnapshot();
+      expect(count, 2);
+      expect(slowestMs, 3000);
+    });
+
+    test('active requests cleared on disable', () {
+      detector.startRequest(1, fakeNow);
+      detector.isEnabled = false;
+
+      final (count, _) = detector.pendingRequestSnapshot();
+      expect(count, 0);
+    });
+
+    test('active requests cleared on dispose', () {
+      detector.startRequest(1, fakeNow);
+      detector.dispose();
+
+      final (count, _) = detector.pendingRequestSnapshot();
+      expect(count, 0);
+    });
   });
 }

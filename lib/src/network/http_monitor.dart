@@ -10,11 +10,19 @@ import 'request_record.dart';
 class WatchdogHttpOverrides extends HttpOverrides {
   WatchdogHttpOverrides({
     required this.onRecord,
+    this.onRequestStarted,
+    this.onRequestEnded,
     this.excludePatterns,
   }) : _previous = HttpOverrides.current;
 
   /// Callback invoked when a monitored request completes (or fails).
   final void Function(RequestRecord) onRecord;
+
+  /// Callback invoked when an HTTP request starts (before response).
+  final void Function(int requestId, DateTime startedAt)? onRequestStarted;
+
+  /// Callback invoked when an HTTP request completes or fails.
+  final void Function(int requestId)? onRequestEnded;
 
   /// URL substring patterns to exclude from monitoring (e.g. analytics).
   final List<String>? excludePatterns;
@@ -40,7 +48,13 @@ class WatchdogHttpOverrides extends HttpOverrides {
   HttpClient createHttpClient(SecurityContext? context) {
     final inner =
         _previous?.createHttpClient(context) ?? super.createHttpClient(context);
-    return _MonitoringHttpClient(inner, onRecord, excludePatterns);
+    return _MonitoringHttpClient(
+      inner,
+      onRecord,
+      excludePatterns,
+      onRequestStarted,
+      onRequestEnded,
+    );
   }
 
   @override
@@ -57,11 +71,21 @@ class WatchdogHttpOverrides extends HttpOverrides {
 /// Wraps an [HttpClient], intercepting all request-creating methods to
 /// record timing and response size. All other methods delegate unchanged.
 class _MonitoringHttpClient implements HttpClient {
-  _MonitoringHttpClient(this._inner, this._onRecord, this._excludePatterns);
+  _MonitoringHttpClient(
+    this._inner,
+    this._onRecord,
+    this._excludePatterns,
+    this._onRequestStarted,
+    this._onRequestEnded,
+  );
 
   final HttpClient _inner;
   final void Function(RequestRecord) _onRecord;
   final List<String>? _excludePatterns;
+  final void Function(int requestId, DateTime startedAt)? _onRequestStarted;
+  final void Function(int requestId)? _onRequestEnded;
+
+  static int _nextRequestId = 0;
 
   bool _isExcluded(Uri url) {
     final patterns = _excludePatterns;
@@ -79,6 +103,8 @@ class _MonitoringHttpClient implements HttpClient {
   Future<HttpClientRequest> openUrl(String method, Uri url) async {
     if (_isExcluded(url)) return _inner.openUrl(method, url);
     final startTime = DateTime.now();
+    final requestId = _nextRequestId++;
+    _onRequestStarted?.call(requestId, startTime);
     final request = await _inner.openUrl(method, url);
     return _MonitoringRequest(
       request,
@@ -86,6 +112,8 @@ class _MonitoringHttpClient implements HttpClient {
       method,
       startTime,
       _onRecord,
+      requestId,
+      _onRequestEnded,
     );
   }
 
@@ -231,6 +259,8 @@ class _MonitoringRequest implements HttpClientRequest {
     this._method,
     this._startTime,
     this._onRecord,
+    this._requestId,
+    this._onRequestEnded,
   );
 
   final HttpClientRequest _inner;
@@ -238,14 +268,24 @@ class _MonitoringRequest implements HttpClientRequest {
   final String _method;
   final DateTime _startTime;
   final void Function(RequestRecord) _onRecord;
+  final int _requestId;
+  final void Function(int requestId)? _onRequestEnded;
 
   @override
   Future<HttpClientResponse> close() async {
     try {
       final response = await _inner.close();
       return _MonitoringResponse(
-          response, _url, _method, _startTime, _onRecord);
+        response,
+        _url,
+        _method,
+        _startTime,
+        _onRecord,
+        _requestId,
+        _onRequestEnded,
+      );
     } catch (_) {
+      _onRequestEnded?.call(_requestId);
       final durationMs = DateTime.now().difference(_startTime).inMilliseconds;
       _onRecord(RequestRecord(
         url: _url,
@@ -358,6 +398,8 @@ class _MonitoringResponse extends Stream<List<int>>
     this._method,
     this._startTime,
     this._onRecord,
+    this._requestId,
+    this._onRequestEnded,
   );
 
   final HttpClientResponse _inner;
@@ -365,8 +407,11 @@ class _MonitoringResponse extends Stream<List<int>>
   final String _method;
   final DateTime _startTime;
   final void Function(RequestRecord) _onRecord;
+  final int _requestId;
+  final void Function(int requestId)? _onRequestEnded;
 
   void _emitRecord(int bytesReceived) {
+    _onRequestEnded?.call(_requestId);
     _onRecord(RequestRecord(
       url: _url,
       method: _method,

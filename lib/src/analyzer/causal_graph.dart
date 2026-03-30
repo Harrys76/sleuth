@@ -36,7 +36,7 @@ class CausalGraphRule extends CorrelationRule {
   @override
   String get name => 'CausalGraph';
 
-  // 18 causal rules. Order doesn't matter — all are evaluated, and the
+  // 20 causal rules. Order doesn't matter — all are evaluated, and the
   // graph is built from the full edge set.
   static const _causalRules = <CausalRule>[
     // setState-triggered chains (rebuild intermediate absorbed by Rule 2)
@@ -67,6 +67,10 @@ class CausalGraphRule extends CorrelationRule {
     CausalRule('rebuild_activity', 'layout_bottleneck'),
     CausalRule('rebuild_debug_*', 'heavy_compute'),
     CausalRule('rebuild_debug_*', 'layout_bottleneck'),
+
+    // Network → downstream chains
+    CausalRule('slow_request', 'heavy_compute'),
+    CausalRule('request_frequency', 'rebuild_activity'),
   ];
 
   @override

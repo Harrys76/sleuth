@@ -36,6 +36,8 @@ class FrameVerdict {
     this.isCorrelated = false,
     this.correlationCoverage,
     this.topFunctions,
+    this.pendingRequestCount,
+    this.slowestPendingMs,
   });
 
   /// Sequential frame number matching [FrameStats.frameNumber].
@@ -89,6 +91,12 @@ class FrameVerdict {
   /// connected and CPU samples are available for the frame's time window.
   final List<CpuAttribution>? topFunctions;
 
+  /// Number of HTTP requests in-flight when this frame was analyzed.
+  final int? pendingRequestCount;
+
+  /// Duration in ms of the longest pending request at frame analysis time.
+  final int? slowestPendingMs;
+
   /// Returns a copy with [topFunctions] attached.
   FrameVerdict withTopFunctions(List<CpuAttribution>? topFunctions) =>
       FrameVerdict(
@@ -108,6 +116,34 @@ class FrameVerdict {
         isCorrelated: isCorrelated,
         correlationCoverage: correlationCoverage,
         topFunctions: topFunctions,
+        pendingRequestCount: pendingRequestCount,
+        slowestPendingMs: slowestPendingMs,
+      );
+
+  /// Returns a copy with network context attached.
+  FrameVerdict withNetworkContext({
+    required int pendingRequestCount,
+    int? slowestPendingMs,
+  }) =>
+      FrameVerdict(
+        frameNumber: frameNumber,
+        totalFrameTime: totalFrameTime,
+        uiThreadTime: uiThreadTime,
+        rasterThreadTime: rasterThreadTime,
+        buildScopeTime: buildScopeTime,
+        flushLayoutTime: flushLayoutTime,
+        flushPaintTime: flushPaintTime,
+        totalSpan: totalSpan,
+        buildToRasterGapTime: buildToRasterGapTime,
+        suspectedPhase: suspectedPhase,
+        reason: reason,
+        relatedIssues: relatedIssues,
+        isFullMode: isFullMode,
+        isCorrelated: isCorrelated,
+        correlationCoverage: correlationCoverage,
+        topFunctions: topFunctions,
+        pendingRequestCount: pendingRequestCount,
+        slowestPendingMs: slowestPendingMs,
       );
 
   Map<String, dynamic> toJson() => {
@@ -133,6 +169,9 @@ class FrameVerdict {
           'correlationCoverage': correlationCoverage,
         if (topFunctions != null && topFunctions!.isNotEmpty)
           'topFunctions': topFunctions!.map((f) => f.toJson()).toList(),
+        if (pendingRequestCount != null)
+          'pendingRequestCount': pendingRequestCount,
+        if (slowestPendingMs != null) 'slowestPendingMs': slowestPendingMs,
       };
 
   factory FrameVerdict.fromJson(Map<String, dynamic> json) => FrameVerdict(
@@ -170,6 +209,8 @@ class FrameVerdict {
         topFunctions: (json['topFunctions'] as List<dynamic>?)
             ?.map((e) => CpuAttribution.fromJson(e as Map<String, dynamic>))
             .toList(),
+        pendingRequestCount: json['pendingRequestCount'] as int?,
+        slowestPendingMs: json['slowestPendingMs'] as int?,
       );
 
   @override

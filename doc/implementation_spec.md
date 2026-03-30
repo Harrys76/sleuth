@@ -4148,6 +4148,22 @@ Each referenced explicitly in `_getAllIssues()`:
 
 **Risk:** Low. Additive fields on existing models. Network detector already tracks all needed data.
 
+**Post-Implementation Notes (v5.6):**
+
+Shipped. Key deviations from original spec:
+
+1. **Paired callbacks, not active request set** — Original spec proposed `_activeRequests: Set<RequestRecord>`. Implemented as `Map<int, DateTime> _activeRequests` keyed by monotonic request ID. Paired `onRequestStarted(id, startedAt)` / `onRequestEnded(id)` callbacks on `WatchdogHttpOverrides` fire from `_MonitoringHttpClient.openUrl()` (start) and `_MonitoringResponse._emitRecord()` + `_MonitoringRequest.close()` catch (end). Request IDs ensure correct pairing with concurrent requests.
+
+2. **No escalation rule — causal graph instead** — Original spec proposed `EscalateNetworkJankRule` to escalate `network_slow_request` from `possible` to `likely`. However, all 3 network issues are already `IssueConfidence.confirmed` (directly measured). Replaced with 2 causal graph rules: `slow_request → heavy_compute` and `request_frequency → rebuild_activity` (20 total rules). These work within existing confidence suppression.
+
+3. **`withNetworkContext()` follows `withTopFunctions()` pattern** — Network enrichment happens synchronously before verdict emission in all 3 paths (correlated, full, basic) via `_enrichVerdictWithNetworkContext()`. CPU attribution happens asynchronously after. `withTopFunctions()` preserves network fields.
+
+4. **Zero-overhead guarantee** — When network monitoring disabled: callbacks null, `_activeRequests` empty, enrichment returns immediately. When active but no in-flight requests: `pendingRequestSnapshot()` returns `(0, null)`, enrichment returns original verdict.
+
+5. **Backward compatibility** — All new fields nullable (`pendingRequestCount: int?`, `slowestPendingMs: int?`). Callbacks optional on `WatchdogHttpOverrides`. New methods additive on `NetworkMonitorDetector`. No schema version bump needed (nested in existing `CaptureEntry.verdict`).
+
+Files changed: `network_monitor_detector.dart` (+30), `frame_verdict.dart` (+35), `http_monitor.dart` (+25), `watchdog_controller.dart` (+20), `causal_graph.dart` (+4). Tests: 12 new tests across 3 files. Total: 1,231 tests, 0 analysis issues.
+
 ---
 
 ### v5.7: Accessibility — Semantics & Screen Reader Support

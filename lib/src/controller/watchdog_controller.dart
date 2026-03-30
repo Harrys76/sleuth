@@ -305,6 +305,8 @@ class WatchdogController {
         config.enabledDetectors.contains(DetectorType.networkMonitor)) {
       _httpOverrides = WatchdogHttpOverrides(
         onRecord: _networkMonitor.processRecord,
+        onRequestStarted: _networkMonitor.startRequest,
+        onRequestEnded: _networkMonitor.endRequest,
         excludePatterns: config.networkExcludePatterns,
       );
       WatchdogHttpOverrides.install(_httpOverrides!);
@@ -827,11 +829,12 @@ class WatchdogController {
 
         if (worstFrame != null && worstCorrelation != null) {
           final allIssues = _getAllIssues();
-          final verdict = _analyzer.analyzeCorrelatedMode(
+          var verdict = _analyzer.analyzeCorrelatedMode(
             frameStats: worstFrame,
             correlation: worstCorrelation,
             relatedIssues: allIssues,
           );
+          verdict = _enrichVerdictWithNetworkContext(verdict);
           verdictNotifier.value = verdict;
           captureFrame = worstFrame;
           captureVerdict = verdict;
@@ -844,11 +847,12 @@ class WatchdogController {
       final latest = _frameTiming.frameBuffer.latest;
       if (latest != null && latest.isJank) {
         final allIssues = _getAllIssues();
-        final verdict = _analyzer.analyzeFullMode(
+        var verdict = _analyzer.analyzeFullMode(
           frameStats: latest,
           timelineData: data,
           relatedIssues: allIssues,
         );
+        verdict = _enrichVerdictWithNetworkContext(verdict);
         verdictNotifier.value = verdict;
         captureFrame = latest;
         captureVerdict = verdict;
@@ -916,9 +920,11 @@ class WatchdogController {
     // Generate FRAME-mode verdict for jank frames when VM is not connected.
     final latest = buffer.latest;
     if (latest != null && latest.isJank && !isVmConnected) {
-      verdictNotifier.value = _analyzer.analyzeBasicMode(
-        frameStats: latest,
-        relatedIssues: _getAllIssues(),
+      verdictNotifier.value = _enrichVerdictWithNetworkContext(
+        _analyzer.analyzeBasicMode(
+          frameStats: latest,
+          relatedIssues: _getAllIssues(),
+        ),
       );
 
       // Capture inside the jank guard with most-recently-stamped issues.
@@ -962,8 +968,17 @@ class WatchdogController {
     // evaluates only when real GC events arrive in timeline data.
   }
 
-  /// Query CPU samples for a jank frame and re-emit the verdict with attribution.
-  ///
+  /// Attach pending-request context to a verdict if requests are in-flight.
+  FrameVerdict _enrichVerdictWithNetworkContext(FrameVerdict verdict) {
+    if (!_networkMonitor.isEnabled) return verdict;
+    final (count, slowestMs) = _networkMonitor.pendingRequestSnapshot();
+    if (count == 0) return verdict;
+    return verdict.withNetworkContext(
+      pendingRequestCount: count,
+      slowestPendingMs: slowestMs,
+    );
+  }
+
   /// Non-blocking — the verdict is already emitted without attribution (phase 1).
   /// When CPU samples arrive, the verdict is re-emitted with [topFunctions]
   /// (phase 2). If the query fails or times out, the original verdict stands.

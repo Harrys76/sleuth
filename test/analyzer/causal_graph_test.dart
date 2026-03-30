@@ -485,4 +485,49 @@ void main() {
       expect(result[1].rootCauseId, 'setstate_scope');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Network → downstream chains (v5.6)
+  // ---------------------------------------------------------------------------
+
+  group('network causal chains', () {
+    test('slow_request → heavy_compute causal chain', () {
+      final issues = [
+        makeIssue(
+          stableId: 'slow_request',
+          category: IssueCategory.network,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'heavy_compute',
+          confidence: IssueConfidence.possible,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, isNull);
+      expect(result[0].rootCauseId, isNull);
+      // heavy_compute is possible, root is confirmed → confidence suppression
+      // removes it from downstreamIds, but it still has rootCauseId
+      expect(result[1].rootCauseId, 'slow_request');
+    });
+
+    test('request_frequency → rebuild_activity causal chain', () {
+      final issues = [
+        makeIssue(
+          stableId: 'request_frequency',
+          category: IssueCategory.network,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          confidence: IssueConfidence.likely,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['rebuild_activity']);
+      expect(result[1].rootCauseId, 'request_frequency');
+    });
+  });
 }

@@ -50,6 +50,9 @@ class NetworkMonitorDetector extends BaseDetector {
   bool _isEnabled = true;
   Timer? _frequencyTimer;
 
+  /// Active (in-flight) requests tracked by monotonic ID.
+  final Map<int, DateTime> _activeRequests = {};
+
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
@@ -62,11 +65,36 @@ class NetworkMonitorDetector extends BaseDetector {
     if (!value) {
       _frequencyTimer?.cancel();
       _frequencyTimer = null;
+      _activeRequests.clear();
     }
   }
 
   /// Unmodifiable view of the ring buffer for session export.
   List<RequestRecord> get records => List.unmodifiable(_records);
+
+  /// Called when an HTTP request starts (before response).
+  void startRequest(int requestId, DateTime startedAt) {
+    if (!_isEnabled) return;
+    _activeRequests[requestId] = startedAt;
+  }
+
+  /// Called when an HTTP request completes or fails.
+  void endRequest(int requestId) {
+    _activeRequests.remove(requestId);
+  }
+
+  /// Snapshot of pending requests at this instant.
+  /// Returns (0, null) when no requests are in-flight.
+  (int count, int? slowestPendingMs) pendingRequestSnapshot() {
+    if (_activeRequests.isEmpty) return (0, null);
+    final now = _clock();
+    int maxMs = 0;
+    for (final startedAt in _activeRequests.values) {
+      final ms = now.difference(startedAt).inMilliseconds;
+      if (ms > maxMs) maxMs = ms;
+    }
+    return (_activeRequests.length, maxMs);
+  }
 
   /// Process a completed (or failed) HTTP request.
   void processRecord(RequestRecord record) {
@@ -233,5 +261,6 @@ class NetworkMonitorDetector extends BaseDetector {
     _frequencyTimer = null;
     _records.clear();
     _issues.clear();
+    _activeRequests.clear();
   }
 }
