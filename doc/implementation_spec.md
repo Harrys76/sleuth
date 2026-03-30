@@ -4184,60 +4184,6 @@ Files changed: `base_detector.dart` (+2), `fix_hint_builder.dart` (+20), `repain
 
 ---
 
-### v5.7: Accessibility — Semantics & Screen Reader Support
-
-**Problem:** The overlay has minimal accessibility support. The trigger button has no `Semantics` wrapper, issue card checkboxes have no semantic labels, expandable sections don't announce state changes, and transient feedback messages (export confirmation, highlight-not-found) are invisible to screen readers.
-
-**Current gaps:**
-- Trigger button: No `Semantics(button: true, label: ...)` — screen readers skip it entirely
-- Issue card expand/collapse: `InkWell` with no `Semantics.button` or expanded state
-- Highlight checkbox: No semantic label explaining what the checkbox does
-- Severity/confidence/category badges: Purely visual, no screen reader text
-- FPS counter: Changes rapidly with no live region announcement
-- Export feedback banner: Auto-hides after 2 seconds, never announced
-- Guide page sections: No semantic structure for navigation
-
-**Approach:** Add `Semantics` wrappers to all interactive elements. Use `SemanticsService.announce()` for transient messages. Mark dynamic content regions appropriately.
-
-**Design decisions:**
-
-1. **Trigger button** — Wrap in `Semantics(button: true, enabled: true, label: 'Open performance dashboard. Current FPS: $fps')`.
-
-2. **Issue cards** — Add `Semantics(button: true, label: '$title, $severity severity, $confidence confidence', expanded: isExpanded)` to each card's InkWell.
-
-3. **Highlight checkbox** — `Semantics(label: 'Highlight widget for $issueTitle in app', checked: isChecked)`.
-
-4. **Badges** — Ensure badge text is already in the semantic tree via `Text` widget (most are, but verify no `ExcludeSemantics` wrappers).
-
-5. **Transient announcements** — Call `SemanticsService.announce('Snapshot copied to clipboard', TextDirection.ltr)` on export, and similar for highlight-not-found.
-
-6. **FPS live region** — Use `Semantics(liveRegion: true)` on FPS display, but throttle updates to avoid noise (announce only when FPS category changes: good → warning → critical).
-
-**Files changed:**
-- `lib/src/ui/trigger_button.dart` — wrap in Semantics
-- `lib/src/ui/issue_card.dart` — add Semantics to card, checkbox, badges
-- `lib/src/ui/floating_issues_card.dart` — add announcements for export/highlight feedback, FPS live region
-- `lib/src/ui/guide_page.dart` — semantic labels on expandable sections
-
-**Acceptance criteria:**
-- TalkBack (Android) and VoiceOver (iOS) can navigate all overlay elements
-- Trigger button announced with FPS context
-- Issue cards announce severity, confidence, and expanded state
-- Export feedback announced to screen readers
-- No duplicate or noisy announcements
-
-**Testing:** 6 widget tests:
-1. Trigger button has semantic button label
-2. Issue card has semantic expanded state
-3. Checkbox has semantic checked state and label
-4. Export triggers `SemanticsService.announce`
-5. FPS live region present
-6. Guide sections have semantic labels
-
-**Risk:** Low. Additive Semantics wrappers. No visual or behavioral change.
-
----
-
 ### v5.8: RepaintBoundary Coverage Detector
 
 **Problem:** Flutter developers often forget to add `RepaintBoundary` widgets around expensive animated subtrees. When a deep subtree with GPU-heavy operations (Opacity, ClipPath, BackdropFilter, CustomPaint) repaints, the repaint propagates up the tree, causing unnecessary work. No existing detector flags this gap.
@@ -4291,15 +4237,14 @@ Files changed: `base_detector.dart` (+2), `fix_hint_builder.dart` (+20), `repain
 
 ### v5 Implementation Order
 
-| Priority | Milestone | Effort | Dependencies |
-|----------|-----------|--------|--------------|
-| 1 | v5.1: Overlay Theming | Medium | None |
-| 2 | v5.2: Export Enrichment | Low-Medium | None |
-| 3 | v5.4: Configurable Thresholds | Low | None |
-| 4 | v5.5: Detector Registry | Medium | None (but makes v5.8 easier) |
-| 5 | v5.3: Causal Issue Graph | Medium | None |
-| 6 | v5.6: Network-to-Frame Correlation | Low-Medium | None |
-| 7 | v5.7: Accessibility | Low | v5.1 (reads from theme) |
-| 8 | v5.8: RepaintBoundary Detector | Low-Medium | v5.5 (uses registry) |
+| Priority | Milestone | Effort | Dependencies | Status |
+|----------|-----------|--------|--------------|--------|
+| 1 | v5.1: Overlay Theming | Medium | None | Shipped |
+| 2 | v5.2: Export Enrichment | Low-Medium | None | Shipped |
+| 3 | v5.4: Configurable Thresholds | Low | None | Shipped |
+| 4 | v5.5: Detector Registry | Medium | None (but makes v5.8 easier) | Shipped |
+| 5 | v5.3: Causal Issue Graph | Medium | None | Shipped |
+| 6 | v5.6: Network-to-Frame Correlation | Low-Medium | None | Shipped |
+| 7 | v5.8: RepaintBoundary Detector | Low-Medium | v5.5 (uses registry) | Shipped |
 
-v5.1–v5.4 are independent and can be done in any order. v5.7 depends on v5.1 (theme tokens for semantic labels). v5.8 benefits from v5.5 (registry simplifies detector registration). v5.3 and v5.6 are independent correlation improvements.
+v5.7 (Accessibility) was removed — low value for a developer-only diagnostics overlay that is disabled in release builds. All other v5 milestones shipped.
