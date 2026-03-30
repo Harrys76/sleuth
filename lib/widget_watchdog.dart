@@ -36,7 +36,10 @@ export 'src/models/capture_buffer.dart';
 export 'src/models/session_snapshot.dart';
 export 'src/controller/watchdog_controller.dart' show WatchdogConfig;
 export 'src/debug/debug_instrumentation_config.dart';
-export 'src/models/base_detector.dart' show DetectorType, DetectorLifecycle;
+export 'src/models/base_detector.dart'
+    show DetectorType, DetectorLifecycle, BaseDetector;
+export 'src/vm/timeline_parser.dart' show ParsedTimelineData;
+export 'src/debug/debug_snapshot.dart' show DebugSnapshot;
 export 'src/models/allocation_entry.dart';
 export 'src/models/cpu_attribution.dart';
 export 'src/models/heap_sample.dart';

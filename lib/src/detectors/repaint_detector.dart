@@ -94,6 +94,7 @@ class RepaintDetector extends BaseDetector {
   /// Accumulates counts and enriched dirty totals into pending buffers.
   /// On 1s window completion, stages count + enrichment atomically
   /// for [_evaluate].
+  @override
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
 

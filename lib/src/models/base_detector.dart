@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../debug/debug_snapshot.dart';
+import '../vm/timeline_parser.dart';
 import 'performance_issue.dart';
 import 'widget_highlight.dart';
 
@@ -30,6 +31,7 @@ enum DetectorType {
   opacity,
   fontLoading,
   networkMonitor,
+  custom,
 }
 
 /// Lifecycle classification for detectors.
@@ -124,6 +126,12 @@ abstract class BaseDetector {
   /// verdicts see up-to-date rebuild/repaint issues without waiting for
   /// the next scan tick.
   void evaluateNow() {}
+
+  /// Process VM timeline data.
+  ///
+  /// No-op for [DetectorLifecycle.structural] detectors.
+  /// Override in vmOnly and hybrid detectors.
+  void processTimelineData(ParsedTimelineData data) {}
 
   /// Dispose of any resources held by this detector.
   void dispose();

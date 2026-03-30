@@ -62,6 +62,7 @@ class MemoryPressureDetector extends BaseDetector {
   /// Unmodifiable view of the rolling heap sample window for session export.
   List<HeapSample> get heapSamples => List.unmodifiable(_heapSamples);
 
+  @override
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
 

@@ -411,6 +411,11 @@ class WatchdogController {
       frequencyLimit: config.requestFrequencyLimit,
       largeResponseBytes: config.largeResponseThresholdBytes,
     )..isEnabled = enabled.contains(DetectorType.networkMonitor);
+
+    // Initialize custom detectors — always enabled (explicitly opted-in via config)
+    for (final d in config.customDetectors) {
+      d.isEnabled = true;
+    }
   }
 
   /// Initialize detectors without VM client or SchedulerBinding.
@@ -585,6 +590,9 @@ class WatchdogController {
       _shallowRebuildRisk.updateDebugSnapshot(debugSnapshot!);
       _animatedBuilder.updateDebugSnapshot(debugSnapshot!);
       _customPainter.updateDebugSnapshot(debugSnapshot!);
+      for (final d in config.customDetectors) {
+        if (d.isEnabled) d.updateDebugSnapshot(debugSnapshot!);
+      }
     }
 
     // Run all tree-scanning detectors
@@ -732,6 +740,10 @@ class WatchdogController {
     _animatedBuilder.scanTree(scanContext);
     _opacity.scanTree(scanContext);
     _fontLoading.scanTree(scanContext);
+
+    for (final d in config.customDetectors) {
+      if (d.isEnabled && d.requiresTreeScan) d.scanTree(scanContext);
+    }
   }
 
   /// Aggregate highlights from all detectors that produce them.
@@ -752,6 +764,7 @@ class WatchdogController {
       ..._keepAlive.highlights,
       ..._rebuild.highlights,
       ..._repaint.highlights,
+      for (final d in config.customDetectors) ...d.highlights,
     ];
   }
 
@@ -770,9 +783,24 @@ class WatchdogController {
     _gpuPressure.processTimelineData(data);
     _shallowRebuildRisk.processTimelineData(data);
 
+    // Custom detectors: feed timeline data to vmOnly and hybrid
+    for (final d in config.customDetectors) {
+      if (d.isEnabled &&
+          (d.lifecycle == DetectorLifecycle.vmOnly ||
+              d.lifecycle == DetectorLifecycle.hybrid)) {
+        d.processTimelineData(data);
+      }
+    }
+
     // Flush staged data in refactored detectors so _getAllIssues() sees current state
     _rebuild.evaluateNow();
     _repaint.evaluateNow();
+    // Custom hybrid detectors: flush staged data
+    for (final d in config.customDetectors) {
+      if (d.isEnabled && d.lifecycle == DetectorLifecycle.hybrid) {
+        d.evaluateNow();
+      }
+    }
 
     // Generate verdict for slow frames (full mode with VM timeline data)
     // Local variables bridge jank decision → post-aggregation capture.
@@ -1200,6 +1228,7 @@ class WatchdogController {
       ..._opacity.issues,
       ..._fontLoading.issues,
       ...?_networkMonitor?.issues,
+      for (final d in config.customDetectors) ...d.issues,
     ];
   }
 
@@ -1320,6 +1349,9 @@ class WatchdogController {
     _opacity.dispose();
     _fontLoading.dispose();
     _networkMonitor?.dispose();
+    for (final d in config.customDetectors) {
+      d.dispose();
+    }
     issuesNotifier.dispose();
     frameStatsNotifier.dispose();
     verdictNotifier.dispose();
@@ -1354,6 +1386,7 @@ class WatchdogConfig {
     this.memoryWarmupDurationMs = 5000,
     this.platformChannelDurationThresholdMs = 8,
     this.suppressedIssues = const {},
+    this.customDetectors = const [],
   });
 
   /// Target frames per second (60 or 120). Drives jank detection thresholds.
@@ -1435,6 +1468,17 @@ class WatchdogConfig {
   /// Suppressed issues still participate in inter-detector correlation
   /// but are excluded from ranking and UI display.
   final Set<String> suppressedIssues;
+
+  /// Custom detectors to integrate into the scan/aggregation pipeline.
+  ///
+  /// Each detector extends [BaseDetector] and declares its [DetectorLifecycle].
+  /// The controller routes data to custom detectors based on their lifecycle
+  /// exactly like built-in detectors: structural → [scanTree],
+  /// vmOnly → [processTimelineData], hybrid → both.
+  ///
+  /// Custom detectors are always enabled regardless of [enabledDetectors].
+  /// The controller disposes custom detectors when it is itself disposed.
+  final List<BaseDetector> customDetectors;
 }
 
 /// Lightweight struct for sorting allocation profile entries.

@@ -63,6 +63,7 @@ class GpuPressureDetector extends BaseDetector {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
+  @override
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
     if (data.rasterDurations.isNotEmpty) {

@@ -60,6 +60,7 @@ class ShallowRebuildRiskDetector extends BaseDetector {
     _lastDebugSnapshot = snapshot;
   }
 
+  @override
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
     _lastBuildCount = data.buildEventCount;

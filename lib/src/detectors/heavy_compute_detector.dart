@@ -34,6 +34,7 @@ class HeavyComputeDetector extends BaseDetector {
   /// Prefers [PhaseEvent]s (which carry optional enrichment from timeline
   /// args like dirty widget names). Falls back to raw [buildScopeDurations]
   /// when no build phaseEvents exist (backward compat for direct construction).
+  @override
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
     _issues.clear();

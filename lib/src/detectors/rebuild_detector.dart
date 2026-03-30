@@ -98,6 +98,7 @@ class RebuildDetector extends BaseDetector {
   /// Accumulates counts and enriched dirty names into pending buffers.
   /// On 1s window completion, stages count + enrichment atomically
   /// for [_evaluate].
+  @override
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
     _buildEventCount += data.buildEventCount;

@@ -3436,6 +3436,26 @@ WidgetWatchdog.wrap(
 
 **Performance budget:** One list iteration per lifecycle trigger per custom detector. Typically 1–3 custom detectors × 1 call/sec = negligible.
 
+**Post-Implementation Notes (v4.2):**
+
+Shipped as planned with minor refinements:
+
+1. **No `_customDetectors` field on controller.** The spec sketched `late final List<BaseDetector> _customDetectors` on the controller, but the implementation reads directly from `config.customDetectors` at each lifecycle point. Since `WatchdogConfig` is immutable and `customDetectors` is a `final List`, there's no benefit to copying it. One fewer field, one fewer init step.
+
+2. **`processTimelineData()` added to `BaseDetector` (Option A).** Added as a no-op default matching the existing pattern (`scanTree()`, `evaluateNow()`, `updateDebugSnapshot()`). Required adding `@override` to 8 existing detectors (gpu_pressure, heavy_compute, memory_pressure, platform_channel, rebuild, repaint, shader_jank, shallow_rebuild_risk).
+
+3. **Barrel file exports expanded.** Three new public API exports: `BaseDetector` (added to existing `show` clause), `ParsedTimelineData` (from `timeline_parser.dart`), and `DebugSnapshot` (from `debug_snapshot.dart`). Enables consumers to write custom detectors using only `package:widget_watchdog/widget_watchdog.dart` — no `src/` imports needed.
+
+4. **Disposal ownership documented.** Added one line to the `customDetectors` doc comment: "The controller disposes custom detectors when it is itself disposed." Prevents surprises if consumers hold a separate reference to a detector.
+
+5. **`enabledDetectors` interaction:** Custom detectors bypass the `enabledDetectors` filter entirely — they're always enabled because they were explicitly passed. Disabling is possible via `detector.isEnabled = false` directly.
+
+6. **`isEnabled` guard consistency.** All 7 lifecycle wiring points guard with `d.isEnabled` except `_getAllIssues()` and `_collectHighlights()` — matching the built-in detector pattern where disabled detectors simply produce empty issue/highlight lists.
+
+7. **12 tests** (vs. 10 planned): added `_TestVmOnlyDetector` class for vmOnly lifecycle coverage and a suppression integration test (`test_custom_*` wildcard). Test file: `test/controller/custom_detector_test.dart`.
+
+8. **Total test count**: 1,101 (up from 1,089). 0 analysis issues.
+
 ---
 
 ### v4.3: Shake-to-Open Overlay
