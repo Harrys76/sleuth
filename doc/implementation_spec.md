@@ -3976,6 +3976,37 @@ Files changed (10):
 
 **Risk:** Low. Mechanical refactor — replace hardcoded constant with constructor parameter. Main risk is missing a usage site inside a detector.
 
+**Post-Implementation Notes** (Implemented 2026-03-30):
+
+1. **`DetectorThresholds` in own file** — Created `lib/src/controller/detector_thresholds.dart` (not inline in controller), following the `DebugInstrumentationConfig` pattern. Non-null field on `WatchdogConfig` with `const DetectorThresholds()` default — thresholds always apply, no null checks needed.
+
+2. **Three categories of detector changes:**
+   - 6 detectors already had constructor params (ShaderJank, HeavyCompute, GpuPressure, ShallowRebuild, SetStateScope, KeepAlive) — just needed config wiring in `_initializeDetectors()`
+   - 2 detectors needed new constructor params (AnimatedBuilder: `minSubtreeSize`, FontLoading: `maxFamilies`) — replaced hardcoded literals
+   - 1 detector needed static const → instance field conversion (MemoryPressure: `growthThresholdBytesPerSec`, `capacityThresholdPercent`) — kept `_sustainedGrowthDurationSec` and `_nativeGrowthThresholdBytesPerSec` as static consts (too granular to expose)
+
+3. **Secondary severity threshold fix** — ShaderJank had `ms >= 200` (hardcoded critical) and GpuPressure had `ratio > 3.0` (hardcoded critical). Both were exactly `defaultThreshold * 2` by coincidence. Converted to `thresholdMs * 2` and `rasterMultiplierThreshold * 2` respectively so critical boundaries scale properly with custom thresholds. KeepAlive already used `threshold * 2` correctly.
+
+4. **Test count:** 1,219 total (+16 new threshold tests across 8 test files). New test file: `test/controller/detector_thresholds_test.dart` (3 tests). Custom threshold tests added to: shader_jank (3), gpu_pressure (3), memory_pressure (3), shallow_rebuild_risk (2), keep_alive (1), animated_builder (2), font_loading (2).
+
+5. **Files changed (16):**
+   - `lib/src/controller/detector_thresholds.dart` — NEW (~70 lines)
+   - `lib/src/controller/watchdog_controller.dart` — +import, +field, +wiring in `_initializeDetectors()`
+   - `lib/src/detectors/animated_builder_detector.dart` — +`minSubtreeSize` constructor param
+   - `lib/src/detectors/font_loading_detector.dart` — +`maxFamilies` constructor param
+   - `lib/src/detectors/memory_pressure_detector.dart` — static const → constructor params
+   - `lib/src/detectors/shader_jank_detector.dart` — critical threshold scales with `thresholdMs * 2`
+   - `lib/src/detectors/gpu_pressure_detector.dart` — critical threshold scales with `rasterMultiplierThreshold * 2`
+   - `lib/widget_watchdog.dart` — +export
+   - `test/controller/detector_thresholds_test.dart` — NEW (3 tests)
+   - `test/detectors/shader_jank_detector_test.dart` — +3 custom threshold tests
+   - `test/detectors/gpu_pressure_detector_test.dart` — +3 custom threshold tests
+   - `test/detectors/memory_pressure_detector_test.dart` — +3 custom threshold tests
+   - `test/detectors/shallow_rebuild_risk_detector_test.dart` — +2 custom threshold tests
+   - `test/detectors/keep_alive_detector_test.dart` — +1 custom threshold test
+   - `test/detectors/animated_builder_detector_test.dart` — +2 custom threshold tests
+   - `test/detectors/font_loading_detector_test.dart` — +2 custom threshold tests
+
 ---
 
 ### v5.5: Detector Registry Pattern

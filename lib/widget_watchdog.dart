@@ -60,6 +60,7 @@ export 'src/models/widget_highlight.dart';
 export 'src/models/capture_buffer.dart';
 export 'src/models/session_snapshot.dart';
 export 'src/controller/watchdog_controller.dart' show WatchdogConfig;
+export 'src/controller/detector_thresholds.dart';
 export 'src/ui/watchdog_theme.dart' show WatchdogThemeData;
 export 'src/debug/debug_instrumentation_config.dart';
 export 'src/models/base_detector.dart'

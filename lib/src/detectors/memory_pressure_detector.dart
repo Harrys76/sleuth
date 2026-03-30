@@ -13,6 +13,8 @@ class MemoryPressureDetector extends BaseDetector {
   MemoryPressureDetector({
     DateTime Function()? clock,
     this.warmupDurationMs = 5000,
+    this.growthThresholdBytesPerSec = 512000,
+    this.capacityThresholdPercent = 0.80,
   })  : _clock = clock ?? DateTime.now,
         _trackingStart = (clock ?? DateTime.now)(),
         super(
@@ -26,6 +28,13 @@ class MemoryPressureDetector extends BaseDetector {
   /// Prevents false positives from normal startup allocation.
   final int warmupDurationMs;
 
+  /// Heap growth rate (bytes/sec) above which heap_growing is flagged.
+  final int growthThresholdBytesPerSec;
+
+  /// Heap usage as fraction of capacity (0.0–1.0) above which
+  /// heap_near_capacity is flagged.
+  final double capacityThresholdPercent;
+
   final DateTime Function() _clock;
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
@@ -37,9 +46,7 @@ class MemoryPressureDetector extends BaseDetector {
   // -- Heap trend rolling window --
 
   static const int _windowCapacity = 60; // 30 seconds at 500ms
-  static const int _growthThresholdBytesPerSec = 512000; // ~500 KB/sec
   static const int _sustainedGrowthDurationSec = 10;
-  static const double _capacityThresholdPercent = 0.80;
   static const int _nativeGrowthThresholdBytesPerSec = 1048576; // 1 MB/sec
 
   final List<HeapSample> _heapSamples = [];
@@ -145,7 +152,7 @@ class MemoryPressureDetector extends BaseDetector {
 
     final slope = _computeSlopeBytesPerSec();
 
-    if (slope > _growthThresholdBytesPerSec) {
+    if (slope > growthThresholdBytesPerSec) {
       _sustainedGrowthStart ??= _heapSamples.last.timestamp;
       final sustained =
           _heapSamples.last.timestamp.difference(_sustainedGrowthStart!);
@@ -207,7 +214,7 @@ class MemoryPressureDetector extends BaseDetector {
     if (latest.heapCapacity <= 0) return;
 
     final ratio = latest.heapUsage / latest.heapCapacity;
-    if (ratio > _capacityThresholdPercent) {
+    if (ratio > capacityThresholdPercent) {
       final pct = (ratio * 100).toStringAsFixed(0);
       final (hint, effort) = FixHintBuilder.heapNearCapacity();
       _issues.add(PerformanceIssue(

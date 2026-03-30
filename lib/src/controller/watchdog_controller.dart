@@ -10,6 +10,7 @@ import '../ui/watchdog_theme.dart';
 import '../analyzer/detector_correlator.dart';
 import '../analyzer/frame_event_correlator.dart';
 import '../analyzer/render_pipeline_analyzer.dart';
+import 'detector_thresholds.dart';
 import '../debug/debug_instrumentation_config.dart';
 import '../debug/debug_instrumentation_coordinator.dart';
 import '../debug/debug_snapshot.dart';
@@ -358,11 +359,13 @@ class WatchdogController {
       onFrameStats: _onFrameStats,
     )..isEnabled = enabled.contains(DetectorType.frameTiming);
 
-    _shaderJank = ShaderJankDetector()
-      ..isEnabled = enabled.contains(DetectorType.shaderJank);
+    _shaderJank = ShaderJankDetector(
+      thresholdMs: config.thresholds.shaderJankMs,
+    )..isEnabled = enabled.contains(DetectorType.shaderJank);
 
-    _heavyCompute = HeavyComputeDetector()
-      ..isEnabled = enabled.contains(DetectorType.heavyCompute);
+    _heavyCompute = HeavyComputeDetector(
+      lagThresholdMs: config.thresholds.heavyComputeGapMs,
+    )..isEnabled = enabled.contains(DetectorType.heavyCompute);
 
     _platformChannel = PlatformChannelDetector(
       callsPerSecThreshold: config.platformChannelLimit,
@@ -371,6 +374,8 @@ class WatchdogController {
 
     _memoryPressure = MemoryPressureDetector(
       warmupDurationMs: config.memoryWarmupDurationMs,
+      growthThresholdBytesPerSec: config.thresholds.memoryGrowthBytesPerSec,
+      capacityThresholdPercent: config.thresholds.memoryCapacityPercent,
     )..isEnabled = enabled.contains(DetectorType.memoryPressure);
 
     _repaint = RepaintDetector()
@@ -379,14 +384,17 @@ class WatchdogController {
     _rebuild = RebuildDetector(rebuildsPerSecThreshold: config.rebuildThreshold)
       ..isEnabled = enabled.contains(DetectorType.rebuild);
 
-    _setStateScope = SetStateScopeDetector()
-      ..isEnabled = enabled.contains(DetectorType.setStateScope);
+    _setStateScope = SetStateScopeDetector(
+      dirtyRatioThreshold: config.thresholds.setStateScopeOwnershipPercent,
+    )..isEnabled = enabled.contains(DetectorType.setStateScope);
 
-    _gpuPressure = GpuPressureDetector()
-      ..isEnabled = enabled.contains(DetectorType.gpuPressure);
+    _gpuPressure = GpuPressureDetector(
+      rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
+    )..isEnabled = enabled.contains(DetectorType.gpuPressure);
 
-    _shallowRebuildRisk = ShallowRebuildRiskDetector()
-      ..isEnabled = enabled.contains(DetectorType.shallowRebuildRisk);
+    _shallowRebuildRisk = ShallowRebuildRiskDetector(
+      depthThreshold: config.thresholds.shallowRebuildMaxDepth,
+    )..isEnabled = enabled.contains(DetectorType.shallowRebuildRisk);
 
     _layoutBottleneck = LayoutBottleneckDetector()
       ..isEnabled = enabled.contains(DetectorType.layoutBottleneck);
@@ -406,17 +414,20 @@ class WatchdogController {
     _customPainter = CustomPainterDetector()
       ..isEnabled = enabled.contains(DetectorType.customPainter);
 
-    _keepAlive = KeepAliveDetector()
-      ..isEnabled = enabled.contains(DetectorType.keepAlive);
+    _keepAlive = KeepAliveDetector(
+      threshold: config.thresholds.keepAliveMax,
+    )..isEnabled = enabled.contains(DetectorType.keepAlive);
 
-    _animatedBuilder = AnimatedBuilderDetector()
-      ..isEnabled = enabled.contains(DetectorType.animatedBuilder);
+    _animatedBuilder = AnimatedBuilderDetector(
+      minSubtreeSize: config.thresholds.animatedBuilderMinSubtreeSize,
+    )..isEnabled = enabled.contains(DetectorType.animatedBuilder);
 
     _opacity = OpacityDetector()
       ..isEnabled = enabled.contains(DetectorType.opacity);
 
-    _fontLoading = FontLoadingDetector()
-      ..isEnabled = enabled.contains(DetectorType.fontLoading);
+    _fontLoading = FontLoadingDetector(
+      maxFamilies: config.thresholds.fontLoadingMaxFamilies,
+    )..isEnabled = enabled.contains(DetectorType.fontLoading);
 
     _networkMonitor = NetworkMonitorDetector(
       slowThresholdMs: config.slowRequestThresholdMs,
@@ -1473,6 +1484,7 @@ class WatchdogConfig {
     this.platformChannelDurationThresholdMs = 8,
     this.suppressedIssues = const {},
     this.customDetectors = const [],
+    this.thresholds = const DetectorThresholds(),
   });
 
   /// Custom theme for the overlay UI.
@@ -1584,6 +1596,10 @@ class WatchdogConfig {
   /// Custom detectors are always enabled regardless of [enabledDetectors].
   /// The controller disposes custom detectors when it is itself disposed.
   final List<BaseDetector> customDetectors;
+
+  /// Detector-specific thresholds for fine-tuning performance detection.
+  /// See [DetectorThresholds] for available parameters and defaults.
+  final DetectorThresholds thresholds;
 }
 
 /// Lightweight struct for sorting allocation profile entries.

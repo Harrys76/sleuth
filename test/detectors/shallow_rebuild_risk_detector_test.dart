@@ -224,6 +224,38 @@ void main() {
             ObservationSource.debugCallbackAndStructural);
       });
     });
+
+    // -----------------------------------------------------------------
+    // Custom thresholds
+    // -----------------------------------------------------------------
+
+    testWidgets('custom depthThreshold allows deeper shallow widgets',
+        (tester) async {
+      // Depth 5 means only widgets at depth ≤5 are flagged.
+      // _ShallowChild is at depth 1 — still within threshold.
+      detector = ShallowRebuildRiskDetector(depthThreshold: 5);
+      detector.vmConnected = true;
+      detector.processTimelineData(highBuildActivityData(buildCount: 25));
+
+      await tester.pumpWidget(const _ShallowStatefulApp());
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isNotEmpty);
+    });
+
+    testWidgets('depthThreshold 0 only flags root-level StatefulWidgets',
+        (tester) async {
+      // Depth 0 means only depth ≤ 0 widgets are flagged.
+      // _ShallowChild at depth 1 is already too deep.
+      detector = ShallowRebuildRiskDetector(depthThreshold: 0);
+      detector.vmConnected = true;
+      detector.processTimelineData(highBuildActivityData(buildCount: 25));
+
+      await tester.pumpWidget(const _ShallowStatefulApp());
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isEmpty);
+    });
   });
 }
 

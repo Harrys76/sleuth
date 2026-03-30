@@ -9,7 +9,7 @@ import '../utils/fix_hint_builder.dart';
 /// **Structural Detector** — flags Text/RichText using non-system fonts
 /// that may not be loaded, causing invisible text or layout shifts.
 class FontLoadingDetector extends BaseDetector {
-  FontLoadingDetector()
+  FontLoadingDetector({this.maxFamilies = 3})
       : super(
           type: DetectorType.fontLoading,
           lifecycle: DetectorLifecycle.structural,
@@ -17,6 +17,7 @@ class FontLoadingDetector extends BaseDetector {
           description: 'Detects unloaded fonts in use',
         );
 
+  final int maxFamilies;
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
 
@@ -86,7 +87,7 @@ class FontLoadingDetector extends BaseDetector {
 
     // Note: We can detect custom font usage but can't confirm loading
     // status from the widget tree alone. Flag as informational.
-    if (customFonts.length > 3) {
+    if (customFonts.length > maxFamilies) {
       final (hint, effort) = FixHintBuilder.multipleCustomFonts(
         fontCount: customFonts.length,
         families: customFonts.toList(),

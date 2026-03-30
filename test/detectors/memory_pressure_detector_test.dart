@@ -992,5 +992,65 @@ void main() {
             reason: 'Stale enrichment from prior episode should be cleared');
       }
     });
+
+    // -----------------------------------------------------------------
+    // Custom thresholds
+    // -----------------------------------------------------------------
+
+    test('custom growthThresholdBytesPerSec lowers detection sensitivity', () {
+      // Lower threshold: 256000 bytes/sec (~256KB/s)
+      final custom = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 0,
+        growthThresholdBytesPerSec: 256000,
+      );
+
+      // ~300KB/s growth for 12 seconds — above 256KB/s but below default 512KB/s
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        custom.processHeapSample(_sample(
+          heapUsage: 50000000 + i * 150000, // 300KB/s
+          timestamp: fakeNow,
+        ));
+      }
+
+      final heapIssues =
+          custom.issues.where((i) => i.stableId == 'heap_growing');
+      expect(heapIssues, hasLength(1));
+    });
+
+    test('custom capacityThresholdPercent lowers detection sensitivity', () {
+      final custom = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 0,
+        capacityThresholdPercent: 0.60,
+      );
+
+      fakeNow = fakeNow.add(const Duration(seconds: 1));
+      custom.processHeapSample(_sample(
+        heapUsage: 65000000, // 65% — above 60%, below default 80%
+        heapCapacity: 100000000,
+        timestamp: fakeNow,
+      ));
+
+      final capIssues =
+          custom.issues.where((i) => i.stableId == 'heap_near_capacity');
+      expect(capIssues, hasLength(1));
+    });
+
+    test('default thresholds do not fire at sub-default levels', () {
+      // Verify default 512KB/s threshold does NOT fire at 300KB/s
+      for (var i = 0; i < 24; i++) {
+        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+        detector.processHeapSample(_sample(
+          heapUsage: 50000000 + i * 150000,
+          timestamp: fakeNow,
+        ));
+      }
+
+      final heapIssues =
+          detector.issues.where((i) => i.stableId == 'heap_growing');
+      expect(heapIssues, isEmpty);
+    });
   });
 }

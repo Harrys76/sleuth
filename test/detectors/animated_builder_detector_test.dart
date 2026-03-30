@@ -151,6 +151,30 @@ void main() {
         );
       });
     });
+
+    // -----------------------------------------------------------------
+    // Custom thresholds
+    // -----------------------------------------------------------------
+
+    testWidgets('custom minSubtreeSize lowers detection threshold',
+        (tester) async {
+      // MediumAnimatedBuilder has 15-child subtree (Column + 15 SizedBox).
+      // Default threshold (20) ignores it, but minSubtreeSize: 5 fires.
+      detector = AnimatedBuilderDetector(minSubtreeSize: 5);
+      await tester.pumpWidget(const MediumAnimatedBuilder());
+      detector.scanTree(tester.element(find.byType(MediumAnimatedBuilder)));
+
+      expect(detector.issues, isNotEmpty);
+    });
+
+    testWidgets('default minSubtreeSize ignores medium subtrees',
+        (tester) async {
+      // MediumAnimatedBuilder has 15-child subtree — below default 20.
+      await tester.pumpWidget(const MediumAnimatedBuilder());
+      detector.scanTree(tester.element(find.byType(MediumAnimatedBuilder)));
+
+      expect(detector.issues, isEmpty);
+    });
   });
 }
 

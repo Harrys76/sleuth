@@ -140,8 +140,9 @@ class GpuPressureDetector extends BaseDetector {
       _issues.add(
         PerformanceIssue(
           stableId: 'raster_dominance',
-          severity:
-              ratio > 3.0 ? IssueSeverity.critical : IssueSeverity.warning,
+          severity: ratio > rasterMultiplierThreshold * 2
+              ? IssueSeverity.critical
+              : IssueSeverity.warning,
           category: IssueCategory.raster,
           confidence: IssueConfidence.confirmed,
           title: 'Raster Dominance: ${ratio.toStringAsFixed(1)}× UI time',

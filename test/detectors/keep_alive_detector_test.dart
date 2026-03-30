@@ -311,6 +311,47 @@ void main() {
       expect(detector.issues, isEmpty);
       expect(detector.highlights, isEmpty);
     });
+
+    // -----------------------------------------------------------------
+    // Custom thresholds
+    // -----------------------------------------------------------------
+
+    testWidgets('higher threshold allows more keep-alive pages',
+        (tester) async {
+      // threshold: 10 means up to 10 keep-alive pages are acceptable
+      detector = KeepAliveDetector(threshold: 10);
+      final controller = PageController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            height: 400,
+            width: 400,
+            child: PageView(
+              controller: controller,
+              children: List.generate(
+                6,
+                (i) => _KeepAlivePage(key: ValueKey(i), label: 'Page $i'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Visit all pages to create KeepAlive nodes
+      for (var i = 1; i < 6; i++) {
+        controller.jumpToPage(i);
+        await tester.pumpAndSettle();
+      }
+      controller.jumpToPage(0);
+      await tester.pumpAndSettle();
+
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      // 5 keep-alives (pages 1-5 retained) — below threshold of 10
+      expect(detector.issues, isEmpty);
+    });
   });
 }
 

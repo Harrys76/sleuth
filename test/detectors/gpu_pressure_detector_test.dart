@@ -257,6 +257,43 @@ void main() {
         expect(detector.highlights, isEmpty);
       });
     });
+
+    // -----------------------------------------------------------------
+    // Custom thresholds
+    // -----------------------------------------------------------------
+
+    testWidgets('custom rasterMultiplierThreshold fires at adjusted ratio',
+        (tester) async {
+      detector = GpuPressureDetector(rasterMultiplierThreshold: 2.0);
+      detector.vmConnected = true;
+      // UI = 5000+3000+2000 = 10000; Raster 25000; ratio = 2.5 > 2.0 → warning
+      detector.processTimelineData(rasterDominantData(rasterUs: 25000));
+      await tester.pumpWidget(const _GpuTestApp());
+      detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+    });
+
+    testWidgets('custom threshold below ratio does not fire', (tester) async {
+      detector = GpuPressureDetector(rasterMultiplierThreshold: 2.0);
+      detector.vmConnected = true;
+      // UI = 10000; Raster 18000; ratio = 1.8 < 2.0 → no issue
+      detector.processTimelineData(rasterDominantData(rasterUs: 18000));
+      await tester.pumpWidget(const _GpuTestApp());
+      detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+      expect(detector.issues, isEmpty);
+    });
+
+    testWidgets('custom threshold critical at 2x multiplier', (tester) async {
+      detector = GpuPressureDetector(rasterMultiplierThreshold: 2.0);
+      detector.vmConnected = true;
+      // UI = 10000; Raster 45000; ratio = 4.5 > 4.0 (2.0*2) → critical
+      detector.processTimelineData(rasterDominantData(rasterUs: 45000));
+      await tester.pumpWidget(const _GpuTestApp());
+      detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+    });
   });
 }
 

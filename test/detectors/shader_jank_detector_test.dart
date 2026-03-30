@@ -113,5 +113,35 @@ void main() {
       detector.dispose();
       expect(detector.issues, isEmpty);
     });
+
+    // -----------------------------------------------------------------
+    // Custom thresholds
+    // -----------------------------------------------------------------
+
+    test('custom threshold fires at lower value', () {
+      detector = ShaderJankDetector(thresholdMs: 50);
+      detector.processTimelineData(
+        shaderCompileData(shaderDurationsUs: [75000]), // 75ms > 50ms
+      );
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+    });
+
+    test('custom threshold below value does not fire', () {
+      detector = ShaderJankDetector(thresholdMs: 50);
+      detector.processTimelineData(
+        shaderCompileData(shaderDurationsUs: [40000]), // 40ms < 50ms
+      );
+      expect(detector.issues, isEmpty);
+    });
+
+    test('custom threshold critical at 2x', () {
+      detector = ShaderJankDetector(thresholdMs: 50);
+      detector.processTimelineData(
+        shaderCompileData(shaderDurationsUs: [110000]), // 110ms >= 100ms (50*2)
+      );
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+    });
   });
 }

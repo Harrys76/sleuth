@@ -50,7 +50,9 @@ class ShaderJankDetector extends BaseDetector {
         final (hint, effort) = FixHintBuilder.shaderCompilation();
         _issues.add(PerformanceIssue(
           stableId: 'shader_compilation',
-          severity: ms >= 200 ? IssueSeverity.critical : IssueSeverity.warning,
+          severity: ms >= thresholdMs * 2
+              ? IssueSeverity.critical
+              : IssueSeverity.warning,
           category: IssueCategory.raster,
           confidence: IssueConfidence.confirmed,
           title: 'Shader Compilation: ${ms.toStringAsFixed(0)}ms',

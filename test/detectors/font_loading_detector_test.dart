@@ -189,5 +189,43 @@ void main() {
       detector.dispose();
       expect(detector.issues, isEmpty);
     });
+
+    // -----------------------------------------------------------------
+    // Custom thresholds
+    // -----------------------------------------------------------------
+
+    testWidgets('custom maxFamilies fires at lower count', (tester) async {
+      detector = FontLoadingDetector(maxFamilies: 1);
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              Text('A', style: TextStyle(fontFamily: 'Lobster')),
+              Text('B', style: TextStyle(fontFamily: 'Pacifico')),
+            ],
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, hasLength(1));
+    });
+
+    testWidgets('default maxFamilies allows 3 custom fonts', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              Text('A', style: TextStyle(fontFamily: 'Lobster')),
+              Text('B', style: TextStyle(fontFamily: 'Pacifico')),
+              Text('C', style: TextStyle(fontFamily: 'DancingScript')),
+            ],
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, isEmpty);
+    });
   });
 }
