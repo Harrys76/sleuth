@@ -71,11 +71,27 @@ WidgetWatchdog.wrap(
       DetectorType.imageMemory,
       // ... add only the detectors you need
     },
+    suppressedIssues: {'opacity_zero', 'font_*'}, // hide known issues by stableId (exact or wildcard)
+    thresholds: DetectorThresholds(
+      shaderJankMs: 50,              // shader compilation warning threshold
+      heavyComputeGapMs: 200,        // heavy compute gap threshold
+      gpuPressureRatio: 1.5,         // raster/UI time ratio for GPU pressure
+    ),
+    customDetectors: [MyCustomDetector()], // plug in domain-specific detectors
   ),
 );
 ```
 
 **Debug callbacks note:** `enableDebugCallbacks` installs `debugOnRebuildDirtyWidget` and `debugOnProfilePaint` hooks. These conflict with DevTools "Track Widget Rebuilds" — only one can be active at a time. Default `false` to avoid surprising DevTools users.
+
+**Overlay theming:** The overlay auto-detects light/dark backgrounds. Override with `WatchdogThemeData`:
+
+```dart
+WidgetWatchdog.wrap(
+  child: MyApp(),
+  theme: WatchdogThemeData.light().copyWith(cardBackground: Color(0xFFF5F5F5)),
+);
+```
 
 ## Session Export
 
@@ -145,16 +161,19 @@ Issues include a confidence level reflecting evidence quality:
 | AnimatedBuilder | Element tree | No child param on large subtree | Possible | Only matters if subtree is large |
 | Opacity | Element tree | Opacity(0.0) widget present | Possible | Widget still participates in hit testing and semantics |
 | Font Loading | Element tree | Non-system font in use | Possible | Font may already be loaded |
+| RepaintBoundary | Element + render tree | Expensive GPU widget without RepaintBoundary ancestor | Possible–Confirmed | Escalates with debug paint rate evidence |
 
 ## What This Does Better Than DevTools
 
 - **Always on**: no separate tool window, no connection setup — performance data is visible as you use your app
-- **Structural analysis**: finds anti-patterns (non-lazy lists, uncached images, excessive GlobalKeys) that DevTools does not flag
-- **Network monitoring**: in-app detection of slow requests, request floods, and oversized responses with actionable fix hints
+- **22 detectors**: structural anti-patterns (non-lazy lists, uncached images, excessive GlobalKeys, missing RepaintBoundary) that DevTools does not flag
+- **Causal issue graph**: links root causes to downstream effects — see why an issue matters, not just that it exists
+- **Network monitoring**: in-app detection of slow requests, request floods, oversized responses, and network-to-frame correlation
 - **Heap trend monitoring**: detects sustained memory growth and near-capacity conditions without heap snapshots
 - **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed
 - **Source-location enrichment**: ancestor chains include file:line in debug mode, linking issues directly to source code
 - **Actionable fix hints**: every issue includes what to change, not just what went wrong
+- **Customizable**: suppress known issues, tune detector thresholds, plug in custom detectors, theme the overlay
 - **Zero setup**: one line of code, no browser tab, no port forwarding
 
 ## What DevTools Still Does Better
@@ -176,14 +195,14 @@ To set clear expectations:
 
 ## Example App
 
-The `example/` directory includes 15 demo screens, each triggering a specific detector:
+The `example/` directory includes 18 demo screens, each triggering a specific detector:
 
 ```bash
 cd example
 flutter run
 ```
 
-Demos cover: high-level setState, non-lazy ListView, IntrinsicHeight abuse, always-repaint CustomPainter, uncached images, GlobalKey overuse, nested scroll, heavy compute, KeepAlive overuse, Opacity zero, AnimatedBuilder without child, shallow rebuild risk, font loading stress, repaint stress, and network stress.
+Demos cover: high-level setState, non-lazy ListView, IntrinsicHeight abuse, always-repaint CustomPainter, uncached images, GlobalKey overuse, nested scroll, heavy compute, KeepAlive overuse, Opacity zero, AnimatedBuilder without child, shallow rebuild risk, font loading stress, repaint stress, network stress, FPS stress test, and two combined multi-detector scenarios (analytics dashboard, social feed).
 
 Each demo includes `BAD:` and `FIX:` annotations explaining the anti-pattern and its fix.
 

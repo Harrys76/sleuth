@@ -101,7 +101,7 @@ Accurate. Key notes:
 ## Key Architecture Context
 
 - **FloatingIssuesCard** — `Transform.translate` for drag (compositing-only). `ConstrainedBox` for size. `_cardOffset` nullable (initialized on first build to right side). `_cardHeight` nullable (only set when user drags resize handle).
-- **WatchdogController** — orchestrates 21 detectors, scan loop, verdict pipeline. `issuesNotifier` (ValueNotifier) and `frameStatsNotifier` drive the card UI.
+- **WatchdogController** — orchestrates 22 detectors, scan loop, verdict pipeline. `issuesNotifier` (ValueNotifier) and `frameStatsNotifier` drive the card UI.
 - **Three-tier verdict** — Correlated > Full > Basic. Falls back automatically based on VM service availability.
 - **IssueRanker** — weighted composite scoring in `ranking/`. Drives issue list order in card.
 

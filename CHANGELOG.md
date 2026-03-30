@@ -1,3 +1,63 @@
+## 0.7.0
+
+### Added
+
+- **Issue suppression** (v4.1): `WatchdogConfig.suppressedIssues` filters issues
+  by `stableId` pattern (exact match or trailing `*` wildcard). Applied
+  post-correlate, pre-rank. `suppressedCountNotifier` for UI display.
+  `SessionSnapshot.suppressedCount` for export.
+- **Custom detector plugin API** (v4.2): `WatchdogConfig.customDetectors` accepts
+  `List<BaseDetector>` for domain-specific detectors. Custom detectors integrate
+  into all 7 controller lifecycle points (init, debug snapshot, structural scans,
+  highlights, timeline data, issue aggregation, dispose). Always enabled
+  regardless of `enabledDetectors`. Barrel file exports `BaseDetector`,
+  `ParsedTimelineData`, `DebugSnapshot`.
+- **Overlay theming** (v5.1): `WatchdogThemeData` with 60 color tokens extracted
+  from 6 UI files. Dark defaults match original values exactly.
+  `WatchdogThemeData.light()` for light-background apps. Auto-brightness
+  detection via `MediaQuery.platformBrightness`. `copyWith()` for custom
+  overrides. `WatchdogTheme` InheritedWidget with dark fallback.
+- **Export enrichment** (v5.2): `SessionSnapshot` schema v2 with `PhaseEvent`
+  toJson/fromJson + rolling buffer, `GcEventSummary` + `PlatformChannelSummary`
+  serializable wrappers, `FpsPercentiles` (p50/p95/p99), `rankingScore` /
+  `rankingBreakdown` on `PerformanceIssue`, `recentFrames` (last 60),
+  `schemaVersion` field. All new fields nullable for backward compat.
+- **Causal issue graph** (v5.3): 23 cause-effect rules build a directed graph,
+  identifying root causes and annotating issues with `rootCauseId` /
+  `downstreamIds`. Confidence suppression hides `possible` downstream when root
+  is `confirmed` / `likely`. UI: FloatingIssuesCard filters downstream from main
+  list, IssueCard shows `↳ N` badge + "Related effects" section. 1 new theme
+  token (`effectsBadge`).
+- **Configurable detector thresholds** (v5.4): `DetectorThresholds` nested config
+  class on `WatchdogConfig` with 10 tunable parameters. All defaults match
+  pre-change hardcoded values. Secondary severity thresholds scale with primary
+  (`* 2`). Barrel exports `DetectorThresholds`.
+- **Network-to-frame correlation** (v5.6): `NetworkMonitorDetector` gains active
+  request tracking via `startRequest()` / `endRequest()`. `FrameVerdict` gains
+  `pendingRequestCount` and `slowestPendingMs` fields. `WatchdogHttpOverrides`
+  gains `onRequestStarted` / `onRequestEnded` callbacks. Controller enriches all
+  3 verdict paths. 2 new causal graph rules. Zero overhead when network
+  monitoring disabled.
+- **RepaintBoundary coverage detector** (v5.8): 22nd detector
+  (`DetectorType.repaintBoundary`, structural). Walks element tree for 5
+  expensive GPU widget types (`Opacity`, `ClipPath`, `BackdropFilter`,
+  `ShaderMask`, `CustomPaint`), checks render tree for `RenderRepaintBoundary`
+  within 3 ancestor levels. Three-tier confidence: `possible` → `likely`
+  (>10/sec) → `confirmed` (>30/sec). 3 new causal graph rules.
+
+### Changed
+
+- **Detector registry** (v5.5): replaced 21 individual detector fields in
+  `WatchdogController` with unified `List<BaseDetector>` registry. 7 dispatch
+  methods use lifecycle-filtered loops. Adding a new detector now requires 1 new
+  file, 1 enum value, 1 line in the registry. ~-90 net lines in controller.
+- **Example app modularized** (v4.5): extracted 18 demo screens from
+  `example/lib/main.dart` (1,807 lines) into individual files under
+  `example/lib/demos/`. `main.dart` reduced to 239 lines.
+- **FloatingIssuesCard sub-widgets extracted** (v4.4): `_StatusRow`,
+  `_CardFooter`, `_WarningBanners` extracted — state class reduced from 659 to
+  433 lines. Zero behavior change.
+
 ## 0.6.1
 
 ### Fixed

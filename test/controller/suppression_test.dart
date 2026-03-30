@@ -200,7 +200,7 @@ void main() {
     group('title fallback', () {
       testWidgets('title fallback when stableId is null', (tester) async {
         // We can't easily produce a null-stableId issue from real detectors
-        // (all 21 set stableId), so we test the matching logic indirectly:
+        // (all 22 set stableId), so we test the matching logic indirectly:
         // suppress a pattern matching a title, and verify behavior when a
         // real issue has a stableId that does NOT match but the title would.
         // Instead, test that the existing stableId takes precedence.

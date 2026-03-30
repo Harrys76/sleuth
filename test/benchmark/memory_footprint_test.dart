@@ -72,7 +72,7 @@ void main() {
 
       final issues = controller.issuesNotifier.value;
 
-      // With 21 detectors, each producing at most a few issues,
+      // With 22 detectors, each producing at most a few issues,
       // the total should be bounded. We use 50 as a generous upper bound.
       expect(issues.length, lessThan(50));
 
