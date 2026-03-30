@@ -36,7 +36,7 @@ class CausalGraphRule extends CorrelationRule {
   @override
   String get name => 'CausalGraph';
 
-  // 20 causal rules. Order doesn't matter — all are evaluated, and the
+  // 23 causal rules. Order doesn't matter — all are evaluated, and the
   // graph is built from the full edge set.
   static const _causalRules = <CausalRule>[
     // setState-triggered chains (rebuild intermediate absorbed by Rule 2)
@@ -51,6 +51,11 @@ class CausalGraphRule extends CorrelationRule {
     CausalRule('always_repaint_painter', 'raster_dominance'),
     CausalRule('always_repaint_painter', 'excessive_repaint'),
     CausalRule('always_repaint_painter', 'excessive_repaint_debug'),
+
+    // Missing RepaintBoundary → paint/raster chains
+    CausalRule('missing_repaint_boundary', 'excessive_repaint'),
+    CausalRule('missing_repaint_boundary', 'excessive_repaint_debug'),
+    CausalRule('missing_repaint_boundary', 'raster_dominance'),
 
     // AnimatedBuilder → rebuild chains (only fires if not suppressed)
     CausalRule('animated_builder_no_child', 'rebuild_activity'),

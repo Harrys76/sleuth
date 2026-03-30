@@ -7,7 +7,7 @@ import 'widget_highlight.dart';
 
 /// Available detector types for configuration via [WatchdogConfig.enabledDetectors].
 ///
-/// Each value corresponds to one of the 21 performance detectors.
+/// Each value corresponds to one of the 22 performance detectors.
 /// Pass a subset to [WatchdogConfig] to enable only specific detectors.
 enum DetectorType {
   frameTiming,
@@ -31,6 +31,7 @@ enum DetectorType {
   opacity,
   fontLoading,
   networkMonitor,
+  repaintBoundary,
   custom,
 }
 

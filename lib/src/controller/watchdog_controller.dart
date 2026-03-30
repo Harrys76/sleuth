@@ -35,6 +35,7 @@ import '../detectors/animated_builder_detector.dart';
 import '../detectors/opacity_detector.dart';
 import '../detectors/font_loading_detector.dart';
 import '../detectors/network_monitor_detector.dart';
+import '../detectors/repaint_boundary_detector.dart';
 import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
 import '../models/gc_event_summary.dart';
@@ -401,6 +402,8 @@ class WatchdogController {
       FontLoadingDetector(
         maxFamilies: config.thresholds.fontLoadingMaxFamilies,
       )..isEnabled = enabled.contains(DetectorType.fontLoading),
+      RepaintBoundaryDetector()
+        ..isEnabled = enabled.contains(DetectorType.repaintBoundary),
       _networkMonitor,
       // Custom detectors — always enabled (explicitly opted-in via config)
       for (final d in config.customDetectors) d..isEnabled = true,

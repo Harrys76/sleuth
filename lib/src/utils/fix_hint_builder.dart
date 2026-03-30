@@ -554,6 +554,28 @@ class FixHintBuilder {
   }
 
   // ---------------------------------------------------------------------------
+  // RepaintBoundaryDetector
+  // ---------------------------------------------------------------------------
+
+  static (String, FixEffort) missingRepaintBoundary({
+    String? widgetName,
+    String? ancestorChain,
+  }) {
+    final ctx = _contextPrefix(widgetName, ancestorChain);
+    final name = widgetName ?? 'ExpensiveWidget';
+    return (
+      '${ctx}Wrap the expensive subtree in a RepaintBoundary to isolate '
+          'its repaints from parent layers:\n'
+          'RepaintBoundary(\n'
+          '  child: $name(...),\n'
+          ')\n'
+          'This prevents repaint propagation up the render tree when '
+          'the subtree updates.',
+      FixEffort.quick,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 

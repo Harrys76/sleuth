@@ -530,4 +530,48 @@ void main() {
       expect(result[1].rootCauseId, 'request_frequency');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Missing RepaintBoundary → downstream chains (v5.8)
+  // ---------------------------------------------------------------------------
+
+  group('missing RepaintBoundary causal chains', () {
+    test('missing_repaint_boundary → excessive_repaint chain', () {
+      final issues = [
+        makeIssue(
+          stableId: 'missing_repaint_boundary',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.possible,
+        ),
+        makeIssue(
+          stableId: 'excessive_repaint',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['excessive_repaint']);
+      expect(result[1].rootCauseId, 'missing_repaint_boundary');
+    });
+
+    test('missing_repaint_boundary → raster_dominance chain', () {
+      final issues = [
+        makeIssue(
+          stableId: 'missing_repaint_boundary',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'raster_dominance',
+          category: IssueCategory.raster,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['raster_dominance']);
+      expect(result[1].rootCauseId, 'missing_repaint_boundary');
+    });
+  });
 }

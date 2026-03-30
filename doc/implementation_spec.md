@@ -4166,6 +4166,24 @@ Files changed: `network_monitor_detector.dart` (+30), `frame_verdict.dart` (+35)
 
 ---
 
+**Post-Implementation Notes (v5.8):**
+
+Shipped. Key deviations from original spec:
+
+1. **Lifecycle is `structural`, not `hybrid`** — Spec said "Hybrid detector" but existing patterns (`CustomPainterDetector`, `AnimatedBuilderDetector`) show structural detectors receive debug snapshots via `updateDebugSnapshot()` (controller delivers to all enabled detectors regardless of lifecycle). `hybrid` adds VM timeline routing which this detector doesn't need.
+
+2. **Three-tier confidence (not two-tier)** — Spec described `possible` and `likely`/`confirmed` from VM repaint evidence. Implemented 3 tiers matching `CustomPainterDetector` pattern: `possible` (structural only), `likely` (debug paint rate >10/sec), `confirmed` (>30/sec). Uses `paintsPerSecondForType()` across all 5 expensive widget types, taking the max rate.
+
+3. **3 causal graph rules added (not in spec)** — Spec didn't mention causal rules. Added `missing_repaint_boundary → {excessive_repaint, excessive_repaint_debug, raster_dominance}` paralleling existing `always_repaint_painter` rules. Total: 23 causal rules.
+
+4. **Severity scales with finding count** — 1-3 findings: `warning`. 4+: `critical`. Provides signal strength without being noisy.
+
+5. **Dominant widget type in fix hint** — Tracks most common expensive widget type across findings and passes it to `FixHintBuilder.missingRepaintBoundary()` for specific code example in the hint.
+
+Files changed: `base_detector.dart` (+2), `fix_hint_builder.dart` (+20), `repaint_boundary_detector.dart` (new, +160), `watchdog_controller.dart` (+3), `causal_graph.dart` (+5). Tests: 12 new tests across 2 files. Total: 1,243 tests, 0 analysis issues.
+
+---
+
 ### v5.7: Accessibility — Semantics & Screen Reader Support
 
 **Problem:** The overlay has minimal accessibility support. The trigger button has no `Semantics` wrapper, issue card checkboxes have no semantic labels, expandable sections don't announce state changes, and transient feedback messages (export confirmation, highlight-not-found) are invisible to screen readers.
