@@ -68,7 +68,10 @@ export 'src/vm/timeline_parser.dart' show ParsedTimelineData;
 export 'src/debug/debug_snapshot.dart' show DebugSnapshot;
 export 'src/models/allocation_entry.dart';
 export 'src/models/cpu_attribution.dart';
+export 'src/models/gc_event_summary.dart';
 export 'src/models/heap_sample.dart';
+export 'src/models/phase_event.dart';
+export 'src/models/platform_channel_summary.dart';
 export 'src/network/request_record.dart';
 export 'src/utils/fix_hint_builder.dart';
 

@@ -3783,6 +3783,28 @@ Shipped. All acceptance criteria met. Implementation details vs. original spec:
 
 **Risk:** Low. Additive changes only. No behavior change for existing consumers.
 
+**Post-Implementation Notes (v5.2):**
+
+Shipped as planned with the following decisions:
+
+1. **Layer separation for GcEventSummary/PlatformChannelSummary:** Spec proposed `fromTimelineEvent` factories on the model classes, but models/ has zero `package:vm_service` imports. Instead, the controller extracts fields from `TimelineEvent.json!` inline and passes plain values to the model constructor. Cleaner layer boundary.
+
+2. **FPS percentiles — sorted ascending semantics:** `fpsPercentiles()` sorts FPS values ascending and picks indices at `floor((N-1) * p)`. p50 = median, p95/p99 = higher FPS (the "good" end). This means p99 >= p95 >= p50 — the percentile represents "X% of frames had FPS at or below this value."
+
+3. **`rankWithScores()` vs modifying `rank()`:** Added `rankWithScores()` as a separate method to avoid `copyWith` allocations on the per-scan hot path. Only the export path calls it. `rank()` unchanged.
+
+4. **Pre-init guard:** `exportSnapshot()` now guards `_buildRankingContext()` with `_initialized` check. Before init, `_frameTiming` is `late final` and uninitialized — uses `const IssueRankingContext()` fallback.
+
+5. **Schema version:** `schemaVersion` defaults to 2 in constructor (non-nullable int). `fromJson` defaults absent field to 1 for backward compat. All new fields nullable so v1 consumers calling `fromJson` on v2 data ignore unknown keys gracefully.
+
+6. **Buffer capacities:** Phase events: 100, GC events: 50, platform channel events: 50. All use `List` with `removeAt(0)` FIFO eviction. O(n) per eviction but n is small and this is a cold path (only during VM timeline polling).
+
+7. **`recentFrames` vs `capturedFrames`:** Both included in export. `capturedFrames` = worst 50 jank frames (curated). `recentFrames` = last 60 frames regardless of jank (temporal window for trend analysis).
+
+8. **Test count:** 1,121 → 1,165 (+44 tests). New tests in: serialization_test.dart (PhaseEvent, GcEventSummary, PlatformChannelSummary, FpsPercentiles, ranking fields, FrameStatsSummary fpsPercentiles, SessionSnapshot v2), fps_percentiles_test.dart, issue_ranker_test.dart (rankWithScores), export_snapshot_test.dart (buffer tests, v2 export fields, JSON roundtrip).
+
+Files changed: 14 (8 lib + 1 barrel + 5 test). 2 new model files, 1 new test file.
+
 ---
 
 ### v5.3: Causal Issue Graph — Root-Cause Clustering

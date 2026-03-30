@@ -55,6 +55,37 @@ class IssueRanker {
     return scored.map((s) => s.issue).toList();
   }
 
+  /// Returns a new list sorted by score with [PerformanceIssue.rankingScore]
+  /// and [PerformanceIssue.rankingBreakdown] attached via copyWith.
+  ///
+  /// More expensive than [rank] due to copyWith allocations — intended for
+  /// the export path only, not the per-scan hot path.
+  List<PerformanceIssue> rankWithScores(
+    List<PerformanceIssue> issues,
+    IssueRankingContext context,
+  ) {
+    if (issues.isEmpty) return issues;
+    final scored = <({PerformanceIssue issue, int score, int index})>[];
+    for (var i = 0; i < issues.length; i++) {
+      scored.add((
+        issue: issues[i],
+        score: _score(issues[i], context),
+        index: i,
+      ));
+    }
+    scored.sort((a, b) {
+      final cmp = b.score.compareTo(a.score);
+      if (cmp != 0) return cmp;
+      return a.index.compareTo(b.index);
+    });
+    return scored
+        .map((s) => s.issue.copyWith(
+              rankingScore: s.score,
+              rankingBreakdown: _breakdown(s.issue, context),
+            ))
+        .toList();
+  }
+
   /// Visible for testing.
   int scoreOf(PerformanceIssue issue, IssueRankingContext context) =>
       _score(issue, context);
@@ -104,5 +135,20 @@ class IssueRanker {
   int _recurrenceScore(String id, Map<String, int> counts) {
     final count = counts[id] ?? 0;
     return count.clamp(0, 5);
+  }
+
+  Map<String, int> _breakdown(
+      PerformanceIssue issue, IssueRankingContext context) {
+    var recurrence = _recurrenceScore(
+        issue.stableId ?? issue.title, context.recurrenceCounts);
+    if (issue.interactionContext == InteractionContext.scrolling) {
+      recurrence = (recurrence * 0.7).round();
+    }
+    return {
+      'severity': _severityScore(issue.severity) * 100,
+      'frameImpact': _frameImpactScore(issue.category, context) * 8,
+      'confidence': _confidenceScore(issue.confidence) * 5,
+      'recurrence': recurrence * 2,
+    };
   }
 }

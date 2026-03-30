@@ -78,6 +78,8 @@ class PerformanceIssue {
     this.ancestorChain,
     this.fixEffort,
     this.topAllocators,
+    this.rankingScore,
+    this.rankingBreakdown,
   });
 
   /// How severe this issue is (ok, warning, critical).
@@ -132,6 +134,15 @@ class PerformanceIssue {
   /// Populated by phase-2 enrichment from getAllocationProfile.
   final List<AllocationEntry>? topAllocators;
 
+  /// Composite ranking score from [IssueRanker].
+  /// Populated at export time by [IssueRanker.rankWithScores].
+  /// Null for issues that haven't been through the export path.
+  final int? rankingScore;
+
+  /// Score breakdown by component: severity, frameImpact, confidence, recurrence.
+  /// Each value is the weighted contribution to [rankingScore].
+  final Map<String, int>? rankingBreakdown;
+
   Map<String, dynamic> toJson() => {
         'severity': severity.name,
         'category': category.name,
@@ -152,6 +163,8 @@ class PerformanceIssue {
         if (fixEffort != null) 'fixEffort': fixEffort!.name,
         if (topAllocators != null)
           'topAllocators': topAllocators!.map((a) => a.toJson()).toList(),
+        if (rankingScore != null) 'rankingScore': rankingScore,
+        if (rankingBreakdown != null) 'rankingBreakdown': rankingBreakdown,
       };
 
   factory PerformanceIssue.fromJson(Map<String, dynamic> json) =>
@@ -186,6 +199,11 @@ class PerformanceIssue {
                 .map((a) => AllocationEntry.fromJson(a as Map<String, dynamic>))
                 .toList()
             : null,
+        rankingScore: json['rankingScore'] as int?,
+        rankingBreakdown: json['rankingBreakdown'] != null
+            ? (json['rankingBreakdown'] as Map<String, dynamic>)
+                .map((k, v) => MapEntry(k, v as int))
+            : null,
       );
 
   PerformanceIssue copyWith({
@@ -205,6 +223,8 @@ class PerformanceIssue {
     String? ancestorChain,
     FixEffort? fixEffort,
     List<AllocationEntry>? topAllocators,
+    int? rankingScore,
+    Map<String, int>? rankingBreakdown,
   }) {
     return PerformanceIssue(
       severity: severity ?? this.severity,
@@ -223,6 +243,8 @@ class PerformanceIssue {
       ancestorChain: ancestorChain ?? this.ancestorChain,
       fixEffort: fixEffort ?? this.fixEffort,
       topAllocators: topAllocators ?? this.topAllocators,
+      rankingScore: rankingScore ?? this.rankingScore,
+      rankingBreakdown: rankingBreakdown ?? this.rankingBreakdown,
     );
   }
 

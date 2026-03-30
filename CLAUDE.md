@@ -63,5 +63,6 @@ test/
 - v4.4: Extracted 3 private widgets (`_StatusRow`, `_CardFooter`, `_WarningBanners`) from `_FloatingIssuesCardState` — reduced state class from 659 to 433 lines. Zero behavior change.
 - v4.5: Extracted 18 demo screens from `example/lib/main.dart` (1,807 lines) into individual files under `example/lib/demos/`. `main.dart` reduced to 239 lines (app + router + route model).
 - v5.1: Overlay theming — extracted ~150 hardcoded hex colors from 6 UI files into `WatchdogThemeData` (60 tokens). Dark defaults match every original value exactly. `WatchdogThemeData.light()` for light-background apps. Auto-brightness detection via `MediaQuery.platformBrightness`. `copyWith()` for custom overrides. `WatchdogTheme` InheritedWidget with dark fallback for test compatibility. Zero visual change for existing users.
+- v5.2: Export enrichment — `SessionSnapshot` schema v2 with: `PhaseEvent` toJson/fromJson + rolling buffer (100), `GcEventSummary` + `PlatformChannelSummary` serializable wrappers, `FpsPercentiles` (p50/p95/p99) on `FrameStatsSummary`, `rankingScore`/`rankingBreakdown` on `PerformanceIssue` (via `IssueRanker.rankWithScores`), `recentFrames` (last 60 frames for trend analysis), `schemaVersion` field (v1 implicit, v2 explicit). All new fields nullable for backward compat. Barrel exports `PhaseEvent`, `GcEventSummary`, `PlatformChannelSummary`.
 - Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
-- ~1,121 tests, 0 analysis issues
+- ~1,165 tests, 0 analysis issues

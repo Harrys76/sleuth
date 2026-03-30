@@ -36,11 +36,14 @@ import '../detectors/font_loading_detector.dart';
 import '../detectors/network_monitor_detector.dart';
 import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
+import '../models/gc_event_summary.dart';
 import '../models/heap_sample.dart';
 import '../models/capture_buffer.dart';
 import '../models/frame_stats.dart';
 import '../models/frame_verdict.dart';
 import '../models/performance_issue.dart';
+import '../models/phase_event.dart';
+import '../models/platform_channel_summary.dart';
 import '../models/session_snapshot.dart';
 import '../models/widget_highlight.dart';
 import '../network/http_monitor.dart';
@@ -105,6 +108,14 @@ class WatchdogController {
   final DetectorCorrelator _detectorCorrelator = const DetectorCorrelator();
   final IssueRanker _ranker = const IssueRanker();
   final Map<String, int> _recurrenceCounts = {};
+
+  // Export enrichment buffers (rolling, fed from _onTimelineData)
+  final List<PhaseEvent> _phaseEventBuffer = [];
+  static const _phaseEventBufferCapacity = 100;
+  final List<GcEventSummary> _gcEventBuffer = [];
+  static const _gcEventBufferCapacity = 50;
+  final List<PlatformChannelSummary> _platformChannelBuffer = [];
+  static const _platformChannelBufferCapacity = 50;
 
   // Interaction context
   InteractionContext _interactionState = InteractionContext.idle;
@@ -452,6 +463,18 @@ class WatchdogController {
   void feedTimelineDataForTest(ParsedTimelineData data) =>
       _onTimelineData(data);
 
+  @visibleForTesting
+  List<PhaseEvent> get phaseEventBufferForTest =>
+      List.unmodifiable(_phaseEventBuffer);
+
+  @visibleForTesting
+  List<GcEventSummary> get gcEventBufferForTest =>
+      List.unmodifiable(_gcEventBuffer);
+
+  @visibleForTesting
+  List<PlatformChannelSummary> get platformChannelBufferForTest =>
+      List.unmodifiable(_platformChannelBuffer);
+
   /// Simulates the timeline path: re-aggregates and ranks issues without
   /// updating recurrence. Mirrors what [_onTimelineData] does.
   @visibleForTesting
@@ -483,6 +506,10 @@ class WatchdogController {
   JankCaptureBuffer get captureBufferForTest => _captureBuffer;
 
   /// Build a session snapshot for programmatic use.
+  ///
+  /// Includes schema version 2 fields: ranking scores on each issue,
+  /// FPS percentiles, phase/GC/platform-channel event buffers, and
+  /// a recent-frames time series.
   SessionSnapshot exportSnapshot() {
     final buffer =
         _initialized ? _frameTiming.frameBuffer : frameStatsNotifier.value;
@@ -493,17 +520,31 @@ class WatchdogController {
             .map((f) => f.effectiveTotalDuration.inMicroseconds)
             .reduce((a, b) => a > b ? a : b);
 
+    // Compute FPS percentiles at export time (lazy, not cached)
+    final percentiles = buffer.length >= 2 ? buffer.fpsPercentiles() : null;
+
+    // Attach ranking scores to issues (export-only, not on the hot path).
+    // Before init, _frameTiming is not available — use default context.
+    final rankingContext =
+        _initialized ? _buildRankingContext() : const IssueRankingContext();
+    final rankedWithScores = _ranker.rankWithScores(
+      issuesNotifier.value,
+      rankingContext,
+    );
+
     return SessionSnapshot(
+      schemaVersion: 2,
       exportedAt: DateTime.now(),
       capturedFrames: _captureBuffer.entries,
-      currentIssues: List.unmodifiable(issuesNotifier.value),
+      currentIssues: List.unmodifiable(rankedWithScores),
       frameStatsSummary: FrameStatsSummary(
         totalFrames: buffer.length,
         jankFrames: buffer.jankCount,
         averageFps: buffer.averageFps,
         worstFrameTimeUs: worstUs,
+        fpsPercentiles: percentiles,
       ),
-      packageVersion: '0.5.0',
+      packageVersion: '0.5.2',
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
       recentRequests:
@@ -514,6 +555,15 @@ class WatchdogController {
           ? _memoryPressure.heapSamples
           : null,
       suppressedCount: suppressedCountNotifier.value,
+      phaseEvents: _phaseEventBuffer.isNotEmpty
+          ? List.unmodifiable(_phaseEventBuffer)
+          : null,
+      gcEvents:
+          _gcEventBuffer.isNotEmpty ? List.unmodifiable(_gcEventBuffer) : null,
+      platformChannelEvents: _platformChannelBuffer.isNotEmpty
+          ? List.unmodifiable(_platformChannelBuffer)
+          : null,
+      recentFrames: frames.isNotEmpty ? List.unmodifiable(frames) : null,
     );
   }
 
@@ -899,6 +949,37 @@ class WatchdogController {
     // topFunctions when CPU samples arrive (or silently skips on timeout).
     if (captureFrame != null && captureVerdict != null) {
       _enrichVerdictWithCpuAttribution(captureFrame, captureVerdict);
+    }
+
+    // Buffer events for export enrichment (rolling, bounded)
+    for (final event in data.phaseEvents) {
+      if (_phaseEventBuffer.length >= _phaseEventBufferCapacity) {
+        _phaseEventBuffer.removeAt(0);
+      }
+      _phaseEventBuffer.add(event);
+    }
+    for (final event in data.gcEvents) {
+      if (_gcEventBuffer.length >= _gcEventBufferCapacity) {
+        _gcEventBuffer.removeAt(0);
+      }
+      final json = event.json!;
+      _gcEventBuffer.add(GcEventSummary(
+        timestampUs: json['ts'] as int? ?? 0,
+        durationUs: json['dur'] as int? ?? 0,
+        category: (json['cat'] as String?) ?? 'gc',
+        name: (json['name'] as String?) ?? 'GC',
+      ));
+    }
+    for (final event in data.platformChannelEvents) {
+      if (_platformChannelBuffer.length >= _platformChannelBufferCapacity) {
+        _platformChannelBuffer.removeAt(0);
+      }
+      final json = event.json!;
+      _platformChannelBuffer.add(PlatformChannelSummary(
+        timestampUs: json['ts'] as int? ?? 0,
+        durationUs: json['dur'] as int? ?? 0,
+        name: (json['name'] as String?) ?? 'channel',
+      ));
     }
   }
 
@@ -1314,6 +1395,9 @@ class WatchdogController {
     _lastScanContext = null;
     _recurrenceCounts.clear();
     _captureBuffer.clear();
+    _phaseEventBuffer.clear();
+    _gcEventBuffer.clear();
+    _platformChannelBuffer.clear();
 
     // Restore HttpOverrides before disposing detector
     if (_httpOverrides != null) {

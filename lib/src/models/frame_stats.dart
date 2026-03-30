@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:math' as math;
 
 /// A single frame's timing data from [SchedulerBinding.addTimingsCallback].
 class FrameStats {
@@ -189,5 +190,68 @@ class FrameStatsBuffer {
     _buffer.add(frame);
   }
 
+  /// Computes FPS percentiles from the current buffer contents.
+  ///
+  /// Converts each frame's [FrameStats.effectiveTotalDuration] to an
+  /// instantaneous FPS value, then picks p50/p95/p99 from the sorted list.
+  /// All values clamped to [0, 120] to match [averageFps] behavior.
+  ///
+  /// Returns zero percentiles when the buffer has fewer than 2 frames
+  /// (statistically meaningless). Consumers should check
+  /// [FrameStatsSummary.totalFrames] to judge significance.
+  FpsPercentiles fpsPercentiles() {
+    if (_buffer.length < 2) {
+      return const FpsPercentiles(p50: 0, p95: 0, p99: 0);
+    }
+    final fpsValues = _buffer.map((f) {
+      final us = f.effectiveTotalDuration.inMicroseconds;
+      if (us <= 0) return 120.0;
+      return (1000000.0 / us).clamp(0.0, 120.0);
+    }).toList()
+      ..sort();
+
+    double percentile(double p) {
+      final index = ((fpsValues.length - 1) * p).floor();
+      return double.parse(
+          fpsValues[math.min(index, fpsValues.length - 1)].toStringAsFixed(1));
+    }
+
+    return FpsPercentiles(
+      p50: percentile(0.5),
+      p95: percentile(0.95),
+      p99: percentile(0.99),
+    );
+  }
+
   void clear() => _buffer.clear();
+}
+
+/// FPS percentile values computed from a [FrameStatsBuffer].
+class FpsPercentiles {
+  const FpsPercentiles({
+    required this.p50,
+    required this.p95,
+    required this.p99,
+  });
+
+  /// Median FPS — 50th percentile.
+  final double p50;
+
+  /// 95th percentile FPS — tail latency indicator.
+  final double p95;
+
+  /// 99th percentile FPS — worst-case indicator.
+  final double p99;
+
+  Map<String, dynamic> toJson() => {
+        'p50': double.parse(p50.toStringAsFixed(1)),
+        'p95': double.parse(p95.toStringAsFixed(1)),
+        'p99': double.parse(p99.toStringAsFixed(1)),
+      };
+
+  factory FpsPercentiles.fromJson(Map<String, dynamic> json) => FpsPercentiles(
+        p50: (json['p50'] as num).toDouble(),
+        p95: (json['p95'] as num).toDouble(),
+        p99: (json['p99'] as num).toDouble(),
+      );
 }

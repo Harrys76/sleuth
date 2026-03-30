@@ -46,4 +46,22 @@ class PhaseEvent {
 
   /// Whether this event carries any enrichment data from timeline args.
   bool get hasEnrichment => dirtyCount != null || dirtyList != null;
+
+  Map<String, dynamic> toJson() => {
+        'phase': phase.name,
+        'timestampUs': timestampUs,
+        'durationUs': durationUs,
+        if (dirtyCount != null) 'dirtyCount': dirtyCount,
+        if (dirtyList != null) 'dirtyList': dirtyList,
+        if (scopeContext != null) 'scopeContext': scopeContext,
+      };
+
+  factory PhaseEvent.fromJson(Map<String, dynamic> json) => PhaseEvent(
+        phase: TimelinePhase.values.byName(json['phase'] as String),
+        timestampUs: json['timestampUs'] as int,
+        durationUs: json['durationUs'] as int,
+        dirtyCount: json['dirtyCount'] as int?,
+        dirtyList: (json['dirtyList'] as List<dynamic>?)?.cast<String>(),
+        scopeContext: json['scopeContext'] as String?,
+      );
 }

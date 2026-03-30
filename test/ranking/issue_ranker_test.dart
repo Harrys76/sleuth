@@ -394,5 +394,104 @@ void main() {
         expect(score, 213);
       });
     });
+
+    group('rankWithScores', () {
+      test('returns issues with non-null rankingScore', () {
+        final issues = [
+          makeIssue(severity: IssueSeverity.critical),
+          makeIssue(severity: IssueSeverity.warning),
+        ];
+        const context = IssueRankingContext();
+
+        final result = ranker.rankWithScores(issues, context);
+        expect(result, hasLength(2));
+        for (final issue in result) {
+          expect(issue.rankingScore, isNotNull);
+          expect(issue.rankingBreakdown, isNotNull);
+        }
+      });
+
+      test('sort order identical to rank()', () {
+        final issues = [
+          makeIssue(
+            severity: IssueSeverity.ok,
+            confidence: IssueConfidence.confirmed,
+            stableId: 'ok_1',
+          ),
+          makeIssue(
+            severity: IssueSeverity.critical,
+            confidence: IssueConfidence.possible,
+            stableId: 'critical_1',
+          ),
+          makeIssue(
+            severity: IssueSeverity.warning,
+            confidence: IssueConfidence.likely,
+            stableId: 'warning_1',
+          ),
+        ];
+        const context = IssueRankingContext();
+
+        final ranked = ranker.rank(issues, context);
+        final rankedWithScores = ranker.rankWithScores(issues, context);
+
+        for (var i = 0; i < ranked.length; i++) {
+          expect(rankedWithScores[i].title, ranked[i].title);
+          expect(rankedWithScores[i].severity, ranked[i].severity);
+        }
+      });
+
+      test('breakdown keys match expected components', () {
+        final issues = [makeIssue()];
+        const context = IssueRankingContext();
+
+        final result = ranker.rankWithScores(issues, context);
+        final breakdown = result.first.rankingBreakdown!;
+
+        expect(breakdown.containsKey('severity'), isTrue);
+        expect(breakdown.containsKey('frameImpact'), isTrue);
+        expect(breakdown.containsKey('confidence'), isTrue);
+        expect(breakdown.containsKey('recurrence'), isTrue);
+        expect(breakdown.length, 4);
+      });
+
+      test('breakdown values sum to rankingScore', () {
+        final issues = [
+          makeIssue(
+            severity: IssueSeverity.critical,
+            confidence: IssueConfidence.confirmed,
+            stableId: 'test_sum',
+          ),
+        ];
+        final context = IssueRankingContext(
+          jankActive: true,
+          suspectedPhase: PipelinePhase.build,
+          recurrenceCounts: {'test_sum': 3},
+        );
+
+        final result = ranker.rankWithScores(issues, context);
+        final score = result.first.rankingScore!;
+        final breakdown = result.first.rankingBreakdown!;
+        final sum = breakdown.values.reduce((a, b) => a + b);
+
+        expect(sum, score);
+      });
+
+      test('empty list returns empty', () {
+        const context = IssueRankingContext();
+        final result = ranker.rankWithScores([], context);
+        expect(result, isEmpty);
+      });
+
+      test('single-issue list gets score attached', () {
+        final issues = [makeIssue()];
+        const context = IssueRankingContext();
+
+        final result = ranker.rankWithScores(issues, context);
+        expect(result, hasLength(1));
+        expect(result.first.rankingScore, isNotNull);
+        expect(
+            result.first.rankingScore, ranker.scoreOf(issues.first, context));
+      });
+    });
   });
 }
