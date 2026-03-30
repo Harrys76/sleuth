@@ -80,6 +80,8 @@ class PerformanceIssue {
     this.topAllocators,
     this.rankingScore,
     this.rankingBreakdown,
+    this.rootCauseId,
+    this.downstreamIds,
   });
 
   /// How severe this issue is (ok, warning, critical).
@@ -143,6 +145,16 @@ class PerformanceIssue {
   /// Each value is the weighted contribution to [rankingScore].
   final Map<String, int>? rankingBreakdown;
 
+  /// StableId of the root-cause issue that explains this one.
+  /// Null for root issues and standalone issues (no causal chain).
+  /// Set by [CausalGraphRule] during cross-detector correlation.
+  final String? rootCauseId;
+
+  /// StableIds of downstream issues caused by this root issue.
+  /// Null for non-root issues and standalone issues.
+  /// Set by [CausalGraphRule] during cross-detector correlation.
+  final List<String>? downstreamIds;
+
   Map<String, dynamic> toJson() => {
         'severity': severity.name,
         'category': category.name,
@@ -165,6 +177,8 @@ class PerformanceIssue {
           'topAllocators': topAllocators!.map((a) => a.toJson()).toList(),
         if (rankingScore != null) 'rankingScore': rankingScore,
         if (rankingBreakdown != null) 'rankingBreakdown': rankingBreakdown,
+        if (rootCauseId != null) 'rootCauseId': rootCauseId,
+        if (downstreamIds != null) 'downstreamIds': downstreamIds,
       };
 
   factory PerformanceIssue.fromJson(Map<String, dynamic> json) =>
@@ -204,6 +218,9 @@ class PerformanceIssue {
             ? (json['rankingBreakdown'] as Map<String, dynamic>)
                 .map((k, v) => MapEntry(k, v as int))
             : null,
+        rootCauseId: json['rootCauseId'] as String?,
+        downstreamIds:
+            (json['downstreamIds'] as List<dynamic>?)?.cast<String>(),
       );
 
   PerformanceIssue copyWith({
@@ -225,6 +242,8 @@ class PerformanceIssue {
     List<AllocationEntry>? topAllocators,
     int? rankingScore,
     Map<String, int>? rankingBreakdown,
+    String? rootCauseId,
+    List<String>? downstreamIds,
   }) {
     return PerformanceIssue(
       severity: severity ?? this.severity,
@@ -245,6 +264,8 @@ class PerformanceIssue {
       topAllocators: topAllocators ?? this.topAllocators,
       rankingScore: rankingScore ?? this.rankingScore,
       rankingBreakdown: rankingBreakdown ?? this.rankingBreakdown,
+      rootCauseId: rootCauseId ?? this.rootCauseId,
+      downstreamIds: downstreamIds ?? this.downstreamIds,
     );
   }
 

@@ -26,6 +26,7 @@ class IssueCard extends StatefulWidget {
     this.deepInstrumentationActive = false,
     this.jankCorrelated = false,
     this.jankFlash = false,
+    this.downstreamIssues,
   });
 
   final PerformanceIssue issue;
@@ -51,6 +52,10 @@ class IssueCard extends StatefulWidget {
   /// When true, applies a temporary amber tint to draw attention to
   /// jank-correlated issues. Takes priority over [highlighted] color.
   final bool jankFlash;
+
+  /// Downstream issues caused by this root issue, collapsed into expanded
+  /// detail. Null or empty for non-root and standalone issues.
+  final List<PerformanceIssue>? downstreamIssues;
 
   @override
   State<IssueCard> createState() => _IssueCardState();
@@ -137,6 +142,26 @@ class _IssueCardState extends State<IssueCard> {
                           'JANK',
                           style: TextStyle(
                             color: theme.severityCritical,
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (widget.downstreamIssues != null &&
+                        widget.downstreamIssues!.isNotEmpty) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: theme.effectsBadge.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '\u21B3 ${widget.downstreamIssues!.length}',
+                          style: TextStyle(
+                            color: theme.effectsBadge,
                             fontSize: 8,
                             fontWeight: FontWeight.bold,
                           ),
@@ -251,6 +276,10 @@ class _IssueCardState extends State<IssueCard> {
                         ),
                       ),
                     ),
+                  // Downstream effects section (causal graph)
+                  if (widget.downstreamIssues != null &&
+                      widget.downstreamIssues!.isNotEmpty)
+                    _downstreamSection(theme),
                   // "About this detection" collapsible section
                   GestureDetector(
                     onTap: () =>
@@ -393,6 +422,72 @@ class _IssueCardState extends State<IssueCard> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _downstreamSection(WatchdogThemeData theme) {
+    final downstream = widget.downstreamIssues!;
+    final visibleCount = downstream.length > 5 ? 5 : downstream.length;
+    final overflow = downstream.length - visibleCount;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: theme.aboutBackground,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Related effects (${downstream.length}):',
+              style: TextStyle(
+                color: theme.effectsBadge,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            for (var i = 0; i < visibleCount; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Row(
+                  children: [
+                    _severityIcon(downstream[i].severity),
+                    const SizedBox(width: 4),
+                    _categoryBadge(downstream[i].category, theme),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        downstream[i].title,
+                        style: TextStyle(
+                          color: theme.textTertiary,
+                          fontSize: 10,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (overflow > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  'and $overflow more...',
+                  style: TextStyle(
+                    color: theme.textQuaternary,
+                    fontSize: 9,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

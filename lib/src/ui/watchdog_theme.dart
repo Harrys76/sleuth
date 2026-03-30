@@ -43,6 +43,7 @@ import '../models/performance_issue.dart';
 /// - **Text hierarchy** (5): `textPrimary` through `textSubtle`
 /// - **Badge pairs** (6): bg + text for VM/FRAME/DBG badges
 /// - **Banner pairs** (8): bg + text for debug/instrumentation/success/warning
+/// - **Causal graph** (1): `effectsBadge` for downstream effects count
 /// - **Special** (11): fix hint text, grip dots, guide accents, etc.
 ///
 /// ## Badge and banner pairs
@@ -125,6 +126,9 @@ class WatchdogThemeData {
     this.bannerSuccessText = const Color(0xFF6EE7B7),
     this.bannerWarningBg = const Color(0xFF78350F),
     this.bannerWarningText = const Color(0xFFFCD34D),
+
+    // ── Causal graph ──
+    this.effectsBadge = const Color(0xFF64748B),
 
     // ── Special ──
     this.fixHintText = const Color(0xFF93C5FD),
@@ -265,6 +269,9 @@ class WatchdogThemeData {
   final Color bannerWarningBg;
   final Color bannerWarningText;
 
+  // ── Causal graph ──
+  final Color effectsBadge;
+
   // ── Special ──
   final Color fixHintText;
   final Color disclaimerText;
@@ -377,6 +384,7 @@ class WatchdogThemeData {
     Color? bannerSuccessText,
     Color? bannerWarningBg,
     Color? bannerWarningText,
+    Color? effectsBadge,
     Color? fixHintText,
     Color? disclaimerText,
     Color? dimOverlay,
@@ -441,6 +449,7 @@ class WatchdogThemeData {
       bannerSuccessText: bannerSuccessText ?? this.bannerSuccessText,
       bannerWarningBg: bannerWarningBg ?? this.bannerWarningBg,
       bannerWarningText: bannerWarningText ?? this.bannerWarningText,
+      effectsBadge: effectsBadge ?? this.effectsBadge,
       fixHintText: fixHintText ?? this.fixHintText,
       disclaimerText: disclaimerText ?? this.disclaimerText,
       dimOverlay: dimOverlay ?? this.dimOverlay,

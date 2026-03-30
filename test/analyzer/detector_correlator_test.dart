@@ -528,6 +528,72 @@ void main() {
   // Duplicate stableIds
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // CausalGraphRule (Rule 6) — integration with full pipeline
+  // ---------------------------------------------------------------------------
+
+  group('CausalGraphRule via full pipeline', () {
+    test('causal graph annotates after 5 existing rules', () {
+      final issues = [
+        makeIssue(
+          stableId: 'setstate_scope',
+          widgetName: 'MyPage',
+          confidence: IssueConfidence.possible,
+        ),
+        makeIssue(
+          stableId: 'rebuild_debug_MyPage',
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'heavy_compute',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = correlator.correlate(issues);
+
+      // Rule 2 (MergeRebuildSetState) merges rebuild into setstate_scope.
+      // Rule 6 (CausalGraph) chains setstate_scope → heavy_compute.
+      expect(result.any((i) => i.stableId == 'rebuild_debug_MyPage'), isFalse,
+          reason: 'Merge rule should absorb rebuild');
+
+      final setState = result.firstWhere((i) => i.stableId == 'setstate_scope');
+      expect(setState.downstreamIds, ['heavy_compute']);
+      expect(setState.detail, contains('[Correlated]'));
+
+      final heavyCompute =
+          result.firstWhere((i) => i.stableId == 'heavy_compute');
+      expect(heavyCompute.rootCauseId, 'setstate_scope');
+    });
+
+    test('existing rules still work unchanged with causal graph', () {
+      // Verify the 5 existing rules are not broken by the 6th.
+      final issues = [
+        makeIssue(
+          stableId: 'always_repaint_painter',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.possible,
+        ),
+        makeIssue(
+          stableId: 'raster_dominance',
+          category: IssueCategory.raster,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = correlator.correlate(issues);
+
+      // Rule 3 escalates painter confidence to likely.
+      final painter =
+          result.firstWhere((i) => i.stableId == 'always_repaint_painter');
+      expect(painter.confidence, IssueConfidence.likely);
+
+      // Rule 6 chains painter → raster_dominance.
+      expect(painter.downstreamIds, ['raster_dominance']);
+
+      final raster = result.firstWhere((i) => i.stableId == 'raster_dominance');
+      expect(raster.rootCauseId, 'always_repaint_painter');
+    });
+  });
+
   group('duplicate stableIds', () {
     test('deterministic output when duplicate stableIds exist', () {
       final issues = [

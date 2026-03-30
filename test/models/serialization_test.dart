@@ -1364,4 +1364,95 @@ void main() {
       expect(restored.phaseEvents, hasLength(1));
     });
   });
+
+  group('PerformanceIssue causal graph fields', () {
+    test('roundtrip with rootCauseId and downstreamIds', () {
+      const root = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.likely,
+        title: 'Wide setState scope',
+        detail: 'D',
+        fixHint: 'F',
+        stableId: 'setstate_scope',
+        downstreamIds: ['heavy_compute', 'layout_bottleneck'],
+      );
+
+      final json = root.toJson();
+      expect(json['downstreamIds'], ['heavy_compute', 'layout_bottleneck']);
+      expect(json.containsKey('rootCauseId'), isFalse);
+
+      final restored = PerformanceIssue.fromJson(json);
+      expect(restored.downstreamIds, ['heavy_compute', 'layout_bottleneck']);
+      expect(restored.rootCauseId, isNull);
+    });
+
+    test('roundtrip with rootCauseId set', () {
+      const downstream = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'Heavy compute',
+        detail: 'D',
+        fixHint: 'F',
+        stableId: 'heavy_compute',
+        rootCauseId: 'setstate_scope',
+      );
+
+      final json = downstream.toJson();
+      expect(json['rootCauseId'], 'setstate_scope');
+      expect(json.containsKey('downstreamIds'), isFalse);
+
+      final restored = PerformanceIssue.fromJson(json);
+      expect(restored.rootCauseId, 'setstate_scope');
+      expect(restored.downstreamIds, isNull);
+    });
+
+    test('causal fields omitted when null', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.layout,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+      );
+
+      final json = issue.toJson();
+      expect(json.containsKey('rootCauseId'), isFalse);
+      expect(json.containsKey('downstreamIds'), isFalse);
+    });
+
+    test('fromJson defaults causal fields to null (v1 compat)', () {
+      final json = {
+        'severity': 'warning',
+        'category': 'layout',
+        'confidence': 'possible',
+        'title': 'T',
+        'detail': 'D',
+        'fixHint': 'F',
+        'debugModeDisclaimer': false,
+      };
+
+      final issue = PerformanceIssue.fromJson(json);
+      expect(issue.rootCauseId, isNull);
+      expect(issue.downstreamIds, isNull);
+    });
+
+    test('copyWith preserves causal fields', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.likely,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        downstreamIds: ['heavy_compute'],
+      );
+
+      final updated = issue.copyWith(title: 'Updated');
+      expect(updated.downstreamIds, ['heavy_compute']);
+      expect(updated.title, 'Updated');
+    });
+  });
 }

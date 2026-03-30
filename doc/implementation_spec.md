@@ -3871,6 +3871,40 @@ Files changed: 14 (8 lib + 1 barrel + 5 test). 2 new model files, 1 new test fil
 
 **Risk:** Medium. Core correlation logic changes could affect existing issue ordering. Requires careful regression testing against all 5 existing rules.
 
+**Post-Implementation Notes (v5.3):**
+
+Implemented 2026-03-30. All acceptance criteria met. ~35 new tests (22 causal graph unit, 2 correlator integration, 5 serialization, 6 widget tests). Total test count: ~1,200.
+
+Key implementation details that diverged from or refined the original spec:
+
+1. **18 causal rules, not 6.** Original spec outlined 6 high-level chains. Implementation expanded to 18 discrete `CausalRule` entries covering all stableId combinations: `setstate_scope` (2 effects), `uncached_images` (2 effects), `always_repaint_painter` (3 effects), `animated_builder_no_child` (2 effects), `non_lazy_list` (4 effects), `rebuild_activity` (2 effects), `rebuild_debug_*` (2 effects). Trailing `*` wildcard for prefix matching (same convention as `config.suppressedIssues`).
+
+2. **Field names: `rootCauseId` / `downstreamIds`**, not `rootCause` / `downstreamIssues` as originally spec'd. Clearer that these are stableId references, not object references. Both nullable String?/List<String>? with backward-compat null defaults.
+
+3. **`CausalGraphRule extends CorrelationRule`**, registered as 6th rule in `DetectorCorrelator._rules`. Runs last — after merge/escalation/deduplication have simplified the issue set. Class name is `CausalGraphRule` (not `CausalGraphAnalyzer` as spec suggested).
+
+4. **Suppression-orphan handling in UI.** If a root issue is suppressed by user config (v4.1 `suppressedIssues`), downstream issues with `rootCauseId` set would become invisible orphans. `FloatingIssuesCard` handles this: if `rootCauseId != null` but the referenced root is NOT in the current issue list, the downstream issue is treated as standalone (shown in main list). Filter logic: `issues.where((i) => i.rootCauseId == null || !allIds.contains(i.rootCauseId))`.
+
+5. **1 new theme token: `effectsBadge`** — `Color(0xFF64748B)` (slate-500). Used at 0.2 alpha for badge background. Same value for dark and light themes.
+
+6. **IssueCard downstream section** — "Related effects (N):" header with compact rows (severity icon + category badge + title). Max 5 visible, "and N more..." overflow text. Effects count badge `↳ N` in header row after JANK badge.
+
+7. **No SessionSnapshot schema change needed.** `rootCauseId` and `downstreamIds` are on `PerformanceIssue` which already serializes to JSON in exports. Nullable fields with null defaults maintain backward compat — no schema version bump required.
+
+8. **`_IssuesSummaryBar` counts only visible issues** (where `rootCauseId == null` or root not in list), not all issues in the pipeline.
+
+Files changed (10):
+- `lib/src/models/performance_issue.dart` — +2 fields, copyWith, toJson, fromJson
+- `lib/src/analyzer/causal_graph.dart` — NEW (~190 lines)
+- `lib/src/analyzer/detector_correlator.dart` — +import, +1 rule
+- `lib/src/ui/watchdog_theme.dart` — +1 token
+- `lib/src/ui/issue_card.dart` — +downstreamIssues param, badge, expanded section
+- `lib/src/ui/floating_issues_card.dart` — +downstream filter, lookup, pass-through
+- `test/analyzer/causal_graph_test.dart` — NEW (22 tests)
+- `test/analyzer/detector_correlator_test.dart` — +2 integration tests
+- `test/models/serialization_test.dart` — +5 tests
+- `test/ui/issue_card_downstream_test.dart` — NEW (6 widget tests)
+
 ---
 
 ### v5.4: Configurable Detector Thresholds

@@ -421,22 +421,51 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
           );
         }
 
+        // Filter: show only root + standalone issues. Downstream issues
+        // (rootCauseId != null) are collapsed under their root card.
+        // Exception: if the root was suppressed (not in list), show the
+        // downstream as standalone.
+        final allIds = {
+          for (final i in issues) i.stableId ?? i.title,
+        };
+        final visibleIssues = issues
+            .where(
+                (i) => i.rootCauseId == null || !allIds.contains(i.rootCauseId))
+            .toList();
+
         return Column(
           children: [
-            _IssuesSummaryBar(issues: issues),
+            _IssuesSummaryBar(issues: visibleIssues),
             Expanded(
               child: ValueListenableBuilder<WidgetHighlight?>(
                 valueListenable: widget.controller.selectedHighlightNotifier,
                 builder: (_, selectedHighlight, __) => ListView.builder(
                   padding: const EdgeInsets.all(6),
-                  itemCount: issues.length,
+                  itemCount: visibleIssues.length,
                   itemBuilder: (_, index) {
-                    final issue = issues[index];
+                    final issue = visibleIssues[index];
                     final locatable = _isLocatableIssue(issue);
                     final issueKey = issue.stableId ?? issue.title;
                     final isHighlighted = selectedHighlight != null &&
                         locatable &&
                         _selectedIssueId == issueKey;
+
+                    // Look up downstream issue objects for root issues.
+                    List<PerformanceIssue>? downstream;
+                    if (issue.downstreamIds != null &&
+                        issue.downstreamIds!.isNotEmpty) {
+                      downstream = <PerformanceIssue>[];
+                      for (final downId in issue.downstreamIds!) {
+                        for (final candidate in issues) {
+                          if ((candidate.stableId ?? candidate.title) ==
+                              downId) {
+                            downstream.add(candidate);
+                            break;
+                          }
+                        }
+                      }
+                    }
+
                     return IssueCard(
                       key: ValueKey(issueKey),
                       issue: issue,
@@ -454,6 +483,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                           : null,
                       jankCorrelated: _cachedJankKeys.contains(issueKey),
                       jankFlash: false,
+                      downstreamIssues: downstream,
                     );
                   },
                 ),

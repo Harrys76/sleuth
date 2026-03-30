@@ -1,4 +1,5 @@
 import '../models/performance_issue.dart';
+import 'causal_graph.dart';
 
 /// A single correlation rule applied to the combined issue list.
 ///
@@ -20,7 +21,7 @@ abstract class CorrelationRule {
 ///
 /// Pure function class — no state, const constructor.
 /// Rules are applied in a fixed order:
-///   suppress → merge → escalate → deduplicate.
+///   suppress → merge → escalate → deduplicate → causal graph.
 class DetectorCorrelator {
   const DetectorCorrelator();
 
@@ -29,7 +30,8 @@ class DetectorCorrelator {
     MergeRebuildSetStateRule(), // merge second
     EscalateGpuCustomPainterRule(), // escalate third
     EscalateMemoryImageRule(), // escalate fourth
-    DeduplicateRebuildRepaintRule(), // deduplicate last
+    DeduplicateRebuildRepaintRule(), // deduplicate fifth
+    CausalGraphRule(), // causal graph last
   ];
 
   /// Apply all correlation rules in sequence and return the modified list.

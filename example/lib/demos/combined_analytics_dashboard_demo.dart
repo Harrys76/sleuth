@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 // ───────────────────────────────────────────────
 // Combined Demo 2: Analytics Dashboard
 // ───────────────────────────────────────────────
-// Triggers: CustomPainter, AnimatedBuilder, GlobalKey, FontLoading, ListView
+// Triggers: CustomPainter, AnimatedBuilder, GlobalKey, FontLoading, ListView,
+//           SetStateScope, LayoutBottleneck
 // Correlation: Rule 1 (suppress AnimBuilder if no paint), Rule 3 (escalate GPU+Painter)
+// Causal chains: non_lazy_list → layout_bottleneck, setstate_scope → layout_bottleneck
 
 class CombinedAnalyticsDashboardDemo extends StatefulWidget {
   const CombinedAnalyticsDashboardDemo({super.key});
@@ -22,7 +24,10 @@ class _CombinedAnalyticsDashboardDemoState
   late final AnimationController _controller;
 
   // ❌ GlobalKeys on dashboard tiles — unnecessary
-  final _tileKeys = List.generate(12, (_) => GlobalKey());
+  final _tileKeys = List.generate(25, (_) => GlobalKey());
+
+  // ❌ Counter forces wide setState — rebuilds entire screen
+  int _refreshCount = 0;
 
   @override
   void initState() {
@@ -42,7 +47,16 @@ class _CombinedAnalyticsDashboardDemoState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Analytics (Combined)')),
+      appBar: AppBar(
+        title: const Text('Analytics (Combined)'),
+        actions: [
+          // ❌ Wide setState — triggers setstate_scope detector
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => setState(() => _refreshCount++),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Container(
@@ -150,38 +164,56 @@ class _CombinedAnalyticsDashboardDemoState
 
           const Divider(),
 
-          // ❌ Non-lazy list: all 12 tiles built eagerly
+          // ❌ Non-lazy list: all 25 tiles built eagerly (>20 threshold)
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(12),
               child: Column(
-                children: List.generate(12, (i) {
-                  return Card(
-                    // ❌ GlobalKey on every tile
-                    key: _tileKeys[i],
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Colors
-                            .primaries[i % Colors.primaries.length]
-                            .withValues(alpha: 0.15),
-                        child: Text('${i + 1}'),
-                      ),
-                      title: Text('Metric ${i + 1}'),
-                      subtitle: Text(
-                        'Value: ${(Random(i).nextDouble() * 1000).toStringAsFixed(1)}',
-                      ),
-                      trailing: Icon(
-                        i % 3 == 0
-                            ? Icons.trending_up
-                            : i % 3 == 1
-                            ? Icons.trending_down
-                            : Icons.trending_flat,
-                        color: i % 3 == 0
-                            ? Colors.green
-                            : i % 3 == 1
-                            ? Colors.red
-                            : Colors.grey,
+                children: List.generate(25, (i) {
+                  // ❌ IntrinsicHeight forces two-pass layout
+                  return IntrinsicHeight(
+                    child: Card(
+                      // ❌ GlobalKey on every tile
+                      key: _tileKeys[i],
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Container(
+                            width: 4,
+                            color: Colors.primaries[i % Colors.primaries.length]
+                                .withValues(alpha: 0.3),
+                          ),
+                          Expanded(
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: Colors
+                                    .primaries[i % Colors.primaries.length]
+                                    .withValues(alpha: 0.15),
+                                child: Text('${i + 1}'),
+                              ),
+                              title: Text(
+                                'Metric ${i + 1}'
+                                '${_refreshCount > 0 ? ' (v$_refreshCount)' : ''}',
+                              ),
+                              subtitle: Text(
+                                'Value: ${(Random(i).nextDouble() * 1000).toStringAsFixed(1)}',
+                              ),
+                              trailing: Icon(
+                                i % 3 == 0
+                                    ? Icons.trending_up
+                                    : i % 3 == 1
+                                    ? Icons.trending_down
+                                    : Icons.trending_flat,
+                                color: i % 3 == 0
+                                    ? Colors.green
+                                    : i % 3 == 1
+                                    ? Colors.red
+                                    : Colors.grey,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   );
