@@ -58,5 +58,19 @@ void main() {
       await tester.tap(find.byIcon(Icons.arrow_back));
       expect(closed, isTrue);
     });
+
+    testWidgets('system back gesture calls onClose', (tester) async {
+      var closed = false;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: GuidePage(onClose: () => closed = true),
+        ),
+      ));
+
+      // Simulate system back button / gesture
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(closed, isTrue);
+    });
   });
 }

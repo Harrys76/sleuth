@@ -171,31 +171,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     final mq = MediaQuery.of(context);
     final screenSize = mq.size;
     final topPadding = mq.padding.top;
-    final defaultCardHeight = screenSize.height * 0.55;
     final maxAllowedHeight = screenSize.height - topPadding - 20;
-    final cardHeight = (_cardHeight ?? defaultCardHeight)
+    final cardHeight = (_cardHeight ?? screenSize.height * 0.55)
         .clamp(_minCardHeight, maxAllowedHeight);
-
-    // Effective width clamped to screen — computed, not mutated during build.
-    final maxCardWidth = screenSize.width;
-    final effectiveWidth = _cardWidth.clamp(_minCardWidth, maxCardWidth);
+    final effectiveWidth = _cardWidth.clamp(_minCardWidth, screenSize.width);
     final theme = WatchdogTheme.of(context);
 
-    // Initialize position to right side on first build.
-    // 5px right margin = handle visual (5px overflow) flush with screen edge.
     _cardOffset ??= Offset(
       screenSize.width - effectiveWidth - 5,
       screenSize.height * 0.30,
     );
 
-    // Clamp to screen bounds — reserve 5px so resize handle visual stays on screen.
-    // At full width the handle clips (nothing wider to resize to).
-    final rightReserve =
-        (screenSize.width - effectiveWidth - 5).clamp(0.0, screenSize.width);
-    final clamped = Offset(
-      _cardOffset!.dx.clamp(0.0, rightReserve),
-      _cardOffset!.dy.clamp(topPadding, screenSize.height - 100),
-    );
+    final clamped = _clampOffset(screenSize, topPadding, effectiveWidth);
 
     return Stack(
       children: [
@@ -206,68 +193,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                // The card itself
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: effectiveWidth,
-                    maxHeight: cardHeight,
-                  ),
-                  child: Material(
-                    elevation: 8,
-                    borderRadius: BorderRadius.circular(16),
-                    color: theme.cardBackground,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildHeader(screenSize, theme),
-                        _StatusRow(controller: widget.controller),
-                        Divider(color: theme.border, height: 1),
-
-                        // Warning banners
-                        _WarningBanners(
-                          exportFeedbackVisible: _exportFeedbackVisible,
-                          highlightNotFoundVisible: _highlightNotFoundVisible,
-                          isDeepInstrumentationActive:
-                              widget.controller.isDeepInstrumentationActive,
-                        ),
-
-                        // Issues list — boundary isolates repaints
-                        Flexible(
-                            child: RepaintBoundary(child: _buildIssuesList())),
-
-                        // Footer
-                        _CardFooter(
-                          controller: widget.controller,
-                          onExport: _exportToClipboard,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                // Bottom-right corner resize handle — follows card radius
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  width: 32,
-                  height: 32,
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.resizeDownRight,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onPanUpdate: (details) {
-                        setState(() {
-                          _cardWidth = (_cardWidth + details.delta.dx).clamp(
-                              _minCardWidth, screenSize.width - clamped.dx);
-                          _cardHeight = (cardHeight + details.delta.dy)
-                              .clamp(_minCardHeight, maxAllowedHeight);
-                        });
-                      },
-                      child: CustomPaint(
-                        painter: _CornerGripPainter(gripColor: theme.gripDots),
-                      ),
-                    ),
-                  ),
-                ),
+                _buildCardBody(effectiveWidth, cardHeight, theme, screenSize),
+                _buildResizeHandle(
+                    screenSize, clamped, cardHeight, maxAllowedHeight, theme),
               ],
             ),
           ),
@@ -278,6 +206,79 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             ),
           ),
       ],
+    );
+  }
+
+  // ─── Build helpers ──────────────────────────────────────────────────
+
+  Offset _clampOffset(
+      Size screenSize, double topPadding, double effectiveWidth) {
+    final rightReserve =
+        (screenSize.width - effectiveWidth - 5).clamp(0.0, screenSize.width);
+    return Offset(
+      _cardOffset!.dx.clamp(0.0, rightReserve),
+      _cardOffset!.dy.clamp(topPadding, screenSize.height - 100),
+    );
+  }
+
+  Widget _buildCardBody(double effectiveWidth, double cardHeight,
+      WatchdogThemeData theme, Size screenSize) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: effectiveWidth,
+        maxHeight: cardHeight,
+      ),
+      child: Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(16),
+        color: theme.cardBackground,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildHeader(screenSize, theme),
+            _StatusRow(controller: widget.controller),
+            Divider(color: theme.border, height: 1),
+            _WarningBanners(
+              exportFeedbackVisible: _exportFeedbackVisible,
+              highlightNotFoundVisible: _highlightNotFoundVisible,
+              isDeepInstrumentationActive:
+                  widget.controller.isDeepInstrumentationActive,
+            ),
+            Flexible(child: RepaintBoundary(child: _buildIssuesList())),
+            _CardFooter(
+              controller: widget.controller,
+              onExport: _exportToClipboard,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResizeHandle(Size screenSize, Offset clamped, double cardHeight,
+      double maxAllowedHeight, WatchdogThemeData theme) {
+    return Positioned(
+      right: 0,
+      bottom: 0,
+      width: 32,
+      height: 32,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.resizeDownRight,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanUpdate: (details) {
+            setState(() {
+              _cardWidth = (_cardWidth + details.delta.dx)
+                  .clamp(_minCardWidth, screenSize.width - clamped.dx);
+              _cardHeight = (cardHeight + details.delta.dy)
+                  .clamp(_minCardHeight, maxAllowedHeight);
+            });
+          },
+          child: CustomPaint(
+            painter: _CornerGripPainter(gripColor: theme.gripDots),
+          ),
+        ),
+      ),
     );
   }
 
@@ -621,6 +622,8 @@ class _WarningBanners extends StatelessWidget {
                     'Debug mode — data inaccurate.\nRun: flutter run --profile',
                     style:
                         TextStyle(color: theme.bannerDebugText, fontSize: 10),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -644,6 +647,8 @@ class _WarningBanners extends StatelessWidget {
                     'attribution. Timings not representative of real performance.',
                     style: TextStyle(
                         color: theme.bannerInstrumentationText, fontSize: 10),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -667,6 +672,8 @@ class _WarningBanners extends StatelessWidget {
                     'Snapshot copied to clipboard',
                     style:
                         TextStyle(color: theme.bannerSuccessText, fontSize: 10),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -690,6 +697,8 @@ class _WarningBanners extends StatelessWidget {
                     'Widget not currently visible. Navigate to the screen where this issue occurs.',
                     style:
                         TextStyle(color: theme.bannerWarningText, fontSize: 10),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],

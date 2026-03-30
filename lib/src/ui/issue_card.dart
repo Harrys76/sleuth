@@ -199,232 +199,230 @@ class _IssueCardState extends State<IssueCard> {
                   ),
 
                 // Expanded detail + fix hint
-                if (_expanded) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    issue.detail,
-                    style: TextStyle(
-                      color: theme.textSecondary,
-                      fontSize: 11,
-                    ),
-                  ),
-                  if (issue.routeName != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        'Route: ${issue.routeName}',
-                        style: TextStyle(
-                          color: theme.textTertiary,
-                          fontSize: 10,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ),
-                  if (issue.interactionContext != null &&
-                      issue.interactionContext != InteractionContext.idle)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        'During: ${issue.interactionContext!.displayName}',
-                        style: TextStyle(
-                          color: theme.textTertiary,
-                          fontSize: 10,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ),
-                  if (issue.widgetName != null &&
-                      !issue.title.contains(issue.widgetName!))
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        'Widget: ${issue.widgetName}',
-                        style: TextStyle(
-                          color: theme.textTertiary,
-                          fontSize: 10,
-                          fontStyle: FontStyle.italic,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  if (issue.ancestorChain != null &&
-                      !issue.detail.contains(issue.ancestorChain!) &&
-                      issue.ancestorChain != issue.widgetName)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        'Ancestors: ${issue.ancestorChain}',
-                        style: TextStyle(
-                          color: theme.textTertiary,
-                          fontSize: 10,
-                          fontStyle: FontStyle.italic,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  if (issue.observationSource != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        'Source: ${issue.observationSource!._displayName}',
-                        style: TextStyle(
-                          color: theme.textQuaternary,
-                          fontSize: 9,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ),
-                  // Downstream effects section (causal graph)
-                  if (widget.downstreamIssues != null &&
-                      widget.downstreamIssues!.isNotEmpty)
-                    _downstreamSection(theme),
-                  // "About this detection" collapsible section
-                  GestureDetector(
-                    onTap: () =>
-                        setState(() => _aboutExpanded = !_aboutExpanded),
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _aboutExpanded
-                                ? Icons.expand_less
-                                : Icons.expand_more,
-                            color: theme.textQuaternary,
-                            size: 14,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'About this detection',
-                            style: TextStyle(
-                              color: theme.textQuaternary,
-                              fontSize: 9,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (_aboutExpanded)
-                    Container(
-                      margin: const EdgeInsets.only(top: 4),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: theme.aboutBackground,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          for (final entry in _aboutContent(issue))
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 3),
-                              child: Text.rich(
-                                TextSpan(
-                                  children: [
-                                    TextSpan(
-                                      text: '${entry.$1} ',
-                                      style: TextStyle(
-                                        color: theme.textTertiary,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    TextSpan(
-                                      text: entry.$2,
-                                      style: TextStyle(
-                                        color: theme.textTertiary,
-                                        fontSize: 9,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  if (widget.deepInstrumentationActive &&
-                      _isDebugCallbackSource(issue.observationSource))
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 4, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: theme.bannerSuccessBg,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              'Attribution: high fidelity',
-                              style: TextStyle(
-                                color: theme.bannerSuccessText,
-                                fontSize: 9,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 4, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: theme.bannerWarningBg,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              'Timing: overhead present',
-                              style: TextStyle(
-                                color: theme.bannerWarningText,
-                                fontSize: 9,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: theme.fixHintBackground,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _effortBadge(issue, theme),
-                        const SizedBox(height: 4),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('\u{1F4A1}',
-                                style: TextStyle(fontSize: 12)),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                issue.fixHint,
-                                style: TextStyle(
-                                  color: theme.fixHintText,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                if (_expanded) ..._buildExpandedContent(issue, theme),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  List<Widget> _buildExpandedContent(
+      PerformanceIssue issue, WatchdogThemeData theme) {
+    return [
+      const SizedBox(height: 8),
+      Text(
+        issue.detail,
+        style: TextStyle(
+          color: theme.textSecondary,
+          fontSize: 11,
+        ),
+      ),
+      if (issue.routeName != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            'Route: ${issue.routeName}',
+            style: TextStyle(
+              color: theme.textTertiary,
+              fontSize: 10,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ),
+      if (issue.interactionContext != null &&
+          issue.interactionContext != InteractionContext.idle)
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Text(
+            'During: ${issue.interactionContext!.displayName}',
+            style: TextStyle(
+              color: theme.textTertiary,
+              fontSize: 10,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ),
+      if (issue.widgetName != null && !issue.title.contains(issue.widgetName!))
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Text(
+            'Widget: ${issue.widgetName}',
+            style: TextStyle(
+              color: theme.textTertiary,
+              fontSize: 10,
+              fontStyle: FontStyle.italic,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      if (issue.ancestorChain != null &&
+          !issue.detail.contains(issue.ancestorChain!) &&
+          issue.ancestorChain != issue.widgetName)
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Text(
+            'Ancestors: ${issue.ancestorChain}',
+            style: TextStyle(
+              color: theme.textTertiary,
+              fontSize: 10,
+              fontStyle: FontStyle.italic,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      if (issue.observationSource != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Text(
+            'Source: ${issue.observationSource!._displayName}',
+            style: TextStyle(
+              color: theme.textQuaternary,
+              fontSize: 9,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ),
+      // Downstream effects section (causal graph)
+      if (widget.downstreamIssues != null &&
+          widget.downstreamIssues!.isNotEmpty)
+        _downstreamSection(theme),
+      // "About this detection" collapsible section
+      GestureDetector(
+        onTap: () => setState(() => _aboutExpanded = !_aboutExpanded),
+        child: Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(
+            children: [
+              Icon(
+                _aboutExpanded ? Icons.expand_less : Icons.expand_more,
+                color: theme.textQuaternary,
+                size: 14,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'About this detection',
+                style: TextStyle(
+                  color: theme.textQuaternary,
+                  fontSize: 9,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      if (_aboutExpanded)
+        Container(
+          margin: const EdgeInsets.only(top: 4),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: theme.aboutBackground,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final entry in _aboutContent(issue))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: '${entry.$1} ',
+                          style: TextStyle(
+                            color: theme.textTertiary,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        TextSpan(
+                          text: entry.$2,
+                          style: TextStyle(
+                            color: theme.textTertiary,
+                            fontSize: 9,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      if (widget.deepInstrumentationActive &&
+          _isDebugCallbackSource(issue.observationSource))
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: theme.bannerSuccessBg,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  'Attribution: high fidelity',
+                  style: TextStyle(
+                    color: theme.bannerSuccessText,
+                    fontSize: 9,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: theme.bannerWarningBg,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  'Timing: overhead present',
+                  style: TextStyle(
+                    color: theme.bannerWarningText,
+                    fontSize: 9,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      const SizedBox(height: 8),
+      Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: theme.fixHintBackground,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _effortBadge(issue, theme),
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('\u{1F4A1}', style: TextStyle(fontSize: 12)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    issue.fixHint,
+                    style: TextStyle(
+                      color: theme.fixHintText,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ];
   }
 
   Widget _downstreamSection(WatchdogThemeData theme) {

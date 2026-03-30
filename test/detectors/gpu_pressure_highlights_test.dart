@@ -56,7 +56,7 @@ void main() {
     });
 
     testWidgets('detects ShaderMask with deep subtree (v6.3)', (tester) async {
-      await tester.pumpWidget(_ShaderMaskDeepTree());
+      await tester.pumpWidget(const _ShaderMaskDeepTree());
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.highlights, isNotEmpty,
@@ -108,7 +108,7 @@ class _OpacityDeepTree extends StatelessWidget {
 
 /// Widget tree with ShaderMask wrapping many descendants to trigger detection.
 class _ShaderMaskDeepTree extends StatelessWidget {
-  _ShaderMaskDeepTree();
+  const _ShaderMaskDeepTree();
 
   @override
   Widget build(BuildContext context) {

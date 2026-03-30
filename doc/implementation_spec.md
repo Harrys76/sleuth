@@ -4445,6 +4445,8 @@ void _onIssuesChanged() {
 
 **Risk:** Very low.
 
+**Post-Implementation Notes:** Added `maxLines` + `overflow: TextOverflow.ellipsis` to 4 banner Text widgets in `_WarningBanners`: debug mode (maxLines: 2), instrumentation (maxLines: 3), export success (maxLines: 1), highlight not found (maxLines: 2). All inside Expanded wrappers so width is already constrained — the maxLines prevents excessive vertical expansion at narrow widths.
+
 ---
 
 ### v6.10: UI Build Method Extraction — FloatingIssuesCard
@@ -4465,6 +4467,8 @@ The `build()` method becomes a ~30 line method that computes position and delega
 
 **Risk:** Low. Refactoring only.
 
+**Post-Implementation Notes:** Extracted 3 methods: `_clampOffset()` (position math), `_buildCardBody()` (ConstrainedBox + Material + Column), `_buildResizeHandle()` (Positioned resize handle). `build()` reduced from 112 to ~35 lines. `_clampOffset()` is ready for v6.6 to call from `onPanUpdate`.
+
 ---
 
 ### v6.11: UI Build Method Extraction — IssueCard
@@ -4479,6 +4483,8 @@ The `build()` method becomes a ~30 line method that computes position and delega
 **Testing:** Existing UI tests pass unchanged.
 
 **Risk:** Low. Refactoring only.
+
+**Post-Implementation Notes:** Extracted `_buildExpandedContent(PerformanceIssue, WatchdogThemeData)` returning `List<Widget>` (spread into Column with `..._buildExpandedContent()`). `build()` reduced from 346 to ~125 lines. All 6 existing helper methods unchanged.
 
 ---
 
@@ -4496,6 +4502,8 @@ The `build()` method becomes a ~30 line method that computes position and delega
 2. Back arrow button → still works
 
 **Risk:** Very low.
+
+**Post-Implementation Notes:** Wrapped outermost `Material` in `PopScope(canPop: false, onPopInvokedWithResult: ...)`. Added test using `tester.binding.handlePopRoute()` to verify system back calls `onClose`. 3 tests total in guide_page_test.dart.
 
 ---
 
@@ -4713,10 +4721,10 @@ Replace hardcoded values in all UI files with `theme.spacingMd`, `theme.spacingL
 | 7 | v6.6: Drag Clamping | Low | UI Polish | None |
 | 8 | v6.7: Keyboard Awareness | Low | UI Polish | None |
 | 9 | v6.8: Listener Dedup | Very Low | UI Polish | None |
-| 10 | v6.9: Text Overflow | Very Low | UI Polish | None |
-| 11 | v6.10: FloatingIssuesCard Extract | Low | UI Polish | v6.6 (shared helper) |
-| 12 | v6.11: IssueCard Extract | Low | UI Polish | None |
-| 13 | v6.12: GuidePage Back Nav | Very Low | UI Polish | None |
+| 10 | v6.9: Text Overflow | Very Low | UI Polish | None | **Shipped** |
+| 11 | v6.10: FloatingIssuesCard Extract | Low | UI Polish | v6.6 (shared helper) | **Shipped** |
+| 12 | v6.11: IssueCard Extract | Low | UI Polish | None | **Shipped** |
+| 13 | v6.12: GuidePage Back Nav | Very Low | UI Polish | None | **Shipped** |
 | 14 | v6.13: Model Equality | Low | Safety | None |
 | 15 | v6.15: Suppression Precompile | Very Low | Performance | None |
 | 16 | v6.16: Platform Declarations | Very Low | Pub.dev | None |

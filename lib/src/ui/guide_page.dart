@@ -66,91 +66,98 @@ class _GuidePageState extends State<GuidePage>
   Widget build(BuildContext context) {
     final theme = WatchdogTheme.of(context);
 
-    return Material(
-      color: theme.pageBackground,
-      child: SafeArea(
-        child: Column(
-          children: [
-            // Header
-            FadeTransition(
-              opacity: _staggered(0),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: widget.onClose,
-                      icon: Icon(Icons.arrow_back,
-                          color: theme.textPrimary, size: 22),
-                    ),
-                    Text(
-                      '\u{1F415} Watchdog Guide',
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) widget.onClose();
+      },
+      child: Material(
+        color: theme.pageBackground,
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              FadeTransition(
+                opacity: _staggered(0),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: widget.onClose,
+                        icon: Icon(Icons.arrow_back,
+                            color: theme.textPrimary, size: 22),
                       ),
-                    ),
-                  ],
+                      Text(
+                        '\u{1F415} Watchdog Guide',
+                        style: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            Divider(color: theme.border, height: 1),
+              Divider(color: theme.border, height: 1),
 
-            // Scrollable sections
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                child: Column(
-                  children: [
-                    _section(
-                      index: 0,
-                      icon: Icons.rocket_launch_outlined,
-                      title: 'Quick Start',
-                      accent: theme.categoryBuild,
-                      theme: theme,
-                      child: _quickStartContent(),
-                    ),
-                    const SizedBox(height: 10),
-                    _section(
-                      index: 1,
-                      icon: Icons.dashboard_customize_outlined,
-                      title: 'Understanding the Card',
-                      accent: theme.categoryMemory,
-                      theme: theme,
-                      child: _cardExplanation(theme),
-                    ),
-                    const SizedBox(height: 10),
-                    _section(
-                      index: 2,
-                      icon: Icons.palette_outlined,
-                      title: 'Color Legend',
-                      accent: theme.severityOk,
-                      theme: theme,
-                      child: _colorLegend(theme),
-                    ),
-                    const SizedBox(height: 10),
-                    _section(
-                      index: 3,
-                      icon: Icons.tips_and_updates_outlined,
-                      title: 'Tips & Tricks',
-                      accent: theme.severityWarning,
-                      theme: theme,
-                      child: _tipsContent(theme),
-                    ),
-                    const SizedBox(height: 20),
-                    FadeTransition(
-                      opacity: _staggered(4),
-                      child: Text(
-                        'Widget Watchdog',
-                        style: TextStyle(color: theme.textSubtle, fontSize: 10),
+              // Scrollable sections
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  child: Column(
+                    children: [
+                      _section(
+                        index: 0,
+                        icon: Icons.rocket_launch_outlined,
+                        title: 'Quick Start',
+                        accent: theme.categoryBuild,
+                        theme: theme,
+                        child: _quickStartContent(),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 10),
+                      _section(
+                        index: 1,
+                        icon: Icons.dashboard_customize_outlined,
+                        title: 'Understanding the Card',
+                        accent: theme.categoryMemory,
+                        theme: theme,
+                        child: _cardExplanation(theme),
+                      ),
+                      const SizedBox(height: 10),
+                      _section(
+                        index: 2,
+                        icon: Icons.palette_outlined,
+                        title: 'Color Legend',
+                        accent: theme.severityOk,
+                        theme: theme,
+                        child: _colorLegend(theme),
+                      ),
+                      const SizedBox(height: 10),
+                      _section(
+                        index: 3,
+                        icon: Icons.tips_and_updates_outlined,
+                        title: 'Tips & Tricks',
+                        accent: theme.severityWarning,
+                        theme: theme,
+                        child: _tipsContent(theme),
+                      ),
+                      const SizedBox(height: 20),
+                      FadeTransition(
+                        opacity: _staggered(4),
+                        child: Text(
+                          'Widget Watchdog',
+                          style:
+                              TextStyle(color: theme.textSubtle, fontSize: 10),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
