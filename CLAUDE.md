@@ -62,5 +62,5 @@ test/
 - v4 roadmap: v4.1 issue suppression, v4.2 custom detector API, v4.4 card extraction, v4.5 example app extraction — all shipped.
 - v5 roadmap: v5.1 overlay theming, v5.2 export enrichment, v5.3 causal graph, v5.4 configurable thresholds, v5.5 detector registry, v5.6 network correlation, v5.8 RepaintBoundary detector — all shipped.
 - Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
-- v6 roadmap: v6.1 controller async safety, v6.14 error logging, v6.2 AnimatedOpacity detection, v6.3 ShaderMask render detection — shipped.
-- ~1,257 tests, 0 analysis issues
+- v6 roadmap: v6.1 controller async safety, v6.14 error logging, v6.2 AnimatedOpacity detection, v6.3 ShaderMask render detection, v6.4 nested scroll highlights — shipped.
+- ~1,259 tests, 0 analysis issues

@@ -183,7 +183,7 @@ void main() {
       expect(issue.category, IssueCategory.build);
     });
 
-    testWidgets('no highlights produced', (tester) async {
+    testWidgets('highlights produced for nested scroll', (tester) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -202,6 +202,55 @@ void main() {
         ),
       );
       detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isNotEmpty);
+      expect(detector.highlights, isNotEmpty);
+      expect(detector.highlights.first.detectorName, 'Nested Scroll');
+      expect(detector.highlights.first.widgetName, 'ListView');
+    });
+
+    testWidgets('no highlights when no nesting', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                5,
+                (i) => SizedBox(key: ValueKey(i), height: 10),
+              ),
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isEmpty);
+      expect(detector.highlights, isEmpty);
+    });
+
+    testWidgets('highlights cleared on dispose', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 200,
+                  child: ListView(
+                    children: const [SizedBox(height: 10)],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.highlights, isNotEmpty);
+
+      detector.dispose();
       expect(detector.highlights, isEmpty);
     });
 

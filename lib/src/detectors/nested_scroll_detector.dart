@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
+import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
@@ -20,10 +21,14 @@ class NestedScrollDetector extends BaseDetector {
 
   final int childThreshold;
   final List<PerformanceIssue> _issues = [];
+  final List<WidgetHighlight> _highlights = [];
   bool _isEnabled = true;
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
+
+  @override
+  List<WidgetHighlight> get highlights => List.unmodifiable(_highlights);
 
   @override
   bool get isEnabled => _isEnabled;
@@ -35,6 +40,7 @@ class NestedScrollDetector extends BaseDetector {
   void scanTree(BuildContext context) {
     if (!_isEnabled) return;
     _issues.clear();
+    _highlights.clear();
 
     void visitor(Element element, Axis? parentScrollAxis) {
       final widget = element.widget;
@@ -73,6 +79,7 @@ class NestedScrollDetector extends BaseDetector {
 
   void _checkNestedScroll(Element element, Widget widget) {
     final location = buildAncestorChain(element);
+    final widgetTypeName = widget.runtimeType.toString();
 
     if (widget is SingleChildScrollView) {
       int childCount = 0;
@@ -87,6 +94,9 @@ class NestedScrollDetector extends BaseDetector {
       element.visitChildren(findFlex);
 
       if (childCount > childThreshold) {
+        final severity = childCount > childThreshold * 2
+            ? IssueSeverity.critical
+            : IssueSeverity.warning;
         final (hint1, effort1) = FixHintBuilder.nestedScrollChildren(
           childCount: childCount,
           widgetName: 'SingleChildScrollView',
@@ -95,9 +105,7 @@ class NestedScrollDetector extends BaseDetector {
         _issues.add(
           PerformanceIssue(
             stableId: 'nested_scroll',
-            severity: childCount > childThreshold * 2
-                ? IssueSeverity.critical
-                : IssueSeverity.warning,
+            severity: severity,
             category: IssueCategory.build,
             confidence: IssueConfidence.possible,
             title: 'Nested Scroll: $childCount children inside parent scroll',
@@ -112,13 +120,15 @@ class NestedScrollDetector extends BaseDetector {
             detectedAt: DateTime.now(),
           ),
         );
+        _addHighlight(element, 'SingleChildScrollView', severity,
+            '$childCount children inside parent scroll');
         return;
       }
     }
 
     // Generic nested scrollable warning
     final (hint2, effort2) = FixHintBuilder.nestedScrollGeneric(
-      widgetName: widget.runtimeType.toString(),
+      widgetName: widgetTypeName,
       ancestorChain: location,
     );
     _issues.add(
@@ -127,20 +137,44 @@ class NestedScrollDetector extends BaseDetector {
         severity: IssueSeverity.warning,
         category: IssueCategory.build,
         confidence: IssueConfidence.possible,
-        title: 'Nested Scroll: ${widget.runtimeType} inside scrollable',
-        detail: '${widget.runtimeType} is nested inside another scrollable '
+        title: 'Nested Scroll: $widgetTypeName inside scrollable',
+        detail: '$widgetTypeName is nested inside another scrollable '
             'widget. This can cause scroll conflicts and performance '
             'issues.\n\n  • $location',
         fixHint: hint2,
         fixEffort: effort2,
-        widgetName: widget.runtimeType.toString(),
+        widgetName: widgetTypeName,
         ancestorChain: location,
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
       ),
     );
+    _addHighlight(element, widgetTypeName, IssueSeverity.warning,
+        '$widgetTypeName inside scrollable');
+  }
+
+  void _addHighlight(
+    Element element,
+    String widgetName,
+    IssueSeverity severity,
+    String detail,
+  ) {
+    final ro = element.renderObject;
+    if (ro == null) return;
+    final rect = getGlobalRect(ro);
+    if (rect == null) return;
+    _highlights.add(WidgetHighlight(
+      rect: rect,
+      widgetName: widgetName,
+      severity: severity,
+      detectorName: 'Nested Scroll',
+      detail: detail,
+    ));
   }
 
   @override
-  void dispose() => _issues.clear();
+  void dispose() {
+    _issues.clear();
+    _highlights.clear();
+  }
 }
