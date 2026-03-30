@@ -17,6 +17,7 @@ class SessionSnapshot {
     this.isDebugMode = false,
     this.recentRequests,
     this.heapSamples,
+    this.suppressedCount = 0,
   });
 
   /// Wall-clock time when this snapshot was exported.
@@ -46,6 +47,9 @@ class SessionSnapshot {
   /// Rolling window of heap memory samples (if VM was connected).
   final List<HeapSample>? heapSamples;
 
+  /// Number of issues hidden by the suppression list at export time.
+  final int suppressedCount;
+
   Map<String, dynamic> toJson() => {
         'exportedAt': exportedAt.toIso8601String(),
         'packageVersion': packageVersion,
@@ -58,6 +62,7 @@ class SessionSnapshot {
           'recentRequests': recentRequests!.map((r) => r.toJson()).toList(),
         if (heapSamples != null && heapSamples!.isNotEmpty)
           'heapSamples': heapSamples!.map((s) => s.toJson()).toList(),
+        if (suppressedCount > 0) 'suppressedCount': suppressedCount,
       };
 
   /// Pretty-printed JSON string for export/sharing.
@@ -77,6 +82,7 @@ class SessionSnapshot {
         currentIssues: (json['currentIssues'] as List<dynamic>)
             .map((e) => PerformanceIssue.fromJson(e as Map<String, dynamic>))
             .toList(),
+        suppressedCount: json['suppressedCount'] as int? ?? 0,
         // recentRequests and heapSamples are export-only; not deserialized
       );
 }

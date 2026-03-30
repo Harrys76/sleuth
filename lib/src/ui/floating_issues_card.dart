@@ -680,6 +680,23 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             'Export JSON',
             style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
           ),
+          ValueListenableBuilder<int>(
+            valueListenable: widget.controller.suppressedCountNotifier,
+            builder: (_, count, __) {
+              if (count == 0) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Text(
+                  '$count suppressed',
+                  style: const TextStyle(
+                    color: Color(0xFF6B7280),
+                    fontSize: 10,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              );
+            },
+          ),
         ],
       ),
     );

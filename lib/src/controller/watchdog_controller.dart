@@ -176,6 +176,9 @@ class WatchdogController {
   final ValueNotifier<WidgetHighlight?> selectedHighlightNotifier =
       ValueNotifier(null);
 
+  /// Number of issues hidden by the suppression list after the last aggregation.
+  final ValueNotifier<int> suppressedCountNotifier = ValueNotifier(0);
+
   /// Issue waiting to be highlighted after the next tree scan populates
   /// the highlights list. Set by the UI when highlights aren't ready yet.
   PerformanceIssue? pendingIssueSelection;
@@ -448,6 +451,10 @@ class WatchdogController {
   @visibleForTesting
   void aggregateIssuesForTest() => _aggregateIssues();
 
+  /// Exposes suppressed count for testing.
+  @visibleForTesting
+  int get suppressedCountForTest => suppressedCountNotifier.value;
+
   /// Exposes interaction state for testing.
   @visibleForTesting
   InteractionContext get interactionStateForTest => _interactionState;
@@ -500,6 +507,7 @@ class WatchdogController {
       heapSamples: _initialized && _memoryPressure.heapSamples.isNotEmpty
           ? _memoryPressure.heapSamples
           : null,
+      suppressedCount: suppressedCountNotifier.value,
     );
   }
 
@@ -1093,14 +1101,40 @@ class WatchdogController {
             ))
         .toList();
 
+    // ── v4.1: Suppress user-dismissed issues post-correlate, pre-rank ──
+    final List<PerformanceIssue> visible;
+    if (config.suppressedIssues.isEmpty) {
+      visible = stamped;
+      suppressedCountNotifier.value = 0;
+    } else {
+      visible = stamped
+          .where((i) => !_matchesSuppression(i.stableId ?? i.title))
+          .toList();
+      suppressedCountNotifier.value = stamped.length - visible.length;
+    }
+
     // Rank by impact: severity dominates, then frame impact, confidence,
     // recurrence. See IssueRanker for score formula and tier guarantees.
-    final ranked = _ranker.rank(stamped, _buildRankingContext());
+    final ranked = _ranker.rank(visible, _buildRankingContext());
 
     // IssueCard is a StatefulWidget with ValueKey(stableId), so expansion
     // state survives list rebuilds. Safe to always update the notifier —
     // titles with live counters (e.g. "45 GC/min") will reflect fresh data.
     issuesNotifier.value = ranked;
+  }
+
+  /// Returns true if [id] matches any pattern in [config.suppressedIssues].
+  bool _matchesSuppression(String id) {
+    for (final pattern in config.suppressedIssues) {
+      if (pattern.endsWith('*')) {
+        if (id.startsWith(pattern.substring(0, pattern.length - 1))) {
+          return true;
+        }
+      } else {
+        if (id == pattern) return true;
+      }
+    }
+    return false;
   }
 
   IssueRankingContext _buildRankingContext() {
@@ -1293,6 +1327,7 @@ class WatchdogController {
     highlightsNotifier.dispose();
     highlightEnabledNotifier.dispose();
     selectedHighlightNotifier.dispose();
+    suppressedCountNotifier.dispose();
   }
 }
 
@@ -1318,6 +1353,7 @@ class WatchdogConfig {
     this.networkExcludePatterns,
     this.memoryWarmupDurationMs = 5000,
     this.platformChannelDurationThresholdMs = 8,
+    this.suppressedIssues = const {},
   });
 
   /// Target frames per second (60 or 120). Drives jank detection thresholds.
@@ -1388,6 +1424,17 @@ class WatchdogConfig {
   /// Cumulative platform channel duration threshold in milliseconds per window.
   /// Fires when total channel call time exceeds this even if call count is low.
   final int platformChannelDurationThresholdMs;
+
+  /// StableId patterns to suppress from the issue list.
+  ///
+  /// Exact strings match directly (e.g. `'opacity_zero'`).
+  /// Trailing `*` matches any stableId starting with the prefix
+  /// (e.g. `'rebuild_debug_*'` suppresses `rebuild_debug_MyWidget`,
+  /// `rebuild_debug_Text`, etc.).
+  ///
+  /// Suppressed issues still participate in inter-detector correlation
+  /// but are excluded from ranking and UI display.
+  final Set<String> suppressedIssues;
 }
 
 /// Lightweight struct for sorting allocation profile entries.

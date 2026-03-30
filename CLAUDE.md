@@ -57,6 +57,7 @@ test/
 - v0.6.0: Replaced DashboardSheet (bottom sheet, 1,241 lines) with FloatingIssuesCard (draggable floating card, ~830 lines). Removed FrameChart, tabs, filter chips. FPS now shown on TriggerButton. Guide is a full-screen GuidePage with staggered animations and 4 expandable sections. Card is resizable (width + height) via corner grip handle; double-tap header to maximize.
 - v0.6.1: FPS counter fixes — throughput-based calculation with microsecond precision, startup timing fix (frames captured during VM connect), target-aware `fpsColor`, FPS capped at `fpsTarget` in UI, `exportSnapshot` reads live detector buffer.
 - v3 roadmap: v3.1–v3.10 all shipped
-- v4 roadmap: v4.1 issue suppression, v4.2 custom detector API, v4.3 shake-to-open, v4.4 card widget extraction, v4.5 example app extraction (see `doc/implementation_spec.md`)
+- v4 roadmap: v4.1 issue suppression (shipped), v4.2 custom detector API, v4.3 shake-to-open, v4.4 card widget extraction, v4.5 example app extraction (see `doc/implementation_spec.md`)
+- v4.1: `suppressedIssues: Set<String>` on `WatchdogConfig` — filters by stableId pattern (exact or trailing `*` wildcard) post-correlate, pre-rank. `suppressedCountNotifier` for UI. `SessionSnapshot.suppressedCount` for export.
 - Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
-- ~1,079 tests, 0 analysis issues
+- ~1,089 tests, 0 analysis issues

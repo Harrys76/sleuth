@@ -3242,6 +3242,24 @@ final ranked = _ranker.rank(filtered, ...);
 
 **Performance budget:** One `.where()` pass over typically 0–10 issues. Negligible.
 
+**Post-Implementation Notes (v4.1):**
+
+Shipped as planned with minor refinements:
+
+1. **`_matchesSuppression()` helper** extracted as a private method on `WatchdogController` for clarity. Iterates `config.suppressedIssues` once per issue — O(P×I) where P = pattern count, I = issue count. Negligible for typical sizes (< 10 patterns, < 20 issues).
+
+2. **`suppressedCountNotifier`** added as a `ValueNotifier<int>` on `WatchdogController`. Footer uses a scoped `ValueListenableBuilder<int>` so only the count text rebuilds — no full-footer rebuilds.
+
+3. **`SessionSnapshot.suppressedCount`** field added with conditional JSON serialization (`if > 0`). Backward compatible — old JSON without the field deserializes to 0 via `?? 0` fallback.
+
+4. **Recurrence tracking**: `_updateRecurrence()` runs on the post-suppression list (`issuesNotifier.value`). Suppressed issues don't accumulate recurrence counts. This is correct — recurrence only matters for ranked/displayed issues. If unsuppressed later, the issue starts fresh.
+
+5. **stableId reference table correction**: GlobalKey and NestedScroll detectors DO have stableIds (`excessive_global_keys`, `nested_scroll`, `nested_scroll_same_axis`) — the spec table was inaccurate. Also missing from the table: `raster_cache_thrashing`, `raster_cache_growing`, `platform_channel_traffic`, `stateful_density`, `FrameTiming.raster_cache_*`.
+
+6. **10 tests** (vs. 8 planned): added tests for no-issues-yields-zero and JSON-absent-when-zero edge cases. Test file: `test/controller/suppression_test.dart`.
+
+7. **Total test count**: 1,089 (up from 1,079). 0 analysis issues.
+
 ---
 
 ### v4.2: Custom Detector Plugin API
