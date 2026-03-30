@@ -229,25 +229,26 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         _buildHeader(screenSize),
-                        _buildStatusRow(),
+                        _StatusRow(controller: widget.controller),
                         const Divider(color: Color(0xFF374151), height: 1),
 
                         // Warning banners
-                        if (kDebugMode) _buildDebugWarning(),
-                        if (kDebugMode &&
-                            widget.controller.isDeepInstrumentationActive)
-                          _buildInstrumentationWarning(),
-                        if (_exportFeedbackVisible)
-                          _buildExportFeedbackBanner(),
-                        if (_highlightNotFoundVisible)
-                          _buildHighlightNotFoundBanner(),
+                        _WarningBanners(
+                          exportFeedbackVisible: _exportFeedbackVisible,
+                          highlightNotFoundVisible: _highlightNotFoundVisible,
+                          isDeepInstrumentationActive:
+                              widget.controller.isDeepInstrumentationActive,
+                        ),
 
                         // Issues list — boundary isolates repaints
                         Flexible(
                             child: RepaintBoundary(child: _buildIssuesList())),
 
                         // Footer
-                        _buildFooter(),
+                        _CardFooter(
+                          controller: widget.controller,
+                          onExport: _exportToClipboard,
+                        ),
                       ],
                     ),
                   ),
@@ -416,184 +417,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     );
   }
 
-  // ─── Status Row ──────────────────────────────────────────────────────
-
-  Widget _buildStatusRow() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Row(
-        children: [
-          // FPS number (color-coded)
-          ValueListenableBuilder<FrameStatsBuffer>(
-            valueListenable: widget.controller.frameStatsNotifier,
-            builder: (_, buffer, __) {
-              final target = widget.controller.config.fpsTarget;
-              final fps = buffer.averageFps.clamp(0.0, target.toDouble());
-              final color = fpsColor(fps, target: target);
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    fps.toStringAsFixed(0),
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(width: 2),
-                  const Text(
-                    'FPS',
-                    style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
-                  ),
-                ],
-              );
-            },
-          ),
-          const Spacer(),
-          // Issue count + severity dot
-          ValueListenableBuilder<List<PerformanceIssue>>(
-            valueListenable: widget.controller.issuesNotifier,
-            builder: (_, issues, __) {
-              if (issues.isEmpty) {
-                return const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.check_circle,
-                        color: Color(0xFF10B981), size: 14),
-                    SizedBox(width: 4),
-                    Text(
-                      '0 issues',
-                      style: TextStyle(color: Color(0xFF10B981), fontSize: 11),
-                    ),
-                  ],
-                );
-              }
-              final hasCritical =
-                  issues.any((i) => i.severity == IssueSeverity.critical);
-              final severityColor = hasCritical
-                  ? const Color(0xFFEF4444)
-                  : const Color(0xFFF59E0B);
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: severityColor,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${issues.length} issue${issues.length == 1 ? '' : 's'}',
-                    style: TextStyle(color: severityColor, fontSize: 11),
-                  ),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── Warning Banners ─────────────────────────────────────────────────
-
-  Widget _buildDebugWarning() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF92400E),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Row(
-        children: [
-          Text('⚠️', style: TextStyle(fontSize: 12)),
-          SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              'Debug mode — data inaccurate.\nRun: flutter run --profile',
-              style: TextStyle(color: Color(0xFFFCD34D), fontSize: 10),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInstrumentationWarning() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF5B21B6),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Row(
-        children: [
-          Text('🔬', style: TextStyle(fontSize: 12)),
-          SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              'Instrumentation active — rebuild/paint counts useful for '
-              'attribution. Timings not representative of real performance.',
-              style: TextStyle(color: Color(0xFFDDD6FE), fontSize: 10),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildExportFeedbackBanner() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: const Color(0xFF065F46),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.check_circle, color: Color(0xFF6EE7B7), size: 12),
-          SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              'Snapshot copied to clipboard',
-              style: TextStyle(color: Color(0xFF6EE7B7), fontSize: 10),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHighlightNotFoundBanner() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: const Color(0xFF78350F),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.visibility_off, color: Color(0xFFFCD34D), size: 12),
-          SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              'Widget not currently visible. Navigate to the screen where this issue occurs.',
-              style: TextStyle(color: Color(0xFFFCD34D), fontSize: 10),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ─── Issues List ─────────────────────────────────────────────────────
 
   Widget _buildIssuesList() {
@@ -652,10 +475,216 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       },
     );
   }
+}
 
-  // ─── Footer ──────────────────────────────────────────────────────────
+// ─── Status Row ─────────────────────────────────────────────────────────
 
-  Widget _buildFooter() {
+class _StatusRow extends StatelessWidget {
+  const _StatusRow({required this.controller});
+
+  final WatchdogController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        children: [
+          // FPS number (color-coded)
+          ValueListenableBuilder<FrameStatsBuffer>(
+            valueListenable: controller.frameStatsNotifier,
+            builder: (_, buffer, __) {
+              final target = controller.config.fpsTarget;
+              final fps = buffer.averageFps.clamp(0.0, target.toDouble());
+              final color = fpsColor(fps, target: target);
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    fps.toStringAsFixed(0),
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  const Text(
+                    'FPS',
+                    style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
+                  ),
+                ],
+              );
+            },
+          ),
+          const Spacer(),
+          // Issue count + severity dot
+          ValueListenableBuilder<List<PerformanceIssue>>(
+            valueListenable: controller.issuesNotifier,
+            builder: (_, issues, __) {
+              if (issues.isEmpty) {
+                return const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.check_circle,
+                        color: Color(0xFF10B981), size: 14),
+                    SizedBox(width: 4),
+                    Text(
+                      '0 issues',
+                      style: TextStyle(color: Color(0xFF10B981), fontSize: 11),
+                    ),
+                  ],
+                );
+              }
+              final hasCritical =
+                  issues.any((i) => i.severity == IssueSeverity.critical);
+              final severityColor = hasCritical
+                  ? const Color(0xFFEF4444)
+                  : const Color(0xFFF59E0B);
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: severityColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${issues.length} issue${issues.length == 1 ? '' : 's'}',
+                    style: TextStyle(color: severityColor, fontSize: 11),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Warning Banners ────────────────────────────────────────────────────
+
+class _WarningBanners extends StatelessWidget {
+  const _WarningBanners({
+    required this.exportFeedbackVisible,
+    required this.highlightNotFoundVisible,
+    required this.isDeepInstrumentationActive,
+  });
+
+  final bool exportFeedbackVisible;
+  final bool highlightNotFoundVisible;
+  final bool isDeepInstrumentationActive;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (kDebugMode)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF92400E),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(
+              children: [
+                Text('⚠️', style: TextStyle(fontSize: 12)),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Debug mode — data inaccurate.\nRun: flutter run --profile',
+                    style: TextStyle(color: Color(0xFFFCD34D), fontSize: 10),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (kDebugMode && isDeepInstrumentationActive)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF5B21B6),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(
+              children: [
+                Text('🔬', style: TextStyle(fontSize: 12)),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Instrumentation active — rebuild/paint counts useful for '
+                    'attribution. Timings not representative of real performance.',
+                    style: TextStyle(color: Color(0xFFDDD6FE), fontSize: 10),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (exportFeedbackVisible)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: const Color(0xFF065F46),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Color(0xFF6EE7B7), size: 12),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Snapshot copied to clipboard',
+                    style: TextStyle(color: Color(0xFF6EE7B7), fontSize: 10),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (highlightNotFoundVisible)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: const Color(0xFF78350F),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.visibility_off, color: Color(0xFFFCD34D), size: 12),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Widget not currently visible. Navigate to the screen where this issue occurs.',
+                    style: TextStyle(color: Color(0xFFFCD34D), fontSize: 10),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// ─── Card Footer ────────────────────────────────────────────────────────
+
+class _CardFooter extends StatelessWidget {
+  const _CardFooter({required this.controller, required this.onExport});
+
+  final WatchdogController controller;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: const BoxDecoration(
@@ -667,7 +696,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           IconButton(
-            onPressed: _exportToClipboard,
+            onPressed: onExport,
             icon:
                 const Icon(Icons.ios_share, color: Color(0xFF9CA3AF), size: 16),
             tooltip: 'Export session snapshot',
@@ -681,7 +710,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
           ),
           ValueListenableBuilder<int>(
-            valueListenable: widget.controller.suppressedCountNotifier,
+            valueListenable: controller.suppressedCountNotifier,
             builder: (_, count, __) {
               if (count == 0) return const SizedBox.shrink();
               return Padding(

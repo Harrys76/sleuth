@@ -3532,6 +3532,40 @@ Shipped as planned with minor refinements:
 
 ---
 
+**Post-Implementation Notes (v4.4):**
+
+Shipped as planned. Pure refactor — zero behavior change.
+
+1. **Three widgets extracted.** `_StatusRow` (80 lines), `_CardFooter` (46 lines), `_WarningBanners` (95 lines) — all private `StatelessWidget`s in the same file. Combined extraction: 226 lines moved out of `_FloatingIssuesCardState`.
+
+2. **State class reduced from 659 to 433 lines.** The remaining state class handles core orchestration: positioning, resize, issue management, and the header/issues-list builders whose state coupling was too tight for clean extraction.
+
+3. **`_WarningBanners` uses `Column(mainAxisSize: MainAxisSize.min)`.** This introduces a Column-inside-Column in the parent build, but `mainAxisSize: MainAxisSize.min` ensures identical layout behavior — the inner Column takes only the space its children need.
+
+4. **Zero state coupling confirmed for `_StatusRow` and `_CardFooter`.** Both read exclusively from `WatchdogController` notifiers via `ValueListenableBuilder`, requiring only `controller` (and `onExport` callback for footer) as constructor parameters.
+
+5. **All 70 UI tests passed unchanged on first run.** No test modifications needed — the widget tree output is identical.
+
+6. **Skipped `_CardHeader` and `_IssuesList` extraction.** Both have moderate-to-heavy state coupling (`_cardOffset`, `_cardWidth`, `_showGuide` for header; `_expandedIssueId`, `_selectedIssueId`, `_cachedJankKeys` for issues). Extraction would move complexity without reducing it.
+
+---
+
+**Post-Implementation Notes (v4.5):**
+
+Shipped with a simpler structure than spec'd — one file per demo instead of grouping by theme.
+
+1. **18 individual files, no barrel file.** The spec proposed grouping small demos into `simple_demos.dart`, `animated_demos.dart`, etc. with a barrel file. Implementation chose one file per demo for maximum navigability — each file is fully self-contained and named after its class. `main.dart` imports all 18 directly; no barrel needed for 18 predictable imports.
+
+2. **`main.dart` reduced from 1,807 to 239 lines.** Contains only: imports (20 lines), `main()`, `WatchdogDemoApp`, `DemoHome` (navigation list), and `_DemoRoute` data class. All demo class definitions and helper classes removed.
+
+3. **Helper classes stayed private in their demo files.** `_BadCirclePainter` (CustomPainterDemo), `_WavePainter` (RepaintStressDemo), `_DashboardChartPainter` (CombinedAnalyticsDashboardDemo), `_KeepAliveItem` (KeepAliveDemo) — each kept `_` prefix and moved with their demo.
+
+4. **Import cleanup.** `main.dart` no longer needs `dart:io`, `dart:math`, or `dart:ui` — only used by individual demos. Each demo file imports only what it needs (`dart:math` for HeavyCompute/CombinedAnalytics/FpsStress, `dart:io` for NetworkStress, `dart:ui` for FpsStress).
+
+5. **All 1,101 tests passed.** 0 analysis issues on both root package and example app. Example-only refactor with zero library impact.
+
+---
+
 ### v4.4: FloatingIssuesCard Widget Extraction
 
 **Problem:** `floating_issues_card.dart` is 841 lines with one 643-line State class. While functional, this size makes the file difficult to navigate, review, and modify. The state class has clear logical sections that map to distinct UI regions.
