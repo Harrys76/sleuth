@@ -3133,3 +3133,503 @@ Fixed three FPS counter bugs: wrong values at startup, no target cap in UI, and 
 ### Test count
 
 9 new unit tests in `frame_stats_buffer_fps_test.dart`. Full suite: ~1,079 tests.
+
+---
+
+## v4 Roadmap: Extensibility & Developer Experience
+
+This roadmap focuses on making Widget Watchdog customizable for teams with domain-specific needs, reducing UI file complexity, and improving developer workflow.
+
+### v4.1: Issue Suppression List
+
+**Problem:** Issues reappear every scan cycle. Developers who intentionally use patterns that trigger detectors (e.g., `Opacity(0)` for animations, a non-lazy ListView with exactly 25 items) cannot dismiss issues persistently. The only option is to disable the entire detector via `enabledDetectors`, which is too coarse — it silences *all* instances of that detector type, not just the known-intentional ones.
+
+**Current suppression mechanisms:**
+- **Detector-level:** `enabledDetectors` disables entire detector types (too coarse)
+- **Correlator-level:** 5 evidence-based rules suppress/merge cross-detector (automatic, not user-controlled)
+- **UI-level:** None — no dismiss, suppress, or ignore controls exist
+
+**Approach:** Add `suppressedIssues: Set<String>` to `WatchdogConfig`. Filter by `stableId` (or `title` fallback) in `_aggregateIssues()` after correlation but before ranking. This is the minimal insertion point — one `where` clause.
+
+**Design decisions:**
+
+1. **Filter point: post-correlate, pre-rank.** Suppression happens in `_aggregateIssues()` (line ~1081) after `DetectorCorrelator.correlate()` but before `IssueRanker.rank()`. This ensures:
+   - Correlation rules still see suppressed issues (a suppressed rebuild issue can still merge with a setState issue)
+   - Suppressed issues don't appear in the ranked list or UI
+   - Ranking context (`jankActive`, `recurrenceCounts`) excludes suppressed issues
+
+2. **Match on `stableId ?? title`.** This is already the canonical identifier pattern used by `IssueRanker` (line 64), `_updateRecurrence()` (line 1139), and `FloatingIssuesCard` (line 102). Using the same pattern means the config strings match what's displayed in the UI.
+
+3. **Prefix matching with `*` suffix.** Support `'rebuild_debug_*'` to suppress all per-widget rebuild issues. Simple `startsWith` check — no regex. Exact match first, then prefix check if no exact match found.
+
+4. **No runtime UI for adding suppressions.** Config-only (compile-time). Reasoning: this is a developer tool, and suppression decisions should be explicit in code (reviewable in PRs), not hidden in runtime state. A future version could add a "Copy stableId" button to issue cards for convenience.
+
+5. **Suppressed count shown in UI.** The floating card footer shows "3 issues suppressed" when suppressions are active, so developers know the list isn't the full picture.
+
+**Implementation:**
+
+```dart
+// WatchdogConfig addition:
+const WatchdogConfig({
+  // ... existing fields ...
+  this.suppressedIssues = const {},
+});
+final Set<String> suppressedIssues;
+
+// In _aggregateIssues():
+final correlated = _detectorCorrelator.correlate(all);
+final filtered = config.suppressedIssues.isEmpty
+    ? correlated
+    : correlated.where((issue) {
+        final id = issue.stableId ?? issue.title;
+        if (config.suppressedIssues.contains(id)) return false;
+        return !config.suppressedIssues.any(
+          (pattern) => pattern.endsWith('*') &&
+              id.startsWith(pattern.substring(0, pattern.length - 1)),
+        );
+      }).toList();
+final ranked = _ranker.rank(filtered, ...);
+```
+
+**Files changed:**
+- `lib/src/controller/watchdog_controller.dart` — add `suppressedIssues` to `WatchdogConfig`, add filter in `_aggregateIssues()`, track suppressed count
+- `lib/src/ui/floating_issues_card.dart` — show "N issues suppressed" in footer when count > 0
+- `lib/widget_watchdog.dart` — no change (WatchdogConfig already exported)
+
+**Acceptance criteria:**
+- `suppressedIssues: {'opacity_zero'}` hides all opacity issues
+- `suppressedIssues: {'rebuild_debug_*'}` hides all per-widget rebuild issues
+- Suppressed issues still participate in correlation rules (e.g., rebuild + setState merge)
+- Unsuppressed issues are unaffected in ranking and display
+- Footer shows suppressed count when > 0
+- Empty `suppressedIssues` (default) has zero overhead (early return before `.where()`)
+- Export snapshot includes suppressed count but not suppressed issues
+
+**stableId reference for documentation:**
+
+| Detector | stableId(s) |
+|----------|-------------|
+| FrameTiming | `sustained_jank`, `jank_detected` |
+| ShaderJank | `shader_compilation` |
+| HeavyCompute | `heavy_compute` |
+| MemoryPressure | `gc_pressure`, `heap_growing`, `heap_near_capacity`, `native_memory_growing` |
+| Rebuild | `rebuild_debug_$TYPE`, `rebuild_activity` |
+| Repaint | `repaint_debug_$TYPE`, `excessive_repaint`, `excessive_repaint_debug` |
+| GpuPressure | `raster_dominance`, `expensive_gpu_nodes` |
+| ShallowRebuildRisk | `shallow_rebuild_risk` |
+| SetStateScope | `setstate_scope` |
+| LayoutBottleneck | `layout_bottleneck` |
+| ListView | `non_lazy_list` |
+| ImageMemory | `uncached_images` |
+| GlobalKey | (falls back to title) |
+| NestedScroll | (falls back to title) |
+| CustomPainter | `always_repaint_painter`, `frequent_repaint_painter` |
+| KeepAlive | `excessive_keep_alive` |
+| AnimatedBuilder | `animated_builder_no_child` |
+| Opacity | `opacity_zero` |
+| FontLoading | `multiple_custom_fonts` |
+| Network | `slow_request`, `large_response`, `request_frequency` |
+
+**Testing:** 8 tests:
+1. Empty suppression set — all issues pass through (zero overhead)
+2. Exact stableId match — issue filtered
+3. Title fallback match — issue without stableId filtered by title
+4. Prefix wildcard — `rebuild_debug_*` matches `rebuild_debug_MyWidget`
+5. Suppressed issue still participates in correlation (rebuild + setState merge)
+6. Ranking context excludes suppressed issues
+7. Suppressed count tracked correctly
+8. Export snapshot includes suppressed count
+
+**Performance budget:** One `.where()` pass over typically 0–10 issues. Negligible.
+
+---
+
+### v4.2: Custom Detector Plugin API
+
+**Problem:** The 21 built-in detectors cover common Flutter anti-patterns, but teams have domain-specific performance concerns that the package can't anticipate. Examples:
+- "Our video player widget shouldn't rebuild during playback"
+- "Any widget tree deeper than 50 levels in our design system is a bug"
+- "Our analytics SDK shouldn't make network calls during scroll"
+
+Currently, adding a detector requires modifying `DetectorType` enum, `WatchdogController` fields, `_initializeDetectors()`, `_runStructuralScans()`, `_getAllIssues()`, `_collectHighlights()`, and `dispose()` — 7 touch points in library-internal code.
+
+**Approach:** Add `customDetectors: List<BaseDetector>` to `WatchdogConfig`. The controller integrates them into existing scan, aggregation, highlight, and disposal lifecycles without requiring enum changes or controller modifications.
+
+**Design decisions:**
+
+1. **No new `DetectorType` enum values.** Custom detectors don't need a `DetectorType` because the enum is only used for `enabledDetectors` filtering — and custom detectors are explicitly opted-in by passing them in config. Custom detectors use `DetectorType` internally for their own identity but are not filtered by `enabledDetectors`.
+
+2. **Use existing `DetectorLifecycle` for routing.** Custom detectors declare their lifecycle (structural, runtime, hybrid, vmOnly) and the controller routes data to them accordingly:
+   - `structural` → called in `_runStructuralScans()` via `scanTree(context)`
+   - `hybrid` → called in `_runStructuralScans()` + receives `processTimelineData()` + `evaluateNow()`
+   - `vmOnly` → receives `processTimelineData()` only
+   - `runtime` → self-managed (like FrameTimingDetector)
+
+3. **`BaseDetector` is the plugin interface.** No new abstract class needed. `BaseDetector` already defines every hook a detector needs: `scanTree()`, `issues`, `highlights`, `isEnabled`, `updateDebugSnapshot()`, `evaluateNow()`, `dispose()`. Custom detectors extend `BaseDetector` exactly like built-in ones.
+
+4. **DetectorType gains a `custom` value.** Single new enum value for all custom detectors. Used only for identification in issue metadata — not for config filtering.
+
+5. **Lifecycle routing via list iteration.** The controller maintains `List<BaseDetector> _customDetectors` and iterates them at each lifecycle trigger point. This is O(n) where n is typically 1–3 custom detectors — negligible overhead.
+
+6. **Custom detector issues participate in correlation and ranking.** They flow through the same `_aggregateIssues()` pipeline: correlate → stamp → rank → notify. Custom detectors benefit from the existing ranking system without extra work.
+
+**Implementation sketch:**
+
+```dart
+// DetectorType addition:
+enum DetectorType {
+  // ... existing 21 values ...
+  custom,
+}
+
+// WatchdogConfig addition:
+const WatchdogConfig({
+  // ... existing fields ...
+  this.customDetectors = const [],
+});
+final List<BaseDetector> customDetectors;
+
+// Controller:
+late final List<BaseDetector> _customDetectors;
+
+void _initializeDetectors() {
+  // ... existing 21 detectors ...
+  _customDetectors = config.customDetectors.map((d) {
+    d.isEnabled = true;
+    return d;
+  }).toList();
+}
+
+void _runStructuralScans(BuildContext scanContext) {
+  // ... existing 15 detector calls ...
+  for (final d in _customDetectors) {
+    if (d.isEnabled && d.requiresTreeScan) d.scanTree(scanContext);
+  }
+}
+
+List<PerformanceIssue> _getAllIssues() {
+  return [
+    // ... existing 21 detector issues ...
+    for (final d in _customDetectors) ...d.issues,
+  ];
+}
+
+void _collectHighlights() {
+  highlightsNotifier.value = <WidgetHighlight>[
+    // ... existing detector highlights ...
+    for (final d in _customDetectors) ...d.highlights,
+  ];
+}
+
+void _onTimelineData(ParsedTimelineData data) {
+  // ... existing detector calls ...
+  for (final d in _customDetectors) {
+    if (d.lifecycle == DetectorLifecycle.vmOnly ||
+        d.lifecycle == DetectorLifecycle.hybrid) {
+      d.processTimelineData(data);
+    }
+  }
+  for (final d in _customDetectors) {
+    if (d.lifecycle == DetectorLifecycle.hybrid) {
+      d.evaluateNow();
+    }
+  }
+}
+
+void dispose() {
+  // ... existing detector disposal ...
+  for (final d in _customDetectors) {
+    d.dispose();
+  }
+}
+```
+
+**But `processTimelineData` is not on `BaseDetector`.** Currently, each detector defines its own `processTimelineData(ParsedTimelineData)` signature. The base class has no such method. Options:
+- **Option A:** Add `void processTimelineData(ParsedTimelineData data) {}` to `BaseDetector` as a no-op default. Simple, non-breaking.
+- **Option B:** Use `if (d is TimelineAware) d.processTimelineData(data)` mixin check. More principled but more complex.
+- **Recommendation:** Option A — matches the existing pattern where `scanTree()`, `updateDebugSnapshot()`, and `evaluateNow()` are all no-op defaults on `BaseDetector`.
+
+**Files changed:**
+- `lib/src/models/base_detector.dart` — add `DetectorType.custom`, add `processTimelineData()` no-op default
+- `lib/src/controller/watchdog_controller.dart` — add `customDetectors` to config, integrate into all lifecycle points
+- `lib/widget_watchdog.dart` — export `BaseDetector` (currently only exports `DetectorType` and `DetectorLifecycle`)
+- `README.md` — document custom detector usage with example
+
+**Acceptance criteria:**
+- Custom structural detector receives `scanTree()` calls every scan cycle
+- Custom hybrid detector receives `scanTree()` + `processTimelineData()` + `evaluateNow()`
+- Custom detector issues appear in ranked list alongside built-in issues
+- Custom detector highlights appear in overlay
+- Custom detector is disposed on controller disposal
+- Empty `customDetectors` (default) has zero overhead
+- Built-in detector behavior completely unchanged
+
+**Example usage for README:**
+
+```dart
+class VideoRebuildDetector extends BaseDetector {
+  VideoRebuildDetector() : super(
+    type: DetectorType.custom,
+    lifecycle: DetectorLifecycle.structural,
+    name: 'Video Rebuild',
+    description: 'Flags VideoPlayer rebuilds during playback',
+  );
+
+  final List<PerformanceIssue> _issues = [];
+  bool _isEnabled = true;
+
+  @override List<PerformanceIssue> get issues => _issues;
+  @override bool get isEnabled => _isEnabled;
+  @override set isEnabled(bool v) => _isEnabled = v;
+
+  @override
+  void scanTree(BuildContext context) {
+    _issues.clear();
+    void visitor(Element element) {
+      // Domain-specific detection logic
+      element.visitChildren(visitor);
+    }
+    context.visitChildElements(visitor);
+  }
+
+  @override void dispose() => _issues.clear();
+}
+
+// Usage:
+WidgetWatchdog.wrap(
+  config: WatchdogConfig(
+    customDetectors: [VideoRebuildDetector()],
+  ),
+  child: MyApp(),
+);
+```
+
+**Testing:** 10 tests:
+1. Custom structural detector receives scanTree calls
+2. Custom hybrid detector receives scanTree + processTimelineData + evaluateNow
+3. Custom vmOnly detector receives processTimelineData only
+4. Custom detector issues in aggregated list
+5. Custom detector highlights in overlay
+6. Custom detector disposed on controller dispose
+7. Disabled custom detector skipped
+8. Empty customDetectors list — zero overhead
+9. Custom detector issues participate in ranking
+10. Multiple custom detectors coexist
+
+**Performance budget:** One list iteration per lifecycle trigger per custom detector. Typically 1–3 custom detectors × 1 call/sec = negligible.
+
+---
+
+### v4.3: Shake-to-Open Overlay
+
+**Problem:** The floating trigger button (🐕) is always visible. Some teams want the overlay hidden during demos, user testing, or QA sessions — but still quickly accessible. A device shake gesture provides a hands-free alternative without touching the screen or keeping the button visible.
+
+**Current overlay architecture:**
+- `WatchdogOverlay` manages `_dashboardOpen` state (line 30 in `watchdog_overlay.dart`)
+- `TriggerButton.onTap` sets `_dashboardOpen = true`
+- The overlay is an always-present `Stack` layer wrapping the app child
+- `kReleaseMode` guard disables everything in production
+
+**Platform constraint:** Flutter has no built-in accelerometer API. Shake detection requires native platform channel access to device motion sensors.
+
+**Approach:** Implement a minimal platform channel-based shake detector using `MethodChannel` — no external package dependency. The shake detector sends a `'shake'` event from native iOS (CoreMotion) and Android (SensorManager) when acceleration exceeds a threshold.
+
+**Design decisions:**
+
+1. **No external package dependency.** The package currently depends only on `flutter` SDK and `vm_service`. Adding `sensors_plus` (~15 transitive deps) would be disproportionate for a single feature. A lightweight platform channel implementation keeps the dependency footprint minimal.
+
+2. **Opt-in via config flag.** `WatchdogConfig(enableShakeToOpen: false)` — disabled by default. When disabled, no platform channel is registered and no native code executes. This is important because:
+   - Not all apps want accelerometer access
+   - Some apps have strict permission policies
+   - The trigger button is sufficient for most use cases
+
+3. **Hide trigger button when shake is enabled.** `WatchdogConfig(hideTriggerButton: false)` — separate flag. Teams can use shake + visible button, shake only (button hidden), or button only (default). Shake without hiding the button is useful during development; shake with hidden button is for demos.
+
+4. **Shake detection algorithm.** Classic high-pass filter approach:
+   - Sample accelerometer at ~50Hz
+   - Compute magnitude: `sqrt(x² + y² + z²)`
+   - Subtract gravity (~9.8 m/s²)
+   - If magnitude > 2.5g for 3+ samples within 500ms → shake detected
+   - Cooldown: 2 seconds between shake events (prevent rapid toggling)
+
+5. **Platform implementation:**
+   - **iOS:** `CMMotionManager.startAccelerometerUpdates()` with 50Hz interval. Event channel sends shake events.
+   - **Android:** `SensorManager.registerListener()` with `SENSOR_DELAY_UI` (~60Hz). Same threshold logic.
+   - **Fallback:** If platform channel not available (web, desktop), shake detection silently disabled. Log message in debug mode.
+
+6. **Integration point:** `WatchdogOverlay` listens to shake events and toggles `_dashboardOpen`. Same effect as tapping the trigger button.
+
+**Files changed:**
+- `lib/src/controller/watchdog_controller.dart` — add `enableShakeToOpen`, `hideTriggerButton` to `WatchdogConfig`
+- `lib/src/ui/watchdog_overlay.dart` — listen to shake channel, toggle dashboard, conditionally hide trigger button
+- `lib/src/platform/shake_detector.dart` — new: platform channel wrapper with shake algorithm
+- `android/src/main/kotlin/.../ShakeDetectorPlugin.kt` — new: native Android shake detection
+- `ios/Classes/ShakeDetectorPlugin.swift` — new: native iOS shake detection
+
+**Note:** Adding native code (`android/`, `ios/` directories) changes the package from a pure Dart package to a plugin package. This is a significant architectural decision:
+- Requires `pluginClass` in pubspec.yaml
+- Changes pub.dev package type
+- Requires native build tooling for consumers
+- May conflict with other sensor plugins
+
+**Alternative: Pure Dart approach using `GestureBinding`.** Monitor rapid back-and-forth pan gestures on the trigger button area. Less reliable than accelerometer but zero native code. Could serve as MVP.
+
+**Acceptance criteria:**
+- `enableShakeToOpen: true` + shake device → overlay toggles open/closed
+- `hideTriggerButton: true` → no visible button, only shake access
+- 2-second cooldown between shake events
+- Desktop/web → shake silently disabled, falls back to button
+- Default config (both false) → zero overhead, no platform channel registered
+- Release mode → entire feature disabled (existing `kReleaseMode` guard)
+
+**Testing:** 6 tests:
+1. Shake event toggles dashboard open
+2. Shake event toggles dashboard closed (when open)
+3. Cooldown prevents rapid toggling
+4. `hideTriggerButton: true` hides button
+5. `enableShakeToOpen: false` — no platform channel registered
+6. Platform channel unavailable → graceful fallback
+
+**Performance budget:** Accelerometer polling at 50Hz = 50 reads/sec. Each read: magnitude calculation + threshold check = <1μs. Total: ~50μs/sec. Negligible.
+
+---
+
+### v4.4: FloatingIssuesCard Widget Extraction
+
+**Problem:** `floating_issues_card.dart` is 841 lines with one 643-line State class. While functional, this size makes the file difficult to navigate, review, and modify. The state class has clear logical sections that map to distinct UI regions.
+
+**Current file structure (841 lines):**
+- Lines 20–29: `fpsColor()` helper function
+- Lines 31–42: `FloatingIssuesCard` StatefulWidget
+- Lines 45–687: `_FloatingIssuesCardState` (643 lines — the monolith)
+- Lines 691–807: `_IssuesSummaryBar` StatelessWidget (already extracted)
+- Lines 811–840: `_CornerGripPainter` CustomPainter (already extracted)
+
+**State variables in `_FloatingIssuesCardState`:**
+| Variable | Used by |
+|----------|---------|
+| `_cardOffset` | Header (drag), Build (positioning) |
+| `_expandedIssueId` | Issues list |
+| `_selectedIssueId` | Issues list |
+| `_exportFeedbackVisible` | Warning banners, Footer |
+| `_highlightNotFoundVisible` | Warning banners |
+| `_showGuide` | Header, Build (conditional) |
+| `_cachedJankKeys` | Issues list |
+| `_exportFeedbackTimer` | Footer → Banner |
+| `_highlightNotFoundTimer` | Issues list → Banner |
+| `_cardWidth` | Header (resize), Build (sizing) |
+| `_cardHeight` | Build (sizing), Resize handle |
+
+**Approach:** Extract self-contained UI sections into private widgets in the same file. Pass state via constructor parameters and callbacks. Don't create new files — this is internal decomposition, not public API refactoring.
+
+**Design decisions:**
+
+1. **Same-file extraction, not multi-file.** These are private implementation widgets (`_StatusRow`, `_CardFooter`). Putting them in separate files would require making them public (losing the `_` prefix encapsulation) or using `part`/`part of` (Dart anti-pattern). Keep them in the same file as private classes.
+
+2. **Extract by state coupling, not by visual region.** Priority order:
+   - **Zero-coupling first:** Sections that read only from controller notifiers (no local state)
+   - **Callback-coupling second:** Sections that need state but can receive it via constructor + callback
+   - **Skip tightly-coupled:** Sections where extraction would just move state without reducing complexity
+
+3. **Extraction candidates (ordered by value):**
+
+| Widget | Lines | State Coupling | Extract? |
+|--------|-------|----------------|----------|
+| `_StatusRow` | 82 | None (reads controller notifiers) | **Yes — highest value** |
+| `_CardFooter` | 31 | None (callback only) | **Yes — trivial** |
+| `_WarningBanners` | 94 | 2 bool states + 2 timers | **Yes — pass via constructor** |
+| `_CardHeader` | 111 | Card offset + width + guide toggle | **Maybe — moderate coupling** |
+| `_IssuesList` | 58 | 3 state vars (expanded, selected, jank keys) | **Maybe — significant coupling** |
+
+4. **Target: reduce `_FloatingIssuesCardState` from 643 to ~400 lines.** Extract `_StatusRow` (82), `_CardFooter` (31), and `_WarningBanners` (94) = 207 lines moved out. The remaining state class is ~436 lines — still large but focused on core orchestration (positioning, resize, issue management).
+
+**Files changed:**
+- `lib/src/ui/floating_issues_card.dart` — extract 3 widgets within the same file
+
+**Acceptance criteria:**
+- `_StatusRow`, `_CardFooter`, `_WarningBanners` are separate private StatelessWidgets
+- No behavior change — all existing UI tests pass without modification
+- State class reduced by ~200 lines
+- No new files created
+- No public API changes
+
+**Testing:** Existing 70 UI tests must pass unchanged. No new tests needed (this is a refactor, not a feature).
+
+**Risk:** Low. Pure refactoring with no behavior change. All state flows through constructor parameters.
+
+---
+
+### v4.5: Example App Demo Extraction
+
+**Problem:** `example/lib/main.dart` is 1,807 lines containing 24 widget classes (18 demo screens + 6 helper classes). While the routing structure is clean (`_DemoRoute` model + `DemoHome` list), the file is unwieldy to navigate and individual demos are hard to find.
+
+**Current structure:**
+- Lines 1–31: App entry point + MaterialApp
+- Lines 36–224: `DemoHome` + `_DemoRoute` model
+- Lines 230–1277: 15 single-pattern demo screens
+- Lines 1285–1678: 2 combined multi-detector demos
+- Lines 1683–1807: FPS stress test demo
+
+**Approach:** Extract demos into `example/lib/demos/` directory. Keep `main.dart` as the router with `DemoHome`. Group small demos by complexity.
+
+**Design decisions:**
+
+1. **Extraction threshold: >100 lines or complex state.** Demos under 60 lines with trivial state stay inline in a grouped file. Larger demos get their own file.
+
+2. **File structure:**
+```
+example/lib/
+  main.dart                              # App entry + DemoHome router (~230 lines)
+  demos/
+    demos.dart                           # Barrel file
+    simple_demos.dart                    # 6 small stateless demos (<60 lines each)
+    animated_demos.dart                  # CustomPainter, AnimatedBuilder, Repaint demos
+    state_management_demos.dart          # HighLevelSetState, ShallowRebuild, KeepAlive
+    heavy_compute_demo.dart              # HeavyCompute (68 lines, complex async)
+    network_stress_demo.dart             # NetworkStress (160 lines, complex async)
+    combined_social_feed_demo.dart       # CombinedSocialFeed (162 lines)
+    combined_analytics_demo.dart         # CombinedAnalytics (185 lines)
+    fps_stress_test_demo.dart            # FpsStressTest (124 lines)
+```
+
+3. **`main.dart` stays as the router.** `DemoHome` + `_DemoRoute` model + `WatchdogDemoApp` remain. Demos are imported via barrel file. This keeps the entry point clean and navigation easy to understand.
+
+4. **Barrel file for clean imports.** `demos/demos.dart` exports all demo classes. `main.dart` has a single import.
+
+5. **Helper classes travel with their demo.** `_BadCirclePainter` moves with `CustomPainterDemo`, `_WavePainter` with `RepaintStressDemo`, `_DashboardChartPainter` with `CombinedAnalyticsDashboardDemo`, `_KeepAliveItem` with `KeepAliveDemo`.
+
+**Files changed:**
+- `example/lib/main.dart` — reduce to ~230 lines (DemoHome + routing)
+- `example/lib/demos/demos.dart` — new barrel file
+- `example/lib/demos/simple_demos.dart` — new: NonLazyList, IntrinsicHeight, UncachedImage, OpacityZero, FontLoading, GlobalKey, NestedScroll
+- `example/lib/demos/animated_demos.dart` — new: CustomPainter, AnimatedBuilder, RepaintStress
+- `example/lib/demos/state_management_demos.dart` — new: HighLevelSetState, ShallowRebuild, KeepAlive
+- `example/lib/demos/heavy_compute_demo.dart` — new
+- `example/lib/demos/network_stress_demo.dart` — new
+- `example/lib/demos/combined_social_feed_demo.dart` — new
+- `example/lib/demos/combined_analytics_demo.dart` — new
+- `example/lib/demos/fps_stress_test_demo.dart` — new
+
+**Acceptance criteria:**
+- `main.dart` reduced from 1,807 to ~230 lines
+- All demo screens still accessible via `DemoHome`
+- `cd example && fvm flutter run` works without errors
+- No library code changes — example-only refactor
+
+**Testing:** Manual verification — `fvm flutter run` in example app, navigate to each demo.
+
+**Risk:** Very low. Example app changes only, no library impact.
+
+---
+
+### Implementation Order
+
+| Priority | Milestone | Effort | Dependencies |
+|----------|-----------|--------|--------------|
+| 1 | v4.1: Issue Suppression | Small (1 file + tests) | None |
+| 2 | v4.4: Card Widget Extraction | Small (refactor, no behavior change) | None |
+| 3 | v4.5: Example App Extraction | Small (file moves only) | None |
+| 4 | v4.2: Custom Detector API | Medium (controller + base detector + tests) | None |
+| 5 | v4.3: Shake-to-Open | Large (native platform code) | None |
+
+v4.1, v4.4, and v4.5 can be done in parallel — they touch different files with no overlap. v4.2 modifies the controller but doesn't conflict with v4.1 (different sections). v4.3 is the largest and most architecturally significant (Dart package → plugin package), so it should be last and may warrant its own evaluation before committing.
