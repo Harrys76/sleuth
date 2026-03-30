@@ -1,3 +1,53 @@
+## 0.6.1
+
+### Fixed
+
+- **FPS counter precision**: `averageFps` now uses microsecond-precision
+  arithmetic instead of milliseconds, eliminating ~8% inflation from truncation
+  artifacts (e.g., 6.5ms truncated to 6ms gave 167 FPS instead of 154).
+- **FPS counter startup**: `_frameTiming.start()` moved before
+  `await client.connect()` so the FPS counter captures frames during the
+  potentially slow VM connection (1.5–10.5s), instead of showing 0.
+- **FPS display capped at target**: UI now clamps displayed FPS at `fpsTarget`
+  (default 60) so an idle screen in profile mode shows 60 instead of raw
+  throughput values like 120+.
+- **`fpsColor` target-aware**: color thresholds are now relative to `fpsTarget`
+  (green >= 83%, amber >= 50%) instead of hardcoded to 50/30 FPS.
+- **`exportSnapshot` reads live buffer**: uses `_frameTiming.frameBuffer`
+  directly when initialized, avoiding potential staleness from the notifier.
+
+### Added
+
+- `TriggerButton.fpsTarget` parameter — wired from `WatchdogConfig.fpsTarget`.
+- FPS throughput unit tests (9 tests in `frame_stats_buffer_fps_test.dart`).
+- FPS Stress Test demo screen in example app.
+
+## 0.6.0
+
+### Changed
+
+- **Replaced DashboardSheet with FloatingIssuesCard**: the bottom sheet
+  (1,241 lines) is replaced by a draggable floating card (~830 lines). Removed
+  `FrameChart`, tabs, and filter chips. FPS is now shown directly on the
+  `TriggerButton`.
+- **Guide redesigned**: the Guide tab is now a full-screen `GuidePage` with
+  staggered entrance animations and 4 expandable sections (Quick Start,
+  Understanding the Card, Color Legend, Tips & Tricks).
+- **Resizable card**: width and height adjustable via corner grip handle.
+  Double-tap header to maximize/restore.
+
+### Added
+
+- `FloatingIssuesCard` — draggable, resizable floating panel for issue display.
+- `_CornerGripPainter` — 6-dot grip handle inside the card's corner radius.
+- `GuidePage` — full-screen guide with staggered fade+slide animations.
+- 9 card resize tests (`card_resize_test.dart`).
+
+### Removed
+
+- `DashboardSheet`, `FrameChart` widget, `TabBarView` with keep-alive, filter
+  chips, `AnimationController` for chart.
+
 ## 0.5.0
 
 ### Added
