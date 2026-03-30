@@ -315,6 +315,10 @@ class WatchdogController {
 
     _installDebugInstrumentation();
 
+    // Start frame timing immediately so the FPS counter captures initial
+    // frames while the (potentially slow) VM connection is in progress.
+    _frameTiming.start();
+
     // Connect to VM service
     final client = VmServiceClient(
       onTimelineData: _onTimelineData,
@@ -327,9 +331,6 @@ class WatchdogController {
     final connected = await client.connect();
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
-
-    // Start frame timing
-    _frameTiming.start();
 
     _initialized = true;
   }
@@ -470,7 +471,8 @@ class WatchdogController {
 
   /// Build a session snapshot for programmatic use.
   SessionSnapshot exportSnapshot() {
-    final buffer = frameStatsNotifier.value;
+    final buffer =
+        _initialized ? _frameTiming.frameBuffer : frameStatsNotifier.value;
     final frames = buffer.frames;
     final worstUs = frames.isEmpty
         ? 0
@@ -864,10 +866,7 @@ class WatchdogController {
   }
 
   void _onFrameStats(FrameStatsBuffer buffer) {
-    // Must create a new FrameStatsBuffer so ValueNotifier detects the change
-    // (same instance identity won't trigger listeners).
-    final snapshot = FrameStatsBuffer.from(buffer);
-    frameStatsNotifier.value = snapshot;
+    frameStatsNotifier.value = FrameStatsBuffer.from(buffer);
 
     // Generate FRAME-mode verdict for jank frames when VM is not connected.
     final latest = buffer.latest;

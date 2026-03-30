@@ -1,87 +1,109 @@
 # Widget Watchdog — Session Handoff
 
-**Date:** 2026-03-29
-**Version:** 0.3.0 (published tag pushed)
-**Tests:** 828 passing, 0 analysis issues
+**Date:** 2026-03-30
+**Version:** v0.6.0 (uncommitted tag — 9 local commits ahead of origin)
+**Tests:** 1,069 passing, 0 analysis issues
 
 ---
 
 ## Current State
 
-v0.3.0 is released. All v2 features (v2.1–v2.4) are implemented, tested, and documented. A comprehensive post-implementation audit was completed and written into the spec.
+All v3 features (v3.1–v3.10) and v0.6.0 UI overhaul are complete. The codebase is stable with a clean working tree. The main branch has 9 unpushed commits.
 
-### What's shipped
+### What's shipped (local, not pushed)
 
 | Feature | Version | Status |
 |---------|---------|--------|
-| v2.1 Network Monitoring | 0.2.0 | Shipped (21st detector) |
-| v2.2 Heap Trend Monitoring | 0.3.0 | Shipped (enhances MemoryPressureDetector) |
-| v2.3 Jank CPU Attribution | 0.3.0 | Shipped (two-phase verdict enrichment) |
-| v2.4 Source Location Enrichment | 0.3.0 | Shipped (file:line in ancestor chains) |
+| v3.1 Detection accuracy fixes | 0.4.0 | Done |
+| v3.2 Context-aware fix hints | 0.5.0 | Done |
+| v3.3 Issue-to-verdict linking | 0.5.0 | Done |
+| v3.4 Native memory tracking | 0.5.0+ | Done |
+| v3.5 Allocation-rate detection | 0.5.0+ | Done |
+| v3.6 Raster cache trend analysis | 0.5.0+ | Done |
+| v3.7 CPU attribution call chains | 0.5.0+ | Done |
+| v3.8 Overlay UX improvements | 0.5.0 | Done |
+| v3.9 Correlator optimization | 0.4.0 | Done |
+| v3.10 Inter-detector correlation | 0.5.0+ | Done |
+| v0.5.0 Review fixes | 0.5.0 | Done (47 findings fixed) |
+| v0.6.0 Floating card UI | 0.6.0 | Done |
+| v0.6.0 Enhancements | 0.6.0 | Done (GuidePage redesign, resize, 5 review fixes) |
+| Combined demo screens | example | Done |
 
 ### Git state
 
-- All changes committed and pushed
-- `v0.3.0` tag created and pushed
-- Working tree is clean
+- Branch: `main`, 9 commits ahead of `origin/main`
+- Working tree: **clean**
+- Not pushed — run `git push` when ready
 
 ---
 
-## Files Changed This Session
+## v0.6.0 UI Overhaul Summary
+
+Replaced the 1,241-line `DashboardSheet` (bottom sheet with 3 tabs) with:
+
+- **`FloatingIssuesCard`** (~830 lines) — draggable floating card. Resizable width+height via corner grip handle. Double-tap header to maximize/restore. Issues list directly visible (no tab navigation). `RepaintBoundary` isolates list repaints.
+- **`GuidePage`** (~790 lines) — full-screen page (was a tab). Staggered entrance animations. 4 expandable sections with comprehensive color legend.
+- **`TriggerButton`** — now shows FPS number below the icon, color-coded.
+
+### Key constants
+
+| Constant | Value | Location |
+|----------|-------|----------|
+| `_defaultCardWidth` | 300 | `floating_issues_card.dart` |
+| `_minCardWidth` | 220 | `floating_issues_card.dart` |
+| `_minCardHeight` | 250 | `floating_issues_card.dart` |
+| Default height | 55% of screen | Computed in `build()` |
+
+### Post-review fixes (5 total)
+
+| ID | Issue | Fix |
+|----|-------|-----|
+| R1 | State mutation during `build()` | `effectiveWidth` computed local |
+| R2 | Stale guide text ("right edge") | Updated to "bottom-right corner" |
+| R3 | Non-const `_CornerGripPainter` | Added const constructor |
+| R4 | Min height (400) > default on small screens | Changed to static 250px |
+| R5 | Summary bar label not flush-right | `Spacer`+`Flexible` -> `Expanded`+`textAlign: right` |
+
+---
+
+## Test Overview
+
+| Area | Files | Tests |
+|------|-------|-------|
+| UI (card, resize, summary, export, badges, etc.) | 9 | ~70 |
+| Detectors | 21 files | ~450 |
+| Controller | 3 files | ~80 |
+| Models + serialization | 5 files | ~120 |
+| VM, debug, ranking, network, benchmark | misc | ~350 |
+| **Total** | | **1,069** |
+
+---
+
+## Files Changed This Session (v0.6.0 polish)
 
 | File | What changed |
 |------|-------------|
-| `pubspec.yaml` | Version bump 0.2.0 → 0.3.0 |
-| `CHANGELOG.md` | Prepended 0.3.0 section (v2.2–v2.4 features); fixed framework widget count 16→17 |
-| `README.md` | Updated detector matrix, "Better Than DevTools" (+3 bullets), "DevTools Still Better" (narrowed to 2), "Unsupported Claims" (updated for new capabilities) |
-| `example/pubspec.yaml` | Detector count 19→21 |
-| `example/README.md` | Replaced Flutter boilerplate with proper demo app docs |
-| `lib/src/utils/widget_location.dart` | Added 17 framework widgets to `_frameworkNames` filter |
-| `lib/src/ui/issue_card.dart` | Added deduplication guard (suppress redundant "Widget:" line) |
-| `doc/implementation_spec.md` | Fixed framework widget count 16→17; added "Actual order" to implementation order section; appended ~250-line "v2 Post-Implementation Audit" section |
+| `lib/src/ui/floating_issues_card.dart` | `_minCardHeight` 400 -> 250; summary bar `Spacer`+`Flexible` -> `Expanded` with `textAlign: right` |
+| `test/ui/card_resize_test.dart` | Updated height assertions (330.0 default, 250.0 min clamp) |
+| `doc/implementation_spec.md` | Added R4+R5 to post-review fixes table; updated file descriptions for 250px min and alignment fix |
 
 ---
 
-## CLAUDE.md
+## CLAUDE.md State
 
-Updated to reflect v0.3.0, ~828 tests, v2 roadmap complete.
-
----
-
-## Audit Gaps — All Resolved
-
-All 6 test gaps from the v2 post-implementation audit have been addressed:
-
-| Gap | Status | Test File | Tests Added |
-|-----|--------|-----------|-------------|
-| 1. Controller integration | **Done** | `test/controller/v2_integration_test.dart` | 40 tests |
-| 2. VmServiceClient units | **Done** | `test/vm/vm_service_client_test.dart` | 21 tests |
-| 3. v2 benchmarks | **Done** | `test/benchmark/v2_overhead_test.dart` | 3 tests |
-| 4. URL exclusion behavior | **Done** | `test/network/http_monitor_test.dart` | 4 tests |
-| 5. CaptureEntry fromJson topFunctions | **Done** | `test/models/serialization_test.dart` | 3 tests |
-| 6. CPU attribution timeout | **Done** | `test/vm/vm_service_client_test.dart` | (included in Gap 2) |
-
-### Source changes for testability
-
-- `lib/src/vm/vm_service_client.dart` — added two `@visibleForTesting` methods:
-  - `setServiceForTest(VmService, {String? isolateId})` — inject mock VmService
-  - `pollTimelineForTest()` — trigger one poll cycle without periodic timer
+Accurate. Key notes:
+- v0.6.0 description is current
+- v3 roadmap "Remaining" list in CLAUDE.md still lists v3.4–v3.7, v3.10 — these are ALL DONE (post-impl notes in spec confirm). Should be updated on next version bump.
+- Test count says ~1,070 (actual: 1,069)
 
 ---
 
 ## Key Architecture Context
 
-- **VmServiceClient** (`lib/src/vm/vm_service_client.dart`) — polls VM timeline every 500ms, piggybacks heap memory polling. Has `getCpuSamples()` for on-demand CPU attribution. No unit tests exist (most complex untested class).
-
-- **WatchdogController** (`lib/src/controller/watchdog_controller.dart`) — orchestrates everything. v2 wiring:
-  - Line 270-278: network override install
-  - Line 283-287: VM client callback registration (onHeapSample, onTimelineData, etc.)
-  - Line 855-857: heap sample pass-through
-  - Line 870-896: CPU attribution enrichment (fire-and-forget async)
-
-- **Two-phase verdict** (v2.3): verdict emitted immediately without CPU data (phase 1), then re-emitted with `topFunctions` when `getCpuSamples()` returns (phase 2). `verdictNotifier` fires twice for jank frames.
-
-- **SourceLocationCache** (`lib/src/utils/source_location_cache.dart`) — bounded at 200 entries, caches by widget runtime type. Uses `InspectorSerializationDelegate` (not `getCreationLocation` which is private).
+- **FloatingIssuesCard** — `Transform.translate` for drag (compositing-only). `ConstrainedBox` for size. `_cardOffset` nullable (initialized on first build to right side). `_cardHeight` nullable (only set when user drags resize handle).
+- **WatchdogController** — orchestrates 21 detectors, scan loop, verdict pipeline. `issuesNotifier` (ValueNotifier) and `frameStatsNotifier` drive the card UI.
+- **Three-tier verdict** — Correlated > Full > Basic. Falls back automatically based on VM service availability.
+- **IssueRanker** — weighted composite scoring in `ranking/`. Drives issue list order in card.
 
 ---
 
@@ -92,11 +114,15 @@ All 6 test gaps from the v2 post-implementation audit have been addressed:
 cd "/Users/harryslala/Desktop/performance detective/widget_watchdog"
 git status && fvm flutter test && fvm flutter analyze
 
-# Read the audit for full context
-# doc/implementation_spec.md — search for "v2 Post-Implementation Audit"
+# Push if ready
+git push
 
-# Start with Gap 1 (controller integration tests)
-# Create: test/controller/v2_integration_test.dart
-# Mock VmServiceClient for heap + CPU paths
-# Mock HttpOverrides for network path
+# Read implementation spec for full context
+# doc/implementation_spec.md — search for "Post-Implementation Notes"
+
+# Remaining work ideas:
+# - Update CLAUDE.md v3 roadmap line (all v3 items done)
+# - Version bump + CHANGELOG for v0.6.0 release
+# - Consider pub.dev publish (fvm flutter pub publish --dry-run)
+# - Future features: see doc/implementation_spec.md roadmap sections
 ```

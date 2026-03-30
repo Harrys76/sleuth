@@ -17,11 +17,14 @@ import 'guide_page.dart';
 /// Replaces the old DashboardSheet. Uses [Positioned] within an internal
 /// [Stack] for drag positioning. Wrapped in a [RepaintBoundary] by the
 /// parent overlay to isolate repaints from the app.
-/// Returns a color for the given FPS value:
-/// green (>= 50), amber (>= 30), red (< 30).
-Color fpsColor(double fps) {
-  if (fps >= 50) return const Color(0xFF10B981);
-  if (fps >= 30) return const Color(0xFFF59E0B);
+/// Returns a color for the given FPS value relative to [target]:
+/// green (≥ 83% of target), amber (≥ 50% of target), red (< 50%).
+///
+/// At 60 fps target: green ≥ 50, amber ≥ 30 (same as original thresholds).
+/// At 120 fps target: green ≥ 100, amber ≥ 60.
+Color fpsColor(double fps, {int target = 60}) {
+  if (fps >= target * 0.83) return const Color(0xFF10B981);
+  if (fps >= target * 0.50) return const Color(0xFFF59E0B);
   return const Color(0xFFEF4444);
 }
 
@@ -424,8 +427,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
           ValueListenableBuilder<FrameStatsBuffer>(
             valueListenable: widget.controller.frameStatsNotifier,
             builder: (_, buffer, __) {
-              final fps = buffer.averageFps;
-              final color = fpsColor(fps);
+              final target = widget.controller.config.fpsTarget;
+              final fps = buffer.averageFps.clamp(0.0, target.toDouble());
+              final color = fpsColor(fps, target: target);
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

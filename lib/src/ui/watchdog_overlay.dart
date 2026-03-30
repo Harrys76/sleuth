@@ -99,6 +99,7 @@ class _WatchdogOverlayState extends State<WatchdogOverlay> {
                     vmConnectedNotifier: widget.controller.vmConnectedNotifier,
                     frameStatsNotifier: widget.controller.frameStatsNotifier,
                     isDebugMode: widget.controller.isDebugMode,
+                    fpsTarget: widget.controller.config.fpsTarget,
                     onTap: () => setState(() => _dashboardOpen = true),
                   ),
                 ),

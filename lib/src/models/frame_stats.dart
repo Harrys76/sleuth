@@ -162,17 +162,22 @@ class FrameStatsBuffer {
 
   FrameStats? get latest => _buffer.isEmpty ? null : _buffer.last;
 
+  /// Processing-throughput FPS: how many frames/sec the engine could produce
+  /// given the average [effectiveTotalDuration].
+  ///
+  /// Capped at 120. The UI further caps at [WatchdogConfig.fpsTarget] so an
+  /// idle screen in profile mode shows the target (e.g. 60).
+  ///
+  /// In debug mode, idle screens may show lower FPS due to debug overhead —
+  /// this is expected. Always use profile mode for reliable FPS readings.
   double get averageFps {
     if (_buffer.isEmpty) return 0;
-    final totalMs = _buffer.fold<int>(
+    final totalUs = _buffer.fold<int>(
       0,
-      (sum, f) => sum + f.effectiveTotalDuration.inMilliseconds,
+      (sum, f) => sum + f.effectiveTotalDuration.inMicroseconds,
     );
-    if (totalMs == 0) return 60;
-    final fps = 1000.0 / (totalMs / _buffer.length);
-    // Cap at display refresh rate — processing time can be <16ms
-    // but the screen only refreshes at 60Hz (or 120Hz).
-    return fps.clamp(0, 120);
+    if (totalUs == 0) return 0;
+    return (1000000.0 / (totalUs / _buffer.length)).clamp(0, 120);
   }
 
   int get jankCount => _buffer.where((f) => f.isJank).length;

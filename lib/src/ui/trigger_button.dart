@@ -6,9 +6,9 @@ import 'floating_issues_card.dart' show fpsColor;
 
 /// Draggable 🐕 trigger button with issue count badge and live FPS number.
 ///
-/// - Green: no issues / FPS ≥ 50
-/// - Amber: warnings only / FPS 30–50
-/// - Red: critical issues / FPS < 30
+/// - Green: no issues / FPS ≥ 83% of target
+/// - Amber: warnings only / FPS 50–83% of target
+/// - Red: critical issues / FPS < 50% of target
 /// - ⚠️ badge: debug mode
 class TriggerButton extends StatefulWidget {
   const TriggerButton({
@@ -18,6 +18,7 @@ class TriggerButton extends StatefulWidget {
     required this.frameStatsNotifier,
     required this.isDebugMode,
     required this.onTap,
+    this.fpsTarget = 60,
   });
 
   final ValueNotifier<List<PerformanceIssue>> issuesNotifier;
@@ -25,6 +26,7 @@ class TriggerButton extends StatefulWidget {
   final ValueNotifier<FrameStatsBuffer> frameStatsNotifier;
   final bool isDebugMode;
   final VoidCallback onTap;
+  final int fpsTarget;
 
   @override
   State<TriggerButton> createState() => _TriggerButtonState();
@@ -132,11 +134,12 @@ class _TriggerButtonState extends State<TriggerButton> {
                   ValueListenableBuilder<FrameStatsBuffer>(
                     valueListenable: widget.frameStatsNotifier,
                     builder: (_, buffer, __) {
-                      final fps = buffer.averageFps;
+                      final fps = buffer.averageFps
+                          .clamp(0.0, widget.fpsTarget.toDouble());
                       return Text(
                         fps.toStringAsFixed(0),
                         style: TextStyle(
-                          color: fpsColor(fps),
+                          color: fpsColor(fps, target: widget.fpsTarget),
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           shadows: const [

@@ -3088,3 +3088,48 @@ Code review after enhancement implementation identified 3 issues. All fixed:
 ### Test count
 
 70 UI tests across 9 files (was 61 across 8). Full suite: ~1,070 tests.
+
+## v0.6.1 FPS Counter Fixes Post-Implementation Notes
+
+Fixed three FPS counter bugs: wrong values at startup, no target cap in UI, and millisecond truncation in `averageFps`. Uses throughput-based FPS: `1,000,000 / avg_frame_duration_μs`, capped at 120 internally and at `fpsTarget` (default 60) in UI.
+
+### What changed
+
+| File | Action | Details |
+|------|--------|---------|
+| `lib/src/controller/watchdog_controller.dart` | **Modified** | Moved `_frameTiming.start()` before `await client.connect()` so FPS counter captures frames during slow VM connection (1.5–10.5s). `exportSnapshot()` reads live detector buffer (`_frameTiming.frameBuffer`) when initialized, falls back to `frameStatsNotifier.value` pre-init. |
+| `lib/src/models/frame_stats.dart` | **Modified** | `averageFps` changed from milliseconds to microseconds for precision. Formula: `(1,000,000 / (totalUs / length)).clamp(0, 120)`. Eliminates truncation artifacts (6.5ms → 6ms was inflating FPS by ~8%). Empty buffer → 0, zero total → 0. |
+| `lib/src/ui/floating_issues_card.dart` | **Modified** | `fpsColor` made target-aware with `{int target = 60}` parameter. Thresholds: green ≥ 83% of target, amber ≥ 50%, red below. Display FPS capped at `fpsTarget`. |
+| `lib/src/ui/trigger_button.dart` | **Modified** | Added `fpsTarget` parameter (default 60). Display FPS capped at `widget.fpsTarget`. Passes target to `fpsColor`. |
+| `lib/src/ui/watchdog_overlay.dart` | **Modified** | Wires `fpsTarget: widget.controller.config.fpsTarget` to `TriggerButton`. |
+| `test/models/frame_stats_buffer_fps_test.dart` | **Created** | 9 tests: empty buffer, single frame clamped to 120, 60Hz budget (~62.5 FPS), janky frames (~30 FPS), severe jank (10 FPS), mixed fast+janky (~45.5 FPS), zero durations, clamp to 120, raster bottleneck, sub-millisecond precision. |
+| `example/lib/main.dart` | **Modified** | Added FPS Stress Test demo screen with `AnimationController` + sorting 50k items + triple `BackdropFilter` blur to produce ~20 FPS. |
+
+### Design decisions
+
+- **Throughput model (not vsync-interval)**: `1,000,000 / avgFrameTimeUs` answers "can my engine keep up with the display?" On idle screens, fast frames (~6ms) yield high throughput capped to 60 (healthy). On janky screens, slow frames (~30ms) yield low throughput (problem). Matches what Flutter's performance overlay communicates.
+- **No throttle on notifier updates**: Throttling (e.g., 500ms) was tried and removed — it made the FPS counter feel sluggish. Direct notifier updates give live feedback. The feedback loop (rebuild → frame → callback → rebuild) is the FPS counter's own overhead and is acceptable.
+- **Debug mode quirks accepted**: In debug mode, idle screens show ~10 FPS due to debug overhead + tree scan timer producing frames via `addPostFrameCallback`. This is expected — always use profile mode for reliable FPS readings. Added doc comment to `averageFps` noting this.
+- **120 internal cap, fpsTarget UI cap**: `averageFps` clamps at 120 (max refresh rate Flutter supports). UI further clamps at `fpsTarget` so an idle screen in profile mode shows 60 (the target), not 120+.
+- **`exportSnapshot` reads live buffer**: Uses `_frameTiming.frameBuffer` when `_initialized` is true, avoiding any potential staleness if notifier update strategy changes in the future.
+
+### What was NOT changed
+
+- `effectiveTotalDuration`, `isJank`, `isSevereJank` — still use processing time (correct for jank detection)
+- `_evaluateJank()` — unaffected
+- Export JSON schema — unchanged
+- `frameBudgetMs` derivation — still `1000 ~/ fpsTarget`
+
+### Expected behavior
+
+| Screen state | Frame time | Raw throughput | Displayed (target=60) | Color |
+|---|---|---|---|---|
+| Idle (profile mode) | ~6ms | ~167 → clamp 120 | **60** | Green |
+| Light jank | ~20ms | ~50 | **50** | Amber |
+| Heavy jank | ~33ms | ~30 | **30** | Red |
+| Severe jank | ~100ms | ~10 | **10** | Red |
+| Idle (debug mode) | ~100ms | ~10 | **10** | Red (expected) |
+
+### Test count
+
+9 new unit tests in `frame_stats_buffer_fps_test.dart`. Full suite: ~1,079 tests.
