@@ -485,6 +485,10 @@ class WatchdogController {
   @visibleForTesting
   JankCaptureBuffer get captureBufferForTest => _captureBuffer;
 
+  /// Feeds a heap sample through the same path as the VM service callback.
+  @visibleForTesting
+  void feedHeapSampleForTest(HeapSample sample) => _onHeapSample(sample);
+
   /// Build a session snapshot for programmatic use.
   ///
   /// Includes schema version 2 fields: ranking scores on each issue,
@@ -944,6 +948,7 @@ class WatchdogController {
   }
 
   void _onHeapSample(HeapSample sample) {
+    if (_disposed) return;
     final hadHeapGrowing =
         _memoryPressure.issues.any((i) => i.stableId == 'heap_growing');
 
@@ -989,13 +994,14 @@ class WatchdogController {
     FrameStats frame,
     FrameVerdict verdict,
   ) {
-    if (_vmClient == null || !frame.hasPhaseTimestamps) return;
+    final client = _vmClient;
+    if (client == null || !frame.hasPhaseTimestamps) return;
 
     final timeOriginUs = frame.vsyncStartUs!;
     final timeExtentUs = frame.rasterFinishUs! - frame.vsyncStartUs!;
     if (timeExtentUs <= 0) return;
 
-    _vmClient!
+    client
         .getCpuSamples(timeOriginUs: timeOriginUs, timeExtentUs: timeExtentUs)
         .then((cpuSamples) {
       if (_disposed || cpuSamples == null) return;
@@ -1008,8 +1014,11 @@ class WatchdogController {
 
       // Update capture buffer entry if it was captured
       _captureBuffer.updateVerdict(frame.frameNumber, enriched);
-    }).catchError((_) {
-      // CPU attribution failed — verdict already emitted without it
+    }).catchError((Object e) {
+      assert(() {
+        debugPrint('Watchdog: CPU attribution failed: $e');
+        return true;
+      }());
     });
   }
 
@@ -1019,27 +1028,35 @@ class WatchdogController {
   /// Non-blocking — the heap_growing issue is already visible (phase 1).
   /// When the profile arrives, the issue is re-emitted with [topAllocators].
   /// If the query fails or times out, the original issue stands.
-  void _enrichWithAllocationProfile() {
-    if (_vmClient == null) return;
+  Future<void> _enrichWithAllocationProfile() async {
+    final client = _vmClient;
+    if (client == null) return;
 
-    // Phase 1: establish baseline (reset accumulators)
-    _vmClient!.getAllocationProfile(reset: true).then((_) {
+    try {
+      // Phase 1: establish baseline (reset accumulators)
+      await client.getAllocationProfile(reset: true);
       if (_disposed) return;
-      // Brief delay to accumulate meaningful deltas
-      Future<void>.delayed(const Duration(milliseconds: 300)).then((_) {
-        if (_disposed) return;
-        // Phase 2: get delta since reset
-        _vmClient!.getAllocationProfile(reset: true).then((profile) {
-          if (_disposed || profile == null) return;
-          final entries = _extractTopAllocators(profile);
-          if (entries.isEmpty) return;
 
-          // Re-emit memory pressure issues with enrichment
-          _memoryPressure.enrichHeapGrowingIssue(entries);
-          _aggregateIssues();
-        }).catchError((_) {});
-      });
-    }).catchError((_) {});
+      // Brief delay to accumulate meaningful deltas
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (_disposed) return;
+
+      // Phase 2: get delta since reset
+      final profile = await client.getAllocationProfile(reset: true);
+      if (_disposed || profile == null) return;
+
+      final entries = _extractTopAllocators(profile);
+      if (entries.isEmpty) return;
+
+      // Re-emit memory pressure issues with enrichment
+      _memoryPressure.enrichHeapGrowingIssue(entries);
+      _aggregateIssues();
+    } catch (e) {
+      assert(() {
+        debugPrint('Watchdog: allocation enrichment failed: $e');
+        return true;
+      }());
+    }
   }
 
   /// Extract top-5 allocating classes from allocation profile.
