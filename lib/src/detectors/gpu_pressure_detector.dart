@@ -93,7 +93,8 @@ class GpuPressureDetector extends BaseDetector {
         // normal and hardware-accelerated in profile mode.
         if (typeName.contains('RenderOpacity') ||
             typeName.contains('RenderClipPath') ||
-            typeName.contains('RenderBackdropFilter')) {
+            typeName.contains('RenderBackdropFilter') ||
+            typeName.contains('RenderShaderMask')) {
           // Check if it has a deep subtree (more than 5 descendants)
           int nodeCount = 0;
           void countNodes(Element child) {

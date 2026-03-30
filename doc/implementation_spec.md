@@ -4706,8 +4706,8 @@ Replace hardcoded values in all UI files with `theme.spacingMd`, `theme.spacingL
 |----------|-----------|--------|-------|--------------|
 | 1 | v6.1: Controller Async Safety | Medium | Safety | None | **Shipped** |
 | 2 | v6.14: Error Logging | Low | Safety | None (subset of v6.1) | **Shipped** (done in v6.1) |
-| 3 | v6.2: OpacityDetector AnimatedOpacity | Low | Accuracy | None |
-| 4 | v6.3: GpuPressure ShaderMask | Very Low | Accuracy | None |
+| 3 | v6.2: OpacityDetector AnimatedOpacity | Low | Accuracy | None | **Shipped** |
+| 4 | v6.3: GpuPressure ShaderMask | Very Low | Accuracy | None | **Shipped** |
 | 5 | v6.4: NestedScroll Highlights | Low | Accuracy | None |
 | 6 | v6.5: Tap Targets | Low | UI Polish | None |
 | 7 | v6.6: Drag Clamping | Low | UI Polish | None |

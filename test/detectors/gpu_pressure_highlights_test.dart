@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:widget_watchdog/src/detectors/gpu_pressure_detector.dart';
@@ -53,6 +55,21 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
 
+    testWidgets('detects ShaderMask with deep subtree (v6.3)', (tester) async {
+      await tester.pumpWidget(_ShaderMaskDeepTree());
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.highlights, isNotEmpty,
+          reason:
+              'RenderShaderMask with deep subtree should produce highlights');
+      expect(
+        detector.highlights
+            .any((h) => h.detail?.contains('RenderShaderMask') ?? false),
+        isTrue,
+        reason: 'Should mention RenderShaderMask in detail',
+      );
+    });
+
     testWidgets('no highlights for simple tree without expensive nodes',
         (tester) async {
       await tester.pumpWidget(
@@ -78,6 +95,31 @@ class _OpacityDeepTree extends StatelessWidget {
       textDirection: TextDirection.ltr,
       child: Opacity(
         opacity: 0.5,
+        child: Column(
+          children: List.generate(
+            10,
+            (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Widget tree with ShaderMask wrapping many descendants to trigger detection.
+class _ShaderMaskDeepTree extends StatelessWidget {
+  _ShaderMaskDeepTree();
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: ShaderMask(
+        shaderCallback: (Rect bounds) => ui.Gradient.linear(
+          Offset.zero,
+          const Offset(0, 100),
+          const [Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+        ),
         child: Column(
           children: List.generate(
             10,

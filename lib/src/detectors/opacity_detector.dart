@@ -1,3 +1,4 @@
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
@@ -64,6 +65,25 @@ class OpacityDetector extends BaseDetector {
             ));
           }
         }
+      } else if (widget is AnimatedOpacity) {
+        final ro = element.renderObject;
+        if (ro is RenderAnimatedOpacity) {
+          final currentOpacity = ro.opacity.value;
+          if (currentOpacity < 0.01) {
+            found.add(buildAncestorChain(element));
+            final rect = getGlobalRect(ro);
+            if (rect != null) {
+              _highlights.add(WidgetHighlight(
+                rect: rect,
+                widgetName: 'AnimatedOpacity',
+                severity: IssueSeverity.warning,
+                detectorName: 'Opacity',
+                detail:
+                    'opacity: ${currentOpacity.toStringAsFixed(3)} — invisible but still active',
+              ));
+            }
+          }
+        }
       }
 
       element.visitChildren(visitor);
@@ -84,7 +104,7 @@ class OpacityDetector extends BaseDetector {
           // confirmed: directly reading widget.opacity — not a heuristic
           confidence: IssueConfidence.confirmed,
           title: 'Invisible Opacity Widgets Still Active: ${found.length}',
-          detail: '${found.length} Opacity widget(s) have near-zero opacity '
+          detail: '${found.length} widget(s) have near-zero opacity '
               '(< 0.01). Painting is skipped, but the widget still '
               'participates in hit testing, layout, and semantics.\n\n$locations',
           fixHint: hint,
