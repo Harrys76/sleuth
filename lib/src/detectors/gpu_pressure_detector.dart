@@ -34,6 +34,7 @@ class GpuPressureDetector extends BaseDetector {
   /// Current VM connectivity — set by the controller.
   /// Clears stale VM timings and VM-backed issues immediately on disconnect.
   bool get vmConnected => _vmConnected;
+  @override
   set vmConnected(bool value) {
     _vmConnected = value;
     if (!value) {

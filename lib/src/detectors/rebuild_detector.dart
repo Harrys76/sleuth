@@ -64,6 +64,7 @@ class RebuildDetector extends BaseDetector {
   /// Current VM connectivity — set by the controller.
   /// Clears VM staging on disconnect; issues are repopulated on next _evaluate.
   bool get vmConnected => _vmConnected;
+  @override
   set vmConnected(bool value) {
     final wasConnected = _vmConnected;
     _vmConnected = value;

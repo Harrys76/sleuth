@@ -38,6 +38,7 @@ class ShallowRebuildRiskDetector extends BaseDetector {
   /// Current VM connectivity — set by the controller.
   /// Clears stale VM-backed state immediately on disconnect.
   bool get vmConnected => _vmConnected;
+  @override
   set vmConnected(bool value) {
     _vmConnected = value;
     if (!value) {

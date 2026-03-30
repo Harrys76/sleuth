@@ -62,6 +62,7 @@ class RepaintDetector extends BaseDetector {
 
   /// Current VM connectivity — set by the controller.
   bool get vmConnected => _vmConnected;
+  @override
   set vmConnected(bool value) {
     final wasConnected = _vmConnected;
     _vmConnected = value;

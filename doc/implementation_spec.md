@@ -4072,6 +4072,37 @@ Each referenced explicitly in `_getAllIssues()`:
 
 **Risk:** Medium. Touches the core controller file heavily. Any missed dispatch point silently drops detector functionality. Must verify every lifecycle path dispatches to all detectors.
 
+**Post-Implementation Notes** (Implemented 2026-03-30):
+
+1. **3 typed fields, not `whereType` getters** — Plan originally suggested `whereType<T>().first` getters for typed access, but direct `late final` fields assigned during `_initializeDetectors()` are simpler and avoid repeated list scans. `_frameTiming`, `_memoryPressure`, `_networkMonitor` are assigned at init and never change.
+
+2. **`vmConnected` no-op setter added to BaseDetector** — Enables `_syncVmState()` to iterate all detectors without type-checking. Only 4 hybrid detectors (Rebuild, Repaint, GpuPressure, ShallowRebuildRisk) override it. Added `@override` annotation to all 4. Cost: 17 no-op calls on rare connect/disconnect events.
+
+3. **NetworkMonitor made non-nullable** — Was `NetworkMonitorDetector?` but always created in `_initializeDetectors()`. Made `late final NetworkMonitorDetector` — eliminated 4 null-checks. Added `_initialized` guard in `exportSnapshot()` for pre-init safety (same pattern as `_memoryPressure`).
+
+4. **SetStateScopeDetector.clearSnapshots() handled via `is` check** — Not on BaseDetector, only called on route transition. Replaced `_setStateScope.clearSnapshots()` with `for (final d in _detectors) { if (d is SetStateScopeDetector) d.clearSnapshots(); }`. This was a missed typed-access call not caught during planning.
+
+5. **Custom detectors merged into `_detectors`** — `config.customDetectors` appended to the list in `_initializeDetectors()`. Eliminated 7 separate `for (final d in config.customDetectors)` loops. Custom detectors now receive `vmConnected` and `updateDebugSnapshot` calls (both no-ops unless overridden).
+
+6. **7 dispatch methods refactored:**
+   - `_getAllIssues()` — 21 spreads + nullable + custom loop → `[for (final d in _detectors) ...d.issues]`
+   - `_runStructuralScans()` — 15 explicit calls + custom loop → lifecycle-filtered `d.requiresTreeScan` loop
+   - `_collectHighlights()` — 12 spreads + custom loop → single loop
+   - Debug snapshot routing — 6 calls + custom loop → single loop (all detectors, no-op safe)
+   - `_onTimelineData()` — 9 calls + 2 evaluateNow + custom loops → lifecycle-filtered loops; `_frameTiming.updateTimelineData(data)` stays as typed call (custom method not on BaseDetector)
+   - `_syncVmState()` — 4 typed assignments → single loop
+   - `dispose()` — 21 calls + nullable + custom loop → single loop
+
+7. **Test count:** 1,219 total (unchanged — pure internal refactor, all existing tests validate behavioral equivalence).
+
+8. **Files changed (6):**
+   - `lib/src/models/base_detector.dart` — +`vmConnected` no-op setter (+3 lines)
+   - `lib/src/controller/watchdog_controller.dart` — replaced 21 fields with `_detectors` list + 3 typed fields, refactored 7 dispatch methods (~-90 net lines)
+   - `lib/src/detectors/rebuild_detector.dart` — +`@override` on `vmConnected` setter
+   - `lib/src/detectors/repaint_detector.dart` — +`@override` on `vmConnected` setter
+   - `lib/src/detectors/gpu_pressure_detector.dart` — +`@override` on `vmConnected` setter
+   - `lib/src/detectors/shallow_rebuild_risk_detector.dart` — +`@override` on `vmConnected` setter
+
 ---
 
 ### v5.6: Network-to-Frame Correlation

@@ -127,6 +127,11 @@ abstract class BaseDetector {
   /// the next scan tick.
   void evaluateNow() {}
 
+  /// Update VM connectivity state.
+  ///
+  /// Hybrid detectors override this to degrade analysis when VM disconnects.
+  set vmConnected(bool value) {}
+
   /// Process VM timeline data.
   ///
   /// No-op for [DetectorLifecycle.structural] detectors.

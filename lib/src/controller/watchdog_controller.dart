@@ -75,35 +75,16 @@ class WatchdogController {
   final FrameEventCorrelator _correlator = const FrameEventCorrelator();
   final CpuSampleAggregator _cpuAggregator = const CpuSampleAggregator();
 
-  // VM-only detectors
+  // Unified detector registry — built in _initializeDetectors()
+  late final List<BaseDetector> _detectors;
+
+  // Typed access for detectors with methods beyond BaseDetector
   late final FrameTimingDetector _frameTiming;
-  late final ShaderJankDetector _shaderJank;
-  late final HeavyComputeDetector _heavyCompute;
-  late final PlatformChannelDetector _platformChannel;
   late final MemoryPressureDetector _memoryPressure;
-  late final RepaintDetector _repaint;
+  late final NetworkMonitorDetector _networkMonitor;
 
-  // Hybrid detectors
-  late final RebuildDetector _rebuild;
-  late final GpuPressureDetector _gpuPressure;
-  late final ShallowRebuildRiskDetector _shallowRebuildRisk;
-
-  // Network monitoring
-  NetworkMonitorDetector? _networkMonitor;
+  // HTTP override proxy (not a detector)
   WatchdogHttpOverrides? _httpOverrides;
-
-  // Structural detectors
-  late final LayoutBottleneckDetector _layoutBottleneck;
-  late final ListviewDetector _listview;
-  late final ImageMemoryDetector _imageMemory;
-  late final GlobalKeyDetector _globalKey;
-  late final NestedScrollDetector _nestedScroll;
-  late final CustomPainterDetector _customPainter;
-  late final SetStateScopeDetector _setStateScope;
-  late final KeepAliveDetector _keepAlive;
-  late final AnimatedBuilderDetector _animatedBuilder;
-  late final OpacityDetector _opacity;
-  late final FontLoadingDetector _fontLoading;
 
   // Ranking & correlation
   final DetectorCorrelator _detectorCorrelator = const DetectorCorrelator();
@@ -323,7 +304,7 @@ class WatchdogController {
     if (config.enableNetworkMonitoring &&
         config.enabledDetectors.contains(DetectorType.networkMonitor)) {
       _httpOverrides = WatchdogHttpOverrides(
-        onRecord: _networkMonitor!.processRecord,
+        onRecord: _networkMonitor.processRecord,
         excludePatterns: config.networkExcludePatterns,
       );
       WatchdogHttpOverrides.install(_httpOverrides!);
@@ -359,75 +340,11 @@ class WatchdogController {
       onFrameStats: _onFrameStats,
     )..isEnabled = enabled.contains(DetectorType.frameTiming);
 
-    _shaderJank = ShaderJankDetector(
-      thresholdMs: config.thresholds.shaderJankMs,
-    )..isEnabled = enabled.contains(DetectorType.shaderJank);
-
-    _heavyCompute = HeavyComputeDetector(
-      lagThresholdMs: config.thresholds.heavyComputeGapMs,
-    )..isEnabled = enabled.contains(DetectorType.heavyCompute);
-
-    _platformChannel = PlatformChannelDetector(
-      callsPerSecThreshold: config.platformChannelLimit,
-      durationThresholdUs: config.platformChannelDurationThresholdMs * 1000,
-    )..isEnabled = enabled.contains(DetectorType.platformChannel);
-
     _memoryPressure = MemoryPressureDetector(
       warmupDurationMs: config.memoryWarmupDurationMs,
       growthThresholdBytesPerSec: config.thresholds.memoryGrowthBytesPerSec,
       capacityThresholdPercent: config.thresholds.memoryCapacityPercent,
     )..isEnabled = enabled.contains(DetectorType.memoryPressure);
-
-    _repaint = RepaintDetector()
-      ..isEnabled = enabled.contains(DetectorType.repaint);
-
-    _rebuild = RebuildDetector(rebuildsPerSecThreshold: config.rebuildThreshold)
-      ..isEnabled = enabled.contains(DetectorType.rebuild);
-
-    _setStateScope = SetStateScopeDetector(
-      dirtyRatioThreshold: config.thresholds.setStateScopeOwnershipPercent,
-    )..isEnabled = enabled.contains(DetectorType.setStateScope);
-
-    _gpuPressure = GpuPressureDetector(
-      rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
-    )..isEnabled = enabled.contains(DetectorType.gpuPressure);
-
-    _shallowRebuildRisk = ShallowRebuildRiskDetector(
-      depthThreshold: config.thresholds.shallowRebuildMaxDepth,
-    )..isEnabled = enabled.contains(DetectorType.shallowRebuildRisk);
-
-    _layoutBottleneck = LayoutBottleneckDetector()
-      ..isEnabled = enabled.contains(DetectorType.layoutBottleneck);
-
-    _listview = ListviewDetector(childThreshold: config.maxListChildren)
-      ..isEnabled = enabled.contains(DetectorType.listview);
-
-    _imageMemory = ImageMemoryDetector()
-      ..isEnabled = enabled.contains(DetectorType.imageMemory);
-
-    _globalKey = GlobalKeyDetector(threshold: config.maxGlobalKeys)
-      ..isEnabled = enabled.contains(DetectorType.globalKey);
-
-    _nestedScroll = NestedScrollDetector(childThreshold: config.maxListChildren)
-      ..isEnabled = enabled.contains(DetectorType.nestedScroll);
-
-    _customPainter = CustomPainterDetector()
-      ..isEnabled = enabled.contains(DetectorType.customPainter);
-
-    _keepAlive = KeepAliveDetector(
-      threshold: config.thresholds.keepAliveMax,
-    )..isEnabled = enabled.contains(DetectorType.keepAlive);
-
-    _animatedBuilder = AnimatedBuilderDetector(
-      minSubtreeSize: config.thresholds.animatedBuilderMinSubtreeSize,
-    )..isEnabled = enabled.contains(DetectorType.animatedBuilder);
-
-    _opacity = OpacityDetector()
-      ..isEnabled = enabled.contains(DetectorType.opacity);
-
-    _fontLoading = FontLoadingDetector(
-      maxFamilies: config.thresholds.fontLoadingMaxFamilies,
-    )..isEnabled = enabled.contains(DetectorType.fontLoading);
 
     _networkMonitor = NetworkMonitorDetector(
       slowThresholdMs: config.slowRequestThresholdMs,
@@ -435,10 +352,57 @@ class WatchdogController {
       largeResponseBytes: config.largeResponseThresholdBytes,
     )..isEnabled = enabled.contains(DetectorType.networkMonitor);
 
-    // Initialize custom detectors — always enabled (explicitly opted-in via config)
-    for (final d in config.customDetectors) {
-      d.isEnabled = true;
-    }
+    _detectors = [
+      _frameTiming,
+      ShaderJankDetector(
+        thresholdMs: config.thresholds.shaderJankMs,
+      )..isEnabled = enabled.contains(DetectorType.shaderJank),
+      HeavyComputeDetector(
+        lagThresholdMs: config.thresholds.heavyComputeGapMs,
+      )..isEnabled = enabled.contains(DetectorType.heavyCompute),
+      PlatformChannelDetector(
+        callsPerSecThreshold: config.platformChannelLimit,
+        durationThresholdUs: config.platformChannelDurationThresholdMs * 1000,
+      )..isEnabled = enabled.contains(DetectorType.platformChannel),
+      _memoryPressure,
+      RepaintDetector()..isEnabled = enabled.contains(DetectorType.repaint),
+      RebuildDetector(rebuildsPerSecThreshold: config.rebuildThreshold)
+        ..isEnabled = enabled.contains(DetectorType.rebuild),
+      SetStateScopeDetector(
+        dirtyRatioThreshold: config.thresholds.setStateScopeOwnershipPercent,
+      )..isEnabled = enabled.contains(DetectorType.setStateScope),
+      GpuPressureDetector(
+        rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
+      )..isEnabled = enabled.contains(DetectorType.gpuPressure),
+      ShallowRebuildRiskDetector(
+        depthThreshold: config.thresholds.shallowRebuildMaxDepth,
+      )..isEnabled = enabled.contains(DetectorType.shallowRebuildRisk),
+      LayoutBottleneckDetector()
+        ..isEnabled = enabled.contains(DetectorType.layoutBottleneck),
+      ListviewDetector(childThreshold: config.maxListChildren)
+        ..isEnabled = enabled.contains(DetectorType.listview),
+      ImageMemoryDetector()
+        ..isEnabled = enabled.contains(DetectorType.imageMemory),
+      GlobalKeyDetector(threshold: config.maxGlobalKeys)
+        ..isEnabled = enabled.contains(DetectorType.globalKey),
+      NestedScrollDetector(childThreshold: config.maxListChildren)
+        ..isEnabled = enabled.contains(DetectorType.nestedScroll),
+      CustomPainterDetector()
+        ..isEnabled = enabled.contains(DetectorType.customPainter),
+      KeepAliveDetector(
+        threshold: config.thresholds.keepAliveMax,
+      )..isEnabled = enabled.contains(DetectorType.keepAlive),
+      AnimatedBuilderDetector(
+        minSubtreeSize: config.thresholds.animatedBuilderMinSubtreeSize,
+      )..isEnabled = enabled.contains(DetectorType.animatedBuilder),
+      OpacityDetector()..isEnabled = enabled.contains(DetectorType.opacity),
+      FontLoadingDetector(
+        maxFamilies: config.thresholds.fontLoadingMaxFamilies,
+      )..isEnabled = enabled.contains(DetectorType.fontLoading),
+      _networkMonitor,
+      // Custom detectors — always enabled (explicitly opted-in via config)
+      for (final d in config.customDetectors) d..isEnabled = true,
+    ];
   }
 
   /// Initialize detectors without VM client or SchedulerBinding.
@@ -558,10 +522,11 @@ class WatchdogController {
       packageVersion: '0.5.2',
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
-      recentRequests:
-          _networkMonitor != null && _networkMonitor!.records.isNotEmpty
-              ? _networkMonitor!.records
-              : null,
+      recentRequests: _initialized &&
+              _networkMonitor.isEnabled &&
+              _networkMonitor.records.isNotEmpty
+          ? _networkMonitor.records
+          : null,
       heapSamples: _initialized && _memoryPressure.heapSamples.isNotEmpty
           ? _memoryPressure.heapSamples
           : null,
@@ -635,7 +600,9 @@ class WatchdogController {
         highlightsNotifier.value = [];
       }
       selectedHighlightNotifier.value = null;
-      _setStateScope.clearSnapshots();
+      for (final d in _detectors) {
+        if (d is SetStateScopeDetector) d.clearSnapshots();
+      }
       return;
     }
     // Navigation complete — return to idle
@@ -646,13 +613,7 @@ class WatchdogController {
 
     // Pass debug snapshot to detectors
     if (debugSnapshot != null) {
-      _rebuild.updateDebugSnapshot(debugSnapshot!);
-      _repaint.updateDebugSnapshot(debugSnapshot!);
-      _setStateScope.updateDebugSnapshot(debugSnapshot!);
-      _shallowRebuildRisk.updateDebugSnapshot(debugSnapshot!);
-      _animatedBuilder.updateDebugSnapshot(debugSnapshot!);
-      _customPainter.updateDebugSnapshot(debugSnapshot!);
-      for (final d in config.customDetectors) {
+      for (final d in _detectors) {
         if (d.isEnabled) d.updateDebugSnapshot(debugSnapshot!);
       }
     }
@@ -784,26 +745,7 @@ class WatchdogController {
 
   /// Run all tree-scanning detectors (hybrid + structural).
   void _runStructuralScans(BuildContext scanContext) {
-    // Hybrid detectors — need tree access (or use scanTree as evaluation trigger)
-    _rebuild.scanTree(scanContext);
-    _repaint.scanTree(scanContext);
-    _gpuPressure.scanTree(scanContext);
-    _shallowRebuildRisk.scanTree(scanContext);
-
-    // Structural detectors
-    _setStateScope.scanTree(scanContext);
-    _layoutBottleneck.scanTree(scanContext);
-    _listview.scanTree(scanContext);
-    _imageMemory.scanTree(scanContext);
-    _globalKey.scanTree(scanContext);
-    _nestedScroll.scanTree(scanContext);
-    _customPainter.scanTree(scanContext);
-    _keepAlive.scanTree(scanContext);
-    _animatedBuilder.scanTree(scanContext);
-    _opacity.scanTree(scanContext);
-    _fontLoading.scanTree(scanContext);
-
-    for (final d in config.customDetectors) {
+    for (final d in _detectors) {
       if (d.isEnabled && d.requiresTreeScan) d.scanTree(scanContext);
     }
   }
@@ -813,40 +755,15 @@ class WatchdogController {
   /// Detectors collect highlights during their scanTree() calls.
   /// This method just gathers them — no tree walking or re-detection.
   void _collectHighlights() {
-    highlightsNotifier.value = <WidgetHighlight>[
-      ..._setStateScope.highlights,
-      ..._layoutBottleneck.highlights,
-      ..._listview.highlights,
-      ..._imageMemory.highlights,
-      ..._globalKey.highlights,
-      ..._customPainter.highlights,
-      ..._gpuPressure.highlights,
-      ..._animatedBuilder.highlights,
-      ..._opacity.highlights,
-      ..._keepAlive.highlights,
-      ..._rebuild.highlights,
-      ..._repaint.highlights,
-      for (final d in config.customDetectors) ...d.highlights,
-    ];
+    highlightsNotifier.value = [for (final d in _detectors) ...d.highlights];
   }
 
   void _onTimelineData(ParsedTimelineData data) {
-    // Feed to VM-only detectors
+    // FrameTimingDetector uses custom method (not processTimelineData)
     _frameTiming.updateTimelineData(data);
-    _shaderJank.processTimelineData(data);
-    _heavyCompute.processTimelineData(data);
-    _platformChannel.processTimelineData(data);
-    _memoryPressure.processTimelineData(data);
-    _repaint.processTimelineData(data);
 
-    // Feed to hybrid detectors
-    _rebuild.processTimelineData(data);
-    // _setStateScope is now structural-only, no timeline data needed
-    _gpuPressure.processTimelineData(data);
-    _shallowRebuildRisk.processTimelineData(data);
-
-    // Custom detectors: feed timeline data to vmOnly and hybrid
-    for (final d in config.customDetectors) {
+    // Feed timeline data to vmOnly and hybrid detectors
+    for (final d in _detectors) {
       if (d.isEnabled &&
           (d.lifecycle == DetectorLifecycle.vmOnly ||
               d.lifecycle == DetectorLifecycle.hybrid)) {
@@ -854,12 +771,11 @@ class WatchdogController {
       }
     }
 
-    // Flush staged data in refactored detectors so _getAllIssues() sees current state
-    _rebuild.evaluateNow();
-    _repaint.evaluateNow();
-    // Custom hybrid detectors: flush staged data
-    for (final d in config.customDetectors) {
-      if (d.isEnabled && d.lifecycle == DetectorLifecycle.hybrid) {
+    // Flush staged data so _getAllIssues() sees current state
+    for (final d in _detectors) {
+      if (d.isEnabled &&
+          (d.lifecycle == DetectorLifecycle.vmOnly ||
+              d.lifecycle == DetectorLifecycle.hybrid)) {
         d.evaluateNow();
       }
     }
@@ -1190,13 +1106,12 @@ class WatchdogController {
     _syncVmState(connected);
   }
 
-  /// Propagate current VM connectivity to hybrid detectors so they
-  /// degrade correctly on disconnect (not just on "never connected").
+  /// Propagate current VM connectivity to all detectors. Hybrid detectors
+  /// degrade correctly on disconnect; others use the no-op default.
   void _syncVmState(bool connected) {
-    _rebuild.vmConnected = connected;
-    _repaint.vmConnected = connected;
-    _gpuPressure.vmConnected = connected;
-    _shallowRebuildRisk.vmConnected = connected;
+    for (final d in _detectors) {
+      d.vmConnected = connected;
+    }
   }
 
   String? _currentRouteName() {
@@ -1299,30 +1214,7 @@ class WatchdogController {
   }
 
   List<PerformanceIssue> _getAllIssues() {
-    return [
-      ..._frameTiming.issues,
-      ..._shaderJank.issues,
-      ..._heavyCompute.issues,
-      ..._platformChannel.issues,
-      ..._memoryPressure.issues,
-      ..._repaint.issues,
-      ..._rebuild.issues,
-      ..._setStateScope.issues,
-      ..._gpuPressure.issues,
-      ..._shallowRebuildRisk.issues,
-      ..._layoutBottleneck.issues,
-      ..._listview.issues,
-      ..._imageMemory.issues,
-      ..._globalKey.issues,
-      ..._nestedScroll.issues,
-      ..._customPainter.issues,
-      ..._keepAlive.issues,
-      ..._animatedBuilder.issues,
-      ..._opacity.issues,
-      ..._fontLoading.issues,
-      ...?_networkMonitor?.issues,
-      for (final d in config.customDetectors) ...d.issues,
-    ];
+    return [for (final d in _detectors) ...d.issues];
   }
 
   // -- Debug instrumentation helpers --
@@ -1424,28 +1316,7 @@ class WatchdogController {
     }());
 
     _vmClient?.dispose();
-    _frameTiming.dispose();
-    _shaderJank.dispose();
-    _heavyCompute.dispose();
-    _platformChannel.dispose();
-    _memoryPressure.dispose();
-    _repaint.dispose();
-    _rebuild.dispose();
-    _setStateScope.dispose();
-    _gpuPressure.dispose();
-    _shallowRebuildRisk.dispose();
-    _layoutBottleneck.dispose();
-    _listview.dispose();
-    _imageMemory.dispose();
-    _globalKey.dispose();
-    _nestedScroll.dispose();
-    _customPainter.dispose();
-    _keepAlive.dispose();
-    _animatedBuilder.dispose();
-    _opacity.dispose();
-    _fontLoading.dispose();
-    _networkMonitor?.dispose();
-    for (final d in config.customDetectors) {
+    for (final d in _detectors) {
       d.dispose();
     }
     issuesNotifier.dispose();
