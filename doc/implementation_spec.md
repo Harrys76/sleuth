@@ -4867,7 +4867,7 @@ All 22 v6 milestones shipped in **v0.8.0**.
 
 ---
 
-### v7.4: FrameEventCorrelator — Raise Coverage Threshold
+### v7.4: FrameEventCorrelator — Raise Coverage Threshold ✅ Shipped
 
 **Problem:** `frame_event_correlator.dart` line 35: `isTrustworthy` requires only `coverageRatio >= 0.2` (20% of events matched to frames). A verdict based on 20% coverage has 80% unattributed events — unreliable for frame-level attribution.
 
@@ -4876,6 +4876,12 @@ All 22 v6 milestones shipped in **v0.8.0**.
 **Files:** `lib/src/analyzer/frame_event_correlator.dart` line 35.
 
 **Risk:** Medium. More verdicts will fall back to batch mode. This is correct behavior — batch mode is designed for low-correlation scenarios. May reduce "correlated" verdict frequency on platforms with sparse timeline data.
+
+**Post-Implementation Notes:**
+- Single source line changed: `coverageRatio >= 0.2` → `>= 0.5` in `CorrelatedFrameData.isTrustworthy`.
+- `render_pipeline_analyzer.dart` line 234 already used `coverageRatio >= 0.5` for confidence-dependent wording — now aligned with `isTrustworthy`. The "Partial correlation" else-branch becomes unreachable for trustworthy verdicts (filtered by `watchdog_controller.dart` line 836) but is harmless as a safety net.
+- 2 tests updated (boundary test values/names for new 0.5 threshold), 1 stale comment fixed (`< 0.2` → `< 0.5`), 1 new test added (coverage=0.3 between old/new threshold, expects false).
+- Total test count: 1,305 (was 1,304).
 
 ---
 
@@ -4979,7 +4985,7 @@ void _runStructuralScans(BuildContext scanContext) {
 | 1 | v7.1: HeavyCompute Two-Tier | Very Low | Accuracy | Shipped ✅ |
 | 2 | v7.2: NetworkMonitor >= | Very Low | Accuracy | Shipped ✅ |
 | 3 | v7.3: Threshold Tuning Pass | Low | Accuracy | Shipped ✅ |
-| 4 | v7.4: Correlator Coverage | Very Low | Accuracy | None |
+| 4 | v7.4: Correlator Coverage | Very Low | Accuracy | Shipped ✅ |
 | 5 | v7.5: Rebuild VM Fallback | Low | Accuracy | None |
 | 6 | v7.6: MemoryPressure Warmup | Very Low | Accuracy | None |
 | 7 | v7.7: Ring Buffers | Very Low | Performance | None |

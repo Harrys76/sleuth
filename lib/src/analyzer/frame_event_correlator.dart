@@ -32,7 +32,7 @@ class CorrelatedFrameData {
       totalBatchEventCount == 0 ? 0 : matchedEventCount / totalBatchEventCount;
 
   /// Whether this correlation has enough data for a trustworthy verdict.
-  bool get isTrustworthy => matchedEventCount > 0 && coverageRatio >= 0.2;
+  bool get isTrustworthy => matchedEventCount > 0 && coverageRatio >= 0.5;
 }
 
 /// Matches VM timeline events to specific frames by timestamp correlation.

@@ -100,21 +100,30 @@ void main() {
       expect(data.isTrustworthy, isFalse);
     });
 
-    test('isTrustworthy requires coverage >= 0.2', () {
+    test('isTrustworthy requires coverage >= 0.5', () {
       const data = CorrelatedFrameData(
         matchedEventCount: 1,
         totalBatchEventCount: 10,
       );
-      // coverage = 0.1 < 0.2
+      // coverage = 0.1 < 0.5
       expect(data.isTrustworthy, isFalse);
     });
 
-    test('isTrustworthy is true at exactly 0.2 coverage', () {
+    test('isTrustworthy is true at exactly 0.5 coverage', () {
       const data = CorrelatedFrameData(
-        matchedEventCount: 2,
+        matchedEventCount: 5,
         totalBatchEventCount: 10,
       );
       expect(data.isTrustworthy, isTrue);
+    });
+
+    test('isTrustworthy is false between old and new threshold', () {
+      const data = CorrelatedFrameData(
+        matchedEventCount: 3,
+        totalBatchEventCount: 10,
+      );
+      // coverage = 0.3 — was trustworthy at old 0.2 threshold, not at 0.5
+      expect(data.isTrustworthy, isFalse);
     });
 
     test('isTrustworthy is true with full coverage', () {
