@@ -256,6 +256,12 @@ class RebuildDetector extends BaseDetector {
     if (hasFreshDebug) {
       if (debugSnapshot.totalRebuilds > 0) {
         _evaluateDebugData(debugSnapshot);
+      } else if (hasFreshVm) {
+        // Debug callbacks active but returned zero counts — fall back to VM.
+        if (vmWindowCount > 0) {
+          _evaluateVmData(vmWindowCount, enrichedNames);
+        }
+        _pendingVmWindowCount = null;
       }
       _pendingDebugSnapshot = null;
     } else if (hasFreshVm) {

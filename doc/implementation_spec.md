@@ -4885,7 +4885,7 @@ All 22 v6 milestones shipped in **v0.8.0**.
 
 ---
 
-### v7.5: RebuildDetector — VM Fallback on Zero Debug Counts
+### v7.5: RebuildDetector — VM Fallback on Zero Debug Counts ✅ Shipped
 
 **Problem:** `rebuild_detector.dart` line 257: `if (debugSnapshot.totalRebuilds > 0)` gates the debug evaluation path. If debug callbacks are active but return zero counts (timing issue, sporadic enable/disable), the VM-backed data path is never reached. Real rebuild activity visible in VM timeline is ignored.
 
@@ -4894,6 +4894,14 @@ All 22 v6 milestones shipped in **v0.8.0**.
 **Files:** `lib/src/detectors/rebuild_detector.dart` lines 257–269.
 
 **Risk:** Low. Only changes behavior when debug callback returns empty data. VM path is already well-tested as the default non-debug code path.
+
+**Post-Implementation Notes:**
+- Added nested `else if (hasFreshVm)` fallback inside the `hasFreshDebug` branch of `_evaluate()`. When debug snapshot has `totalRebuilds == 0` and VM data is available, falls back to `_evaluateVmData` instead of producing no issues.
+- Fallback correctly consumes `_pendingVmWindowCount` to prevent double-fire on the next evaluation cycle.
+- `enrichedNames` local variable (captured before `_stagedEnrichedNames` cleared) correctly passes enriched timeline names to the fallback VM path.
+- 2 new tests: "zero debug snapshot falls back to VM data when both present" (the bug scenario), "zero debug snapshot with zero VM data produces no issues" (no false positive).
+- All existing tests unaffected — L245 "fresh debug snapshot with 0 rebuilds clears stale issues" still passes because `hasFreshVm=false` in that scenario (VM data was consumed in prior evaluateNow).
+- Total test count: 1,307 (was 1,305).
 
 ---
 
@@ -4986,7 +4994,7 @@ void _runStructuralScans(BuildContext scanContext) {
 | 2 | v7.2: NetworkMonitor >= | Very Low | Accuracy | Shipped ✅ |
 | 3 | v7.3: Threshold Tuning Pass | Low | Accuracy | Shipped ✅ |
 | 4 | v7.4: Correlator Coverage | Very Low | Accuracy | Shipped ✅ |
-| 5 | v7.5: Rebuild VM Fallback | Low | Accuracy | None |
+| 5 | v7.5: Rebuild VM Fallback | Low | Accuracy | Shipped ✅ |
 | 6 | v7.6: MemoryPressure Warmup | Very Low | Accuracy | None |
 | 7 | v7.7: Ring Buffers | Very Low | Performance | None |
 | 8 | v7.8: Correlator Sort Cache | Low | Performance | None |

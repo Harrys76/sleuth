@@ -258,6 +258,45 @@ void main() {
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });
+
+      test('zero debug snapshot falls back to VM data when both present', () {
+        // Stage VM data
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+
+        // Stage debug snapshot with zero counts
+        detector.updateDebugSnapshot(const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ));
+
+        detector.evaluateNow();
+
+        // Should fall back to VM path — produces confirmed issue from VM
+        expect(detector.issues, isNotEmpty);
+        expect(detector.issues.first.observationSource,
+            ObservationSource.vmTimeline);
+        expect(detector.issues.first.confidence, IssueConfidence.confirmed);
+      });
+
+      test('zero debug snapshot with zero VM data produces no issues', () {
+        // Stage zero VM data
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        detector.processTimelineData(highBuildActivityData(buildCount: 0));
+
+        // Stage debug snapshot with zero counts
+        detector.updateDebugSnapshot(const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ));
+
+        detector.evaluateNow();
+
+        // Both sources empty — no issues
+        expect(detector.issues, isEmpty);
+      });
     });
 
     group('debug callback path', () {
