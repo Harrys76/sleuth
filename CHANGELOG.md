@@ -1,3 +1,64 @@
+## 0.8.0
+
+### Improved
+
+- **Controller async safety** (v6.1): VM service calls wrapped with 10 s
+  timeouts and disposed-state guards. `dispose()` cancels in-flight futures
+  and timeline subscriptions. Prevents `setState after dispose` and hung
+  controller on lost VM connections.
+- **Enrichment error logging** (v6.14): enrichment chain failures now log
+  structured messages via `debugPrint` instead of silently swallowing errors.
+- **AnimatedOpacity detection** (v6.2): `OpacityDetector` now detects
+  `AnimatedOpacity` widgets at opacity 0 in addition to static `Opacity`.
+- **ShaderMask render detection** (v6.3): `GpuPressureDetector` includes
+  `RenderShaderMask` in the expensive render-tree check.
+- **Nested scroll highlights** (v6.4): `NestedScrollDetector` provides
+  widget highlight overlays marking the inner and outer scroll regions.
+- **ListView threshold tuning** (v6.19): non-lazy `ListView` child-count
+  threshold adjusted for more accurate detection with fewer false positives.
+- **TriggerButton adaptive position** (v6.20): initial button position adapts
+  to screen size, placing it in the visible area on all device sizes.
+- **Model equality** (v6.13): `PerformanceIssue` implements `==` and
+  `hashCode` based on `stableId`, enabling correct deduplication and
+  `Set`/`Map` usage.
+- **Suppression precompilation** (v6.15): suppression patterns compiled to
+  `RegExp` once at config time instead of per-issue per-scan.
+- **UI tap targets** (v6.5): header icon buttons increased to minimum 44 px
+  touch target.
+- **UI drag safety** (v6.6): `onPanUpdate` clamps card position within
+  screen bounds on every frame.
+- **UI keyboard awareness** (v6.7): floating card repositions when the
+  software keyboard opens to prevent occlusion.
+- **UI listener dedup** (v6.8): `ValueListenableBuilder` listeners
+  deduplicated to prevent redundant rebuilds.
+- **UI text overflow protection** (v6.9): long text in issue cards and
+  banners protected with `maxLines` and `TextOverflow.ellipsis`.
+- **GuidePage back navigation** (v6.12): hardware/system back button returns
+  from GuidePage to the floating card.
+- **Spacing theme tokens** (v6.21): 6 spacing tokens (`spacingXxs` through
+  `spacingXl`) on `WatchdogThemeData`. ~67 hardcoded spacing values replaced
+  across 4 UI files. Consumers can customize overlay density via theme.
+- **Benchmark robustness** (v6.22): timing budgets use `budgetMultiplier`
+  that reads `CI` environment variable, preventing flaky tests on loaded
+  runners.
+
+### Changed
+
+- **FloatingIssuesCard refactored** (v6.10): large build methods extracted
+  into focused builder functions. Zero behavior change.
+- **IssueCard refactored** (v6.11): build method extraction matching
+  FloatingIssuesCard pattern. Zero behavior change.
+- **Platform declarations** (v6.16): `pubspec.yaml` now declares `android`
+  and `ios` platform support explicitly for pub.dev scoring.
+
+### Added
+
+- Controller lifecycle tests (v6.17): 20+ tests for dispose guards, timeout
+  behavior, and error resilience.
+- UI widget tests (v6.18): widget tests for FloatingIssuesCard, IssueCard,
+  TriggerButton, and GuidePage interactions.
+- 1,294 tests total, 0 analysis issues.
+
 ## 0.7.0
 
 ### Added

@@ -84,12 +84,15 @@ WidgetWatchdog.wrap(
 
 **Debug callbacks note:** `enableDebugCallbacks` installs `debugOnRebuildDirtyWidget` and `debugOnProfilePaint` hooks. These conflict with DevTools "Track Widget Rebuilds" — only one can be active at a time. Default `false` to avoid surprising DevTools users.
 
-**Overlay theming:** The overlay auto-detects light/dark backgrounds. Override with `WatchdogThemeData`:
+**Overlay theming:** The overlay auto-detects light/dark backgrounds. Override colors and spacing with `WatchdogThemeData`:
 
 ```dart
 WidgetWatchdog.wrap(
   child: MyApp(),
-  theme: WatchdogThemeData.light().copyWith(cardBackground: Color(0xFFF5F5F5)),
+  theme: WatchdogThemeData.light().copyWith(
+    cardBackground: Color(0xFFF5F5F5),
+    spacingMd: 10, // adjust overlay density (default 8)
+  ),
 );
 ```
 
@@ -159,7 +162,7 @@ Issues include a confidence level reflecting evidence quality:
 | CustomPainter | Element tree | shouldRepaint always true | Possible | May be needed for animated painters |
 | Keep Alive | Element tree | Many keep-alive pages | Possible | Trade-off between memory and rebuild cost |
 | AnimatedBuilder | Element tree | No child param on large subtree | Possible | Only matters if subtree is large |
-| Opacity | Element tree | Opacity(0.0) widget present | Possible | Widget still participates in hit testing and semantics |
+| Opacity | Element tree | Opacity(0.0) or AnimatedOpacity(0.0) widget present | Possible | Widget still participates in hit testing and semantics |
 | Font Loading | Element tree | Non-system font in use | Possible | Font may already be loaded |
 | RepaintBoundary | Element + render tree | Expensive GPU widget without RepaintBoundary ancestor | Possible–Confirmed | Escalates with debug paint rate evidence |
 
@@ -173,7 +176,7 @@ Issues include a confidence level reflecting evidence quality:
 - **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed
 - **Source-location enrichment**: ancestor chains include file:line in debug mode, linking issues directly to source code
 - **Actionable fix hints**: every issue includes what to change, not just what went wrong
-- **Customizable**: suppress known issues, tune detector thresholds, plug in custom detectors, theme the overlay
+- **Customizable**: suppress known issues, tune detector thresholds, plug in custom detectors, theme the overlay (60+ color tokens, 6 spacing tokens)
 - **Zero setup**: one line of code, no browser tab, no port forwarding
 
 ## What DevTools Still Does Better

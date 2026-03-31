@@ -4257,7 +4257,7 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 ---
 
-### v6.1: Controller Async Safety — VM Service Timeouts & Dispose Guards
+### v6.1: Controller Async Safety — VM Service Timeouts & Dispose Guards ✅ Shipped
 
 **Problem:** Three async safety issues in `WatchdogController`:
 
@@ -4286,7 +4286,7 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 ---
 
-### v6.2: OpacityDetector — Add AnimatedOpacity Detection
+### v6.2: OpacityDetector — Add AnimatedOpacity Detection ✅ Shipped
 
 **Problem:** `OpacityDetector` only checks `widget is Opacity` (line 51). An `AnimatedOpacity(opacity: 0.0, ...)` with zero opacity is functionally identical waste — the widget still participates in layout, hit testing, and semantics — but is never flagged.
 
@@ -4311,7 +4311,7 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 ---
 
-### v6.3: GpuPressureDetector — Add RenderShaderMask to Render Tree Check
+### v6.3: GpuPressureDetector — Add RenderShaderMask to Render Tree Check ✅ Shipped
 
 **Problem:** `GpuPressureDetector` lists `ShaderMask` in the widget-level detection (line 74) but never checks for `RenderShaderMask` in the render tree visitor (lines 94-96). Only `RenderOpacity`, `RenderClipPath`, and `RenderBackdropFilter` are checked. This means ShaderMask widgets are counted as GPU-expensive at the widget level but never detected at the render level, creating an inconsistency.
 
@@ -4328,7 +4328,7 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 ---
 
-### v6.4: NestedScrollDetector — Add Widget Highlights
+### v6.4: NestedScrollDetector — Add Widget Highlights ✅ Shipped
 
 **Problem:** `NestedScrollDetector` is the only structural detector that doesn't generate `WidgetHighlight` entries. When highlights are enabled, nested scroll issues are invisible in the overlay while all other structural issues are visually marked.
 
@@ -4346,7 +4346,7 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 ---
 
-### v6.5: UI Tap Targets — Increase Header Icon Button Size
+### v6.5: UI Tap Targets — Increase Header Icon Button Size ✅ Shipped
 
 **Problem:** Header icon buttons in `FloatingIssuesCard` use `padding: EdgeInsets.all(8)` around a 16px icon, yielding ~32x32 tap targets. The minimum recommended touch target on mobile is 48x48 (Material Design guidelines, WCAG 2.5.5).
 
@@ -4367,7 +4367,7 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 ---
 
-### v6.6: UI Drag Safety — Clamp Offset in onPanUpdate
+### v6.6: UI Drag Safety — Clamp Offset in onPanUpdate ✅ Shipped
 
 **Problem:** The drag handler updates `_cardOffset` in `onPanUpdate` without bounds checking. The clamp happens in `build()`, meaning there's a one-frame delay where the card can render partially off-screen. On fast drags, this creates visible visual glitches.
 
@@ -4386,7 +4386,7 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 ---
 
-### v6.7: UI Keyboard Awareness
+### v6.7: UI Keyboard Awareness ✅ Shipped
 
 **Problem:** The card's vertical position is clamped to `screenSize.height - 100`, but doesn't account for keyboard height. On mobile with a soft keyboard visible, the card can be completely hidden behind the keyboard with no way to reposition it.
 
@@ -4405,7 +4405,7 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 ---
 
-### v6.8: UI Listener Deduplication
+### v6.8: UI Listener Deduplication ✅ Shipped
 
 **Problem:** `FloatingIssuesCard` registers two separate listeners on the same `issuesNotifier` (line 66-68):
 ```dart
@@ -4435,7 +4435,7 @@ void _onIssuesChanged() {
 
 ---
 
-### v6.9: UI Text Overflow Protection
+### v6.9: UI Text Overflow Protection ✅ Shipped
 
 **Problem:** Several `Text` widgets in banner and warning areas lack `maxLines` + `overflow: TextOverflow.ellipsis`. When the card is resized to a narrow width, these texts overflow horizontally:
 - Debug mode banner (line ~620)
@@ -4457,7 +4457,7 @@ void _onIssuesChanged() {
 
 ---
 
-### v6.10: UI Build Method Extraction — FloatingIssuesCard
+### v6.10: UI Build Method Extraction — FloatingIssuesCard ✅ Shipped
 
 **Problem:** `FloatingIssuesCard.build()` is 112 lines — well above the 50-line guideline. It mixes position clamping math, gesture handling, and widget tree construction in one method, making it hard to understand and modify.
 
@@ -4479,7 +4479,7 @@ The `build()` method becomes a ~30 line method that computes position and delega
 
 ---
 
-### v6.11: UI Build Method Extraction — IssueCard
+### v6.11: UI Build Method Extraction — IssueCard ✅ Shipped
 
 **Problem:** `IssueCard.build()` spans 345 lines. The Column children array runs from line 111 to 421 — nearly impossible to navigate.
 
@@ -4496,7 +4496,7 @@ The `build()` method becomes a ~30 line method that computes position and delega
 
 ---
 
-### v6.12: GuidePage Back Navigation
+### v6.12: GuidePage Back Navigation ✅ Shipped
 
 **Problem:** GuidePage handles only its own back-arrow `IconButton`. On Android, pressing the system back button closes the app instead of the guide. On iOS, the edge-swipe gesture doesn't work either.
 
@@ -4515,7 +4515,7 @@ The `build()` method becomes a ~30 line method that computes position and delega
 
 ---
 
-### v6.13: Model Equality — PerformanceIssue
+### v6.13: Model Equality — PerformanceIssue ✅ Shipped
 
 **Problem:** `PerformanceIssue` doesn't override `==` / `hashCode`. If issues are stored in Sets (e.g., for deduplication) or used as Map keys, identity-based comparison causes subtle bugs — two identical issues from consecutive scans are treated as different objects.
 
@@ -4542,7 +4542,7 @@ The `build()` method becomes a ~30 line method that computes position and delega
 
 ---
 
-### v6.14: Controller Error Logging — Enrichment Chain Visibility
+### v6.14: Controller Error Logging — Enrichment Chain Visibility ✅ Shipped
 
 **Problem:** Enrichment chain errors are silently swallowed by `.catchError((_) {})`. When `getAllocationProfile` or `getIsolate` fail, there's zero visibility into why enrichment data is missing from snapshots.
 
@@ -4561,7 +4561,7 @@ The `build()` method becomes a ~30 line method that computes position and delega
 
 ---
 
-### v6.15: Suppression Pattern Precompilation
+### v6.15: Suppression Pattern Precompilation ✅ Shipped
 
 **Problem:** `_matchesSuppression` rebuilds wildcard-to-regex conversion on every call. With 22 detectors emitting issues every scan cycle and a non-trivial suppression list, this is repeated work.
 
@@ -4584,7 +4584,7 @@ The `build()` method becomes a ~30 line method that computes position and delega
 
 ---
 
-### v6.16: Pubspec Platform Declarations
+### v6.16: Pubspec Platform Declarations ✅ Shipped
 
 **Problem:** `pubspec.yaml` doesn't include `platforms:` section. While optional, declaring platforms improves pub.dev discoverability and communicates supported targets explicitly.
 
@@ -4652,7 +4652,7 @@ platforms:
 
 ---
 
-### v6.19: ListviewDetector Threshold Tuning
+### v6.19: ListviewDetector Threshold Tuning ✅ Shipped
 
 **Problem:** The non-lazy list threshold of 20 children is aggressive. A login form with 25 static `TextFormField` widgets in a `SingleChildScrollView + Column` gets flagged, but this is an intentional design choice — the list is small enough that lazy building adds no benefit.
 
@@ -4674,7 +4674,7 @@ platforms:
 
 ---
 
-### v6.20: TriggerButton Adaptive Initial Position
+### v6.20: TriggerButton Adaptive Initial Position ✅ Shipped
 
 **Problem:** TriggerButton's initial position is hardcoded to `Offset(16, 100)`. On very small screens or landscape orientation, this may place the button at an awkward position or partially off-screen.
 
@@ -4785,15 +4785,11 @@ Replace hardcoded values in all UI files with `theme.spacingMd`, `theme.spacingL
 | 14 | v6.13: Model Equality | Low | Safety | None | **Shipped** |
 | 15 | v6.15: Suppression Precompile | Very Low | Performance | None | **Shipped** |
 | 16 | v6.16: Platform Declarations | Very Low | Pub.dev | None | **Shipped** |
-| 17 | v6.17: Controller Lifecycle Tests | Medium | Tests | v6.1 (tests the fixes) |
-| 18 | v6.18: UI Widget Tests | Medium | Tests | v6.5–v6.12 (tests after refactor) |
-| 19 | v6.19: ListView Threshold | Very Low | Accuracy | None |
-| 20 | v6.20: TriggerButton Position | Very Low | UI Polish | None |
-| 21 | v6.21: Spacing Tokens | Medium | UI Polish | None |
-| 22 | v6.22: Benchmark Robustness | Low | Tests | None |
+| 17 | v6.17: Controller Lifecycle Tests | Medium | Tests | v6.1 (tests the fixes) | **Shipped** |
+| 18 | v6.18: UI Widget Tests | Medium | Tests | v6.5–v6.12 (tests after refactor) | **Shipped** |
+| 19 | v6.19: ListView Threshold | Very Low | Accuracy | None | **Shipped** |
+| 20 | v6.20: TriggerButton Position | Very Low | UI Polish | None | **Shipped** |
+| 21 | v6.21: Spacing Tokens | Medium | UI Polish | None | **Shipped** |
+| 22 | v6.22: Benchmark Robustness | Low | Tests | None | **Shipped** |
 
-**Grouping suggestion:** Milestones can be batched into 4 releases:
-- **v0.7.1** (safety): v6.1, v6.14, v6.13 — async safety + error visibility + model equality
-- **v0.7.2** (accuracy): v6.2, v6.3, v6.4, v6.19 — detector accuracy improvements
-- **v0.7.3** (UI): v6.5–v6.12, v6.20, v6.21 — all UI polish
-- **v0.7.4** (tests): v6.17, v6.18, v6.22, v6.15, v6.16 — test coverage + infra
+All 22 v6 milestones shipped in **v0.8.0**.
