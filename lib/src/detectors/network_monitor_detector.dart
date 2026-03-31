@@ -136,7 +136,7 @@ class NetworkMonitorDetector extends BaseDetector {
 
   void _evaluateSlowRequests() {
     final slowRecords =
-        _records.where((r) => r.durationMs > slowThresholdMs).toList();
+        _records.where((r) => r.durationMs >= slowThresholdMs).toList();
     if (slowRecords.isEmpty) return;
 
     final worstMs =
@@ -175,7 +175,7 @@ class NetworkMonitorDetector extends BaseDetector {
 
   void _evaluateLargeResponses() {
     final largeRecords =
-        _records.where((r) => r.responseBytes > largeResponseBytes).toList();
+        _records.where((r) => r.responseBytes >= largeResponseBytes).toList();
     if (largeRecords.isEmpty) return;
 
     final worstBytes = largeRecords

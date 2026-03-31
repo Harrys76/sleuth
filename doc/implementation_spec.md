@@ -4817,7 +4817,7 @@ All 22 v6 milestones shipped in **v0.8.0**.
 
 ---
 
-### v7.2: NetworkMonitorDetector — Inclusive Threshold Comparison
+### v7.2: NetworkMonitorDetector — Inclusive Threshold Comparison ✅ Shipped
 
 **Problem:** `network_monitor_detector.dart` line 139 uses `r.durationMs > slowThresholdMs` (strict greater-than). A request at exactly the threshold (e.g., 2000ms when threshold is 2000ms) is not flagged as slow.
 
@@ -4826,6 +4826,13 @@ All 22 v6 milestones shipped in **v0.8.0**.
 **Files:** `lib/src/detectors/network_monitor_detector.dart` line 139.
 
 **Risk:** None. Off-by-one fix.
+
+**Post-Implementation Notes:**
+- Scope expanded from spec's single line (139) to also fix line 178 (`r.responseBytes > largeResponseBytes` → `>=`) for consistency — same off-by-one pattern in large response detection.
+- Full audit of all 6 comparison operators in the detector: frequency check (line 219, `<=`) and critical severity check (line 144, `>=`) were already correct — left unchanged.
+- Title display strings at lines 164 and 200 left as `>` — human-readable approximation, not formal spec. Changing to `>=` or `≥` would be ugly for negligible accuracy gain.
+- 3 new boundary tests added: slow request at exactly 2000ms (warning), critical at exactly 5000ms (critical), large response at exactly 1048576 bytes (warning).
+- Total test count: 1,303 (was 1,300).
 
 ---
 
@@ -4959,7 +4966,7 @@ void _runStructuralScans(BuildContext scanContext) {
 | Priority | Milestone | Effort | Theme | Dependencies |
 |----------|-----------|--------|-------|--------------|
 | 1 | v7.1: HeavyCompute Two-Tier | Very Low | Accuracy | Shipped ✅ |
-| 2 | v7.2: NetworkMonitor >= | Very Low | Accuracy | None |
+| 2 | v7.2: NetworkMonitor >= | Very Low | Accuracy | Shipped ✅ |
 | 3 | v7.3: Threshold Tuning Pass | Low | Accuracy | None |
 | 4 | v7.4: Correlator Coverage | Very Low | Accuracy | None |
 | 5 | v7.5: Rebuild VM Fallback | Low | Accuracy | None |

@@ -48,6 +48,13 @@ void main() {
       expect(detector.issues, isEmpty);
     });
 
+    test('slow issue at exactly threshold', () {
+      detector.processRecord(makeRecord(durationMs: 2000));
+      expect(detector.issues.where((i) => i.stableId == 'slow_request'),
+          hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+    });
+
     test('warning when slow request threshold exceeded (>2s)', () {
       detector.processRecord(makeRecord(durationMs: 2500));
       expect(detector.issues, hasLength(1));
@@ -57,6 +64,12 @@ void main() {
 
     test('critical when slow request > 5s', () {
       detector.processRecord(makeRecord(durationMs: 5500));
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+    });
+
+    test('critical at exactly 5s', () {
+      detector.processRecord(makeRecord(durationMs: 5000));
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
     });
@@ -82,6 +95,14 @@ void main() {
       final largeIssues =
           detector.issues.where((i) => i.stableId == 'large_response');
       expect(largeIssues, isEmpty);
+    });
+
+    test('large issue at exactly threshold', () {
+      detector.processRecord(makeRecord(responseBytes: 1048576));
+      final largeIssues =
+          detector.issues.where((i) => i.stableId == 'large_response');
+      expect(largeIssues, hasLength(1));
+      expect(largeIssues.first.severity, IssueSeverity.warning);
     });
 
     test('warning when large response threshold exceeded (>1MB)', () {
