@@ -4905,15 +4905,22 @@ All 22 v6 milestones shipped in **v0.8.0**.
 
 ---
 
-### v7.6: MemoryPressureDetector — Reduce Warmup Window
+### v7.6: MemoryPressureDetector — Reduce Warmup Window ✅ Shipped
 
 **Problem:** `memory_pressure_detector.dart` line 15: `warmupDurationMs = 5000` suppresses all heap trend alerts for 5 seconds after first sample. Apps that allocate heavily on startup (large images, database hydration) have their first 5 seconds of memory growth masked.
 
 **Fix:** Reduce default warmup from 5000ms to 3000ms. Apps are typically past startup allocation by 3 seconds. Consumers can still override via constructor.
 
-**Files:** `lib/src/detectors/memory_pressure_detector.dart` line 15.
+**Files:** `lib/src/detectors/memory_pressure_detector.dart` line 15, `lib/src/controller/watchdog_controller.dart` line 1409.
 
 **Risk:** Very low. May surface startup allocation patterns as `possible` confidence earlier. Configurable — consumers can set `warmupDurationMs` higher if needed.
+
+**Post-Implementation Notes:**
+- Two defaults changed in lockstep: `memory_pressure_detector.dart` line 15 (`warmupDurationMs = 5000` → `3000`) and `watchdog_controller.dart` line 1409 (`memoryWarmupDurationMs = 5000` → `3000`).
+- No tests affected — all 6 warmup tests pass explicit `warmupDurationMs: 5000` in constructors, never rely on the default. Main setUp uses `warmupDurationMs: 0` (disabled).
+- No user-facing strings reference the warmup duration value.
+- `warmupDurationMs` is NOT exposed in `DetectorThresholds` — only in `WatchdogConfig.memoryWarmupDurationMs` and the detector constructor directly.
+- Total test count: 1,307 (unchanged).
 
 ---
 
@@ -4995,7 +5002,7 @@ void _runStructuralScans(BuildContext scanContext) {
 | 3 | v7.3: Threshold Tuning Pass | Low | Accuracy | Shipped ✅ |
 | 4 | v7.4: Correlator Coverage | Very Low | Accuracy | Shipped ✅ |
 | 5 | v7.5: Rebuild VM Fallback | Low | Accuracy | Shipped ✅ |
-| 6 | v7.6: MemoryPressure Warmup | Very Low | Accuracy | None |
+| 6 | v7.6: MemoryPressure Warmup | Very Low | Accuracy | Shipped ✅ |
 | 7 | v7.7: Ring Buffers | Very Low | Performance | None |
 | 8 | v7.8: Correlator Sort Cache | Low | Performance | None |
 | 9 | v7.9: Unified Tree Walk | Medium | Performance | None |

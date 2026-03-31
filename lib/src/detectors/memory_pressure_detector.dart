@@ -12,7 +12,7 @@ import '../vm/timeline_parser.dart';
 class MemoryPressureDetector extends BaseDetector {
   MemoryPressureDetector({
     DateTime Function()? clock,
-    this.warmupDurationMs = 5000,
+    this.warmupDurationMs = 3000,
     this.growthThresholdBytesPerSec = 512000,
     this.capacityThresholdPercent = 0.80,
   })  : _clock = clock ?? DateTime.now,

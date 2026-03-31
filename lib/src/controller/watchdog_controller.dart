@@ -1406,7 +1406,7 @@ class WatchdogConfig {
     this.requestFrequencyLimit = 30,
     this.largeResponseThresholdBytes = 1048576,
     this.networkExcludePatterns,
-    this.memoryWarmupDurationMs = 5000,
+    this.memoryWarmupDurationMs = 3000,
     this.platformChannelDurationThresholdMs = 8,
     this.suppressedIssues = const {},
     this.customDetectors = const [],
