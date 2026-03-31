@@ -60,5 +60,6 @@ test/
 - v0.5.0: Context-aware fix hints, verdict linking, UX improvements.
 - v0.4.0: Accuracy fixes + correlator optimization.
 - v3 roadmap: v3.1–v3.10 all shipped.
+- v7 roadmap: 10 milestones — accuracy fixes (v7.1–v7.6), performance optimizations (v7.7–v7.8, v7.10), unified tree walk (v7.9). See `doc/implementation_spec.md`.
 - Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
 - 1,294 tests, 0 analysis issues
