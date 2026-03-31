@@ -239,6 +239,100 @@ void main() {
     });
   });
 
+  group('PerformanceIssue equality (v6.13)', () {
+    const base = PerformanceIssue(
+      severity: IssueSeverity.warning,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.confirmed,
+      title: 'Test Issue',
+      detail: 'detail',
+      fixHint: 'fix',
+      stableId: 'test_issue',
+    );
+
+    test('same stableId → equal regardless of other fields', () {
+      final other = base.copyWith(
+        severity: IssueSeverity.critical,
+        confidence: IssueConfidence.possible,
+        title: 'Different Title',
+        detail: 'different detail',
+      );
+      expect(base, equals(other));
+    });
+
+    test('different stableId → not equal', () {
+      final other = base.copyWith(stableId: 'other_issue');
+      expect(base, isNot(equals(other)));
+    });
+
+    test('null stableId → not equal to each other', () {
+      // Use non-const to avoid Dart const canonicalization (identical instance).
+      // ignore: prefer_const_constructors
+      final a = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.confirmed,
+        title: 'Test Issue',
+        detail: 'detail',
+        fixHint: 'fix',
+      );
+      // ignore: prefer_const_constructors
+      final b = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.confirmed,
+        title: 'Test Issue',
+        detail: 'detail',
+        fixHint: 'fix',
+      );
+      expect(a, isNot(equals(b)));
+    });
+
+    test('null stableId issue not equal to non-null stableId issue', () {
+      const noId = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.confirmed,
+        title: 'Test Issue',
+        detail: 'detail',
+        fixHint: 'fix',
+      );
+      expect(noId, isNot(equals(base)));
+    });
+
+    test('identical reference → equal', () {
+      expect(base, equals(base));
+    });
+
+    test('Set deduplication by stableId', () {
+      final a = base.copyWith(severity: IssueSeverity.critical);
+      final b = base.copyWith(severity: IssueSeverity.ok);
+      final set = {base, a, b};
+      expect(set.length, 1);
+    });
+
+    test('hashCode consistent: equal objects produce equal hashCodes', () {
+      final other = base.copyWith(title: 'Different Title');
+      expect(base.hashCode, equals(other.hashCode));
+    });
+
+    test(
+        'hashCode distribution: different stableIds produce different hashCodes',
+        () {
+      final other = base.copyWith(stableId: 'completely_different');
+      expect(base.hashCode, isNot(equals(other.hashCode)));
+    });
+
+    test('can be used as Map key', () {
+      final map = <PerformanceIssue, String>{};
+      map[base] = 'first';
+      final sameId = base.copyWith(title: 'Updated Title');
+      map[sameId] = 'second';
+      expect(map.length, 1);
+      expect(map[base], 'second');
+    });
+  });
+
   group('InteractionContext displayName', () {
     test('idle', () {
       expect(InteractionContext.idle.displayName, 'idle');

@@ -4533,6 +4533,13 @@ The `build()` method becomes a ~30 line method that computes position and delega
 
 **Risk:** Medium. Any code relying on identity-based inequality of same-stableId issues would break. Audit all `Set<PerformanceIssue>` and `Map<PerformanceIssue, ...>` usages first.
 
+**Post-Implementation Notes:**
+- Shipped. `==` returns true when both have non-null `stableId` and they match; `hashCode` delegates to `stableId.hashCode` (or `super.hashCode` when null).
+- Null `stableId` guard: two issues with `stableId == null` are NOT equal by value — falls back to identity comparison. Matches the existing `stableId ?? title` fallback pattern.
+- Full audit confirmed zero existing code uses `==`/`!=` on PerformanceIssue objects — zero breakage.
+- 9 new tests: same stableId equality, different stableId, null stableId isolation, null vs non-null, identical reference, Set dedup, hashCode consistency, hashCode distribution, Map key behavior.
+- `const` constructor preserved — note that `const` objects with identical fields are Dart-canonicalized (same instance via `identical`).
+
 ---
 
 ### v6.14: Controller Error Logging — Enrichment Chain Visibility
@@ -4570,6 +4577,11 @@ The `build()` method becomes a ~30 line method that computes position and delega
 
 **Risk:** Very low.
 
+**Post-Implementation Notes:**
+- Shipped. Used split exact/prefix approach instead of RegExp — `Set<String>` for O(1) exact matches, `List<String>` for prefix patterns (trailing `*` stripped).
+- `_compileSuppressions()` called once in constructor body. No `updateConfig()` exists — config is final.
+- All 8 existing suppression tests pass unchanged (behavioral equivalence).
+
 ---
 
 ### v6.16: Pubspec Platform Declarations
@@ -4591,6 +4603,9 @@ platforms:
 ```
 
 **Risk:** None.
+
+**Post-Implementation Notes:**
+- Shipped. Added `platforms: {android:, ios:}` to pubspec.yaml. Limited to mobile — desktop technically works but isn't the target audience. No `web:` due to unconditional `dart:io` imports.
 
 ---
 
@@ -4733,9 +4748,9 @@ Replace hardcoded values in all UI files with `theme.spacingMd`, `theme.spacingL
 | 11 | v6.10: FloatingIssuesCard Extract | Low | UI Polish | v6.6 (shared helper) | **Shipped** |
 | 12 | v6.11: IssueCard Extract | Low | UI Polish | None | **Shipped** |
 | 13 | v6.12: GuidePage Back Nav | Very Low | UI Polish | None | **Shipped** |
-| 14 | v6.13: Model Equality | Low | Safety | None |
-| 15 | v6.15: Suppression Precompile | Very Low | Performance | None |
-| 16 | v6.16: Platform Declarations | Very Low | Pub.dev | None |
+| 14 | v6.13: Model Equality | Low | Safety | None | **Shipped** |
+| 15 | v6.15: Suppression Precompile | Very Low | Performance | None | **Shipped** |
+| 16 | v6.16: Platform Declarations | Very Low | Pub.dev | None | **Shipped** |
 | 17 | v6.17: Controller Lifecycle Tests | Medium | Tests | v6.1 (tests the fixes) |
 | 18 | v6.18: UI Widget Tests | Medium | Tests | v6.5–v6.12 (tests after refactor) |
 | 19 | v6.19: ListView Threshold | Very Low | Accuracy | None |

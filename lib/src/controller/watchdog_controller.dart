@@ -60,9 +60,15 @@ class WatchdogController {
       : config = config ?? const WatchdogConfig(),
         _captureBuffer = JankCaptureBuffer(
           capacity: (config ?? const WatchdogConfig()).captureBufferCapacity,
-        );
+        ) {
+    _compileSuppressions();
+  }
 
   final WatchdogConfig config;
+
+  // Precompiled suppression patterns (v6.15).
+  late final Set<String> _exactSuppressions;
+  late final List<String> _prefixSuppressions;
 
   // Capture buffer — eager init so exportSnapshot() is safe before initialize()
   final JankCaptureBuffer _captureBuffer;
@@ -1194,16 +1200,26 @@ class WatchdogController {
     issuesNotifier.value = ranked;
   }
 
-  /// Returns true if [id] matches any pattern in [config.suppressedIssues].
-  bool _matchesSuppression(String id) {
+  /// Splits [config.suppressedIssues] into exact matches and prefix patterns.
+  void _compileSuppressions() {
+    final exact = <String>{};
+    final prefixes = <String>[];
     for (final pattern in config.suppressedIssues) {
       if (pattern.endsWith('*')) {
-        if (id.startsWith(pattern.substring(0, pattern.length - 1))) {
-          return true;
-        }
+        prefixes.add(pattern.substring(0, pattern.length - 1));
       } else {
-        if (id == pattern) return true;
+        exact.add(pattern);
       }
+    }
+    _exactSuppressions = exact;
+    _prefixSuppressions = prefixes;
+  }
+
+  /// Returns true if [id] matches any pattern in [config.suppressedIssues].
+  bool _matchesSuppression(String id) {
+    if (_exactSuppressions.contains(id)) return true;
+    for (final prefix in _prefixSuppressions) {
+      if (id.startsWith(prefix)) return true;
     }
     return false;
   }

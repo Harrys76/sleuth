@@ -10,6 +10,10 @@ topics:
   - developer-tools
   - profiling
 
+platforms:
+  android:
+  ios:
+
 # Uncomment after adding a screenshot image:
 # screenshots:
 #   - description: 'Widget Watchdog overlay showing live FPS chart and detected performance issues'

@@ -282,6 +282,16 @@ class PerformanceIssue {
         topAllocators != null ? ', allocators: ${topAllocators!.length}' : '';
     return 'PerformanceIssue($severity, $category, $confidence, "$title"$route$source$interaction$chain$effort$allocs)';
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PerformanceIssue &&
+          stableId != null &&
+          stableId == other.stableId;
+
+  @override
+  int get hashCode => stableId?.hashCode ?? super.hashCode;
 }
 
 extension InteractionContextDisplay on InteractionContext {
