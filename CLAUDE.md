@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 22 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~1,307 tests, ~14s)
+fvm flutter test                    # Run all tests (~1,310 tests, ~16s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -60,6 +60,6 @@ test/
 - v0.5.0: Context-aware fix hints, verdict linking, UX improvements.
 - v0.4.0: Accuracy fixes + correlator optimization.
 - v3 roadmap: v3.1–v3.10 all shipped.
-- v7 roadmap: 9/10 milestones shipped — accuracy fixes (v7.1–v7.6 ✅), performance optimizations (v7.7–v7.8 ✅, v7.10 pending), unified tree walk (v7.9 ✅). See `doc/implementation_spec.md`.
+- v7 roadmap: 10/10 milestones shipped ✅ — accuracy fixes (v7.1–v7.6), performance optimizations (v7.7–v7.8, v7.10), unified tree walk (v7.9). See `doc/implementation_spec.md`.
 - Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
-- 1,307 tests, 0 analysis issues
+- 1,310 tests, 0 analysis issues

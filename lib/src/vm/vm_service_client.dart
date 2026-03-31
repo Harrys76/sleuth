@@ -224,8 +224,11 @@ class VmServiceClient {
         }
       }
     } catch (e) {
-      // Connection may have been lost
+      // Connection may have been lost — cancel timer BEFORE callbacks
+      // to prevent 500ms error loops if onConnectionChanged throws.
       if (!_disposed && !_reconnecting) {
+        _pollTimer?.cancel();
+        _pollTimer = null;
         _connected = false;
         onConnectionChanged?.call(false);
         // Fire-and-forget is intentional — reconnect runs in background

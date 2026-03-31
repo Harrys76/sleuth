@@ -485,6 +485,67 @@ void main() {
       expect(result, isFalse);
     });
   });
+
+  // =========================================================================
+  // 7. Poll error handling
+  // =========================================================================
+  group('Poll error handling', () {
+    test('poll error fires onConnectionChanged(false)', () async {
+      final connectionChanges = <bool>[];
+      final mock = _MockVmService();
+      mock.getVMTimelineThrows = Exception('connection lost');
+
+      final client = VmServiceClient(
+        onConnectionChanged: connectionChanges.add,
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+      expect(client.isConnected, isTrue);
+
+      await client.pollTimelineForTest();
+
+      expect(client.isConnected, isFalse);
+      expect(connectionChanges, [false]);
+      client.dispose();
+    });
+
+    test('poll error when disposed does not fire callback', () async {
+      final connectionChanges = <bool>[];
+      final mock = _MockVmService();
+      mock.getVMTimelineThrows = Exception('connection lost');
+
+      final client = VmServiceClient(
+        onConnectionChanged: connectionChanges.add,
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+      client.dispose();
+
+      await client.pollTimelineForTest();
+
+      expect(connectionChanges, isEmpty);
+    });
+
+    test('consecutive poll errors fire callback only once', () async {
+      final connectionChanges = <bool>[];
+      final mock = _MockVmService();
+      mock.getVMTimelineThrows = Exception('connection lost');
+
+      final client = VmServiceClient(
+        onConnectionChanged: connectionChanges.add,
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      // First poll: triggers error → onConnectionChanged(false) → reconnect()
+      // reconnect() calls _cleanup() which sets _service = null
+      await client.pollTimelineForTest();
+
+      // Second poll: _service is null (cleaned up by reconnect) → early return
+      await client.pollTimelineForTest();
+
+      // Only one callback fired
+      expect(connectionChanges, [false]);
+      client.dispose();
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -501,6 +562,7 @@ class _MockVmService implements VmService {
   bool getVMCalled = false;
 
   Timeline? timelineResult;
+  Object? getVMTimelineThrows;
   MemoryUsage? memoryUsageResult;
   Object? memoryUsageThrows;
   CpuSamples? cpuSamplesResult;
@@ -518,6 +580,7 @@ class _MockVmService implements VmService {
     int? timeExtentMicros,
   }) async {
     getVMTimelineCalled = true;
+    if (getVMTimelineThrows != null) throw getVMTimelineThrows!;
     return timelineResult ??
         Timeline(traceEvents: [], timeOriginMicros: 0, timeExtentMicros: 0);
   }

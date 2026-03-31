@@ -5019,15 +5019,18 @@ void _runStructuralScans(BuildContext scanContext) {
 
 ---
 
-### v7.10: VM Reconnect — Pause Polling During Backoff
+### v7.10: VM Reconnect — Pause Polling During Backoff ✅ Shipped
 
-**Problem:** `vm_service_client.dart` lines 226–234: When `_pollTimeline()` encounters an error, it sets `_connected = false` and fires `reconnect()`, but the poll timer continues. Next poll fires before reconnect completes, fails again, triggers another reconnect. Creates rapid reconnection spam during outages (2 attempts/sec until backoff delays kick in).
+**Problem:** `vm_service_client.dart` `_pollTimeline()` catch block: timer cancellation depended on `reconnect()` → `_cleanup()` — indirect. If `onConnectionChanged` callback (consumer code) threw before `reconnect()`, the 500ms poll timer survived, creating a tight error loop that never recovered.
 
-**Fix:** Cancel `_pollTimer` on first poll error. Resume polling only after successful reconnect. The existing 1s/2s/4s backoff on `reconnect()` already handles retry scheduling.
+**Fix:** Cancel `_pollTimer` directly in the catch block, **before** `onConnectionChanged` and `reconnect()`. Timer is now stopped as the first action on error. `_cleanup()` in `reconnect()` still works (timer cancel is idempotent).
 
-**Files:** `lib/src/vm/vm_service_client.dart` lines 226–234.
+**Files:** `lib/src/vm/vm_service_client.dart` (2 lines added in catch block), `test/vm/vm_service_client_test.dart` (3 new tests for poll error path).
 
-**Risk:** Low. Poll timer is recreated on successful connect. No behavior change for connected sessions.
+**Post-Implementation Notes:**
+- 1,310 tests pass (3 new poll error tests), 0 analysis issues
+- Added `getVMTimelineThrows` to test mock for error path coverage
+- Timer cancel is idempotent — `_cleanup()` finds timer already null, no-op
 
 ---
 
@@ -5044,7 +5047,7 @@ void _runStructuralScans(BuildContext scanContext) {
 | 7 | v7.7: Ring Buffers | Very Low | Performance | Shipped ✅ |
 | 8 | v7.8: Correlator Sort Cache | Low | Performance | Shipped ✅ |
 | 9 | v7.9: Unified Tree Walk | Medium | Performance | Shipped ✅ |
-| 10 | v7.10: VM Reconnect Polling | Very Low | Performance | None |
+| 10 | v7.10: VM Reconnect Polling | Very Low | Performance | Shipped ✅ |
 
 **Grouping suggestion:** Milestones can be batched into 3 releases:
 - **v0.8.1** (accuracy): v7.1–v7.6 — threshold corrections and detection logic fixes
