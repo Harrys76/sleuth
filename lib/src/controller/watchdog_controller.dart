@@ -80,7 +80,7 @@ class WatchdogController {
 
   // Analyzer
   final RenderPipelineAnalyzer _analyzer = RenderPipelineAnalyzer();
-  final FrameEventCorrelator _correlator = const FrameEventCorrelator();
+  final FrameEventCorrelator _correlator = FrameEventCorrelator();
   final CpuSampleAggregator _cpuAggregator = const CpuSampleAggregator();
 
   // Unified detector registry — built in _initializeDetectors()

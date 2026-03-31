@@ -41,7 +41,14 @@ class CorrelatedFrameData {
 /// which frame each timeline event belongs to, solving the batch attribution
 /// error where 500ms of events were attributed to a single frame.
 class FrameEventCorrelator {
-  const FrameEventCorrelator();
+  FrameEventCorrelator();
+
+  // Cache: sorted frame lists for binary search, invalidated when
+  // eligible frames change (checked via count + object identity).
+  List<FrameStats> _cachedUiSorted = const [];
+  List<FrameStats> _cachedRasterSorted = const [];
+  int _cachedEligibleCount = -1;
+  FrameStats? _cachedLastFrame;
 
   /// Correlate timeline events to specific frames by timestamp.
   ///
@@ -66,11 +73,22 @@ class FrameEventCorrelator {
 
     final totalEvents = phaseEvents.length;
 
-    // Pre-sort frames by build/raster start for binary search (O(F log F))
-    final uiSorted = List<FrameStats>.from(eligibleFrames)
-      ..sort((a, b) => a.buildStartUs!.compareTo(b.buildStartUs!));
-    final rasterSorted = List<FrameStats>.from(eligibleFrames)
-      ..sort((a, b) => a.rasterStartUs!.compareTo(b.rasterStartUs!));
+    // Use cached sorted lists if eligible frames haven't changed.
+    // Object identity check: FrameStats instances persist in the buffer,
+    // so identical() detects when the same frames are passed again.
+    final lastFrame = eligibleFrames.last;
+    final count = eligibleFrames.length;
+    if (count != _cachedEligibleCount ||
+        !identical(lastFrame, _cachedLastFrame)) {
+      _cachedUiSorted = List<FrameStats>.from(eligibleFrames)
+        ..sort((a, b) => a.buildStartUs!.compareTo(b.buildStartUs!));
+      _cachedRasterSorted = List<FrameStats>.from(eligibleFrames)
+        ..sort((a, b) => a.rasterStartUs!.compareTo(b.rasterStartUs!));
+      _cachedEligibleCount = count;
+      _cachedLastFrame = lastFrame;
+    }
+    final uiSorted = _cachedUiSorted;
+    final rasterSorted = _cachedRasterSorted;
 
     // For each event, binary search for the matching frame (O(E log F))
     for (final event in phaseEvents) {

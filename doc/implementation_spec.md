@@ -4944,7 +4944,7 @@ All 22 v6 milestones shipped in **v0.8.0**.
 
 ---
 
-### v7.8: FrameEventCorrelator — Cache Sorted Frame Lists
+### v7.8: FrameEventCorrelator — Cache Sorted Frame Lists ✅ Shipped
 
 **Problem:** `frame_event_correlator.dart` lines 70–73 sort the frame list twice (by `buildStartUs` and `rasterStartUs`) on every timeline poll (500ms). With a 60-frame buffer, this is 2× O(60 log 60) = ~720 comparisons per poll. Frame data rarely changes between consecutive polls.
 
@@ -4953,6 +4953,15 @@ All 22 v6 milestones shipped in **v0.8.0**.
 **Files:** `lib/src/analyzer/frame_event_correlator.dart` lines 70–73, plus new cache fields.
 
 **Risk:** Low. Cache invalidation tied to frame buffer mutations. Small memory overhead (two extra list references).
+
+**Post-Implementation Notes:**
+- Removed `const` from `FrameEventCorrelator` constructor — caching requires mutable state.
+- Added 4 cache fields: `_cachedUiSorted`, `_cachedRasterSorted`, `_cachedEligibleCount`, `_cachedLastFrame`.
+- Cache key uses `(count, identical(lastFrame))` — object identity via `identical()` detects when the same `FrameStats` instances are passed again (they persist in the buffer across polls).
+- Initial plan used `(count, lastFrameNumber)` as cache key, but this caused a false cache hit in tests where two consecutive test cases used `frameNumber=1` with different timestamps. Switched to object identity which is both correct and zero-cost (`identical()` is a pointer comparison).
+- Controller updated: `const FrameEventCorrelator()` → `FrameEventCorrelator()` at line 83.
+- Test updated: `const correlator` → `final correlator` at line 7. Shared instance across tests is safe — different `FrameStats` objects between tests cause cache miss via `identical()`.
+- Total test count: 1,307 (unchanged).
 
 ---
 
@@ -5012,7 +5021,7 @@ void _runStructuralScans(BuildContext scanContext) {
 | 5 | v7.5: Rebuild VM Fallback | Low | Accuracy | Shipped ✅ |
 | 6 | v7.6: MemoryPressure Warmup | Very Low | Accuracy | Shipped ✅ |
 | 7 | v7.7: Ring Buffers | Very Low | Performance | Shipped ✅ |
-| 8 | v7.8: Correlator Sort Cache | Low | Performance | None |
+| 8 | v7.8: Correlator Sort Cache | Low | Performance | Shipped ✅ |
 | 9 | v7.9: Unified Tree Walk | Medium | Performance | None |
 | 10 | v7.10: VM Reconnect Polling | Very Low | Performance | None |
 

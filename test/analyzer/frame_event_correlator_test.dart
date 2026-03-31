@@ -4,7 +4,7 @@ import 'package:widget_watchdog/src/models/frame_stats.dart';
 import 'package:widget_watchdog/src/models/phase_event.dart';
 
 void main() {
-  const correlator = FrameEventCorrelator();
+  final correlator = FrameEventCorrelator();
 
   /// Helper to create a frame with phase timestamps.
   FrameStats makeFrame({
