@@ -4700,7 +4700,7 @@ platforms:
 
 ---
 
-### v6.21: Hardcoded Spacing → Theme Tokens
+### v6.21: Hardcoded Spacing → Theme Tokens ✅ Shipped
 
 **Problem:** While `WatchdogThemeData` centralizes all colors, spacing and sizing remain hardcoded throughout UI files: `EdgeInsets.fromLTRB(10, 6, 4, 4)`, `screenSize.height * 0.30`, `SizedBox(height: 6)`, etc. This makes the overlay's density impossible to customize and creates maintenance burden.
 
@@ -4721,8 +4721,21 @@ Replace hardcoded values in all UI files with `theme.spacingMd`, `theme.spacingL
 - `lib/src/ui/issue_card.dart` — use spacing tokens
 - `lib/src/ui/trigger_button.dart` — use spacing tokens
 - `lib/src/ui/guide_page.dart` — use spacing tokens
+- `test/ui/watchdog_theme_test.dart` — spacing token tests
 
 **Risk:** Low. Visual change — verify overlay looks identical with default spacing values.
+
+**Post-Implementation Notes:**
+- Expanded from 5 to 6 tokens: added `spacingXxs = 2` (7 instances in codebase). The 2/4/6/8/12/16 scale matches standard Tailwind compact spacing.
+- Value 10 (8 instances, mostly banners/headers) left hardcoded — doesn't fit the 2/4/6/8/12/16 scale cleanly.
+- Values 1, 3, 5, 14, 20, 22, 24 left hardcoded as micro-adjustments or context-specific spacing.
+- ~67 of 105 spacing instances tokenized (the 6 most common values).
+- `const` removal accepted as trade-off: `const EdgeInsets.all(8)` → `EdgeInsets.all(theme.spacingMd)`. Impact negligible for diagnostic overlay.
+- Spacing is theme-independent: both dark and light constructors use identical spacing defaults.
+- `_categoryChip` static method in guide_page.dart lacks `theme` parameter — left hardcoded rather than adding a parameter for one 2px value.
+- `_buildIssuesList` in floating_issues_card.dart: hoisted `theme` variable out of `if (issues.isEmpty)` block to make it available in the non-empty branch.
+- highlight_overlay.dart and watchdog_overlay.dart: no EdgeInsets/SizedBox spacing values to tokenize.
+- 1,294 tests pass, 0 analysis issues.
 
 ---
 

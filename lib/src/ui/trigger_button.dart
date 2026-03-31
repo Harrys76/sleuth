@@ -103,7 +103,7 @@ class _TriggerButtonState extends State<TriggerButton> {
                               top: 2,
                               right: 2,
                               child: Container(
-                                padding: const EdgeInsets.all(4),
+                                padding: EdgeInsets.all(theme.spacingXs),
                                 decoration: BoxDecoration(
                                   color: theme.triggerBadgeBg,
                                   shape: BoxShape.circle,
@@ -123,7 +123,7 @@ class _TriggerButtonState extends State<TriggerButton> {
                               top: 0,
                               right: 0,
                               child: Container(
-                                padding: const EdgeInsets.all(2),
+                                padding: EdgeInsets.all(theme.spacingXxs),
                                 decoration: BoxDecoration(
                                   color: theme.severityWarning,
                                   shape: BoxShape.circle,
@@ -136,7 +136,7 @@ class _TriggerButtonState extends State<TriggerButton> {
                       ),
                     ),
                     // FPS number below the circle
-                    const SizedBox(height: 2),
+                    SizedBox(height: theme.spacingXxs),
                     ValueListenableBuilder<FrameStatsBuffer>(
                       valueListenable: widget.frameStatsNotifier,
                       builder: (_, buffer, __) {

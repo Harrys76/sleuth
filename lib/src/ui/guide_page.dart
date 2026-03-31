@@ -80,7 +80,7 @@ class _GuidePageState extends State<GuidePage>
               FadeTransition(
                 opacity: _staggered(0),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                  padding: EdgeInsets.all(theme.spacingMd),
                   child: Row(
                     children: [
                       IconButton(
@@ -105,7 +105,8 @@ class _GuidePageState extends State<GuidePage>
               // Scrollable sections
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  padding: EdgeInsets.fromLTRB(
+                      theme.spacingXl, theme.spacingLg, theme.spacingXl, 24),
                   child: Column(
                     children: [
                       _section(
@@ -196,8 +197,8 @@ class _GuidePageState extends State<GuidePage>
                 onTap: () => _toggleSection(index),
                 behavior: HitTestBehavior.opaque,
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  padding: EdgeInsets.symmetric(
+                      horizontal: 14, vertical: theme.spacingLg),
                   child: Row(
                     children: [
                       Container(
@@ -336,7 +337,7 @@ class _GuidePageState extends State<GuidePage>
   static Widget _infoTile(
       WatchdogThemeData theme, String emoji, String title, String detail) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -356,7 +357,7 @@ class _GuidePageState extends State<GuidePage>
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 2),
+                SizedBox(height: theme.spacingXxs),
                 Text(
                   detail,
                   style: TextStyle(color: theme.textTertiary, fontSize: 10),
@@ -456,7 +457,7 @@ class _GuidePageState extends State<GuidePage>
             'Contextual badges and colors that appear under specific conditions.'),
         _badgeLegendRow(theme, 'JANK', theme.severityCritical,
             'This issue was active during a dropped frame'),
-        const SizedBox(height: 4),
+        SizedBox(height: theme.spacingXs),
         _cardStateLegendRow(
           theme,
           theme.cardHighlighted,
@@ -481,7 +482,7 @@ class _GuidePageState extends State<GuidePage>
 
   static Widget _legendHeading(WatchdogThemeData theme, String text) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: EdgeInsets.only(bottom: theme.spacingXs),
       child: Text(
         text,
         style: TextStyle(
@@ -495,7 +496,7 @@ class _GuidePageState extends State<GuidePage>
 
   static Widget _legendSubtext(WatchdogThemeData theme, String text) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Text(
         text,
         style: TextStyle(color: theme.textQuaternary, fontSize: 9),
@@ -505,7 +506,7 @@ class _GuidePageState extends State<GuidePage>
 
   static Widget _legendDetail(WatchdogThemeData theme, String text) {
     return Padding(
-      padding: const EdgeInsets.only(left: 22, bottom: 6),
+      padding: EdgeInsets.only(left: 22, bottom: theme.spacingSm),
       child: Text(
         text,
         style: TextStyle(
@@ -519,7 +520,7 @@ class _GuidePageState extends State<GuidePage>
 
   static Widget _legendDivider(WatchdogThemeData theme) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: EdgeInsets.symmetric(vertical: theme.spacingMd),
       child: Divider(color: theme.border, height: 1),
     );
   }
@@ -527,11 +528,12 @@ class _GuidePageState extends State<GuidePage>
   static Widget _badgeLegendRow(
       WatchdogThemeData theme, String label, Color color, String description) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: EdgeInsets.only(bottom: theme.spacingXs),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+            padding:
+                EdgeInsets.symmetric(horizontal: 5, vertical: theme.spacingXxs),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(4),
@@ -545,7 +547,7 @@ class _GuidePageState extends State<GuidePage>
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: theme.spacingMd),
           Expanded(
             child: Text(
               description,
@@ -561,12 +563,12 @@ class _GuidePageState extends State<GuidePage>
       WatchdogThemeData theme, Color color, String description,
       {String? detail}) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: EdgeInsets.only(bottom: theme.spacingXs),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 2),
+            padding: EdgeInsets.only(top: theme.spacingXxs),
             child: Container(
               width: 3,
               height: 14,
@@ -576,7 +578,7 @@ class _GuidePageState extends State<GuidePage>
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: theme.spacingMd),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -627,7 +629,7 @@ class _GuidePageState extends State<GuidePage>
             padding: const EdgeInsets.only(top: 1),
             child: _categoryChip(label, color),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: theme.spacingMd),
           Expanded(
             child: Text(
               description,
@@ -642,7 +644,7 @@ class _GuidePageState extends State<GuidePage>
   static Widget _cardStateLegendRow(
       WatchdogThemeData theme, Color color, String label, String description) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: EdgeInsets.only(bottom: theme.spacingXs),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -658,7 +660,7 @@ class _GuidePageState extends State<GuidePage>
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: theme.spacingMd),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -706,12 +708,12 @@ class _GuidePageState extends State<GuidePage>
 
   static Widget _tipRow(WatchdogThemeData theme, IconData icon, String text) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, color: theme.guideTipIcon, size: 14),
-          const SizedBox(width: 8),
+          SizedBox(width: theme.spacingMd),
           Expanded(
             child: Text(
               text,
@@ -776,7 +778,7 @@ class _GuideStep extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 2),
+                SizedBox(height: theme.spacingXxs),
                 Text(
                   detail,
                   style: TextStyle(
@@ -808,7 +810,7 @@ class _LegendRow extends StatelessWidget {
       child: Row(
         children: [
           Text(icon, style: const TextStyle(fontSize: 10)),
-          const SizedBox(width: 6),
+          SizedBox(width: theme.spacingSm),
           Text(
             label,
             style: TextStyle(color: theme.textTertiary, fontSize: 10),

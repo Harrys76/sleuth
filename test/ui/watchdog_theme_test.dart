@@ -78,6 +78,39 @@ void main() {
     });
   });
 
+  group('spacing tokens', () {
+    test('dark defaults have correct values', () {
+      const t = WatchdogThemeData();
+      expect(t.spacingXxs, 2);
+      expect(t.spacingXs, 4);
+      expect(t.spacingSm, 6);
+      expect(t.spacingMd, 8);
+      expect(t.spacingLg, 12);
+      expect(t.spacingXl, 16);
+    });
+
+    test('light theme shares same spacing defaults', () {
+      const dark = WatchdogThemeData();
+      const light = WatchdogThemeData.light();
+      expect(light.spacingXxs, dark.spacingXxs);
+      expect(light.spacingXs, dark.spacingXs);
+      expect(light.spacingSm, dark.spacingSm);
+      expect(light.spacingMd, dark.spacingMd);
+      expect(light.spacingLg, dark.spacingLg);
+      expect(light.spacingXl, dark.spacingXl);
+    });
+
+    test('copyWith overrides spacing tokens', () {
+      const t = WatchdogThemeData();
+      final custom = t.copyWith(spacingMd: 10, spacingXl: 20);
+      expect(custom.spacingMd, 10);
+      expect(custom.spacingXl, 20);
+      // Unchanged
+      expect(custom.spacingXs, t.spacingXs);
+      expect(custom.spacingSm, t.spacingSm);
+    });
+  });
+
   group('categoryColor', () {
     const t = WatchdogThemeData();
 

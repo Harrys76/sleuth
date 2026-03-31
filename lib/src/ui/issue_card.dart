@@ -89,7 +89,7 @@ class _IssueCardState extends State<IssueCard> {
           : widget.highlighted
               ? theme.cardHighlighted
               : theme.cardDefault,
-      margin: const EdgeInsets.only(bottom: 6),
+      margin: EdgeInsets.only(bottom: theme.spacingSm),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -113,9 +113,9 @@ class _IssueCardState extends State<IssueCard> {
                 Row(
                   children: [
                     _severityIcon(issue.severity),
-                    const SizedBox(width: 4),
+                    SizedBox(width: theme.spacingXs),
                     _categoryBadge(issue.category, theme),
-                    const SizedBox(width: 4),
+                    SizedBox(width: theme.spacingXs),
                     Expanded(
                       child: Text(
                         issue.title,
@@ -130,10 +130,10 @@ class _IssueCardState extends State<IssueCard> {
                     ),
                     _confidenceBadge(issue.confidence, theme),
                     if (widget.jankCorrelated) ...[
-                      const SizedBox(width: 4),
+                      SizedBox(width: theme.spacingXs),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 4, vertical: 1),
+                        padding: EdgeInsets.symmetric(
+                            horizontal: theme.spacingXs, vertical: 1),
                         decoration: BoxDecoration(
                           color: theme.severityCritical.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(4),
@@ -150,10 +150,10 @@ class _IssueCardState extends State<IssueCard> {
                     ],
                     if (widget.downstreamIssues != null &&
                         widget.downstreamIssues!.isNotEmpty) ...[
-                      const SizedBox(width: 4),
+                      SizedBox(width: theme.spacingXs),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 4, vertical: 1),
+                        padding: EdgeInsets.symmetric(
+                            horizontal: theme.spacingXs, vertical: 1),
                         decoration: BoxDecoration(
                           color: theme.effectsBadge.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(4),
@@ -169,7 +169,7 @@ class _IssueCardState extends State<IssueCard> {
                       ),
                     ],
                     if (widget.locatable) ...[
-                      const SizedBox(width: 4),
+                      SizedBox(width: theme.spacingXs),
                       Checkbox(
                         value: widget.highlighted,
                         onChanged: (v) =>
@@ -187,7 +187,7 @@ class _IssueCardState extends State<IssueCard> {
                 // Debug mode disclaimer
                 if (issue.debugModeDisclaimer)
                   Padding(
-                    padding: const EdgeInsets.only(top: 4),
+                    padding: EdgeInsets.only(top: theme.spacingXs),
                     child: Text(
                       '[DEBUG MODE — verify in profile]',
                       style: TextStyle(
@@ -211,7 +211,7 @@ class _IssueCardState extends State<IssueCard> {
   List<Widget> _buildExpandedContent(
       PerformanceIssue issue, WatchdogThemeData theme) {
     return [
-      const SizedBox(height: 8),
+      SizedBox(height: theme.spacingMd),
       Text(
         issue.detail,
         style: TextStyle(
@@ -221,7 +221,7 @@ class _IssueCardState extends State<IssueCard> {
       ),
       if (issue.routeName != null)
         Padding(
-          padding: const EdgeInsets.only(top: 4),
+          padding: EdgeInsets.only(top: theme.spacingXs),
           child: Text(
             'Route: ${issue.routeName}',
             style: TextStyle(
@@ -234,7 +234,7 @@ class _IssueCardState extends State<IssueCard> {
       if (issue.interactionContext != null &&
           issue.interactionContext != InteractionContext.idle)
         Padding(
-          padding: const EdgeInsets.only(top: 2),
+          padding: EdgeInsets.only(top: theme.spacingXxs),
           child: Text(
             'During: ${issue.interactionContext!.displayName}',
             style: TextStyle(
@@ -246,7 +246,7 @@ class _IssueCardState extends State<IssueCard> {
         ),
       if (issue.widgetName != null && !issue.title.contains(issue.widgetName!))
         Padding(
-          padding: const EdgeInsets.only(top: 2),
+          padding: EdgeInsets.only(top: theme.spacingXxs),
           child: Text(
             'Widget: ${issue.widgetName}',
             style: TextStyle(
@@ -262,7 +262,7 @@ class _IssueCardState extends State<IssueCard> {
           !issue.detail.contains(issue.ancestorChain!) &&
           issue.ancestorChain != issue.widgetName)
         Padding(
-          padding: const EdgeInsets.only(top: 2),
+          padding: EdgeInsets.only(top: theme.spacingXxs),
           child: Text(
             'Ancestors: ${issue.ancestorChain}',
             style: TextStyle(
@@ -276,7 +276,7 @@ class _IssueCardState extends State<IssueCard> {
         ),
       if (issue.observationSource != null)
         Padding(
-          padding: const EdgeInsets.only(top: 2),
+          padding: EdgeInsets.only(top: theme.spacingXxs),
           child: Text(
             'Source: ${issue.observationSource!._displayName}',
             style: TextStyle(
@@ -294,7 +294,7 @@ class _IssueCardState extends State<IssueCard> {
       GestureDetector(
         onTap: () => setState(() => _aboutExpanded = !_aboutExpanded),
         child: Padding(
-          padding: const EdgeInsets.only(top: 6),
+          padding: EdgeInsets.only(top: theme.spacingSm),
           child: Row(
             children: [
               Icon(
@@ -302,7 +302,7 @@ class _IssueCardState extends State<IssueCard> {
                 color: theme.textQuaternary,
                 size: 14,
               ),
-              const SizedBox(width: 4),
+              SizedBox(width: theme.spacingXs),
               Text(
                 'About this detection',
                 style: TextStyle(
@@ -316,8 +316,8 @@ class _IssueCardState extends State<IssueCard> {
       ),
       if (_aboutExpanded)
         Container(
-          margin: const EdgeInsets.only(top: 4),
-          padding: const EdgeInsets.all(8),
+          margin: EdgeInsets.only(top: theme.spacingXs),
+          padding: EdgeInsets.all(theme.spacingMd),
           decoration: BoxDecoration(
             color: theme.aboutBackground,
             borderRadius: BorderRadius.circular(6),
@@ -356,11 +356,12 @@ class _IssueCardState extends State<IssueCard> {
       if (widget.deepInstrumentationActive &&
           _isDebugCallbackSource(issue.observationSource))
         Padding(
-          padding: const EdgeInsets.only(top: 2),
+          padding: EdgeInsets.only(top: theme.spacingXxs),
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                padding: EdgeInsets.symmetric(
+                    horizontal: theme.spacingXs, vertical: 1),
                 decoration: BoxDecoration(
                   color: theme.bannerSuccessBg,
                   borderRadius: BorderRadius.circular(4),
@@ -373,9 +374,10 @@ class _IssueCardState extends State<IssueCard> {
                   ),
                 ),
               ),
-              const SizedBox(width: 4),
+              SizedBox(width: theme.spacingXs),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                padding: EdgeInsets.symmetric(
+                    horizontal: theme.spacingXs, vertical: 1),
                 decoration: BoxDecoration(
                   color: theme.bannerWarningBg,
                   borderRadius: BorderRadius.circular(4),
@@ -391,9 +393,9 @@ class _IssueCardState extends State<IssueCard> {
             ],
           ),
         ),
-      const SizedBox(height: 8),
+      SizedBox(height: theme.spacingMd),
       Container(
-        padding: const EdgeInsets.all(8),
+        padding: EdgeInsets.all(theme.spacingMd),
         decoration: BoxDecoration(
           color: theme.fixHintBackground,
           borderRadius: BorderRadius.circular(6),
@@ -402,12 +404,12 @@ class _IssueCardState extends State<IssueCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _effortBadge(issue, theme),
-            const SizedBox(height: 4),
+            SizedBox(height: theme.spacingXs),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('\u{1F4A1}', style: TextStyle(fontSize: 12)),
-                const SizedBox(width: 6),
+                SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
                     issue.fixHint,
@@ -431,9 +433,9 @@ class _IssueCardState extends State<IssueCard> {
     final overflow = downstream.length - visibleCount;
 
     return Padding(
-      padding: const EdgeInsets.only(top: 6),
+      padding: EdgeInsets.only(top: theme.spacingSm),
       child: Container(
-        padding: const EdgeInsets.all(8),
+        padding: EdgeInsets.all(theme.spacingMd),
         decoration: BoxDecoration(
           color: theme.aboutBackground,
           borderRadius: BorderRadius.circular(6),
@@ -449,16 +451,16 @@ class _IssueCardState extends State<IssueCard> {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: theme.spacingXs),
             for (var i = 0; i < visibleCount; i++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 3),
                 child: Row(
                   children: [
                     _severityIcon(downstream[i].severity),
-                    const SizedBox(width: 4),
+                    SizedBox(width: theme.spacingXs),
                     _categoryBadge(downstream[i].category, theme),
-                    const SizedBox(width: 4),
+                    SizedBox(width: theme.spacingXs),
                     Expanded(
                       child: Text(
                         downstream[i].title,
@@ -475,7 +477,7 @@ class _IssueCardState extends State<IssueCard> {
               ),
             if (overflow > 0)
               Padding(
-                padding: const EdgeInsets.only(top: 2),
+                padding: EdgeInsets.only(top: theme.spacingXxs),
                 child: Text(
                   'and $overflow more...',
                   style: TextStyle(
@@ -540,7 +542,7 @@ class _IssueCardState extends State<IssueCard> {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      padding: EdgeInsets.symmetric(horizontal: theme.spacingXs, vertical: 1),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
@@ -595,7 +597,8 @@ class _IssueCardState extends State<IssueCard> {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: EdgeInsets.symmetric(
+          horizontal: theme.spacingSm, vertical: theme.spacingXxs),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(8),

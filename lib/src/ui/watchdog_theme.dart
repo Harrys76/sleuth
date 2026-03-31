@@ -44,6 +44,7 @@ import '../models/performance_issue.dart';
 /// - **Badge pairs** (6): bg + text for VM/FRAME/DBG badges
 /// - **Banner pairs** (8): bg + text for debug/instrumentation/success/warning
 /// - **Causal graph** (1): `effectsBadge` for downstream effects count
+/// - **Spacing** (6): `spacingXxs` through `spacingXl`
 /// - **Special** (11): fix hint text, grip dots, guide accents, etc.
 ///
 /// ## Badge and banner pairs
@@ -142,6 +143,14 @@ class WatchdogThemeData {
     this.guideTipIcon = const Color(0xFFF59E0B),
     this.highlightLabelText = const Color(0xFFFFFFFF),
     this.highlightDot = const Color(0xFFFFFFFF),
+
+    // ── Spacing ──
+    this.spacingXxs = 2,
+    this.spacingXs = 4,
+    this.spacingSm = 6,
+    this.spacingMd = 8,
+    this.spacingLg = 12,
+    this.spacingXl = 16,
   });
 
   /// Explicit dark theme — identical to the default constructor.
@@ -285,6 +294,14 @@ class WatchdogThemeData {
   final Color highlightLabelText;
   final Color highlightDot;
 
+  // ── Spacing ──
+  final double spacingXxs;
+  final double spacingXs;
+  final double spacingSm;
+  final double spacingMd;
+  final double spacingLg;
+  final double spacingXl;
+
   // ── Lookup helpers ──
 
   /// Returns the color for a given [IssueCategory].
@@ -396,6 +413,12 @@ class WatchdogThemeData {
     Color? guideTipIcon,
     Color? highlightLabelText,
     Color? highlightDot,
+    double? spacingXxs,
+    double? spacingXs,
+    double? spacingSm,
+    double? spacingMd,
+    double? spacingLg,
+    double? spacingXl,
   }) {
     return WatchdogThemeData(
       severityCritical: severityCritical ?? this.severityCritical,
@@ -461,6 +484,12 @@ class WatchdogThemeData {
       guideTipIcon: guideTipIcon ?? this.guideTipIcon,
       highlightLabelText: highlightLabelText ?? this.highlightLabelText,
       highlightDot: highlightDot ?? this.highlightDot,
+      spacingXxs: spacingXxs ?? this.spacingXxs,
+      spacingXs: spacingXs ?? this.spacingXs,
+      spacingSm: spacingSm ?? this.spacingSm,
+      spacingMd: spacingMd ?? this.spacingMd,
+      spacingLg: spacingLg ?? this.spacingLg,
+      spacingXl: spacingXl ?? this.spacingXl,
     );
   }
 }

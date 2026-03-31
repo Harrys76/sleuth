@@ -324,11 +324,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       },
       behavior: HitTestBehavior.opaque,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 6, 4, 4),
+        padding: EdgeInsets.fromLTRB(
+            10, theme.spacingSm, theme.spacingXs, theme.spacingXs),
         child: Row(
           children: [
             const Text('🐕', style: TextStyle(fontSize: 14)),
-            const SizedBox(width: 4),
+            SizedBox(width: theme.spacingXs),
             Expanded(
               child: Text(
                 'Watchdog',
@@ -435,8 +436,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     return ValueListenableBuilder<List<PerformanceIssue>>(
       valueListenable: widget.controller.issuesNotifier,
       builder: (context, issues, __) {
+        final theme = WatchdogTheme.of(context);
         if (issues.isEmpty) {
-          final theme = WatchdogTheme.of(context);
           return Center(
             child: Text(
               '✅ No issues detected',
@@ -464,7 +465,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               child: ValueListenableBuilder<WidgetHighlight?>(
                 valueListenable: widget.controller.selectedHighlightNotifier,
                 builder: (_, selectedHighlight, __) => ListView.builder(
-                  padding: const EdgeInsets.all(6),
+                  padding: EdgeInsets.all(theme.spacingSm),
                   itemCount: visibleIssues.length,
                   itemBuilder: (_, index) {
                     final issue = visibleIssues[index];
@@ -531,7 +532,8 @@ class _StatusRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = WatchdogTheme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: EdgeInsets.symmetric(
+          horizontal: theme.spacingLg, vertical: theme.spacingXs),
       child: Row(
         children: [
           // FPS number (color-coded)
@@ -552,7 +554,7 @@ class _StatusRow extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(width: 2),
+                  SizedBox(width: theme.spacingXxs),
                   Text(
                     'FPS',
                     style: TextStyle(color: theme.textTertiary, fontSize: 10),
@@ -571,7 +573,7 @@ class _StatusRow extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.check_circle, color: theme.severityOk, size: 14),
-                    const SizedBox(width: 4),
+                    SizedBox(width: theme.spacingXs),
                     Text(
                       '0 issues',
                       style: TextStyle(color: theme.severityOk, fontSize: 11),
@@ -594,7 +596,7 @@ class _StatusRow extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                   ),
-                  const SizedBox(width: 4),
+                  SizedBox(width: theme.spacingXs),
                   Text(
                     '${issues.length} issue${issues.length == 1 ? '' : 's'}',
                     style: TextStyle(color: severityColor, fontSize: 11),
@@ -631,7 +633,8 @@ class _WarningBanners extends StatelessWidget {
         if (kDebugMode)
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding:
+                EdgeInsets.symmetric(horizontal: 10, vertical: theme.spacingSm),
             decoration: BoxDecoration(
               color: theme.bannerDebugBg,
               borderRadius: BorderRadius.circular(8),
@@ -639,7 +642,7 @@ class _WarningBanners extends StatelessWidget {
             child: Row(
               children: [
                 const Text('⚠️', style: TextStyle(fontSize: 12)),
-                const SizedBox(width: 6),
+                SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
                     'Debug mode — data inaccurate.\nRun: flutter run --profile',
@@ -655,7 +658,8 @@ class _WarningBanners extends StatelessWidget {
         if (kDebugMode && isDeepInstrumentationActive)
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding:
+                EdgeInsets.symmetric(horizontal: 10, vertical: theme.spacingSm),
             decoration: BoxDecoration(
               color: theme.bannerInstrumentationBg,
               borderRadius: BorderRadius.circular(8),
@@ -663,7 +667,7 @@ class _WarningBanners extends StatelessWidget {
             child: Row(
               children: [
                 const Text('🔬', style: TextStyle(fontSize: 12)),
-                const SizedBox(width: 6),
+                SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
                     'Instrumentation active — rebuild/paint counts useful for '
@@ -689,7 +693,7 @@ class _WarningBanners extends StatelessWidget {
               children: [
                 Icon(Icons.check_circle,
                     color: theme.bannerSuccessText, size: 12),
-                const SizedBox(width: 6),
+                SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
                     'Snapshot copied to clipboard',
@@ -714,7 +718,7 @@ class _WarningBanners extends StatelessWidget {
               children: [
                 Icon(Icons.visibility_off,
                     color: theme.bannerWarningText, size: 12),
-                const SizedBox(width: 6),
+                SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
                     'Widget not currently visible. Navigate to the screen where this issue occurs.',
@@ -744,7 +748,8 @@ class _CardFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = WatchdogTheme.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: EdgeInsets.symmetric(
+          horizontal: theme.spacingMd, vertical: theme.spacingXs),
       decoration: BoxDecoration(
         border: Border(
           top: BorderSide(color: theme.border, width: 1),
@@ -761,7 +766,7 @@ class _CardFooter extends StatelessWidget {
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             visualDensity: VisualDensity.compact,
           ),
-          const SizedBox(width: 4),
+          SizedBox(width: theme.spacingXs),
           Text(
             'Export JSON',
             style: TextStyle(color: theme.textTertiary, fontSize: 10),
@@ -771,7 +776,7 @@ class _CardFooter extends StatelessWidget {
             builder: (_, count, __) {
               if (count == 0) return const SizedBox.shrink();
               return Padding(
-                padding: const EdgeInsets.only(left: 8),
+                padding: EdgeInsets.only(left: theme.spacingMd),
                 child: Text(
                   '$count suppressed',
                   style: TextStyle(
@@ -848,7 +853,7 @@ class _IssuesSummaryBar extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: theme.spacingMd),
           ],
           if (warning > 0) ...[
             Container(
@@ -868,7 +873,7 @@ class _IssuesSummaryBar extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: theme.spacingMd),
           ],
           if (ok > 0) ...[
             Container(
@@ -888,7 +893,7 @@ class _IssuesSummaryBar extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: theme.spacingMd),
           ],
           Expanded(
             child: Text(
