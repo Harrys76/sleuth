@@ -4924,7 +4924,7 @@ All 22 v6 milestones shipped in **v0.8.0**.
 
 ---
 
-### v7.7: Ring Buffer — Replace List.removeAt(0) with Queue
+### v7.7: Ring Buffer — Replace List.removeAt(0) with Queue ✅ Shipped
 
 **Problem:** `watchdog_controller.dart` lines 903, 909, 921 use `List.removeAt(0)` for three bounded event buffers (phase events capacity 100, GC events capacity 50, platform channels capacity 50). `removeAt(0)` is O(n) because it shifts all remaining elements. Called on every VM timeline poll (500ms) when buffers are full.
 
@@ -4933,6 +4933,14 @@ All 22 v6 milestones shipped in **v0.8.0**.
 **Files:** `lib/src/controller/watchdog_controller.dart` lines 100–108 (declarations), 903, 909, 921 (removeAt calls).
 
 **Risk:** None. Drop-in replacement. Queue supports the same iteration, `.toList()`, `.length`, `.add()` APIs.
+
+**Post-Implementation Notes:**
+- Added `import 'dart:collection'` to watchdog_controller.dart.
+- Three buffer declarations changed from `List<T>` to `Queue<T>`: `_phaseEventBuffer`, `_gcEventBuffer`, `_platformChannelBuffer`.
+- Three `removeAt(0)` calls replaced with `removeFirst()` — O(n) → O(1).
+- `List.unmodifiable(queue)` works unchanged — constructor accepts `Iterable<T>`, Queue implements Iterable. Test getters and export snapshots unaffected.
+- Matches existing codebase pattern: `FrameStatsBuffer` in `frame_stats.dart` already uses `Queue<FrameStats>` with identical `.removeFirst()` / `.add()` pattern.
+- Total test count: 1,307 (unchanged).
 
 ---
 
@@ -5003,7 +5011,7 @@ void _runStructuralScans(BuildContext scanContext) {
 | 4 | v7.4: Correlator Coverage | Very Low | Accuracy | Shipped ✅ |
 | 5 | v7.5: Rebuild VM Fallback | Low | Accuracy | Shipped ✅ |
 | 6 | v7.6: MemoryPressure Warmup | Very Low | Accuracy | Shipped ✅ |
-| 7 | v7.7: Ring Buffers | Very Low | Performance | None |
+| 7 | v7.7: Ring Buffers | Very Low | Performance | Shipped ✅ |
 | 8 | v7.8: Correlator Sort Cache | Low | Performance | None |
 | 9 | v7.9: Unified Tree Walk | Medium | Performance | None |
 | 10 | v7.10: VM Reconnect Polling | Very Low | Performance | None |

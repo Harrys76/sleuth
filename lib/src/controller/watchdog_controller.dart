@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
@@ -100,11 +101,11 @@ class WatchdogController {
   final Map<String, int> _recurrenceCounts = {};
 
   // Export enrichment buffers (rolling, fed from _onTimelineData)
-  final List<PhaseEvent> _phaseEventBuffer = [];
+  final Queue<PhaseEvent> _phaseEventBuffer = Queue();
   static const _phaseEventBufferCapacity = 100;
-  final List<GcEventSummary> _gcEventBuffer = [];
+  final Queue<GcEventSummary> _gcEventBuffer = Queue();
   static const _gcEventBufferCapacity = 50;
-  final List<PlatformChannelSummary> _platformChannelBuffer = [];
+  final Queue<PlatformChannelSummary> _platformChannelBuffer = Queue();
   static const _platformChannelBufferCapacity = 50;
 
   // Interaction context
@@ -900,13 +901,13 @@ class WatchdogController {
     // Buffer events for export enrichment (rolling, bounded)
     for (final event in data.phaseEvents) {
       if (_phaseEventBuffer.length >= _phaseEventBufferCapacity) {
-        _phaseEventBuffer.removeAt(0);
+        _phaseEventBuffer.removeFirst();
       }
       _phaseEventBuffer.add(event);
     }
     for (final event in data.gcEvents) {
       if (_gcEventBuffer.length >= _gcEventBufferCapacity) {
-        _gcEventBuffer.removeAt(0);
+        _gcEventBuffer.removeFirst();
       }
       final json = event.json!;
       _gcEventBuffer.add(GcEventSummary(
@@ -918,7 +919,7 @@ class WatchdogController {
     }
     for (final event in data.platformChannelEvents) {
       if (_platformChannelBuffer.length >= _platformChannelBufferCapacity) {
-        _platformChannelBuffer.removeAt(0);
+        _platformChannelBuffer.removeFirst();
       }
       final json = event.json!;
       _platformChannelBuffer.add(PlatformChannelSummary(
