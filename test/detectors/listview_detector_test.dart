@@ -19,7 +19,7 @@ void main() {
           child: SingleChildScrollView(
             child: Column(
               children: List.generate(
-                30,
+                55,
                 (i) => SizedBox(key: ValueKey(i), height: 10),
               ),
             ),
@@ -31,7 +31,7 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
 
-    testWidgets('flags SingleChildScrollView + Column with >20 children',
+    testWidgets('flags SingleChildScrollView + Column with >50 children',
         (tester) async {
       await tester.pumpWidget(
         Directionality(
@@ -39,7 +39,7 @@ void main() {
           child: SingleChildScrollView(
             child: Column(
               children: List.generate(
-                25,
+                55,
                 (i) => SizedBox(key: ValueKey(i), height: 10),
               ),
             ),
@@ -50,7 +50,7 @@ void main() {
 
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.title, contains('Column'));
-      expect(detector.issues.first.title, contains('25'));
+      expect(detector.issues.first.title, contains('55'));
       expect(detector.issues.first.observationSource,
           ObservationSource.structural);
     });
@@ -62,7 +62,7 @@ void main() {
           child: SingleChildScrollView(
             child: Column(
               children: List.generate(
-                20,
+                50,
                 (i) => SizedBox(key: ValueKey(i), height: 10),
               ),
             ),
@@ -81,7 +81,7 @@ void main() {
           child: SingleChildScrollView(
             child: Column(
               children: List.generate(
-                25,
+                55,
                 (i) => SizedBox(key: ValueKey(i), height: 10),
               ),
             ),
@@ -100,7 +100,7 @@ void main() {
           child: SingleChildScrollView(
             child: Column(
               children: List.generate(
-                65,
+                155,
                 (i) => SizedBox(key: ValueKey(i), height: 10),
               ),
             ),
@@ -113,14 +113,14 @@ void main() {
 
     testWidgets('highlight critical severity at > 2x threshold',
         (tester) async {
-      // 45 children: issue is warning (<=60), but highlight is critical (>40)
+      // 105 children: issue is warning (<=150), but highlight is critical (>100)
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
           child: SingleChildScrollView(
             child: Column(
               children: List.generate(
-                45,
+                105,
                 (i) => SizedBox(key: ValueKey(i), height: 10),
               ),
             ),
@@ -141,7 +141,7 @@ void main() {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: List.generate(
-                25,
+                55,
                 (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
               ),
             ),
@@ -175,7 +175,7 @@ void main() {
           child: SingleChildScrollView(
             child: Column(
               children: List.generate(
-                25,
+                55,
                 (i) => SizedBox(key: ValueKey(i), height: 10),
               ),
             ),
@@ -216,7 +216,7 @@ void main() {
           child: SingleChildScrollView(
             child: Column(
               children: List.generate(
-                25,
+                55,
                 (i) => SizedBox(key: ValueKey(i), height: 10),
               ),
             ),

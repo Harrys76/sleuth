@@ -15,7 +15,7 @@ const _opacityTree = Directionality(
 );
 
 /// Widget tree that triggers both opacity_zero and non_lazy_list detectors.
-/// ListviewDetector looks for SingleChildScrollView + Column/Row with >20 children.
+/// ListviewDetector looks for SingleChildScrollView + Column/Row with >50 children.
 Widget _opacityAndListTree() => Directionality(
       textDirection: TextDirection.ltr,
       child: Column(
@@ -28,7 +28,7 @@ Widget _opacityAndListTree() => Directionality(
             child: SingleChildScrollView(
               child: Column(
                 children: List.generate(
-                  25,
+                  55,
                   (i) => SizedBox(key: ValueKey(i), height: 10),
                 ),
               ),

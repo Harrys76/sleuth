@@ -1391,7 +1391,7 @@ class WatchdogConfig {
     this.theme,
     this.fpsTarget = 60,
     this.rebuildThreshold = 10,
-    this.maxListChildren = 20,
+    this.maxListChildren = 50,
     this.maxGlobalKeys = 10,
     this.platformChannelLimit = 20,
     this.treeScanIntervalMs = 1000,

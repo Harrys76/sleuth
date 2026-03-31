@@ -8,14 +8,14 @@ import '../utils/widget_location.dart';
 
 /// Detects non-lazy ListView/GridView with many children.
 ///
-/// **Structural Detector** — checks for SliverChildListDelegate with >20 items.
+/// **Structural Detector** — checks for SliverChildListDelegate with >50 items.
 class ListviewDetector extends BaseDetector {
-  ListviewDetector({this.childThreshold = 20})
+  ListviewDetector({this.childThreshold = 50})
       : super(
           type: DetectorType.listview,
           lifecycle: DetectorLifecycle.structural,
           name: 'ListView',
-          description: 'Detects non-lazy ListView with >20 items',
+          description: 'Detects non-lazy ListView with >50 items',
         );
 
   final int childThreshold;

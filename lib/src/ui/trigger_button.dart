@@ -33,17 +33,21 @@ class TriggerButton extends StatefulWidget {
 }
 
 class _TriggerButtonState extends State<TriggerButton> {
-  Offset _position = const Offset(16, 100);
+  Offset? _position;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        _position ??= Offset(
+          (constraints.maxWidth - 72).clamp(0, constraints.maxWidth - 56),
+          (constraints.maxHeight * 0.4).clamp(0, constraints.maxHeight - 78),
+        );
         final theme = WatchdogTheme.of(context);
         return GestureDetector(
           onPanUpdate: (details) {
             setState(() {
-              final newPos = _position + details.delta;
+              final newPos = _position! + details.delta;
               _position = Offset(
                 newPos.dx.clamp(0, constraints.maxWidth - 56),
                 newPos.dy.clamp(0, constraints.maxHeight - 78),
@@ -52,7 +56,7 @@ class _TriggerButtonState extends State<TriggerButton> {
           },
           onTap: widget.onTap,
           child: Container(
-            margin: EdgeInsets.only(left: _position.dx, top: _position.dy),
+            margin: EdgeInsets.only(left: _position!.dx, top: _position!.dy),
             width: 56,
             height: 78,
             child: ValueListenableBuilder<List<PerformanceIssue>>(

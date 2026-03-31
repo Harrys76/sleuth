@@ -44,7 +44,7 @@ void main() {
               SingleChildScrollView(
                 child: Column(
                   children: List.generate(
-                    25,
+                    55,
                     (i) => SizedBox(key: ValueKey(i), height: 10),
                   ),
                 ),
@@ -56,7 +56,7 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.title, contains('25 children'));
+      expect(detector.issues.first.title, contains('55 children'));
       expect(detector.issues.first.widgetName, 'SingleChildScrollView');
       expect(detector.issues.first.observationSource,
           ObservationSource.structural);
@@ -116,7 +116,7 @@ void main() {
               SingleChildScrollView(
                 child: Column(
                   children: List.generate(
-                    45,
+                    105,
                     (i) => SizedBox(key: ValueKey(i), height: 10),
                   ),
                 ),

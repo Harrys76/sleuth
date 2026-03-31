@@ -176,6 +176,33 @@ void main() {
       fps.dispose();
     });
 
+    testWidgets('initial position adapts to available space', (tester) async {
+      final issues = ValueNotifier<List<PerformanceIssue>>([]);
+      final vm = ValueNotifier<bool>(false);
+      final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
+
+      await tester.pumpWidget(wrap(
+        TriggerButton(
+          issuesNotifier: issues,
+          vmConnectedNotifier: vm,
+          frameStatsNotifier: fps,
+          isDebugMode: false,
+          onTap: () {},
+        ),
+      ));
+
+      // In test viewport (800×600), the button should be near the right edge.
+      // Old hardcoded position was (16, 100) — emoji x would be ~28.
+      // Adaptive position targets (maxWidth - 72, maxHeight * 0.4).
+      final emojiPos = tester.getTopLeft(find.text('\u{1F415}'));
+      expect(emojiPos.dx, greaterThan(100),
+          reason: 'Should be right-aligned, not at x=16');
+
+      issues.dispose();
+      vm.dispose();
+      fps.dispose();
+    });
+
     testWidgets('drag does not crash', (tester) async {
       final issues = ValueNotifier<List<PerformanceIssue>>([]);
       final vm = ValueNotifier<bool>(false);

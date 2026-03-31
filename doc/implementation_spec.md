@@ -4664,16 +4664,25 @@ platforms:
 
 **Risk:** Low. Reduces false positives. Users who want the stricter threshold can set `maxListChildren: 20`.
 
+**Status:** ✅ Shipped
+
+**Post-Implementation Notes (2026-03-31):**
+1. **Wider blast radius than spec:** Both detector constructor defaults updated (ListviewDetector + NestedScrollDetector), not just WatchdogConfig. Also updated description strings and doc comments that hardcoded ">20".
+2. **NestedScrollDetector tests also affected:** The spec only listed `listview_detector_test.dart`, but `nested_scroll_detector_test.dart` shares the `maxListChildren` config parameter and had 2 tests with threshold-dependent child counts (25 children, 45 children) that needed updating to 55 and 105 respectively.
+3. **Suppression test also affected:** `test/controller/suppression_test.dart` used `_opacityAndListTree()` with 25 children to trigger `non_lazy_list` — updated to 55.
+4. **Severity thresholds at new default:** Warning at 51-100 children, highlight critical at 101-150, issue critical at 151+ (ListviewDetector uses 3× multiplier for issue severity, NestedScrollDetector uses 2× multiplier).
+
 ---
 
 ### v6.20: TriggerButton Adaptive Initial Position
 
 **Problem:** TriggerButton's initial position is hardcoded to `Offset(16, 100)`. On very small screens or landscape orientation, this may place the button at an awkward position or partially off-screen.
 
-**Approach:** Initialize position based on screen size in `didChangeDependencies()` (first call only): bottom-right quadrant at `Offset(screenWidth - 72, screenHeight * 0.4)`. Still draggable to any position after that.
+**Approach:** ~~Initialize position based on screen size in `didChangeDependencies()` (first call only)~~ Use nullable `_position` with lazy initialization in the existing `LayoutBuilder` builder callback: `_position ??= Offset((constraints.maxWidth - 72).clamp(...), (constraints.maxHeight * 0.4).clamp(...))`. Bottom-right quadrant. Still draggable to any position after that.
 
 **Files changed:**
-- `lib/src/ui/trigger_button.dart` — adaptive initial position
+- `lib/src/ui/trigger_button.dart` — adaptive initial position via LayoutBuilder lazy init
+- `test/ui/trigger_button_test.dart` — new test verifying adaptive positioning
 
 **Testing:**
 1. Small screen → button visible and accessible
@@ -4681,6 +4690,13 @@ platforms:
 3. After drag → position persists regardless of initial
 
 **Risk:** Very low.
+
+**Status:** ✅ Shipped
+
+**Post-Implementation Notes (2026-03-31):**
+1. **LayoutBuilder lazy init instead of didChangeDependencies:** The spec suggested `didChangeDependencies()` + MediaQuery, but TriggerButton already has a LayoutBuilder. Used nullable `_position` with `??=` in the builder callback — matches FloatingIssuesCard's established pattern, uses actual layout constraints instead of full screen size, and requires no additional MediaQuery dependency.
+2. **Position formula:** `Offset((constraints.maxWidth - 72).clamp(0, maxWidth - 56), (constraints.maxHeight * 0.4).clamp(0, maxHeight - 78))`. The 72 = 56 (button width) + 16 (right margin). Clamp bounds match existing drag clamping from v6.6.
+3. **Force-unwrap safety:** `_position!` is used in drag handler and margin — safe because `??=` runs at the top of the builder, before any widget reads the value.
 
 ---
 
