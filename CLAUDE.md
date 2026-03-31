@@ -53,7 +53,10 @@ test/
 
 ## Current state
 
-- **v0.8.0** (current) — v6 roadmap complete (22 milestones: safety, accuracy, UI polish, testing). See CHANGELOG.md for full details.
+- **v0.9.0** (current) — unified structural tree walk (v7.9), all v7 milestones shipped. See CHANGELOG.md for full details.
+- v0.8.2: Ring buffers (v7.7), correlator sort cache (v7.8), VM reconnect polling fix (v7.10).
+- v0.8.1: Accuracy fixes — HeavyCompute two-tier (v7.1), NetworkMonitor threshold (v7.2), threshold tuning (v7.3), correlator coverage (v7.4), rebuild VM fallback (v7.5), MemoryPressure warmup (v7.6).
+- v0.8.0: v6 roadmap complete (22 milestones: safety, accuracy, UI polish, testing).
 - v0.7.0: v4 + v5 roadmap — suppression, custom detectors, theming, export enrichment, causal graph, configurable thresholds, detector registry, network correlation, RepaintBoundary detector.
 - v0.6.1: FPS counter fixes — throughput-based calculation, startup timing, target-aware color.
 - v0.6.0: FloatingIssuesCard replaces DashboardSheet, resizable card, GuidePage.

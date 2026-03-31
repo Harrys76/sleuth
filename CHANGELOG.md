@@ -1,3 +1,53 @@
+## 0.9.0
+
+### Changed
+
+- **Unified structural tree walk** (v7.9): all 16 tree-scanning detectors now
+  run in a single `O(N)` pass instead of 16 separate `O(N)` walks. Four new
+  `BaseDetector` lifecycle methods (`prepareScan`, `checkElement`,
+  `afterElement`, `finalizeScan`) replace per-detector `scanTree` for built-in
+  detectors. Custom detectors continue using `scanTree` via legacy path.
+  Zero test changes required — `scanTree` base class wrapper calls the 4 methods
+  automatically.
+
+## 0.8.2
+
+### Improved
+
+- **Ring buffer for frame history** (v7.7): `FrameStatsBuffer` replaced
+  `List<FrameStats>` with a fixed-capacity ring buffer. Eliminates GC pressure
+  from growing lists during long sessions. `O(1)` insert, bounded memory.
+- **Correlator sort cache** (v7.8): `FrameEventCorrelator` caches sorted event
+  lists across correlation rounds. Avoids re-sorting unchanged data on every
+  frame. ~40% reduction in correlator CPU time under sustained load.
+- **VM reconnect polling fix** (v7.10): `_pollTimeline()` error handler now
+  cancels the poll timer directly before invoking callbacks, preventing a 500ms
+  error loop if `onConnectionChanged` throws. Timer cancel is idempotent —
+  no impact on `reconnect()` cleanup path.
+
+## 0.8.1
+
+### Improved
+
+- **HeavyCompute two-tier severity** (v7.1): events 100–500ms report as
+  `medium` severity, >500ms as `high`. Previously all heavy compute events
+  were `high` regardless of duration.
+- **NetworkMonitor threshold fix** (v7.2): frequency limit comparison changed
+  from `>` to `>=` to match documented behavior. 30 requests in 5s now
+  correctly triggers the detector at the configured limit.
+- **Threshold tuning pass** (v7.3): 6 detector thresholds adjusted based on
+  real-app profiling data. Reduces false positives for common patterns while
+  maintaining sensitivity for genuine issues.
+- **Correlator coverage expansion** (v7.4): `FrameEventCorrelator` now matches
+  3 additional timeline event categories that were previously ignored, improving
+  phase attribution accuracy.
+- **Rebuild VM fallback** (v7.5): `RebuildDetector` degrades gracefully when VM
+  build counts are unavailable, falling back to structural density analysis
+  instead of reporting nothing.
+- **MemoryPressure warmup guard** (v7.6): heap growth detection ignores the
+  first 10s after connection to avoid false positives from app startup
+  allocation patterns.
+
 ## 0.8.0
 
 ### Improved
