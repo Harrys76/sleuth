@@ -259,6 +259,25 @@ void main() {
         expect(thrashing, isEmpty);
       });
 
+      test('no thrashing when cache count <= 5 despite high variation', () {
+        // pictureCacheCount alternates between 2 and 3 → 50% variation
+        // but count <= 5 should be ignored as noise
+        for (var i = 0; i < 20; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+            pictureCacheCount: i.isEven ? 2 : 3,
+            pictureCacheBytes: 5000,
+          ));
+        }
+
+        final thrashing = detector.issues
+            .where((i) => i.stableId == 'raster_cache_thrashing')
+            .toList();
+        expect(thrashing, isEmpty);
+      });
+
       test('detects cache thrashing after 15 consecutive fluctuating frames',
           () {
         // Seed with one stable frame first

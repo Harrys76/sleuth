@@ -39,7 +39,7 @@ void main() {
       expect(detector.issues, isEmpty);
     });
 
-    testWidgets('ignores small subtrees (<=20 widgets)', (tester) async {
+    testWidgets('ignores small subtrees (<=50 widgets)', (tester) async {
       await tester.pumpWidget(const TinyAnimatedBuilder());
       detector.scanTree(tester.element(find.byType(TinyAnimatedBuilder)));
 
@@ -52,7 +52,7 @@ void main() {
       detector.scanTree(tester.element(find.byType(MediumAnimatedBuilder)));
 
       expect(detector.issues, isEmpty,
-          reason: 'Subtree of ~15 widgets should not trigger (threshold 20)');
+          reason: 'Subtree of ~15 widgets should not trigger (threshold 50)');
     });
 
     testWidgets('no false positive on scroll page without AnimatedBuilder', (
@@ -159,7 +159,7 @@ void main() {
     testWidgets('custom minSubtreeSize lowers detection threshold',
         (tester) async {
       // MediumAnimatedBuilder has 15-child subtree (Column + 15 SizedBox).
-      // Default threshold (20) ignores it, but minSubtreeSize: 5 fires.
+      // Default threshold (50) ignores it, but minSubtreeSize: 5 fires.
       detector = AnimatedBuilderDetector(minSubtreeSize: 5);
       await tester.pumpWidget(const MediumAnimatedBuilder());
       detector.scanTree(tester.element(find.byType(MediumAnimatedBuilder)));
@@ -169,7 +169,7 @@ void main() {
 
     testWidgets('default minSubtreeSize ignores medium subtrees',
         (tester) async {
-      // MediumAnimatedBuilder has 15-child subtree — below default 20.
+      // MediumAnimatedBuilder has 15-child subtree — below default 50.
       await tester.pumpWidget(const MediumAnimatedBuilder());
       detector.scanTree(tester.element(find.byType(MediumAnimatedBuilder)));
 
@@ -217,7 +217,7 @@ class TestAnimatedAppState extends State<TestAnimatedApp>
         child: widget.useChild
             ? Column(
                 children: List.generate(
-                  25,
+                  51,
                   (i) => SizedBox(key: ValueKey(i), height: 10),
                 ),
               )
@@ -226,7 +226,7 @@ class TestAnimatedAppState extends State<TestAnimatedApp>
           if (child != null) return child;
           return Column(
             children: List.generate(
-              25,
+              51,
               (i) => SizedBox(key: ValueKey(i), height: 10),
             ),
           );

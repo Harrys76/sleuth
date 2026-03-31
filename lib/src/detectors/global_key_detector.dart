@@ -11,12 +11,12 @@ import '../utils/widget_location.dart';
 /// **Structural Detector** — counts user-assigned GlobalKey instances on
 /// children of ListView, GridView, PageView (>10 prevents element recycling).
 class GlobalKeyDetector extends BaseDetector {
-  GlobalKeyDetector({this.threshold = 10})
+  GlobalKeyDetector({this.threshold = 20})
       : super(
           type: DetectorType.globalKey,
           lifecycle: DetectorLifecycle.structural,
           name: 'Global Key',
-          description: 'Detects excessive GlobalKey usage (>10) in scrollables',
+          description: 'Detects excessive GlobalKey usage (>20) in scrollables',
         );
 
   final int threshold;

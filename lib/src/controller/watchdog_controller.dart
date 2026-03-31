@@ -1392,7 +1392,7 @@ class WatchdogConfig {
     this.fpsTarget = 60,
     this.rebuildThreshold = 10,
     this.maxListChildren = 50,
-    this.maxGlobalKeys = 10,
+    this.maxGlobalKeys = 20,
     this.platformChannelLimit = 20,
     this.treeScanIntervalMs = 1000,
     this.enabledDetectors = const {...DetectorType.values},

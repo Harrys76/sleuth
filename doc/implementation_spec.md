@@ -4836,7 +4836,7 @@ All 22 v6 milestones shipped in **v0.8.0**.
 
 ---
 
-### v7.3: Detector Threshold Tuning Pass
+### v7.3: Detector Threshold Tuning Pass ✅ Shipped
 
 **Problem:** Several detector thresholds produce excessive false positives or miss real issues based on code review against typical Flutter app behavior.
 
@@ -4853,6 +4853,17 @@ All 22 v6 milestones shipped in **v0.8.0**.
 **Files:** 5 detector files, ~1 line each.
 
 **Risk:** Low. All changes tighten detection (fewer false positives). Default values through `DetectorThresholds` config remain available for consumers who want different sensitivity.
+
+**Post-Implementation Notes:**
+- Scope expanded beyond "5 detector files, ~1 line each" — also updated: `detector_thresholds.dart` (2 defaults), `watchdog_controller.dart` (`maxGlobalKeys` 10→20), and 2 hardcoded description strings (GlobalKey ">10"→">20", GpuPressure "1.5"→"2.0").
+- `detector_thresholds.dart` doc comment example updated (`gpuPressureRatio: 2.0` → `3.0` with corrected default label).
+- FrameTiming cache thrashing: both guards updated (`previous.pictureCacheCount > 0` → `> 5` at line 253, and `latest.pictureCacheCount > 0` → `> 5` at line 262 for zero-to-nonzero jump detection).
+- AnimatedBuilder test widget `TestAnimatedApp` increased from `List.generate(25)` to `List.generate(51)` (subtree 52 > 50 threshold).
+- RepaintBoundary test increased from depth 4 to depth 6 (beyond new maxAncestorDepth=5).
+- GpuPressure: 7 tests updated with higher ratios (rasterUs 20000→25000 for warning, 40000→50000 for critical). Custom threshold tests changed from 2.0 to 3.0 (since 2.0 is now default). Test names updated ("1.5"→"2.0", "3.0"→"4.0").
+- DetectorThresholds test: defaults test updated for new gpuPressureRatio (2.0) and animatedBuilderMinSubtreeSize (50). Custom values test updated to use non-default values.
+- 1 new test added: FrameTiming "no thrashing when cache count <= 5 despite high variation".
+- Total test count: 1,304 (was 1,303).
 
 ---
 
@@ -4967,7 +4978,7 @@ void _runStructuralScans(BuildContext scanContext) {
 |----------|-----------|--------|-------|--------------|
 | 1 | v7.1: HeavyCompute Two-Tier | Very Low | Accuracy | Shipped ✅ |
 | 2 | v7.2: NetworkMonitor >= | Very Low | Accuracy | Shipped ✅ |
-| 3 | v7.3: Threshold Tuning Pass | Low | Accuracy | None |
+| 3 | v7.3: Threshold Tuning Pass | Low | Accuracy | Shipped ✅ |
 | 4 | v7.4: Correlator Coverage | Very Low | Accuracy | None |
 | 5 | v7.5: Rebuild VM Fallback | Low | Accuracy | None |
 | 6 | v7.6: MemoryPressure Warmup | Very Low | Accuracy | None |

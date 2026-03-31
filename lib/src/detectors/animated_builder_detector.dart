@@ -13,7 +13,7 @@ import 'setstate_scope_detector.dart';
 /// **Structural Detector** — without `child`, the entire builder subtree
 /// rebuilds on every animation tick (60x/sec), causing unnecessary work.
 class AnimatedBuilderDetector extends BaseDetector {
-  AnimatedBuilderDetector({this.minSubtreeSize = 20})
+  AnimatedBuilderDetector({this.minSubtreeSize = 50})
       : super(
           type: DetectorType.animatedBuilder,
           lifecycle: DetectorLifecycle.structural,

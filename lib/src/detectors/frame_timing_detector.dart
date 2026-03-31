@@ -250,7 +250,7 @@ class FrameTimingDetector extends BaseDetector {
     }
 
     // --- Cache thrashing: pictureCacheCount fluctuates > 20% ---
-    if (previous.pictureCacheCount > 0) {
+    if (previous.pictureCacheCount > 5) {
       final delta =
           (latest.pictureCacheCount - previous.pictureCacheCount).abs();
       final variation = delta / previous.pictureCacheCount;
@@ -259,8 +259,8 @@ class FrameTimingDetector extends BaseDetector {
       } else {
         _consecutiveThrashingFrames = 0;
       }
-    } else if (latest.pictureCacheCount > 0) {
-      // Jump from 0 to non-zero counts as thrashing
+    } else if (latest.pictureCacheCount > 5) {
+      // Jump from low (<=5) to meaningful count — counts as thrashing
       _consecutiveThrashingFrames++;
     }
 

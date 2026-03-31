@@ -8,7 +8,7 @@
 ///   thresholds: DetectorThresholds(
 ///     shaderJankMs: 50,         // Flag shaders >50ms (default 100)
 ///     keepAliveMax: 10,         // Allow up to 10 keep-alives (default 5)
-///     gpuPressureRatio: 2.0,    // Tolerate higher raster/UI ratio (default 1.5)
+///     gpuPressureRatio: 3.0,    // Tolerate higher raster/UI ratio (default 2.0)
 ///   ),
 /// )
 /// ```
@@ -16,13 +16,13 @@ class DetectorThresholds {
   const DetectorThresholds({
     this.shaderJankMs = 100,
     this.heavyComputeGapMs = 8,
-    this.gpuPressureRatio = 1.5,
+    this.gpuPressureRatio = 2.0,
     this.memoryGrowthBytesPerSec = 512000,
     this.memoryCapacityPercent = 0.80,
     this.shallowRebuildMaxDepth = 3,
     this.setStateScopeOwnershipPercent = 0.5,
     this.keepAliveMax = 5,
-    this.animatedBuilderMinSubtreeSize = 20,
+    this.animatedBuilderMinSubtreeSize = 50,
     this.fontLoadingMaxFamilies = 3,
   });
 

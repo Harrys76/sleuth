@@ -83,10 +83,9 @@ void main() {
     });
 
     testWidgets('flags when boundary beyond maxAncestorDepth', (tester) async {
-      // Boundary is 4 parent hops up from RenderCustomPaint, beyond
-      // maxAncestorDepth=3:
-      // RenderRepaintBoundary > RenderConstrainedBox > RenderConstrainedBox
-      //   > RenderConstrainedBox > RenderCustomPaint
+      // Boundary is 6 parent hops up from RenderCustomPaint, beyond
+      // maxAncestorDepth=5:
+      // RenderRepaintBoundary > RenderConstrainedBox × 5 > RenderCustomPaint
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -94,9 +93,13 @@ void main() {
             child: SizedBox(
               child: SizedBox(
                 child: SizedBox(
-                  child: CustomPaint(
-                    painter: _StubPainter(),
-                    child: const SizedBox(width: 10, height: 10),
+                  child: SizedBox(
+                    child: SizedBox(
+                      child: CustomPaint(
+                        painter: _StubPainter(),
+                        child: const SizedBox(width: 10, height: 10),
+                      ),
+                    ),
                   ),
                 ),
               ),

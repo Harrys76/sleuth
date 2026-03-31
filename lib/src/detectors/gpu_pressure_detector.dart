@@ -12,12 +12,12 @@ import '../vm/timeline_parser.dart';
 /// **Hybrid Detector** — VM raster thread duration + render tree
 /// to identify Opacity, ClipPath, BackdropFilter on deep subtrees.
 class GpuPressureDetector extends BaseDetector {
-  GpuPressureDetector({this.rasterMultiplierThreshold = 1.5})
+  GpuPressureDetector({this.rasterMultiplierThreshold = 2.0})
       : super(
           type: DetectorType.gpuPressure,
           lifecycle: DetectorLifecycle.hybrid,
           name: 'GPU Pressure',
-          description: 'Detects GPU bottlenecks (raster > UI × 1.5)',
+          description: 'Detects GPU bottlenecks (raster > UI × 2.0)',
         );
 
   /// Flag when raster time exceeds UI time by this factor.

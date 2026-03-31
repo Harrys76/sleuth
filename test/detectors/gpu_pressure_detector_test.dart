@@ -30,7 +30,7 @@ void main() {
       });
 
       testWidgets('no issue when raster <= UI x threshold', (tester) async {
-        // Raster 10ms, UI 10ms — ratio = 1.0 (below 1.5 threshold)
+        // Raster 10ms, UI 10ms — ratio = 1.0 (below 2.0 threshold)
         detector.processTimelineData(rasterDominantData(
           rasterUs: 10000,
           buildUs: 5000,
@@ -44,10 +44,10 @@ void main() {
         expect(detector.issues, isEmpty);
       });
 
-      testWidgets('warning when raster > UI x 1.5', (tester) async {
-        // Raster 20ms, UI 10ms — ratio = 2.0
+      testWidgets('warning when raster > UI x 2.0', (tester) async {
+        // Raster 25ms, UI 10ms — ratio = 2.5
         detector.processTimelineData(rasterDominantData(
-          rasterUs: 20000,
+          rasterUs: 25000,
           buildUs: 5000,
           layoutUs: 3000,
           paintUs: 2000,
@@ -61,10 +61,10 @@ void main() {
         expect(detector.issues.first.title, contains('Raster Dominance'));
       });
 
-      testWidgets('critical when raster > UI x 3.0', (tester) async {
-        // Raster 40ms, UI 10ms — ratio = 4.0
+      testWidgets('critical when raster > UI x 4.0', (tester) async {
+        // Raster 50ms, UI 10ms — ratio = 5.0
         detector.processTimelineData(rasterDominantData(
-          rasterUs: 40000,
+          rasterUs: 50000,
           buildUs: 5000,
           layoutUs: 3000,
           paintUs: 2000,
@@ -80,7 +80,7 @@ void main() {
       testWidgets('confidence is confirmed without expensive nodes',
           (tester) async {
         detector.processTimelineData(rasterDominantData(
-          rasterUs: 20000,
+          rasterUs: 25000,
           buildUs: 5000,
           layoutUs: 3000,
           paintUs: 2000,
@@ -97,7 +97,7 @@ void main() {
       testWidgets('splits observed raster signal from likely node cause',
           (tester) async {
         detector.processTimelineData(rasterDominantData(
-          rasterUs: 20000,
+          rasterUs: 25000,
           buildUs: 5000,
           layoutUs: 3000,
           paintUs: 2000,
@@ -158,7 +158,7 @@ void main() {
           (tester) async {
         detector.vmConnected = true;
         detector.processTimelineData(rasterDominantData(
-          rasterUs: 20000,
+          rasterUs: 25000,
           buildUs: 5000,
           layoutUs: 3000,
           paintUs: 2000,
@@ -185,7 +185,7 @@ void main() {
           (tester) async {
         detector.vmConnected = true;
         detector.processTimelineData(rasterDominantData(
-          rasterUs: 20000,
+          rasterUs: 25000,
           buildUs: 5000,
           layoutUs: 3000,
           paintUs: 2000,
@@ -222,7 +222,7 @@ void main() {
           (tester) async {
         detector.vmConnected = true;
         detector.processTimelineData(rasterDominantData(
-          rasterUs: 20000,
+          rasterUs: 25000,
           buildUs: 5000,
           layoutUs: 3000,
           paintUs: 2000,
@@ -264,10 +264,10 @@ void main() {
 
     testWidgets('custom rasterMultiplierThreshold fires at adjusted ratio',
         (tester) async {
-      detector = GpuPressureDetector(rasterMultiplierThreshold: 2.0);
+      detector = GpuPressureDetector(rasterMultiplierThreshold: 3.0);
       detector.vmConnected = true;
-      // UI = 5000+3000+2000 = 10000; Raster 25000; ratio = 2.5 > 2.0 → warning
-      detector.processTimelineData(rasterDominantData(rasterUs: 25000));
+      // UI = 5000+3000+2000 = 10000; Raster 35000; ratio = 3.5 > 3.0 → warning
+      detector.processTimelineData(rasterDominantData(rasterUs: 35000));
       await tester.pumpWidget(const _GpuTestApp());
       detector.scanTree(tester.element(find.byType(_GpuTestApp)));
       expect(detector.issues, hasLength(1));
@@ -275,20 +275,20 @@ void main() {
     });
 
     testWidgets('custom threshold below ratio does not fire', (tester) async {
-      detector = GpuPressureDetector(rasterMultiplierThreshold: 2.0);
+      detector = GpuPressureDetector(rasterMultiplierThreshold: 3.0);
       detector.vmConnected = true;
-      // UI = 10000; Raster 18000; ratio = 1.8 < 2.0 → no issue
-      detector.processTimelineData(rasterDominantData(rasterUs: 18000));
+      // UI = 10000; Raster 25000; ratio = 2.5 < 3.0 → no issue
+      detector.processTimelineData(rasterDominantData(rasterUs: 25000));
       await tester.pumpWidget(const _GpuTestApp());
       detector.scanTree(tester.element(find.byType(_GpuTestApp)));
       expect(detector.issues, isEmpty);
     });
 
     testWidgets('custom threshold critical at 2x multiplier', (tester) async {
-      detector = GpuPressureDetector(rasterMultiplierThreshold: 2.0);
+      detector = GpuPressureDetector(rasterMultiplierThreshold: 3.0);
       detector.vmConnected = true;
-      // UI = 10000; Raster 45000; ratio = 4.5 > 4.0 (2.0*2) → critical
-      detector.processTimelineData(rasterDominantData(rasterUs: 45000));
+      // UI = 10000; Raster 70000; ratio = 7.0 > 6.0 (3.0*2) → critical
+      detector.processTimelineData(rasterDominantData(rasterUs: 70000));
       await tester.pumpWidget(const _GpuTestApp());
       detector.scanTree(tester.element(find.byType(_GpuTestApp)));
       expect(detector.issues, hasLength(1));

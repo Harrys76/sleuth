@@ -16,7 +16,7 @@ import '../utils/widget_location.dart';
 /// [maxAncestorDepth] parent levels. Missing boundaries allow repaints to
 /// propagate up the tree unnecessarily.
 class RepaintBoundaryDetector extends BaseDetector {
-  RepaintBoundaryDetector({this.maxAncestorDepth = 3})
+  RepaintBoundaryDetector({this.maxAncestorDepth = 5})
       : super(
           type: DetectorType.repaintBoundary,
           lifecycle: DetectorLifecycle.structural,
