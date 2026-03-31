@@ -4363,6 +4363,8 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 **Risk:** Low. Visual-only change.
 
+**Post-Implementation Notes:** Replaced `_headerIconButton` GestureDetector with `IconButton` using `constraints: BoxConstraints(minWidth: 44, minHeight: 44)` and `visualDensity: VisualDensity.compact`. Added tooltips to all 3 header buttons (Guide, Show/Hide overlay, Close). Follows same pattern as the existing footer export `IconButton`.
+
 ---
 
 ### v6.6: UI Drag Safety — Clamp Offset in onPanUpdate
@@ -4380,6 +4382,8 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 **Risk:** Low.
 
+**Post-Implementation Notes:** Used field-caching approach: `_cachedTopPadding` and `_cachedEffectiveWidth` set at top of `build()`, read by `onPanUpdate` handler. Calls `_clampOffset()` (from v6.10) immediately after accumulating delta in `onPanUpdate`, so stored offset is always valid. No parameter threading through `_buildCardBody`/`_buildHeader` — cleaner than growing method signatures.
+
 ---
 
 ### v6.7: UI Keyboard Awareness
@@ -4396,6 +4400,8 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 2. Keyboard dismissed → card returns to previous position
 
 **Risk:** Low.
+
+**Post-Implementation Notes:** Added optional `keyboardHeight` parameter to `_clampOffset` (default 0, preserves all existing behavior). Bottom clamp becomes `screenSize.height - 100 - keyboardHeight`. Added `_cachedKeyboardHeight` field for gesture handler access. `mq.viewInsets.bottom` read in `build()` — keyboard open/close triggers rebuild via MediaQuery dependency, card automatically pushed above keyboard.
 
 ---
 
@@ -4424,6 +4430,8 @@ void _onIssuesChanged() {
 2. Prune + verdict logic both still execute
 
 **Risk:** Very low.
+
+**Post-Implementation Notes:** Added `_onIssuesChanged()` that calls `_pruneStaleState()` then `_onVerdictChanged()`. Single listener registration on `issuesNotifier` in `initState`/`dispose`. `_onVerdictChanged` remains independently registered on `verdictNotifier`. Both original methods unchanged — combined method just sequences them. If both call `setState()`, the second finds element already dirty and is a no-op.
 
 ---
 
@@ -4717,10 +4725,10 @@ Replace hardcoded values in all UI files with `theme.spacingMd`, `theme.spacingL
 | 3 | v6.2: OpacityDetector AnimatedOpacity | Low | Accuracy | None | **Shipped** |
 | 4 | v6.3: GpuPressure ShaderMask | Very Low | Accuracy | None | **Shipped** |
 | 5 | v6.4: NestedScroll Highlights | Low | Accuracy | None | **Shipped** |
-| 6 | v6.5: Tap Targets | Low | UI Polish | None |
-| 7 | v6.6: Drag Clamping | Low | UI Polish | None |
-| 8 | v6.7: Keyboard Awareness | Low | UI Polish | None |
-| 9 | v6.8: Listener Dedup | Very Low | UI Polish | None |
+| 6 | v6.5: Tap Targets | Low | UI Polish | None | **Shipped** |
+| 7 | v6.6: Drag Clamping | Low | UI Polish | None | **Shipped** |
+| 8 | v6.7: Keyboard Awareness | Low | UI Polish | None | **Shipped** |
+| 9 | v6.8: Listener Dedup | Very Low | UI Polish | None | **Shipped** |
 | 10 | v6.9: Text Overflow | Very Low | UI Polish | None | **Shipped** |
 | 11 | v6.10: FloatingIssuesCard Extract | Low | UI Polish | v6.6 (shared helper) | **Shipped** |
 | 12 | v6.11: IssueCard Extract | Low | UI Polish | None | **Shipped** |

@@ -60,20 +60,23 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   /// User-set card height. Null = default (55% of screen).
   double? _cardHeight;
 
+  // Cached for gesture handlers (set each build).
+  double _cachedTopPadding = 0;
+  double _cachedEffectiveWidth = 0;
+  double _cachedKeyboardHeight = 0;
+
   @override
   void initState() {
     super.initState();
     widget.controller.verdictNotifier.addListener(_onVerdictChanged);
-    widget.controller.issuesNotifier.addListener(_onVerdictChanged);
-    widget.controller.issuesNotifier.addListener(_pruneStaleState);
+    widget.controller.issuesNotifier.addListener(_onIssuesChanged);
     _onVerdictChanged();
   }
 
   @override
   void dispose() {
     widget.controller.verdictNotifier.removeListener(_onVerdictChanged);
-    widget.controller.issuesNotifier.removeListener(_onVerdictChanged);
-    widget.controller.issuesNotifier.removeListener(_pruneStaleState);
+    widget.controller.issuesNotifier.removeListener(_onIssuesChanged);
     _exportFeedbackTimer?.cancel();
     _highlightNotFoundTimer?.cancel();
     super.dispose();
@@ -84,6 +87,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     if (!setEquals(newKeys, _cachedJankKeys)) {
       setState(() => _cachedJankKeys = newKeys);
     }
+  }
+
+  /// Combined listener for issuesNotifier — prunes stale state then updates
+  /// jank keys in a single callback dispatch.
+  void _onIssuesChanged() {
+    _pruneStaleState();
+    _onVerdictChanged();
   }
 
   /// Clears expanded/selected state when the referenced issue is no longer present.
@@ -171,10 +181,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     final mq = MediaQuery.of(context);
     final screenSize = mq.size;
     final topPadding = mq.padding.top;
+    final keyboardHeight = mq.viewInsets.bottom;
     final maxAllowedHeight = screenSize.height - topPadding - 20;
     final cardHeight = (_cardHeight ?? screenSize.height * 0.55)
         .clamp(_minCardHeight, maxAllowedHeight);
     final effectiveWidth = _cardWidth.clamp(_minCardWidth, screenSize.width);
+    _cachedTopPadding = topPadding;
+    _cachedEffectiveWidth = effectiveWidth;
+    _cachedKeyboardHeight = keyboardHeight;
     final theme = WatchdogTheme.of(context);
 
     _cardOffset ??= Offset(
@@ -182,7 +196,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       screenSize.height * 0.30,
     );
 
-    final clamped = _clampOffset(screenSize, topPadding, effectiveWidth);
+    final clamped =
+        _clampOffset(screenSize, topPadding, effectiveWidth, keyboardHeight);
 
     return Stack(
       children: [
@@ -211,13 +226,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   // ─── Build helpers ──────────────────────────────────────────────────
 
-  Offset _clampOffset(
-      Size screenSize, double topPadding, double effectiveWidth) {
+  Offset _clampOffset(Size screenSize, double topPadding, double effectiveWidth,
+      [double keyboardHeight = 0]) {
     final rightReserve =
         (screenSize.width - effectiveWidth - 5).clamp(0.0, screenSize.width);
     return Offset(
       _cardOffset!.dx.clamp(0.0, rightReserve),
-      _cardOffset!.dy.clamp(topPadding, screenSize.height - 100),
+      _cardOffset!.dy
+          .clamp(topPadding, screenSize.height - 100 - keyboardHeight),
     );
   }
 
@@ -287,8 +303,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   Widget _buildHeader(Size screenSize, WatchdogThemeData theme) {
     return GestureDetector(
       onPanUpdate: (details) {
-        setState(
-            () => _cardOffset = (_cardOffset ?? Offset.zero) + details.delta);
+        setState(() {
+          _cardOffset = (_cardOffset ?? Offset.zero) + details.delta;
+          _cardOffset = _clampOffset(screenSize, _cachedTopPadding,
+              _cachedEffectiveWidth, _cachedKeyboardHeight);
+        });
       },
       onDoubleTap: () {
         setState(() {
@@ -363,6 +382,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               icon: Icons.help_outline,
               color: theme.textTertiary,
               onTap: () => setState(() => _showGuide = true),
+              tooltip: 'Guide',
             ),
             // Highlight overlay toggle
             ValueListenableBuilder<bool>(
@@ -377,6 +397,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                     widget.controller.clearSelectedHighlight();
                   }
                 },
+                tooltip: enabled ? 'Hide overlay' : 'Show overlay',
               ),
             ),
             // Close button
@@ -384,6 +405,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               icon: Icons.close,
               color: theme.textTertiary,
               onTap: widget.onClose,
+              tooltip: 'Close',
             ),
           ],
         ),
@@ -395,14 +417,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     required IconData icon,
     required VoidCallback onTap,
     required Color color,
+    String? tooltip,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Icon(icon, color: color, size: 16),
-      ),
+    return IconButton(
+      onPressed: onTap,
+      icon: Icon(icon, color: color, size: 16),
+      tooltip: tooltip,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+      visualDensity: VisualDensity.compact,
     );
   }
 
