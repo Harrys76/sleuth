@@ -4609,51 +4609,46 @@ platforms:
 
 ---
 
-### v6.17: Test Gap — Controller Lifecycle Tests
+### v6.17: Test Gap — Controller Lifecycle Tests ✅ Shipped
 
 **Problem:** No tests for `WatchdogController.initialize()` (only `initializeDetectorsForTest()` is tested), dispose-during-active-scan, concurrent frame processing, or config changes mid-session. These are the highest-risk untested code paths.
 
-**Approach:** Add 8 new tests:
-1. `initialize()` creates all detectors and starts scan loop
-2. `dispose()` during active scan → no crash, no late callbacks
-3. Two frames arriving before first completes processing → no crash
-4. Config change (enable/disable detector) mid-session → reflected in next scan
-5. Suppression list change mid-session → next scan respects new list
-6. `initialize()` → `dispose()` → `initialize()` cycle works
-7. Export during active scan → returns current state snapshot
-8. Dispose with pending VM service call → call is dropped
+**Approach:** Add 10 tests in 3 groups:
+1. Pre-initialization safety: notifier defaults, exportSnapshot, dispose-before-init
+2. Dispose lifecycle: notifier access after dispose, heap sample feed after dispose, recurrence cleanup
+3. Concurrent data processing: rapid timeline batches, interleaved data sources, suppression config, tree scan
 
 **Files changed:**
-- `test/controller/lifecycle_test.dart` — new file
+- `test/controller/lifecycle_test.dart` — new file (10 tests)
+- `lib/src/controller/watchdog_controller.dart` — `_detectorsReady` guard in `dispose()` to prevent `LateInitializationError` when disposing before initialization
 
-**Risk:** Low. Test-only changes.
+**Risk:** Low. Test-only changes + one-line production guard.
+
+**Post-Implementation Notes:**
+- Discovered that `dispose()` crashed with `LateInitializationError` when called before `_initializeDetectors()` — `_detectors` is `late final` and was accessed unconditionally. Fixed by adding `_detectorsReady` bool set in `_initializeDetectors()`, checked in `dispose()`.
+- Cannot use `_initialized` for the dispose guard because `initializeDetectorsForTest()` sets `_detectors` without setting `_initialized = true`.
+- Tests use `initializeDetectorsForTest()` exclusively — real `initialize()` requires VM service unavailable in test environment.
 
 ---
 
-### v6.18: Test Gap — UI Widget Tests
+### v6.18: Test Gap — UI Widget Tests ✅ Shipped
 
-**Problem:** Five core UI widgets have zero direct tests: `floating_issues_card`, `highlight_overlay`, `issue_card`, `trigger_button`, `watchdog_overlay`. While some are tested indirectly, there are no tests verifying:
-- Card renders without errors with empty/populated issue lists
-- Drag moves the card position
-- Expand/collapse toggles content visibility
-- Highlight overlay paints at correct positions
-- Trigger button accepts taps
+**Problem:** `TriggerButton` and `HighlightOverlay` have zero direct tests. Other UI widgets (`FloatingIssuesCard`, `IssueCard`) have meaningful coverage via 6 existing test files.
 
-**Approach:** Add basic "smoke" widget tests for each:
-1. `floating_issues_card_test.dart` — pump with empty issues → renders, pump with 3 issues → renders, tap expand → content visible
-2. `issue_card_test.dart` — pump collapsed → title visible, pump expanded → detail visible
-3. `trigger_button_test.dart` — pump → button visible, tap → callback fired
-4. `highlight_overlay_test.dart` — pump with highlights → no error
-5. `watchdog_overlay_test.dart` — pump → overlay renders
+**Approach:** Add smoke tests for the two untested widgets:
+1. `trigger_button_test.dart` — 7 tests: render, tap callback, issue count badge, no badge when empty, debug warning badge, FPS text, drag
+2. `highlight_overlay_test.dart` — 4 tests: empty state (no CustomPaint), highlights render CustomPaint, selected highlight, IgnorePointer wrapper
 
 **Files changed:**
-- `test/ui/floating_issues_card_test.dart` — new or expand existing
-- `test/ui/issue_card_test.dart` — new or expand existing
-- `test/ui/trigger_button_test.dart` — new or expand existing
-- `test/ui/highlight_overlay_test.dart` — new
-- `test/ui/watchdog_overlay_test.dart` — new
+- `test/ui/trigger_button_test.dart` — new file (7 tests)
+- `test/ui/highlight_overlay_test.dart` — new file (4 tests)
 
 **Risk:** Low. Test-only changes.
+
+**Post-Implementation Notes:**
+- Narrowed scope: `FloatingIssuesCard` and `IssueCard` already have 6 test files with meaningful coverage. `WatchdogOverlay` calls `controller.initialize()` which requires VM service. Focused on the two widgets with genuinely zero tests.
+- Tests use isolated `ValueNotifier` instances — no controller dependency. Each test creates and disposes its own notifiers.
+- TriggerButton uses `LayoutBuilder` which needs finite constraints; wrapping in `MaterialApp > Scaffold` provides this.
 
 ---
 
@@ -4715,19 +4710,29 @@ Replace hardcoded values in all UI files with `theme.spacingMd`, `theme.spacingL
 
 ---
 
-### v6.22: Benchmark Test Robustness
+### v6.22: Benchmark Test Robustness ✅ Shipped
 
 **Problem:** Benchmark tests use wall-clock `Stopwatch` measurements with fixed budgets. On loaded CI runners or slower devices, tests flake because actual timing varies. The warmup period (5 iterations) may be insufficient for JIT compilation.
 
 **Approach:**
-1. Increase warmup from 5 to 10 iterations
-2. Add 2x tolerance multiplier when `Platform.environment['CI'] != null`
-3. Add variance check: if standard deviation > 50% of mean, log a warning instead of hard-failing
+1. Increase warmup from 5 to 20 iterations
+2. Add `budgetMultiplier` (2x on CI) via `Platform.environment` detection
+3. Add `BenchmarkResult` class with min/max/stdDev/coefficientOfVariation
+4. Add `benchmarkWithStats()` function returning `BenchmarkResult`
+5. Apply `budgetMultiplier` to all 3 benchmark test files
 
 **Files changed:**
-- `test/helpers/benchmark_helpers.dart` — add CI tolerance, increase warmup, add variance tracking
+- `test/helpers/benchmark_helpers.dart` — add `BenchmarkResult`, `benchmarkWithStats()`, `budgetMultiplier`, increase warmup
+- `test/benchmark/scan_overhead_test.dart` — apply `budgetMultiplier` to budgets
+- `test/benchmark/v2_overhead_test.dart` — apply `budgetMultiplier` to budgets
+- `test/benchmark/timeline_processing_test.dart` — apply `budgetMultiplier` to budgets
 
 **Risk:** Very low. Test infrastructure only.
+
+**Post-Implementation Notes:**
+- Used `Platform.environment` from `dart:io` instead of `bool.hasEnvironment` — the latter only detects `--dart-define` values, not shell env vars that CI systems set.
+- `benchmarkUs()` signature unchanged (returns `double`) for backwards compatibility with 30+ call sites.
+- `memory_footprint_test.dart` has no timing budgets — not modified.
 
 ---
 

@@ -23,8 +23,9 @@ void main() {
   group('individual detector scan overhead (1000 elements)', () {
     // Budget: 5ms per detector for 1000 elements.
     // SetStateScopeDetector gets 15ms due to O(N²) subtree counting.
-    const defaultBudgetUs = 5000;
-    const setStateBudgetUs = 15000;
+    // CI runners get 2x tolerance via budgetMultiplier.
+    final defaultBudgetUs = 5000 * budgetMultiplier;
+    final setStateBudgetUs = 15000 * budgetMultiplier;
 
     late BuildContext context;
 
@@ -176,11 +177,11 @@ void main() {
   group('full scan tick overhead', () {
     for (final size in [100, 500, 1000, 3000]) {
       final budget = switch (size) {
-        100 => 10000,
-        500 => 30000,
-        1000 => 80000,
-        3000 => 500000,
-        _ => 100000,
+        100 => 10000 * budgetMultiplier,
+        500 => 30000 * budgetMultiplier,
+        1000 => 80000 * budgetMultiplier,
+        3000 => 500000 * budgetMultiplier,
+        _ => 100000 * budgetMultiplier,
       };
 
       testWidgets('$size elements < ${budget ~/ 1000}ms', (tester) async {

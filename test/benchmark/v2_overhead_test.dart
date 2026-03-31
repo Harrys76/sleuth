@@ -31,7 +31,7 @@ void main() {
         () => detector.processRecord(record),
       );
 
-      expect(avgUs, lessThan(100),
+      expect(avgUs, lessThan(100 * budgetMultiplier),
           reason: 'processRecord should complete in < 100µs');
     });
 
@@ -86,7 +86,7 @@ void main() {
         () => aggregator.aggregate(cpuSamples),
       );
 
-      expect(avgUs, lessThan(5000),
+      expect(avgUs, lessThan(5000 * budgetMultiplier),
           reason: 'aggregate 1000 samples should complete in < 5ms');
     });
 
@@ -108,7 +108,7 @@ void main() {
         },
       );
 
-      expect(avgUs, lessThan(50),
+      expect(avgUs, lessThan(50 * budgetMultiplier),
           reason: 'processHeapSample should complete in < 50µs');
     });
   });

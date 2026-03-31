@@ -37,10 +37,10 @@ void main() {
 
     for (final count in [10, 100, 500]) {
       final budget = switch (count) {
-        10 => 1000,
-        100 => 5000,
-        500 => 20000,
-        _ => 10000,
+        10 => 1000 * budgetMultiplier,
+        100 => 5000 * budgetMultiplier,
+        500 => 20000 * budgetMultiplier,
+        _ => 10000 * budgetMultiplier,
       };
 
       test('$count events < ${budget ~/ 1000}ms', () {
@@ -115,7 +115,7 @@ void main() {
         print('  Per-event: ${perEvent.toStringAsFixed(1)} µs');
 
         // Budget: 50µs per event
-        expect(perEvent, lessThan(50));
+        expect(perEvent, lessThan(50 * budgetMultiplier));
       });
     }
   });

@@ -84,6 +84,7 @@ class WatchdogController {
 
   // Unified detector registry — built in _initializeDetectors()
   late final List<BaseDetector> _detectors;
+  bool _detectorsReady = false;
 
   // Typed access for detectors with methods beyond BaseDetector
   late final FrameTimingDetector _frameTiming;
@@ -414,6 +415,7 @@ class WatchdogController {
       // Custom detectors — always enabled (explicitly opted-in via config)
       for (final d in config.customDetectors) d..isEnabled = true,
     ];
+    _detectorsReady = true;
   }
 
   /// Initialize detectors without VM client or SchedulerBinding.
@@ -1367,8 +1369,10 @@ class WatchdogController {
     }());
 
     _vmClient?.dispose();
-    for (final d in _detectors) {
-      d.dispose();
+    if (_detectorsReady) {
+      for (final d in _detectors) {
+        d.dispose();
+      }
     }
     issuesNotifier.dispose();
     frameStatsNotifier.dispose();
