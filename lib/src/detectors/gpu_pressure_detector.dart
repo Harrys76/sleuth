@@ -76,56 +76,52 @@ class GpuPressureDetector extends BaseDetector {
     if (totalUi > 0) _lastUiUs = totalUi;
   }
 
-  /// Scan render tree for expensive GPU operations.
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _expensiveNodes.clear();
     _highlights.clear();
+  }
 
-    void visitor(Element element) {
-      final ro = element.renderObject;
+  @override
+  void checkElement(Element element) {
+    final ro = element.renderObject;
 
-      if (ro != null) {
-        final typeName = ro.runtimeType.toString();
-        // Detect truly expensive render objects.
-        // Excludes RenderPhysicalModel/Shape (Card, Material) — these are
-        // normal and hardware-accelerated in profile mode.
-        if (typeName.contains('RenderOpacity') ||
-            typeName.contains('RenderClipPath') ||
-            typeName.contains('RenderBackdropFilter') ||
-            typeName.contains('RenderShaderMask')) {
-          // Check if it has a deep subtree (more than 5 descendants)
-          int nodeCount = 0;
-          void countNodes(Element child) {
-            nodeCount++;
-            if (nodeCount < 20) child.visitChildren(countNodes);
-          }
+    if (ro != null) {
+      final typeName = ro.runtimeType.toString();
+      // Detect truly expensive render objects.
+      // Excludes RenderPhysicalModel/Shape (Card, Material) — these are
+      // normal and hardware-accelerated in profile mode.
+      if (typeName.contains('RenderOpacity') ||
+          typeName.contains('RenderClipPath') ||
+          typeName.contains('RenderBackdropFilter') ||
+          typeName.contains('RenderShaderMask')) {
+        // Check if it has a deep subtree (more than 5 descendants)
+        int nodeCount = 0;
+        void countNodes(Element child) {
+          nodeCount++;
+          if (nodeCount < 20) child.visitChildren(countNodes);
+        }
 
-          element.visitChildren(countNodes);
-          if (nodeCount > 5) {
-            _expensiveNodes.add('$typeName ($nodeCount descendants)');
-            final rect = getGlobalRect(ro);
-            if (rect != null) {
-              _highlights.add(WidgetHighlight(
-                rect: rect,
-                widgetName: element.widget.runtimeType.toString(),
-                severity: IssueSeverity.warning,
-                detectorName: 'GPU',
-                detail: '$typeName with $nodeCount descendants',
-              ));
-            }
+        element.visitChildren(countNodes);
+        if (nodeCount > 5) {
+          _expensiveNodes.add('$typeName ($nodeCount descendants)');
+          final rect = getGlobalRect(ro);
+          if (rect != null) {
+            _highlights.add(WidgetHighlight(
+              rect: rect,
+              widgetName: element.widget.runtimeType.toString(),
+              severity: IssueSeverity.warning,
+              detectorName: 'GPU',
+              detail: '$typeName with $nodeCount descendants',
+            ));
           }
         }
       }
-
-      element.visitChildren(visitor);
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
-
+  @override
+  void finalizeScan() {
     _evaluate();
   }
 

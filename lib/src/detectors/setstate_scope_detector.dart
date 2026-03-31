@@ -46,7 +46,7 @@ class SetStateScopeDetector extends BaseDetector {
 
   /// Maps element identity → identityHashCode of its first child widget.
   /// Used to detect when build() re-runs (child widget instance changes).
-  final Map<int, int> _childSnapshots = {};
+  Map<int, int> _childSnapshots = {};
 
   /// Accumulated rebuild counts per widget name in the current window.
   final Map<String, int> _rebuildEvidence = {};
@@ -60,6 +60,14 @@ class SetStateScopeDetector extends BaseDetector {
 
   /// Per-type instance counts from the most recent tree walk.
   final Map<String, int> _typeInstanceCounts = {};
+
+  // --- Per-scan accumulators ---
+
+  int _totalElements = 0;
+  int _maxSubtreeSize = 0;
+  String? _widestStatefulWidget;
+  Element? _widestElement;
+  Map<int, int> _newSnapshots = {};
 
   @override
   void updateDebugSnapshot(DebugSnapshot snapshot) {
@@ -90,72 +98,88 @@ class SetStateScopeDetector extends BaseDetector {
   }
 
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
-
-    // Phase 1: Detect which user StatefulElements were rebuilt since last scan
-    _detectRebuilds(context);
-    _expireOldEvidence();
-
-    // Phase 2: Structural analysis — find the widest user StatefulWidget
-    int totalElements = 0;
-    int maxSubtreeSize = 0;
-    String? widestStatefulWidget;
-    Element? widestElement;
     _typeInstanceCounts.clear();
+    _totalElements = 0;
+    _maxSubtreeSize = 0;
+    _widestStatefulWidget = null;
+    _widestElement = null;
+    _newSnapshots = {};
+    _expireOldEvidence();
+  }
 
-    void visitor(Element element) {
-      totalElements++;
+  @override
+  void checkElement(Element element) {
+    _totalElements++;
 
-      if (element is StatefulElement) {
-        final widget = element.widget;
-        final name = widget.runtimeType.toString();
-        if (!name.startsWith('_') && !isFrameworkWidget(widget)) {
-          // Count instances per type for debug correlation
-          _typeInstanceCounts[name] = (_typeInstanceCounts[name] ?? 0) + 1;
+    if (element is StatefulElement) {
+      final widget = element.widget;
+      final name = widget.runtimeType.toString();
+      if (!name.startsWith('_') && !isFrameworkWidget(widget)) {
+        // --- Rebuild detection (merged from _detectRebuilds) ---
+        Widget? firstChildWidget;
+        element.visitChildren((child) {
+          firstChildWidget ??= child.widget;
+        });
 
-          int subtreeSize = 0;
-          void countSubtree(Element child) {
-            subtreeSize++;
-            child.visitChildren(countSubtree);
-          }
+        if (firstChildWidget != null) {
+          final key = identityHashCode(element);
+          final childId = identityHashCode(firstChildWidget);
+          _newSnapshots[key] = childId;
 
-          element.visitChildren(countSubtree);
-
-          if (subtreeSize > maxSubtreeSize) {
-            maxSubtreeSize = subtreeSize;
-            widestStatefulWidget = name;
-            widestElement = element;
+          final prevChildId = _childSnapshots[key];
+          if (prevChildId != null && prevChildId != childId) {
+            // build() ran on this State — setState was called
+            _rebuildEvidence[name] = (_rebuildEvidence[name] ?? 0) + 1;
           }
         }
+
+        // --- Count instances per type for debug correlation ---
+        _typeInstanceCounts[name] = (_typeInstanceCounts[name] ?? 0) + 1;
+
+        // --- Count subtree size ---
+        int subtreeSize = 0;
+        void countSubtree(Element child) {
+          subtreeSize++;
+          child.visitChildren(countSubtree);
+        }
+
+        element.visitChildren(countSubtree);
+
+        // --- Track widest ---
+        if (subtreeSize > _maxSubtreeSize) {
+          _maxSubtreeSize = subtreeSize;
+          _widestStatefulWidget = name;
+          _widestElement = element;
+        }
       }
-
-      element.visitChildren(visitor);
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
+  @override
+  void finalizeScan() {
+    // Swap snapshots
+    _childSnapshots = _newSnapshots;
 
-    if (totalElements == 0 || maxSubtreeSize < minSubtreeSize) return;
+    if (_totalElements == 0 || _maxSubtreeSize < minSubtreeSize) return;
 
-    final ratio = maxSubtreeSize / totalElements;
+    final ratio = _maxSubtreeSize / _totalElements;
     if (ratio <= dirtyRatioThreshold) return;
 
-    // Phase 3: Combine signals to decide whether to flag
-    final hasEvidence = hasRebuildEvidenceFor(widestStatefulWidget!);
+    // Combine signals to decide whether to flag
+    final hasEvidence = hasRebuildEvidenceFor(_widestStatefulWidget!);
     final hasAnimScope =
-        widestElement != null && _containsAnimationScope(widestElement!);
+        _widestElement != null && _containsAnimationScope(_widestElement!);
 
-    // Phase 3b: Debug correlation — upgrade confidence if debug snapshot
+    // Debug correlation — upgrade confidence if debug snapshot
     // confirms the flagged type is actually rebuilding.
-    final debugCorrelation = _computeDebugCorrelation(widestStatefulWidget!);
+    final debugCorrelation = _computeDebugCorrelation(_widestStatefulWidget!);
 
     final percent = (ratio * 100).toStringAsFixed(0);
     final rawChain =
-        widestElement != null ? buildAncestorChain(widestElement!) : null;
+        _widestElement != null ? buildAncestorChain(_widestElement!) : null;
     final location = rawChain != null ? '\n\n  • $rawChain' : '';
 
     if (hasEvidence) {
@@ -163,7 +187,7 @@ class SetStateScopeDetector extends BaseDetector {
           hasAnimScope ? IssueConfidence.possible : IssueConfidence.likely;
 
       final (hint, effort) = FixHintBuilder.setStateScope(
-        widgetName: widestStatefulWidget ?? 'Unknown',
+        widgetName: _widestStatefulWidget ?? 'Unknown',
         subtreePercent: int.tryParse(percent) ?? 0,
         ancestorChain: rawChain,
       );
@@ -176,24 +200,25 @@ class SetStateScopeDetector extends BaseDetector {
           category: IssueCategory.build,
           confidence: debugCorrelation?.confidence ?? baseConfidence,
           title:
-              'Wide setState Scope: $widestStatefulWidget owns ~$percent% of tree',
-          detail: '$widestStatefulWidget has $maxSubtreeSize of $totalElements '
+              'Wide setState Scope: $_widestStatefulWidget owns ~$percent% of tree',
+          detail:
+              '$_widestStatefulWidget has $_maxSubtreeSize of $_totalElements '
               'elements (~$percent%) in its subtree. setState() was detected '
               'rebuilding this wide subtree.$location',
           fixHint: hint,
           fixEffort: effort,
-          widgetName: widestStatefulWidget,
+          widgetName: _widestStatefulWidget,
           ancestorChain: rawChain,
           observationSource:
               debugCorrelation?.source ?? ObservationSource.structural,
           detectedAt: DateTime.now(),
         ),
       );
-      _addHighlight(widestElement!, widestStatefulWidget!, hasEvidence, percent,
-          maxSubtreeSize);
+      _addHighlight(_widestElement!, _widestStatefulWidget!, hasEvidence,
+          percent, _maxSubtreeSize);
     } else if (!hasAnimScope) {
       final (hint2, effort2) = FixHintBuilder.setStateScope(
-        widgetName: widestStatefulWidget ?? 'Unknown',
+        widgetName: _widestStatefulWidget ?? 'Unknown',
         subtreePercent: int.tryParse(percent) ?? 0,
         ancestorChain: rawChain,
       );
@@ -205,21 +230,22 @@ class SetStateScopeDetector extends BaseDetector {
           category: IssueCategory.build,
           confidence: debugCorrelation?.confidence ?? IssueConfidence.possible,
           title:
-              'Wide setState Scope: $widestStatefulWidget owns ~$percent% of tree',
-          detail: '$widestStatefulWidget has $maxSubtreeSize of $totalElements '
+              'Wide setState Scope: $_widestStatefulWidget owns ~$percent% of tree',
+          detail:
+              '$_widestStatefulWidget has $_maxSubtreeSize of $_totalElements '
               'elements (~$percent%) in its subtree. Any setState() on this '
               'widget would rebuild most of the visible tree.$location',
           fixHint: hint2,
           fixEffort: effort2,
-          widgetName: widestStatefulWidget,
+          widgetName: _widestStatefulWidget,
           ancestorChain: rawChain,
           observationSource:
               debugCorrelation?.source ?? ObservationSource.structural,
           detectedAt: DateTime.now(),
         ),
       );
-      _addHighlight(widestElement!, widestStatefulWidget!, hasEvidence, percent,
-          maxSubtreeSize);
+      _addHighlight(_widestElement!, _widestStatefulWidget!, hasEvidence,
+          percent, _maxSubtreeSize);
     }
     // else: large subtree + animation scope + no rebuild evidence → suppress
   }
@@ -261,47 +287,6 @@ class SetStateScopeDetector extends BaseDetector {
       detectorName: 'setState',
       detail: 'Owns ~$percent% of tree ($subtreeSize elements)',
     ));
-  }
-
-  /// Detect which user StatefulElements had their build() re-run since
-  /// the last scan by comparing child widget identity.
-  void _detectRebuilds(BuildContext context) {
-    final newSnapshots = <int, int>{};
-
-    void visitor(Element element) {
-      if (element is StatefulElement) {
-        final widget = element.widget;
-        final name = widget.runtimeType.toString();
-        if (!name.startsWith('_') && !isFrameworkWidget(widget)) {
-          // Get first child's widget identity
-          Widget? firstChildWidget;
-          element.visitChildren((child) {
-            firstChildWidget ??= child.widget;
-          });
-
-          if (firstChildWidget != null) {
-            final key = identityHashCode(element);
-            final childId = identityHashCode(firstChildWidget);
-            newSnapshots[key] = childId;
-
-            final prevChildId = _childSnapshots[key];
-            if (prevChildId != null && prevChildId != childId) {
-              // build() ran on this State — setState was called
-              _rebuildEvidence[name] = (_rebuildEvidence[name] ?? 0) + 1;
-            }
-          }
-        }
-      }
-      element.visitChildren(visitor);
-    }
-
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
-
-    _childSnapshots
-      ..clear()
-      ..addAll(newSnapshots);
   }
 
   /// Expire old rebuild evidence.

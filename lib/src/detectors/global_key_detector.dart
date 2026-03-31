@@ -57,63 +57,63 @@ class GlobalKeyDetector extends BaseDetector {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
+  int _globalKeyCount = 0;
+  final List<String> _scrollableLocations = [];
+  Rect? _parentRect;
+
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
+    _globalKeyCount = 0;
+    _scrollableLocations.clear();
+    _parentRect = null;
+  }
 
-    int globalKeyCount = 0;
-    final scrollableLocations = <String>[];
-    Rect? parentRect;
+  @override
+  void checkElement(Element element) {
+    final widget = element.widget;
 
-    void visitor(Element element) {
-      final widget = element.widget;
-
-      if (widget is ListView || widget is GridView || widget is PageView) {
-        final before = globalKeyCount;
-        _countUserGlobalKeys(element, (n) => globalKeyCount += n);
-        if (globalKeyCount > before) {
-          scrollableLocations.add(buildAncestorChain(element));
-          final ro = element.renderObject;
-          if (ro != null) parentRect = getGlobalRect(ro);
-        }
+    if (widget is ListView || widget is GridView || widget is PageView) {
+      final before = _globalKeyCount;
+      _countUserGlobalKeys(element, (n) => _globalKeyCount += n);
+      if (_globalKeyCount > before) {
+        _scrollableLocations.add(buildAncestorChain(element));
+        final ro = element.renderObject;
+        if (ro != null) _parentRect = getGlobalRect(ro);
       }
-
-      element.visitChildren(visitor);
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
-
-    if (globalKeyCount > threshold) {
-      if (parentRect != null) {
+  @override
+  void finalizeScan() {
+    if (_globalKeyCount > threshold) {
+      if (_parentRect != null) {
         _highlights.add(WidgetHighlight(
-          rect: parentRect!,
+          rect: _parentRect!,
           widgetName: 'Container',
-          severity: globalKeyCount > threshold * 3
+          severity: _globalKeyCount > threshold * 3
               ? IssueSeverity.critical
               : IssueSeverity.warning,
           detectorName: 'GlobalKey',
-          detail: '$globalKeyCount GlobalKeys (threshold: $threshold)',
+          detail: '$_globalKeyCount GlobalKeys (threshold: $threshold)',
         ));
       }
       final locations =
-          scrollableLocations.take(5).map((chain) => '  • $chain').join('\n');
+          _scrollableLocations.take(5).map((chain) => '  • $chain').join('\n');
       final (hint, effort) =
-          FixHintBuilder.excessiveGlobalKeys(count: globalKeyCount);
+          FixHintBuilder.excessiveGlobalKeys(count: _globalKeyCount);
 
       _issues.add(
         PerformanceIssue(
           stableId: 'excessive_global_keys',
-          severity: globalKeyCount > threshold * 3
+          severity: _globalKeyCount > threshold * 3
               ? IssueSeverity.critical
               : IssueSeverity.warning,
           category: IssueCategory.build,
           confidence: IssueConfidence.possible,
-          title: 'Excessive GlobalKeys: $globalKeyCount in scrollable',
-          detail: '$globalKeyCount GlobalKey instances found on children of '
+          title: 'Excessive GlobalKeys: $_globalKeyCount in scrollable',
+          detail: '$_globalKeyCount GlobalKey instances found on children of '
               'scrollable widgets. GlobalKeys prevent element '
               'recycling.\n\n$locations',
           fixHint: hint,

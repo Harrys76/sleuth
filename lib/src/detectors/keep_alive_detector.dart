@@ -38,74 +38,74 @@ class KeepAliveDetector extends BaseDetector {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
+  int _keepAliveCount = 0;
+  final List<String> _parentLocations = [];
+  Rect? _parentRect;
+
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
+    _keepAliveCount = 0;
+    _parentLocations.clear();
+    _parentRect = null;
+  }
 
-    int keepAliveCount = 0;
-    final parentLocations = <String>[];
-    Rect? parentRect;
+  @override
+  void checkElement(Element element) {
+    final widget = element.widget;
+    final name = widget.runtimeType.toString();
 
-    void countKeepAlives(Element element) {
-      final typeName = element.widget.runtimeType.toString();
-      if (typeName == 'KeepAlive' || typeName == '_KeepAlive') {
-        keepAliveCount++;
-      }
-      element.visitChildren(countKeepAlives);
-    }
+    // TabBarView checked by string to avoid material.dart import.
+    if (widget is PageView || name == 'TabBarView') {
+      final before = _keepAliveCount;
 
-    void visitor(Element element) {
-      final widget = element.widget;
-      final name = widget.runtimeType.toString();
-
-      // TabBarView checked by string to avoid material.dart import.
-      if (widget is PageView || name == 'TabBarView') {
-        final before = keepAliveCount;
-        element.visitChildren(countKeepAlives);
-        if (keepAliveCount > before) {
-          parentLocations.add(buildAncestorChain(element));
-          final ro = element.renderObject;
-          if (ro != null) parentRect = getGlobalRect(ro);
+      void countKeepAlives(Element child) {
+        final typeName = child.widget.runtimeType.toString();
+        if (typeName == 'KeepAlive' || typeName == '_KeepAlive') {
+          _keepAliveCount++;
         }
-        return;
+        child.visitChildren(countKeepAlives);
       }
 
-      element.visitChildren(visitor);
+      element.visitChildren(countKeepAlives);
+      if (_keepAliveCount > before) {
+        _parentLocations.add(buildAncestorChain(element));
+        final ro = element.renderObject;
+        if (ro != null) _parentRect = getGlobalRect(ro);
+      }
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
-
-    if (keepAliveCount > threshold) {
-      if (parentRect != null) {
+  @override
+  void finalizeScan() {
+    if (_keepAliveCount > threshold) {
+      if (_parentRect != null) {
         _highlights.add(WidgetHighlight(
-          rect: parentRect!,
+          rect: _parentRect!,
           widgetName: 'Scrollable',
-          severity: keepAliveCount > threshold * 2
+          severity: _keepAliveCount > threshold * 2
               ? IssueSeverity.critical
               : IssueSeverity.warning,
           detectorName: 'KeepAlive',
-          detail: '$keepAliveCount items kept alive in memory',
+          detail: '$_keepAliveCount items kept alive in memory',
         ));
       }
       final locations =
-          parentLocations.take(5).map((chain) => '  • $chain').join('\n');
+          _parentLocations.take(5).map((chain) => '  • $chain').join('\n');
       final (hint, effort) =
-          FixHintBuilder.excessiveKeepAlive(count: keepAliveCount);
+          FixHintBuilder.excessiveKeepAlive(count: _keepAliveCount);
 
       _issues.add(
         PerformanceIssue(
           stableId: 'excessive_keep_alive',
-          severity: keepAliveCount > threshold * 2
+          severity: _keepAliveCount > threshold * 2
               ? IssueSeverity.critical
               : IssueSeverity.warning,
           category: IssueCategory.memory,
           confidence: IssueConfidence.possible,
-          title: 'Excessive Keep-Alive: $keepAliveCount widgets',
-          detail: '$keepAliveCount widgets are using '
+          title: 'Excessive Keep-Alive: $_keepAliveCount widgets',
+          detail: '$_keepAliveCount widgets are using '
               'AutomaticKeepAliveClientMixin, keeping them all in '
               'memory.\n\n$locations',
           fixHint: hint,

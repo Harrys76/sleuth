@@ -24,6 +24,7 @@ class OpacityDetector extends BaseDetector {
 
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
+  final List<String> _found = [];
   bool _isEnabled = true;
 
   @override
@@ -39,62 +40,58 @@ class OpacityDetector extends BaseDetector {
   set isEnabled(bool value) => _isEnabled = value;
 
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
+    _found.clear();
+  }
 
-    final found = <String>[];
+  @override
+  void checkElement(Element element) {
+    final widget = element.widget;
 
-    void visitor(Element element) {
-      final widget = element.widget;
-
-      if (widget is Opacity && widget.opacity < 0.01) {
-        found.add(buildAncestorChain(element));
-        final ro = element.renderObject;
-        if (ro != null) {
+    if (widget is Opacity && widget.opacity < 0.01) {
+      _found.add(buildAncestorChain(element));
+      final ro = element.renderObject;
+      if (ro != null) {
+        final rect = getGlobalRect(ro);
+        if (rect != null) {
+          _highlights.add(WidgetHighlight(
+            rect: rect,
+            widgetName: 'Opacity',
+            severity: IssueSeverity.warning,
+            detectorName: 'Opacity',
+            detail:
+                'opacity: ${widget.opacity.toStringAsFixed(3)} — invisible but still active',
+          ));
+        }
+      }
+    } else if (widget is AnimatedOpacity) {
+      final ro = element.renderObject;
+      if (ro is RenderAnimatedOpacity) {
+        final currentOpacity = ro.opacity.value;
+        if (currentOpacity < 0.01) {
+          _found.add(buildAncestorChain(element));
           final rect = getGlobalRect(ro);
           if (rect != null) {
             _highlights.add(WidgetHighlight(
               rect: rect,
-              widgetName: 'Opacity',
+              widgetName: 'AnimatedOpacity',
               severity: IssueSeverity.warning,
               detectorName: 'Opacity',
               detail:
-                  'opacity: ${widget.opacity.toStringAsFixed(3)} — invisible but still active',
+                  'opacity: ${currentOpacity.toStringAsFixed(3)} — invisible but still active',
             ));
           }
         }
-      } else if (widget is AnimatedOpacity) {
-        final ro = element.renderObject;
-        if (ro is RenderAnimatedOpacity) {
-          final currentOpacity = ro.opacity.value;
-          if (currentOpacity < 0.01) {
-            found.add(buildAncestorChain(element));
-            final rect = getGlobalRect(ro);
-            if (rect != null) {
-              _highlights.add(WidgetHighlight(
-                rect: rect,
-                widgetName: 'AnimatedOpacity',
-                severity: IssueSeverity.warning,
-                detectorName: 'Opacity',
-                detail:
-                    'opacity: ${currentOpacity.toStringAsFixed(3)} — invisible but still active',
-              ));
-            }
-          }
-        }
       }
-
-      element.visitChildren(visitor);
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
-
-    if (found.isNotEmpty) {
-      final locations = found.take(5).map((chain) => '  • $chain').join('\n');
+  @override
+  void finalizeScan() {
+    if (_found.isNotEmpty) {
+      final locations = _found.take(5).map((chain) => '  • $chain').join('\n');
       final (hint, effort) = FixHintBuilder.opacityZero();
       _issues.add(
         PerformanceIssue(
@@ -103,8 +100,8 @@ class OpacityDetector extends BaseDetector {
           category: IssueCategory.layout,
           // confirmed: directly reading widget.opacity — not a heuristic
           confidence: IssueConfidence.confirmed,
-          title: 'Invisible Opacity Widgets Still Active: ${found.length}',
-          detail: '${found.length} widget(s) have near-zero opacity '
+          title: 'Invisible Opacity Widgets Still Active: ${_found.length}',
+          detail: '${_found.length} widget(s) have near-zero opacity '
               '(< 0.01). Painting is skipped, but the widget still '
               'participates in hit testing, layout, and semantics.\n\n$locations',
           fixHint: hint,
@@ -120,5 +117,6 @@ class OpacityDetector extends BaseDetector {
   void dispose() {
     _issues.clear();
     _highlights.clear();
+    _found.clear();
   }
 }

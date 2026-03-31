@@ -21,6 +21,7 @@ class CustomPainterDetector extends BaseDetector {
 
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
+  final List<String> _found = [];
   bool _isEnabled = true;
   DebugSnapshot? _lastDebugSnapshot;
 
@@ -42,50 +43,46 @@ class CustomPainterDetector extends BaseDetector {
   set isEnabled(bool value) => _isEnabled = value;
 
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
+    _found.clear();
+  }
 
-    final found = <String>[];
+  @override
+  void checkElement(Element element) {
+    final widget = element.widget;
 
-    void visitor(Element element) {
-      final widget = element.widget;
-
-      if (widget is CustomPaint && widget.painter != null) {
-        final painter = widget.painter!;
-        try {
-          // Known limitation: self-comparison only catches trivially wrong
-          // implementations (=> true). Secondary heuristic (debug paint rate)
-          // handles painters that correctly compare fields.
-          if (painter.shouldRepaint(painter)) {
-            found.add(buildAncestorChain(element));
-            final ro = element.renderObject;
-            if (ro != null) {
-              final rect = getGlobalRect(ro);
-              if (rect != null) {
-                _highlights.add(WidgetHighlight(
-                  rect: rect,
-                  widgetName: widget.runtimeType.toString(),
-                  severity: IssueSeverity.warning,
-                  detectorName: 'Painter',
-                  detail: 'shouldRepaint always true',
-                ));
-              }
+    if (widget is CustomPaint && widget.painter != null) {
+      final painter = widget.painter!;
+      try {
+        // Known limitation: self-comparison only catches trivially wrong
+        // implementations (=> true). Secondary heuristic (debug paint rate)
+        // handles painters that correctly compare fields.
+        if (painter.shouldRepaint(painter)) {
+          _found.add(buildAncestorChain(element));
+          final ro = element.renderObject;
+          if (ro != null) {
+            final rect = getGlobalRect(ro);
+            if (rect != null) {
+              _highlights.add(WidgetHighlight(
+                rect: rect,
+                widgetName: widget.runtimeType.toString(),
+                severity: IssueSeverity.warning,
+                detectorName: 'Painter',
+                detail: 'shouldRepaint always true',
+              ));
             }
           }
-        } catch (_) {}
-      }
-
-      element.visitChildren(visitor);
+        }
+      } catch (_) {}
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
-
-    if (found.isNotEmpty) {
-      final locations = found.take(5).map((chain) => '  • $chain').join('\n');
+  @override
+  void finalizeScan() {
+    if (_found.isNotEmpty) {
+      final locations = _found.take(5).map((chain) => '  • $chain').join('\n');
 
       // Check debug snapshot for CustomPaint paint activity.
       IssueConfidence confidence = IssueConfidence.possible;
@@ -107,8 +104,8 @@ class CustomPainterDetector extends BaseDetector {
           severity: IssueSeverity.warning,
           category: IssueCategory.paint,
           confidence: confidence,
-          title: 'Always-Repaint CustomPainter: ${found.length} found',
-          detail: '${found.length} CustomPainter(s) return true from '
+          title: 'Always-Repaint CustomPainter: ${_found.length} found',
+          detail: '${_found.length} CustomPainter(s) return true from '
               'shouldRepaint(). This causes unnecessary repaint on every '
               'frame.\n\n$locations',
           fixHint: hint1,
@@ -122,7 +119,7 @@ class CustomPainterDetector extends BaseDetector {
     // Secondary heuristic: painters that passed self-comparison but have
     // high paint rates may have problematic shouldRepaint logic that
     // only manifests with different old/new instances.
-    if (found.isEmpty) {
+    if (_found.isEmpty) {
       final ds = _lastDebugSnapshot;
       if (ds != null && ds.paintCounts.isNotEmpty) {
         final cpRate = ds.paintsPerSecondForType('CustomPaint');
@@ -152,6 +149,7 @@ class CustomPainterDetector extends BaseDetector {
   void dispose() {
     _issues.clear();
     _highlights.clear();
+    _found.clear();
     _lastDebugSnapshot = null;
   }
 }

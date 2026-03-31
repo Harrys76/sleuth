@@ -19,6 +19,7 @@ class FontLoadingDetector extends BaseDetector {
 
   final int maxFamilies;
   final List<PerformanceIssue> _issues = [];
+  final Set<String> _customFonts = {};
   bool _isEnabled = true;
 
   // Common system fonts that don't need loading
@@ -52,45 +53,41 @@ class FontLoadingDetector extends BaseDetector {
   // Known limitation: does not detect fonts applied via DefaultTextStyle
   // or Theme.textTheme inheritance. Only scans direct Text/RichText styles.
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
+    _customFonts.clear();
+  }
 
-    final customFonts = <String>{};
+  @override
+  void checkElement(Element element) {
+    final widget = element.widget;
 
-    void visitor(Element element) {
-      final widget = element.widget;
-
-      if (widget is Text && widget.style?.fontFamily != null) {
-        final family = widget.style!.fontFamily!;
-        if (!_systemFonts.contains(family)) {
-          customFonts.add(family);
-        }
+    if (widget is Text && widget.style?.fontFamily != null) {
+      final family = widget.style!.fontFamily!;
+      if (!_systemFonts.contains(family)) {
+        _customFonts.add(family);
       }
-
-      if (widget is RichText) {
-        final style = widget.text.style;
-        if (style?.fontFamily != null) {
-          final family = style!.fontFamily!;
-          if (!_systemFonts.contains(family)) {
-            customFonts.add(family);
-          }
-        }
-      }
-
-      element.visitChildren(visitor);
     }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
+    if (widget is RichText) {
+      final style = widget.text.style;
+      if (style?.fontFamily != null) {
+        final family = style!.fontFamily!;
+        if (!_systemFonts.contains(family)) {
+          _customFonts.add(family);
+        }
+      }
+    }
+  }
 
+  @override
+  void finalizeScan() {
     // Note: We can detect custom font usage but can't confirm loading
     // status from the widget tree alone. Flag as informational.
-    if (customFonts.length > maxFamilies) {
+    if (_customFonts.length > maxFamilies) {
       final (hint, effort) = FixHintBuilder.multipleCustomFonts(
-        fontCount: customFonts.length,
-        families: customFonts.toList(),
+        fontCount: _customFonts.length,
+        families: _customFonts.toList(),
       );
 
       _issues.add(PerformanceIssue(
@@ -98,9 +95,9 @@ class FontLoadingDetector extends BaseDetector {
         severity: IssueSeverity.warning,
         category: IssueCategory.font,
         confidence: IssueConfidence.possible,
-        title: 'Multiple Custom Fonts: ${customFonts.length} families',
-        detail: 'Using ${customFonts.length} custom font families: '
-            '${customFonts.take(5).join(", ")}.\n'
+        title: 'Multiple Custom Fonts: ${_customFonts.length} families',
+        detail: 'Using ${_customFonts.length} custom font families: '
+            '${_customFonts.take(5).join(", ")}.\n'
             'Each font adds to download/load time.',
         fixHint: hint,
         fixEffort: effort,
@@ -111,5 +108,8 @@ class FontLoadingDetector extends BaseDetector {
   }
 
   @override
-  void dispose() => _issues.clear();
+  void dispose() {
+    _issues.clear();
+    _customFonts.clear();
+  }
 }

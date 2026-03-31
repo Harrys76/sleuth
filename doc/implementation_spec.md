@@ -4965,36 +4965,57 @@ All 22 v6 milestones shipped in **v0.8.0**.
 
 ---
 
-### v7.9: Unified Structural Tree Walk
+### v7.9: Unified Structural Tree Walk ✅ Shipped
 
-**Problem:** 12 structural detectors each walk the full widget tree independently via `visitChildElements`. With the pre-scan `_findVisiblePageContext()` walk, this totals ~13 full tree traversals per scan cycle (every 1 second). On a typical Material page with 200–500 elements, this is ~2,500–6,500 visitor calls per scan.
+**Problem:** 16 tree-walking detectors (12 structural + 4 hybrid) each walk the full widget tree independently via `visitChildElements`. With the pre-scan `_findVisiblePageContext()` walk, this totals ~17 full tree traversals per scan cycle (every 1 second). On a typical Material page with 200–500 elements, this is ~8,500 visitor calls per scan.
 
-Additionally, `Opacity`/`AnimatedOpacity` are checked by both `OpacityDetector` and `RepaintBoundaryDetector`. `CustomPaint` is checked by both `CustomPainterDetector` and `RepaintBoundaryDetector`. Scrollable widgets are checked by 4 different detectors.
+**Fix:** Single unified tree walk that visits each element once and dispatches to all enabled detectors. O(16 × N) → O(N).
 
-**Fix:** Create a single unified tree walk that visits each element once and dispatches to all enabled structural detectors. Each detector receives a `checkElement(Element)` callback instead of performing its own `visitChildElements`. Reduces tree traversal from O(12 × N) to O(N).
+**Design — 4 new BaseDetector lifecycle methods:**
+```dart
+void prepareScan(BuildContext context) {}   // Called once before walk
+void checkElement(Element element) {}       // Called per element
+void afterElement(Element element) {}       // Called after children visited
+void finalizeScan()                         // Called once after walk
+```
 
-**Design:**
+`scanTree` becomes a convenience wrapper (calls all 4 methods with try-catch). Tests call `scanTree` directly → identical behavior. Controller bypasses it for the unified path. Custom detectors (`DetectorType.custom`) fall back to `scanTree` via legacy path.
+
+**Controller unified walk:**
 ```dart
 void _runStructuralScans(BuildContext scanContext) {
-  final checkers = _detectors
-    .where((d) => d.isEnabled && d.requiresTreeScan)
-    .toList();
-
-  void visitor(Element element) {
-    for (final d in checkers) {
-      d.checkElement(element);  // New method on BaseDetector
-    }
-    element.visitChildren(visitor);
+  final unified = <BaseDetector>[];
+  final legacy = <BaseDetector>[];
+  for (final d in _detectors) {
+    if (!d.isEnabled || !d.requiresTreeScan) continue;
+    if (d.type == DetectorType.custom) { legacy.add(d); }
+    else { unified.add(d); }
   }
-
-  scanContext.visitChildElements(visitor);
-  for (final d in checkers) d.finalizeScan();
+  for (final d in unified) d.prepareScan(scanContext);
+  void visitor(Element element) {
+    for (final d in unified) d.checkElement(element);
+    element.visitChildren(visitor);
+    for (final d in unified) d.afterElement(element);
+  }
+  try { scanContext.visitChildElements(visitor); } catch (_) {}
+  for (final d in unified) d.finalizeScan();
+  for (final d in legacy) d.scanTree(scanContext);
 }
 ```
 
-**Files:** `lib/src/controller/watchdog_controller.dart` (dispatch), `lib/src/models/base_detector.dart` (new interface methods), all 12 structural detector files (refactor `scanTree` → `checkElement` + `finalizeScan`).
+**Migration patterns:**
+- **Pattern A (flat check, 8 detectors):** LayoutBottleneck, FontLoading, Opacity, CustomPainter, ImageMemory, RepaintBoundary, Repaint (hybrid), Rebuild (hybrid). `prepareScan` clears state, `checkElement` inspects widget/render type, `finalizeScan` creates issues.
+- **Pattern B (local nested walk, 5 detectors):** Listview, AnimatedBuilder, KeepAlive, GlobalKey, GpuPressure (hybrid). Same as A, but `checkElement` does local `visitChildren` for child/subtree counting.
+- **Pattern C (depth/nesting tracking, 2 detectors):** NestedScroll uses `List<Axis?> _scrollAxisStack` (push on `checkElement`, pop on `afterElement`). ShallowRebuildRisk uses `int _depth` counter.
+- **Pattern D (multi-pass merge, 1 detector):** SetStateScopeDetector merged `_detectRebuilds` (separate tree walk) into `checkElement`. Safe because rebuild evidence is cumulative (5-second window).
 
-**Risk:** Medium. Largest architectural change in v7. Requires refactoring all structural detectors to a visitor-callback model. Must preserve existing scan semantics (issue clearing, highlight collection, ancestor chain building). Comprehensive tests already exist for all detectors — regression safety net is strong.
+**Files:** `lib/src/models/base_detector.dart`, `lib/src/controller/watchdog_controller.dart`, all 16 detector files in `lib/src/detectors/`. **0 test files changed** — `scanTree` wrapper preserves test contract.
+
+**Post-Implementation Notes:**
+- All 1,307 tests pass, 0 analysis issues
+- No `scanTree` overrides remain in any built-in detector (verified by grep)
+- `afterElement` overhead is negligible: 16 × N calls but only 2 detectors do work (NestedScroll, ShallowRebuildRisk); 14 are empty no-ops
+- Custom detector backward compatibility preserved via `DetectorType.custom` check in controller
 
 ---
 
@@ -5022,7 +5043,7 @@ void _runStructuralScans(BuildContext scanContext) {
 | 6 | v7.6: MemoryPressure Warmup | Very Low | Accuracy | Shipped ✅ |
 | 7 | v7.7: Ring Buffers | Very Low | Performance | Shipped ✅ |
 | 8 | v7.8: Correlator Sort Cache | Low | Performance | Shipped ✅ |
-| 9 | v7.9: Unified Tree Walk | Medium | Performance | None |
+| 9 | v7.9: Unified Tree Walk | Medium | Performance | Shipped ✅ |
 | 10 | v7.10: VM Reconnect Polling | Very Low | Performance | None |
 
 **Grouping suggestion:** Milestones can be batched into 3 releases:

@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 22 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~1,243 tests, ~12s)
+fvm flutter test                    # Run all tests (~1,307 tests, ~14s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -38,14 +38,14 @@ test/
 
 ### Key patterns
 
-- **Detectors** extend `BaseDetector` (in `models/base_detector.dart`). Each has a `DetectorType` enum value and `DetectorLifecycle` (runtime, vmOnly, hybrid, structural).
-- **WatchdogController** owns all detectors, runs the scan loop, and manages the `FrameVerdict` pipeline.
+- **Detectors** extend `BaseDetector` (in `models/base_detector.dart`). Each has a `DetectorType` enum value and `DetectorLifecycle` (runtime, vmOnly, hybrid, structural). Built-in detectors implement 4 lifecycle methods (`prepareScan`, `checkElement`, `afterElement`, `finalizeScan`) for the unified tree walk. Custom detectors override `scanTree` directly.
+- **WatchdogController** owns all detectors, runs the scan loop (unified single-pass tree walk for all 16 tree-scanning detectors), and manages the `FrameVerdict` pipeline.
 - **Three-tier verdict**: Correlated (VM timeline matched per-frame) > Full (VM batch) > Basic (FrameTiming only). Falls back automatically.
 - Test helpers live in `test/helpers/` — `benchmark_helpers.dart` and `timeline_test_helpers.dart`.
 
 ## Conventions
 
-- New detectors: add enum value to `DetectorType`, create detector file in `detectors/`, register in `WatchdogController`, add tests mirroring existing detector test structure.
+- New detectors: add enum value to `DetectorType`, create detector file in `detectors/`, implement `prepareScan`/`checkElement`/`afterElement`/`finalizeScan` (not `scanTree`), register in `WatchdogController`, add tests mirroring existing detector test structure. Tests call `scanTree` (the base class wrapper) — no special test setup needed.
 - Issues use `IssueConfidence`: confirmed (directly observed), likely (runtime + structural), possible (structural only).
 - Fix hints use `FixHintBuilder` (in `utils/fix_hint_builder.dart`) — never hardcode fixHint strings in detectors.
 - All public API goes through `lib/widget_watchdog.dart` barrel file.
@@ -60,6 +60,6 @@ test/
 - v0.5.0: Context-aware fix hints, verdict linking, UX improvements.
 - v0.4.0: Accuracy fixes + correlator optimization.
 - v3 roadmap: v3.1–v3.10 all shipped.
-- v7 roadmap: 10 milestones — accuracy fixes (v7.1–v7.6), performance optimizations (v7.7–v7.8, v7.10), unified tree walk (v7.9). See `doc/implementation_spec.md`.
+- v7 roadmap: 9/10 milestones shipped — accuracy fixes (v7.1–v7.6 ✅), performance optimizations (v7.7–v7.8 ✅, v7.10 pending), unified tree walk (v7.9 ✅). See `doc/implementation_spec.md`.
 - Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
 - 1,307 tests, 0 analysis issues

@@ -120,66 +120,60 @@ class RepaintDetector extends BaseDetector {
     }
   }
 
-  /// Evaluation trigger from scan tick.
-  ///
-  /// Also collects [highlights] for widgets whose type matches a
-  /// high-paint-rate type from the debug snapshot. Only walks the tree
-  /// when per-widget paint data exists with hot types — zero overhead
-  /// otherwise.
-  @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
-    _highlights.clear();
+  Map<String, double> _hotTypes = const {};
+  Map<String, int> _hotCounts = {};
 
-    // Collect highlights from per-widget debug paint data
+  @override
+  void prepareScan(BuildContext context) {
+    _highlights.clear();
+    _hotCounts = {};
+
+    // Compute hot types from per-widget debug paint data
+    _hotTypes = const {};
     final snapshot = _pendingDebugSnapshot;
     if (snapshot != null && snapshot.paintCounts.isNotEmpty) {
-      final hotTypes = <String, double>{};
+      final types = <String, double>{};
       for (final entry in snapshot.paintCounts.entries) {
         final rate = snapshot.paintsPerSecondForType(entry.key);
         if (rate >= paintFrequencyThreshold) {
-          hotTypes[entry.key] = rate;
+          types[entry.key] = rate;
         }
       }
+      if (types.isNotEmpty) _hotTypes = types;
+    }
+  }
 
-      if (hotTypes.isNotEmpty) {
-        final hotCounts = <String, int>{};
+  @override
+  void checkElement(Element element) {
+    if (_hotTypes.isEmpty) return;
 
-        void visitor(Element element) {
-          final name = element.widget.runtimeType.toString();
-          final rate = hotTypes[name];
-          if (rate != null) {
-            final count = hotCounts[name] ?? 0;
-            if (count < _maxHighlightsPerType) {
-              final ro = element.renderObject;
-              if (ro != null) {
-                final rect = getGlobalRect(ro);
-                if (rect != null) {
-                  _highlights.add(WidgetHighlight(
-                    rect: rect,
-                    widgetName: name,
-                    severity: rate > paintFrequencyThreshold * 2
-                        ? IssueSeverity.critical
-                        : IssueSeverity.warning,
-                    detectorName: 'Repaint',
-                    detail: '${rate.round()} repaints/sec',
-                  ));
-                  hotCounts[name] = count + 1;
-                }
-              }
-            }
+    final name = element.widget.runtimeType.toString();
+    final rate = _hotTypes[name];
+    if (rate != null) {
+      final count = _hotCounts[name] ?? 0;
+      if (count < _maxHighlightsPerType) {
+        final ro = element.renderObject;
+        if (ro != null) {
+          final rect = getGlobalRect(ro);
+          if (rect != null) {
+            _highlights.add(WidgetHighlight(
+              rect: rect,
+              widgetName: name,
+              severity: rate > paintFrequencyThreshold * 2
+                  ? IssueSeverity.critical
+                  : IssueSeverity.warning,
+              detectorName: 'Repaint',
+              detail: '${rate.round()} repaints/sec',
+            ));
+            _hotCounts[name] = count + 1;
           }
-          element.visitChildren(visitor);
-        }
-
-        try {
-          context.visitChildElements(visitor);
-        } catch (_) {
-          // Tree may be in inconsistent state during build
         }
       }
     }
+  }
 
+  @override
+  void finalizeScan() {
     _evaluate();
   }
 

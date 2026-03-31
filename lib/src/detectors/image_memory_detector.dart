@@ -56,47 +56,44 @@ class ImageMemoryDetector extends BaseDetector {
       List.unmodifiable(_uncachedImages);
 
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
     _uncachedImages.clear();
+  }
 
-    void visitor(Element element) {
-      final widget = element.widget;
+  @override
+  void checkElement(Element element) {
+    final widget = element.widget;
 
-      if (widget is Image) {
-        final provider = widget.image;
-        final isResized = provider is ResizeImage;
-        if (!isResized) {
-          final sourceName = extractSourceName(provider);
-          _uncachedImages.add(UncachedImageInfo(
-            sourceName: sourceName,
-            ancestorChain: buildAncestorChain(element),
-          ));
-          final ro = element.renderObject;
-          if (ro != null) {
-            final rect = getGlobalRect(ro);
-            if (rect != null) {
-              _highlights.add(WidgetHighlight(
-                rect: rect,
-                widgetName: 'Image',
-                severity: IssueSeverity.warning,
-                detectorName: 'Image',
-                detail: 'No cacheWidth/cacheHeight\n$sourceName',
-              ));
-            }
+    if (widget is Image) {
+      final provider = widget.image;
+      final isResized = provider is ResizeImage;
+      if (!isResized) {
+        final sourceName = extractSourceName(provider);
+        _uncachedImages.add(UncachedImageInfo(
+          sourceName: sourceName,
+          ancestorChain: buildAncestorChain(element),
+        ));
+        final ro = element.renderObject;
+        if (ro != null) {
+          final rect = getGlobalRect(ro);
+          if (rect != null) {
+            _highlights.add(WidgetHighlight(
+              rect: rect,
+              widgetName: 'Image',
+              severity: IssueSeverity.warning,
+              detectorName: 'Image',
+              detail: 'No cacheWidth/cacheHeight\n$sourceName',
+            ));
           }
         }
       }
-
-      element.visitChildren(visitor);
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
-
+  @override
+  void finalizeScan() {
     if (_uncachedImages.isNotEmpty) {
       final count = _uncachedImages.length;
       final imageList = _uncachedImages

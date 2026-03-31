@@ -20,6 +20,7 @@ class LayoutBottleneckDetector extends BaseDetector {
 
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
+  final List<String> _found = [];
   bool _isEnabled = true;
 
   @override
@@ -34,44 +35,40 @@ class LayoutBottleneckDetector extends BaseDetector {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
-  /// Scan render tree for layout bottleneck patterns.
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
+    _found.clear();
+  }
 
-    final found = <String>[];
-
-    void visitor(Element element) {
-      final ro = element.renderObject;
-      if (ro != null) {
-        final typeName = ro.runtimeType.toString();
-        if (typeName.contains('RenderIntrinsicHeight') ||
-            typeName.contains('RenderIntrinsicWidth')) {
-          final widgetName = element.widget.runtimeType.toString();
-          found.add(widgetName);
-          final rect = getGlobalRect(ro);
-          if (rect != null) {
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: widgetName,
-              severity: IssueSeverity.warning,
-              detectorName: 'Layout',
-              detail: 'Causes O(N^2) layout passes',
-            ));
-          }
+  @override
+  void checkElement(Element element) {
+    final ro = element.renderObject;
+    if (ro != null) {
+      final typeName = ro.runtimeType.toString();
+      if (typeName.contains('RenderIntrinsicHeight') ||
+          typeName.contains('RenderIntrinsicWidth')) {
+        final widgetName = element.widget.runtimeType.toString();
+        _found.add(widgetName);
+        final rect = getGlobalRect(ro);
+        if (rect != null) {
+          _highlights.add(WidgetHighlight(
+            rect: rect,
+            widgetName: widgetName,
+            severity: IssueSeverity.warning,
+            detectorName: 'Layout',
+            detail: 'Causes O(N^2) layout passes',
+          ));
         }
       }
-      element.visitChildren(visitor);
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
-
-    if (found.isNotEmpty) {
-      final locations = found.take(5).map((chain) => '  • $chain').join('\n');
+  @override
+  void finalizeScan() {
+    if (_found.isNotEmpty) {
+      final locations = _found.take(5).map((chain) => '  • $chain').join('\n');
       final (hint, effort) = FixHintBuilder.layoutBottleneck();
 
       _issues.add(PerformanceIssue(
@@ -81,8 +78,8 @@ class LayoutBottleneckDetector extends BaseDetector {
         // confirmed: IntrinsicHeight/Width always triggers two-pass layout
         // (framework guarantee — not a heuristic)
         confidence: IssueConfidence.confirmed,
-        title: 'Layout Bottleneck: ${found.length} intrinsic nodes',
-        detail: 'Found ${found.length} IntrinsicHeight/IntrinsicWidth '
+        title: 'Layout Bottleneck: ${_found.length} intrinsic nodes',
+        detail: 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth '
             'widgets. These cause O(N²) layout passes.\n\n$locations',
         fixHint: hint,
         fixEffort: effort,
@@ -96,5 +93,6 @@ class LayoutBottleneckDetector extends BaseDetector {
   void dispose() {
     _issues.clear();
     _highlights.clear();
+    _found.clear();
   }
 }

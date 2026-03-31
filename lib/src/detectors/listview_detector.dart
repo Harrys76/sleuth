@@ -36,25 +36,24 @@ class ListviewDetector extends BaseDetector {
   set isEnabled(bool value) => _isEnabled = value;
 
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
+  }
 
-    void visitor(Element element) {
-      final widget = element.widget;
+  @override
+  void checkElement(Element element) {
+    final widget = element.widget;
 
-      // Detect SingleChildScrollView + Column/Row pattern (non-lazy list)
-      if (widget is SingleChildScrollView) {
-        _checkForNonLazyList(element);
-      }
-
-      element.visitChildren(visitor);
+    // Detect SingleChildScrollView + Column/Row pattern (non-lazy list)
+    if (widget is SingleChildScrollView) {
+      _checkForNonLazyList(element);
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
+  @override
+  void finalizeScan() {
+    // Issues are created inline in _checkForNonLazyList — nothing to finalize.
   }
 
   void _checkForNonLazyList(Element scrollElement) {

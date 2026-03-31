@@ -27,6 +27,8 @@ class RepaintBoundaryDetector extends BaseDetector {
   final int maxAncestorDepth;
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
+  final List<String> _found = [];
+  final List<String> _typeNames = [];
   bool _isEnabled = true;
   DebugSnapshot? _lastDebugSnapshot;
 
@@ -57,48 +59,44 @@ class RepaintBoundaryDetector extends BaseDetector {
   ];
 
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
+    _found.clear();
+    _typeNames.clear();
+  }
 
-    final found = <String>[]; // ancestor chains for detail text
-    final typeNames = <String>[]; // widget type names per finding
+  @override
+  void checkElement(Element element) {
+    final widget = element.widget;
 
-    void visitor(Element element) {
-      final widget = element.widget;
-
-      if (widget is Opacity ||
-          widget is ClipPath ||
-          widget is BackdropFilter ||
-          widget is ShaderMask ||
-          widget is CustomPaint) {
-        final ro = element.renderObject;
-        if (ro != null && !_hasRepaintBoundaryAncestor(ro)) {
-          found.add(buildAncestorChain(element));
-          typeNames.add(widget.runtimeType.toString());
-          final rect = getGlobalRect(ro);
-          if (rect != null) {
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: widget.runtimeType.toString(),
-              severity: IssueSeverity.warning,
-              detectorName: 'RepaintBoundary',
-              detail: 'No RepaintBoundary within $maxAncestorDepth ancestors',
-            ));
-          }
+    if (widget is Opacity ||
+        widget is ClipPath ||
+        widget is BackdropFilter ||
+        widget is ShaderMask ||
+        widget is CustomPaint) {
+      final ro = element.renderObject;
+      if (ro != null && !_hasRepaintBoundaryAncestor(ro)) {
+        _found.add(buildAncestorChain(element));
+        _typeNames.add(widget.runtimeType.toString());
+        final rect = getGlobalRect(ro);
+        if (rect != null) {
+          _highlights.add(WidgetHighlight(
+            rect: rect,
+            widgetName: widget.runtimeType.toString(),
+            severity: IssueSeverity.warning,
+            detectorName: 'RepaintBoundary',
+            detail: 'No RepaintBoundary within $maxAncestorDepth ancestors',
+          ));
         }
       }
-
-      element.visitChildren(visitor);
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
-
-    if (found.isNotEmpty) {
-      final locations = found.take(5).map((chain) => '  • $chain').join('\n');
+  @override
+  void finalizeScan() {
+    if (_found.isNotEmpty) {
+      final locations = _found.take(5).map((chain) => '  • $chain').join('\n');
 
       // Check debug snapshot for paint activity across expensive types.
       IssueConfidence confidence = IssueConfidence.possible;
@@ -121,7 +119,7 @@ class RepaintBoundaryDetector extends BaseDetector {
 
       // Determine most common widget type for fix hint context.
       final typeCounts = <String, int>{};
-      for (final name in typeNames) {
+      for (final name in _typeNames) {
         typeCounts[name] = (typeCounts[name] ?? 0) + 1;
       }
       final dominantType =
@@ -134,13 +132,14 @@ class RepaintBoundaryDetector extends BaseDetector {
       _issues.add(
         PerformanceIssue(
           stableId: 'missing_repaint_boundary',
-          severity:
-              found.length > 3 ? IssueSeverity.critical : IssueSeverity.warning,
+          severity: _found.length > 3
+              ? IssueSeverity.critical
+              : IssueSeverity.warning,
           category: IssueCategory.paint,
           confidence: confidence,
-          title: 'Missing RepaintBoundary: ${found.length} expensive '
-              'widget${found.length == 1 ? '' : 's'} unprotected',
-          detail: '${found.length} GPU-expensive widget(s) found without a '
+          title: 'Missing RepaintBoundary: ${_found.length} expensive '
+              'widget${_found.length == 1 ? '' : 's'} unprotected',
+          detail: '${_found.length} GPU-expensive widget(s) found without a '
               'RepaintBoundary ancestor within $maxAncestorDepth levels. '
               'Repaints propagate up the render tree unnecessarily.'
               '\n\n$locations',
@@ -168,6 +167,8 @@ class RepaintBoundaryDetector extends BaseDetector {
   void dispose() {
     _issues.clear();
     _highlights.clear();
+    _found.clear();
+    _typeNames.clear();
     _lastDebugSnapshot = null;
   }
 }

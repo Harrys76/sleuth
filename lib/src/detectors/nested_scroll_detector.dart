@@ -24,6 +24,10 @@ class NestedScrollDetector extends BaseDetector {
   final List<WidgetHighlight> _highlights = [];
   bool _isEnabled = true;
 
+  /// Stack tracking the propagated scroll axis through the tree.
+  /// Initialized with a null sentinel for the root level.
+  List<Axis?> _scrollAxisStack = [null];
+
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
@@ -37,35 +41,36 @@ class NestedScrollDetector extends BaseDetector {
   set isEnabled(bool value) => _isEnabled = value;
 
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
+    _scrollAxisStack = [null];
+  }
 
-    void visitor(Element element, Axis? parentScrollAxis) {
-      final widget = element.widget;
+  @override
+  void checkElement(Element element) {
+    final widget = element.widget;
 
-      final scrollAxis = _scrollAxis(widget);
-      final isScrollable = scrollAxis != null;
+    final scrollAxis = _scrollAxis(widget);
+    final parentAxis = _scrollAxisStack.last;
 
-      // Detect scroll-inside-scroll (same axis only)
-      if (isScrollable && parentScrollAxis != null) {
-        if (scrollAxis == parentScrollAxis) {
-          // Same-axis nesting — always flag
-          _checkNestedScroll(element, widget);
-        }
-        // Cross-axis nesting is a standard pattern (e.g. horizontal
-        // ListView inside vertical ScrollView) — suppress.
+    // Detect scroll-inside-scroll (same axis only)
+    if (scrollAxis != null && parentAxis != null) {
+      if (scrollAxis == parentAxis) {
+        // Same-axis nesting — always flag
+        _checkNestedScroll(element, widget);
       }
-
-      element.visitChildren(
-        (child) => visitor(child, parentScrollAxis ?? scrollAxis),
-      );
+      // Cross-axis nesting is a standard pattern (e.g. horizontal
+      // ListView inside vertical ScrollView) — suppress.
     }
 
-    try {
-      context.visitChildElements((child) => visitor(child, null));
-    } catch (_) {}
+    // Push: propagate axis to children
+    _scrollAxisStack.add(parentAxis ?? scrollAxis);
+  }
+
+  @override
+  void afterElement(Element element) {
+    _scrollAxisStack.removeLast();
   }
 
   /// Extract scroll axis from a scrollable widget, or null if not scrollable.

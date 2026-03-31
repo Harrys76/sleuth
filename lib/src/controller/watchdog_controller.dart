@@ -761,10 +761,49 @@ class WatchdogController {
     }
   }
 
-  /// Run all tree-scanning detectors (hybrid + structural).
+  /// Run all tree-scanning detectors (hybrid + structural) in a single
+  /// unified walk. Custom detectors fall back to their own scanTree().
   void _runStructuralScans(BuildContext scanContext) {
+    final unified = <BaseDetector>[];
+    final legacy = <BaseDetector>[];
+
     for (final d in _detectors) {
-      if (d.isEnabled && d.requiresTreeScan) d.scanTree(scanContext);
+      if (!d.isEnabled || !d.requiresTreeScan) continue;
+      if (d.type == DetectorType.custom) {
+        legacy.add(d);
+      } else {
+        unified.add(d);
+      }
+    }
+
+    // Phase 1: Preparation
+    for (final d in unified) {
+      d.prepareScan(scanContext);
+    }
+
+    // Phase 2: Unified walk — O(N) instead of O(detectors × N)
+    void visitor(Element element) {
+      for (final d in unified) {
+        d.checkElement(element);
+      }
+      element.visitChildren(visitor);
+      for (final d in unified) {
+        d.afterElement(element);
+      }
+    }
+
+    try {
+      scanContext.visitChildElements(visitor);
+    } catch (_) {}
+
+    // Phase 3: Finalization
+    for (final d in unified) {
+      d.finalizeScan();
+    }
+
+    // Phase 4: Legacy custom detectors (separate walks)
+    for (final d in legacy) {
+      d.scanTree(scanContext);
     }
   }
 

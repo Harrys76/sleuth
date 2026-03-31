@@ -35,6 +35,9 @@ class ShallowRebuildRiskDetector extends BaseDetector {
   final List<_ShallowWidgetUsage> _usages = [];
   DebugSnapshot? _lastDebugSnapshot;
 
+  /// Depth counter for unified tree walk.
+  int _depth = 0;
+
   /// Current VM connectivity — set by the controller.
   /// Clears stale VM-backed state immediately on disconnect.
   bool get vmConnected => _vmConnected;
@@ -67,57 +70,53 @@ class ShallowRebuildRiskDetector extends BaseDetector {
     _lastBuildCount = data.buildEventCount;
   }
 
-  /// Scan for StatefulWidgets high in the element tree.
-  ///
-  /// These widgets are at risk of causing wide rebuilds if they depend
-  /// on inherited widgets that change frequently.
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
+    _depth = 0;
     _usages.clear();
+  }
 
-    int depth = 0;
+  @override
+  void checkElement(Element element) {
+    _depth++;
 
-    void visitor(Element element) {
-      depth++;
+    final widget = element.widget;
 
-      final widget = element.widget;
-
-      // Count StatefulElements at shallow depth — these are the ones
-      // that would rebuild widely if they depend on inherited widgets.
-      // Skip framework widgets that are expected at shallow depth.
-      if (element is StatefulElement && depth <= depthThreshold) {
-        final name = widget.runtimeType.toString();
-        const frameworkWidgets = {
-          'Scaffold',
-          'ScaffoldMessenger',
-          'AppBar',
-          'Material',
-          'AnimatedTheme',
-          'ScrollConfiguration',
-          '_ModalScope',
-          'Navigator',
-          'Overlay',
-          'FocusScope',
-          'FocusTraversalGroup',
-        };
-        if (!frameworkWidgets.contains(name)) {
-          _usages.add(_ShallowWidgetUsage(
-            widgetName: name,
-            depth: depth,
-            location: buildAncestorChain(element),
-          ));
-        }
+    // Count StatefulElements at shallow depth — these are the ones
+    // that would rebuild widely if they depend on inherited widgets.
+    // Skip framework widgets that are expected at shallow depth.
+    if (element is StatefulElement && _depth <= depthThreshold) {
+      final name = widget.runtimeType.toString();
+      const frameworkWidgets = {
+        'Scaffold',
+        'ScaffoldMessenger',
+        'AppBar',
+        'Material',
+        'AnimatedTheme',
+        'ScrollConfiguration',
+        '_ModalScope',
+        'Navigator',
+        'Overlay',
+        'FocusScope',
+        'FocusTraversalGroup',
+      };
+      if (!frameworkWidgets.contains(name)) {
+        _usages.add(_ShallowWidgetUsage(
+          widgetName: name,
+          depth: _depth,
+          location: buildAncestorChain(element),
+        ));
       }
-
-      element.visitChildren(visitor);
-      depth--;
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
+  @override
+  void afterElement(Element element) {
+    _depth--;
+  }
 
+  @override
+  void finalizeScan() {
     _evaluate();
   }
 

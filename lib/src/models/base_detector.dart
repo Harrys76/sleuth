@@ -93,11 +93,52 @@ abstract class BaseDetector {
       lifecycle == DetectorLifecycle.hybrid ||
       lifecycle == DetectorLifecycle.structural;
 
+  /// Prepare for a new scan cycle. Called once before the unified tree walk.
+  ///
+  /// Override to clear accumulated state, issues, highlights, and
+  /// initialise per-scan accumulators.
+  void prepareScan(BuildContext context) {}
+
+  /// Check a single element during the unified tree walk.
+  ///
+  /// Called once per element in depth-first order. Detectors inspect the
+  /// element's widget/render object and accumulate findings. Local nested
+  /// walks (e.g. counting children) are permitted within this method.
+  void checkElement(Element element) {}
+
+  /// Called after an element's children have all been visited.
+  ///
+  /// Override only if you need depth or nesting tracking (e.g. scroll-axis
+  /// stack, depth counter). Default is a no-op.
+  void afterElement(Element element) {}
+
+  /// Finalise the scan: process accumulated data and create issues.
+  ///
+  /// Called once after the unified tree walk completes.
+  void finalizeScan() {}
+
   /// Scan the widget/render tree for issues.
   ///
-  /// No-op for [DetectorLifecycle.vmOnly] detectors.
-  /// Override in hybrid and structural detectors.
-  void scanTree(BuildContext context) {}
+  /// Default implementation runs a single-detector walk using the unified
+  /// walk methods ([prepareScan], [checkElement], [afterElement],
+  /// [finalizeScan]). The controller bypasses this and calls those methods
+  /// directly in a unified walk for better performance.
+  ///
+  /// Custom detectors may override this directly for backward compatibility.
+  void scanTree(BuildContext context) {
+    if (!isEnabled) return;
+    prepareScan(context);
+    void visitor(Element element) {
+      checkElement(element);
+      element.visitChildren(visitor);
+      afterElement(element);
+    }
+
+    try {
+      context.visitChildElements(visitor);
+    } catch (_) {}
+    finalizeScan();
+  }
 
   /// Current list of detected issues. Reset each analysis cycle.
   List<PerformanceIssue> get issues;

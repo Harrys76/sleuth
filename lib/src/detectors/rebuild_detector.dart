@@ -124,64 +124,57 @@ class RebuildDetector extends BaseDetector {
     }
   }
 
-  /// Scan element tree to identify which widgets are rebuilding.
-  /// Called from post-frame callback on main isolate.
-  ///
-  /// Also collects [highlights] for widgets whose type matches a
-  /// high-rebuild-rate type from the debug snapshot or enriched VM names.
+  Map<String, double> _hotTypes = const {};
+  Map<String, int> _hotCounts = {};
+
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _widgetRebuildCounts.clear();
     _highlights.clear();
+    _hotCounts = {};
 
     // Compute hot types and their rates from available staging data.
     // Staging is still available here — _evaluate() clears it AFTER the walk.
-    final hotTypes = _hotRebuildTypes();
-    final hotCounts = <String, int>{};
+    _hotTypes = _hotRebuildTypes();
+  }
 
-    void visitor(Element element) {
-      final widget = element.widget;
-      final name = widget.runtimeType.toString();
+  @override
+  void checkElement(Element element) {
+    final widget = element.widget;
+    final name = widget.runtimeType.toString();
 
-      // Track StatefulWidget rebuild indicators
-      if (element is StatefulElement) {
-        _widgetRebuildCounts[name] = (_widgetRebuildCounts[name] ?? 0) + 1;
-      }
+    // Track StatefulWidget rebuild indicators
+    if (element is StatefulElement) {
+      _widgetRebuildCounts[name] = (_widgetRebuildCounts[name] ?? 0) + 1;
+    }
 
-      // Collect highlights for hot types
-      final rate = hotTypes[name];
-      if (rate != null) {
-        final count = hotCounts[name] ?? 0;
-        if (count < _maxHighlightsPerType) {
-          final ro = element.renderObject;
-          if (ro != null) {
-            final rect = getGlobalRect(ro);
-            if (rect != null) {
-              _highlights.add(WidgetHighlight(
-                rect: rect,
-                widgetName: name,
-                severity: rate > rebuildsPerSecThreshold * 3
-                    ? IssueSeverity.critical
-                    : IssueSeverity.warning,
-                detectorName: 'Rebuild',
-                detail: '${rate.round()} rebuilds/sec',
-              ));
-              hotCounts[name] = count + 1;
-            }
+    // Collect highlights for hot types
+    final rate = _hotTypes[name];
+    if (rate != null) {
+      final count = _hotCounts[name] ?? 0;
+      if (count < _maxHighlightsPerType) {
+        final ro = element.renderObject;
+        if (ro != null) {
+          final rect = getGlobalRect(ro);
+          if (rect != null) {
+            _highlights.add(WidgetHighlight(
+              rect: rect,
+              widgetName: name,
+              severity: rate > rebuildsPerSecThreshold * 3
+                  ? IssueSeverity.critical
+                  : IssueSeverity.warning,
+              detectorName: 'Rebuild',
+              detail: '${rate.round()} rebuilds/sec',
+            ));
+            _hotCounts[name] = count + 1;
           }
         }
       }
-
-      element.visitChildren(visitor);
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {
-      // Tree may be in inconsistent state during build
-    }
-
+  @override
+  void finalizeScan() {
     _evaluate();
   }
 

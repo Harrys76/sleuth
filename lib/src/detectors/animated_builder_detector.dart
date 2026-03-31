@@ -44,58 +44,55 @@ class AnimatedBuilderDetector extends BaseDetector {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
+  final List<String> _found = [];
+
   @override
-  void scanTree(BuildContext context) {
-    if (!_isEnabled) return;
+  void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
+    _found.clear();
+  }
 
-    final found = <String>[];
+  @override
+  void checkElement(Element element) {
+    final widget = element.widget;
 
-    void visitor(Element element) {
-      final widget = element.widget;
+    if (widget is AnimatedBuilder && widget.child == null) {
+      if (isFrameworkOwned(element)) {
+        return;
+      }
 
-      if (widget is AnimatedBuilder && widget.child == null) {
-        if (isFrameworkOwned(element)) {
-          element.visitChildren(visitor);
-          return;
-        }
+      int subtreeSize = 0;
+      void countSubtree(Element child) {
+        subtreeSize++;
+        child.visitChildren(countSubtree);
+      }
 
-        int subtreeSize = 0;
-        void countSubtree(Element child) {
-          subtreeSize++;
-          child.visitChildren(countSubtree);
-        }
+      element.visitChildren(countSubtree);
 
-        element.visitChildren(countSubtree);
-
-        if (subtreeSize > minSubtreeSize) {
-          found.add(buildAncestorChain(element));
-          final ro = element.renderObject;
-          if (ro != null) {
-            final rect = getGlobalRect(ro);
-            if (rect != null) {
-              _highlights.add(WidgetHighlight(
-                rect: rect,
-                widgetName: 'AnimatedBuilder',
-                severity: IssueSeverity.warning,
-                detectorName: 'AnimatedBuilder',
-                detail: 'No child — $subtreeSize widgets rebuild per tick',
-              ));
-            }
+      if (subtreeSize > minSubtreeSize) {
+        _found.add(buildAncestorChain(element));
+        final ro = element.renderObject;
+        if (ro != null) {
+          final rect = getGlobalRect(ro);
+          if (rect != null) {
+            _highlights.add(WidgetHighlight(
+              rect: rect,
+              widgetName: 'AnimatedBuilder',
+              severity: IssueSeverity.warning,
+              detectorName: 'AnimatedBuilder',
+              detail: 'No child — $subtreeSize widgets rebuild per tick',
+            ));
           }
         }
       }
-
-      element.visitChildren(visitor);
     }
+  }
 
-    try {
-      context.visitChildElements(visitor);
-    } catch (_) {}
-
-    if (found.isNotEmpty) {
-      final locations = found.take(5).map((chain) => '  • $chain').join('\n');
+  @override
+  void finalizeScan() {
+    if (_found.isNotEmpty) {
+      final locations = _found.take(5).map((chain) => '  • $chain').join('\n');
 
       // Check debug snapshot for AnimatedBuilder rebuild/paint evidence.
       String? debugEvidence;
@@ -116,7 +113,7 @@ class AnimatedBuilderDetector extends BaseDetector {
 
       final (hint, effort) = FixHintBuilder.animatedBuilderNoChild(
         widgetName: 'AnimatedBuilder',
-        ancestorChain: found.isNotEmpty ? found.first : null,
+        ancestorChain: _found.isNotEmpty ? _found.first : null,
       );
 
       _issues.add(
@@ -125,8 +122,8 @@ class AnimatedBuilderDetector extends BaseDetector {
           severity: IssueSeverity.warning,
           category: IssueCategory.build,
           confidence: confidence,
-          title: 'AnimatedBuilder without child: ${found.length} found',
-          detail: '${found.length} AnimatedBuilder(s) do not use the child '
+          title: 'AnimatedBuilder without child: ${_found.length} found',
+          detail: '${_found.length} AnimatedBuilder(s) do not use the child '
               'parameter. The entire builder subtree rebuilds on every '
               'animation tick (60x/sec).'
               '${debugEvidence != null ? '\n\n$debugEvidence' : ''}'
