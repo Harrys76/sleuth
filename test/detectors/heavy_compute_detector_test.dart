@@ -21,24 +21,24 @@ void main() {
     });
 
     test('no issues when buildScope durations below threshold', () {
-      // Default lagThresholdMs=8, so trigger is ms > 16.
-      // 15ms = 15000us should NOT trigger.
+      // Default lagThresholdMs=8, so trigger is ms > 8.
+      // 7ms = 7000us should NOT trigger.
       detector.processTimelineData(
-        heavyComputeData(buildScopeDurationsUs: [15000]),
+        heavyComputeData(buildScopeDurationsUs: [7000]),
       );
       expect(detector.issues, isEmpty);
     });
 
     test('no issue at exact threshold boundary', () {
-      // 16ms = 16000us. Condition is ms > 16, so 16.0 > 16 is false.
+      // 8ms = 8000us. Condition is ms > 8, so 8.0 > 8 is false.
       detector.processTimelineData(
-        heavyComputeData(buildScopeDurationsUs: [16000]),
+        heavyComputeData(buildScopeDurationsUs: [8000]),
       );
       expect(detector.issues, isEmpty);
     });
 
     test('critical when buildScope exceeds threshold with default config', () {
-      // 20ms = 20000us. ms > 16 triggers, ms >= 16 → critical.
+      // 20ms = 20000us. ms > 8 triggers, ms > 16 → critical.
       detector.processTimelineData(
         heavyComputeData(buildScopeDurationsUs: [20000]),
       );
@@ -48,12 +48,48 @@ void main() {
           ObservationSource.vmTimeline);
     });
 
-    test('warning severity with custom lagThresholdMs', () {
-      // lagThresholdMs=4, trigger is ms > 8, critical is ms >= 16.
-      // 12ms: 12 > 8 triggers, 12 >= 16 is false → warning.
-      detector = HeavyComputeDetector(lagThresholdMs: 4);
+    test('warning when between lagThresholdMs and 2x with default config', () {
+      // 12ms: 12 > 8 triggers, 12 > 16 is false → warning.
       detector.processTimelineData(
         heavyComputeData(buildScopeDurationsUs: [12000]),
+      );
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+    });
+
+    test('warning just above lagThresholdMs', () {
+      // 9ms: 9 > 8 triggers, 9 > 16 is false → warning.
+      detector.processTimelineData(
+        heavyComputeData(buildScopeDurationsUs: [9000]),
+      );
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+    });
+
+    test('warning at exactly 2x lagThresholdMs', () {
+      // 16ms: 16 > 8 triggers, 16 > 16 is false → warning.
+      detector.processTimelineData(
+        heavyComputeData(buildScopeDurationsUs: [16000]),
+      );
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+    });
+
+    test('critical just above 2x lagThresholdMs', () {
+      // 17ms: 17 > 8 triggers, 17 > 16 is true → critical.
+      detector.processTimelineData(
+        heavyComputeData(buildScopeDurationsUs: [17000]),
+      );
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+    });
+
+    test('warning severity with custom lagThresholdMs', () {
+      // lagThresholdMs=4, trigger is ms > 4, critical is ms > 8.
+      // 6ms: 6 > 4 triggers, 6 > 8 is false → warning.
+      detector = HeavyComputeDetector(lagThresholdMs: 4);
+      detector.processTimelineData(
+        heavyComputeData(buildScopeDurationsUs: [6000]),
       );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.warning);
@@ -85,7 +121,7 @@ void main() {
 
     test('no issue for normal buildScope times', () {
       detector.processTimelineData(
-        heavyComputeData(buildScopeDurationsUs: [5000, 8000, 10000]),
+        heavyComputeData(buildScopeDurationsUs: [5000, 7000, 8000]),
       );
       expect(detector.issues, isEmpty);
     });
@@ -189,9 +225,30 @@ void main() {
       expect(detector.issues.first.title, contains('Heavy Computation:'));
     });
 
+    test('enriched warning-tier shows widget names', () {
+      detector.processTimelineData(enrichedBuildData(
+        buildDurationUs: 12000, // 12ms: warning tier
+        dirtyCount: 2,
+        dirtyList: ['WidgetA', 'WidgetB'],
+      ));
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+      expect(detector.issues.first.title, contains('Heavy Build:'));
+    });
+
+    test('enriched phaseEvent warning tier', () {
+      detector.processTimelineData(enrichedBuildData(
+        buildDurationUs:
+            10000, // 10ms: 10 > 8 triggers, 10 > 16 false → warning
+        dirtyList: ['SomeWidget'],
+      ));
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+    });
+
     test('phaseEvents below threshold produce no issues', () {
       detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 10000, // 10ms, below 16ms threshold
+        buildDurationUs: 8000, // 8ms, at threshold boundary (8 > 8 is false)
         dirtyList: ['SomeWidget'],
       ));
 

@@ -45,7 +45,7 @@ class HeavyComputeDetector extends BaseDetector {
     if (buildPhaseEvents.isNotEmpty) {
       for (final event in buildPhaseEvents) {
         final ms = event.durationUs / 1000;
-        if (ms > lagThresholdMs * 2) {
+        if (ms > lagThresholdMs) {
           _issues.add(_createIssue(ms, event));
         }
       }
@@ -53,7 +53,7 @@ class HeavyComputeDetector extends BaseDetector {
       // Fallback: raw durations only (no phaseEvents available)
       for (final durationUs in data.buildScopeDurations) {
         final ms = durationUs / 1000;
-        if (ms > lagThresholdMs * 2) {
+        if (ms > lagThresholdMs) {
           _issues.add(_createGenericIssue(ms));
         }
       }
@@ -71,7 +71,9 @@ class HeavyComputeDetector extends BaseDetector {
     );
     return PerformanceIssue(
       stableId: 'heavy_compute',
-      severity: ms >= 16 ? IssueSeverity.critical : IssueSeverity.warning,
+      severity: ms > lagThresholdMs * 2
+          ? IssueSeverity.critical
+          : IssueSeverity.warning,
       category: IssueCategory.build,
       confidence: IssueConfidence.confirmed,
       title: enriched
@@ -90,7 +92,9 @@ class HeavyComputeDetector extends BaseDetector {
     final (hint, effort) = FixHintBuilder.heavyCompute(durationMs: ms);
     return PerformanceIssue(
       stableId: 'heavy_compute',
-      severity: ms >= 16 ? IssueSeverity.critical : IssueSeverity.warning,
+      severity: ms > lagThresholdMs * 2
+          ? IssueSeverity.critical
+          : IssueSeverity.warning,
       category: IssueCategory.build,
       confidence: IssueConfidence.confirmed,
       title: 'Heavy Computation: ${ms.toStringAsFixed(1)}ms',

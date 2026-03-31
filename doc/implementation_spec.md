@@ -4798,15 +4798,22 @@ All 22 v6 milestones shipped in **v0.8.0**.
 
 ## v7 Roadmap: Performance & Accuracy
 
-### v7.1: HeavyComputeDetector — Two-Tier Severity
+### v7.1: HeavyComputeDetector — Two-Tier Severity ✅ Shipped
 
 **Problem:** `HeavyComputeDetector` (line 48) compares `ms > lagThresholdMs * 2` (effective threshold: 16ms when default is 8ms). The severity check at line 74 (`ms >= 16 ? critical : warning`) is dead code — since detection requires `>16`, `>=16` is always true, so every detected issue is `critical`. The `warning` tier is unreachable. Documentation says "8ms gaps" but code triggers at >16ms.
 
 **Fix:** Two-tier detection — warning at `> lagThresholdMs` (>8ms), critical at `> lagThresholdMs * 2` (>16ms). Both threshold and severity become meaningful.
 
-**Files:** `lib/src/detectors/heavy_compute_detector.dart` lines 48, 56, 74, 93.
+**Files:** `lib/src/detectors/heavy_compute_detector.dart` lines 48, 56, 74, 95.
 
 **Risk:** Low. May surface more warnings for 8–16ms compute gaps. Default thresholds unchanged — just honoring them correctly.
+
+**Post-Implementation Notes:**
+- Detection threshold lowered from `> lagThresholdMs * 2` (>16ms) to `> lagThresholdMs` (>8ms)
+- Severity now threshold-relative: `ms > lagThresholdMs * 2 ? critical : warning` (not hardcoded to 16)
+- Follows ShaderJankDetector convention (detect at 1× threshold, critical at 2× threshold)
+- 5 existing tests updated for new threshold, 7 new boundary/warning tests added (24 total)
+- No UI or FixHint changes needed — existing severity display handles both tiers generically
 
 ---
 
@@ -4951,7 +4958,7 @@ void _runStructuralScans(BuildContext scanContext) {
 
 | Priority | Milestone | Effort | Theme | Dependencies |
 |----------|-----------|--------|-------|--------------|
-| 1 | v7.1: HeavyCompute Two-Tier | Very Low | Accuracy | None |
+| 1 | v7.1: HeavyCompute Two-Tier | Very Low | Accuracy | Shipped ✅ |
 | 2 | v7.2: NetworkMonitor >= | Very Low | Accuracy | None |
 | 3 | v7.3: Threshold Tuning Pass | Low | Accuracy | None |
 | 4 | v7.4: Correlator Coverage | Very Low | Accuracy | None |
