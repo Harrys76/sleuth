@@ -117,6 +117,13 @@ abstract class BaseDetector {
   /// Called once after the unified tree walk completes.
   void finalizeScan() {}
 
+  /// Called when the tree walk completed without exceptions.
+  ///
+  /// Detectors that track cross-scan state (e.g. rebuild baselines) can
+  /// override this to gate state promotion on walk completeness, rather
+  /// than inferring it from internal bookkeeping. Default is a no-op.
+  void notifyWalkCompleted() {}
+
   /// Scan the widget/render tree for issues.
   ///
   /// Default implementation runs a single-detector walk using the unified
@@ -136,6 +143,7 @@ abstract class BaseDetector {
 
     try {
       context.visitChildElements(visitor);
+      notifyWalkCompleted();
     } catch (_) {}
     finalizeScan();
   }

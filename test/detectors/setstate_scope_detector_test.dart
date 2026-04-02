@@ -222,6 +222,96 @@ void main() {
             ObservationSource.debugCallbackAndStructural);
       });
     });
+
+    group('abort safety', () {
+      testWidgets('no issues emitted when walk aborts mid-tree', (
+        tester,
+      ) async {
+        detector = SetStateScopeDetector(
+          dirtyRatioThreshold: 0.3,
+          minSubtreeSize: 3,
+        );
+
+        await tester.pumpWidget(const _Wrapper(child: LargePageWidget()));
+        final context = tester.element(find.byType(_Wrapper));
+
+        // Simulate partial walk: prepareScan, then abort early
+        detector.prepareScan(context);
+        int visited = 0;
+        void partialVisitor(Element element) {
+          detector.checkElement(element);
+          if (visited++ > 3) return; // abort — no afterElement for remaining
+          element.visitChildren(partialVisitor);
+          detector.afterElement(element);
+        }
+
+        try {
+          context.visitChildElements(partialVisitor);
+        } catch (_) {}
+        detector.finalizeScan();
+
+        // Stack was not fully drained → finalizeScan should bail out
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets('rebuild baseline preserved after aborted walk', (
+        tester,
+      ) async {
+        detector = SetStateScopeDetector(
+          dirtyRatioThreshold: 0.3,
+          minSubtreeSize: 3,
+        );
+
+        // Phase 1: Complete scan to establish snapshot baseline
+        await tester.pumpWidget(const _Wrapper(child: LargePageWidget()));
+        final context = tester.element(find.byType(_Wrapper));
+        detector.scanTree(context);
+
+        // Phase 2: Aborted scan — should NOT overwrite _childSnapshots
+        detector.prepareScan(context);
+        int visited = 0;
+        void partialVisitor(Element element) {
+          detector.checkElement(element);
+          if (visited++ > 3) return;
+          element.visitChildren(partialVisitor);
+          detector.afterElement(element);
+        }
+
+        try {
+          context.visitChildElements(partialVisitor);
+        } catch (_) {}
+        detector.finalizeScan();
+
+        // Phase 3: Full scan should still detect issues (baseline intact)
+        detector.scanTree(context);
+        expect(detector.issues, isNotEmpty);
+      });
+    });
+
+    group('clearSnapshots retention fix', () {
+      testWidgets('clearSnapshots nulls widest-widget state', (tester) async {
+        detector = SetStateScopeDetector(
+          dirtyRatioThreshold: 0.3,
+          minSubtreeSize: 3,
+        );
+
+        // Phase 1: Scan a large tree — detector accumulates widest state
+        await tester.pumpWidget(const _Wrapper(child: LargePageWidget()));
+        detector.scanTree(tester.element(find.byType(_Wrapper)));
+        expect(detector.issues, isNotEmpty);
+        expect(detector.issues.first.widgetName, 'LargePageWidget');
+
+        // Phase 2: Simulate navigation abort — clearSnapshots called
+        detector.clearSnapshots();
+
+        // Phase 3: Scan a DIFFERENT small tree — must not see stale state
+        await tester.pumpWidget(const _Wrapper(child: SmallStateful()));
+        detector.scanTree(tester.element(find.byType(_Wrapper)));
+
+        // SmallStateful is below minSubtreeSize → no issues.
+        expect(detector.issues, isEmpty);
+      });
+    });
   });
 }
 

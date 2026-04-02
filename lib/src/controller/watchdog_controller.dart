@@ -792,11 +792,18 @@ class WatchdogController {
       }
     }
 
+    bool walkCompleted = false;
     try {
       scanContext.visitChildElements(visitor);
+      walkCompleted = true;
     } catch (_) {}
 
     // Phase 3: Finalization
+    if (walkCompleted) {
+      for (final d in unified) {
+        d.notifyWalkCompleted();
+      }
+    }
     for (final d in unified) {
       d.finalizeScan();
     }

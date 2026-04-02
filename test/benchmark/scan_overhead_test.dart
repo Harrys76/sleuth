@@ -22,10 +22,8 @@ import '../helpers/benchmark_helpers.dart';
 void main() {
   group('individual detector scan overhead (1000 elements)', () {
     // Budget: 5ms per detector for 1000 elements.
-    // SetStateScopeDetector gets 15ms due to O(N²) subtree counting.
     // CI runners get 2x tolerance via budgetMultiplier.
     final defaultBudgetUs = 5000 * budgetMultiplier;
-    final setStateBudgetUs = 15000 * budgetMultiplier;
 
     late BuildContext context;
 
@@ -79,8 +77,7 @@ void main() {
       final avgUs = benchmarkUs('SetStateScopeDetector', () {
         detector.scanTree(context);
       });
-      // Higher budget — O(N²) subtree counting
-      expect(avgUs, lessThan(setStateBudgetUs));
+      expect(avgUs, lessThan(defaultBudgetUs));
     });
 
     testWidgets('LayoutBottleneckDetector', (tester) async {
@@ -209,18 +206,18 @@ void main() {
     }
   });
 
-  group('scan overhead scales linearly (excluding SetStateScope)', () {
+  group('scan overhead scales linearly', () {
     testWidgets('ratio of 1000/500 elements < 2.5', (tester) async {
       // Measure 500 elements
       await tester.pumpWidget(buildMixedTree(500));
       var context = tester.element(find.byType(Directionality));
 
-      // Use all detectors except SetStateScopeDetector (known O(N²))
       final detectors = [
         RebuildDetector(),
         RepaintDetector(),
         GpuPressureDetector(),
         ShallowRebuildRiskDetector(),
+        SetStateScopeDetector(),
         LayoutBottleneckDetector(),
         ListviewDetector(),
         ImageMemoryDetector(),
@@ -234,7 +231,7 @@ void main() {
       ];
 
       final time500 = benchmarkUs(
-        '14 detectors × 500 elements',
+        '15 detectors × 500 elements',
         () {
           for (final d in detectors) {
             d.scanTree(context);
@@ -248,7 +245,7 @@ void main() {
       context = tester.element(find.byType(Directionality));
 
       final time1000 = benchmarkUs(
-        '14 detectors × 1000 elements',
+        '15 detectors × 1000 elements',
         () {
           for (final d in detectors) {
             d.scanTree(context);

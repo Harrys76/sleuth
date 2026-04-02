@@ -68,6 +68,9 @@ class SetStateScopeDetector extends BaseDetector {
   String? _widestStatefulWidget;
   Element? _widestElement;
   Map<int, int> _newSnapshots = {};
+  final List<int> _subtreeSizeStack = [];
+  bool _walkCompleted = false;
+  final Map<String, int> _pendingEvidence = {};
 
   @override
   void updateDebugSnapshot(DebugSnapshot snapshot) {
@@ -95,6 +98,8 @@ class SetStateScopeDetector extends BaseDetector {
     _childSnapshots.clear();
     _rebuildEvidence.clear();
     _evidenceWindowStart = DateTime.now();
+    _widestElement = null;
+    _widestStatefulWidget = null;
   }
 
   @override
@@ -107,12 +112,26 @@ class SetStateScopeDetector extends BaseDetector {
     _widestStatefulWidget = null;
     _widestElement = null;
     _newSnapshots = {};
+    _subtreeSizeStack.clear();
+    _walkCompleted = false;
+    _pendingEvidence.clear();
     _expireOldEvidence();
+  }
+
+  @override
+  void notifyWalkCompleted() {
+    _walkCompleted = true;
+    // Commit staged rebuild evidence only on successful walk completion.
+    for (final entry in _pendingEvidence.entries) {
+      _rebuildEvidence[entry.key] =
+          (_rebuildEvidence[entry.key] ?? 0) + entry.value;
+    }
   }
 
   @override
   void checkElement(Element element) {
     _totalElements++;
+    _subtreeSizeStack.add(0);
 
     if (element is StatefulElement) {
       final widget = element.widget;
@@ -131,35 +150,48 @@ class SetStateScopeDetector extends BaseDetector {
 
           final prevChildId = _childSnapshots[key];
           if (prevChildId != null && prevChildId != childId) {
-            // build() ran on this State — setState was called
-            _rebuildEvidence[name] = (_rebuildEvidence[name] ?? 0) + 1;
+            // Child widget identity changed — this element rebuilt.
+            // Stage in _pendingEvidence; merged on walk completion only.
+            _pendingEvidence[name] = (_pendingEvidence[name] ?? 0) + 1;
           }
         }
 
         // --- Count instances per type for debug correlation ---
         _typeInstanceCounts[name] = (_typeInstanceCounts[name] ?? 0) + 1;
+      }
+    }
+  }
 
-        // --- Count subtree size ---
-        int subtreeSize = 0;
-        void countSubtree(Element child) {
-          subtreeSize++;
-          child.visitChildren(countSubtree);
-        }
-
-        element.visitChildren(countSubtree);
-
-        // --- Track widest ---
-        if (subtreeSize > _maxSubtreeSize) {
-          _maxSubtreeSize = subtreeSize;
-          _widestStatefulWidget = name;
-          _widestElement = element;
-        }
+  @override
+  void afterElement(Element element) {
+    final subtreeSize = _subtreeSizeStack.removeLast();
+    if (_subtreeSizeStack.isNotEmpty) {
+      _subtreeSizeStack.last += subtreeSize + 1;
+    }
+    // Track max inline — same filters as checkElement:
+    // skip private-named and framework-owned StatefulWidgets so that
+    // Scaffold, Navigator, Overlay, etc. never become the "widest" candidate.
+    if (element is StatefulElement && subtreeSize > _maxSubtreeSize) {
+      final name = element.widget.runtimeType.toString();
+      if (!name.startsWith('_') && !isFrameworkWidget(element.widget)) {
+        _maxSubtreeSize = subtreeSize;
+        _widestStatefulWidget = name;
+        _widestElement = element;
       }
     }
   }
 
   @override
   void finalizeScan() {
+    // Only commit scan results when the walk completed without exceptions.
+    // This is set by notifyWalkCompleted(), called by the controller (unified
+    // walk) or BaseDetector.scanTree (single-detector walk) only on success.
+    // Covers all abort paths: mid-subtree throws (stack non-empty),
+    // first-element throws (stack empty, _totalElements == 0), and
+    // between-sibling throws (stack empty, _totalElements > 0).
+    _subtreeSizeStack.clear();
+    if (!_walkCompleted) return;
+
     // Swap snapshots
     _childSnapshots = _newSnapshots;
 
@@ -386,6 +418,8 @@ class SetStateScopeDetector extends BaseDetector {
     _highlights.clear();
     _childSnapshots.clear();
     _rebuildEvidence.clear();
+    _pendingEvidence.clear();
     _typeInstanceCounts.clear();
+    _subtreeSizeStack.clear();
   }
 }
