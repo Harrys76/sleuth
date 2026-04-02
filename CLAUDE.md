@@ -64,5 +64,6 @@ test/
 - v0.4.0: Accuracy fixes + correlator optimization.
 - v3 roadmap: v3.1–v3.10 all shipped.
 - v7 roadmap: 10/10 milestones shipped ✅ — accuracy fixes (v7.1–v7.6), performance optimizations (v7.7–v7.8, v7.10), unified tree walk (v7.9). See `doc/implementation_spec.md`.
+- v8 roadmap: 5 milestones (from Codex adversarial review) — SetState O(N^2) fix, Scaffold scan-root fallback, HTTP monitor leak, platform channel classification, SetState wording. See `doc/implementation_spec.md`.
 - Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
 - 1,310 tests, 0 analysis issues
