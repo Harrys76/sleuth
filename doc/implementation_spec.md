@@ -5062,7 +5062,7 @@ Origin: Codex adversarial review (2026-03-31) identified 5 issues in detector ac
 
 ---
 
-### v8.1: SetState Subtree Count — O(N^2) → O(N)
+### v8.1: SetState Subtree Count — O(N^2) → O(N) ✅ Shipped
 
 **Effort:** Low | **Theme:** Performance | **Impact:** Removes self-inflicted jank on large trees
 
@@ -5130,6 +5130,17 @@ This ensures no element reference survives across navigation-abort cycles, closi
 **Files:** `lib/src/detectors/setstate_scope_detector.dart` (~30 lines changed + `clearSnapshots()` expansion), `test/detectors/setstate_scope_detector_test.dart` (existing tests should pass unchanged — behavioral contract is identical).
 
 **Risk:** Low. Same issues emitted, same thresholds, same confidence. Only the subtree size computation method changes. The `clearSnapshots()` expansion ensures no element references are retained between scans — including across navigation-abort cycles.
+
+**Post-Implementation Notes (2026-04-02):**
+- 1,313 tests pass (3 new: abort safety × 2, clearSnapshots retention), 0 analysis issues
+- Survived 5 Codex adversarial reviews — each review drove a hardening fix:
+  - Review 1: Stack-empty check missed first-element throws → moved `_totalElements == 0` guard above snapshot swap
+  - Review 2: Between-siblings abort left stack empty with partial data → added `notifyWalkCompleted()` explicit completion signal to `BaseDetector` and controller
+  - Review 3: `_rebuildEvidence` double-count on aborted walks → transactional `_pendingEvidence` staging map, merged only in `notifyWalkCompleted()`
+  - Reviews 4-5: Controller-wide `_walkCompleted` flag can suppress valid scans when a later detector throws → accepted as correct conservative tradeoff (false negatives > false positives; self-heals next cycle; requires persistently-throwing detector which test suite would catch)
+- `notifyWalkCompleted()` added as a new `BaseDetector` hook (no-op default) — called by controller after unified walk success and by `BaseDetector.scanTree` after single-detector walk success
+- Benchmark: SetStateScopeDetector now uses `defaultBudgetUs` (5ms) instead of `setStateBudgetUs` (15ms); added to linear-scaling test (15 detectors)
+- Future improvement identified: per-detector exception isolation in the controller's unified walk loop (wrap individual detector callbacks in try/catch) — benefits all 16 detectors, orthogonal to v8.1, tracked for post-v8.2
 
 ---
 
