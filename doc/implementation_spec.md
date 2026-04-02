@@ -5656,6 +5656,17 @@ The `hasEvidence` variable should be renamed to `hasRebuildEvidence` for clarity
 
 **Risk:** None. No behavioral change. Stable IDs, detector types, and causal graph rules are all unchanged.
 
+#### Post-Implementation Notes (v8.5) — Shipped
+
+All spec changes applied plus one additional finding:
+
+1. **Detail text (has-evidence path):** "setState() was detected rebuilding this wide subtree" → "Rebuild activity was detected on this wide subtree" — done.
+2. **Fix hint:** "Move setState() calls to smaller, focused widgets" → "Scope rebuild triggers to smaller, focused widgets" — done.
+3. **`hasEvidence` → `hasRebuildEvidence`:** Renamed across all 6 occurrences in `finalizeScan()` and `_addHighlight()` — done.
+4. **Class docstring (lines 10-12, not in original spec):** "AND are actually calling setState(), causing wide rebuilds" → "Confidence is upgraded when rebuild activity is observed (child widget identity churn between scans)." Initial edit overclaimed by saying "AND are showing rebuild activity" — the `else if (!hasAnimScope)` branch emits at `possible` confidence without any rebuild evidence (purely structural). Adversarial review caught this; corrected to two-tier description.
+5. **Line 134 comment:** Already fixed in v8.1 — confirmed still correct ("Child widget identity changed — this element rebuilt").
+6. **No test changes needed:** Grep confirmed zero test assertions match any changed strings. All 1,313 tests pass.
+
 ---
 
 ### v8 Implementation Order

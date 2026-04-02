@@ -7,8 +7,9 @@ import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
-/// Detects StatefulWidgets that own too large a portion of the widget tree
-/// AND are actually calling setState(), causing wide rebuilds.
+/// Detects StatefulWidgets that own too large a portion of the widget tree.
+/// Confidence is upgraded when rebuild activity is observed (child widget
+/// identity churn between scans).
 ///
 /// Uses three signals:
 /// 1. **Structural**: does the StatefulWidget own >50% of the tree?
@@ -201,7 +202,7 @@ class SetStateScopeDetector extends BaseDetector {
     if (ratio <= dirtyRatioThreshold) return;
 
     // Combine signals to decide whether to flag
-    final hasEvidence = hasRebuildEvidenceFor(_widestStatefulWidget!);
+    final hasRebuildEvidence = hasRebuildEvidenceFor(_widestStatefulWidget!);
     final hasAnimScope =
         _widestElement != null && _containsAnimationScope(_widestElement!);
 
@@ -214,7 +215,7 @@ class SetStateScopeDetector extends BaseDetector {
         _widestElement != null ? buildAncestorChain(_widestElement!) : null;
     final location = rawChain != null ? '\n\n  • $rawChain' : '';
 
-    if (hasEvidence) {
+    if (hasRebuildEvidence) {
       final baseConfidence =
           hasAnimScope ? IssueConfidence.possible : IssueConfidence.likely;
 
@@ -235,8 +236,8 @@ class SetStateScopeDetector extends BaseDetector {
               'Wide setState Scope: $_widestStatefulWidget owns ~$percent% of tree',
           detail:
               '$_widestStatefulWidget has $_maxSubtreeSize of $_totalElements '
-              'elements (~$percent%) in its subtree. setState() was detected '
-              'rebuilding this wide subtree.$location',
+              'elements (~$percent%) in its subtree. Rebuild activity was '
+              'detected on this wide subtree.$location',
           fixHint: hint,
           fixEffort: effort,
           widgetName: _widestStatefulWidget,
@@ -246,7 +247,7 @@ class SetStateScopeDetector extends BaseDetector {
           detectedAt: DateTime.now(),
         ),
       );
-      _addHighlight(_widestElement!, _widestStatefulWidget!, hasEvidence,
+      _addHighlight(_widestElement!, _widestStatefulWidget!, hasRebuildEvidence,
           percent, _maxSubtreeSize);
     } else if (!hasAnimScope) {
       final (hint2, effort2) = FixHintBuilder.setStateScope(
@@ -276,7 +277,7 @@ class SetStateScopeDetector extends BaseDetector {
           detectedAt: DateTime.now(),
         ),
       );
-      _addHighlight(_widestElement!, _widestStatefulWidget!, hasEvidence,
+      _addHighlight(_widestElement!, _widestStatefulWidget!, hasRebuildEvidence,
           percent, _maxSubtreeSize);
     }
     // else: large subtree + animation scope + no rebuild evidence → suppress
@@ -306,8 +307,8 @@ class SetStateScopeDetector extends BaseDetector {
     );
   }
 
-  void _addHighlight(Element element, String widgetName, bool hasEvidence,
-      String percent, int subtreeSize) {
+  void _addHighlight(Element element, String widgetName,
+      bool hasRebuildEvidence, String percent, int subtreeSize) {
     final ro = element.renderObject;
     if (ro == null) return;
     final rect = getGlobalRect(ro);
@@ -315,7 +316,8 @@ class SetStateScopeDetector extends BaseDetector {
     _highlights.add(WidgetHighlight(
       rect: rect,
       widgetName: widgetName,
-      severity: hasEvidence ? IssueSeverity.critical : IssueSeverity.warning,
+      severity:
+          hasRebuildEvidence ? IssueSeverity.critical : IssueSeverity.warning,
       detectorName: 'setState',
       detail: 'Owns ~$percent% of tree ($subtreeSize elements)',
     ));

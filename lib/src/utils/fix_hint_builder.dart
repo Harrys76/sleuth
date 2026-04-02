@@ -515,7 +515,7 @@ class FixHintBuilder {
     final location = ancestorChain != null ? ' ($ancestorChain)' : '';
     return (
       '$widgetName owns ~$subtreePercent% of the tree$location. '
-          'Move setState() calls to smaller, focused widgets. '
+          'Scope rebuild triggers to smaller, focused widgets. '
           'Use Builder or ValueListenableBuilder to scope rebuilds. '
           'Extract stateful logic into the lowest possible subtree.',
       FixEffort.medium,
