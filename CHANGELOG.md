@@ -1,3 +1,43 @@
+## 0.9.1
+
+### Fixed
+
+- **SetState subtree counting O(N^2) → O(N)** (v8.1): `SetStateScopeDetector`
+  replaced recursive `_computeSubtreeSize` with stack-based post-order
+  accumulation in `afterElement`. Abort-safety hardened with
+  `notifyWalkCompleted` gate — rebuild evidence and child snapshots only
+  committed on successful walks. Transactional `_pendingEvidence` staging
+  prevents partial data from aborted scans.
+- **HTTP monitor openUrl leak** (v8.3): `_MonitoringHttpClient.openUrl()` now
+  wraps `_inner.openUrl()` in try/catch. On transport failure (DNS, TLS,
+  connection refused), emits `RequestRecord(statusCode: -1)`, calls
+  `onRequestEnded`, and rethrows the original exception. Callback isolation
+  ensures `onRequestEnded` and `onRecord` each run in separate try/catch
+  blocks — a throwing callback cannot suppress the other or mask the transport
+  exception. Same isolation applied to `_MonitoringRequest.close()` failure
+  path and `_MonitoringResponse._emitRecord()` success path. Survived 4
+  Codex adversarial reviews.
+- **Platform channel false positives** (v8.4): `TimelineParser` classifier
+  replaced `cat.contains('embedder')` fallback with prefix matching for real
+  `debugProfilePlatformChannels` events (`'Platform Channel send
+  [channel]#[method]'`). The embedder fallback incorrectly captured vsync,
+  compositor, and input events as platform channel traffic. Legacy exact-match
+  names (`platformchannel`, `methodchannel`) preserved as defensive fallback.
+
+### Changed
+
+- **SetState detector wording accuracy** (v8.5): user-facing detail text no
+  longer claims "setState() was detected" — replaced with "Rebuild activity
+  was detected" since the evidence signal (child widget identity churn) proves
+  the element rebuilt, not the specific trigger. Fix hints generalized from
+  "Move setState() calls" to "Scope rebuild triggers." Internal variable
+  `hasEvidence` renamed to `hasRebuildEvidence`. Class docstring updated to
+  describe two-tier confidence system.
+
+### Added
+
+- 1,327 tests total (up from 1,313), 0 analysis issues.
+
 ## 0.9.0
 
 ### Changed

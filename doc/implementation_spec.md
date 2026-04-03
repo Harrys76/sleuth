@@ -5628,6 +5628,22 @@ static const _channelNames = {
 
 **Risk:** Low. The name-only allowlist already covers the existing test fixtures via lowercase normalization. The hard prerequisite (trace capture) ensures the allowlist is complete before the embedder fallback is removed. No channel type can be silently dropped because step 1 must enumerate all verified names before step 2 changes the classifier.
 
+#### Post-Implementation Notes (v8.4) — Shipped
+
+**Hard prerequisite resolved without live trace capture.** Source code analysis of Flutter's `platform_channel.dart` revealed the actual event format: `debugProfilePlatformChannels` emits events with `name: 'Platform Channel send [channelName]#[methodName]'` via `dart:developer Timeline.startSync`. Only MethodChannel emits these; EventChannel and BasicMessageChannel do not emit timeline events. The `cat` field is empty or `'Dart'`, NOT `'embedder'`.
+
+**Critical finding:** The classifier was fundamentally wrong, not just "too broad." Real platform channel events (`'platform channel send music#gettrack'`) matched NEITHER `_channelNames.contains(name)` (no exact match) NOR `cat.contains('embedder')` (wrong category). The `cat.contains('embedder')` fallback only caught unrelated embedder noise (vsync, compositor, input events) — real channel events were silently dropped.
+
+**Changes applied:**
+1. **`_channelPrefix` constant added** (`'platform channel send '`) for prefix-based matching of real `debugProfilePlatformChannels` events.
+2. **Classifier replaced:** `_channelNames.contains(name) || cat.contains('embedder')` → `_channelNames.contains(name) || name.startsWith(_channelPrefix)`. Exact-match `_channelNames` kept as legacy fallback.
+3. **Test helper updated:** `platformChannelData()` `cat` changed from `'embedder'` to `''` (documentation accuracy — helper creates pre-classified data, so `cat` doesn't affect classification).
+4. **Detector docstring updated:** "monitors Embedder events" → "monitors platform channel timeline events".
+5. **7 new tests:** 4 positive (real prefix format, two legacy exact names, case insensitivity) + 3 negative (embedder vsync, compositor, generic events NOT classified as channels).
+6. **Test count:** 1,320 → 1,327. All pass, 0 analysis issues.
+
+**Note:** `debugProfilePlatformChannels` defaults to `false`. Widget Watchdog does not currently enable it. Auto-enabling via VM service evaluation is a separate future enhancement. This fix ensures the classifier works correctly when events are present and stops generating false positives from embedder noise.
+
 ---
 
 ### v8.5: SetState Detector — Wording Accuracy
@@ -5681,17 +5697,14 @@ All spec changes applied plus one additional finding:
 
 ### v8 Implementation Order
 
-| Priority | Milestone | Effort | Theme | Dependencies |
-|----------|-----------|--------|-------|--------------|
-| 1 | v8.1: SetState O(N^2) Subtree Fix | Low | Performance | None |
-| 2 | v8.2: Scaffold Scan-Root Fallback | Medium-High | Accuracy | None |
-| 3 | v8.3: HTTP Monitor openUrl Leak | Very Low | Correctness | None |
-| 4 | v8.4: Platform Channel Classification | Low | Accuracy | None (trace capture is internal prereq) |
-| 5 | v8.5: SetState Wording Accuracy | Very Low | Accuracy | None |
+| Priority | Milestone | Effort | Theme | Status |
+|----------|-----------|--------|-------|--------|
+| 1 | v8.1: SetState O(N^2) Subtree Fix | Low | Performance | Shipped ✅ |
+| 2 | v8.2: Scaffold Scan-Root Fallback | Medium-High | Accuracy | Remaining |
+| 3 | v8.3: HTTP Monitor openUrl Leak | Very Low | Correctness | Shipped ✅ |
+| 4 | v8.4: Platform Channel Classification | Low | Accuracy | Shipped ✅ |
+| 5 | v8.5: SetState Wording Accuracy | Very Low | Accuracy | Shipped ✅ |
 
-All milestones are independent — no cross-dependencies. Can be implemented in any order. v8.4 has an internal prerequisite (trace capture before code change) but no dependency on other milestones.
+**v0.9.1 shipped:** v8.1 + v8.3 + v8.4 + v8.5 (4/5 milestones). 1,327 tests, 0 analysis issues.
 
-**Grouping suggestion:**
-- **v0.9.1** (quick fixes): v8.3, v8.5 — two Very Low effort correctness/accuracy patches
-- **v0.9.2** (performance + accuracy): v8.1, v8.4 — SetState O(N^2) subtree count fix + platform channel classification (v8.4 requires trace capture as internal prerequisite before code change)
-- **v1.0.0** (platform coverage): v8.2 — Cupertino/scaffold-free app support with route-local scan root resolution (covers single-scaffold Cupertino and stable scaffold-free layouts via active route element; multi-scaffold and scaffold-free transitions remain known gaps for future work)
+**Remaining:** v8.2 (Scaffold Scan-Root Fallback) — Cupertino/scaffold-free app support with route-local scan root resolution.

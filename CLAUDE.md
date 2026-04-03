@@ -53,18 +53,13 @@ test/
 
 ## Current state
 
-- **v0.9.0** (current) — unified structural tree walk (v7.9), all v7 milestones shipped. See CHANGELOG.md for full details.
+- **v0.9.1** (current) — v8 accuracy/correctness/performance fixes: SetState O(N²) fix (v8.1), HTTP monitor leak (v8.3), platform channel false positives (v8.4), SetState wording (v8.5). See CHANGELOG.md.
+- v0.9.0: Unified structural tree walk (v7.9), all v7 milestones shipped.
 - v0.8.2: Ring buffers (v7.7), correlator sort cache (v7.8), VM reconnect polling fix (v7.10).
 - v0.8.1: Accuracy fixes — HeavyCompute two-tier (v7.1), NetworkMonitor threshold (v7.2), threshold tuning (v7.3), correlator coverage (v7.4), rebuild VM fallback (v7.5), MemoryPressure warmup (v7.6).
 - v0.8.0: v6 roadmap complete (22 milestones: safety, accuracy, UI polish, testing).
 - v0.7.0: v4 + v5 roadmap — suppression, custom detectors, theming, export enrichment, causal graph, configurable thresholds, detector registry, network correlation, RepaintBoundary detector.
-- v0.6.1: FPS counter fixes — throughput-based calculation, startup timing, target-aware color.
-- v0.6.0: FloatingIssuesCard replaces DashboardSheet, resizable card, GuidePage.
-- v0.5.0: Context-aware fix hints, verdict linking, UX improvements.
-- v0.4.0: Accuracy fixes + correlator optimization.
-- v3 roadmap: v3.1–v3.10 all shipped.
-- v7 roadmap: 10/10 milestones shipped ✅ — accuracy fixes (v7.1–v7.6), performance optimizations (v7.7–v7.8, v7.10), unified tree walk (v7.9). See `doc/implementation_spec.md`.
-- v8 roadmap: 5 milestones (from Codex adversarial review) — SetState O(N^2) fix, Scaffold scan-root fallback, HTTP monitor leak, platform channel classification, SetState wording. See `doc/implementation_spec.md`.
-- v8.1 shipped ✅ — SetState O(N²) → O(N) subtree counting + abort-safety hardening (notifyWalkCompleted, transactional evidence)
+- v7 roadmap: 10/10 milestones shipped ✅. See `doc/implementation_spec.md`.
+- v8 roadmap: 4/5 milestones shipped ✅ (v8.1, v8.3, v8.4, v8.5). v8.2 (Scaffold scan-root fallback) remaining. See `doc/implementation_spec.md`.
 - Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
-- 1,313 tests, 0 analysis issues
+- 1,327 tests, 0 analysis issues

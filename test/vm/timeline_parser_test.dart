@@ -102,7 +102,7 @@ void main() {
     test('non-pipeline events do not produce PhaseEvents', () {
       final events = [
         _makeEvent(
-            name: 'PlatformChannel', dur: 100, ts: 1000, cat: 'embedder'),
+            name: 'Platform Channel send test#invoke', dur: 100, ts: 1000),
         _makeEvent(name: 'GC', dur: 50, ts: 2000, cat: 'gc'),
       ];
 
@@ -308,6 +308,89 @@ void main() {
 
       final data = TimelineParser.parse(events);
       expect(data.phaseEvents.single.dirtyList, ['OnlyOne']);
+    });
+  });
+
+  group('TimelineParser platform channel classification (v8.4)', () {
+    test('real format: debugProfilePlatformChannels prefix is classified', () {
+      final events = [
+        _makeEvent(
+          name: 'Platform Channel send music#getTrack',
+          dur: 500,
+          ts: 1000,
+        ),
+      ];
+
+      final data = TimelineParser.parse(events);
+      expect(data.platformChannelEvents, hasLength(1));
+    });
+
+    test('legacy exact name: methodchannel is classified', () {
+      final events = [
+        _makeEvent(name: 'methodchannel', dur: 200, ts: 1000),
+      ];
+
+      final data = TimelineParser.parse(events);
+      expect(data.platformChannelEvents, hasLength(1));
+    });
+
+    test('legacy exact name: platformchannel is classified', () {
+      final events = [
+        _makeEvent(name: 'PlatformChannel', dur: 200, ts: 1000),
+      ];
+
+      final data = TimelineParser.parse(events);
+      expect(data.platformChannelEvents, hasLength(1));
+    });
+
+    test('case insensitivity: mixed case prefix is classified', () {
+      final events = [
+        _makeEvent(
+          name: 'Platform Channel Send Music#IsLicensed',
+          dur: 300,
+          ts: 1000,
+        ),
+      ];
+
+      final data = TimelineParser.parse(events);
+      expect(data.platformChannelEvents, hasLength(1));
+    });
+
+    test('embedder vsync event is NOT classified as channel', () {
+      final events = [
+        _makeEvent(name: 'VSYNC', dur: 100, ts: 1000, cat: 'embedder'),
+      ];
+
+      final data = TimelineParser.parse(events);
+      expect(data.platformChannelEvents, isEmpty);
+    });
+
+    test('embedder compositor event is NOT classified as channel', () {
+      final events = [
+        _makeEvent(
+          name: 'FlutterCompositorPresentLayers',
+          dur: 200,
+          ts: 1000,
+          cat: 'embedder',
+        ),
+      ];
+
+      final data = TimelineParser.parse(events);
+      expect(data.platformChannelEvents, isEmpty);
+    });
+
+    test('generic embedder event is NOT classified as channel', () {
+      final events = [
+        _makeEvent(
+          name: 'SomeEmbedderWork',
+          dur: 150,
+          ts: 1000,
+          cat: 'embedder',
+        ),
+      ];
+
+      final data = TimelineParser.parse(events);
+      expect(data.platformChannelEvents, isEmpty);
     });
   });
 }

@@ -137,7 +137,7 @@ Issues include a confidence level reflecting evidence quality:
 |----------|-------------|-----------|------------|-------------------|
 | Shader Jank | VM Timeline | Shader compilation occurred | Confirmed | Requires VM connection |
 | Heavy Compute | VM Timeline | Long UI-thread event | Confirmed | Requires VM connection |
-| Platform Channel | VM Timeline | High call frequency | Confirmed | Requires VM connection |
+| Platform Channel | VM Timeline | High call frequency | Confirmed | Requires VM connection and `debugProfilePlatformChannels` |
 | Memory Pressure | VM GC events + heap polling | GC frequency elevated, heap growing steadily (linear regression), heap near capacity (>80%) | Likely / Confirmed | Requires VM connection |
 | Repaint | VM Timeline | High paint frequency | Confirmed | Requires VM connection |
 

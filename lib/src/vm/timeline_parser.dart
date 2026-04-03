@@ -110,6 +110,11 @@ class TimelineParser {
     'methodchannel',
   };
 
+  /// Prefix for real platform channel timeline events emitted by
+  /// `debugProfilePlatformChannels` (lowercased).
+  /// Format: 'platform channel send [channelName]#[methodName]'
+  static const _channelPrefix = 'platform channel send ';
+
   /// Parse a string-encoded int from timeline args.
   ///
   /// Flutter writes all timeline args as `Map<String, String>`,
@@ -216,7 +221,8 @@ class TimelineParser {
               durationUs: dur,
             ));
           }
-        } else if (_channelNames.contains(name) || cat.contains('embedder')) {
+        } else if (_channelNames.contains(name) ||
+            name.startsWith(_channelPrefix)) {
           channels.add(event);
         } else if (cat.contains('gc')) {
           gcs.add(event);

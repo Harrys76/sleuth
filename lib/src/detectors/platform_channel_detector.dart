@@ -5,7 +5,7 @@ import '../vm/timeline_parser.dart';
 
 /// Detects excessive platform channel calls.
 ///
-/// **VM-Only Detector** — monitors Embedder events for >20 calls/sec.
+/// **VM-Only Detector** — monitors platform channel timeline events for >20 calls/sec.
 class PlatformChannelDetector extends BaseDetector {
   PlatformChannelDetector({
     this.callsPerSecThreshold = 20,

@@ -134,7 +134,7 @@ ParsedTimelineData platformChannelData({
         channelEventCount,
         (i) => TimelineEvent.parse({
           'name': methodName ?? 'PlatformChannel',
-          'cat': 'embedder',
+          'cat': '',
           'ph': 'X',
           'dur': durUs,
           'ts': i * 1000,
