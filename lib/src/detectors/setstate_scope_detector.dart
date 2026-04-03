@@ -389,6 +389,9 @@ class SetStateScopeDetector extends BaseDetector {
     if (widget is ModalBarrier) return true;
 
     final name = widget.runtimeType.toString();
+    // _ModalScope<T> runtimeType includes the generic parameter
+    // (e.g. '_ModalScope<dynamic>'), so use startsWith.
+    if (name.startsWith('_ModalScope')) return true;
     return _frameworkWidgetNames.contains(name);
   }
 
@@ -397,6 +400,7 @@ class SetStateScopeDetector extends BaseDetector {
     'MaterialApp',
     'WidgetsApp',
     'CupertinoApp',
+    'CupertinoPageScaffold',
     'CupertinoTabScaffold',
     'HeroControllerScope',
     'PrimaryScrollController',

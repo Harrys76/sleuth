@@ -490,6 +490,14 @@ class WatchdogController {
     _scanTree(context);
   }
 
+  /// Exposes scaffold-free scan flag for testing.
+  @visibleForTesting
+  bool get isScaffoldFreeScanForTest => _isScaffoldFreeScan;
+
+  /// Exposes navigator-found flag for testing.
+  @visibleForTesting
+  bool get navigatorFoundForTest => _navigatorFound;
+
   /// Exposes capture buffer for testing.
   @visibleForTesting
   JankCaptureBuffer get captureBufferForTest => _captureBuffer;
@@ -572,6 +580,32 @@ class WatchdogController {
   /// not the overlay root. Cleared during route transitions to avoid stale stamps.
   BuildContext? _lastScanContext;
 
+  /// True when the scan root is an overlay entry (scaffold-free Navigator path).
+  /// Exempts [ShallowRebuildRiskDetector] and [SetStateScopeDetector] from the
+  /// walk — their depth/ratio semantics break with overlay-entry scan roots.
+  bool _isScaffoldFreeScan = false;
+
+  /// True if [_findActiveRouteScanRoot] found a Navigator in the tree.
+  /// Distinguishes "no Navigator" (static app → app child fallback) from
+  /// "Navigator found but unsafe to scan" (→ navigating sentinel).
+  bool _navigatorFound = false;
+
+  /// Route name resolved from scaffold-free path via _ModalScopeStatus.
+  /// Used by [_currentRouteName] when [_lastScanContext] is an overlay entry
+  /// (where ModalRoute.of returns null since context is above the route).
+  String? _scaffoldFreeRouteName;
+
+  /// Identity hash of the topmost route-owned overlay entry from this scan.
+  int _currentActiveEntryHash = 0;
+
+  /// Identity hash from the previous scan — for route-stability detection.
+  /// NEVER reset by the navigating sentinel — persists across sentinel cycles.
+  int _lastActiveEntryHash = 0;
+
+  /// Cached NotificationListener element wrapping widget.child — used as
+  /// scan root for static scaffold-free apps (no Navigator).
+  BuildContext? _appChildContext;
+
   /// Start periodic tree scanning. Call from widget with BuildContext.
   void startTreeScanning(BuildContext context) {
     _overlayContext = context;
@@ -594,6 +628,10 @@ class WatchdogController {
 
   void _scanTree(BuildContext context) {
     if (!_initialized || kReleaseMode) return;
+
+    // Clear scaffold-free state — each scan path sets these independently.
+    _isScaffoldFreeScan = false;
+    _scaffoldFreeRouteName = null;
 
     // Always drain debug counts so they don't carry over across page transitions
     DebugSnapshot? debugSnapshot;
@@ -680,8 +718,8 @@ class WatchdogController {
         return;
       }
 
-      // Collect all visible Scaffolds
-      if (name == 'Scaffold') {
+      // Collect all visible Scaffolds (Material + Cupertino)
+      if (name == 'Scaffold' || name == 'CupertinoPageScaffold') {
         scaffolds.add(element);
       }
 
@@ -692,7 +730,19 @@ class WatchdogController {
       root.visitChildElements(visitor);
     } catch (_) {}
 
-    if (scaffolds.isEmpty) return null;
+    if (scaffolds.isEmpty) {
+      // No Material or Cupertino scaffold — try scaffold-free fallback.
+      final scanRoot = _findActiveRouteScanRoot(root);
+      if (scanRoot != null) {
+        _isScaffoldFreeScan = true;
+        if (_isRouteStable()) return scanRoot;
+        return null; // Unstable route → navigating sentinel
+      }
+      // No route-owned scan root — distinguish why:
+      if (_navigatorFound) return null; // Navigator exists, unsafe → sentinel
+      // No Navigator at all — genuine static app.
+      return _resolveAppChildContext(root);
+    }
 
     // Multiple visible Scaffolds = route transition in progress.
     // Return null so the caller skips scanning during transitions.
@@ -722,6 +772,169 @@ class WatchdogController {
     return result;
   }
 
+  /// Walk from [root] to find the outermost Navigator's topmost
+  /// route-owned onstage overlay entry as the scan root.
+  ///
+  /// Sets [_navigatorFound], [_currentActiveEntryHash], and
+  /// [_scaffoldFreeRouteName]. Returns the overlay entry element
+  /// or null if no suitable scan root found.
+  Element? _findActiveRouteScanRoot(BuildContext root) {
+    Element? navigator;
+    void findNav(Element el) {
+      if (navigator != null) return;
+      final name = el.widget.runtimeType.toString();
+      // Skip our own UI widgets
+      if (name == 'FloatingIssuesCard' ||
+          name == 'TriggerButton' ||
+          name == 'HighlightOverlay') {
+        return;
+      }
+      if (name == 'Navigator') {
+        navigator = el;
+        return; // outermost — don't descend
+      }
+      el.visitChildElements(findNav);
+    }
+
+    root.visitChildElements(findNav);
+    _navigatorFound = navigator != null;
+    if (navigator == null) return null;
+
+    // Collect onstage overlay entries via TickerMode filtering.
+    // _OverlayEntryWidgetState.build() wraps content in
+    // TickerMode(enabled: tickerEnabled). Background maintained
+    // routes have tickerEnabled: false (overlay.dart:883).
+    final onstageEntries = <Element>[];
+    void collectEntries(Element el) {
+      final name = el.widget.runtimeType.toString();
+      if (name == '_OverlayEntryWidget' || name == 'OverlayEntry') {
+        bool isBackground = false;
+        el.visitChildElements((child) {
+          if (child.widget is TickerMode &&
+              !(child.widget as TickerMode).enabled) {
+            isBackground = true;
+          }
+        });
+        if (!isBackground) onstageEntries.add(el);
+        return; // don't descend into entry content for collection
+      }
+      el.visitChildElements(collectEntries);
+    }
+
+    navigator!.visitChildElements(collectEntries);
+
+    // Iterate reverse (topmost first) — return first route-owned entry.
+    for (final entry in onstageEntries.reversed) {
+      if (_isRouteOwnedEntry(entry)) {
+        if (_containsNestedNavigator(entry)) return null;
+        _captureRouteName(entry);
+        _currentActiveEntryHash = entry.hashCode;
+        return entry;
+      }
+    }
+    return null; // No route-owned entry (all transient UI)
+  }
+
+  /// Check if an overlay entry is route-owned by looking for `_ModalScope`
+  /// within the first ~7 levels. Route entries have `_ModalScope` at depth ~5
+  /// (entry, TickerMode, _EffectiveTickerMode, _RenderTheaterMarker,
+  /// Builder, Semantics, `_ModalScope`).
+  /// Non-route entries (tooltips, hero flights) lack it entirely.
+  /// Uses startsWith because runtimeType includes the generic parameter
+  /// (e.g. `_ModalScope<dynamic>`).
+  bool _isRouteOwnedEntry(Element entry) {
+    bool found = false;
+    void check(Element el, int depth) {
+      if (found || depth > 7) return;
+      if (el.widget.runtimeType.toString().startsWith('_ModalScope')) {
+        found = true;
+        return;
+      }
+      el.visitChildElements((child) => check(child, depth + 1));
+    }
+
+    entry.visitChildElements((child) => check(child, 0));
+    return found;
+  }
+
+  /// Walk the overlay entry subtree looking for a nested Navigator.
+  /// Returns true if any Navigator element is found below the scan root.
+  /// Terminates early on first match.
+  bool _containsNestedNavigator(Element entry) {
+    bool found = false;
+    void check(Element el) {
+      if (found) return;
+      if (el.widget.runtimeType.toString() == 'Navigator') {
+        found = true;
+        return;
+      }
+      el.visitChildElements(check);
+    }
+
+    entry.visitChildElements(check);
+    return found;
+  }
+
+  /// Resolve route name for scaffold-free scans. Walks from the overlay
+  /// entry to find _ModalScopeStatus, then calls ModalRoute.of on its
+  /// first child to get the route name. Stores only the String name.
+  void _captureRouteName(Element entry) {
+    _scaffoldFreeRouteName = null;
+    Element? scopeStatusChild;
+    void findScopeStatus(Element el, int depth) {
+      if (scopeStatusChild != null || depth > 10) return;
+      if (el.widget.runtimeType.toString() == '_ModalScopeStatus') {
+        el.visitChildElements((child) {
+          scopeStatusChild ??= child;
+        });
+        return;
+      }
+      el.visitChildElements((child) => findScopeStatus(child, depth + 1));
+    }
+
+    entry.visitChildElements((child) => findScopeStatus(child, 0));
+    if (scopeStatusChild != null) {
+      _scaffoldFreeRouteName = ModalRoute.of(scopeStatusChild!)?.settings.name;
+    }
+  }
+
+  /// Check if the topmost route-owned overlay entry is stable across scans.
+  /// Uses identity hash — detects push, pop, replacement, dialog open.
+  bool _isRouteStable() {
+    if (_lastActiveEntryHash == 0) {
+      // Initial startup — record but don't accept yet.
+      _lastActiveEntryHash = _currentActiveEntryHash;
+      return false;
+    }
+    final stable = _currentActiveEntryHash == _lastActiveEntryHash;
+    _lastActiveEntryHash = _currentActiveEntryHash;
+    return stable;
+  }
+
+  /// Resolve the NotificationListener element wrapping widget.child in the
+  /// overlay. Used as scan root for static scaffold-free apps (no Navigator).
+  /// Cached after first resolution. Depth ~4 from overlay root.
+  BuildContext? _resolveAppChildContext(BuildContext root) {
+    if (_appChildContext != null) {
+      final el = _appChildContext! as Element;
+      if (el.mounted) return _appChildContext;
+      _appChildContext = null;
+    }
+    Element? result;
+    void find(Element el) {
+      if (result != null) return;
+      if (el.widget is NotificationListener) {
+        result = el;
+        return;
+      }
+      el.visitChildElements(find);
+    }
+
+    root.visitChildElements(find);
+    _appChildContext = result;
+    return result;
+  }
+
   /// Re-collect highlights using fresh screen rects (e.g. after scroll).
   ///
   /// Re-runs structural detector scans to get fresh rects, then
@@ -729,12 +942,10 @@ class WatchdogController {
   void refreshHighlights() {
     if (!highlightEnabledNotifier.value) return;
     if (_interactionState == InteractionContext.navigating) return;
-    final ctx = _overlayContext;
-    if (ctx == null) return;
-    final element = ctx as Element;
+    final scanContext = _lastScanContext;
+    if (scanContext == null) return;
+    final element = scanContext as Element;
     if (!element.mounted) return;
-    final scanContext = _findVisiblePageContext(ctx) ?? ctx;
-    _lastScanContext = scanContext;
     _runStructuralScans(scanContext);
     _collectHighlights();
   }
@@ -782,12 +993,20 @@ class WatchdogController {
     }
 
     // Phase 2: Unified walk — O(N) instead of O(detectors × N)
+    // Exempt depth/ratio-dependent detectors from scaffold-free walk.
+    final walkDetectors = _isScaffoldFreeScan
+        ? unified
+            .where((d) =>
+                d is! SetStateScopeDetector && d is! ShallowRebuildRiskDetector)
+            .toList()
+        : unified;
+
     void visitor(Element element) {
-      for (final d in unified) {
+      for (final d in walkDetectors) {
         d.checkElement(element);
       }
       element.visitChildren(visitor);
-      for (final d in unified) {
+      for (final d in walkDetectors) {
         d.afterElement(element);
       }
     }
@@ -799,8 +1018,11 @@ class WatchdogController {
     } catch (_) {}
 
     // Phase 3: Finalization
+    // notifyWalkCompleted only for detectors that participated in the walk.
+    // finalizeScan for ALL unified detectors — exempted detectors need it
+    // to clear stale state (e.g. swap empty _childSnapshots, clear _usages).
     if (walkCompleted) {
-      for (final d in unified) {
+      for (final d in walkDetectors) {
         d.notifyWalkCompleted();
       }
     }
@@ -1205,6 +1427,7 @@ class WatchdogController {
   }
 
   String? _currentRouteName() {
+    if (_scaffoldFreeRouteName != null) return _scaffoldFreeRouteName;
     final ctx = _lastScanContext;
     if (ctx == null) return null;
     return ModalRoute.of(ctx)?.settings.name;
@@ -1396,6 +1619,7 @@ class WatchdogController {
     _scrollIdleTimer?.cancel();
     _overlayContext = null;
     _lastScanContext = null;
+    _appChildContext = null;
     _recurrenceCounts.clear();
     _captureBuffer.clear();
     _phaseEventBuffer.clear();

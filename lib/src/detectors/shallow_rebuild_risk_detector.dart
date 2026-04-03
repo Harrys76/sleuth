@@ -89,6 +89,7 @@ class ShallowRebuildRiskDetector extends BaseDetector {
       final name = widget.runtimeType.toString();
       const frameworkWidgets = {
         'Scaffold',
+        'CupertinoPageScaffold',
         'ScaffoldMessenger',
         'AppBar',
         'Material',
