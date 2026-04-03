@@ -105,16 +105,37 @@ class _MonitoringHttpClient implements HttpClient {
     final startTime = DateTime.now();
     final requestId = _nextRequestId++;
     _onRequestStarted?.call(requestId, startTime);
-    final request = await _inner.openUrl(method, url);
-    return _MonitoringRequest(
-      request,
-      url.toString(),
-      method,
-      startTime,
-      _onRecord,
-      requestId,
-      _onRequestEnded,
-    );
+    try {
+      final request = await _inner.openUrl(method, url);
+      return _MonitoringRequest(
+        request,
+        url.toString(),
+        method,
+        startTime,
+        _onRecord,
+        requestId,
+        _onRequestEnded,
+      );
+    } catch (_) {
+      try {
+        _onRequestEnded?.call(requestId);
+      } catch (_) {
+        // Non-fatal: monitoring must not alter app behavior.
+      }
+      try {
+        _onRecord(RequestRecord(
+          url: url.toString(),
+          method: method,
+          statusCode: -1,
+          durationMs: DateTime.now().difference(startTime).inMilliseconds,
+          responseBytes: 0,
+          startedAt: startTime,
+        ));
+      } catch (_) {
+        // Non-fatal: monitoring must not alter app behavior.
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -285,16 +306,23 @@ class _MonitoringRequest implements HttpClientRequest {
         _onRequestEnded,
       );
     } catch (_) {
-      _onRequestEnded?.call(_requestId);
-      final durationMs = DateTime.now().difference(_startTime).inMilliseconds;
-      _onRecord(RequestRecord(
-        url: _url,
-        method: _method,
-        statusCode: -1,
-        durationMs: durationMs,
-        responseBytes: 0,
-        startedAt: _startTime,
-      ));
+      try {
+        _onRequestEnded?.call(_requestId);
+      } catch (_) {
+        // Non-fatal: monitoring must not alter app behavior.
+      }
+      try {
+        _onRecord(RequestRecord(
+          url: _url,
+          method: _method,
+          statusCode: -1,
+          durationMs: DateTime.now().difference(_startTime).inMilliseconds,
+          responseBytes: 0,
+          startedAt: _startTime,
+        ));
+      } catch (_) {
+        // Non-fatal: monitoring must not alter app behavior.
+      }
       rethrow;
     }
   }
@@ -411,15 +439,23 @@ class _MonitoringResponse extends Stream<List<int>>
   final void Function(int requestId)? _onRequestEnded;
 
   void _emitRecord(int bytesReceived) {
-    _onRequestEnded?.call(_requestId);
-    _onRecord(RequestRecord(
-      url: _url,
-      method: _method,
-      statusCode: _inner.statusCode,
-      durationMs: DateTime.now().difference(_startTime).inMilliseconds,
-      responseBytes: bytesReceived,
-      startedAt: _startTime,
-    ));
+    try {
+      _onRequestEnded?.call(_requestId);
+    } catch (_) {
+      // Non-fatal: monitoring must not alter app behavior.
+    }
+    try {
+      _onRecord(RequestRecord(
+        url: _url,
+        method: _method,
+        statusCode: _inner.statusCode,
+        durationMs: DateTime.now().difference(_startTime).inMilliseconds,
+        responseBytes: bytesReceived,
+        startedAt: _startTime,
+      ));
+    } catch (_) {
+      // Non-fatal: monitoring must not alter app behavior.
+    }
   }
 
   @override

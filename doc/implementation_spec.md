@@ -5576,6 +5576,16 @@ Future<HttpClientRequest> openUrl(String method, Uri url) async {
 
 **Risk:** None. Strictly additive error handling. Existing behavior unchanged on success. The `rethrow` preserves the original exception for callers.
 
+#### Post-Implementation Notes (v8.3) — Shipped
+
+1. **`openUrl()` try/catch added:** Wraps `_inner.openUrl()` in try/catch. On failure: calls `_onRequestEnded`, emits `RequestRecord(statusCode: -1)`, rethrows.
+2. **Callback isolation (from Codex adversarial review):** Both `openUrl()` and the pre-existing `_MonitoringRequest.close()` catch blocks now wrap monitoring callbacks (`_onRequestEnded`, `_onRecord`) in an inner try/catch. If a callback throws, the inner catch swallows it so the original transport exception (`SocketException`, `HandshakeException`, etc.) always reaches the caller. Without this, a broken callback could replace the real network error, breaking retry logic and error handling.
+3. **4 failure-path tests:** `_FailingHttpOverrides` + `_FailingHttpClient` helpers. Tests verify: onRequestEnded called with correct ID, failure record emitted with statusCode -1, original exception rethrown unchanged, **throwing onRecord cannot mask the transport exception** (regression test from adversarial review).
+4. **Success-path callback isolation (from Codex adversarial review #2):** `_MonitoringResponse._emitRecord()` now wraps `_onRequestEnded` and `_onRecord` in separate try/catch blocks. This ensures: (a) a throwing callback cannot escape into the caller's onDone/onError handler, and (b) a throwing `_onRequestEnded` cannot suppress `_onRecord`. Two new tests with `_SuccessHttpOverrides` + `_FakeRequest`/`_FakeResponse` mock helpers verify both scenarios.
+5. **Known limitation (documented, not fixed):** If a caller obtains a response but never consumes the body (`listen()` never called), `_emitRecord()` never runs. This is a pre-existing architectural issue that only affects apps with existing socket leak bugs (not consuming a response body leaks the underlying connection regardless of monitoring). Fixing requires fundamentally changing the streaming model — disproportionate risk for a scenario that requires pre-existing buggy app code.
+6. **Test count:** 1,313 → 1,319. All pass, 0 analysis issues.
+7. **Failure-path callback isolation (from Codex adversarial review #3):** The `openUrl()` and `_MonitoringRequest.close()` failure catch blocks originally wrapped both `_onRequestEnded` and `_onRecord` in a **single** inner try/catch. If `_onRequestEnded` threw, `_onRecord` was skipped — silently dropping the failure record from monitoring. This was inconsistent with `_emitRecord()` (success path) which already had separate try/catch per callback. Fix: split into two separate try/catch blocks, matching `_emitRecord()`. New test: `throwing onRequestEnded does not suppress failure record`. Test count: 1,319 → 1,320.
+
 ---
 
 ### v8.4: Platform Channel — Tighten Embedder Classification
