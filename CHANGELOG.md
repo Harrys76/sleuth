@@ -23,6 +23,17 @@
   [channel]#[method]'`). The embedder fallback incorrectly captured vsync,
   compositor, and input events as platform channel traffic. Legacy exact-match
   names (`platformchannel`, `methodchannel`) preserved as defensive fallback.
+- **Scaffold scan-root fallback** (v8.2): `_findVisiblePageContext` now supports
+  three-tier scan-root resolution: (1) Scaffold path — Material `Scaffold` and
+  `CupertinoPageScaffold`, (2) scaffold-free Navigator path — walks Navigator's
+  overlay to find topmost route-owned onstage entry via `_ModalScope` detection,
+  identity-hash route stability gate, and TickerMode-based onstage filtering,
+  (3) static app fallback — `NotificationListener` element for apps without
+  Navigator. `ShallowRebuildRiskDetector` and `SetStateScopeDetector` exempted
+  from scaffold-free walk (depth/ratio semantics break with overlay-entry roots).
+  Nested Navigator guard prevents cross-tab false positives. `refreshHighlights()`
+  uses `_lastScanContext` to avoid route-stability side effects. Previously,
+  Cupertino and scaffold-free apps got zero structural detection.
 
 ### Changed
 
@@ -36,7 +47,7 @@
 
 ### Added
 
-- 1,327 tests total (up from 1,313), 0 analysis issues.
+- 1,343 tests total (up from 1,313), 0 analysis issues.
 
 ## 0.9.0
 
