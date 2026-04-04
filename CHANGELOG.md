@@ -2,6 +2,21 @@
 
 ### Fixed
 
+- **Silent exception swallowing** (v9.15): All 8 silent `catch (_) {}` blocks
+  across the codebase now log via `debugPrint` inside `assert(() { ... }())` —
+  visible in debug mode, compiled out entirely in profile/release (zero
+  overhead). Affected files: `watchdog_controller.dart` (2),
+  `base_detector.dart`, `custom_painter_detector.dart`,
+  `debug_instrumentation_coordinator.dart` (2), `widget_location.dart`,
+  `source_location_cache.dart`.
+- **Mounted check for ModalRoute.of** (v9.16): `_currentRouteName()` now guards
+  `ModalRoute.of(_lastScanContext)` with a mounted check. The retained
+  `_lastScanContext` can become detached between scans and async callbacks (VM
+  timeline, heap, scroll idle). Without the guard, `ModalRoute.of()` walks an
+  invalid ancestor chain on a detached element.
+- **Source location cache docstring** (v9.17): No code change — the spec claimed
+  the docstring said "bounded LRU cache" but git history confirms it has always
+  correctly described the first-N bounded behavior since v2.4.0.
 - **Opacity value semantics** (v9.1): `GpuPressureDetector` and
   `RepaintBoundaryDetector` now skip `Opacity` widgets at 1.0 (passthrough) and
   0.0 (short-circuit) — these don't trigger `saveLayer` and were false positives.

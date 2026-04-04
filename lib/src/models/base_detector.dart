@@ -144,7 +144,12 @@ abstract class BaseDetector {
     try {
       context.visitChildElements(visitor);
       notifyWalkCompleted();
-    } catch (_) {}
+    } catch (e, s) {
+      assert(() {
+        debugPrint('Widget Watchdog: detector tree walk failed: $e\n$s');
+        return true;
+      }());
+    }
     finalizeScan();
   }
 

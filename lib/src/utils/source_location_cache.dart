@@ -54,7 +54,11 @@ class SourceLocationCache {
       if (file == null || line == null) return null;
 
       return '${abbreviatePath(file)}:$line';
-    } catch (_) {
+    } catch (e, s) {
+      assert(() {
+        debugPrint('Widget Watchdog: source location resolve failed: $e\n$s');
+        return true;
+      }());
       return null;
     }
   }

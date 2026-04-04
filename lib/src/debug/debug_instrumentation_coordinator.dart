@@ -150,8 +150,12 @@ class DebugInstrumentationCoordinator {
     if (!_ancestorChains.containsKey(typeName)) {
       try {
         _ancestorChains[typeName] = buildAncestorChain(element);
-      } catch (_) {
+      } catch (e, s) {
         // Element may be deactivated — skip chain capture.
+        assert(() {
+          debugPrint('Widget Watchdog: rebuild ancestor chain failed: $e\n$s');
+          return true;
+        }());
       }
     }
   }
@@ -169,8 +173,12 @@ class DebugInstrumentationCoordinator {
       if (!_ancestorChains.containsKey(typeName)) {
         try {
           _ancestorChains[typeName] = buildAncestorChain(creator.element);
-        } catch (_) {
+        } catch (e, s) {
           // Element may be deactivated — skip chain capture.
+          assert(() {
+            debugPrint('Widget Watchdog: paint ancestor chain failed: $e\n$s');
+            return true;
+          }());
         }
       }
     }

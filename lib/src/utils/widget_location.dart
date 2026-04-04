@@ -105,6 +105,11 @@ Rect? getGlobalRect(RenderObject ro) {
     if (ro is RenderBox && ro.hasSize) {
       return ro.localToGlobal(Offset.zero) & ro.size;
     }
-  } catch (_) {}
+  } catch (e, s) {
+    assert(() {
+      debugPrint('Widget Watchdog: getGlobalRect failed: $e\n$s');
+      return true;
+    }());
+  }
   return null;
 }

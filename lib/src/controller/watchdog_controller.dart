@@ -732,7 +732,12 @@ class WatchdogController {
 
     try {
       root.visitChildElements(visitor);
-    } catch (_) {}
+    } catch (e, s) {
+      assert(() {
+        debugPrint('Widget Watchdog: scaffold search failed: $e\n$s');
+        return true;
+      }());
+    }
 
     if (scaffolds.isEmpty) {
       // No Material or Cupertino scaffold — try scaffold-free fallback.
@@ -1019,7 +1024,12 @@ class WatchdogController {
     try {
       scanContext.visitChildElements(visitor);
       walkCompleted = true;
-    } catch (_) {}
+    } catch (e, s) {
+      assert(() {
+        debugPrint('Widget Watchdog: tree walk failed: $e\n$s');
+        return true;
+      }());
+    }
 
     // Phase 3: Finalization
     // notifyWalkCompleted only for detectors that participated in the walk.
@@ -1440,7 +1450,7 @@ class WatchdogController {
   String? _currentRouteName() {
     if (_scaffoldFreeRouteName != null) return _scaffoldFreeRouteName;
     final ctx = _lastScanContext;
-    if (ctx == null) return null;
+    if (ctx == null || !(ctx as Element).mounted) return null;
     return ModalRoute.of(ctx)?.settings.name;
   }
 
