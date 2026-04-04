@@ -17,24 +17,30 @@ class HighlightOverlay extends StatelessWidget {
     required this.selectedHighlight,
   });
 
-  final ValueNotifier<List<WidgetHighlight>> highlights;
+  final ValueNotifier<({int generation, List<WidgetHighlight> items})>
+      highlights;
   final ValueNotifier<WidgetHighlight?> selectedHighlight;
 
   @override
   Widget build(BuildContext context) {
     final theme = WatchdogTheme.of(context);
     return IgnorePointer(
-      child: ValueListenableBuilder<List<WidgetHighlight>>(
+      child: ValueListenableBuilder<
+          ({int generation, List<WidgetHighlight> items})>(
         valueListenable: highlights,
-        builder: (_, items, __) => ValueListenableBuilder<WidgetHighlight?>(
+        builder: (_, payload, __) => ValueListenableBuilder<WidgetHighlight?>(
           valueListenable: selectedHighlight,
           builder: (_, selected, __) {
-            if (items.isEmpty && selected == null) {
+            if (payload.items.isEmpty && selected == null) {
               return const SizedBox.shrink();
             }
             return CustomPaint(
               painter: _HighlightPainter(
-                  highlights: items, selected: selected, theme: theme),
+                highlights: payload.items,
+                generation: payload.generation,
+                selected: selected,
+                theme: theme,
+              ),
               size: Size.infinite,
             );
           },
@@ -45,10 +51,15 @@ class HighlightOverlay extends StatelessWidget {
 }
 
 class _HighlightPainter extends CustomPainter {
-  _HighlightPainter(
-      {required this.highlights, this.selected, required this.theme});
+  _HighlightPainter({
+    required this.highlights,
+    required this.generation,
+    this.selected,
+    required this.theme,
+  });
 
   final List<WidgetHighlight> highlights;
+  final int generation;
   final WidgetHighlight? selected;
   final WatchdogThemeData theme;
 
@@ -101,18 +112,18 @@ class _HighlightPainter extends CustomPainter {
   void _drawSelectedBorder(Canvas canvas, Size size, WidgetHighlight h) {
     final color = _colorFor(h.severity);
 
-    // Dim the rest of the screen
+    // Dim the rest of the screen using path difference (v9.14).
+    // Replaces saveLayer + BlendMode.clear — no offscreen GPU buffer.
     final dimPaint = Paint()..color = theme.dimOverlay;
     final screenRect = Offset.zero & size;
-    canvas.saveLayer(screenRect, Paint());
-    canvas.drawRect(screenRect, dimPaint);
-    // Cut out the selected widget area
-    final clearPaint = Paint()..blendMode = BlendMode.clear;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(h.rect.inflate(2), const Radius.circular(6)),
-      clearPaint,
+    final cutout = Path()
+      ..addRRect(
+          RRect.fromRectAndRadius(h.rect.inflate(2), const Radius.circular(6)));
+    final screen = Path()..addRect(screenRect);
+    canvas.drawPath(
+      Path.combine(PathOperation.difference, screen, cutout),
+      dimPaint,
     );
-    canvas.restore();
 
     // Border
     final borderPaint = Paint()
@@ -158,7 +169,7 @@ class _HighlightPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_HighlightPainter old) =>
-      !identical(old.highlights, highlights) ||
+      old.generation != generation ||
       !identical(old.selected, selected) ||
       !identical(old.theme, theme);
 }

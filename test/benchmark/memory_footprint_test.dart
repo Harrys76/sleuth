@@ -96,7 +96,7 @@ void main() {
 
       controller.runTreeScanForTest(context);
 
-      final highlights = controller.highlightsNotifier.value;
+      final highlights = controller.highlightsNotifier.value.items;
 
       // Each detector caps at 3 per type. With 12 highlight-producing detectors
       // and a limited number of detectable anti-patterns in the synthetic tree,

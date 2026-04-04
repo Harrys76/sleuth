@@ -35,7 +35,7 @@ void main() {
       );
 
       // Opacity detector should have found Opacity(0.0) and produced highlights
-      final highlights = controller.highlightsNotifier.value;
+      final highlights = controller.highlightsNotifier.value.items;
       expect(
         highlights.any((h) => h.detectorName == 'Opacity'),
         isTrue,
@@ -67,7 +67,7 @@ void main() {
         tester.element(find.byType(Directionality)),
       );
 
-      final gpuHighlights = controller.highlightsNotifier.value
+      final gpuHighlights = controller.highlightsNotifier.value.items
           .where((h) => h.detectorName == 'GPU');
       expect(gpuHighlights, isNotEmpty,
           reason:
@@ -102,7 +102,7 @@ void main() {
         tester.element(find.byType(Directionality)),
       );
 
-      final opacityHighlights = controller.highlightsNotifier.value
+      final opacityHighlights = controller.highlightsNotifier.value.items
           .where((h) => h.detectorName == 'Opacity');
       expect(opacityHighlights, isEmpty);
     });
@@ -122,12 +122,12 @@ void main() {
       controller.runTreeScanForTest(
         tester.element(find.byType(Directionality)),
       );
-      final firstScan = controller.highlightsNotifier.value.length;
+      final firstScan = controller.highlightsNotifier.value.items.length;
 
       controller.runTreeScanForTest(
         tester.element(find.byType(Directionality)),
       );
-      final secondScan = controller.highlightsNotifier.value.length;
+      final secondScan = controller.highlightsNotifier.value.items.length;
 
       // Should be repopulated, not accumulated
       expect(secondScan, firstScan);
@@ -150,7 +150,7 @@ void main() {
       );
 
       // Simple tree — no highlights expected
-      expect(controller.highlightsNotifier.value, isEmpty);
+      expect(controller.highlightsNotifier.value.items, isEmpty);
     });
   });
 
@@ -167,15 +167,18 @@ void main() {
     });
 
     test('matches highlight by widgetName', () {
-      controller.highlightsNotifier.value = [
-        const WidgetHighlight(
-          rect: Rect.fromLTWH(0, 0, 100, 100),
-          widgetName: 'MyWidget',
-          severity: IssueSeverity.warning,
-          detectorName: 'Test',
-          detail: 'test detail',
-        ),
-      ];
+      controller.highlightsNotifier.value = (
+        generation: 1,
+        items: [
+          const WidgetHighlight(
+            rect: Rect.fromLTWH(0, 0, 100, 100),
+            widgetName: 'MyWidget',
+            severity: IssueSeverity.warning,
+            detectorName: 'Test',
+            detail: 'test detail',
+          ),
+        ],
+      );
 
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,
@@ -194,15 +197,18 @@ void main() {
     });
 
     test('falls back to detectorName via category mapping', () {
-      controller.highlightsNotifier.value = [
-        const WidgetHighlight(
-          rect: Rect.fromLTWH(0, 0, 100, 100),
-          widgetName: 'SomeWidget',
-          severity: IssueSeverity.warning,
-          detectorName: 'GPU',
-          detail: 'test detail',
-        ),
-      ];
+      controller.highlightsNotifier.value = (
+        generation: 1,
+        items: [
+          const WidgetHighlight(
+            rect: Rect.fromLTWH(0, 0, 100, 100),
+            widgetName: 'SomeWidget',
+            severity: IssueSeverity.warning,
+            detectorName: 'GPU',
+            detail: 'test detail',
+          ),
+        ],
+      );
 
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,
@@ -218,7 +224,7 @@ void main() {
     });
 
     test('returns false when no highlights available', () {
-      controller.highlightsNotifier.value = [];
+      controller.highlightsNotifier.value = (generation: 0, items: []);
 
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,
@@ -235,15 +241,18 @@ void main() {
 
     test('sets highlightEnabledNotifier to true on match', () {
       controller.highlightEnabledNotifier.value = false;
-      controller.highlightsNotifier.value = [
-        const WidgetHighlight(
-          rect: Rect.fromLTWH(0, 0, 100, 100),
-          widgetName: 'MyWidget',
-          severity: IssueSeverity.warning,
-          detectorName: 'Test',
-          detail: 'test detail',
-        ),
-      ];
+      controller.highlightsNotifier.value = (
+        generation: 1,
+        items: [
+          const WidgetHighlight(
+            rect: Rect.fromLTWH(0, 0, 100, 100),
+            widgetName: 'MyWidget',
+            severity: IssueSeverity.warning,
+            detectorName: 'Test',
+            detail: 'test detail',
+          ),
+        ],
+      );
 
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,
@@ -260,15 +269,18 @@ void main() {
     });
 
     test('clearSelectedHighlight resets state', () {
-      controller.highlightsNotifier.value = [
-        const WidgetHighlight(
-          rect: Rect.fromLTWH(0, 0, 100, 100),
-          widgetName: 'MyWidget',
-          severity: IssueSeverity.warning,
-          detectorName: 'Test',
-          detail: 'test detail',
-        ),
-      ];
+      controller.highlightsNotifier.value = (
+        generation: 1,
+        items: [
+          const WidgetHighlight(
+            rect: Rect.fromLTWH(0, 0, 100, 100),
+            widgetName: 'MyWidget',
+            severity: IssueSeverity.warning,
+            detectorName: 'Test',
+            detail: 'test detail',
+          ),
+        ],
+      );
 
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,

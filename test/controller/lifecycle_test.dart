@@ -18,7 +18,7 @@ void main() {
       expect(controller.frameStatsNotifier.value.averageFps, 0);
       expect(controller.verdictNotifier.value, isNull);
       expect(controller.vmConnectedNotifier.value, isFalse);
-      expect(controller.highlightsNotifier.value, isEmpty);
+      expect(controller.highlightsNotifier.value.items, isEmpty);
       expect(controller.highlightEnabledNotifier.value, isFalse);
       expect(controller.selectedHighlightNotifier.value, isNull);
       expect(controller.suppressedCountNotifier.value, 0);

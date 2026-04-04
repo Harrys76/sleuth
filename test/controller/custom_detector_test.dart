@@ -226,7 +226,7 @@ void main() {
           tester.element(find.byType(Directionality)),
         );
 
-        final highlights = controller.highlightsNotifier.value;
+        final highlights = controller.highlightsNotifier.value.items;
         expect(
           highlights.any((h) => h.detectorName == 'Test Structural'),
           isTrue,

@@ -177,9 +177,12 @@ class WatchdogController {
   final ValueNotifier<bool> vmConnectedNotifier = ValueNotifier(false);
 
   /// Widget highlights for the visual overlay.
-  final ValueNotifier<List<WidgetHighlight>> highlightsNotifier = ValueNotifier(
-    [],
-  );
+  /// Record bundles a generation counter with the list — the counter increments
+  /// on every content change so that the painter's `shouldRepaint` can compare
+  /// a single int instead of relying on list identity.
+  int _highlightGeneration = 0;
+  final ValueNotifier<({int generation, List<WidgetHighlight> items})>
+      highlightsNotifier = ValueNotifier((generation: 0, items: []));
 
   /// Whether the highlight overlay is active.
   final ValueNotifier<bool> highlightEnabledNotifier = ValueNotifier(false);
@@ -208,10 +211,10 @@ class WatchdogController {
     // during their last scanTree(), but _collectHighlights() only runs when
     // highlightEnabled was true at scan time. On the first checkbox tap,
     // highlighting was just enabled so highlights haven't been gathered yet.
-    if (highlightsNotifier.value.isEmpty) {
+    if (highlightsNotifier.value.items.isEmpty) {
       _collectHighlights();
     }
-    final highlights = highlightsNotifier.value;
+    final highlights = highlightsNotifier.value.items;
     if (highlights.isEmpty) return false;
 
     // Try exact match on widgetName first
@@ -661,8 +664,10 @@ class WatchdogController {
       // page is worse than losing them).
       _scrollIdleTimer?.cancel();
       _interactionState = InteractionContext.navigating;
-      if (highlightsNotifier.value.isNotEmpty) {
-        highlightsNotifier.value = [];
+      if (highlightsNotifier.value.items.isNotEmpty) {
+        _highlightGeneration++;
+        highlightsNotifier.value =
+            (generation: _highlightGeneration, items: []);
       }
       selectedHighlightNotifier.value = null;
       for (final d in _detectors) {
@@ -702,8 +707,9 @@ class WatchdogController {
         selectHighlightForIssue(pendingIssueSelection!);
         pendingIssueSelection = null;
       }
-    } else if (highlightsNotifier.value.isNotEmpty) {
-      highlightsNotifier.value = [];
+    } else if (highlightsNotifier.value.items.isNotEmpty) {
+      _highlightGeneration++;
+      highlightsNotifier.value = (generation: _highlightGeneration, items: []);
     }
   }
 
@@ -1059,7 +1065,26 @@ class WatchdogController {
   /// Detectors collect highlights during their scanTree() calls.
   /// This method just gathers them — no tree walking or re-detection.
   void _collectHighlights() {
-    highlightsNotifier.value = [for (final d in _detectors) ...d.highlights];
+    _highlightGeneration++;
+    final items = [for (final d in _detectors) ...d.highlights];
+    highlightsNotifier.value = (generation: _highlightGeneration, items: items);
+
+    // Rebind selected highlight to fresh object with updated rect (v9.14).
+    // After scroll/rescan, detectors produce new WidgetHighlight objects with
+    // fresh rects. Match by detectorName + widgetName to track the widget's
+    // current position. Clears selection if the widget is gone.
+    final selected = selectedHighlightNotifier.value;
+    if (selected != null) {
+      WidgetHighlight? refreshed;
+      for (final h in items) {
+        if (h.detectorName == selected.detectorName &&
+            h.widgetName == selected.widgetName) {
+          refreshed = h;
+          break;
+        }
+      }
+      selectedHighlightNotifier.value = refreshed;
+    }
   }
 
   void _onTimelineData(ParsedTimelineData data) {

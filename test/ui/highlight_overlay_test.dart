@@ -11,7 +11,10 @@ void main() {
 
   group('HighlightOverlay', () {
     testWidgets('renders no CustomPaint when empty', (tester) async {
-      final highlights = ValueNotifier<List<WidgetHighlight>>([]);
+      final highlights =
+          ValueNotifier<({int generation, List<WidgetHighlight> items})>(
+        (generation: 0, items: []),
+      );
       final selected = ValueNotifier<WidgetHighlight?>(null);
 
       await tester.pumpWidget(wrap(
@@ -35,14 +38,20 @@ void main() {
     });
 
     testWidgets('renders CustomPaint with highlights', (tester) async {
-      final highlights = ValueNotifier<List<WidgetHighlight>>([
-        const WidgetHighlight(
-          rect: Rect.fromLTWH(10, 10, 100, 50),
-          widgetName: 'MyWidget',
-          severity: IssueSeverity.warning,
-          detectorName: 'RebuildDetector',
+      final highlights =
+          ValueNotifier<({int generation, List<WidgetHighlight> items})>(
+        (
+          generation: 1,
+          items: [
+            const WidgetHighlight(
+              rect: Rect.fromLTWH(10, 10, 100, 50),
+              widgetName: 'MyWidget',
+              severity: IssueSeverity.warning,
+              detectorName: 'RebuildDetector',
+            ),
+          ]
         ),
-      ]);
+      );
       final selected = ValueNotifier<WidgetHighlight?>(null);
 
       await tester.pumpWidget(wrap(
@@ -65,7 +74,10 @@ void main() {
     });
 
     testWidgets('renders CustomPaint with selected highlight', (tester) async {
-      final highlights = ValueNotifier<List<WidgetHighlight>>([]);
+      final highlights =
+          ValueNotifier<({int generation, List<WidgetHighlight> items})>(
+        (generation: 0, items: []),
+      );
       const highlight = WidgetHighlight(
         rect: Rect.fromLTWH(20, 20, 80, 40),
         widgetName: 'SelectedWidget',
@@ -95,7 +107,10 @@ void main() {
     });
 
     testWidgets('wraps in IgnorePointer', (tester) async {
-      final highlights = ValueNotifier<List<WidgetHighlight>>([]);
+      final highlights =
+          ValueNotifier<({int generation, List<WidgetHighlight> items})>(
+        (generation: 0, items: []),
+      );
       final selected = ValueNotifier<WidgetHighlight?>(null);
 
       await tester.pumpWidget(wrap(

@@ -174,4 +174,4 @@ The full spec is split by roadmap era. Each file is self-contained.
 | [spec_v6.md](spec_v6.md) | 545 | v6: robustness, accuracy & polish (22 improvements) | All shipped |
 | [spec_v7.md](spec_v7.md) | 260 | v7: performance & accuracy (10 milestones) | All shipped |
 | [spec_v8.md](spec_v8.md) | 668 | v8: accuracy & correctness fixes (5 milestones) | All shipped |
-| [spec_v9.md](spec_v9.md) | 1255 | **v9: accuracy, self-overhead & correctness (17 milestones)** | **Active — 16/17** |
+| [spec_v9.md](spec_v9.md) | 1255 | **v9: accuracy, self-overhead & correctness (17 milestones)** | **All shipped** |

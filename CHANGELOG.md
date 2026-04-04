@@ -18,6 +18,12 @@
   collects in one pass. Eliminates 2 intermediate list allocations per
   `_aggregateIssues()` call (called from 7 locations). Behavior identical —
   the ranker receives the same visible issues in the same order.
+- **Highlight overlay self-overhead** (v9.14): Replaced `saveLayer` +
+  `BlendMode.clear` dim overlay with `Path.combine(PathOperation.difference)`
+  — eliminates offscreen GPU buffer allocation per frame. Added generation-
+  counter `shouldRepaint` via record-typed `highlightsNotifier` (single int
+  comparison replaces list identity check). Selected highlight rebinds to
+  fresh rect after scroll/rescan (fixes stale position tracking).
 - **Inner subtree walk elimination** (v9.11): Converted 4 detectors
   (AnimatedBuilderDetector, GpuPressureDetector, GlobalKeyDetector,
   KeepAliveDetector) from inner recursive subtree walks to `afterElement`
