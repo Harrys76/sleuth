@@ -85,7 +85,7 @@ void main() {
       return List.generate(
         count,
         (i) => TimelineEvent.parse({
-          'name': i.isEven ? 'buildScope' : 'flushPaint',
+          'name': i.isEven ? 'BUILD' : 'PAINT',
           'cat': 'flutter',
           'ph': 'X',
           'dur': 5000,

@@ -27,9 +27,9 @@ void main() {
   group('TimelineParser phaseEvents', () {
     test('populates phaseEvents alongside duration lists', () {
       final events = [
-        _makeEvent(name: 'buildScope', dur: 3000, ts: 1000),
-        _makeEvent(name: 'flushLayout', dur: 2000, ts: 5000),
-        _makeEvent(name: 'flushPaint', dur: 1000, ts: 8000),
+        _makeEvent(name: 'BUILD', dur: 3000, ts: 1000),
+        _makeEvent(name: 'LAYOUT', dur: 2000, ts: 5000),
+        _makeEvent(name: 'PAINT', dur: 1000, ts: 8000),
         _makeEvent(name: 'GPURasterizer::Draw', dur: 5000, ts: 10000),
         _makeEvent(name: 'ShaderCompilation', dur: 500, ts: 16000),
       ];
@@ -49,7 +49,7 @@ void main() {
 
     test('extracts correct phase, timestamp, and duration', () {
       final events = [
-        _makeEvent(name: 'buildScope', dur: 3000, ts: 1000),
+        _makeEvent(name: 'BUILD', dur: 3000, ts: 1000),
       ];
 
       final data = TimelineParser.parse(events);
@@ -84,8 +84,8 @@ void main() {
 
     test('events without ts field do not produce PhaseEvents', () {
       final events = [
-        _makeEvent(name: 'buildScope', dur: 3000), // no ts
-        _makeEvent(name: 'flushLayout', dur: 2000, ts: 5000), // has ts
+        _makeEvent(name: 'BUILD', dur: 3000), // no ts
+        _makeEvent(name: 'LAYOUT', dur: 2000, ts: 5000), // has ts
       ];
 
       final data = TimelineParser.parse(events);
@@ -115,7 +115,7 @@ void main() {
 
     test('Begin/End events do not produce PhaseEvents', () {
       final beginEvent = TimelineEvent.parse({
-        'name': 'buildScope',
+        'name': 'BUILD',
         'cat': '',
         'ph': 'B',
         'ts': 1000,
@@ -123,7 +123,7 @@ void main() {
         'tid': 1,
       })!;
       final endEvent = TimelineEvent.parse({
-        'name': 'buildScope',
+        'name': 'BUILD',
         'cat': '',
         'ph': 'E',
         'ts': 4000,
@@ -149,7 +149,7 @@ void main() {
     test('buildScope event extracts enrichment with prefixed keys', () {
       final events = [
         _makeEvent(
-          name: 'buildScope',
+          name: 'BUILD',
           dur: 5000,
           ts: 1000,
           args: {
@@ -174,7 +174,7 @@ void main() {
     test('flushLayout event extracts enrichment with short keys', () {
       final events = [
         _makeEvent(
-          name: 'flushLayout',
+          name: 'LAYOUT',
           dur: 2000,
           ts: 5000,
           args: {
@@ -196,7 +196,7 @@ void main() {
     test('flushPaint event extracts enrichment with short keys', () {
       final events = [
         _makeEvent(
-          name: 'flushPaint',
+          name: 'PAINT',
           dur: 1000,
           ts: 8000,
           args: {
@@ -235,7 +235,7 @@ void main() {
 
     test('event without args has null enrichment', () {
       final events = [
-        _makeEvent(name: 'buildScope', dur: 3000, ts: 1000),
+        _makeEvent(name: 'BUILD', dur: 3000, ts: 1000),
       ];
 
       final data = TimelineParser.parse(events);
@@ -250,7 +250,7 @@ void main() {
     test('dirty list with empty brackets returns null', () {
       final events = [
         _makeEvent(
-          name: 'flushPaint',
+          name: 'PAINT',
           dur: 1000,
           ts: 1000,
           args: {'dirty count': '0', 'dirty list': '[]'},
@@ -267,7 +267,7 @@ void main() {
     test('dirty count as int is handled defensively', () {
       final events = [
         _makeEvent(
-          name: 'flushLayout',
+          name: 'LAYOUT',
           dur: 1000,
           ts: 1000,
           args: {'dirty count': 7}, // int instead of String
@@ -281,7 +281,7 @@ void main() {
     test('dirty list without brackets still splits correctly', () {
       final events = [
         _makeEvent(
-          name: 'buildScope',
+          name: 'BUILD',
           dur: 5000,
           ts: 1000,
           args: {
@@ -297,7 +297,7 @@ void main() {
     test('single widget in dirty list', () {
       final events = [
         _makeEvent(
-          name: 'buildScope',
+          name: 'BUILD',
           dur: 5000,
           ts: 1000,
           args: {
@@ -308,6 +308,73 @@ void main() {
 
       final data = TimelineParser.parse(events);
       expect(data.phaseEvents.single.dirtyList, ['OnlyOne']);
+    });
+  });
+
+  group('TimelineParser (root) suffix handling', () {
+    test('LAYOUT (root) classified as layout', () {
+      final events = [
+        _makeEvent(name: 'LAYOUT (root)', dur: 2000, ts: 1000),
+      ];
+      final data = TimelineParser.parse(events);
+      expect(data.flushLayoutDurations, [2000]);
+      expect(data.phaseEvents.length, 1);
+      expect(data.phaseEvents[0].phase, TimelinePhase.layout);
+    });
+
+    test('PAINT (root) classified as paint', () {
+      final events = [
+        _makeEvent(name: 'PAINT (root)', dur: 1000, ts: 1000),
+      ];
+      final data = TimelineParser.parse(events);
+      expect(data.flushPaintDurations, [1000]);
+      expect(data.phaseEvents.length, 1);
+      expect(data.phaseEvents[0].phase, TimelinePhase.paint);
+    });
+
+    test('mixed root and child PipelineOwner events both captured', () {
+      final events = [
+        _makeEvent(name: 'LAYOUT (root)', dur: 3000, ts: 1000),
+        _makeEvent(name: 'LAYOUT', dur: 500, ts: 5000),
+        _makeEvent(name: 'PAINT (root)', dur: 2000, ts: 6000),
+        _makeEvent(name: 'PAINT', dur: 300, ts: 9000),
+      ];
+      final data = TimelineParser.parse(events);
+      expect(data.flushLayoutDurations, [3000, 500]);
+      expect(data.flushPaintDurations, [2000, 300]);
+    });
+
+    test('LAYOUT (root) extracts enrichment args', () {
+      final events = [
+        _makeEvent(
+          name: 'LAYOUT (root)',
+          dur: 2000,
+          ts: 5000,
+          args: {
+            'dirty count': '5',
+            'dirty list': '[RenderFlex#abc12]',
+          },
+        ),
+      ];
+      final data = TimelineParser.parse(events);
+      final pe = data.phaseEvents.single;
+      expect(pe.dirtyCount, 5);
+      expect(pe.dirtyList, ['RenderFlex#abc12']);
+    });
+  });
+
+  group('TimelineParser phantom name rejection', () {
+    test('old method-style names no longer match', () {
+      final events = [
+        _makeEvent(name: 'buildScope', dur: 3000, ts: 1000),
+        _makeEvent(name: 'flushLayout', dur: 2000, ts: 5000),
+        _makeEvent(name: 'flushPaint', dur: 1000, ts: 8000),
+      ];
+      final data = TimelineParser.parse(events);
+      expect(data.buildScopeDurations, isEmpty);
+      expect(data.flushLayoutDurations, isEmpty);
+      expect(data.flushPaintDurations, isEmpty);
+      expect(data.phaseEvents, isEmpty);
     });
   });
 

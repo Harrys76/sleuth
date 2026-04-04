@@ -17,6 +17,16 @@
 - **Source location cache docstring** (v9.17): No code change — the spec claimed
   the docstring said "bounded LRU cache" but git history confirms it has always
   correctly described the first-N bounded behavior since v2.4.0.
+- **Timeline parser event name validation** (v9.8): Fixed silent data loss bug
+  where `LAYOUT (root)` and `PAINT (root)` events (emitted by Flutter 3.13+ for
+  the root PipelineOwner) were silently dropped. The parser used set `.contains()`
+  which requires exact match — `'layout (root)'` failed against the set entry
+  `'layout'`. Root PipelineOwner events carry the primary rendering pipeline's
+  durations, so `flushLayoutDurations` and `flushPaintDurations` were missing
+  their most important entries. Also removed 6 phantom name entries
+  (`buildscope`, `build_scope`, `flushlayout`, `flush_layout`, `flushpaint`,
+  `flush_paint`) that were never emitted by any Flutter version — verified
+  against Flutter framework source history back to v2.x.
 - **Opacity value semantics** (v9.1): `GpuPressureDetector` and
   `RepaintBoundaryDetector` now skip `Opacity` widgets at 1.0 (passthrough) and
   0.0 (short-circuit) — these don't trigger `saveLayer` and were false positives.

@@ -69,30 +69,21 @@ class ParsedTimelineData {
 /// Parses raw VM Timeline events into structured [ParsedTimelineData].
 ///
 /// Handles multiple naming conventions across Flutter versions:
-/// - `buildScope` / `Build` / `BUILD_SCOPE`
-/// - `flushLayout` / `Layout` / `FLUSH_LAYOUT`
-/// - `flushPaint` / `Paint` / `FLUSH_PAINT`
+/// - `BUILD` (v3+), `Build` (v2.x)
+/// - `LAYOUT` / `LAYOUT (root)` (v3.13+), `Layout` (v2.x)
+/// - `PAINT` / `PAINT (root)` (v3.13+), `Paint` (v2.x)
 ///
 /// Falls back to thread ID classification when names don't match known patterns.
 class TimelineParser {
   TimelineParser._();
 
-  // Known event name patterns (case-insensitive matching)
-  static const _buildNames = {
-    'buildscope',
-    'build',
-    'build_scope',
-  };
-  static const _layoutNames = {
-    'flushlayout',
-    'layout',
-    'flush_layout',
-  };
-  static const _paintNames = {
-    'flushpaint',
-    'paint',
-    'flush_paint',
-  };
+  // Known event name patterns (lowercased).
+  // Flutter emits BUILD, LAYOUT, PAINT (v3+); LAYOUT (root) / PAINT (root) (v3.13+).
+  static bool _isBuild(String name) => name == 'build';
+  static bool _isLayout(String name) =>
+      name == 'layout' || name.startsWith('layout (');
+  static bool _isPaint(String name) =>
+      name == 'paint' || name.startsWith('paint (');
   static const _rasterNames = {
     'gpurasterizer::draw',
     'gpurasterizer',
@@ -167,7 +158,7 @@ class TimelineParser {
         final ts = json['ts'] as int?;
         final args = json['args'] as Map<String, dynamic>?;
 
-        if (_buildNames.contains(name)) {
+        if (_isBuild(name)) {
           buildScopes.add(dur);
           buildCount++;
           if (ts != null) {
@@ -181,7 +172,7 @@ class TimelineParser {
               scopeContext: args?['scope context']?.toString(),
             ));
           }
-        } else if (_layoutNames.contains(name)) {
+        } else if (_isLayout(name)) {
           layouts.add(dur);
           if (ts != null) {
             phaseEvents.add(PhaseEvent(
@@ -192,7 +183,7 @@ class TimelineParser {
               dirtyList: _parseDirtyList(args?['dirty list']),
             ));
           }
-        } else if (_paintNames.contains(name)) {
+        } else if (_isPaint(name)) {
           paints.add(dur);
           if (ts != null) {
             phaseEvents.add(PhaseEvent(
@@ -229,7 +220,7 @@ class TimelineParser {
         }
       } else if (ph == 'B' || ph == 'E') {
         // Begin/End events — count builds
-        if (_buildNames.contains(name) && ph == 'B') {
+        if (_isBuild(name) && ph == 'B') {
           buildCount++;
         }
         if (cat.contains('gc')) {
