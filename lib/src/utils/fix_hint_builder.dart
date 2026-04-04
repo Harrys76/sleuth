@@ -89,15 +89,19 @@ class FixHintBuilder {
   static (String, FixEffort) sustainedJank() {
     return (
       'Check for heavy computations in build(), setState() scope, '
-          'or offscreen painting. Use profile mode for exact breakdown.',
+          'or offscreen painting. Profile with:\n'
+          'flutter run --profile\n'
+          'Then open DevTools > Performance to identify expensive frames.',
       FixEffort.medium,
     );
   }
 
   static (String, FixEffort) jankDetected() {
     return (
-      'Minor jank detected. Consider const constructors, '
-          'RepaintBoundary, or reducing widget tree depth.',
+      'Minor jank detected. Use const constructors for static widgets:\n'
+          'const MyWidget({super.key});\n'
+          'Add RepaintBoundary around expensive subtrees, '
+          'or reduce widget tree depth.',
       FixEffort.quick,
     );
   }
@@ -109,7 +113,9 @@ class FixHintBuilder {
   static (String, FixEffort) excessiveGlobalKeys({required int count}) {
     return (
       '$count GlobalKey instances in scrollable children. '
-          'Replace GlobalKey with ValueKey or UniqueKey where possible. '
+          'Replace with ValueKey where possible:\n'
+          '// Before: key: GlobalKey()\n'
+          '// After:  key: ValueKey(item.id)\n'
           'Only use GlobalKey when you need to access widget state '
           'across different parts of the tree.',
       FixEffort.quick,
@@ -122,8 +128,11 @@ class FixHintBuilder {
 
   static (String, FixEffort) rasterDominance() {
     return (
-      'Reduce the amount of work done during rasterization or '
-          'simplify the scene so the GPU has less to draw each frame.',
+      'Reduce GPU work per frame:\n'
+          '- Replace ClipRRect/ClipPath with Container borderRadius\n'
+          '- Avoid overlapping semi-transparent layers\n'
+          '- Add RepaintBoundary around animated subtrees\n'
+          '- Simplify shadows and gradients',
       FixEffort.involved,
     );
   }
@@ -134,8 +143,9 @@ class FixHintBuilder {
   }) {
     final ctx = _contextPrefix(widgetName, ancestorChain);
     return (
-      '${ctx}Consider simplifying visual effects or adding '
-          'RepaintBoundary around expensive subtrees.',
+      '${ctx}Wrap expensive subtrees in RepaintBoundary:\n'
+          'RepaintBoundary(child: ${widgetName ?? "ComplexWidget"}(...))\n'
+          'Simplify visual effects (shadows, clips, opacity layers).',
       FixEffort.medium,
     );
   }
@@ -147,22 +157,22 @@ class FixHintBuilder {
   static (String, FixEffort) rasterCacheThrashing() {
     return (
       'The raster cache is repeatedly allocating and evicting entries. '
-          'Ensure painted widgets use const constructors where possible, '
-          'avoid rebuilding CustomPainter canvases every frame, and check '
-          'that RepaintBoundary is used around complex static subtrees. '
-          'Use DevTools Performance overlay to visualize cache behavior.',
+          'Use const constructors for stable widgets:\n'
+          'const MyWidget({super.key});\n'
+          'Avoid rebuilding CustomPainter canvases every frame and '
+          'use RepaintBoundary around complex static subtrees.',
       FixEffort.involved,
     );
   }
 
   static (String, FixEffort) rasterCacheGrowing() {
     return (
-      'Raster cache bytes are growing without bound. This may indicate '
-          'that cached layers or pictures are never evicted. Check for '
-          'an ever-growing number of unique visual elements (e.g., '
-          'dynamically-created widgets with unique paint), or animations '
-          'that create new cache entries per frame. Consider using '
-          'RepaintBoundary strategically to limit cache scope.',
+      'Raster cache bytes are growing without bound. Check for '
+          'dynamically-created widgets with unique paint output, or '
+          'animations that create new cache entries per frame. '
+          'Limit cache scope:\n'
+          'RepaintBoundary(child: DynamicContent(...))\n'
+          'Use const constructors for static portions of the tree.',
       FixEffort.involved,
     );
   }
@@ -180,9 +190,11 @@ class FixHintBuilder {
             '${durationMs != null ? " (${durationMs.toStringAsFixed(1)}ms)" : ""}. '
         : '';
     return (
-      '${prefix}Move heavy work to a background isolate using '
-          'Isolate.run() or compute(). Avoid synchronous '
-          'JSON parsing, image processing, or complex calculations in build().',
+      '${prefix}Move heavy work to a background isolate '
+          'using Isolate.run() or compute():\n'
+          'final result = await Isolate.run(() => parseJson(data));\n'
+          'Avoid synchronous JSON parsing, image processing, '
+          'or complex calculations in build().',
       FixEffort.involved,
     );
   }
@@ -225,9 +237,11 @@ class FixHintBuilder {
     final location = ancestorChain != null ? ' in $ancestorChain' : '';
     return (
       '$count keep-alive widgets$location. '
-          'Remove AutomaticKeepAliveClientMixin from most items. '
-          'Only keep alive items with expensive state. Let others '
-          'rebuild naturally when scrolled back to.',
+          'Remove AutomaticKeepAliveClientMixin from most items:\n'
+          '// Remove: with AutomaticKeepAliveClientMixin\n'
+          '// Remove: bool get wantKeepAlive => true;\n'
+          'Only keep alive items with expensive state that is '
+          'costly to recreate.',
       FixEffort.quick,
     );
   }
@@ -243,16 +257,18 @@ class FixHintBuilder {
     if (widgetName != null && ancestorChain != null) {
       return (
         'IntrinsicHeight/Width found in $widgetName ancestor chain '
-            '($ancestorChain). Measure $widgetName\'s actual size and replace '
-            'IntrinsicHeight/Width with SizedBox or Expanded. '
-            'Use Row/Column crossAxisAlignment instead.',
+            '($ancestorChain). Replace with explicit sizing:\n'
+            '// Before: IntrinsicHeight(child: Row(...))\n'
+            '// After:  Row(crossAxisAlignment: CrossAxisAlignment.stretch, ...)\n'
+            'Or use SizedBox/Expanded with known dimensions.',
         FixEffort.medium,
       );
     }
     return (
-      'Replace IntrinsicHeight/Width with fixed sizes, '
-          'Expanded, or SizedBox where possible. '
-          'Use Row/Column crossAxisAlignment instead.',
+      'Replace IntrinsicHeight/Width with explicit sizing:\n'
+          '// Before: IntrinsicHeight(child: Row(...))\n'
+          '// After:  Row(crossAxisAlignment: CrossAxisAlignment.stretch, ...)\n'
+          'Or use SizedBox/Expanded with known dimensions.',
       FixEffort.medium,
     );
   }
@@ -281,26 +297,34 @@ class FixHintBuilder {
 
   static (String, FixEffort) gcPressure() {
     return (
-      'Reduce object allocations in hot paths. '
-          'Reuse objects, use const constructors, '
-          'and avoid creating objects in build().',
+      'Reduce object allocations in hot paths:\n'
+          '// Before: padding: EdgeInsets.all(8) — new object every build\n'
+          '// After:  padding: const EdgeInsets.all(8)\n'
+          'Use const constructors and cache objects that are '
+          'recreated in build().',
       FixEffort.medium,
     );
   }
 
   static (String, FixEffort) heapGrowing() {
     return (
-      'Memory is growing steadily. Check for undisposed controllers, '
-          'uncancelled streams, growing caches, or images decoded at full '
-          'resolution. Use DevTools Memory view for per-object investigation.',
+      'Memory is growing steadily. Check for undisposed controllers:\n'
+          'void dispose() {\n'
+          '  _controller.dispose();\n'
+          '  _subscription.cancel();\n'
+          '  super.dispose();\n'
+          '}\n'
+          'Also check for growing caches or full-resolution image decodes. '
+          'Use DevTools Memory view for per-object investigation.',
       FixEffort.involved,
     );
   }
 
   static (String, FixEffort) heapNearCapacity() {
     return (
-      'Consider releasing image caches, disposing unused '
-          'controllers, or paginating large data sets. '
+      'Heap near capacity. Release image caches:\n'
+          'PaintingBinding.instance.imageCache.clear();\n'
+          'Dispose unused controllers and paginate large data sets. '
           'Use DevTools Memory view for per-object investigation.',
       FixEffort.involved,
     );
@@ -308,11 +332,12 @@ class FixHintBuilder {
 
   static (String, FixEffort) nativeMemoryGrowth() {
     return (
-      'Process memory outside the Dart heap is growing. Check for '
-          'undisposed GPU textures (Image.dispose()), images decoded at full '
-          'resolution (use cacheWidth/cacheHeight), platform channel buffers, '
-          'or native plugin allocations. Use DevTools Memory view to compare '
-          'RSS vs Dart heap.',
+      'Process memory outside the Dart heap is growing. '
+          'Decode images at display size:\n'
+          'Image.asset("photo.jpg", cacheWidth: 300, cacheHeight: 300)\n'
+          'Check for undisposed GPU textures, platform channel buffers, '
+          'or native plugin allocations. Compare RSS vs Dart heap '
+          'in DevTools Memory view.',
       FixEffort.involved,
     );
   }
@@ -354,9 +379,11 @@ class FixHintBuilder {
   static (String, FixEffort) slowRequest({String? worstUrl}) {
     final urlCtx = worstUrl != null ? 'Slow response from $worstUrl. ' : '';
     return (
-      '${urlCtx}Consider pagination, caching, or moving this request to app '
-          'startup. If the endpoint is slow, add a loading indicator to mask '
-          'latency.',
+      '${urlCtx}Consider caching responses locally:\n'
+          'final cached = _cache[url];\n'
+          'if (cached != null) return cached;\n'
+          'Or add pagination, move to app startup, or add a loading '
+          'indicator to mask latency.',
       FixEffort.medium,
     );
   }
@@ -364,16 +391,21 @@ class FixHintBuilder {
   static (String, FixEffort) largeResponse({String? worstUrl}) {
     final urlCtx = worstUrl != null ? 'Large response from $worstUrl. ' : '';
     return (
-      '${urlCtx}Request only needed fields (sparse fieldsets / GraphQL). '
-          'Paginate large collections. Compress responses (gzip).',
+      '${urlCtx}Request only needed fields:\n'
+          'GET /api/users?fields=id,name,email\n'
+          'Paginate large collections and enable response '
+          'compression (gzip).',
       FixEffort.involved,
     );
   }
 
   static (String, FixEffort) requestFrequency() {
     return (
-      'Batch or debounce repeated requests. Consider caching '
-          'responses or using a single stream subscription instead of polling.',
+      'Batch or debounce repeated requests:\n'
+          '_debounce?.cancel();\n'
+          '_debounce = Timer(Duration(milliseconds: 300), () => fetch(q));\n'
+          'Consider caching responses or using a single stream '
+          'subscription instead of polling.',
       FixEffort.medium,
     );
   }
@@ -388,11 +420,16 @@ class FixHintBuilder {
   }) {
     final ctx = _contextPrefix(widgetName, ancestorChain);
     return (
-      '${ctx}If the widget should disappear entirely, remove it from '
-          'the tree. If it should stay in layout, use Visibility with the '
-          'maintain* flags chosen intentionally. Add IgnorePointer or '
-          'ExcludeSemantics if hidden content should also stop receiving '
-          'taps or accessibility focus.',
+      '${ctx}Replace Opacity(opacity: 0) with Visibility:\n'
+          'Visibility(\n'
+          '  visible: false,\n'
+          '  maintainSize: true,    // keep layout space\n'
+          '  maintainAnimation: true,\n'
+          '  maintainState: true,   // keep State alive\n'
+          '  child: MyWidget(),\n'
+          ')\n'
+          'Or remove the widget from the tree entirely with an '
+          'if condition.',
       FixEffort.quick,
     );
   }
@@ -404,9 +441,11 @@ class FixHintBuilder {
   static (String, FixEffort) platformChannelTraffic({String? topMethod}) {
     final methodCtx = topMethod != null ? 'Heavy traffic on $topMethod. ' : '';
     return (
-      '${methodCtx}Batch platform channel calls where possible. '
-          'Consider using Pigeon for type-safe communication '
-          'or cache results to reduce call frequency.',
+      '${methodCtx}Batch platform channel calls:\n'
+          '// Before: 10 separate invokeMethod() calls\n'
+          '// After:  1 batched call with list of IDs\n'
+          'final results = await channel.invokeMethod("batchGet", ids);\n'
+          'Consider using Pigeon for type-safe communication.',
       FixEffort.medium,
     );
   }
@@ -427,9 +466,10 @@ class FixHintBuilder {
     final location = ancestorChain != null ? ' ($ancestorChain)' : '';
     return (
       '$typeName rebuilds $rate\u00d7/sec$scroll$location. '
-          'Check if $typeName\'s children use const constructors. '
-          'Extract child widgets into separate StatelessWidgets or use '
-          'Selector/Consumer for targeted rebuilds.',
+          'Extract child widgets and use const constructors:\n'
+          'const ChildWidget({super.key});\n'
+          'Or scope rebuilds with Selector/Consumer instead of '
+          'full BlocBuilder/Provider.of.',
       FixEffort.medium,
     );
   }
@@ -447,9 +487,10 @@ class FixHintBuilder {
         : '';
     return (
       'High rebuild activity: $buildCount builds/sec$scroll$widgets. '
-          'Use const constructors, extract child widgets, or use '
-          'Selector/Consumer instead of BlocBuilder/Provider.of for '
-          'targeted rebuilds.',
+          'Use const constructors for static widgets:\n'
+          'const MyWidget({super.key});\n'
+          'Extract child widgets or scope rebuilds with '
+          'Selector/Consumer instead of BlocBuilder/Provider.of.',
       FixEffort.medium,
     );
   }
@@ -457,9 +498,11 @@ class FixHintBuilder {
   static (String, FixEffort) statefulDensity({String? topWidget}) {
     final widgetInfo = topWidget != null ? 'Most common: $topWidget. ' : '';
     return (
-      '${widgetInfo}Use const constructors, extract child widgets, or use '
-          'Selector/Consumer instead of BlocBuilder/Provider.of for '
-          'targeted rebuilds. Run in profile mode with VM for exact counts.',
+      '${widgetInfo}Extract child widgets and use const constructors:\n'
+          'const ChildWidget({super.key});\n'
+          'Scope rebuilds with Selector/Consumer instead of '
+          'BlocBuilder/Provider.of. Run in profile mode with VM '
+          'for exact counts.',
       FixEffort.medium,
     );
   }
@@ -475,9 +518,10 @@ class FixHintBuilder {
         ? ' This is happening during scrolling.'
         : '';
     return (
-      'Add RepaintBoundary widgets to isolate frequently '
-          'repainting subtrees. Check for animations that '
-          'trigger unnecessary repaints in parent widgets.$scroll',
+      'Isolate frequently repainting subtrees:\n'
+          'RepaintBoundary(child: AnimatedWidget(...))\n'
+          'Check for animations that trigger unnecessary repaints '
+          'in parent widgets.$scroll',
       FixEffort.quick,
     );
   }
@@ -489,18 +533,21 @@ class FixHintBuilder {
   }) {
     final location = ancestorChain != null ? ' ($ancestorChain)' : '';
     return (
-      'Add RepaintBoundary above $typeName$location to isolate its '
-          'repaints from parent widgets. '
-          '$typeName is repainting at $rate/sec.',
+      'Isolate $typeName repaints from parent widgets:\n'
+          'RepaintBoundary(\n'
+          '  child: $typeName(...),\n'
+          ')\n'
+          '$typeName is repainting at $rate/sec$location.',
       FixEffort.quick,
     );
   }
 
   static (String, FixEffort) excessiveRepaintDebug() {
     return (
-      'Add RepaintBoundary widgets to isolate frequently '
-          'repainting subtrees. Check for animations that '
-          'trigger unnecessary repaints in parent widgets.',
+      'Isolate frequently repainting subtrees:\n'
+          'RepaintBoundary(child: FrequentlyUpdatedWidget(...))\n'
+          'Check for animations that trigger unnecessary repaints '
+          'in parent widgets.',
       FixEffort.quick,
     );
   }
@@ -517,8 +564,11 @@ class FixHintBuilder {
     final location = ancestorChain != null ? ' ($ancestorChain)' : '';
     return (
       '$widgetName owns ~$subtreePercent% of the tree$location. '
-          'Scope rebuild triggers to smaller, focused widgets. '
-          'Use Builder or ValueListenableBuilder to scope rebuilds. '
+          'Scope rebuilds with ValueListenableBuilder:\n'
+          'ValueListenableBuilder<int>(\n'
+          '  valueListenable: _counter,\n'
+          '  builder: (_, value, child) => Text("\$value"),\n'
+          ')\n'
           'Extract stateful logic into the lowest possible subtree.',
       FixEffort.medium,
     );
@@ -548,9 +598,10 @@ class FixHintBuilder {
         hasVmData ? '' : ' Run in profile mode with VM for build counts.';
     return (
       '$widgetName is high in the widget tree. '
-          'Use specific inherited widget accessors (e.g. '
-          'MediaQuery.sizeOf instead of MediaQuery.of) to reduce '
-          'rebuild scope. Move state-dependent logic to leaf widgets.$vmSuffix',
+          'Use specific inherited widget accessors:\n'
+          '// Before: MediaQuery.of(context) — rebuilds on ANY change\n'
+          '// After:  MediaQuery.sizeOf(context) — only on size change\n'
+          'Move state-dependent logic to leaf widgets.$vmSuffix',
       FixEffort.medium,
     );
   }
