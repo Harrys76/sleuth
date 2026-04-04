@@ -525,7 +525,7 @@ The bare names (`'build'`, `'paint'`, `'layout'`) are generic English words. The
 
 ### v9.9: runtimeType.toString() Allocation Reduction
 
-**Effort:** Medium | **Theme:** Performance | **Impact:** Eliminates ~7 string allocations per scan in scan-root resolution
+**Effort:** Medium | **Theme:** Performance | **Impact:** Eliminates ~7 string allocations per scan in scan-root resolution | ✅ **Shipped**
 
 **Problem:** `WatchdogController` calls `widget.runtimeType.toString()` at 7 locations in the scan-root resolution path. Each call allocates a new String on the UI thread, per element visited:
 
@@ -576,7 +576,7 @@ if (name.startsWith('_ModalScope')) { ... }
 
 ### v9.10: FrameStatsBuffer Hot-Path Allocations
 
-**Effort:** Medium | **Theme:** Performance | **Impact:** Eliminates redundant List allocations per frame
+**Effort:** Medium | **Theme:** Performance | **Impact:** Eliminates redundant List allocations per frame | ✅ **Shipped**
 
 **Problem:** Multiple hot-path allocations in the frame processing pipeline:
 

@@ -172,14 +172,17 @@ class FrameTimingDetector extends BaseDetector {
     final frames = _buffer.frames;
     if (frames.length < 5) return; // Need enough data
 
-    final severeCount = frames.where((f) => f.isSevereJank).length;
-    final jankCount = frames.where((f) => f.isJank).length;
+    // Single-pass: count jank categories and find worst frame (v9.10).
+    int severeCount = 0, jankCount = 0;
+    FrameStats worst = frames.first;
+    for (final f in frames) {
+      if (f.isSevereJank) severeCount++;
+      if (f.isJank) jankCount++;
+      if (f.effectiveTotalDuration > worst.effectiveTotalDuration) worst = f;
+    }
     final jankPercent = (jankCount / frames.length * 100).round();
 
     if (severeCount >= 3) {
-      final worstFrame = frames.reduce(
-        (a, b) => a.effectiveTotalDuration > b.effectiveTotalDuration ? a : b,
-      );
       final (hint1, effort1) = FixHintBuilder.sustainedJank();
       _issues.add(
         PerformanceIssue(
@@ -189,16 +192,13 @@ class FrameTimingDetector extends BaseDetector {
           confidence: IssueConfidence.confirmed,
           title:
               'Sustained Jank: $severeCount severe frames ($jankPercent% janky)',
-          detail: _buildDetail(worstFrame),
+          detail: _buildDetail(worst),
           fixHint: hint1,
           fixEffort: effort1,
           detectedAt: DateTime.now(),
         ),
       );
     } else if (jankPercent > 15) {
-      final worstFrame = frames.reduce(
-        (a, b) => a.effectiveTotalDuration > b.effectiveTotalDuration ? a : b,
-      );
       final (hint2, effort2) = FixHintBuilder.jankDetected();
       _issues.add(
         PerformanceIssue(
@@ -207,7 +207,7 @@ class FrameTimingDetector extends BaseDetector {
           category: IssueCategory.build,
           confidence: IssueConfidence.confirmed,
           title: 'Jank Detected: $jankPercent% of frames over budget',
-          detail: _buildDetail(worstFrame),
+          detail: _buildDetail(worst),
           fixHint: hint2,
           fixEffort: effort2,
           detectedAt: DateTime.now(),

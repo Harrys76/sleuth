@@ -156,8 +156,11 @@ class FrameStatsBuffer {
 
   final int capacity;
   final Queue<FrameStats> _buffer = Queue<FrameStats>();
+  List<FrameStats>? _cachedFrames;
+  bool _percentilesDirty = true;
+  FpsPercentiles? _cachedPercentiles;
 
-  List<FrameStats> get frames => _buffer.toList();
+  List<FrameStats> get frames => _cachedFrames ??= List.unmodifiable(_buffer);
   int get length => _buffer.length;
   bool get isEmpty => _buffer.isEmpty;
 
@@ -188,6 +191,8 @@ class FrameStatsBuffer {
       _buffer.removeFirst();
     }
     _buffer.add(frame);
+    _cachedFrames = null;
+    _percentilesDirty = true;
   }
 
   /// Computes FPS percentiles from the current buffer contents.
@@ -203,6 +208,9 @@ class FrameStatsBuffer {
     if (_buffer.length < 2) {
       return const FpsPercentiles(p50: 0, p95: 0, p99: 0);
     }
+    if (!_percentilesDirty && _cachedPercentiles != null) {
+      return _cachedPercentiles!;
+    }
     final fpsValues = _buffer.map((f) {
       final us = f.effectiveTotalDuration.inMicroseconds;
       if (us <= 0) return 120.0;
@@ -216,14 +224,21 @@ class FrameStatsBuffer {
           fpsValues[math.min(index, fpsValues.length - 1)].toStringAsFixed(1));
     }
 
-    return FpsPercentiles(
+    _cachedPercentiles = FpsPercentiles(
       p50: percentile(0.5),
       p95: percentile(0.95),
       p99: percentile(0.99),
     );
+    _percentilesDirty = false;
+    return _cachedPercentiles!;
   }
 
-  void clear() => _buffer.clear();
+  void clear() {
+    _buffer.clear();
+    _cachedFrames = null;
+    _percentilesDirty = true;
+    _cachedPercentiles = null;
+  }
 }
 
 /// FPS percentile values computed from a [FrameStatsBuffer].

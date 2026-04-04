@@ -2,6 +2,17 @@
 
 ### Performance
 
+- **`runtimeType.toString()` elimination** (v9.9): Replaced 3 of 7
+  `runtimeType.toString()` call sites in scan-root resolution with zero-allocation
+  `is` type checks. Covers `_findVisiblePageContext` visitor (runs on every
+  element), `_findActiveRouteScanRoot`, and `_containsNestedNavigator`. The 4
+  remaining sites involve private framework types (`_OverlayEntryWidget`,
+  `_ModalScope`, `_ModalScopeStatus`) that cannot use `is` checks.
+- **FrameStatsBuffer hot-path allocations** (v9.10): Cached `frames` getter
+  (eliminates per-call `Queue.toList()`), single-pass jank counting in
+  `_evaluateJank()` (replaces 2x `.where().length` + conditional `.reduce()`),
+  listener-gated `FrameStatsBuffer.from()` copy (skips O(N) buffer copy when
+  overlay is hidden), and lazy dirty-flag `fpsPercentiles()` caching.
 - **Single-loop `_aggregateIssues()`** (v9.12): Replaced `.map().toList()` +
   `.where().toList()` chain with a single for-loop that stamps, filters, and
   collects in one pass. Eliminates 2 intermediate list allocations per

@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:flutter/cupertino.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show Scaffold;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:vm_service/vm_service.dart' show AllocationProfile, Event;
 
+import '../ui/floating_issues_card.dart';
+import '../ui/highlight_overlay.dart';
+import '../ui/trigger_button.dart';
 import '../ui/watchdog_theme.dart';
 import '../analyzer/detector_correlator.dart';
 import '../analyzer/frame_event_correlator.dart';
@@ -714,16 +719,15 @@ class WatchdogController {
       // Skip ticker-disabled subtrees — background Navigator routes
       if (widget is TickerMode && !widget.enabled) return;
 
-      // Skip our own overlay widgets
-      final name = widget.runtimeType.toString();
-      if (name == 'FloatingIssuesCard' ||
-          name == 'TriggerButton' ||
-          name == 'HighlightOverlay') {
+      // Skip our own overlay widgets (v9.9: zero-allocation is checks)
+      if (widget is FloatingIssuesCard ||
+          widget is TriggerButton ||
+          widget is HighlightOverlay) {
         return;
       }
 
       // Collect all visible Scaffolds (Material + Cupertino)
-      if (name == 'Scaffold' || name == 'CupertinoPageScaffold') {
+      if (widget is Scaffold || widget is CupertinoPageScaffold) {
         scaffolds.add(element);
       }
 
@@ -791,14 +795,14 @@ class WatchdogController {
     Element? navigator;
     void findNav(Element el) {
       if (navigator != null) return;
-      final name = el.widget.runtimeType.toString();
-      // Skip our own UI widgets
-      if (name == 'FloatingIssuesCard' ||
-          name == 'TriggerButton' ||
-          name == 'HighlightOverlay') {
+      final widget = el.widget;
+      // Skip our own UI widgets (v9.9: zero-allocation is checks)
+      if (widget is FloatingIssuesCard ||
+          widget is TriggerButton ||
+          widget is HighlightOverlay) {
         return;
       }
-      if (name == 'Navigator') {
+      if (widget is Navigator) {
         navigator = el;
         return; // outermost — don't descend
       }
@@ -873,7 +877,7 @@ class WatchdogController {
     bool found = false;
     void check(Element el) {
       if (found) return;
-      if (el.widget.runtimeType.toString() == 'Navigator') {
+      if (el.widget is Navigator) {
         found = true;
         return;
       }
@@ -1217,7 +1221,13 @@ class WatchdogController {
   }
 
   void _onFrameStats(FrameStatsBuffer buffer) {
-    frameStatsNotifier.value = FrameStatsBuffer.from(buffer);
+    // Only copy buffer for the notifier when UI is actively listening (v9.10).
+    // When !_initialized, exportSnapshot() reads from the notifier (fallback),
+    // so the copy is required regardless of listener state.
+    // ignore: invalid_use_of_protected_member
+    if (frameStatsNotifier.hasListeners || !_initialized) {
+      frameStatsNotifier.value = FrameStatsBuffer.from(buffer);
+    }
 
     // Generate FRAME-mode verdict for jank frames when VM is not connected.
     final latest = buffer.latest;
