@@ -53,7 +53,8 @@ test/
 
 ## Current state
 
-- **v0.9.1** (current) — v8 accuracy/correctness/performance fixes: SetState O(N²) fix (v8.1), scaffold scan-root fallback for Cupertino/scaffold-free apps (v8.2), HTTP monitor leak (v8.3), platform channel false positives (v8.4), SetState wording (v8.5). See CHANGELOG.md.
+- **v0.9.2** (current) — v9 accuracy/self-overhead/correctness: 17 milestones — opacity value semantics, paint phase classification, inner subtree walk elimination, highlight overlay GPU optimization, generation-counter shouldRepaint, and more. See CHANGELOG.md.
+- v0.9.1: v8 accuracy/correctness/performance fixes: SetState O(N²) fix (v8.1), scaffold scan-root fallback for Cupertino/scaffold-free apps (v8.2), HTTP monitor leak (v8.3), platform channel false positives (v8.4), SetState wording (v8.5).
 - v0.9.0: Unified structural tree walk (v7.9), all v7 milestones shipped.
 - v0.8.2: Ring buffers (v7.7), correlator sort cache (v7.8), VM reconnect polling fix (v7.10).
 - v0.8.1: Accuracy fixes — HeavyCompute two-tier (v7.1), NetworkMonitor threshold (v7.2), threshold tuning (v7.3), correlator coverage (v7.4), rebuild VM fallback (v7.5), MemoryPressure warmup (v7.6).
