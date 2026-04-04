@@ -1,5 +1,19 @@
 ## Unreleased
 
+### Performance
+
+- **Single-loop `_aggregateIssues()`** (v9.12): Replaced `.map().toList()` +
+  `.where().toList()` chain with a single for-loop that stamps, filters, and
+  collects in one pass. Eliminates 2 intermediate list allocations per
+  `_aggregateIssues()` call (called from 7 locations). Behavior identical —
+  the ranker receives the same visible issues in the same order.
+- **FIFO eviction O(N) → O(1)** (v9.13): `NetworkMonitorDetector._records`
+  and `MemoryPressureDetector._heapSamples` switched from `List` to `Queue`.
+  `removeAt(0)` (which shifts all elements) replaced with `removeFirst()`
+  (O(1)). Public getters unchanged — `List.unmodifiable()` accepts any
+  `Iterable`. Capacities: 200 records (was 199 element shifts per eviction),
+  60 heap samples (was 59 shifts).
+
 ### Fixed
 
 - **Silent exception swallowing** (v9.15): All 8 silent `catch (_) {}` blocks

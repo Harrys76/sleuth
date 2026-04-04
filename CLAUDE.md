@@ -61,7 +61,7 @@ test/
 - v0.7.0: v4 + v5 roadmap — suppression, custom detectors, theming, export enrichment, causal graph, configurable thresholds, detector registry, network correlation, RepaintBoundary detector.
 - v7 roadmap: 10/10 milestones shipped ✅. See `doc/spec_v7.md`.
 - v8 roadmap: 5/5 milestones shipped ✅ (v8.1–v8.5). See `doc/spec_v8.md`.
-- v9 roadmap: 11/17 milestones shipped (v9.1–v9.8, v9.15–v9.17). See `doc/spec_v9.md`.
+- v9 roadmap: 13/17 milestones shipped (v9.1–v9.8, v9.12–v9.13, v9.15–v9.17). See `doc/spec_v9.md`.
 - Post-implementation audits in `doc/spec_v2_audit.md` and `doc/spec_post_impl_notes.md`.
 - Full spec index in `doc/implementation_spec.md`.
 - 1,368 tests, 0 analysis issues

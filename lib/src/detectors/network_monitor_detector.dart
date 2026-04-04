@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
@@ -45,7 +46,7 @@ class NetworkMonitorDetector extends BaseDetector {
   static const int _frequencyWindowMs = 5000;
   static const int _criticalSlowThresholdMs = 5000;
 
-  final List<RequestRecord> _records = [];
+  final Queue<RequestRecord> _records = Queue<RequestRecord>();
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
   Timer? _frequencyTimer;
@@ -102,7 +103,7 @@ class NetworkMonitorDetector extends BaseDetector {
 
     // Add to ring buffer (FIFO eviction)
     _records.add(record);
-    if (_records.length > _bufferCapacity) _records.removeAt(0);
+    if (_records.length > _bufferCapacity) _records.removeFirst();
 
     // Start frequency timer on first record
     _frequencyTimer ??= Timer.periodic(

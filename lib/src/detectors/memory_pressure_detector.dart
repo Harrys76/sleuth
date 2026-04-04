@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
 import '../models/heap_sample.dart';
@@ -49,7 +51,7 @@ class MemoryPressureDetector extends BaseDetector {
   static const int _sustainedGrowthDurationSec = 10;
   static const int _nativeGrowthThresholdBytesPerSec = 1048576; // 1 MB/sec
 
-  final List<HeapSample> _heapSamples = [];
+  final Queue<HeapSample> _heapSamples = Queue<HeapSample>();
   DateTime? _sustainedGrowthStart;
   DateTime? _sustainedNativeGrowthStart;
 
@@ -87,7 +89,7 @@ class MemoryPressureDetector extends BaseDetector {
 
     _firstHeapSampleTime ??= _clock();
     _heapSamples.add(sample);
-    if (_heapSamples.length > _windowCapacity) _heapSamples.removeAt(0);
+    if (_heapSamples.length > _windowCapacity) _heapSamples.removeFirst();
 
     _evaluate();
   }

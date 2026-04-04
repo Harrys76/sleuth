@@ -769,7 +769,7 @@ For **GlobalKeyDetector** and **KeepAliveDetector** (type-specific counting with
 
 ### v9.12: _aggregateIssues Allocation Storm
 
-**Effort:** Low | **Theme:** Performance | **Impact:** Reduces redundant list building in issue pipeline
+**Effort:** Low | **Theme:** Performance | **Impact:** Reduces redundant list building in issue pipeline | ✅ **Shipped**
 
 **Problem:** `_getAllIssues()` (watchdog_controller.dart:1539-1541) flattens all detector issues into a new list:
 
@@ -881,7 +881,7 @@ This eliminates 2 intermediate list allocations per call.
 
 ### v9.13: List.removeAt(0) → Queue/Ring Buffer
 
-**Effort:** Low | **Theme:** Performance | **Impact:** O(1) eviction instead of O(N) in two detectors
+**Effort:** Low | **Theme:** Performance | **Impact:** O(1) eviction instead of O(N) in two detectors | ✅ **Shipped**
 
 **Problem:** Two detectors use `List.removeAt(0)` for FIFO eviction:
 

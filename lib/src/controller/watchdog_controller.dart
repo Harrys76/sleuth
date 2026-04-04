@@ -1459,29 +1459,25 @@ class WatchdogController {
     final correlated = _detectorCorrelator.correlate(all);
     final route = _currentRouteName();
 
-    // Stamp debug disclaimer, route name, and interaction context.
-    // For VM-only issues arriving via _onTimelineData, routeName reflects the
-    // last successfully scanned page (best-effort, not real-time).
-    // interactionContext reflects the current interaction state at stamp time.
-    final stamped = correlated
-        .map((i) => i.copyWith(
-              debugModeDisclaimer: kDebugMode ? true : null,
-              routeName: route,
-              interactionContext: _interactionState,
-            ))
-        .toList();
-
-    // ── v4.1: Suppress user-dismissed issues post-correlate, pre-rank ──
-    final List<PerformanceIssue> visible;
-    if (config.suppressedIssues.isEmpty) {
-      visible = stamped;
-      suppressedCountNotifier.value = 0;
-    } else {
-      visible = stamped
-          .where((i) => !_matchesSuppression(i.stableId ?? i.title))
-          .toList();
-      suppressedCountNotifier.value = stamped.length - visible.length;
+    // Stamp debug disclaimer, route name, and interaction context, then
+    // suppress user-dismissed issues — all in a single pass to avoid
+    // intermediate list allocations (v9.12).
+    final List<PerformanceIssue> visible = [];
+    int suppressedCount = 0;
+    for (final issue in correlated) {
+      final stamped = issue.copyWith(
+        debugModeDisclaimer: kDebugMode ? true : null,
+        routeName: route,
+        interactionContext: _interactionState,
+      );
+      if (config.suppressedIssues.isNotEmpty &&
+          _matchesSuppression(stamped.stableId ?? stamped.title)) {
+        suppressedCount++;
+      } else {
+        visible.add(stamped);
+      }
     }
+    suppressedCountNotifier.value = suppressedCount;
 
     // Rank by impact: severity dominates, then frame impact, confidence,
     // recurrence. See IssueRanker for score formula and tier guarantees.
