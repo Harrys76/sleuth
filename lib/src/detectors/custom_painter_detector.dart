@@ -53,30 +53,38 @@ class CustomPainterDetector extends BaseDetector {
   void checkElement(Element element) {
     final widget = element.widget;
 
-    if (widget is CustomPaint && widget.painter != null) {
-      final painter = widget.painter!;
-      try {
-        // Known limitation: self-comparison only catches trivially wrong
-        // implementations (=> true). Secondary heuristic (debug paint rate)
-        // handles painters that correctly compare fields.
-        if (painter.shouldRepaint(painter)) {
-          _found.add(buildAncestorChain(element));
-          final ro = element.renderObject;
-          if (ro != null) {
-            final rect = getGlobalRect(ro);
-            if (rect != null) {
-              _highlights.add(WidgetHighlight(
-                rect: rect,
-                widgetName: widget.runtimeType.toString(),
-                severity: IssueSeverity.warning,
-                detectorName: 'Painter',
-                detail: 'shouldRepaint always true',
-              ));
-            }
+    if (widget is CustomPaint) {
+      if (widget.painter != null) {
+        _checkPainter(element, widget.painter!);
+      }
+      if (widget.foregroundPainter != null) {
+        _checkPainter(element, widget.foregroundPainter!);
+      }
+    }
+  }
+
+  void _checkPainter(Element element, CustomPainter painter) {
+    try {
+      // Known limitation: self-comparison only catches trivially wrong
+      // implementations (=> true). Secondary heuristic (debug paint rate)
+      // handles painters that correctly compare fields.
+      if (painter.shouldRepaint(painter)) {
+        _found.add(buildAncestorChain(element));
+        final ro = element.renderObject;
+        if (ro != null) {
+          final rect = getGlobalRect(ro);
+          if (rect != null) {
+            _highlights.add(WidgetHighlight(
+              rect: rect,
+              widgetName: element.widget.runtimeType.toString(),
+              severity: IssueSeverity.warning,
+              detectorName: 'Painter',
+              detail: 'shouldRepaint always true',
+            ));
           }
         }
-      } catch (_) {}
-    }
+      }
+    } catch (_) {}
   }
 
   @override

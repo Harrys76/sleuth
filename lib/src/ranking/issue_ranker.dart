@@ -119,16 +119,15 @@ class IssueRanker {
     if (!ctx.jankActive) return 0;
     final phase = ctx.suspectedPhase;
     if (phase == null || phase == PipelinePhase.unknown) return 1;
-    final isUiThread =
-        phase == PipelinePhase.build || phase == PipelinePhase.layout;
-    final isRasterThread =
-        phase == PipelinePhase.paint || phase == PipelinePhase.raster;
+    final isUiThread = phase == PipelinePhase.build ||
+        phase == PipelinePhase.layout ||
+        phase == PipelinePhase.paint;
+    final isRasterThread = phase == PipelinePhase.raster;
     final matches = (isUiThread &&
             (category == IssueCategory.build ||
-                category == IssueCategory.layout)) ||
-        (isRasterThread &&
-            (category == IssueCategory.paint ||
-                category == IssueCategory.raster));
+                category == IssueCategory.layout ||
+                category == IssueCategory.paint)) ||
+        (isRasterThread && category == IssueCategory.raster);
     return matches ? 3 : 1;
   }
 

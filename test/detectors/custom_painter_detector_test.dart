@@ -300,6 +300,58 @@ void main() {
         expect(detector.issues.first.confidence, IssueConfidence.possible);
       });
     });
+
+    group('foregroundPainter support', () {
+      testWidgets('detects always-repaint foregroundPainter', (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: CustomPaint(
+              foregroundPainter: _AlwaysRepaintPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1));
+        expect(detector.highlights, hasLength(1));
+      });
+
+      testWidgets('detects both painter and foregroundPainter', (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: CustomPaint(
+              painter: _AlwaysRepaintPainter(),
+              foregroundPainter: _AlwaysRepaintPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.title, contains('2 found'));
+        expect(detector.highlights, hasLength(2));
+      });
+
+      testWidgets('ignores good foregroundPainter', (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: CustomPaint(
+              foregroundPainter: _NeverRepaintPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty);
+        expect(detector.highlights, isEmpty);
+      });
+    });
   });
 }
 

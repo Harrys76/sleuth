@@ -140,6 +140,7 @@ class DebugInstrumentationCoordinator {
   }
 
   void _handleRebuildDirtyWidget(Element element, bool builtOnce) {
+    if (!builtOnce) return; // Skip initial builds — only count actual rebuilds
     final typeName = element.widget.runtimeType.toString();
     if (_rebuildCounts.length >= _maxTrackedTypes &&
         !_rebuildCounts.containsKey(typeName)) {

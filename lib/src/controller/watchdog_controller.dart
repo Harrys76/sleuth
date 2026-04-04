@@ -100,6 +100,10 @@ class WatchdogController {
   final IssueRanker _ranker = const IssueRanker();
   final Map<String, int> _recurrenceCounts = {};
 
+  // Cached verdict phase for ranking context (v9.2)
+  PipelinePhase? _lastVerdictPhase;
+  int? _lastVerdictFrameNumber;
+
   // Export enrichment buffers (rolling, fed from _onTimelineData)
   final Queue<PhaseEvent> _phaseEventBuffer = Queue();
   static const _phaseEventBufferCapacity = 100;
@@ -1120,6 +1124,8 @@ class WatchdogController {
           );
           verdict = _enrichVerdictWithNetworkContext(verdict);
           verdictNotifier.value = verdict;
+          _lastVerdictPhase = verdict.suspectedPhase;
+          _lastVerdictFrameNumber = verdict.frameNumber;
           captureFrame = worstFrame;
           captureVerdict = verdict;
         }
@@ -1138,6 +1144,8 @@ class WatchdogController {
         );
         verdict = _enrichVerdictWithNetworkContext(verdict);
         verdictNotifier.value = verdict;
+        _lastVerdictPhase = verdict.suspectedPhase;
+        _lastVerdictFrameNumber = verdict.frameNumber;
         captureFrame = latest;
         captureVerdict = verdict;
       }
@@ -1204,12 +1212,15 @@ class WatchdogController {
     // Generate FRAME-mode verdict for jank frames when VM is not connected.
     final latest = buffer.latest;
     if (latest != null && latest.isJank && !isVmConnected) {
-      verdictNotifier.value = _enrichVerdictWithNetworkContext(
+      final basicVerdict = _enrichVerdictWithNetworkContext(
         _analyzer.analyzeBasicMode(
           frameStats: latest,
           relatedIssues: _getAllIssues(),
         ),
       );
+      verdictNotifier.value = basicVerdict;
+      _lastVerdictPhase = basicVerdict.suspectedPhase;
+      _lastVerdictFrameNumber = basicVerdict.frameNumber;
 
       // Capture inside the jank guard with most-recently-stamped issues.
       if (latest.frameNumber != _lastCapturedFrameNumber) {
@@ -1508,11 +1519,20 @@ class WatchdogController {
 
     PipelinePhase? phase;
     if (jankActive && latestIsJank) {
-      // Derive phase from the latest janky frame — same approach as the
-      // verdict paths. Reflects the current bottleneck.
-      phase = latest.uiDuration > latest.rasterDuration
-          ? PipelinePhase.build
-          : PipelinePhase.raster;
+      // Prefer the verdict's analysed phase when available and fresh.
+      final verdictAge = latest.frameNumber - (_lastVerdictFrameNumber ?? 0);
+      if (_lastVerdictPhase != null &&
+          _lastVerdictPhase != PipelinePhase.unknown &&
+          _lastVerdictFrameNumber != null &&
+          verdictAge >= 0 &&
+          verdictAge <= _frameTiming.frameBuffer.capacity) {
+        phase = _lastVerdictPhase;
+      } else {
+        // Fallback: derive from UI vs raster duration ratio.
+        phase = latest.uiDuration > latest.rasterDuration
+            ? PipelinePhase.build
+            : PipelinePhase.raster;
+      }
     }
     // If jankActive but latest is not janky (sustained pattern, current
     // frame ok), phase stays null — all categories get equal partial boost.

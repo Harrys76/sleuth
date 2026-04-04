@@ -206,8 +206,10 @@ class FixHintBuilder {
       );
     }
     return (
-      'Add cacheWidth and/or cacheHeight to Image widgets:\n'
-          'Image.asset("photo.jpg", cacheWidth: 300)',
+      'Add cacheWidth and/or cacheHeight to decode images at display size:\n'
+          'Image.asset("photo.jpg", cacheWidth: 300)\n'
+          'Image.network(url, cacheWidth: 300)\n'
+          'Or wrap the provider: ResizeImage(imageProvider, width: 300)',
       FixEffort.quick,
     );
   }

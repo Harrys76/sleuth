@@ -114,7 +114,7 @@ if (ro is RenderAnimatedOpacity) {
 
 ---
 
-### v9.2: IssueRanker Paint Phase Thread Classification
+### v9.2: IssueRanker Paint Phase Thread Classification ✅ Shipped
 
 **Effort:** Very Low | **Theme:** Accuracy | **Impact:** Corrects issue priority weighting for paint-related issues
 
@@ -237,7 +237,7 @@ if (jankActive && latestIsJank) {
 
 ---
 
-### v9.3: Debug Coordinator — builtOnce Parameter Ignored
+### v9.3: Debug Coordinator — builtOnce Parameter Ignored ✅ Shipped
 
 **Effort:** Very Low | **Theme:** Accuracy | **Impact:** Stops counting initial widget builds as rebuilds
 
@@ -342,7 +342,7 @@ void afterElement(Element element) {
 
 ---
 
-### v9.5: CustomPainter — foregroundPainter Not Checked
+### v9.5: CustomPainter — foregroundPainter Not Checked ✅ Shipped
 
 **Effort:** Very Low | **Theme:** Accuracy | **Impact:** Detects bad shouldRepaint on foreground painters
 
@@ -460,7 +460,7 @@ Same pattern for KeepAliveDetector. Add a test: two ListViews both above thresho
 
 ---
 
-### v9.7: Image Detector — Messaging Improvement (No Behavioral Change)
+### v9.7: Image Detector — Messaging Improvement (No Behavioral Change) ✅ Shipped
 
 **Effort:** Very Low | **Theme:** Accuracy | **Impact:** Improves issue detail text and fix hints for uncached images
 

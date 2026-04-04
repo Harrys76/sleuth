@@ -177,6 +177,38 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
 
+    testWidgets('highlight detail includes provider type for MemoryImage',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Image(image: MemoryImage(_kTransparentPng)),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.highlights, hasLength(1));
+      expect(
+          detector.highlights.first.detail, contains('Uncached MemoryImage'));
+      expect(detector.highlights.first.detail, contains('ResizeImage'));
+    });
+
+    test('extractSourceName returns correct names for provider types', () {
+      expect(
+        ImageMemoryDetector.extractSourceName(const AssetImage('photo.png')),
+        'photo.png',
+      );
+      expect(
+        ImageMemoryDetector.extractSourceName(MemoryImage(_kTransparentPng)),
+        contains('MemoryImage'),
+      );
+      expect(
+        ImageMemoryDetector.extractSourceName(
+            const ExactAssetImage('icon.png')),
+        'icon.png',
+      );
+    });
+
     testWidgets('dispose clears issues, highlights, and uncachedImages',
         (tester) async {
       await tester.pumpWidget(

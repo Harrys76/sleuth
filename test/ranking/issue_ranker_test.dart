@@ -106,22 +106,22 @@ void main() {
         expect(result.first.stableId, 'build');
       });
 
-      test('paint-category issue boosted when jank phase is raster', () {
+      test('paint-category issue boosted when jank phase is paint', () {
         final paintIssue = makeIssue(
           category: IssueCategory.paint,
           stableId: 'paint',
         );
-        final buildIssue = makeIssue(
-          category: IssueCategory.build,
-          stableId: 'build',
+        final memoryIssue = makeIssue(
+          category: IssueCategory.memory,
+          stableId: 'memory',
         );
 
         final context = IssueRankingContext(
           jankActive: true,
-          suspectedPhase: PipelinePhase.raster,
+          suspectedPhase: PipelinePhase.paint,
         );
 
-        final result = ranker.rank([buildIssue, paintIssue], context);
+        final result = ranker.rank([memoryIssue, paintIssue], context);
         expect(result.first.stableId, 'paint');
       });
 
@@ -130,9 +130,9 @@ void main() {
           category: IssueCategory.layout,
           stableId: 'layout',
         );
-        final paintIssue = makeIssue(
-          category: IssueCategory.paint,
-          stableId: 'paint',
+        final rasterIssue = makeIssue(
+          category: IssueCategory.raster,
+          stableId: 'raster',
         );
 
         final context = IssueRankingContext(
@@ -140,7 +140,7 @@ void main() {
           suspectedPhase: PipelinePhase.build,
         );
 
-        final result = ranker.rank([paintIssue, layoutIssue], context);
+        final result = ranker.rank([rasterIssue, layoutIssue], context);
         expect(result.first.stableId, 'layout');
       });
 
@@ -194,6 +194,65 @@ void main() {
         final score = ranker.scoreOf(memoryIssue, context);
         // 2*100 + 1*8 + 1*5 + 0*2 = 213
         expect(score, 213);
+      });
+
+      test('paint is UI-thread: boosted with build/layout/paint phase', () {
+        final paintIssue = makeIssue(
+          category: IssueCategory.paint,
+          stableId: 'paint',
+        );
+        final rasterIssue = makeIssue(
+          category: IssueCategory.raster,
+          stableId: 'raster',
+        );
+
+        // Paint gets full boost (3) during build phase — it's UI-thread
+        final buildCtx = IssueRankingContext(
+          jankActive: true,
+          suspectedPhase: PipelinePhase.build,
+        );
+        expect(
+          ranker.rank([rasterIssue, paintIssue], buildCtx).first.stableId,
+          'paint',
+        );
+
+        // Paint gets partial boost (1) during raster phase — not raster-thread
+        final rasterCtx = IssueRankingContext(
+          jankActive: true,
+          suspectedPhase: PipelinePhase.raster,
+        );
+        expect(
+          ranker.rank([paintIssue, rasterIssue], rasterCtx).first.stableId,
+          'raster',
+        );
+      });
+
+      test('raster-only: only raster category gets full boost', () {
+        final context = IssueRankingContext(
+          jankActive: true,
+          suspectedPhase: PipelinePhase.raster,
+        );
+
+        final rasterIssue = makeIssue(
+          category: IssueCategory.raster,
+          stableId: 'raster',
+        );
+        final paintIssue = makeIssue(
+          category: IssueCategory.paint,
+          stableId: 'paint',
+        );
+        final buildIssue = makeIssue(
+          category: IssueCategory.build,
+          stableId: 'build',
+        );
+
+        // raster gets 3, paint and build get 1
+        final rasterScore = ranker.scoreOf(rasterIssue, context);
+        final paintScore = ranker.scoreOf(paintIssue, context);
+        final buildScore = ranker.scoreOf(buildIssue, context);
+        expect(rasterScore, greaterThan(paintScore));
+        expect(rasterScore, greaterThan(buildScore));
+        expect(paintScore, buildScore); // both partial
       });
 
       test('phase-agnostic categories get partial boost during jank', () {

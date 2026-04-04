@@ -166,12 +166,38 @@ void main() {
 
         final snap = coord.snapshot();
 
-        expect(snap.rebuildCounts, {'MyWidget': 2, 'OtherWidget': 1});
+        // OtherWidget was called with builtOnce=false, so it's filtered out.
+        expect(snap.rebuildCounts, {'MyWidget': 2});
         expect(snap.totalPaintCount, 2);
         expect(snap.elapsed, const Duration(milliseconds: 500));
-        expect(snap.totalRebuilds, 3);
+        expect(snap.totalRebuilds, 2);
 
         coord.dispose();
+        return true;
+      }());
+    });
+
+    test('initial builds (builtOnce=false) are not counted', () {
+      assert(() {
+        coordinator.install();
+
+        // All initial builds — should be filtered.
+        debugOnRebuildDirtyWidget?.call(_FakeElement('Alpha'), false);
+        debugOnRebuildDirtyWidget?.call(_FakeElement('Beta'), false);
+        debugOnRebuildDirtyWidget?.call(_FakeElement('Gamma'), false);
+
+        final snap1 = coordinator.snapshot();
+        expect(snap1.rebuildCounts, isEmpty);
+        expect(snap1.totalRebuilds, 0);
+
+        // Now a real rebuild — should be counted.
+        debugOnRebuildDirtyWidget?.call(_FakeElement('Alpha'), true);
+
+        final snap2 = coordinator.snapshot();
+        expect(snap2.rebuildCounts, {'Alpha': 1});
+        expect(snap2.totalRebuilds, 1);
+
+        coordinator.dispose();
         return true;
       }());
     });

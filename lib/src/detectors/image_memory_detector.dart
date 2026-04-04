@@ -84,7 +84,8 @@ class ImageMemoryDetector extends BaseDetector {
               widgetName: 'Image',
               severity: IssueSeverity.warning,
               detectorName: 'Image',
-              detail: 'No cacheWidth/cacheHeight\n$sourceName',
+              detail: 'Uncached ${_providerTypeName(provider)}: $sourceName\n'
+                  'Add cacheWidth/cacheHeight or wrap in ResizeImage',
             ));
           }
         }
@@ -116,6 +117,15 @@ class ImageMemoryDetector extends BaseDetector {
         detectedAt: DateTime.now(),
       ));
     }
+  }
+
+  static String _providerTypeName(ImageProvider provider) {
+    if (provider is NetworkImage) return 'NetworkImage';
+    if (provider is AssetImage) return 'AssetImage';
+    if (provider is FileImage) return 'FileImage';
+    if (provider is MemoryImage) return 'MemoryImage';
+    if (provider is ExactAssetImage) return 'ExactAssetImage';
+    return provider.runtimeType.toString();
   }
 
   /// Extract a human-readable name from an ImageProvider.
