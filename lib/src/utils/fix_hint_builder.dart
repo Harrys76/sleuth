@@ -89,7 +89,7 @@ class FixHintBuilder {
   static (String, FixEffort) sustainedJank() {
     return (
       'Check for heavy computations in build(), setState() scope, '
-          'or offscreen painting. Profile with:\n'
+          'or offscreen painting. Run in profile mode:\n'
           'flutter run --profile\n'
           'Then open DevTools > Performance to identify expensive frames.',
       FixEffort.medium,

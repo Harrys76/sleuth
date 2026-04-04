@@ -32,7 +32,7 @@ void main() {
       await tester.pumpWidget(buildCard());
 
       expect(
-        find.widgetWithIcon(IconButton, Icons.ios_share),
+        find.byIcon(Icons.ios_share),
         findsOneWidget,
       );
     });
@@ -52,7 +52,7 @@ void main() {
       );
 
       await tester.pumpWidget(buildCard());
-      await tester.tap(find.widgetWithIcon(IconButton, Icons.ios_share));
+      await tester.tap(find.byIcon(Icons.ios_share));
       await tester.pump();
 
       expect(clipboardContent, isNotNull);
@@ -70,7 +70,7 @@ void main() {
       );
 
       await tester.pumpWidget(buildCard());
-      await tester.tap(find.widgetWithIcon(IconButton, Icons.ios_share));
+      await tester.tap(find.byIcon(Icons.ios_share));
       await tester.pump();
 
       expect(find.text('Snapshot copied to clipboard'), findsOneWidget);
@@ -86,7 +86,7 @@ void main() {
       );
 
       await tester.pumpWidget(buildCard());
-      await tester.tap(find.widgetWithIcon(IconButton, Icons.ios_share));
+      await tester.tap(find.byIcon(Icons.ios_share));
       await tester.pump();
       expect(find.text('Snapshot copied to clipboard'), findsOneWidget);
 

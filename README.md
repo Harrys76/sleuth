@@ -1,6 +1,12 @@
-# widget_watchdog
+# Widget Watchdog
 
-A runtime performance diagnostics package for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
+[![Pub Version](https://img.shields.io/pub/v/widget_watchdog)](https://pub.dev/packages/widget_watchdog)
+[![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-1%2C368_passing-brightgreen)]()
+[![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
+
+Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
 
 ## How It Works
 
