@@ -113,6 +113,36 @@ void main() {
       expect(detector.issues.first.title, contains('1 expensive'));
     });
 
+    testWidgets('skips Opacity when opacity is 1.0', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Opacity(
+            opacity: 1.0,
+            child: SizedBox(width: 10, height: 10),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, isEmpty,
+          reason: 'Opacity 1.0 is a passthrough — no saveLayer');
+    });
+
+    testWidgets('skips Opacity when opacity is 0.0', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Opacity(
+            opacity: 0.0,
+            child: SizedBox(width: 10, height: 10),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, isEmpty,
+          reason: 'Opacity 0.0 short-circuits paint — no saveLayer');
+    });
+
     testWidgets('flags multiple expensive widget types', (tester) async {
       await tester.pumpWidget(
         Directionality(

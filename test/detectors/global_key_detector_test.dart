@@ -45,7 +45,7 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.title, contains('in scrollable'));
+      expect(detector.issues.first.title, contains('in ListView'));
       expect(detector.issues.first.observationSource,
           ObservationSource.structural);
     });
@@ -196,7 +196,7 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       final issue = detector.issues.first;
-      expect(issue.stableId, 'excessive_global_keys');
+      expect(issue.stableId, 'excessive_global_keys:0');
       expect(issue.confidence, IssueConfidence.possible);
       expect(issue.category, IssueCategory.build);
     });
@@ -219,6 +219,88 @@ void main() {
       detector.dispose();
       expect(detector.issues, isEmpty);
       expect(detector.highlights, isEmpty);
+    });
+
+    // -----------------------------------------------------------------
+    // v9.6: Per-scrollable accumulation
+    // -----------------------------------------------------------------
+
+    testWidgets('two scrollables each below threshold produce no issues',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            height: 600,
+            child: Column(
+              children: [
+                Expanded(
+                  child: ListView(children: _keyedChildren(2)),
+                ),
+                Expanded(
+                  child: ListView(children: _keyedChildren(2)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, isEmpty,
+          reason: 'Each scrollable has ≤threshold keys — no issue');
+    });
+
+    testWidgets('two scrollables each above threshold produce two issues',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            height: 600,
+            child: Column(
+              children: [
+                Expanded(
+                  child: ListView(children: _keyedChildren(5)),
+                ),
+                Expanded(
+                  child: ListView(children: _keyedChildren(5)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, hasLength(2));
+      expect(detector.issues[0].stableId, 'excessive_global_keys:0');
+      expect(detector.issues[1].stableId, 'excessive_global_keys:1');
+    });
+
+    testWidgets('one above one below threshold produces one issue',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            height: 600,
+            child: Column(
+              children: [
+                Expanded(
+                  child: ListView(children: _keyedChildren(5)),
+                ),
+                Expanded(
+                  child: ListView(children: _keyedChildren(1)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.stableId, 'excessive_global_keys:0');
     });
   });
 }

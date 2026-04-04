@@ -75,6 +75,12 @@ class RepaintBoundaryDetector extends BaseDetector {
         widget is BackdropFilter ||
         widget is ShaderMask ||
         widget is CustomPaint) {
+      // Opacity at 1.0 (passthrough) or 0.0 (no paint) doesn't trigger
+      // saveLayer — RepaintBoundary check unnecessary.
+      if (widget is Opacity &&
+          (widget.opacity >= 1.0 || widget.opacity <= 0.0)) {
+        return;
+      }
       final ro = element.renderObject;
       if (ro != null && !_hasRepaintBoundaryAncestor(ro)) {
         _found.add(buildAncestorChain(element));

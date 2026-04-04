@@ -1,3 +1,24 @@
+## Unreleased
+
+### Fixed
+
+- **Opacity value semantics** (v9.1): `GpuPressureDetector` and
+  `RepaintBoundaryDetector` now skip `Opacity` widgets at 1.0 (passthrough) and
+  0.0 (short-circuit) — these don't trigger `saveLayer` and were false positives.
+  `OpacityDetector` was already correct.
+- **Layout bottleneck overclaim** (v9.4): `LayoutBottleneckDetector` now
+  distinguishes nested intrinsics (critical — exponential layout passes) from
+  non-nested intrinsics (warning — O(N²)). Tracks nesting depth via
+  `afterElement` with abort-safe `prepareScan` reset.
+- **Per-scrollable accumulation** (v9.6): `GlobalKeyDetector` and
+  `KeepAliveDetector` now count per-scrollable instead of globally across all
+  scrollables. Each scrollable above threshold emits its own issue with indexed
+  stableIds (`'excessive_global_keys:0'`, `'excessive_keep_alive:0'`). Previously,
+  keys/keep-alives from unrelated scrollables were summed together, inflating
+  counts and producing false positives. **Note:** exact suppression of the old
+  `'excessive_global_keys'`/`'excessive_keep_alive'` stableIds should be updated
+  to prefix suppression.
+
 ## 0.9.1
 
 ### Fixed

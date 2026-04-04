@@ -9,6 +9,7 @@ import '../utils/widget_location.dart';
 /// Detects intrinsic dimension render objects that cause layout bottlenecks.
 ///
 /// **Structural Detector** — scans render tree for RenderIntrinsicHeight/Width.
+/// Nested intrinsics are escalated to critical severity (exponential layout).
 class LayoutBottleneckDetector extends BaseDetector {
   LayoutBottleneckDetector()
       : super(
@@ -20,7 +21,8 @@ class LayoutBottleneckDetector extends BaseDetector {
 
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
-  final List<String> _found = [];
+  final List<({String name, bool nested})> _found = [];
+  int _intrinsicDepth = 0;
   bool _isEnabled = true;
 
   @override
@@ -40,6 +42,7 @@ class LayoutBottleneckDetector extends BaseDetector {
     _issues.clear();
     _highlights.clear();
     _found.clear();
+    _intrinsicDepth = 0;
   }
 
   @override
@@ -49,16 +52,20 @@ class LayoutBottleneckDetector extends BaseDetector {
       final typeName = ro.runtimeType.toString();
       if (typeName.contains('RenderIntrinsicHeight') ||
           typeName.contains('RenderIntrinsicWidth')) {
+        final isNested = _intrinsicDepth > 0;
         final widgetName = element.widget.runtimeType.toString();
-        _found.add(widgetName);
+        _found.add((name: widgetName, nested: isNested));
+        _intrinsicDepth++;
         final rect = getGlobalRect(ro);
         if (rect != null) {
           _highlights.add(WidgetHighlight(
             rect: rect,
             widgetName: widgetName,
-            severity: IssueSeverity.warning,
+            severity: isNested ? IssueSeverity.critical : IssueSeverity.warning,
             detectorName: 'Layout',
-            detail: 'Causes O(N^2) layout passes',
+            detail: isNested
+                ? 'Nested intrinsic — O(N²+) layout'
+                : 'Causes O(N^2) layout passes',
           ));
         }
       }
@@ -66,21 +73,43 @@ class LayoutBottleneckDetector extends BaseDetector {
   }
 
   @override
+  void afterElement(Element element) {
+    final ro = element.renderObject;
+    if (ro != null) {
+      final typeName = ro.runtimeType.toString();
+      if (typeName.contains('RenderIntrinsicHeight') ||
+          typeName.contains('RenderIntrinsicWidth')) {
+        _intrinsicDepth--;
+      }
+    }
+  }
+
+  @override
   void finalizeScan() {
     if (_found.isNotEmpty) {
-      final locations = _found.take(5).map((chain) => '  • $chain').join('\n');
+      final hasNested = _found.any((f) => f.nested);
+      final locations = _found.take(5).map((f) {
+        final prefix = f.nested ? '⚠ ' : '';
+        return '  • $prefix${f.name}${f.nested ? ' (nested)' : ''}';
+      }).join('\n');
       final (hint, effort) = FixHintBuilder.layoutBottleneck();
 
       _issues.add(PerformanceIssue(
         stableId: 'layout_bottleneck',
-        severity: IssueSeverity.warning,
+        severity: hasNested ? IssueSeverity.critical : IssueSeverity.warning,
         category: IssueCategory.layout,
         // confirmed: IntrinsicHeight/Width always triggers two-pass layout
         // (framework guarantee — not a heuristic)
         confidence: IssueConfidence.confirmed,
-        title: 'Layout Bottleneck: ${_found.length} intrinsic nodes',
-        detail: 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth '
-            'widgets. These cause O(N²) layout passes.\n\n$locations',
+        title: hasNested
+            ? 'Nested Layout Bottleneck: ${_found.length} intrinsic nodes'
+            : 'Layout Bottleneck: ${_found.length} intrinsic nodes',
+        detail: hasNested
+            ? 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth widgets '
+                'including nested intrinsics. Nesting multiplies layout '
+                'passes exponentially.\n\n$locations'
+            : 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth '
+                'widgets. These cause O(N²) layout passes.\n\n$locations',
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.structural,
@@ -94,5 +123,6 @@ class LayoutBottleneckDetector extends BaseDetector {
     _issues.clear();
     _highlights.clear();
     _found.clear();
+    _intrinsicDepth = 0;
   }
 }

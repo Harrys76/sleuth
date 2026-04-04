@@ -137,5 +137,70 @@ void main() {
       expect(detector.issues, isEmpty);
       expect(detector.highlights, isEmpty);
     });
+
+    // -----------------------------------------------------------------
+    // v9.4: Nested intrinsic detection
+    // -----------------------------------------------------------------
+
+    testWidgets('nested intrinsics escalated to critical', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: IntrinsicHeight(
+            child: IntrinsicHeight(
+              child: SizedBox(width: 10, height: 10),
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+      expect(detector.issues.first.title, contains('Nested'));
+    });
+
+    testWidgets('nested intrinsic highlight is critical', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: IntrinsicHeight(
+            child: IntrinsicHeight(
+              child: SizedBox(width: 10, height: 10),
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.highlights, hasLength(2));
+      // Outer = warning, inner = critical
+      final severities = detector.highlights.map((h) => h.severity).toList();
+      expect(severities, contains(IssueSeverity.critical));
+      expect(severities, contains(IssueSeverity.warning));
+    });
+
+    testWidgets('mixed nested and non-nested reports critical', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              IntrinsicHeight(
+                child: IntrinsicHeight(
+                  child: SizedBox(width: 10, height: 10),
+                ),
+              ),
+              IntrinsicWidth(child: SizedBox(width: 10, height: 10)),
+            ],
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+      expect(detector.issues.first.title, contains('3 intrinsic'));
+    });
   });
 }

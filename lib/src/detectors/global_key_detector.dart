@@ -9,7 +9,8 @@ import '../utils/widget_location.dart';
 /// Detects excessive GlobalKey usage inside scrollable widgets.
 ///
 /// **Structural Detector** — counts user-assigned GlobalKey instances on
-/// children of ListView, GridView, PageView (>10 prevents element recycling).
+/// children of ListView, GridView, PageView per-scrollable (>threshold
+/// prevents element recycling).
 class GlobalKeyDetector extends BaseDetector {
   GlobalKeyDetector({this.threshold = 20})
       : super(
@@ -57,17 +58,14 @@ class GlobalKeyDetector extends BaseDetector {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
-  int _globalKeyCount = 0;
-  final List<String> _scrollableLocations = [];
-  Rect? _parentRect;
+  final List<({String chain, int count, Rect? rect, String typeName})>
+      _scrollableData = [];
 
   @override
   void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
-    _globalKeyCount = 0;
-    _scrollableLocations.clear();
-    _parentRect = null;
+    _scrollableData.clear();
   }
 
   @override
@@ -75,54 +73,58 @@ class GlobalKeyDetector extends BaseDetector {
     final widget = element.widget;
 
     if (widget is ListView || widget is GridView || widget is PageView) {
-      final before = _globalKeyCount;
-      _countUserGlobalKeys(element, (n) => _globalKeyCount += n);
-      if (_globalKeyCount > before) {
-        _scrollableLocations.add(buildAncestorChain(element));
-        final ro = element.renderObject;
-        if (ro != null) _parentRect = getGlobalRect(ro);
+      int count = 0;
+      _countUserGlobalKeys(element, (n) => count += n);
+      if (count > 0) {
+        _scrollableData.add((
+          chain: buildAncestorChain(element),
+          count: count,
+          rect: element.renderObject != null
+              ? getGlobalRect(element.renderObject!)
+              : null,
+          typeName: widget.runtimeType.toString(),
+        ));
       }
     }
   }
 
   @override
   void finalizeScan() {
-    if (_globalKeyCount > threshold) {
-      if (_parentRect != null) {
-        _highlights.add(WidgetHighlight(
-          rect: _parentRect!,
-          widgetName: 'Container',
-          severity: _globalKeyCount > threshold * 3
-              ? IssueSeverity.critical
-              : IssueSeverity.warning,
-          detectorName: 'GlobalKey',
-          detail: '$_globalKeyCount GlobalKeys (threshold: $threshold)',
-        ));
-      }
-      final locations =
-          _scrollableLocations.take(5).map((chain) => '  • $chain').join('\n');
-      final (hint, effort) =
-          FixHintBuilder.excessiveGlobalKeys(count: _globalKeyCount);
+    for (final (i, data) in _scrollableData.indexed) {
+      if (data.count > threshold) {
+        if (data.rect != null) {
+          _highlights.add(WidgetHighlight(
+            rect: data.rect!,
+            widgetName: data.typeName,
+            severity: data.count > threshold * 3
+                ? IssueSeverity.critical
+                : IssueSeverity.warning,
+            detectorName: 'GlobalKey',
+            detail: '${data.count} GlobalKeys (threshold: $threshold)',
+          ));
+        }
+        final (hint, effort) =
+            FixHintBuilder.excessiveGlobalKeys(count: data.count);
 
-      _issues.add(
-        PerformanceIssue(
-          stableId: 'excessive_global_keys',
-          severity: _globalKeyCount > threshold * 3
-              ? IssueSeverity.critical
-              : IssueSeverity.warning,
-          category: IssueCategory.build,
-          confidence: IssueConfidence.possible,
-          title: 'Excessive GlobalKeys: $_globalKeyCount in scrollable',
-          detail: '$_globalKeyCount GlobalKey instances found on children of '
-              'scrollable widgets. GlobalKeys prevent element '
-              'recycling.\n\n$locations',
-          fixHint: hint,
-          fixEffort: effort,
-          widgetName: 'Container',
-          observationSource: ObservationSource.structural,
-          detectedAt: DateTime.now(),
-        ),
-      );
+        _issues.add(
+          PerformanceIssue(
+            stableId: 'excessive_global_keys:$i',
+            severity: data.count > threshold * 3
+                ? IssueSeverity.critical
+                : IssueSeverity.warning,
+            category: IssueCategory.build,
+            confidence: IssueConfidence.possible,
+            title: 'Excessive GlobalKeys: ${data.count} in ${data.typeName}',
+            detail: '${data.count} GlobalKey instances in ${data.typeName}. '
+                'GlobalKeys prevent element recycling.\n\n  • ${data.chain}',
+            fixHint: hint,
+            fixEffort: effort,
+            widgetName: data.typeName,
+            observationSource: ObservationSource.structural,
+            detectedAt: DateTime.now(),
+          ),
+        );
+      }
     }
   }
 
@@ -146,5 +148,6 @@ class GlobalKeyDetector extends BaseDetector {
   void dispose() {
     _issues.clear();
     _highlights.clear();
+    _scrollableData.clear();
   }
 }

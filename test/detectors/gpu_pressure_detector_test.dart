@@ -138,6 +138,37 @@ void main() {
         expect(detector.issues.first.title, contains('Expensive Render Nodes'));
       });
 
+      testWidgets('skips RenderOpacity when opacity is 1.0', (tester) async {
+        detector.vmConnected = false;
+
+        await tester.pumpWidget(const _OpacityFullTree(opacity: 1.0));
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason: 'Opacity 1.0 skips saveLayer — should not be flagged');
+      });
+
+      testWidgets('skips RenderOpacity when opacity is 0.0', (tester) async {
+        detector.vmConnected = false;
+
+        await tester.pumpWidget(const _OpacityFullTree(opacity: 0.0));
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason: 'Opacity 0.0 short-circuits paint — should not be flagged');
+      });
+
+      testWidgets('flags RenderOpacity when opacity is fractional',
+          (tester) async {
+        detector.vmConnected = false;
+
+        await tester.pumpWidget(const _OpacityFullTree(opacity: 0.5));
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isNotEmpty,
+            reason: 'Fractional opacity triggers saveLayer — should flag');
+      });
+
       testWidgets('mentions VM unavailable when disconnected', (tester) async {
         detector.vmConnected = false;
 
@@ -310,6 +341,28 @@ class _GpuTestApp extends StatelessWidget {
           SizedBox(width: 10, height: 10),
           SizedBox(width: 10, height: 10),
         ],
+      ),
+    );
+  }
+}
+
+/// Widget tree with configurable opacity wrapping many descendants.
+class _OpacityFullTree extends StatelessWidget {
+  const _OpacityFullTree({required this.opacity});
+  final double opacity;
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Opacity(
+        opacity: opacity,
+        child: Column(
+          children: List.generate(
+            10,
+            (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+          ),
+        ),
       ),
     );
   }

@@ -1,3 +1,4 @@
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
@@ -95,6 +96,12 @@ class GpuPressureDetector extends BaseDetector {
           typeName.contains('RenderClipPath') ||
           typeName.contains('RenderBackdropFilter') ||
           typeName.contains('RenderShaderMask')) {
+        // RenderOpacity at 1.0 (passthrough) or 0.0 (short-circuit) skips
+        // saveLayer entirely — not GPU-expensive. Skip to avoid false positives.
+        if (ro is RenderOpacity) {
+          final val = ro.opacity;
+          if (val >= 1.0 || val <= 0.0) return;
+        }
         // Check if it has a deep subtree (more than 5 descendants)
         int nodeCount = 0;
         void countNodes(Element child) {
