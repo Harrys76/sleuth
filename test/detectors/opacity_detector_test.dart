@@ -123,7 +123,8 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
 
-    testWidgets('flags near-zero opacity (0.005)', (tester) async {
+    testWidgets('no issue for near-zero opacity (0.005) — v9.1 exact zero only',
+        (tester) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
@@ -132,11 +133,11 @@ void main() {
       );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
-      expect(detector.issues, isNotEmpty);
-      expect(detector.issues.first.detail, contains('near-zero opacity'));
+      expect(detector.issues, isEmpty);
     });
 
-    testWidgets('flags opacity just below threshold (0.009)', (tester) async {
+    testWidgets('no issue for opacity 0.009 — v9.1 exact zero only',
+        (tester) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
@@ -145,10 +146,10 @@ void main() {
       );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
-      expect(detector.issues, isNotEmpty);
+      expect(detector.issues, isEmpty);
     });
 
-    testWidgets('no issue at boundary (0.01)', (tester) async {
+    testWidgets('no issue for opacity 0.01', (tester) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,

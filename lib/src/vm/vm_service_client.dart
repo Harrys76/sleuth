@@ -174,7 +174,9 @@ class VmServiceClient {
       _extensionSub = _service!.onExtensionEvent.listen((event) {
         onExtensionEvent?.call(event);
       });
-    } catch (_) {}
+    } catch (_) {
+      // Extension stream may not be available on all platforms — best effort.
+    }
   }
 
   void _startTimelinePolling() {
@@ -275,7 +277,9 @@ class VmServiceClient {
     _connected = false;
     try {
       _service?.dispose();
-    } catch (_) {}
+    } catch (_) {
+      // Service may already be disconnected — disposal is best effort.
+    }
     _service = null;
   }
 

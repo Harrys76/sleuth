@@ -1073,6 +1073,8 @@ class WatchdogController {
     // After scroll/rescan, detectors produce new WidgetHighlight objects with
     // fresh rects. Match by detectorName + widgetName to track the widget's
     // current position. Clears selection if the widget is gone.
+    // Note: if two highlights share the same detectorName + widgetName, the
+    // first match wins — rare edge case with minimal visual impact.
     final selected = selectedHighlightNotifier.value;
     if (selected != null) {
       WidgetHighlight? refreshed;

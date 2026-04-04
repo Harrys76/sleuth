@@ -7,11 +7,14 @@ import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
-/// Detects Opacity widgets with opacity == 0.0.
+/// Detects Opacity/AnimatedOpacity widgets with opacity exactly 0.0.
 ///
 /// **Structural Detector** — Opacity(0.0) short-circuits painting but the
 /// widget still participates in hit testing, layout, and semantics.
 /// Visibility or conditional removal is usually more correct.
+///
+/// For AnimatedOpacity, only flags when the animation has settled
+/// (completed/dismissed) to avoid transient false positives during fade-in.
 class OpacityDetector extends BaseDetector {
   OpacityDetector()
       : super(
@@ -50,7 +53,9 @@ class OpacityDetector extends BaseDetector {
   void checkElement(Element element) {
     final widget = element.widget;
 
-    if (widget is Opacity && widget.opacity < 0.01) {
+    // Static Opacity: exact zero only (v9.1). Values like 0.005 are technically
+    // visible and should not be flagged as "invisible."
+    if (widget is Opacity && widget.opacity == 0.0) {
       _found.add(buildAncestorChain(element));
       final ro = element.renderObject;
       if (ro != null) {
@@ -61,8 +66,7 @@ class OpacityDetector extends BaseDetector {
             widgetName: 'Opacity',
             severity: IssueSeverity.warning,
             detectorName: 'Opacity',
-            detail:
-                'opacity: ${widget.opacity.toStringAsFixed(3)} — invisible but still active',
+            detail: 'opacity: 0.0 — invisible but still active',
           ));
         }
       }
@@ -70,7 +74,13 @@ class OpacityDetector extends BaseDetector {
       final ro = element.renderObject;
       if (ro is RenderAnimatedOpacity) {
         final currentOpacity = ro.opacity.value;
-        if (currentOpacity < 0.01) {
+        final status = ro.opacity.status;
+        // Only flag when animation has settled at 0.0 (v9.1). A fade-in
+        // passing through 0.0 on its way to 1.0 is a transient state, not
+        // a structural problem worth reporting.
+        if (currentOpacity == 0.0 &&
+            (status == AnimationStatus.completed ||
+                status == AnimationStatus.dismissed)) {
           _found.add(buildAncestorChain(element));
           final rect = getGlobalRect(ro);
           if (rect != null) {
@@ -79,8 +89,7 @@ class OpacityDetector extends BaseDetector {
               widgetName: 'AnimatedOpacity',
               severity: IssueSeverity.warning,
               detectorName: 'Opacity',
-              detail:
-                  'opacity: ${currentOpacity.toStringAsFixed(3)} — invisible but still active',
+              detail: 'opacity: 0.0 — invisible but still active',
             ));
           }
         }
@@ -101,8 +110,8 @@ class OpacityDetector extends BaseDetector {
           // confirmed: directly reading widget.opacity — not a heuristic
           confidence: IssueConfidence.confirmed,
           title: 'Invisible Opacity Widgets Still Active: ${_found.length}',
-          detail: '${_found.length} widget(s) have near-zero opacity '
-              '(< 0.01). Painting is skipped, but the widget still '
+          detail: '${_found.length} widget(s) have opacity 0.0. '
+              'Painting is skipped, but the widget still '
               'participates in hit testing, layout, and semantics.\n\n$locations',
           fixHint: hint,
           fixEffort: effort,
