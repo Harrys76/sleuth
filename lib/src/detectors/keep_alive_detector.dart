@@ -6,6 +6,12 @@ import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
+class _ScrollableAccumulator {
+  _ScrollableAccumulator(this.element);
+  final Element element;
+  int count = 0;
+}
+
 /// Detects excessive AutomaticKeepAlive usage in PageView/TabBarView.
 ///
 /// **Structural Detector** — >threshold keep-alive pages per scrollable wastes
@@ -40,12 +46,14 @@ class KeepAliveDetector extends BaseDetector {
 
   final List<({String chain, int count, Rect? rect, String typeName})>
       _scrollableData = [];
+  final List<_ScrollableAccumulator> _scrollableStack = [];
 
   @override
   void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
     _scrollableData.clear();
+    _scrollableStack.clear();
   }
 
   @override
@@ -53,27 +61,35 @@ class KeepAliveDetector extends BaseDetector {
     final widget = element.widget;
     final name = widget.runtimeType.toString();
 
+    // Count KeepAlive for all active scrollables BEFORE pushing, so the
+    // scrollable's own element isn't counted for itself.
+    if (_scrollableStack.isNotEmpty) {
+      if (name == 'KeepAlive' || name == '_KeepAlive') {
+        for (final acc in _scrollableStack) {
+          acc.count++;
+        }
+      }
+    }
+
     // TabBarView checked by string to avoid material.dart import.
     if (widget is PageView || name == 'TabBarView') {
-      int count = 0;
+      _scrollableStack.add(_ScrollableAccumulator(element));
+    }
+  }
 
-      void countKeepAlives(Element child) {
-        final typeName = child.widget.runtimeType.toString();
-        if (typeName == 'KeepAlive' || typeName == '_KeepAlive') {
-          count++;
-        }
-        child.visitChildren(countKeepAlives);
-      }
-
-      element.visitChildren(countKeepAlives);
-      if (count > 0) {
+  @override
+  void afterElement(Element element) {
+    if (_scrollableStack.isNotEmpty &&
+        identical(_scrollableStack.last.element, element)) {
+      final acc = _scrollableStack.removeLast();
+      if (acc.count > 0) {
         _scrollableData.add((
           chain: buildAncestorChain(element),
-          count: count,
+          count: acc.count,
           rect: element.renderObject != null
               ? getGlobalRect(element.renderObject!)
               : null,
-          typeName: name,
+          typeName: element.widget.runtimeType.toString(),
         ));
       }
     }
@@ -81,6 +97,7 @@ class KeepAliveDetector extends BaseDetector {
 
   @override
   void finalizeScan() {
+    _scrollableStack.clear();
     for (final (i, data) in _scrollableData.indexed) {
       if (data.count > threshold) {
         if (data.rect != null) {
@@ -125,5 +142,6 @@ class KeepAliveDetector extends BaseDetector {
     _issues.clear();
     _highlights.clear();
     _scrollableData.clear();
+    _scrollableStack.clear();
   }
 }

@@ -685,7 +685,7 @@ Replaces 2× `.where().length` + 2× `.reduce()` with one loop.
 
 ### v9.11: Inner Subtree Walks — 4 Detectors
 
-**Effort:** Medium | **Theme:** Performance | **Impact:** Restores true O(N) for the unified tree walk
+**Effort:** Medium | **Theme:** Performance | **Impact:** Restores true O(N) for the unified tree walk | ✅ **Shipped**
 
 **Problem:** Four detectors perform recursive inner subtree walks inside `checkElement`, defeating the v7.9 unified O(N) tree walk:
 

@@ -31,6 +31,7 @@ class GpuPressureDetector extends BaseDetector {
   int _lastUiUs = 0;
   bool _vmConnected = false;
   final List<String> _expensiveNodes = [];
+  final List<int> _subtreeSizeStack = [];
 
   /// Current VM connectivity — set by the controller.
   /// Clears stale VM timings and VM-backed issues immediately on disconnect.
@@ -81,12 +82,22 @@ class GpuPressureDetector extends BaseDetector {
   void prepareScan(BuildContext context) {
     _expensiveNodes.clear();
     _highlights.clear();
+    _subtreeSizeStack.clear();
   }
 
   @override
   void checkElement(Element element) {
-    final ro = element.renderObject;
+    _subtreeSizeStack.add(0);
+  }
 
+  @override
+  void afterElement(Element element) {
+    final subtreeSize = _subtreeSizeStack.removeLast();
+    if (_subtreeSizeStack.isNotEmpty) {
+      _subtreeSizeStack.last += subtreeSize + 1;
+    }
+
+    final ro = element.renderObject;
     if (ro != null) {
       final typeName = ro.runtimeType.toString();
       // Detect truly expensive render objects.
@@ -102,16 +113,8 @@ class GpuPressureDetector extends BaseDetector {
           final val = ro.opacity;
           if (val >= 1.0 || val <= 0.0) return;
         }
-        // Check if it has a deep subtree (more than 5 descendants)
-        int nodeCount = 0;
-        void countNodes(Element child) {
-          nodeCount++;
-          if (nodeCount < 20) child.visitChildren(countNodes);
-        }
-
-        element.visitChildren(countNodes);
-        if (nodeCount > 5) {
-          _expensiveNodes.add('$typeName ($nodeCount descendants)');
+        if (subtreeSize > 5) {
+          _expensiveNodes.add('$typeName ($subtreeSize descendants)');
           final rect = getGlobalRect(ro);
           if (rect != null) {
             _highlights.add(WidgetHighlight(
@@ -119,7 +122,7 @@ class GpuPressureDetector extends BaseDetector {
               widgetName: element.widget.runtimeType.toString(),
               severity: IssueSeverity.warning,
               detectorName: 'GPU',
-              detail: '$typeName with $nodeCount descendants',
+              detail: '$typeName with $subtreeSize descendants',
             ));
           }
         }
@@ -129,6 +132,7 @@ class GpuPressureDetector extends BaseDetector {
 
   @override
   void finalizeScan() {
+    _subtreeSizeStack.clear();
     _evaluate();
   }
 
@@ -195,5 +199,6 @@ class GpuPressureDetector extends BaseDetector {
     _issues.clear();
     _highlights.clear();
     _expensiveNodes.clear();
+    _subtreeSizeStack.clear();
   }
 }

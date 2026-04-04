@@ -18,6 +18,13 @@
   collects in one pass. Eliminates 2 intermediate list allocations per
   `_aggregateIssues()` call (called from 7 locations). Behavior identical —
   the ranker receives the same visible issues in the same order.
+- **Inner subtree walk elimination** (v9.11): Converted 4 detectors
+  (AnimatedBuilderDetector, GpuPressureDetector, GlobalKeyDetector,
+  KeepAliveDetector) from inner recursive subtree walks to `afterElement`
+  stack-based accumulation. Eliminates O(N*M) hot spots in the unified tree
+  walk, restoring true O(N) complexity for all 16 tree-scanning detectors.
+  GpuPressureDetector now reports accurate descendant counts (previously
+  capped at 20).
 - **FIFO eviction O(N) → O(1)** (v9.13): `NetworkMonitorDetector._records`
   and `MemoryPressureDetector._heapSamples` switched from `List` to `Queue`.
   `removeAt(0)` (which shifts all elements) replaced with `removeFirst()`

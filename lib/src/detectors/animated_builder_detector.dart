@@ -45,30 +45,31 @@ class AnimatedBuilderDetector extends BaseDetector {
   set isEnabled(bool value) => _isEnabled = value;
 
   final List<String> _found = [];
+  final List<int> _subtreeSizeStack = [];
 
   @override
   void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
     _found.clear();
+    _subtreeSizeStack.clear();
   }
 
   @override
   void checkElement(Element element) {
+    _subtreeSizeStack.add(0);
+  }
+
+  @override
+  void afterElement(Element element) {
+    final subtreeSize = _subtreeSizeStack.removeLast();
+    if (_subtreeSizeStack.isNotEmpty) {
+      _subtreeSizeStack.last += subtreeSize + 1;
+    }
+
     final widget = element.widget;
-
     if (widget is AnimatedBuilder && widget.child == null) {
-      if (isFrameworkOwned(element)) {
-        return;
-      }
-
-      int subtreeSize = 0;
-      void countSubtree(Element child) {
-        subtreeSize++;
-        child.visitChildren(countSubtree);
-      }
-
-      element.visitChildren(countSubtree);
+      if (isFrameworkOwned(element)) return;
 
       if (subtreeSize > minSubtreeSize) {
         _found.add(buildAncestorChain(element));
@@ -91,6 +92,7 @@ class AnimatedBuilderDetector extends BaseDetector {
 
   @override
   void finalizeScan() {
+    _subtreeSizeStack.clear();
     if (_found.isNotEmpty) {
       final locations = _found.take(5).map((chain) => '  • $chain').join('\n');
 
@@ -156,6 +158,7 @@ class AnimatedBuilderDetector extends BaseDetector {
   void dispose() {
     _issues.clear();
     _highlights.clear();
+    _subtreeSizeStack.clear();
     _lastDebugSnapshot = null;
   }
 }

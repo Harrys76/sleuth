@@ -6,6 +6,12 @@ import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/widget_location.dart';
 
+class _ScrollableAccumulator {
+  _ScrollableAccumulator(this.element);
+  final Element element;
+  int count = 0;
+}
+
 /// Detects excessive GlobalKey usage inside scrollable widgets.
 ///
 /// **Structural Detector** — counts user-assigned GlobalKey instances on
@@ -60,29 +66,51 @@ class GlobalKeyDetector extends BaseDetector {
 
   final List<({String chain, int count, Rect? rect, String typeName})>
       _scrollableData = [];
+  final List<_ScrollableAccumulator> _scrollableStack = [];
 
   @override
   void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
     _scrollableData.clear();
+    _scrollableStack.clear();
   }
 
   @override
   void checkElement(Element element) {
     final widget = element.widget;
 
+    // Count GlobalKey for all active scrollables BEFORE pushing, so the
+    // scrollable's own key isn't counted for itself (matches current behavior
+    // where _countUserGlobalKeys starts from scrollElement.visitChildren).
+    if (_scrollableStack.isNotEmpty && widget.key is GlobalKey) {
+      final name = widget.runtimeType.toString();
+      if (!name.startsWith('_') && !frameworkWidgets.contains(name)) {
+        for (final acc in _scrollableStack) {
+          acc.count++;
+        }
+      }
+    }
+
+    // Push if this is a scrollable type.
     if (widget is ListView || widget is GridView || widget is PageView) {
-      int count = 0;
-      _countUserGlobalKeys(element, (n) => count += n);
-      if (count > 0) {
+      _scrollableStack.add(_ScrollableAccumulator(element));
+    }
+  }
+
+  @override
+  void afterElement(Element element) {
+    if (_scrollableStack.isNotEmpty &&
+        identical(_scrollableStack.last.element, element)) {
+      final acc = _scrollableStack.removeLast();
+      if (acc.count > 0) {
         _scrollableData.add((
           chain: buildAncestorChain(element),
-          count: count,
+          count: acc.count,
           rect: element.renderObject != null
               ? getGlobalRect(element.renderObject!)
               : null,
-          typeName: widget.runtimeType.toString(),
+          typeName: element.widget.runtimeType.toString(),
         ));
       }
     }
@@ -90,6 +118,7 @@ class GlobalKeyDetector extends BaseDetector {
 
   @override
   void finalizeScan() {
+    _scrollableStack.clear();
     for (final (i, data) in _scrollableData.indexed) {
       if (data.count > threshold) {
         if (data.rect != null) {
@@ -128,26 +157,11 @@ class GlobalKeyDetector extends BaseDetector {
     }
   }
 
-  /// Walk the scrollable's full subtree and count GlobalKeys on
-  /// user-level widgets (skip private types and known framework types).
-  void _countUserGlobalKeys(Element scrollElement, void Function(int) add) {
-    void check(Element element) {
-      if (element.widget.key is GlobalKey) {
-        final name = element.widget.runtimeType.toString();
-        if (!name.startsWith('_') && !frameworkWidgets.contains(name)) {
-          add(1);
-        }
-      }
-      element.visitChildren(check);
-    }
-
-    scrollElement.visitChildren(check);
-  }
-
   @override
   void dispose() {
     _issues.clear();
     _highlights.clear();
     _scrollableData.clear();
+    _scrollableStack.clear();
   }
 }
