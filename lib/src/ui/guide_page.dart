@@ -83,10 +83,17 @@ class _GuidePageState extends State<GuidePage>
                   padding: EdgeInsets.all(theme.spacingMd),
                   child: Row(
                     children: [
-                      IconButton(
-                        onPressed: widget.onClose,
-                        icon: Icon(Icons.arrow_back,
-                            color: theme.textPrimary, size: 22),
+                      GestureDetector(
+                        onTap: widget.onClose,
+                        behavior: HitTestBehavior.opaque,
+                        child: SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Center(
+                            child: Icon(Icons.arrow_back,
+                                color: theme.textPrimary, size: 22),
+                          ),
+                        ),
                       ),
                       Text(
                         '\u{1F415} Watchdog Guide',

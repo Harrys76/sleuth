@@ -420,13 +420,17 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     required Color color,
     String? tooltip,
   }) {
-    return IconButton(
-      onPressed: onTap,
-      icon: Icon(icon, color: color, size: 16),
-      tooltip: tooltip,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-      visualDensity: VisualDensity.compact,
+    // GestureDetector instead of IconButton to avoid tooltip OverlayPortal
+    // crash — the watchdog overlay sits outside the app's Navigator/Overlay,
+    // so OverlayPortal can't find a _RenderTheaterMarker ancestor.
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(child: Icon(icon, color: color, size: 16)),
+      ),
     );
   }
 
@@ -758,13 +762,17 @@ class _CardFooter extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          IconButton(
-            onPressed: onExport,
-            icon: Icon(Icons.ios_share, color: theme.textTertiary, size: 16),
-            tooltip: 'Export session snapshot',
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            visualDensity: VisualDensity.compact,
+          GestureDetector(
+            onTap: onExport,
+            behavior: HitTestBehavior.opaque,
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: Center(
+                child:
+                    Icon(Icons.ios_share, color: theme.textTertiary, size: 16),
+              ),
+            ),
           ),
           SizedBox(width: theme.spacingXs),
           Text(
