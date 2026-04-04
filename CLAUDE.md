@@ -59,7 +59,9 @@ test/
 - v0.8.1: Accuracy fixes — HeavyCompute two-tier (v7.1), NetworkMonitor threshold (v7.2), threshold tuning (v7.3), correlator coverage (v7.4), rebuild VM fallback (v7.5), MemoryPressure warmup (v7.6).
 - v0.8.0: v6 roadmap complete (22 milestones: safety, accuracy, UI polish, testing).
 - v0.7.0: v4 + v5 roadmap — suppression, custom detectors, theming, export enrichment, causal graph, configurable thresholds, detector registry, network correlation, RepaintBoundary detector.
-- v7 roadmap: 10/10 milestones shipped ✅. See `doc/implementation_spec.md`.
-- v8 roadmap: 5/5 milestones shipped ✅ (v8.1, v8.2, v8.3, v8.4, v8.5). See `doc/implementation_spec.md`.
-- Post-implementation audits in `doc/implementation_spec.md` (search "Post-Implementation Notes")
+- v7 roadmap: 10/10 milestones shipped ✅. See `doc/spec_v7.md`.
+- v8 roadmap: 5/5 milestones shipped ✅ (v8.1–v8.5). See `doc/spec_v8.md`.
+- v9 roadmap: 0/17 milestones (active). See `doc/spec_v9.md`.
+- Post-implementation audits in `doc/spec_v2_audit.md` and `doc/spec_post_impl_notes.md`.
+- Full spec index in `doc/implementation_spec.md`.
 - 1,343 tests, 0 analysis issues
