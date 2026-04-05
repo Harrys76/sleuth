@@ -53,6 +53,7 @@ import 'src/models/session_snapshot.dart';
 import 'src/ui/watchdog_overlay.dart';
 
 // Public API exports
+export 'src/models/ai_chat_adapter.dart';
 export 'src/models/performance_issue.dart';
 export 'src/models/frame_stats.dart';
 export 'src/models/frame_verdict.dart';

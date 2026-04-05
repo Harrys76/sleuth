@@ -28,6 +28,7 @@ class IssueCard extends StatefulWidget {
     this.jankFlash = false,
     this.downstreamIssues,
     this.onLearnMore,
+    this.onAskAi,
   });
 
   final PerformanceIssue issue;
@@ -61,6 +62,10 @@ class IssueCard extends StatefulWidget {
   /// Called when the user taps "Learn more" — navigates to the full-screen
   /// detail page. Null hides the link (e.g. for custom detector issues).
   final VoidCallback? onLearnMore;
+
+  /// Called when the user taps "Ask AI" — opens contextual AI chat.
+  /// Null hides the link (e.g. when no [AiChatAdapter] is configured).
+  final VoidCallback? onAskAi;
 
   @override
   State<IssueCard> createState() => _IssueCardState();
@@ -429,31 +434,73 @@ class _IssueCardState extends State<IssueCard> {
           ],
         ),
       ),
-      if (widget.onLearnMore != null)
-        GestureDetector(
-          onTap: widget.onLearnMore,
-          behavior: HitTestBehavior.opaque,
-          child: Padding(
-            padding: EdgeInsets.only(top: theme.spacingSm),
-            child: Row(
-              children: [
-                Icon(Icons.menu_book_outlined,
-                    color: theme.textTertiary, size: 13),
-                SizedBox(width: theme.spacingXs),
-                Text(
-                  'Learn more about this issue',
-                  style: TextStyle(
-                    color: theme.textTertiary,
-                    fontSize: 9,
-                    decoration: TextDecoration.underline,
-                    decorationColor: theme.textTertiary,
-                  ),
-                ),
-              ],
-            ),
+      if (widget.onLearnMore != null || widget.onAskAi != null)
+        Padding(
+          padding: EdgeInsets.only(top: theme.spacingSm),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final bothPresent =
+                  widget.onLearnMore != null && widget.onAskAi != null;
+              // Both links at font-size 9 + icons need ~240px side by side.
+              final stackVertically = bothPresent && constraints.maxWidth < 240;
+
+              if (stackVertically) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (widget.onLearnMore != null) _buildLearnMoreLink(theme),
+                    if (widget.onAskAi != null)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: EdgeInsets.only(top: theme.spacingXs),
+                          child: _AskAiShimmerLink(onTap: widget.onAskAi!),
+                        ),
+                      ),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  if (widget.onLearnMore != null)
+                    Flexible(child: _buildLearnMoreLink(theme)),
+                  if (bothPresent) const Spacer(),
+                  if (widget.onAskAi != null)
+                    _AskAiShimmerLink(onTap: widget.onAskAi!),
+                ],
+              );
+            },
           ),
         ),
     ];
+  }
+
+  Widget _buildLearnMoreLink(WatchdogThemeData theme) {
+    return GestureDetector(
+      onTap: widget.onLearnMore,
+      behavior: HitTestBehavior.opaque,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.menu_book_outlined, color: theme.textTertiary, size: 13),
+          SizedBox(width: theme.spacingXs),
+          Flexible(
+            child: Text(
+              'Learn more about this issue',
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              style: TextStyle(
+                color: theme.textTertiary,
+                fontSize: 9,
+                decoration: TextDecoration.underline,
+                decorationColor: theme.textTertiary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _downstreamSection(WatchdogThemeData theme) {
@@ -675,4 +722,91 @@ bool _isDebugCallbackSource(ObservationSource? source) =>
 
   // Default: medium
   return ('MEDIUM FIX', theme.effortMedium);
+}
+
+/// Animated shimmer "Ask AI" link with purple-blue-pink gradient.
+///
+/// Owns its own [AnimationController] so the shimmer only runs while this
+/// widget is in the tree (card expanded + onAskAi configured). The gradient
+/// area is tiny (single text line + icon) so the [ShaderMask] saveLayer
+/// cost is negligible.
+class _AskAiShimmerLink extends StatefulWidget {
+  const _AskAiShimmerLink({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_AskAiShimmerLink> createState() => _AskAiShimmerLinkState();
+}
+
+class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = WatchdogTheme.of(context);
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            // Sweep a full-width gradient across the widget. The gradient
+            // stretches 2 alignment-units (= full widget width) and travels
+            // from off-screen left (-3) to off-screen right (+3), so the
+            // shimmer enters at the icon and exits past the last letter.
+            final dx = _controller.value * 6.0 - 3.0;
+            return ShaderMask(
+              shaderCallback: (bounds) => LinearGradient(
+                begin: Alignment(dx, 0),
+                end: Alignment(dx + 2.0, 0),
+                colors: [
+                  theme.aiShimmerStart,
+                  theme.aiShimmerMid,
+                  theme.aiShimmerEnd,
+                  theme.aiShimmerStart,
+                ],
+                stops: const [0.0, 0.33, 0.66, 1.0],
+              ).createShader(bounds),
+              blendMode: BlendMode.srcIn,
+              child: child,
+            );
+          },
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.auto_awesome, size: 13),
+              SizedBox(width: theme.spacingXs),
+              Flexible(
+                child: Text(
+                  'Ask AI about this issue',
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style:
+                      const TextStyle(fontSize: 9, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

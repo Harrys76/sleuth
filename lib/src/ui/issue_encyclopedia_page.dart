@@ -107,7 +107,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
   Widget build(BuildContext context) {
     final theme = WatchdogTheme.of(context);
     final groups = IssueExplanationBuilder.groupedEntries;
-    final keyboardPadding = MediaQuery.of(context).viewInsets.bottom;
+    final keyboardPadding = MediaQuery.viewInsetsOf(context).bottom;
 
     // Header + search bar fade in first 40%, body from 20%.
     final headerAnim = CurvedAnimation(

@@ -10,8 +10,10 @@ import '../models/frame_stats.dart';
 import '../models/frame_verdict.dart';
 import '../models/widget_highlight.dart';
 import 'issue_card.dart';
+import 'ai_chat_page.dart';
 import 'issue_encyclopedia_page.dart';
 import 'guide_page.dart';
+import '../models/ai_chat_adapter.dart';
 import '../utils/issue_explanation_builder.dart';
 import 'watchdog_theme.dart';
 
@@ -49,6 +51,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   bool _showGuide = false;
   bool _showDetail = false;
   String? _detailStableId;
+  bool _showAiChat = false;
+  String? _chatIssueStableId;
+  final Map<String, List<AiChatMessage>> _chatHistories = {};
 
   /// Cached jank-correlated issue keys from verdict, updated via listener.
   Set<String> _cachedJankKeys = const {};
@@ -86,6 +91,21 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     super.dispose();
   }
 
+  PerformanceIssue _findIssueByStableId(String key) {
+    return widget.controller.issuesNotifier.value.firstWhere(
+      (i) => (i.stableId ?? i.title) == key,
+      orElse: () => PerformanceIssue(
+        title: key,
+        detail: '',
+        fixHint: '',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        stableId: key,
+      ),
+    );
+  }
+
   void _onVerdictChanged() {
     final newKeys = _matchingIssueKeys(widget.controller.verdictNotifier.value);
     if (!setEquals(newKeys, _cachedJankKeys)) {
@@ -113,6 +133,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       _selectedIssueId = null;
       changed = true;
     }
+    if (_showAiChat &&
+        _chatIssueStableId != null &&
+        !currentKeys.contains(_chatIssueStableId)) {
+      _chatIssueStableId = null;
+      _showAiChat = false;
+      changed = true;
+    }
+    _chatHistories.removeWhere((key, _) => !currentKeys.contains(key));
     if (changed) setState(() {});
   }
 
@@ -182,10 +210,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   @override
   Widget build(BuildContext context) {
-    final mq = MediaQuery.of(context);
-    final screenSize = mq.size;
-    final topPadding = mq.padding.top;
-    final keyboardHeight = mq.viewInsets.bottom;
+    final screenSize = MediaQuery.sizeOf(context);
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
     final maxAllowedHeight = screenSize.height - topPadding - 20;
     final cardHeight = (_cardHeight ?? screenSize.height * 0.55)
         .clamp(_minCardHeight, maxAllowedHeight);
@@ -205,7 +232,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
     return Stack(
       children: [
-        if (!_showGuide && !_showDetail)
+        if (!_showGuide && !_showDetail && !_showAiChat)
           Positioned(
             left: clamped.dx,
             top: clamped.dy,
@@ -232,6 +259,21 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                 _detailStableId = null;
               }),
               scrollToStableId: _detailStableId,
+            ),
+          ),
+        if (_showAiChat)
+          Positioned.fill(
+            child: AiChatPage(
+              issue: _findIssueByStableId(_chatIssueStableId!),
+              allIssues: widget.controller.issuesNotifier.value,
+              adapter: widget.controller.config.aiChat!,
+              history: _chatHistories[_chatIssueStableId!] ?? const [],
+              onHistoryChanged: (msgs) =>
+                  _chatHistories[_chatIssueStableId!] = msgs,
+              onClose: () => setState(() {
+                _showAiChat = false;
+                _chatIssueStableId = null;
+              }),
             ),
           ),
       ],
@@ -539,6 +581,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                                     _showDetail = true;
                                   })
                               : null,
+                      onAskAi: widget.controller.config.aiChat != null
+                          ? () => setState(() {
+                                _chatIssueStableId =
+                                    issue.stableId ?? issue.title;
+                                _showAiChat = true;
+                              })
+                          : null,
                     );
                   },
                 ),

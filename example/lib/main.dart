@@ -20,7 +20,18 @@ import 'demos/repaint_stress_demo.dart';
 import 'demos/shallow_rebuild_risk_demo.dart';
 import 'demos/uncached_image_demo.dart';
 
-void main() => runApp(WidgetWatchdog.wrap(child: const WatchdogDemoApp()));
+void main() => runApp(
+  WidgetWatchdog.wrap(
+    child: const WatchdogDemoApp(),
+    config: WatchdogConfig(
+      aiChat: AiChatAdapter.openAi(
+        apiKey: 'ollama', // Ollama ignores this but the field is required
+        baseUrl: 'http://localhost:11434',
+        model: 'llama3.2',
+      ),
+    ),
+  ),
+);
 
 class WatchdogDemoApp extends StatelessWidget {
   const WatchdogDemoApp({super.key});

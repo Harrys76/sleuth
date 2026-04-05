@@ -144,6 +144,15 @@ class WatchdogThemeData {
     this.highlightLabelText = const Color(0xFFFFFFFF),
     this.highlightDot = const Color(0xFFFFFFFF),
 
+    // ── AI Chat ──
+    this.aiChatUserBubbleBg = const Color(0xFF3B82F6),
+    this.aiChatUserBubbleText = const Color(0xFFFFFFFF),
+
+    // ── AI Shimmer (Ask AI link gradient) ──
+    this.aiShimmerStart = const Color(0xFF8B5CF6),
+    this.aiShimmerMid = const Color(0xFF3B82F6),
+    this.aiShimmerEnd = const Color(0xFFEC4899),
+
     // ── Spacing ──
     this.spacingXxs = 2,
     this.spacingXs = 4,
@@ -294,6 +303,15 @@ class WatchdogThemeData {
   final Color highlightLabelText;
   final Color highlightDot;
 
+  // ── AI Chat ──
+  final Color aiChatUserBubbleBg;
+  final Color aiChatUserBubbleText;
+
+  // ── AI Shimmer (Ask AI link gradient) ──
+  final Color aiShimmerStart;
+  final Color aiShimmerMid;
+  final Color aiShimmerEnd;
+
   // ── Spacing ──
   final double spacingXxs;
   final double spacingXs;
@@ -413,6 +431,11 @@ class WatchdogThemeData {
     Color? guideTipIcon,
     Color? highlightLabelText,
     Color? highlightDot,
+    Color? aiChatUserBubbleBg,
+    Color? aiChatUserBubbleText,
+    Color? aiShimmerStart,
+    Color? aiShimmerMid,
+    Color? aiShimmerEnd,
     double? spacingXxs,
     double? spacingXs,
     double? spacingSm,
@@ -484,6 +507,11 @@ class WatchdogThemeData {
       guideTipIcon: guideTipIcon ?? this.guideTipIcon,
       highlightLabelText: highlightLabelText ?? this.highlightLabelText,
       highlightDot: highlightDot ?? this.highlightDot,
+      aiChatUserBubbleBg: aiChatUserBubbleBg ?? this.aiChatUserBubbleBg,
+      aiChatUserBubbleText: aiChatUserBubbleText ?? this.aiChatUserBubbleText,
+      aiShimmerStart: aiShimmerStart ?? this.aiShimmerStart,
+      aiShimmerMid: aiShimmerMid ?? this.aiShimmerMid,
+      aiShimmerEnd: aiShimmerEnd ?? this.aiShimmerEnd,
       spacingXxs: spacingXxs ?? this.spacingXxs,
       spacingXs: spacingXs ?? this.spacingXs,
       spacingSm: spacingSm ?? this.spacingSm,

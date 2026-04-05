@@ -16,6 +16,7 @@ import '../ui/watchdog_theme.dart';
 import '../analyzer/detector_correlator.dart';
 import '../analyzer/frame_event_correlator.dart';
 import '../analyzer/render_pipeline_analyzer.dart';
+import '../models/ai_chat_adapter.dart';
 import 'detector_thresholds.dart';
 import '../debug/debug_instrumentation_config.dart';
 import '../debug/debug_instrumentation_coordinator.dart';
@@ -315,6 +316,18 @@ class WatchdogController {
     _syncVmState(connected);
   }
 
+  /// Merges user-configured [WatchdogConfig.networkExcludePatterns] with
+  /// adapter-provided [AiChatAdapter.networkExcludePatterns] without mutating
+  /// either source list.
+  List<String>? _mergedExcludePatterns() {
+    final userPatterns = config.networkExcludePatterns;
+    final adapterPatterns = config.aiChat?.networkExcludePatterns;
+    if (userPatterns == null && adapterPatterns == null) return null;
+    if (userPatterns == null) return adapterPatterns;
+    if (adapterPatterns == null) return userPatterns;
+    return {...userPatterns, ...adapterPatterns}.toList();
+  }
+
   /// Initialize all detectors and connect to VM service.
   Future<void> initialize() async {
     if (_initialized || kReleaseMode) return;
@@ -328,7 +341,7 @@ class WatchdogController {
         onRecord: _networkMonitor.processRecord,
         onRequestStarted: _networkMonitor.startRequest,
         onRequestEnded: _networkMonitor.endRequest,
-        excludePatterns: config.networkExcludePatterns,
+        excludePatterns: _mergedExcludePatterns(),
       );
       WatchdogHttpOverrides.install(_httpOverrides!);
     }
@@ -1745,6 +1758,7 @@ class WatchdogConfig {
     this.suppressedIssues = const {},
     this.customDetectors = const [],
     this.thresholds = const DetectorThresholds(),
+    this.aiChat,
   });
 
   /// Custom theme for the overlay UI.
@@ -1860,6 +1874,22 @@ class WatchdogConfig {
   /// Detector-specific thresholds for fine-tuning performance detection.
   /// See [DetectorThresholds] for available parameters and defaults.
   final DetectorThresholds thresholds;
+
+  /// Optional AI chat adapter. When provided, an "Ask AI" button appears on
+  /// issue cards, enabling contextual AI conversations about specific issues.
+  ///
+  /// Use a built-in factory for zero-config setup:
+  /// ```dart
+  /// WatchdogConfig(
+  ///   aiChat: AiChatAdapter.anthropic(apiKey: myKey),
+  /// )
+  /// ```
+  ///
+  /// Built-in adapters automatically exclude their provider URLs from
+  /// network monitoring. For custom adapters, set
+  /// [AiChatAdapter.networkExcludePatterns] or add patterns to
+  /// [networkExcludePatterns] manually.
+  final AiChatAdapter? aiChat;
 }
 
 /// Lightweight struct for sorting allocation profile entries.

@@ -83,9 +83,15 @@ class _WatchdogOverlayState extends State<WatchdogOverlay> {
                     DefaultMaterialLocalizations.delegate,
                     DefaultWidgetsLocalizations.delegate,
                   ],
-                  child: FloatingIssuesCard(
-                    controller: widget.controller,
-                    onClose: () => setState(() => _dashboardOpen = false),
+                  child: Overlay(
+                    initialEntries: [
+                      OverlayEntry(
+                        builder: (_) => FloatingIssuesCard(
+                          controller: widget.controller,
+                          onClose: () => setState(() => _dashboardOpen = false),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               )
