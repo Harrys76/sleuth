@@ -1,21 +1,21 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/detectors/animated_builder_detector.dart';
-import 'package:widget_watchdog/src/detectors/custom_painter_detector.dart';
-import 'package:widget_watchdog/src/detectors/font_loading_detector.dart';
-import 'package:widget_watchdog/src/detectors/global_key_detector.dart';
-import 'package:widget_watchdog/src/detectors/gpu_pressure_detector.dart';
-import 'package:widget_watchdog/src/detectors/image_memory_detector.dart';
-import 'package:widget_watchdog/src/detectors/keep_alive_detector.dart';
-import 'package:widget_watchdog/src/detectors/layout_bottleneck_detector.dart';
-import 'package:widget_watchdog/src/detectors/listview_detector.dart';
-import 'package:widget_watchdog/src/detectors/nested_scroll_detector.dart';
-import 'package:widget_watchdog/src/detectors/opacity_detector.dart';
-import 'package:widget_watchdog/src/detectors/rebuild_detector.dart';
-import 'package:widget_watchdog/src/detectors/repaint_detector.dart';
-import 'package:widget_watchdog/src/detectors/setstate_scope_detector.dart';
-import 'package:widget_watchdog/src/detectors/shallow_rebuild_risk_detector.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/detectors/animated_builder_detector.dart';
+import 'package:sleuth/src/detectors/custom_painter_detector.dart';
+import 'package:sleuth/src/detectors/font_loading_detector.dart';
+import 'package:sleuth/src/detectors/global_key_detector.dart';
+import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
+import 'package:sleuth/src/detectors/image_memory_detector.dart';
+import 'package:sleuth/src/detectors/keep_alive_detector.dart';
+import 'package:sleuth/src/detectors/layout_bottleneck_detector.dart';
+import 'package:sleuth/src/detectors/listview_detector.dart';
+import 'package:sleuth/src/detectors/nested_scroll_detector.dart';
+import 'package:sleuth/src/detectors/opacity_detector.dart';
+import 'package:sleuth/src/detectors/rebuild_detector.dart';
+import 'package:sleuth/src/detectors/repaint_detector.dart';
+import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
+import 'package:sleuth/src/detectors/shallow_rebuild_risk_detector.dart';
 
 import '../helpers/benchmark_helpers.dart';
 
@@ -186,7 +186,7 @@ void main() {
         final context = tester.element(find.byType(Directionality));
         final elements = countElements(context);
 
-        final controller = WatchdogController();
+        final controller = SleuthController();
         controller.initializeDetectorsForTest();
 
         final avgUs = benchmarkUs(

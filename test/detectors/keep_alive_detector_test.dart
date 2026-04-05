@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/detectors/keep_alive_detector.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/detectors/keep_alive_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 void main() {
   group('KeepAliveDetector', () {

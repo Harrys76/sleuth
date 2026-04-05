@@ -2,29 +2,29 @@ import 'package:flutter/widgets.dart';
 
 import '../models/performance_issue.dart';
 
-/// All visual tokens for the Watchdog overlay UI.
+/// All visual tokens for the Sleuth overlay UI.
 ///
 /// Default constructor produces the **dark** theme (matching the original
-/// hardcoded overlay). Use [WatchdogThemeData.light] for light-background
+/// hardcoded overlay). Use [SleuthThemeData.light] for light-background
 /// apps, or call [copyWith] to override individual tokens.
 ///
 /// ## Quick start
 ///
 /// ```dart
 /// // Auto-detect (default) — no config needed
-/// WidgetWatchdog.wrap(child: MyApp());
+/// Sleuth.track(child: MyApp());
 ///
 /// // Force light theme
-/// WidgetWatchdog.wrap(
+/// Sleuth.track(
 ///   child: MyApp(),
-///   config: WatchdogConfig(theme: WatchdogThemeData.light()),
+///   config: SleuthConfig(theme: SleuthThemeData.light()),
 /// );
 ///
 /// // Custom overrides
-/// WidgetWatchdog.wrap(
+/// Sleuth.track(
 ///   child: MyApp(),
-///   config: WatchdogConfig(
-///     theme: WatchdogThemeData.light().copyWith(
+///   config: SleuthConfig(
+///     theme: SleuthThemeData.light().copyWith(
 ///       severityCritical: Color(0xFFDC2626),
 ///       severityWarning: Color(0xFFD97706),
 ///     ),
@@ -58,9 +58,9 @@ import '../models/performance_issue.dart';
 /// The [light] constructor inverts surfaces and text while keeping semantic
 /// accent colors (severity, category, confidence) unchanged — their meaning
 /// comes from hue, which should be consistent across themes.
-class WatchdogThemeData {
+class SleuthThemeData {
   /// Dark theme — matches every original hardcoded color exactly.
-  const WatchdogThemeData({
+  const SleuthThemeData({
     // ── Severity (also used for FPS) ──
     this.severityCritical = const Color(0xFFEF4444),
     this.severityWarning = const Color(0xFFF59E0B),
@@ -165,8 +165,8 @@ class WatchdogThemeData {
   /// Explicit dark theme — identical to the default constructor.
   ///
   /// Provided for readability when you want to make the dark choice visible:
-  /// `WatchdogConfig(theme: WatchdogThemeData.dark())`.
-  const WatchdogThemeData.dark() : this();
+  /// `SleuthConfig(theme: SleuthThemeData.dark())`.
+  const SleuthThemeData.dark() : this();
 
   /// Light theme for light-background apps.
   ///
@@ -178,7 +178,7 @@ class WatchdogThemeData {
   /// Tokens not overridden here (e.g. [guideStepAccent], [guideTipIcon])
   /// retain their dark-theme values because they are used on colored
   /// backgrounds where the dark value provides correct contrast.
-  const WatchdogThemeData.light()
+  const SleuthThemeData.light()
       : this(
           // Surfaces
           cardBackground: const Color(0xF5FFFFFF),
@@ -369,7 +369,7 @@ class WatchdogThemeData {
   /// Tip: when overriding badge or banner colors, always set both the `Bg`
   /// and `Text` tokens together (e.g. [badgeVmBg] + [badgeVmText]) to
   /// maintain contrast.
-  WatchdogThemeData copyWith({
+  SleuthThemeData copyWith({
     Color? severityCritical,
     Color? severityWarning,
     Color? severityOk,
@@ -443,7 +443,7 @@ class WatchdogThemeData {
     double? spacingLg,
     double? spacingXl,
   }) {
-    return WatchdogThemeData(
+    return SleuthThemeData(
       severityCritical: severityCritical ?? this.severityCritical,
       severityWarning: severityWarning ?? this.severityWarning,
       severityOk: severityOk ?? this.severityOk,
@@ -522,29 +522,29 @@ class WatchdogThemeData {
   }
 }
 
-/// Provides [WatchdogThemeData] to overlay widgets via the widget tree.
+/// Provides [SleuthThemeData] to overlay widgets via the widget tree.
 ///
-/// Package-internal — consumers configure theming via [WatchdogConfig.theme],
+/// Package-internal — consumers configure theming via [SleuthConfig.theme],
 /// not by placing this widget themselves.
-class WatchdogTheme extends InheritedWidget {
-  const WatchdogTheme({
+class SleuthTheme extends InheritedWidget {
+  const SleuthTheme({
     super.key,
     required this.data,
     required super.child,
   });
 
-  final WatchdogThemeData data;
+  final SleuthThemeData data;
 
-  /// Returns the nearest [WatchdogThemeData], or dark defaults if none exists.
+  /// Returns the nearest [SleuthThemeData], or dark defaults if none exists.
   ///
   /// The dark fallback ensures existing tests (which render widgets without
-  /// a [WatchdogTheme] ancestor) continue to see the same colors.
-  static WatchdogThemeData of(BuildContext context) {
-    return context.dependOnInheritedWidgetOfExactType<WatchdogTheme>()?.data ??
-        const WatchdogThemeData();
+  /// a [SleuthTheme] ancestor) continue to see the same colors.
+  static SleuthThemeData of(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<SleuthTheme>()?.data ??
+        const SleuthThemeData();
   }
 
   @override
-  bool updateShouldNotify(WatchdogTheme oldWidget) =>
+  bool updateShouldNotify(SleuthTheme oldWidget) =>
       !identical(data, oldWidget.data);
 }

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/base_detector.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/models/widget_highlight.dart';
-import 'package:widget_watchdog/src/vm/timeline_parser.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/models/widget_highlight.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 // ---------------------------------------------------------------------------
 // Test detectors
@@ -188,13 +188,13 @@ const _minimalTree = Directionality(
 void main() {
   group('Custom Detector Plugin API (v4.2)', () {
     group('structural custom detector', () {
-      late WatchdogController controller;
+      late SleuthController controller;
       late _TestStructuralDetector detector;
 
       setUp(() {
         detector = _TestStructuralDetector();
-        controller = WatchdogController(
-          config: WatchdogConfig(customDetectors: [detector]),
+        controller = SleuthController(
+          config: SleuthConfig(customDetectors: [detector]),
         );
         controller.initializeDetectorsForTest();
       });
@@ -235,13 +235,13 @@ void main() {
     });
 
     group('hybrid custom detector', () {
-      late WatchdogController controller;
+      late SleuthController controller;
       late _TestHybridDetector detector;
 
       setUp(() {
         detector = _TestHybridDetector();
-        controller = WatchdogController(
-          config: WatchdogConfig(customDetectors: [detector]),
+        controller = SleuthController(
+          config: SleuthConfig(customDetectors: [detector]),
         );
         controller.initializeDetectorsForTest();
       });
@@ -269,13 +269,13 @@ void main() {
     });
 
     group('vmOnly custom detector', () {
-      late WatchdogController controller;
+      late SleuthController controller;
       late _TestVmOnlyDetector detector;
 
       setUp(() {
         detector = _TestVmOnlyDetector();
-        controller = WatchdogController(
-          config: WatchdogConfig(customDetectors: [detector]),
+        controller = SleuthController(
+          config: SleuthConfig(customDetectors: [detector]),
         );
         controller.initializeDetectorsForTest();
       });
@@ -293,8 +293,8 @@ void main() {
     group('lifecycle', () {
       testWidgets('disposed on controller dispose', (tester) async {
         final detector = _TestStructuralDetector();
-        final controller = WatchdogController(
-          config: WatchdogConfig(customDetectors: [detector]),
+        final controller = SleuthController(
+          config: SleuthConfig(customDetectors: [detector]),
         );
         controller.initializeDetectorsForTest();
 
@@ -305,8 +305,8 @@ void main() {
       testWidgets('disabled custom detector skipped in scanTree',
           (tester) async {
         final detector = _TestStructuralDetector();
-        final controller = WatchdogController(
-          config: WatchdogConfig(customDetectors: [detector]),
+        final controller = SleuthController(
+          config: SleuthConfig(customDetectors: [detector]),
         );
         controller.initializeDetectorsForTest();
 
@@ -331,7 +331,7 @@ void main() {
 
     group('integration', () {
       test('empty customDetectors has zero overhead (default)', () {
-        final controller = WatchdogController();
+        final controller = SleuthController();
         controller.initializeDetectorsForTest();
 
         // No crash, no issues from custom detectors
@@ -342,8 +342,8 @@ void main() {
       testWidgets('custom detector issues affected by suppression',
           (tester) async {
         final detector = _TestStructuralDetector();
-        final controller = WatchdogController(
-          config: WatchdogConfig(
+        final controller = SleuthController(
+          config: SleuthConfig(
             customDetectors: [detector],
             suppressedIssues: {'test_custom_*'},
           ),
@@ -369,8 +369,8 @@ void main() {
       testWidgets('multiple custom detectors coexist', (tester) async {
         final structural = _TestStructuralDetector();
         final hybrid = _TestHybridDetector();
-        final controller = WatchdogController(
-          config: WatchdogConfig(customDetectors: [structural, hybrid]),
+        final controller = SleuthController(
+          config: SleuthConfig(customDetectors: [structural, hybrid]),
         );
         controller.initializeDetectorsForTest();
 

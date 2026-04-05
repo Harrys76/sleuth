@@ -1,12 +1,12 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/ui/watchdog_theme.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 void main() {
-  group('WatchdogThemeData', () {
+  group('SleuthThemeData', () {
     test('dark defaults match documented hex values', () {
-      const t = WatchdogThemeData();
+      const t = SleuthThemeData();
       // Severity
       expect(t.severityCritical, const Color(0xFFEF4444));
       expect(t.severityWarning, const Color(0xFFF59E0B));
@@ -31,14 +31,14 @@ void main() {
     });
 
     test('dark() is identical to default constructor', () {
-      const def = WatchdogThemeData();
-      const dark = WatchdogThemeData.dark();
+      const def = SleuthThemeData();
+      const dark = SleuthThemeData.dark();
       expect(identical(def, dark), isTrue);
     });
 
     test('light() returns distinct surface/text values', () {
-      const dark = WatchdogThemeData();
-      const light = WatchdogThemeData.light();
+      const dark = SleuthThemeData();
+      const light = SleuthThemeData.light();
       expect(light.pageBackground, isNot(dark.pageBackground));
       expect(light.textPrimary, isNot(dark.textPrimary));
       expect(light.sectionBackground, isNot(dark.sectionBackground));
@@ -47,8 +47,8 @@ void main() {
     });
 
     test('light() preserves semantic accent colors', () {
-      const dark = WatchdogThemeData();
-      const light = WatchdogThemeData.light();
+      const dark = SleuthThemeData();
+      const light = SleuthThemeData.light();
       expect(light.severityCritical, dark.severityCritical);
       expect(light.severityWarning, dark.severityWarning);
       expect(light.severityOk, dark.severityOk);
@@ -58,7 +58,7 @@ void main() {
     });
 
     test('copyWith overrides specific field and preserves others', () {
-      const original = WatchdogThemeData();
+      const original = SleuthThemeData();
       final custom = original.copyWith(
         severityCritical: const Color(0xFFFF0000),
       );
@@ -69,7 +69,7 @@ void main() {
     });
 
     test('copyWith with no args returns equivalent data', () {
-      const original = WatchdogThemeData();
+      const original = SleuthThemeData();
       final copy = original.copyWith();
       expect(copy.severityCritical, original.severityCritical);
       expect(copy.pageBackground, original.pageBackground);
@@ -80,7 +80,7 @@ void main() {
 
   group('spacing tokens', () {
     test('dark defaults have correct values', () {
-      const t = WatchdogThemeData();
+      const t = SleuthThemeData();
       expect(t.spacingXxs, 2);
       expect(t.spacingXs, 4);
       expect(t.spacingSm, 6);
@@ -90,8 +90,8 @@ void main() {
     });
 
     test('light theme shares same spacing defaults', () {
-      const dark = WatchdogThemeData();
-      const light = WatchdogThemeData.light();
+      const dark = SleuthThemeData();
+      const light = SleuthThemeData.light();
       expect(light.spacingXxs, dark.spacingXxs);
       expect(light.spacingXs, dark.spacingXs);
       expect(light.spacingSm, dark.spacingSm);
@@ -101,7 +101,7 @@ void main() {
     });
 
     test('copyWith overrides spacing tokens', () {
-      const t = WatchdogThemeData();
+      const t = SleuthThemeData();
       final custom = t.copyWith(spacingMd: 10, spacingXl: 20);
       expect(custom.spacingMd, 10);
       expect(custom.spacingXl, 20);
@@ -112,7 +112,7 @@ void main() {
   });
 
   group('categoryColor', () {
-    const t = WatchdogThemeData();
+    const t = SleuthThemeData();
 
     test('returns correct color for all 8 categories', () {
       expect(t.categoryColor(IssueCategory.build), t.categoryBuild);
@@ -127,7 +127,7 @@ void main() {
   });
 
   group('confidenceColor', () {
-    const t = WatchdogThemeData();
+    const t = SleuthThemeData();
 
     test('returns correct color for all 3 levels', () {
       expect(
@@ -138,7 +138,7 @@ void main() {
   });
 
   group('sourceAccentColor', () {
-    const t = WatchdogThemeData();
+    const t = SleuthThemeData();
 
     test('returns correct color for all sources and null', () {
       expect(t.sourceAccentColor(ObservationSource.vmTimeline),
@@ -154,7 +154,7 @@ void main() {
   });
 
   group('effortColor', () {
-    const t = WatchdogThemeData();
+    const t = SleuthThemeData();
 
     test('returns correct color for all 3 levels', () {
       expect(t.effortColor(FixEffort.quick), t.effortQuick);
@@ -164,7 +164,7 @@ void main() {
   });
 
   group('fpsColor', () {
-    const t = WatchdogThemeData();
+    const t = SleuthThemeData();
 
     test('returns green at or above 83% of target', () {
       expect(t.fpsColor(60), t.severityOk);
@@ -189,16 +189,16 @@ void main() {
     });
   });
 
-  group('WatchdogTheme InheritedWidget', () {
+  group('SleuthTheme InheritedWidget', () {
     testWidgets('of() returns dark fallback when no ancestor', (tester) async {
-      late WatchdogThemeData captured;
+      late SleuthThemeData captured;
 
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
           child: Builder(
             builder: (context) {
-              captured = WatchdogTheme.of(context);
+              captured = SleuthTheme.of(context);
               return const SizedBox();
             },
           ),
@@ -211,17 +211,17 @@ void main() {
 
     testWidgets('of() returns provided theme when ancestor exists',
         (tester) async {
-      late WatchdogThemeData captured;
-      const light = WatchdogThemeData.light();
+      late SleuthThemeData captured;
+      const light = SleuthThemeData.light();
 
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
-          child: WatchdogTheme(
+          child: SleuthTheme(
             data: light,
             child: Builder(
               builder: (context) {
-                captured = WatchdogTheme.of(context);
+                captured = SleuthTheme.of(context);
                 return const SizedBox();
               },
             ),
@@ -233,19 +233,19 @@ void main() {
     });
 
     testWidgets('custom theme propagates to descendants', (tester) async {
-      late WatchdogThemeData captured;
-      final custom = const WatchdogThemeData().copyWith(
+      late SleuthThemeData captured;
+      final custom = const SleuthThemeData().copyWith(
         severityCritical: const Color(0xFFFF0000),
       );
 
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
-          child: WatchdogTheme(
+          child: SleuthTheme(
             data: custom,
             child: Builder(
               builder: (context) {
-                captured = WatchdogTheme.of(context);
+                captured = SleuthTheme.of(context);
                 return const SizedBox();
               },
             ),

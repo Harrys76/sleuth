@@ -57,7 +57,7 @@ Required code fixes:
 Files:
 
 - `lib/src/detectors/memory_leak_detector.dart`
-- `lib/src/controller/watchdog_controller.dart`
+- `lib/src/controller/sleuth_controller.dart`
 - `lib/src/vm/vm_service_client.dart`
 - `README.md`
 - `pubspec.yaml`
@@ -85,7 +85,7 @@ Testing:
 Files:
 
 - `lib/src/models/frame_stats.dart`
-- `lib/src/controller/watchdog_controller.dart`
+- `lib/src/controller/sleuth_controller.dart`
 - `lib/src/detectors/frame_timing_detector.dart`
 
 Goal:
@@ -118,7 +118,7 @@ Testing:
 
 Problem:
 
-- `_collectHighlights` in `lib/src/controller/watchdog_controller.dart` duplicates detection logic from the detectors.
+- `_collectHighlights` in `lib/src/controller/sleuth_controller.dart` duplicates detection logic from the detectors.
 - That creates drift risk: changing detector rules requires touching two places.
 
 Goal:
@@ -278,7 +278,7 @@ Testing:
 Problem:
 
 - `analyzeBasicMode()` in `lib/src/analyzer/render_pipeline_analyzer.dart` is currently unused.
-- `lib/src/controller/watchdog_controller.dart` builds a manual fallback FRAME mode verdict instead of using the analyzer path.
+- `lib/src/controller/sleuth_controller.dart` builds a manual fallback FRAME mode verdict instead of using the analyzer path.
 
 Required decision:
 
@@ -314,7 +314,7 @@ Priority areas:
 - `media_query_rebuild_detector.dart`
 - `gpu_pressure_detector.dart`
 - `memory_leak_detector.dart`
-- highlight behavior in `watchdog_controller.dart`
+- highlight behavior in `sleuth_controller.dart`
 
 Acceptance criteria:
 

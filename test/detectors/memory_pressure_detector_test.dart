@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/detectors/memory_pressure_detector.dart';
-import 'package:widget_watchdog/src/models/allocation_entry.dart';
-import 'package:widget_watchdog/src/models/heap_sample.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
+import 'package:sleuth/src/models/allocation_entry.dart';
+import 'package:sleuth/src/models/heap_sample.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 

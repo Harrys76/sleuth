@@ -64,7 +64,7 @@ class _CombinedAnalyticsDashboardDemoState
             color: Colors.teal.withValues(alpha: 0.05),
             child: const Text(
               'This screen combines 5 anti-patterns common in analytics '
-              'dashboards. The Watchdog correlator may suppress or '
+              'dashboards. The Sleuth correlator may suppress or '
               'escalate issues based on cross-detector evidence.',
               style: TextStyle(fontSize: 12),
             ),

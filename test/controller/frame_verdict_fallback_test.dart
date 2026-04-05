@@ -1,14 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/frame_stats.dart';
-import 'package:widget_watchdog/src/models/frame_verdict.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/frame_verdict.dart';
 
 void main() {
   group('FRAME fallback verdict path', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 

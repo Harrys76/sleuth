@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
 
 void main() {
   group('effectiveTotalDuration', () {

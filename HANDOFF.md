@@ -1,4 +1,4 @@
-# Widget Watchdog — Session Handoff
+# Sleuth — Session Handoff
 
 **Date:** 2026-03-30
 **Version:** v0.6.0 (uncommitted tag — 9 local commits ahead of origin)
@@ -101,7 +101,7 @@ Accurate. Key notes:
 ## Key Architecture Context
 
 - **FloatingIssuesCard** — `Transform.translate` for drag (compositing-only). `ConstrainedBox` for size. `_cardOffset` nullable (initialized on first build to right side). `_cardHeight` nullable (only set when user drags resize handle).
-- **WatchdogController** — orchestrates 22 detectors, scan loop, verdict pipeline. `issuesNotifier` (ValueNotifier) and `frameStatsNotifier` drive the card UI.
+- **SleuthController** — orchestrates 22 detectors, scan loop, verdict pipeline. `issuesNotifier` (ValueNotifier) and `frameStatsNotifier` drive the card UI.
 - **Three-tier verdict** — Correlated > Full > Basic. Falls back automatically based on VM service availability.
 - **IssueRanker** — weighted composite scoring in `ranking/`. Drives issue list order in card.
 
@@ -111,7 +111,7 @@ Accurate. Key notes:
 
 ```bash
 # Verify clean state
-cd "/Users/harryslala/Desktop/performance detective/widget_watchdog"
+cd "/Users/harryslala/Desktop/performance detective/sleuth"
 git status && fvm flutter test && fvm flutter analyze
 
 # Push if ready

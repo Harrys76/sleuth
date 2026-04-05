@@ -92,7 +92,7 @@ class _NetworkStressDemoState extends State<NetworkStressDemo> {
       _triggerFrequencySpike(),
       _triggerLargeResponse(),
     ]);
-    _addLog('--- All done. Check the Watchdog overlay. ---');
+    _addLog('--- All done. Check the Sleuth overlay. ---');
     setState(() => _running = false);
   }
 

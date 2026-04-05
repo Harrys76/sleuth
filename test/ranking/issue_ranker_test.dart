@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/models/frame_verdict.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/ranking/issue_ranker.dart';
+import 'package:sleuth/src/models/frame_verdict.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ranking/issue_ranker.dart';
 
 void main() {
   const ranker = IssueRanker();

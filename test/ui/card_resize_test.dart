@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/ui/floating_issues_card.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/ui/floating_issues_card.dart';
 
 void main() {
   group('FloatingIssuesCard resize', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -145,7 +145,7 @@ void main() {
     testWidgets('double-tap header maximizes width', (tester) async {
       await tester.pumpWidget(buildCard());
 
-      final header = find.text('Watchdog');
+      final header = find.text('Sleuth');
       expect(header, findsOneWidget);
 
       // Double-tap: two taps close together
@@ -162,7 +162,7 @@ void main() {
     testWidgets('double-tap again restores default width', (tester) async {
       await tester.pumpWidget(buildCard());
 
-      final header = find.text('Watchdog');
+      final header = find.text('Sleuth');
 
       // First double-tap: maximize
       await tester.tap(header);

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/ranking/issue_ranker.dart';
-import 'package:widget_watchdog/src/ui/floating_issues_card.dart';
-import 'package:widget_watchdog/src/ui/issue_card.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ranking/issue_ranker.dart';
+import 'package:sleuth/src/ui/floating_issues_card.dart';
+import 'package:sleuth/src/ui/issue_card.dart';
 
 PerformanceIssue _testIssue({
   String title = 'Test Issue',
@@ -189,10 +189,10 @@ void main() {
   });
 
   group('Highlight not-found feedback (3.8.2)', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 

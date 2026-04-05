@@ -9,7 +9,7 @@ import 'performance_issue.dart';
 import 'phase_event.dart';
 import 'platform_channel_summary.dart';
 
-/// A point-in-time snapshot of a watchdog session for export.
+/// A point-in-time snapshot of a sleuth session for export.
 class SessionSnapshot {
   const SessionSnapshot({
     required this.exportedAt,

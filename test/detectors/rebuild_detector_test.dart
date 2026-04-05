@@ -1,10 +1,10 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/debug/debug_snapshot.dart';
-import 'package:widget_watchdog/src/detectors/rebuild_detector.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/models/phase_event.dart';
-import 'package:widget_watchdog/src/vm/timeline_parser.dart';
+import 'package:sleuth/src/debug/debug_snapshot.dart';
+import 'package:sleuth/src/detectors/rebuild_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/models/phase_event.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 

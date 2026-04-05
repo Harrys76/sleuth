@@ -2,7 +2,7 @@
 
 ### Goal
 
-Make Widget Watchdog's detections **more accurate** and its overlay **more actionable**. v1 built the framework, v2 closed the DevTools gap. v3 focuses on two themes:
+Make Sleuth's detections **more accurate** and its overlay **more actionable**. v1 built the framework, v2 closed the DevTools gap. v3 focuses on two themes:
 
 1. **Detection precision** — reduce false positives, eliminate false negatives, leverage unused Flutter/VM APIs
 2. **Developer experience** — make the path from "I see an issue" to "I know what to fix in my code" as short as possible
@@ -53,7 +53,7 @@ Make Widget Watchdog's detections **more accurate** and its overlay **more actio
 **Current:** `memory_pressure_detector.dart` begins evaluation immediately. Initial Dart heap allocation (class loading, widget tree construction, image decoding) produces a legitimate steep growth slope that triggers "Heap Growing" within the first 5 seconds.
 **Fix:** Add a warmup exclusion period (5 seconds after first `processHeapSample` call). During warmup, samples are collected for the rolling window but `_evaluate()` returns early without producing issues.
 **Acceptance criteria:** App that allocates 50MB in first 3 seconds then stabilizes → no heap growth alert during warmup. App that allocates 50MB continuously for 15 seconds → alert fires after warmup period ends.
-**Config:** `memoryWarmupDurationMs` (default 5000), added to `WatchdogConfig`.
+**Config:** `memoryWarmupDurationMs` (default 5000), added to `SleuthConfig`.
 
 #### 3.1.4 NestedScroll false positive on cross-axis nesting
 
@@ -161,7 +161,7 @@ Estimated: ~20 new tests.
 
 ### v3.4: Native Memory Tracking
 
-**Problem:** Widget Watchdog monitors only the Dart heap via `getMemoryUsage()`. Native memory (GPU textures, platform channel buffers, Impeller resources, decoded images before Dart wrapping) is invisible. A developer can have a stable Dart heap but a growing RSS that eventually triggers OOM.
+**Problem:** Sleuth monitors only the Dart heap via `getMemoryUsage()`. Native memory (GPU textures, platform channel buffers, Impeller resources, decoded images before Dart wrapping) is invisible. A developer can have a stable Dart heap but a growing RSS that eventually triggers OOM.
 
 **Approach:** Use `ProcessInfo.currentRss` (from `dart:io`) alongside existing heap polling to track process-level resident memory. The gap between RSS and Dart heap usage reveals native memory consumption.
 
@@ -213,8 +213,8 @@ Estimated: ~20 new tests.
 - New: `lib/src/models/allocation_entry.dart`
 - `lib/src/vm/vm_service_client.dart` — add `getAllocationProfile()` method with timeout
 - `lib/src/detectors/memory_pressure_detector.dart` — two-phase enrichment for heap growth issues
-- `lib/src/controller/watchdog_controller.dart` — wire allocation profile query on heap growth detection
-- `lib/widget_watchdog.dart` — export `AllocationEntry`
+- `lib/src/controller/sleuth_controller.dart` — wire allocation profile query on heap growth detection
+- `lib/sleuth.dart` — export `AllocationEntry`
 
 **Acceptance criteria:**
 - Heap growth detected → `getAllocationProfile` called
@@ -232,7 +232,7 @@ Estimated: ~20 new tests.
 
 ### v3.6: Raster Cache Trend Analysis
 
-**Problem:** `FrameTiming` provides `layerCacheCount`, `layerCacheBytes`, `pictureCacheCount`, and `pictureCacheBytes` per frame, but Widget Watchdog only uses `layerCacheCount` and `pictureCacheBytes` for display. Cache thrashing (rapid allocate/evict cycles) and unbounded cache growth are invisible.
+**Problem:** `FrameTiming` provides `layerCacheCount`, `layerCacheBytes`, `pictureCacheCount`, and `pictureCacheBytes` per frame, but Sleuth only uses `layerCacheCount` and `pictureCacheBytes` for display. Cache thrashing (rapid allocate/evict cycles) and unbounded cache growth are invisible.
 
 **Approach:** Track cache metrics across a rolling window of frames. Detect two patterns:
 1. **Cache thrashing:** `pictureCacheCount` fluctuates by > 20% between consecutive frames for 10+ consecutive frames. Indicates the cache is too small or content is not reusable.
@@ -388,7 +388,7 @@ Six targeted improvements to the overlay UI. Each is small individually but toge
 
 **Files changed:**
 - New: `lib/src/analyzer/detector_correlator.dart`
-- `lib/src/controller/watchdog_controller.dart` — call correlator after `_aggregateIssues()`
+- `lib/src/controller/sleuth_controller.dart` — call correlator after `_aggregateIssues()`
 
 **Acceptance criteria:**
 - Rebuild + SetStateScope on same widget → single merged issue
@@ -431,10 +431,10 @@ These items were evaluated during the v3 research phase but deferred due to high
 |------|-------------|-------------|
 | Memory leak detection via `getRetainingPath` | High effort (~7 days). Requires WeakReference tracking, object ID management, and complex UI for retention path display. | User demand for object-level leak detection beyond heap trends. |
 | Rebuild-to-frame correlation ("widget X caused jank frame Y") | Requires combining `debugOnRebuildDirtyWidget` timestamps with `FrameEventCorrelator` per-frame windows. High complexity, moderate UI payoff. | After v3.7 (call chains) is shipped and validated. |
-| Custom service extensions (`ext.widgetWatchdog.*`) | Useful for CI integration but no current users requesting it. | When CI/CD performance regression testing is a stated goal. |
+| Custom service extensions (`ext.widgetSleuth.*`) | Useful for CI integration but no current users requesting it. | When CI/CD performance regression testing is a stated goal. |
 | GC mode recommendations (`requestPerformanceMode`) | `DartPerformanceMode` is useful but auto-switching could cause unexpected behavior. | After gathering real-world data on GC pressure patterns from v3.4/v3.5. |
 | Hot reload detection + detector state reset | Timeline `HotReload` events could trigger detector reset, preventing stale state. Low priority — stale state resolves within one scan cycle. | If users report false positives after hot reload. |
-| `UserTag` for overhead isolation | Tag Widget Watchdog's own code to filter from CPU samples. Low impact — package overhead is < 1% in profile mode. | If self-overhead ever becomes measurable in CPU attribution. |
+| `UserTag` for overhead isolation | Tag Sleuth's own code to filter from CPU samples. Low impact — package overhead is < 1% in profile mode. | If self-overhead ever becomes measurable in CPU attribution. |
 
 ---
 

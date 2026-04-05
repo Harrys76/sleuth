@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/ui/guide_page.dart';
+import 'package:sleuth/src/ui/guide_page.dart';
 
 void main() {
   group('GuidePage', () {

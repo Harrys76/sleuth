@@ -23,7 +23,7 @@ Files:
 - `lib/src/detectors/frame_timing_detector.dart`
 - `lib/src/vm/timeline_parser.dart`
 - `lib/src/vm/vm_service_client.dart`
-- `lib/src/controller/watchdog_controller.dart`
+- `lib/src/controller/sleuth_controller.dart`
 - `lib/src/analyzer/render_pipeline_analyzer.dart`
 
 Acceptance criteria:
@@ -48,7 +48,7 @@ Goal:
 
 **Original plan**: Enable lightweight hooks (`debugOnRebuildDirtyWidget`, `debugOnProfilePaint`) automatically when `kDebugMode` is true.
 
-**Revised design**: Callbacks are **opt-in** via `WatchdogConfig.enableDebugCallbacks` (default `false`).
+**Revised design**: Callbacks are **opt-in** via `SleuthConfig.enableDebugCallbacks` (default `false`).
 
 **Reason**: Flutter's `WidgetInspectorService` asserts debug callback globals are `null` before installing its own handlers (verified at `widget_inspector.dart:1114`). Auto-enabling would prevent DevTools "Track Widget Rebuilds" / "Track Repaint Widgets" from working. The service extension handler's try-catch prevents app crashes, but DevTools features fail silently.
 
@@ -176,11 +176,11 @@ Acceptance criteria:
 
 ### Implementation summary
 
-**Config model** (`lib/src/debug/debug_instrumentation_config.dart`): New `DebugInstrumentationConfig` class with 6 sub-flags (`rebuildAttribution`, `paintAttribution`, `widgetBuildProfiling`, `layoutProfiling`, `paintProfiling`, `timelineEnrichment`). Exposed as `WatchdogConfig.advanced`. Barrel-exported from `lib/widget_watchdog.dart`.
+**Config model** (`lib/src/debug/debug_instrumentation_config.dart`): New `DebugInstrumentationConfig` class with 6 sub-flags (`rebuildAttribution`, `paintAttribution`, `widgetBuildProfiling`, `layoutProfiling`, `paintProfiling`, `timelineEnrichment`). Exposed as `SleuthConfig.advanced`. Barrel-exported from `lib/sleuth.dart`.
 
 **Selective install** (`lib/src/debug/debug_instrumentation_coordinator.dart`): Added `installRebuild` and `installPaint` constructor params. `install()` checks these before attempting slot installation, allowing partial install (e.g. paint-only when rebuild attribution sub-flag is off).
 
-**Two independent parent switches** (`lib/src/controller/watchdog_controller.dart`): `enableDebugCallbacks` and `enableDeepDebugInstrumentation` are evaluated in separate `if` blocks inside `_installDebugInstrumentation()`, fixing a pre-existing bug where deep instrumentation was nested inside the callbacks check and silently did nothing without callbacks enabled. Both `initialize()` and `initializeDetectorsForTest()` call the shared `_installDebugInstrumentation()` method, closing a test-path discrepancy where the test path silently skipped heavy flags.
+**Two independent parent switches** (`lib/src/controller/sleuth_controller.dart`): `enableDebugCallbacks` and `enableDeepDebugInstrumentation` are evaluated in separate `if` blocks inside `_installDebugInstrumentation()`, fixing a pre-existing bug where deep instrumentation was nested inside the callbacks check and silently did nothing without callbacks enabled. Both `initialize()` and `initializeDetectorsForTest()` call the shared `_installDebugInstrumentation()` method, closing a test-path discrepancy where the test path silently skipped heavy flags.
 
 **Heavy flag save/restore**: `_installHeavyFlags()` saves and overrides 6 Flutter debug globals (`debugProfileBuildsEnabledUserWidgets`, `debugProfileLayoutsEnabled`, `debugProfilePaintsEnabled`, `debugEnhanceBuildTimelineArguments`, `debugEnhanceLayoutTimelineArguments`, `debugEnhancePaintTimelineArguments`). `_restoreHeavyFlags()` restores originals on dispose. All wrapped in assert blocks.
 

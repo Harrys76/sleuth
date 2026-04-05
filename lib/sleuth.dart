@@ -1,4 +1,4 @@
-/// Widget Watchdog — Runtime Performance Diagnostics for Flutter
+/// Sleuth — Runtime Performance Diagnostics for Flutter
 ///
 /// Surfaces performance bottlenecks and actionable fixes directly inside
 /// your app using three layers of analysis:
@@ -9,7 +9,7 @@
 /// ## Usage
 ///
 /// ```dart
-/// void main() => runApp(WidgetWatchdog.wrap(child: MyApp()));
+/// void main() => runApp(Sleuth.track(child: MyApp()));
 /// ```
 ///
 /// ## Features
@@ -26,31 +26,31 @@
 ///
 /// ```dart
 /// // Light theme for light-background apps
-/// WidgetWatchdog.wrap(
+/// Sleuth.track(
 ///   child: MyApp(),
-///   config: WatchdogConfig(theme: WatchdogThemeData.light()),
+///   config: SleuthConfig(theme: SleuthThemeData.light()),
 /// );
 ///
 /// // Custom brand colors
-/// WidgetWatchdog.wrap(
+/// Sleuth.track(
 ///   child: MyApp(),
-///   config: WatchdogConfig(
-///     theme: WatchdogThemeData.light().copyWith(
+///   config: SleuthConfig(
+///     theme: SleuthThemeData.light().copyWith(
 ///       severityCritical: Color(0xFFDC2626),
 ///     ),
 ///   ),
 /// );
 /// ```
 ///
-/// See [WatchdogThemeData] for all available color tokens.
+/// See [SleuthThemeData] for all available color tokens.
 library;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
-import 'src/controller/watchdog_controller.dart';
+import 'src/controller/sleuth_controller.dart';
 import 'src/models/session_snapshot.dart';
-import 'src/ui/watchdog_overlay.dart';
+import 'src/ui/sleuth_overlay.dart';
 
 // Public API exports
 export 'src/models/ai_chat_adapter.dart';
@@ -60,9 +60,9 @@ export 'src/models/frame_verdict.dart';
 export 'src/models/widget_highlight.dart';
 export 'src/models/capture_buffer.dart';
 export 'src/models/session_snapshot.dart';
-export 'src/controller/watchdog_controller.dart' show WatchdogConfig;
+export 'src/controller/sleuth_controller.dart' show SleuthConfig;
 export 'src/controller/detector_thresholds.dart';
-export 'src/ui/watchdog_theme.dart' show WatchdogThemeData;
+export 'src/ui/sleuth_theme.dart' show SleuthThemeData;
 export 'src/debug/debug_instrumentation_config.dart';
 export 'src/models/base_detector.dart'
     show DetectorType, DetectorLifecycle, BaseDetector;
@@ -77,15 +77,15 @@ export 'src/models/platform_channel_summary.dart';
 export 'src/network/request_record.dart';
 export 'src/utils/fix_hint_builder.dart';
 
-/// Entry point for the Widget Watchdog package.
+/// Entry point for the Sleuth package.
 ///
 /// ```dart
-/// void main() => runApp(WidgetWatchdog.wrap(child: MyApp()));
+/// void main() => runApp(Sleuth.track(child: MyApp()));
 /// ```
-class WidgetWatchdog {
-  WidgetWatchdog._();
+class Sleuth {
+  Sleuth._();
 
-  static WatchdogController? _controller;
+  static SleuthController? _controller;
 
   /// Wrap your app with the performance overlay.
   ///
@@ -93,24 +93,24 @@ class WidgetWatchdog {
   /// In debug/profile mode, adds the overlay with all 22 detectors.
   ///
   /// Optionally pass [config] to customize thresholds, enable/disable
-  /// specific detectors, or set a custom [WatchdogConfig.theme].
+  /// specific detectors, or set a custom [SleuthConfig.theme].
   /// When no theme is provided, the overlay auto-selects dark or light
   /// based on the system brightness.
-  static Widget wrap({required Widget child, WatchdogConfig? config}) {
+  static Widget track({required Widget child, SleuthConfig? config}) {
     // Complete no-op in release mode
     if (kReleaseMode) return child;
 
-    final controller = WatchdogController(config: config);
+    final controller = SleuthController(config: config);
     _controller = controller;
 
-    return WatchdogOverlay(controller: controller, child: child);
+    return SleuthOverlay(controller: controller, child: child);
   }
 
-  /// Called by [WatchdogOverlay.dispose] to clear the static reference.
+  /// Called by [SleuthOverlay.dispose] to clear the static reference.
   /// Identity check ensures disposing an old overlay doesn't clear a new one.
   ///
   /// Package-internal — do not call from app code.
-  static void notifyControllerDisposed(WatchdogController controller) {
+  static void notifyControllerDisposed(SleuthController controller) {
     if (_controller == controller) _controller = null;
   }
 

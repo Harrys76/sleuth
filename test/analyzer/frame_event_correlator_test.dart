@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/analyzer/frame_event_correlator.dart';
-import 'package:widget_watchdog/src/models/frame_stats.dart';
-import 'package:widget_watchdog/src/models/phase_event.dart';
+import 'package:sleuth/src/analyzer/frame_event_correlator.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/phase_event.dart';
 
 void main() {
   final correlator = FrameEventCorrelator();

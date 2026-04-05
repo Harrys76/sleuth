@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/ai/ai_providers.dart';
+import 'package:sleuth/src/ai/ai_providers.dart';
 
 void main() {
   group('extractAnthropicToken', () {

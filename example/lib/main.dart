@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:widget_watchdog/widget_watchdog.dart';
+import 'package:sleuth/sleuth.dart';
 
 import 'demos/animated_builder_demo.dart';
 import 'demos/combined_analytics_dashboard_demo.dart';
@@ -21,9 +21,9 @@ import 'demos/shallow_rebuild_risk_demo.dart';
 import 'demos/uncached_image_demo.dart';
 
 void main() => runApp(
-  WidgetWatchdog.wrap(
-    child: const WatchdogDemoApp(),
-    config: WatchdogConfig(
+  Sleuth.track(
+    child: const SleuthDemoApp(),
+    config: SleuthConfig(
       aiChat: AiChatAdapter.openAi(
         apiKey: 'ollama', // Ollama ignores this but the field is required
         baseUrl: 'http://localhost:11434',
@@ -33,13 +33,13 @@ void main() => runApp(
   ),
 );
 
-class WatchdogDemoApp extends StatelessWidget {
-  const WatchdogDemoApp({super.key});
+class SleuthDemoApp extends StatelessWidget {
+  const SleuthDemoApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '🐕 Watchdog Demo',
+      title: '🐕 Sleuth Demo',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorSchemeSeed: const Color(0xFF3B82F6),
@@ -195,7 +195,7 @@ class DemoHome extends StatelessWidget {
     ];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('🐕 Watchdog Demo'), centerTitle: true),
+      appBar: AppBar(title: const Text('🐕 Sleuth Demo'), centerTitle: true),
       body: ListView.separated(
         padding: const EdgeInsets.all(16),
         itemCount: demos.length,

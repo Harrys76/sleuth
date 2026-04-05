@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/detector_thresholds.dart';
+import 'package:sleuth/src/controller/detector_thresholds.dart';
 
 void main() {
   group('DetectorThresholds', () {

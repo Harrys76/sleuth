@@ -2,8 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/detectors/image_memory_detector.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/detectors/image_memory_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 // 1x1 transparent PNG bytes for creating test Image widgets.
 final Uint8List _kTransparentPng = Uint8List.fromList(const [

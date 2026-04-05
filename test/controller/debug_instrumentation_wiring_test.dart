@@ -1,17 +1,17 @@
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/debug/debug_instrumentation_config.dart';
-import 'package:widget_watchdog/src/debug/debug_snapshot.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/debug/debug_instrumentation_config.dart';
+import 'package:sleuth/src/debug/debug_snapshot.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 void main() {
   group('debug instrumentation wiring', () {
     test(
         'coordinator not installed when enableDebugCallbacks is false (default)',
         () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
       expect(controller.isDebugCallbacksActive, isFalse);
@@ -23,8 +23,8 @@ void main() {
       // Use a controller with detectors initialized but no VM client.
       // Feed timeline data directly via processTimelineData on the detectors,
       // then verify issues appear after evaluateNow is implicitly called.
-      final controller = WatchdogController(
-        config: const WatchdogConfig(rebuildThreshold: 10),
+      final controller = SleuthController(
+        config: const SleuthConfig(rebuildThreshold: 10),
       );
       controller.initializeDetectorsForTest();
       controller.vmConnectedForTest = true;
@@ -37,7 +37,7 @@ void main() {
     });
 
     testWidgets('_syncVmState propagates to repaint detector', (tester) async {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
       // Set vmConnected to true, then feed timeline data and run tree scan.
@@ -63,8 +63,8 @@ void main() {
 
     testWidgets('observationSource appears in aggregated issues when stamped',
         (tester) async {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(rebuildThreshold: 5),
+      final controller = SleuthController(
+        config: const SleuthConfig(rebuildThreshold: 5),
       );
       controller.initializeDetectorsForTest();
       controller.vmConnectedForTest = false;
@@ -118,8 +118,8 @@ void main() {
     test('debugProfileLayoutsEnabled saved and restored on dispose', () {
       assert(() {
         final before = debugProfileLayoutsEnabled;
-        final controller = WatchdogController(
-          config: const WatchdogConfig(
+        final controller = SleuthController(
+          config: const SleuthConfig(
             enableDeepDebugInstrumentation: true,
           ),
         );
@@ -139,8 +139,8 @@ void main() {
         final beforeLayout = debugEnhanceLayoutTimelineArguments;
         final beforePaint = debugEnhancePaintTimelineArguments;
 
-        final controller = WatchdogController(
-          config: const WatchdogConfig(
+        final controller = SleuthController(
+          config: const SleuthConfig(
             enableDeepDebugInstrumentation: true,
             advanced: DebugInstrumentationConfig(timelineEnrichment: true),
           ),
@@ -160,8 +160,8 @@ void main() {
     });
 
     test('deep instrumentation without callbacks (independence)', () {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(
+      final controller = SleuthController(
+        config: const SleuthConfig(
           enableDebugCallbacks: false,
           enableDeepDebugInstrumentation: true,
         ),
@@ -182,8 +182,8 @@ void main() {
         'initializeDetectorsForTest exercises same setup as initialize '
         '(heavy flags enabled)', () {
       assert(() {
-        final controller = WatchdogController(
-          config: const WatchdogConfig(
+        final controller = SleuthController(
+          config: const SleuthConfig(
             enableDebugCallbacks: true,
             enableDeepDebugInstrumentation: true,
           ),

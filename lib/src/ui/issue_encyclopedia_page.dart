@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/performance_issue.dart';
 import '../utils/issue_explanation_builder.dart';
-import 'watchdog_theme.dart';
+import 'sleuth_theme.dart';
 
 /// Full-screen encyclopedia listing all 37 issue types, grouped by category.
 ///
@@ -105,7 +105,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
     final groups = IssueExplanationBuilder.groupedEntries;
     final keyboardPadding = MediaQuery.viewInsetsOf(context).bottom;
 
@@ -207,7 +207,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
   Widget _buildBody(
     List<({IssueCategory category, List<(String, IssueExplanation)> entries})>
         groups,
-    WatchdogThemeData theme,
+    SleuthThemeData theme,
     double keyboardPadding,
   ) {
     // Filter groups by search.
@@ -264,7 +264,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     IssueCategory category,
     int visibleCount,
     int totalCount,
-    WatchdogThemeData theme,
+    SleuthThemeData theme,
   ) {
     final color = theme.categoryColor(category);
     final name = _categoryDisplayName(category);
@@ -320,7 +320,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
   Widget _entryTile(
     String stableId,
     IssueExplanation entry,
-    WatchdogThemeData theme,
+    SleuthThemeData theme,
   ) {
     final isExpanded = _expandedEntries.contains(stableId);
     final isScrollTarget = stableId == widget.scrollToStableId;
@@ -390,7 +390,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     );
   }
 
-  Widget _entryContent(IssueExplanation entry, WatchdogThemeData theme) {
+  Widget _entryContent(IssueExplanation entry, SleuthThemeData theme) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
           theme.spacingMd, 0, theme.spacingMd, theme.spacingMd),
@@ -415,7 +415,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     );
   }
 
-  Widget _sectionBlock(String title, String body, WatchdogThemeData theme) {
+  Widget _sectionBlock(String title, String body, SleuthThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -441,7 +441,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     );
   }
 
-  Widget _readingTheDataBlock(String body, WatchdogThemeData theme) {
+  Widget _readingTheDataBlock(String body, SleuthThemeData theme) {
     return Container(
       padding: EdgeInsets.all(theme.spacingMd),
       decoration: BoxDecoration(
@@ -512,7 +512,7 @@ class _SearchBar extends StatelessWidget {
 
   final TextEditingController controller;
   final FocusNode focusNode;
-  final WatchdogThemeData theme;
+  final SleuthThemeData theme;
 
   @override
   Widget build(BuildContext context) {

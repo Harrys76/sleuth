@@ -4,7 +4,7 @@
 /// Override individual values to adjust sensitivity for your app:
 ///
 /// ```dart
-/// WatchdogConfig(
+/// SleuthConfig(
 ///   thresholds: DetectorThresholds(
 ///     shaderJankMs: 50,         // Flag shaders >50ms (default 100)
 ///     keepAliveMax: 10,         // Allow up to 10 keep-alives (default 5)

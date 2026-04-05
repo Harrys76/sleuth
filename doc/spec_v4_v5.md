@@ -1,6 +1,6 @@
 ## v4 Roadmap: Extensibility & Developer Experience
 
-This roadmap focuses on making Widget Watchdog customizable for teams with domain-specific needs, reducing UI file complexity, and improving developer workflow.
+This roadmap focuses on making Sleuth customizable for teams with domain-specific needs, reducing UI file complexity, and improving developer workflow.
 
 ### v4.1: Issue Suppression List
 
@@ -11,7 +11,7 @@ This roadmap focuses on making Widget Watchdog customizable for teams with domai
 - **Correlator-level:** 5 evidence-based rules suppress/merge cross-detector (automatic, not user-controlled)
 - **UI-level:** None — no dismiss, suppress, or ignore controls exist
 
-**Approach:** Add `suppressedIssues: Set<String>` to `WatchdogConfig`. Filter by `stableId` (or `title` fallback) in `_aggregateIssues()` after correlation but before ranking. This is the minimal insertion point — one `where` clause.
+**Approach:** Add `suppressedIssues: Set<String>` to `SleuthConfig`. Filter by `stableId` (or `title` fallback) in `_aggregateIssues()` after correlation but before ranking. This is the minimal insertion point — one `where` clause.
 
 **Design decisions:**
 
@@ -31,8 +31,8 @@ This roadmap focuses on making Widget Watchdog customizable for teams with domai
 **Implementation:**
 
 ```dart
-// WatchdogConfig addition:
-const WatchdogConfig({
+// SleuthConfig addition:
+const SleuthConfig({
   // ... existing fields ...
   this.suppressedIssues = const {},
 });
@@ -54,9 +54,9 @@ final ranked = _ranker.rank(filtered, ...);
 ```
 
 **Files changed:**
-- `lib/src/controller/watchdog_controller.dart` — add `suppressedIssues` to `WatchdogConfig`, add filter in `_aggregateIssues()`, track suppressed count
+- `lib/src/controller/sleuth_controller.dart` — add `suppressedIssues` to `SleuthConfig`, add filter in `_aggregateIssues()`, track suppressed count
 - `lib/src/ui/floating_issues_card.dart` — show "N issues suppressed" in footer when count > 0
-- `lib/widget_watchdog.dart` — no change (WatchdogConfig already exported)
+- `lib/sleuth.dart` — no change (SleuthConfig already exported)
 
 **Acceptance criteria:**
 - `suppressedIssues: {'opacity_zero'}` hides all opacity issues
@@ -108,9 +108,9 @@ final ranked = _ranker.rank(filtered, ...);
 
 Shipped as planned with minor refinements:
 
-1. **`_matchesSuppression()` helper** extracted as a private method on `WatchdogController` for clarity. Iterates `config.suppressedIssues` once per issue — O(P×I) where P = pattern count, I = issue count. Negligible for typical sizes (< 10 patterns, < 20 issues).
+1. **`_matchesSuppression()` helper** extracted as a private method on `SleuthController` for clarity. Iterates `config.suppressedIssues` once per issue — O(P×I) where P = pattern count, I = issue count. Negligible for typical sizes (< 10 patterns, < 20 issues).
 
-2. **`suppressedCountNotifier`** added as a `ValueNotifier<int>` on `WatchdogController`. Footer uses a scoped `ValueListenableBuilder<int>` so only the count text rebuilds — no full-footer rebuilds.
+2. **`suppressedCountNotifier`** added as a `ValueNotifier<int>` on `SleuthController`. Footer uses a scoped `ValueListenableBuilder<int>` so only the count text rebuilds — no full-footer rebuilds.
 
 3. **`SessionSnapshot.suppressedCount`** field added with conditional JSON serialization (`if > 0`). Backward compatible — old JSON without the field deserializes to 0 via `?? 0` fallback.
 
@@ -131,9 +131,9 @@ Shipped as planned with minor refinements:
 - "Any widget tree deeper than 50 levels in our design system is a bug"
 - "Our analytics SDK shouldn't make network calls during scroll"
 
-Currently, adding a detector requires modifying `DetectorType` enum, `WatchdogController` fields, `_initializeDetectors()`, `_runStructuralScans()`, `_getAllIssues()`, `_collectHighlights()`, and `dispose()` — 7 touch points in library-internal code.
+Currently, adding a detector requires modifying `DetectorType` enum, `SleuthController` fields, `_initializeDetectors()`, `_runStructuralScans()`, `_getAllIssues()`, `_collectHighlights()`, and `dispose()` — 7 touch points in library-internal code.
 
-**Approach:** Add `customDetectors: List<BaseDetector>` to `WatchdogConfig`. The controller integrates them into existing scan, aggregation, highlight, and disposal lifecycles without requiring enum changes or controller modifications.
+**Approach:** Add `customDetectors: List<BaseDetector>` to `SleuthConfig`. The controller integrates them into existing scan, aggregation, highlight, and disposal lifecycles without requiring enum changes or controller modifications.
 
 **Design decisions:**
 
@@ -162,8 +162,8 @@ enum DetectorType {
   custom,
 }
 
-// WatchdogConfig addition:
-const WatchdogConfig({
+// SleuthConfig addition:
+const SleuthConfig({
   // ... existing fields ...
   this.customDetectors = const [],
 });
@@ -231,8 +231,8 @@ void dispose() {
 
 **Files changed:**
 - `lib/src/models/base_detector.dart` — add `DetectorType.custom`, add `processTimelineData()` no-op default
-- `lib/src/controller/watchdog_controller.dart` — add `customDetectors` to config, integrate into all lifecycle points
-- `lib/widget_watchdog.dart` — export `BaseDetector` (currently only exports `DetectorType` and `DetectorLifecycle`)
+- `lib/src/controller/sleuth_controller.dart` — add `customDetectors` to config, integrate into all lifecycle points
+- `lib/sleuth.dart` — export `BaseDetector` (currently only exports `DetectorType` and `DetectorLifecycle`)
 - `README.md` — document custom detector usage with example
 
 **Acceptance criteria:**
@@ -276,8 +276,8 @@ class VideoRebuildDetector extends BaseDetector {
 }
 
 // Usage:
-WidgetWatchdog.wrap(
-  config: WatchdogConfig(
+Sleuth.track(
+  config: SleuthConfig(
     customDetectors: [VideoRebuildDetector()],
   ),
   child: MyApp(),
@@ -302,11 +302,11 @@ WidgetWatchdog.wrap(
 
 Shipped as planned with minor refinements:
 
-1. **No `_customDetectors` field on controller.** The spec sketched `late final List<BaseDetector> _customDetectors` on the controller, but the implementation reads directly from `config.customDetectors` at each lifecycle point. Since `WatchdogConfig` is immutable and `customDetectors` is a `final List`, there's no benefit to copying it. One fewer field, one fewer init step.
+1. **No `_customDetectors` field on controller.** The spec sketched `late final List<BaseDetector> _customDetectors` on the controller, but the implementation reads directly from `config.customDetectors` at each lifecycle point. Since `SleuthConfig` is immutable and `customDetectors` is a `final List`, there's no benefit to copying it. One fewer field, one fewer init step.
 
 2. **`processTimelineData()` added to `BaseDetector` (Option A).** Added as a no-op default matching the existing pattern (`scanTree()`, `evaluateNow()`, `updateDebugSnapshot()`). Required adding `@override` to 8 existing detectors (gpu_pressure, heavy_compute, memory_pressure, platform_channel, rebuild, repaint, shader_jank, shallow_rebuild_risk).
 
-3. **Barrel file exports expanded.** Three new public API exports: `BaseDetector` (added to existing `show` clause), `ParsedTimelineData` (from `timeline_parser.dart`), and `DebugSnapshot` (from `debug_snapshot.dart`). Enables consumers to write custom detectors using only `package:widget_watchdog/widget_watchdog.dart` — no `src/` imports needed.
+3. **Barrel file exports expanded.** Three new public API exports: `BaseDetector` (added to existing `show` clause), `ParsedTimelineData` (from `timeline_parser.dart`), and `DebugSnapshot` (from `debug_snapshot.dart`). Enables consumers to write custom detectors using only `package:sleuth/sleuth.dart` — no `src/` imports needed.
 
 4. **Disposal ownership documented.** Added one line to the `customDetectors` doc comment: "The controller disposes custom detectors when it is itself disposed." Prevents surprises if consumers hold a separate reference to a detector.
 
@@ -330,7 +330,7 @@ Shipped as planned. Pure refactor — zero behavior change.
 
 3. **`_WarningBanners` uses `Column(mainAxisSize: MainAxisSize.min)`.** This introduces a Column-inside-Column in the parent build, but `mainAxisSize: MainAxisSize.min` ensures identical layout behavior — the inner Column takes only the space its children need.
 
-4. **Zero state coupling confirmed for `_StatusRow` and `_CardFooter`.** Both read exclusively from `WatchdogController` notifiers via `ValueListenableBuilder`, requiring only `controller` (and `onExport` callback for footer) as constructor parameters.
+4. **Zero state coupling confirmed for `_StatusRow` and `_CardFooter`.** Both read exclusively from `SleuthController` notifiers via `ValueListenableBuilder`, requiring only `controller` (and `onExport` callback for footer) as constructor parameters.
 
 5. **All 70 UI tests passed unchanged on first run.** No test modifications needed — the widget tree output is identical.
 
@@ -344,7 +344,7 @@ Shipped with a simpler structure than spec'd — one file per demo instead of gr
 
 1. **18 individual files, no barrel file.** The spec proposed grouping small demos into `simple_demos.dart`, `animated_demos.dart`, etc. with a barrel file. Implementation chose one file per demo for maximum navigability — each file is fully self-contained and named after its class. `main.dart` imports all 18 directly; no barrel needed for 18 predictable imports.
 
-2. **`main.dart` reduced from 1,807 to 239 lines.** Contains only: imports (20 lines), `main()`, `WatchdogDemoApp`, `DemoHome` (navigation list), and `_DemoRoute` data class. All demo class definitions and helper classes removed.
+2. **`main.dart` reduced from 1,807 to 239 lines.** Contains only: imports (20 lines), `main()`, `SleuthDemoApp`, `DemoHome` (navigation list), and `_DemoRoute` data class. All demo class definitions and helper classes removed.
 
 3. **Helper classes stayed private in their demo files.** `_BadCirclePainter` (CustomPainterDemo), `_WavePainter` (RepaintStressDemo), `_DashboardChartPainter` (CombinedAnalyticsDashboardDemo), `_KeepAliveItem` (KeepAliveDemo) — each kept `_` prefix and moved with their demo.
 
@@ -452,7 +452,7 @@ example/lib/
     fps_stress_test_demo.dart            # FpsStressTest (124 lines)
 ```
 
-3. **`main.dart` stays as the router.** `DemoHome` + `_DemoRoute` model + `WatchdogDemoApp` remain. Demos are imported via barrel file. This keeps the entry point clean and navigation easy to understand.
+3. **`main.dart` stays as the router.** `DemoHome` + `_DemoRoute` model + `SleuthDemoApp` remain. Demos are imported via barrel file. This keeps the entry point clean and navigation easy to understand.
 
 4. **Barrel file for clean imports.** `demos/demos.dart` exports all demo classes. `main.dart` has a single import.
 
@@ -501,9 +501,9 @@ Eight milestones across three themes: overlay polish, detection accuracy, and ex
 
 ---
 
-### v5.1: Overlay Theming — WatchdogTheme + Light/Dark Mode
+### v5.1: Overlay Theming — SleuthTheme + Light/Dark Mode
 
-**Problem:** The entire overlay UI is hardcoded to a dark theme. Every color (~40 hex literals), font size (~15 values), and dimension (~12 sizing constants) are scattered across 6 files (`floating_issues_card.dart`, `issue_card.dart`, `trigger_button.dart`, `guide_page.dart`, `watchdog_overlay.dart`, `highlight_overlay.dart`). Light-theme apps get an unreadable overlay. Consumers have zero customization path.
+**Problem:** The entire overlay UI is hardcoded to a dark theme. Every color (~40 hex literals), font size (~15 values), and dimension (~12 sizing constants) are scattered across 6 files (`floating_issues_card.dart`, `issue_card.dart`, `trigger_button.dart`, `guide_page.dart`, `sleuth_overlay.dart`, `highlight_overlay.dart`). Light-theme apps get an unreadable overlay. Consumers have zero customization path.
 
 **Current state:**
 - Card background: `Color(0xF51E1E2E)` — unique dark value
@@ -515,13 +515,13 @@ Eight milestones across three themes: overlay polish, detection accuracy, and ex
 - Card sizing: min 220x250, default 300px wide, corner radius 16px — all hardcoded
 - No `Theme.of(context).brightness` checks anywhere
 
-**Approach:** Create a `WatchdogThemeData` class containing all visual tokens. The overlay reads from this theme, with a sensible dark default and an auto-generated light variant. Consumers optionally provide their own via `WatchdogConfig`.
+**Approach:** Create a `SleuthThemeData` class containing all visual tokens. The overlay reads from this theme, with a sensible dark default and an auto-generated light variant. Consumers optionally provide their own via `SleuthConfig`.
 
 **Design decisions:**
 
-1. **`WatchdogThemeData` class** — immutable data class with all color, sizing, and typography tokens. Provides `WatchdogThemeData.dark()` and `WatchdogThemeData.light()` factory constructors. Consumers can extend either with `copyWith()`.
+1. **`SleuthThemeData` class** — immutable data class with all color, sizing, and typography tokens. Provides `SleuthThemeData.dark()` and `SleuthThemeData.light()` factory constructors. Consumers can extend either with `copyWith()`.
 
-2. **Auto-detect brightness** — If no explicit theme provided in config, read `MediaQuery.platformBrightnessOf(context)` and select dark/light defaults. Consumers can override with `WatchdogConfig(theme: WatchdogThemeData.dark())` to force a specific mode.
+2. **Auto-detect brightness** — If no explicit theme provided in config, read `MediaQuery.platformBrightnessOf(context)` and select dark/light defaults. Consumers can override with `SleuthConfig(theme: SleuthThemeData.dark())` to force a specific mode.
 
 3. **Token categories:**
    - `cardBackground`, `cardBorder`, `headerBackground` — card chrome
@@ -533,25 +533,25 @@ Eight milestones across three themes: overlay polish, detection accuracy, and ex
    - `triggerButtonSize`, `cardMinWidth`, `cardMinHeight`, `cardDefaultWidth`, `cardCornerRadius` — sizing
    - `fontSizeSmall`, `fontSizeMedium`, `fontSizeLarge` — typography scale
 
-4. **Propagation via InheritedWidget** — `_WatchdogTheme` InheritedWidget placed above overlay in the widget tree. All overlay widgets read via `_WatchdogTheme.of(context)`. No parameter drilling.
+4. **Propagation via InheritedWidget** — `_SleuthTheme` InheritedWidget placed above overlay in the widget tree. All overlay widgets read via `_SleuthTheme.of(context)`. No parameter drilling.
 
 5. **Migration strategy** — Replace hardcoded values file-by-file: issue_card.dart first (most colors), then floating_issues_card.dart, trigger_button.dart, guide_page.dart, highlight_overlay.dart. Each file is a standalone commit.
 
 **Files changed:**
-- `lib/src/ui/watchdog_theme.dart` — new: `WatchdogThemeData` class + `_WatchdogTheme` InheritedWidget
+- `lib/src/ui/sleuth_theme.dart` — new: `SleuthThemeData` class + `_SleuthTheme` InheritedWidget
 - `lib/src/ui/floating_issues_card.dart` — replace ~15 hardcoded colors with theme reads
 - `lib/src/ui/issue_card.dart` — replace ~20 hardcoded colors with theme reads
 - `lib/src/ui/trigger_button.dart` — replace sizing/colors with theme reads
 - `lib/src/ui/guide_page.dart` — replace background/text colors with theme reads
 - `lib/src/ui/highlight_overlay.dart` — replace highlight colors with theme reads
-- `lib/src/ui/watchdog_overlay.dart` — wrap overlay tree in `_WatchdogTheme`
-- `lib/src/controller/watchdog_controller.dart` — add `theme` field to `WatchdogConfig`
-- `lib/widget_watchdog.dart` — export `WatchdogThemeData`
+- `lib/src/ui/sleuth_overlay.dart` — wrap overlay tree in `_SleuthTheme`
+- `lib/src/controller/sleuth_controller.dart` — add `theme` field to `SleuthConfig`
+- `lib/sleuth.dart` — export `SleuthThemeData`
 
 **Acceptance criteria:**
 - Default overlay looks identical to current dark theme (visual regression test)
 - Light-theme app → overlay auto-selects light colors
-- `WatchdogConfig(theme: WatchdogThemeData.dark().copyWith(cardBackground: Colors.blue))` works
+- `SleuthConfig(theme: SleuthThemeData.dark().copyWith(cardBackground: Colors.blue))` works
 - All 6 overlay files read from theme, zero hardcoded color hex literals remain
 - Existing UI tests pass unchanged
 
@@ -572,17 +572,17 @@ Eight milestones across three themes: overlay polish, detection accuracy, and ex
 Shipped. All acceptance criteria met. Implementation details vs. original spec:
 
 - **60 color tokens** (not ~40 + sizing + typography as originally spec'd). Sizing and typography tokens were excluded — they're layout concerns that break layouts if changed and don't need theme-awareness.
-- **`WatchdogThemeData`** is `const`-constructable with const redirecting constructors for `.dark()` and `.light()`. All `Color(...)` literals are const, so this works without factory constructors.
-- **`WatchdogTheme`** (public class, not `_WatchdogTheme`) — `of(context)` returns `const WatchdogThemeData()` (dark) when no ancestor exists, ensuring all existing tests pass without modification.
+- **`SleuthThemeData`** is `const`-constructable with const redirecting constructors for `.dark()` and `.light()`. All `Color(...)` literals are const, so this works without factory constructors.
+- **`SleuthTheme`** (public class, not `_SleuthTheme`) — `of(context)` returns `const SleuthThemeData()` (dark) when no ancestor exists, ensuring all existing tests pass without modification.
 - **Token naming** uses semantic names (`textPrimary`/`textSecondary`/`textTertiary`/`textQuaternary`/`textSubtle` instead of `textMuted`). Category tokens match `IssueCategory` enum values exactly (`categoryBuild`, `categoryLayout`, etc.).
 - **Badge and banner pairs** (bg + text) are separate tokens for independent override. Doc comments warn to always override both together.
-- **`fpsColor()` free function deleted** — replaced by `WatchdogThemeData.fpsColor()` method. Both consumers (trigger_button, floating_issues_card) migrated before deletion.
-- **`_fixEffort()` free function** now takes `WatchdogThemeData theme` parameter instead of hardcoded colors.
+- **`fpsColor()` free function deleted** — replaced by `SleuthThemeData.fpsColor()` method. Both consumers (trigger_button, floating_issues_card) migrated before deletion.
+- **`_fixEffort()` free function** now takes `SleuthThemeData theme` parameter instead of hardcoded colors.
 - **CustomPainters** (`_HighlightPainter`, `_CornerGripPainter`) receive theme/colors via constructor since `paint()` has no BuildContext. `shouldRepaint` includes theme comparison.
-- **Guide page static helpers** take `WatchdogThemeData theme` parameter. `_GuideStep` and `_LegendRow` StatelessWidgets read `WatchdogTheme.of(context)` in their own `build()`.
+- **Guide page static helpers** take `SleuthThemeData theme` parameter. `_GuideStep` and `_LegendRow` StatelessWidgets read `SleuthTheme.of(context)` in their own `build()`.
 - **Auto-detection** uses `MediaQuery.maybeOf(context)?.platformBrightness` (not `platformBrightnessOf`). Re-resolves on system brightness changes because `MediaQuery` dependency triggers rebuild.
-- **Tests:** 20 new tests in `test/ui/watchdog_theme_test.dart` (17) and `test/ui/theme_auto_detect_test.dart` (3). Total: 1,121 tests, 0 analysis issues.
-- **Files changed:** 9 modified + 2 new (theme data class, 2 test files). Zero `Color(0x` references remain in any UI file except `watchdog_theme.dart`.
+- **Tests:** 20 new tests in `test/ui/sleuth_theme_test.dart` (17) and `test/ui/theme_auto_detect_test.dart` (3). Total: 1,121 tests, 0 analysis issues.
+- **Files changed:** 9 modified + 2 new (theme data class, 2 test files). Zero `Color(0x` references remain in any UI file except `sleuth_theme.dart`.
 
 ---
 
@@ -625,8 +625,8 @@ Shipped. All acceptance criteria met. Implementation details vs. original spec:
 - `lib/src/models/session_snapshot.dart` — add phaseEvents, gcEvents, platformChannelEvents, fpsPercentiles, frameSequence, schemaVersion fields
 - `lib/src/models/performance_issue.dart` — add rankingScore, rankingBreakdown fields
 - `lib/src/ranking/issue_ranker.dart` — populate rankingScore during rank()
-- `lib/src/controller/watchdog_controller.dart` — store phase event buffer, populate new snapshot fields in exportSnapshot()
-- `lib/widget_watchdog.dart` — no barrel changes needed (types already exported)
+- `lib/src/controller/sleuth_controller.dart` — store phase event buffer, populate new snapshot fields in exportSnapshot()
+- `lib/sleuth.dart` — no barrel changes needed (types already exported)
 
 **Acceptance criteria:**
 - `exportSnapshotJson()` includes phaseEvents, gcEvents, fpsPercentiles when data available
@@ -759,7 +759,7 @@ Files changed (10):
 - `lib/src/models/performance_issue.dart` — +2 fields, copyWith, toJson, fromJson
 - `lib/src/analyzer/causal_graph.dart` — NEW (~190 lines)
 - `lib/src/analyzer/detector_correlator.dart` — +import, +1 rule
-- `lib/src/ui/watchdog_theme.dart` — +1 token
+- `lib/src/ui/sleuth_theme.dart` — +1 token
 - `lib/src/ui/issue_card.dart` — +downstreamIssues param, badge, expanded section
 - `lib/src/ui/floating_issues_card.dart` — +downstream filter, lookup, pass-through
 - `test/analyzer/causal_graph_test.dart` — NEW (22 tests)
@@ -771,7 +771,7 @@ Files changed (10):
 
 ### v5.4: Configurable Detector Thresholds
 
-**Problem:** 13 of 21 detectors have thresholds buried in their class bodies with no exposure via `WatchdogConfig`. Consumers cannot tune detection sensitivity for their specific app characteristics (e.g., high-refresh 120Hz displays need tighter shader jank thresholds, battery-critical apps need lower platform channel limits).
+**Problem:** 13 of 21 detectors have thresholds buried in their class bodies with no exposure via `SleuthConfig`. Consumers cannot tune detection sensitivity for their specific app characteristics (e.g., high-refresh 120Hz displays need tighter shader jank thresholds, battery-critical apps need lower platform channel limits).
 
 **Currently configurable (8 detectors):**
 - FrameTiming: `warningThresholdMs`, `criticalThresholdMs`, `fpsTarget`
@@ -799,7 +799,7 @@ Files changed (10):
 - FontLoading: >3 custom font families
 - ImageMemory: (binary — missing cacheWidth/cacheHeight)
 
-**Approach:** Add a `DetectorThresholds` nested config class to `WatchdogConfig`. Each detector reads its threshold from config if provided, falling back to current hardcoded defaults.
+**Approach:** Add a `DetectorThresholds` nested config class to `SleuthConfig`. Each detector reads its threshold from config if provided, falling back to current hardcoded defaults.
 
 **Design decisions:**
 
@@ -822,12 +822,12 @@ Files changed (10):
 4. **Controller wiring** — `_initializeDetectors()` passes config thresholds to detector constructors. No detector reads config directly.
 
 **Files changed:**
-- `lib/src/controller/watchdog_controller.dart` — add `DetectorThresholds` class, wire to detector constructors in `_initializeDetectors()`
+- `lib/src/controller/sleuth_controller.dart` — add `DetectorThresholds` class, wire to detector constructors in `_initializeDetectors()`
 - 10 detector files — add constructor parameters for thresholds (replace hardcoded values)
-- `lib/widget_watchdog.dart` — export `DetectorThresholds`
+- `lib/sleuth.dart` — export `DetectorThresholds`
 
 **Acceptance criteria:**
-- `WatchdogConfig(thresholds: DetectorThresholds(shaderJankMs: 50))` lowers shader detection sensitivity
+- `SleuthConfig(thresholds: DetectorThresholds(shaderJankMs: 50))` lowers shader detection sensitivity
 - Default behavior identical (all defaults match current hardcoded values)
 - All detector tests pass unchanged (tests use default thresholds)
 - New tests verify custom thresholds are respected
@@ -840,7 +840,7 @@ Files changed (10):
 
 **Post-Implementation Notes** (Implemented 2026-03-30):
 
-1. **`DetectorThresholds` in own file** — Created `lib/src/controller/detector_thresholds.dart` (not inline in controller), following the `DebugInstrumentationConfig` pattern. Non-null field on `WatchdogConfig` with `const DetectorThresholds()` default — thresholds always apply, no null checks needed.
+1. **`DetectorThresholds` in own file** — Created `lib/src/controller/detector_thresholds.dart` (not inline in controller), following the `DebugInstrumentationConfig` pattern. Non-null field on `SleuthConfig` with `const DetectorThresholds()` default — thresholds always apply, no null checks needed.
 
 2. **Three categories of detector changes:**
    - 6 detectors already had constructor params (ShaderJank, HeavyCompute, GpuPressure, ShallowRebuild, SetStateScope, KeepAlive) — just needed config wiring in `_initializeDetectors()`
@@ -853,13 +853,13 @@ Files changed (10):
 
 5. **Files changed (16):**
    - `lib/src/controller/detector_thresholds.dart` — NEW (~70 lines)
-   - `lib/src/controller/watchdog_controller.dart` — +import, +field, +wiring in `_initializeDetectors()`
+   - `lib/src/controller/sleuth_controller.dart` — +import, +field, +wiring in `_initializeDetectors()`
    - `lib/src/detectors/animated_builder_detector.dart` — +`minSubtreeSize` constructor param
    - `lib/src/detectors/font_loading_detector.dart` — +`maxFamilies` constructor param
    - `lib/src/detectors/memory_pressure_detector.dart` — static const → constructor params
    - `lib/src/detectors/shader_jank_detector.dart` — critical threshold scales with `thresholdMs * 2`
    - `lib/src/detectors/gpu_pressure_detector.dart` — critical threshold scales with `rasterMultiplierThreshold * 2`
-   - `lib/widget_watchdog.dart` — +export
+   - `lib/sleuth.dart` — +export
    - `test/controller/detector_thresholds_test.dart` — NEW (3 tests)
    - `test/detectors/shader_jank_detector_test.dart` — +3 custom threshold tests
    - `test/detectors/gpu_pressure_detector_test.dart` — +3 custom threshold tests
@@ -921,7 +921,7 @@ Each referenced explicitly in `_getAllIssues()`:
    ```
 
 **Files changed:**
-- `lib/src/controller/watchdog_controller.dart` — replace 21 `late final` fields with `_detectors` list, refactor 6 methods
+- `lib/src/controller/sleuth_controller.dart` — replace 21 `late final` fields with `_detectors` list, refactor 6 methods
 - `lib/src/models/base_detector.dart` — add `requiresTreeScan` getter (already implicitly there via lifecycle check)
 
 **Acceptance criteria:**
@@ -959,7 +959,7 @@ Each referenced explicitly in `_getAllIssues()`:
 
 8. **Files changed (6):**
    - `lib/src/models/base_detector.dart` — +`vmConnected` no-op setter (+3 lines)
-   - `lib/src/controller/watchdog_controller.dart` — replaced 21 fields with `_detectors` list + 3 typed fields, refactored 7 dispatch methods (~-90 net lines)
+   - `lib/src/controller/sleuth_controller.dart` — replaced 21 fields with `_detectors` list + 3 typed fields, refactored 7 dispatch methods (~-90 net lines)
    - `lib/src/detectors/rebuild_detector.dart` — +`@override` on `vmConnected` setter
    - `lib/src/detectors/repaint_detector.dart` — +`@override` on `vmConnected` setter
    - `lib/src/detectors/gpu_pressure_detector.dart` — +`@override` on `vmConnected` setter
@@ -991,7 +991,7 @@ Each referenced explicitly in `_getAllIssues()`:
 **Files changed:**
 - `lib/src/models/frame_verdict.dart` — add `pendingRequestCount`, `slowestPendingMs` fields
 - `lib/src/detectors/network_monitor_detector.dart` — add `_activeRequests` tracking, expose `pendingRequestSnapshot()` method
-- `lib/src/controller/watchdog_controller.dart` — populate network fields when generating verdict
+- `lib/src/controller/sleuth_controller.dart` — populate network fields when generating verdict
 - `lib/src/analyzer/detector_correlator.dart` — add `EscalateNetworkJankRule`
 
 **Acceptance criteria:**
@@ -1014,7 +1014,7 @@ Each referenced explicitly in `_getAllIssues()`:
 
 Shipped. Key deviations from original spec:
 
-1. **Paired callbacks, not active request set** — Original spec proposed `_activeRequests: Set<RequestRecord>`. Implemented as `Map<int, DateTime> _activeRequests` keyed by monotonic request ID. Paired `onRequestStarted(id, startedAt)` / `onRequestEnded(id)` callbacks on `WatchdogHttpOverrides` fire from `_MonitoringHttpClient.openUrl()` (start) and `_MonitoringResponse._emitRecord()` + `_MonitoringRequest.close()` catch (end). Request IDs ensure correct pairing with concurrent requests.
+1. **Paired callbacks, not active request set** — Original spec proposed `_activeRequests: Set<RequestRecord>`. Implemented as `Map<int, DateTime> _activeRequests` keyed by monotonic request ID. Paired `onRequestStarted(id, startedAt)` / `onRequestEnded(id)` callbacks on `SleuthHttpOverrides` fire from `_MonitoringHttpClient.openUrl()` (start) and `_MonitoringResponse._emitRecord()` + `_MonitoringRequest.close()` catch (end). Request IDs ensure correct pairing with concurrent requests.
 
 2. **No escalation rule — causal graph instead** — Original spec proposed `EscalateNetworkJankRule` to escalate `network_slow_request` from `possible` to `likely`. However, all 3 network issues are already `IssueConfidence.confirmed` (directly measured). Replaced with 2 causal graph rules: `slow_request → heavy_compute` and `request_frequency → rebuild_activity` (20 total rules). These work within existing confidence suppression.
 
@@ -1022,9 +1022,9 @@ Shipped. Key deviations from original spec:
 
 4. **Zero-overhead guarantee** — When network monitoring disabled: callbacks null, `_activeRequests` empty, enrichment returns immediately. When active but no in-flight requests: `pendingRequestSnapshot()` returns `(0, null)`, enrichment returns original verdict.
 
-5. **Backward compatibility** — All new fields nullable (`pendingRequestCount: int?`, `slowestPendingMs: int?`). Callbacks optional on `WatchdogHttpOverrides`. New methods additive on `NetworkMonitorDetector`. No schema version bump needed (nested in existing `CaptureEntry.verdict`).
+5. **Backward compatibility** — All new fields nullable (`pendingRequestCount: int?`, `slowestPendingMs: int?`). Callbacks optional on `SleuthHttpOverrides`. New methods additive on `NetworkMonitorDetector`. No schema version bump needed (nested in existing `CaptureEntry.verdict`).
 
-Files changed: `network_monitor_detector.dart` (+30), `frame_verdict.dart` (+35), `http_monitor.dart` (+25), `watchdog_controller.dart` (+20), `causal_graph.dart` (+4). Tests: 12 new tests across 3 files. Total: 1,231 tests, 0 analysis issues.
+Files changed: `network_monitor_detector.dart` (+30), `frame_verdict.dart` (+35), `http_monitor.dart` (+25), `sleuth_controller.dart` (+20), `causal_graph.dart` (+4). Tests: 12 new tests across 3 files. Total: 1,231 tests, 0 analysis issues.
 
 ---
 
@@ -1042,7 +1042,7 @@ Shipped. Key deviations from original spec:
 
 5. **Dominant widget type in fix hint** — Tracks most common expensive widget type across findings and passes it to `FixHintBuilder.missingRepaintBoundary()` for specific code example in the hint.
 
-Files changed: `base_detector.dart` (+2), `fix_hint_builder.dart` (+20), `repaint_boundary_detector.dart` (new, +160), `watchdog_controller.dart` (+3), `causal_graph.dart` (+5). Tests: 12 new tests across 2 files. Total: 1,243 tests, 0 analysis issues.
+Files changed: `base_detector.dart` (+2), `fix_hint_builder.dart` (+20), `repaint_boundary_detector.dart` (new, +160), `sleuth_controller.dart` (+3), `causal_graph.dart` (+5). Tests: 12 new tests across 2 files. Total: 1,243 tests, 0 analysis issues.
 
 ---
 
@@ -1073,8 +1073,8 @@ Files changed: `base_detector.dart` (+2), `fix_hint_builder.dart` (+20), `repain
 - `lib/src/models/base_detector.dart` — add `DetectorType.repaintBoundary`
 - `lib/src/detectors/repaint_boundary_detector.dart` — new detector
 - `lib/src/utils/fix_hint_builder.dart` — add `missingRepaintBoundary()` method
-- `lib/src/controller/watchdog_controller.dart` — register in detector list
-- `lib/widget_watchdog.dart` — no changes needed (DetectorType already exported)
+- `lib/src/controller/sleuth_controller.dart` — register in detector list
+- `lib/sleuth.dart` — no changes needed (DetectorType already exported)
 
 **Acceptance criteria:**
 - Expensive GPU widget without RepaintBoundary ancestor → `possible` issue

@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/utils/widget_location.dart';
+import 'package:sleuth/src/utils/widget_location.dart';
 
 void main() {
   setUp(() => sourceLocationCache.clear());

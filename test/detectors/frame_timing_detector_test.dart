@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/detectors/frame_timing_detector.dart';
-import 'package:widget_watchdog/src/models/frame_stats.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/vm/timeline_parser.dart';
+import 'package:sleuth/src/detectors/frame_timing_detector.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 void main() {
   group('FrameTimingDetector', () {

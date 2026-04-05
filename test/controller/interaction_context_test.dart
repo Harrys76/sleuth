@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 /// Minimal widget tree for getting a BuildContext in tests.
 const _minimalApp = Directionality(
@@ -29,10 +29,10 @@ ScrollEndNotification _scrollEnd(BuildContext context) =>
 
 void main() {
   group('interaction context tracking', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -348,12 +348,12 @@ void main() {
     group('overlay isolation', () {
       testWidgets('dashboard scroll does not trigger onScrollActivity',
           (tester) async {
-        // Verify the NotificationListener scoping: WatchdogOverlay wraps only
+        // Verify the NotificationListener scoping: SleuthOverlay wraps only
         // widget.child in a NotificationListener, not the entire Stack.
         // Scrollables outside that scope (like the dashboard ListView) must
         // not trigger the scroll handler.
         //
-        // We reproduce the same Stack structure as WatchdogOverlay.build:
+        // We reproduce the same Stack structure as SleuthOverlay.build:
         // Stack → [NotificationListener(child: appChild), dashboardScrollable]
         var scrollCaptured = false;
 
@@ -401,7 +401,7 @@ void main() {
 
       testWidgets('scroll idle timer cancelled on dispose', (tester) async {
         // Use a separate controller to avoid double-dispose in tearDown
-        final c = WatchdogController();
+        final c = SleuthController();
         c.initializeDetectorsForTest();
 
         await tester.pumpWidget(_minimalApp);

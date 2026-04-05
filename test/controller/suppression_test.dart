@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/session_snapshot.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/session_snapshot.dart';
 
 /// Widget tree that triggers opacity_zero and non_lazy_list detectors.
 const _opacityTree = Directionality(
@@ -41,10 +41,10 @@ Widget _opacityAndListTree() => Directionality(
 void main() {
   group('Issue Suppression (v4.1)', () {
     group('no suppression', () {
-      late WatchdogController controller;
+      late SleuthController controller;
 
       setUp(() {
-        controller = WatchdogController();
+        controller = SleuthController();
         controller.initializeDetectorsForTest();
       });
 
@@ -83,11 +83,11 @@ void main() {
     });
 
     group('exact match', () {
-      late WatchdogController controller;
+      late SleuthController controller;
 
       setUp(() {
-        controller = WatchdogController(
-          config: const WatchdogConfig(
+        controller = SleuthController(
+          config: const SleuthConfig(
             suppressedIssues: {'opacity_zero'},
           ),
         );
@@ -120,8 +120,8 @@ void main() {
 
       testWidgets('non-matching patterns pass issues through', (tester) async {
         // Suppress 'shader_compilation' which won't appear in this tree
-        final c = WatchdogController(
-          config: const WatchdogConfig(
+        final c = SleuthController(
+          config: const SleuthConfig(
             suppressedIssues: {'shader_compilation'},
           ),
         );
@@ -141,11 +141,11 @@ void main() {
     });
 
     group('wildcard match', () {
-      late WatchdogController controller;
+      late SleuthController controller;
 
       setUp(() {
-        controller = WatchdogController(
-          config: const WatchdogConfig(
+        controller = SleuthController(
+          config: const SleuthConfig(
             suppressedIssues: {'opacity_*'},
           ),
         );
@@ -171,11 +171,11 @@ void main() {
     });
 
     group('mixed patterns', () {
-      late WatchdogController controller;
+      late SleuthController controller;
 
       setUp(() {
-        controller = WatchdogController(
-          config: const WatchdogConfig(
+        controller = SleuthController(
+          config: const SleuthConfig(
             suppressedIssues: {'non_lazy_list', 'opacity_*'},
           ),
         );
@@ -204,8 +204,8 @@ void main() {
         // suppress a pattern matching a title, and verify behavior when a
         // real issue has a stableId that does NOT match but the title would.
         // Instead, test that the existing stableId takes precedence.
-        final controller = WatchdogController(
-          config: const WatchdogConfig(
+        final controller = SleuthController(
+          config: const SleuthConfig(
             // This pattern matches the title prefix "Invisible Opacity..."
             // but stableId 'opacity_zero' does not start with 'Invisible'
             suppressedIssues: {'Invisible*'},
@@ -233,11 +233,11 @@ void main() {
     });
 
     group('export', () {
-      late WatchdogController controller;
+      late SleuthController controller;
 
       setUp(() {
-        controller = WatchdogController(
-          config: const WatchdogConfig(
+        controller = SleuthController(
+          config: const SleuthConfig(
             suppressedIssues: {'opacity_zero'},
           ),
         );

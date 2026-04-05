@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/frame_stats.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 void main() {
   group('issue ranking integration', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -255,7 +255,7 @@ void main() {
     test('recurrence cleared on dispose', () {
       // We can't use testWidgets easily here so just verify the map is empty
       // after dispose by checking that a new controller starts clean.
-      final c = WatchdogController();
+      final c = SleuthController();
       c.initializeDetectorsForTest();
       expect(c.recurrenceCountsForTest, isEmpty);
       c.dispose();

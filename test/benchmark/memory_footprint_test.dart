@@ -1,9 +1,9 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/capture_buffer.dart';
-import 'package:widget_watchdog/src/models/frame_stats.dart';
-import 'package:widget_watchdog/src/models/frame_verdict.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/capture_buffer.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/frame_verdict.dart';
 
 import '../helpers/benchmark_helpers.dart';
 
@@ -62,7 +62,7 @@ void main() {
       await tester.pumpWidget(buildMixedTree(500));
       final context = tester.element(find.byType(Directionality));
 
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
       // Run several scan cycles to accumulate issues
@@ -90,7 +90,7 @@ void main() {
       await tester.pumpWidget(buildMixedTree(1000));
       final context = tester.element(find.byType(Directionality));
 
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.highlightEnabledNotifier.value = true;
 

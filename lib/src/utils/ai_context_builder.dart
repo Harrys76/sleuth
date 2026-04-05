@@ -26,7 +26,7 @@ class AiContextBuilder {
 
     // 1. Role preamble
     buf.writeln('You are a Flutter performance expert helping a developer '
-        'investigate a specific issue detected by Widget Watchdog, a runtime '
+        'investigate a specific issue detected by Sleuth, a runtime '
         'performance diagnostics tool.');
     buf.writeln();
 

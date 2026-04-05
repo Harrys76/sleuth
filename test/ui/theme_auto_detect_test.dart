@@ -1,12 +1,12 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/ui/watchdog_theme.dart';
+import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 void main() {
   group('Theme auto-detection', () {
     testWidgets('dark brightness resolves to dark theme colors',
         (tester) async {
-      late WatchdogThemeData captured;
+      late SleuthThemeData captured;
 
       await tester.pumpWidget(
         MediaQuery(
@@ -18,10 +18,10 @@ void main() {
                 final mq = MediaQuery.maybeOf(context);
                 final theme =
                     mq != null && mq.platformBrightness == Brightness.light
-                        ? const WatchdogThemeData.light()
-                        : const WatchdogThemeData();
+                        ? const SleuthThemeData.light()
+                        : const SleuthThemeData();
                 captured = theme;
-                return WatchdogTheme(data: theme, child: const SizedBox());
+                return SleuthTheme(data: theme, child: const SizedBox());
               },
             ),
           ),
@@ -34,7 +34,7 @@ void main() {
 
     testWidgets('light brightness resolves to light theme colors',
         (tester) async {
-      late WatchdogThemeData captured;
+      late SleuthThemeData captured;
 
       await tester.pumpWidget(
         MediaQuery(
@@ -46,10 +46,10 @@ void main() {
                 final mq = MediaQuery.maybeOf(context);
                 final theme =
                     mq != null && mq.platformBrightness == Brightness.light
-                        ? const WatchdogThemeData.light()
-                        : const WatchdogThemeData();
+                        ? const SleuthThemeData.light()
+                        : const SleuthThemeData();
                 captured = theme;
-                return WatchdogTheme(data: theme, child: const SizedBox());
+                return SleuthTheme(data: theme, child: const SizedBox());
               },
             ),
           ),
@@ -62,8 +62,8 @@ void main() {
 
     testWidgets('explicit config.theme overrides auto-detection',
         (tester) async {
-      late WatchdogThemeData captured;
-      final explicit = const WatchdogThemeData().copyWith(
+      late SleuthThemeData captured;
+      final explicit = const SleuthThemeData().copyWith(
         pageBackground: const Color(0xFFABCDEF),
       );
 
@@ -77,7 +77,7 @@ void main() {
                 // Simulate: config.theme ?? auto-detect
                 final theme = explicit;
                 captured = theme;
-                return WatchdogTheme(data: theme, child: const SizedBox());
+                return SleuthTheme(data: theme, child: const SizedBox());
               },
             ),
           ),

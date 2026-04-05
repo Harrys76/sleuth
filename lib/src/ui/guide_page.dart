@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'watchdog_theme.dart';
+import 'sleuth_theme.dart';
 
 /// Full-screen guide page with staggered entrance animations and expandable
 /// sections. Opened from the floating card's [?] button.
@@ -64,7 +64,7 @@ class _GuidePageState extends State<GuidePage>
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
 
     return PopScope(
       canPop: false,
@@ -96,7 +96,7 @@ class _GuidePageState extends State<GuidePage>
                         ),
                       ),
                       Text(
-                        '\u{1F415} Watchdog Guide',
+                        '\u{1F415} Sleuth Guide',
                         style: TextStyle(
                           color: theme.textPrimary,
                           fontSize: 16,
@@ -155,7 +155,7 @@ class _GuidePageState extends State<GuidePage>
                       FadeTransition(
                         opacity: _staggered(4),
                         child: Text(
-                          'Widget Watchdog',
+                          'Sleuth',
                           style:
                               TextStyle(color: theme.textSubtle, fontSize: 10),
                         ),
@@ -178,7 +178,7 @@ class _GuidePageState extends State<GuidePage>
     required IconData icon,
     required String title,
     required Color accent,
-    required WatchdogThemeData theme,
+    required SleuthThemeData theme,
     required Widget child,
   }) {
     final animation = _staggered(index);
@@ -272,7 +272,7 @@ class _GuidePageState extends State<GuidePage>
         _GuideStep(
           step: '2',
           title: 'Navigate Your App',
-          detail: 'Use as normal. Watchdog monitors every frame automatically.',
+          detail: 'Use as normal. Sleuth monitors every frame automatically.',
         ),
         _GuideStep(
           step: '3',
@@ -297,7 +297,7 @@ class _GuidePageState extends State<GuidePage>
 
   // ─── Section 1: Understanding the Card ────────────────────────────────
 
-  Widget _cardExplanation(WatchdogThemeData theme) {
+  Widget _cardExplanation(SleuthThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -342,7 +342,7 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _infoTile(
-      WatchdogThemeData theme, String emoji, String title, String detail) {
+      SleuthThemeData theme, String emoji, String title, String detail) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Row(
@@ -380,7 +380,7 @@ class _GuidePageState extends State<GuidePage>
   // ─── Section 2: Color Legend ───────────────────────────────────────────
   // All text strings are preserved for test compatibility.
 
-  Widget _colorLegend(WatchdogThemeData theme) {
+  Widget _colorLegend(SleuthThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -487,7 +487,7 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _legendHeading(WatchdogThemeData theme, String text) {
+  static Widget _legendHeading(SleuthThemeData theme, String text) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingXs),
       child: Text(
@@ -501,7 +501,7 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _legendSubtext(WatchdogThemeData theme, String text) {
+  static Widget _legendSubtext(SleuthThemeData theme, String text) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Text(
@@ -511,7 +511,7 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _legendDetail(WatchdogThemeData theme, String text) {
+  static Widget _legendDetail(SleuthThemeData theme, String text) {
     return Padding(
       padding: EdgeInsets.only(left: 22, bottom: theme.spacingSm),
       child: Text(
@@ -525,7 +525,7 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _legendDivider(WatchdogThemeData theme) {
+  static Widget _legendDivider(SleuthThemeData theme) {
     return Padding(
       padding: EdgeInsets.symmetric(vertical: theme.spacingMd),
       child: Divider(color: theme.border, height: 1),
@@ -533,7 +533,7 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _badgeLegendRow(
-      WatchdogThemeData theme, String label, Color color, String description) {
+      SleuthThemeData theme, String label, Color color, String description) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingXs),
       child: Row(
@@ -567,7 +567,7 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _colorBarLegendRow(
-      WatchdogThemeData theme, Color color, String description,
+      SleuthThemeData theme, Color color, String description,
       {String? detail}) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingXs),
@@ -626,7 +626,7 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _categoryLegendRow(
-      WatchdogThemeData theme, String label, Color color, String description) {
+      SleuthThemeData theme, String label, Color color, String description) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 5),
       child: Row(
@@ -649,7 +649,7 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _cardStateLegendRow(
-      WatchdogThemeData theme, Color color, String label, String description) {
+      SleuthThemeData theme, Color color, String label, String description) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingXs),
       child: Row(
@@ -694,7 +694,7 @@ class _GuidePageState extends State<GuidePage>
 
   // ─── Section 3: Tips & Tricks ─────────────────────────────────────────
 
-  Widget _tipsContent(WatchdogThemeData theme) {
+  Widget _tipsContent(SleuthThemeData theme) {
     return Column(
       children: [
         _tipRow(theme, Icons.flash_on_outlined,
@@ -713,7 +713,7 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _tipRow(WatchdogThemeData theme, IconData icon, String text) {
+  static Widget _tipRow(SleuthThemeData theme, IconData icon, String text) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Row(
@@ -748,7 +748,7 @@ class _GuideStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -810,7 +810,7 @@ class _LegendRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 3),

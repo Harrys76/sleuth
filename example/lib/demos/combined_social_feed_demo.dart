@@ -28,7 +28,7 @@ class _CombinedSocialFeedDemoState extends State<CombinedSocialFeedDemo> {
             color: Colors.deepPurple.withValues(alpha: 0.05),
             child: const Text(
               'This screen combines 4+ anti-patterns you\'d find in a '
-              'real social media feed. Open the Watchdog overlay to see '
+              'real social media feed. Open the Sleuth overlay to see '
               'how issues are correlated, merged, and ranked.',
               style: TextStyle(fontSize: 12),
             ),

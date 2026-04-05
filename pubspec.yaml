@@ -1,9 +1,9 @@
-name: widget_watchdog
+name: sleuth
 description: "Runtime performance diagnostics for Flutter apps — frame timing, VM timeline, and widget-tree heuristics to surface bottlenecks and actionable fixes."
 version: 0.10.0
-homepage: https://github.com/widget-watchdog/widget_watchdog
-repository: https://github.com/widget-watchdog/widget_watchdog
-issue_tracker: https://github.com/widget-watchdog/widget_watchdog/issues
+homepage: https://github.com/Harrys76/sleuth
+repository: https://github.com/Harrys76/sleuth
+issue_tracker: https://github.com/Harrys76/sleuth/issues
 topics:
   - performance
   - debugging
@@ -16,7 +16,7 @@ platforms:
 
 # Uncomment after adding a screenshot image:
 # screenshots:
-#   - description: 'Widget Watchdog overlay showing live FPS chart and detected performance issues'
+#   - description: 'Sleuth overlay showing live FPS chart and detected performance issues'
 #     path: doc/screenshots/overlay.png
 
 environment:

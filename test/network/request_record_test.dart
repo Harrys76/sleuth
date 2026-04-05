@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/network/request_record.dart';
+import 'package:sleuth/src/network/request_record.dart';
 
 void main() {
   group('RequestRecord', () {

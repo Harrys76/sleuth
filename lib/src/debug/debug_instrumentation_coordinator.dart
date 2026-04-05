@@ -63,7 +63,7 @@ class DebugInstrumentationCoordinator {
     assert(() {
       if (_installRebuild && !_rebuildInstalled) {
         if (debugOnRebuildDirtyWidget != null) {
-          debugPrint('WidgetWatchdog: debugOnRebuildDirtyWidget already set '
+          debugPrint('Sleuth: debugOnRebuildDirtyWidget already set '
               '(likely DevTools). Skipping rebuild callback.');
         } else {
           debugOnRebuildDirtyWidget = _onRebuildDirtyWidget;
@@ -72,7 +72,7 @@ class DebugInstrumentationCoordinator {
       }
       if (_installPaint && !_paintInstalled) {
         if (debugOnProfilePaint != null) {
-          debugPrint('WidgetWatchdog: debugOnProfilePaint already set. '
+          debugPrint('Sleuth: debugOnProfilePaint already set. '
               'Skipping paint callback.');
         } else {
           debugOnProfilePaint = _onProfilePaint;
@@ -153,7 +153,7 @@ class DebugInstrumentationCoordinator {
       } catch (e, s) {
         // Element may be deactivated — skip chain capture.
         assert(() {
-          debugPrint('Widget Watchdog: rebuild ancestor chain failed: $e\n$s');
+          debugPrint('Sleuth: rebuild ancestor chain failed: $e\n$s');
           return true;
         }());
       }
@@ -176,7 +176,7 @@ class DebugInstrumentationCoordinator {
         } catch (e, s) {
           // Element may be deactivated — skip chain capture.
           assert(() {
-            debugPrint('Widget Watchdog: paint ancestor chain failed: $e\n$s');
+            debugPrint('Sleuth: paint ancestor chain failed: $e\n$s');
             return true;
           }());
         }

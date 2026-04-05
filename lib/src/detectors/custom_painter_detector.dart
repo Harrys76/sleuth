@@ -86,7 +86,7 @@ class CustomPainterDetector extends BaseDetector {
       }
     } catch (e, s) {
       assert(() {
-        debugPrint('Widget Watchdog: shouldRepaint check failed: $e\n$s');
+        debugPrint('Sleuth: shouldRepaint check failed: $e\n$s');
         return true;
       }());
     }

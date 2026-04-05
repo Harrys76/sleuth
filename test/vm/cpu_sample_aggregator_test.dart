@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
-import 'package:widget_watchdog/src/vm/cpu_sample_aggregator.dart';
+import 'package:sleuth/src/vm/cpu_sample_aggregator.dart';
 
 void main() {
   const aggregator = CpuSampleAggregator();

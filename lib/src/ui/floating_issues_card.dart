@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../controller/watchdog_controller.dart';
+import '../controller/sleuth_controller.dart';
 import '../models/performance_issue.dart';
 import '../models/frame_stats.dart';
 import '../models/frame_verdict.dart';
@@ -15,7 +15,7 @@ import 'issue_encyclopedia_page.dart';
 import 'guide_page.dart';
 import '../models/ai_chat_adapter.dart';
 import '../utils/issue_explanation_builder.dart';
-import 'watchdog_theme.dart';
+import 'sleuth_theme.dart';
 
 /// Draggable floating card showing FPS, issue count, and ranked issues list.
 ///
@@ -29,7 +29,7 @@ class FloatingIssuesCard extends StatefulWidget {
     required this.onClose,
   });
 
-  final WatchdogController controller;
+  final SleuthController controller;
   final VoidCallback onClose;
 
   @override
@@ -220,7 +220,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     _cachedTopPadding = topPadding;
     _cachedEffectiveWidth = effectiveWidth;
     _cachedKeyboardHeight = keyboardHeight;
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
 
     _cardOffset ??= Offset(
       screenSize.width - effectiveWidth - 5,
@@ -294,7 +294,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   }
 
   Widget _buildCardBody(double effectiveWidth, double cardHeight,
-      WatchdogThemeData theme, Size screenSize) {
+      SleuthThemeData theme, Size screenSize) {
     return ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: effectiveWidth,
@@ -332,7 +332,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   }
 
   Widget _buildResizeHandle(Size screenSize, Offset clamped, double cardHeight,
-      double maxAllowedHeight, WatchdogThemeData theme) {
+      double maxAllowedHeight, SleuthThemeData theme) {
     return Positioned(
       right: 0,
       bottom: 0,
@@ -360,7 +360,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   // ─── Header ──────────────────────────────────────────────────────────
 
-  Widget _buildHeader(Size screenSize, WatchdogThemeData theme) {
+  Widget _buildHeader(Size screenSize, SleuthThemeData theme) {
     return GestureDetector(
       onPanUpdate: (details) {
         setState(() {
@@ -392,7 +392,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             SizedBox(width: theme.spacingXs),
             Expanded(
               child: Text(
-                'Watchdog',
+                'Sleuth',
                 style: TextStyle(
                   color: theme.textPrimary,
                   fontSize: 12,
@@ -481,7 +481,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     String? tooltip,
   }) {
     // GestureDetector instead of IconButton to avoid tooltip OverlayPortal
-    // crash — the watchdog overlay sits outside the app's Navigator/Overlay,
+    // crash — the sleuth overlay sits outside the app's Navigator/Overlay,
     // so OverlayPortal can't find a _RenderTheaterMarker ancestor.
     return GestureDetector(
       onTap: onTap,
@@ -500,7 +500,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     return ValueListenableBuilder<List<PerformanceIssue>>(
       valueListenable: widget.controller.issuesNotifier,
       builder: (context, issues, __) {
-        final theme = WatchdogTheme.of(context);
+        final theme = SleuthTheme.of(context);
         if (issues.isEmpty) {
           return Center(
             child: Text(
@@ -605,11 +605,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 class _StatusRow extends StatelessWidget {
   const _StatusRow({required this.controller});
 
-  final WatchdogController controller;
+  final SleuthController controller;
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
     return Padding(
       padding: EdgeInsets.symmetric(
           horizontal: theme.spacingLg, vertical: theme.spacingXs),
@@ -705,7 +705,7 @@ class _WarningBanners extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -824,13 +824,13 @@ class _CardFooter extends StatelessWidget {
     required this.onEncyclopedia,
   });
 
-  final WatchdogController controller;
+  final SleuthController controller;
   final VoidCallback onExport;
   final VoidCallback onEncyclopedia;
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
     return Container(
       padding: EdgeInsets.symmetric(
           horizontal: theme.spacingMd, vertical: theme.spacingXs),
@@ -904,7 +904,7 @@ class _IssuesSummaryBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
     var critical = 0;
     var warning = 0;
     var ok = 0;

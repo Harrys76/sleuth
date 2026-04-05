@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/heap_sample.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/heap_sample.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 
@@ -12,7 +12,7 @@ void main() {
 
   group('Pre-initialization safety', () {
     test('notifiers have safe defaults before initialization', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
 
       expect(controller.issuesNotifier.value, isEmpty);
       expect(controller.frameStatsNotifier.value.averageFps, 0);
@@ -27,7 +27,7 @@ void main() {
     });
 
     test('exportSnapshot is safe before initialization', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
 
       final snapshot = controller.exportSnapshot();
       expect(snapshot.currentIssues, isEmpty);
@@ -37,7 +37,7 @@ void main() {
     });
 
     test('dispose before initialization does not throw', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       // No initialize() or initializeDetectorsForTest() call — just dispose.
       controller.dispose();
       // No crash = success. Guards against LateInitializationError on
@@ -47,7 +47,7 @@ void main() {
 
   group('Dispose lifecycle', () {
     test('notifiers accessible after dispose', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.simulateVmStateChangeForTest(true);
 
@@ -62,7 +62,7 @@ void main() {
     });
 
     test('heap sample feed after dispose is safe', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.dispose();
 
@@ -77,7 +77,7 @@ void main() {
     });
 
     test('recurrence counts cleared on dispose', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.simulateVmStateChangeForTest(true);
 
@@ -95,7 +95,7 @@ void main() {
 
   group('Concurrent data processing', () {
     test('multiple rapid timeline batches without crash', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.simulateVmStateChangeForTest(true);
 
@@ -110,7 +110,7 @@ void main() {
     });
 
     test('interleaved heap samples and timeline data', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.simulateVmStateChangeForTest(true);
 
@@ -130,8 +130,8 @@ void main() {
     });
 
     test('suppression config applied at construction', () {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(
+      final controller = SleuthController(
+        config: const SleuthConfig(
           suppressedIssues: {'rebuild_*'},
         ),
       );
@@ -151,7 +151,7 @@ void main() {
         ),
       );
 
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
       // Run a tree scan — exercises _runStructuralScans, _collectHighlights,

@@ -4,7 +4,7 @@ import 'detector_correlator.dart';
 /// A directed cause → effect relationship between two stableId patterns.
 ///
 /// Patterns support trailing `*` for prefix matching (same convention as
-/// [WatchdogConfig.suppressedIssues]):
+/// [SleuthConfig.suppressedIssues]):
 /// - `'setstate_scope'` — exact match
 /// - `'rebuild_debug_*'` — prefix match (matches `rebuild_debug_MyWidget`, etc.)
 class CausalRule {

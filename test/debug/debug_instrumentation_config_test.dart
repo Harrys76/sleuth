@@ -1,8 +1,8 @@
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/debug/debug_instrumentation_config.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/debug/debug_instrumentation_config.dart';
 
 void main() {
   group('DebugInstrumentationConfig defaults', () {
@@ -35,8 +35,8 @@ void main() {
     });
 
     test('enableDebugCallbacks=false ignores advanced rebuildAttribution', () {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(
+      final controller = SleuthController(
+        config: const SleuthConfig(
           enableDebugCallbacks: false,
           advanced: DebugInstrumentationConfig(rebuildAttribution: true),
         ),
@@ -51,8 +51,8 @@ void main() {
     test(
         'enableDeepDebugInstrumentation=false ignores advanced layoutProfiling',
         () {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(
+      final controller = SleuthController(
+        config: const SleuthConfig(
           enableDeepDebugInstrumentation: false,
           advanced: DebugInstrumentationConfig(layoutProfiling: true),
         ),
@@ -83,8 +83,8 @@ void main() {
     });
 
     test('paintAttribution=false → rebuild active, paint not', () {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(
+      final controller = SleuthController(
+        config: const SleuthConfig(
           enableDebugCallbacks: true,
           advanced: DebugInstrumentationConfig(paintAttribution: false),
         ),
@@ -102,8 +102,8 @@ void main() {
     });
 
     test('layoutProfiling=false → builds and paints enabled, layout not', () {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(
+      final controller = SleuthController(
+        config: const SleuthConfig(
           enableDeepDebugInstrumentation: true,
           advanced: DebugInstrumentationConfig(layoutProfiling: false),
         ),
@@ -141,8 +141,8 @@ void main() {
 
     test('callbacks=false + deep=true → no coordinator, heavy flags active',
         () {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(
+      final controller = SleuthController(
+        config: const SleuthConfig(
           enableDebugCallbacks: false,
           enableDeepDebugInstrumentation: true,
         ),
@@ -157,8 +157,8 @@ void main() {
 
     test('callbacks=true + deep=false → coordinator installed, no heavy flags',
         () {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(
+      final controller = SleuthController(
+        config: const SleuthConfig(
           enableDebugCallbacks: true,
           enableDeepDebugInstrumentation: false,
         ),
@@ -192,8 +192,8 @@ void main() {
     test(
         'deep=true but all sub-flags false → isDeepInstrumentationActive=false',
         () {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(
+      final controller = SleuthController(
+        config: const SleuthConfig(
           enableDeepDebugInstrumentation: true,
           advanced: DebugInstrumentationConfig(
             widgetBuildProfiling: false,

@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
-import 'package:widget_watchdog/src/detectors/memory_pressure_detector.dart';
-import 'package:widget_watchdog/src/detectors/network_monitor_detector.dart';
-import 'package:widget_watchdog/src/models/heap_sample.dart';
-import 'package:widget_watchdog/src/network/request_record.dart';
-import 'package:widget_watchdog/src/vm/cpu_sample_aggregator.dart';
+import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
+import 'package:sleuth/src/detectors/network_monitor_detector.dart';
+import 'package:sleuth/src/models/heap_sample.dart';
+import 'package:sleuth/src/network/request_record.dart';
+import 'package:sleuth/src/vm/cpu_sample_aggregator.dart';
 
 import '../helpers/benchmark_helpers.dart';
 

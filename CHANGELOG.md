@@ -43,7 +43,7 @@
 - **Silent exception swallowing** (v9.15): All 8 silent `catch (_) {}` blocks
   across the codebase now log via `debugPrint` inside `assert(() { ... }())` —
   visible in debug mode, compiled out entirely in profile/release (zero
-  overhead). Affected files: `watchdog_controller.dart` (2),
+  overhead). Affected files: `sleuth_controller.dart` (2),
   `base_detector.dart`, `custom_painter_detector.dart`,
   `debug_instrumentation_coordinator.dart` (2), `widget_location.dart`,
   `source_location_cache.dart`.
@@ -108,7 +108,7 @@
   via `MediaQuery.paddingOf(context).top`.
 - **UI: Expandable IssueCard in AI chat** — replaced minimal issue summary
   with real `IssueCard` component (capped at 40% screen height with scroll).
-- **WatchdogThemeData**: added `aiShimmerStart`, `aiShimmerMid`,
+- **SleuthThemeData**: added `aiShimmerStart`, `aiShimmerMid`,
   `aiShimmerEnd` tokens for animated gradient styling.
 - 1,490 tests total (up from 1,343), 0 analysis issues.
 
@@ -251,7 +251,7 @@
 - **GuidePage back navigation** (v6.12): hardware/system back button returns
   from GuidePage to the floating card.
 - **Spacing theme tokens** (v6.21): 6 spacing tokens (`spacingXxs` through
-  `spacingXl`) on `WatchdogThemeData`. ~67 hardcoded spacing values replaced
+  `spacingXl`) on `SleuthThemeData`. ~67 hardcoded spacing values replaced
   across 4 UI files. Consumers can customize overlay density via theme.
 - **Benchmark robustness** (v6.22): timing budgets use `budgetMultiplier`
   that reads `CI` environment variable, preventing flaky tests on loaded
@@ -278,21 +278,21 @@
 
 ### Added
 
-- **Issue suppression** (v4.1): `WatchdogConfig.suppressedIssues` filters issues
+- **Issue suppression** (v4.1): `SleuthConfig.suppressedIssues` filters issues
   by `stableId` pattern (exact match or trailing `*` wildcard). Applied
   post-correlate, pre-rank. `suppressedCountNotifier` for UI display.
   `SessionSnapshot.suppressedCount` for export.
-- **Custom detector plugin API** (v4.2): `WatchdogConfig.customDetectors` accepts
+- **Custom detector plugin API** (v4.2): `SleuthConfig.customDetectors` accepts
   `List<BaseDetector>` for domain-specific detectors. Custom detectors integrate
   into all 7 controller lifecycle points (init, debug snapshot, structural scans,
   highlights, timeline data, issue aggregation, dispose). Always enabled
   regardless of `enabledDetectors`. Barrel file exports `BaseDetector`,
   `ParsedTimelineData`, `DebugSnapshot`.
-- **Overlay theming** (v5.1): `WatchdogThemeData` with 60 color tokens extracted
+- **Overlay theming** (v5.1): `SleuthThemeData` with 60 color tokens extracted
   from 6 UI files. Dark defaults match original values exactly.
-  `WatchdogThemeData.light()` for light-background apps. Auto-brightness
+  `SleuthThemeData.light()` for light-background apps. Auto-brightness
   detection via `MediaQuery.platformBrightness`. `copyWith()` for custom
-  overrides. `WatchdogTheme` InheritedWidget with dark fallback.
+  overrides. `SleuthTheme` InheritedWidget with dark fallback.
 - **Export enrichment** (v5.2): `SessionSnapshot` schema v2 with `PhaseEvent`
   toJson/fromJson + rolling buffer, `GcEventSummary` + `PlatformChannelSummary`
   serializable wrappers, `FpsPercentiles` (p50/p95/p99), `rankingScore` /
@@ -305,12 +305,12 @@
   list, IssueCard shows `↳ N` badge + "Related effects" section. 1 new theme
   token (`effectsBadge`).
 - **Configurable detector thresholds** (v5.4): `DetectorThresholds` nested config
-  class on `WatchdogConfig` with 10 tunable parameters. All defaults match
+  class on `SleuthConfig` with 10 tunable parameters. All defaults match
   pre-change hardcoded values. Secondary severity thresholds scale with primary
   (`* 2`). Barrel exports `DetectorThresholds`.
 - **Network-to-frame correlation** (v5.6): `NetworkMonitorDetector` gains active
   request tracking via `startRequest()` / `endRequest()`. `FrameVerdict` gains
-  `pendingRequestCount` and `slowestPendingMs` fields. `WatchdogHttpOverrides`
+  `pendingRequestCount` and `slowestPendingMs` fields. `SleuthHttpOverrides`
   gains `onRequestStarted` / `onRequestEnded` callbacks. Controller enriches all
   3 verdict paths. 2 new causal graph rules. Zero overhead when network
   monitoring disabled.
@@ -324,7 +324,7 @@
 ### Changed
 
 - **Detector registry** (v5.5): replaced 21 individual detector fields in
-  `WatchdogController` with unified `List<BaseDetector>` registry. 7 dispatch
+  `SleuthController` with unified `List<BaseDetector>` registry. 7 dispatch
   methods use lifecycle-filtered loops. Adding a new detector now requires 1 new
   file, 1 enum value, 1 line in the registry. ~-90 net lines in controller.
 - **Example app modularized** (v4.5): extracted 18 demo screens from
@@ -354,7 +354,7 @@
 
 ### Added
 
-- `TriggerButton.fpsTarget` parameter — wired from `WatchdogConfig.fpsTarget`.
+- `TriggerButton.fpsTarget` parameter — wired from `SleuthConfig.fpsTarget`.
 - FPS throughput unit tests (9 tests in `frame_stats_buffer_fps_test.dart`).
 - FPS Stress Test demo screen in example app.
 
@@ -434,7 +434,7 @@
 - **MemoryPressure warmup exclusion** (v3.1.3): heap trend alerts are suppressed
   during the first 5 seconds after the initial heap sample, preventing false
   positives from normal app startup allocation. GC pressure and heap capacity
-  alerts are unaffected. Configurable via `WatchdogConfig.memoryWarmupDurationMs`.
+  alerts are unaffected. Configurable via `SleuthConfig.memoryWarmupDurationMs`.
 - **NestedScroll cross-axis suppression** (v3.1.4): horizontal ListView inside
   vertical ScrollView (and other cross-axis combinations) no longer produces
   false positives. Only same-axis nesting is flagged.
@@ -448,7 +448,7 @@
 - **PlatformChannel duration tracking** (v3.1.7): tracks cumulative per-call
   duration alongside frequency. Fires when either frequency exceeds threshold
   OR cumulative duration exceeds 8ms (configurable via
-  `WatchdogConfig.platformChannelDurationThresholdMs`). Detail includes top
+  `SleuthConfig.platformChannelDurationThresholdMs`). Detail includes top
   method names.
 - **FrameEventCorrelator binary search** (v3.9): O(E×F) linear scan replaced
   with O(E log F) binary search using pre-sorted frame lists. Behavioral
@@ -456,9 +456,9 @@
 
 ### Added
 
-- `WatchdogConfig.memoryWarmupDurationMs` — warmup period for heap trend alerts
+- `SleuthConfig.memoryWarmupDurationMs` — warmup period for heap trend alerts
   (default 5000ms).
-- `WatchdogConfig.platformChannelDurationThresholdMs` — cumulative duration
+- `SleuthConfig.platformChannelDurationThresholdMs` — cumulative duration
   threshold for platform channel detection (default 8ms).
 
 ## 0.3.0
@@ -547,7 +547,7 @@
   stamped on issues. Shows "During: scrolling" in issue cards.
 - **Rolling jank capture buffer**: worst-N frame retention (default capacity 50,
   configurable via `captureBufferCapacity`). Evicts mildest frames when full.
-- **JSON session export**: `WidgetWatchdog.exportSnapshot()` and
+- **JSON session export**: `Sleuth.exportSnapshot()` and
   `exportSnapshotJson()` static methods. Dashboard export button copies JSON to
   clipboard.
 - **Source-location enrichment**: ancestor chain attribution on structural and

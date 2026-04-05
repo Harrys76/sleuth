@@ -38,7 +38,7 @@ Uses `totalSpan` (vsyncStart → rasterFinish) as the primary jank indicator ins
 
 **Build-to-raster gap** (`FrameTimingDetector._onTimings`): Computed from `FramePhase.rasterStart - FramePhase.buildFinish` raw timestamps. Passed as `Duration.zero` floor. `buildToRasterGapTime` on `FrameVerdict` is nullable — only populated when `totalSpan` is present (real frames from `FrameTiming`), preserving the distinction between "not measured" and "measured zero gap".
 
-**Cross-cutting migration**: 8 production `totalDuration` sites across 5 files migrated to `effectiveTotalDuration`: `frame_chart.dart` (bar height + color thresholds + budget line), `frame_timing_detector.dart` (2 worst-frame selections), `capture_buffer.dart` (3 eviction comparisons), `watchdog_controller.dart` (worstFrameTimeUs).
+**Cross-cutting migration**: 8 production `totalDuration` sites across 5 files migrated to `effectiveTotalDuration`: `frame_chart.dart` (bar height + color thresholds + budget line), `frame_timing_detector.dart` (2 worst-frame selections), `capture_buffer.dart` (3 eviction comparisons), `sleuth_controller.dart` (worstFrameTimeUs).
 
 **Chart consistency** (`lib/src/ui/frame_chart.dart`): Budget line and color thresholds now derive from per-frame `frameBudgetMs` instead of hardcoded 16ms/33ms. 120fps mode (8ms budget) correctly shows yellow at 8ms and red at 16ms.
 
@@ -60,7 +60,7 @@ Upgrades per-widget paint attribution in `DebugInstrumentationCoordinator` via `
 
 **CustomPainterDetector** (`lib/src/detectors/custom_painter_detector.dart`): When `CustomPaint` paint rate > 10/sec, upgrades confidence from `possible` to `likely` with `debugCallbackAndStructural` source. Not `confirmed` because paint activity can't be pinned to a specific painter instance.
 
-**Controller wiring** (`lib/src/controller/watchdog_controller.dart`): Debug snapshot distribution block expanded to include `_shallowRebuildRisk`, `_animatedBuilder`, and `_customPainter`.
+**Controller wiring** (`lib/src/controller/sleuth_controller.dart`): Debug snapshot distribution block expanded to include `_shallowRebuildRisk`, `_animatedBuilder`, and `_customPainter`.
 
 ### 3. Issue ranking by impact (implemented)
 
@@ -82,15 +82,15 @@ Interaction context tracking adds an `InteractionContext` enum (`idle`, `scrolli
 
 Implemented across models, controller, UI, and public API. JSON serialization uses `dart:convert` only (no codegen). Duration fields serialize as microseconds with `Us` suffix. Enums serialize as `.name` strings. DateTime as ISO 8601.
 
-**JankCaptureBuffer** (`lib/src/models/capture_buffer.dart`): Bounded "worst N" buffer (default capacity 50, configurable via `WatchdogConfig.captureBufferCapacity`). When full, evicts the mildest entry by `totalDuration`. New entries milder than all existing ones are rejected. Not a FIFO ring buffer — retains the worst frames across the session.
+**JankCaptureBuffer** (`lib/src/models/capture_buffer.dart`): Bounded "worst N" buffer (default capacity 50, configurable via `SleuthConfig.captureBufferCapacity`). When full, evicts the mildest entry by `totalDuration`. New entries milder than all existing ones are rejected. Not a FIFO ring buffer — retains the worst frames across the session.
 
 **CaptureEntry**: Bundles `FrameStats` + `FrameVerdict` + separately-stamped `relatedIssues` + `capturedAt`. The `relatedIssues` list is populated from `issuesNotifier.value` (post-aggregation, with route/context tags), NOT from `verdict.relatedIssues` (which are unstamped). `toJson()` strips `verdict.relatedIssues` to avoid conflicting issue lists in the export; the entry-level `relatedIssues` is canonical.
 
-**Capture paths** (in `watchdog_controller.dart`): Two mutually exclusive paths feed the buffer. `_onTimelineData` (full VM mode) uses local variables to bridge the jank decision past `_aggregateIssues()` for stamped issues. `_onFrameStats` (basic/FRAME mode) captures inside the existing jank guard using the most recently stamped `issuesNotifier.value`. A `_lastCapturedFrameNumber` guard prevents duplicate captures.
+**Capture paths** (in `sleuth_controller.dart`): Two mutually exclusive paths feed the buffer. `_onTimelineData` (full VM mode) uses local variables to bridge the jank decision past `_aggregateIssues()` for stamped issues. `_onFrameStats` (basic/FRAME mode) captures inside the existing jank guard using the most recently stamped `issuesNotifier.value`. A `_lastCapturedFrameNumber` guard prevents duplicate captures.
 
 **SessionSnapshot** (`lib/src/models/session_snapshot.dart`): Top-level export container with `capturedFrames`, `currentIssues`, `frameStatsSummary` (totalFrames, jankFrames, averageFps, worstFrameTimeUs), plus metadata (packageVersion, isVmConnected, isDebugMode, exportedAt). `toJsonString()` produces pretty-printed JSON with 2-space indent.
 
-**Public API**: `WidgetWatchdog.exportSnapshot()` and `WidgetWatchdog.exportSnapshotJson()` static methods. Return `null` before `wrap()`, after overlay disposal, and in release mode. A static `_controller` reference is set in `wrap()` and cleared in `notifyControllerDisposed()` (called by `WatchdogOverlay.dispose()`) with an identity check to handle repeated `wrap()` calls. `currentIssues` in the snapshot is wrapped with `List.unmodifiable()` for defensive immutability.
+**Public API**: `Sleuth.exportSnapshot()` and `Sleuth.exportSnapshotJson()` static methods. Return `null` before `wrap()`, after overlay disposal, and in release mode. A static `_controller` reference is set in `wrap()` and cleared in `notifyControllerDisposed()` (called by `SleuthOverlay.dispose()`) with an identity check to handle repeated `wrap()` calls. `currentIssues` in the snapshot is wrapped with `List.unmodifiable()` for defensive immutability.
 
 **Dashboard UI** (`lib/src/ui/dashboard_sheet.dart`): Export button (`Icons.ios_share`) in the header copies the JSON snapshot to the clipboard. A self-managed "Snapshot copied to clipboard" banner appears for 2 seconds (no `ScaffoldMessenger` dependency since the dashboard is not inside a `Scaffold`).
 
@@ -140,9 +140,9 @@ The following items were identified during the debug instrumentation milestone b
 
 ### Goal
 
-Narrow the gap between Widget Watchdog and DevTools in four areas where DevTools has clear superiority, while staying true to the package's core value: **developers fast know what affects their app's performance, with zero setup.**
+Narrow the gap between Sleuth and DevTools in four areas where DevTools has clear superiority, while staying true to the package's core value: **developers fast know what affects their app's performance, with zero setup.**
 
-Mini flame chart is explicitly out of scope — it adds visualization complexity that competes with DevTools rather than complementing it. Widget Watchdog answers "what's wrong?" not "show me the raw timeline."
+Mini flame chart is explicitly out of scope — it adds visualization complexity that competes with DevTools rather than complementing it. Sleuth answers "what's wrong?" not "show me the raw timeline."
 
 ### Scope
 
@@ -163,31 +163,31 @@ Each feature must produce **issues with actionable fix hints** that fit the exis
 
 **Problem:**
 
-Slow, excessive, or large HTTP requests are a top cause of perceived jank and memory pressure, but Widget Watchdog has no visibility into network activity. This is the only DevTools gap that can be closed with zero VM dependency and full release-mode safety.
+Slow, excessive, or large HTTP requests are a top cause of perceived jank and memory pressure, but Sleuth has no visibility into network activity. This is the only DevTools gap that can be closed with zero VM dependency and full release-mode safety.
 
 **Approach:**
 
-Install a chaining `HttpOverrides.global` in `WatchdogController.initialize()` that wraps every `dart:io HttpClient` with a monitoring proxy. The proxy records request timing, response status, and payload size without modifying behavior.
+Install a chaining `HttpOverrides.global` in `SleuthController.initialize()` that wraps every `dart:io HttpClient` with a monitoring proxy. The proxy records request timing, response status, and payload size without modifying behavior.
 
 **Design decisions:**
 
-1. **Chaining, not replacing.** Read `HttpOverrides.current` before installing. The watchdog override delegates `createHttpClient()` to the previous override (or `super`), then wraps the returned client. This preserves certificate pinning, proxy configuration, and other custom overrides the app may have installed.
+1. **Chaining, not replacing.** Read `HttpOverrides.current` before installing. The sleuth override delegates `createHttpClient()` to the previous override (or `super`), then wraps the returned client. This preserves certificate pinning, proxy configuration, and other custom overrides the app may have installed.
 
-2. **Opt-out, not opt-in.** Network monitoring is enabled by default (`WatchdogConfig.enableNetworkMonitoring: true`) for zero-config alignment. Users can disable it or add URL exclusion patterns.
+2. **Opt-out, not opt-in.** Network monitoring is enabled by default (`SleuthConfig.enableNetworkMonitoring: true`) for zero-config alignment. Users can disable it or add URL exclusion patterns.
 
 3. **No body capture.** Only record timing, status, URL, method, response size. Never capture request/response bodies — avoids memory pressure from large payloads and eliminates security concerns about logging sensitive data.
 
-4. **Release mode guard.** `HttpOverrides.global` works in all build modes, but Widget Watchdog is `kReleaseMode`-guarded in `wrap()`. Network monitoring follows the same guard — active only in debug/profile mode.
+4. **Release mode guard.** `HttpOverrides.global` works in all build modes, but Sleuth is `kReleaseMode`-guarded in `wrap()`. Network monitoring follows the same guard — active only in debug/profile mode.
 
 5. **Bounded record storage.** Request records stored in a ring buffer (default 200 entries). Old records evicted FIFO. No unbounded growth.
 
 6. **Issue lifecycle: buffer-derived.** On each new record, `_issues` is cleared and re-evaluated from the current ring buffer contents. Slow/large issues are derived from records currently in the buffer. Frequency is computed by counting records in the last 5s window. Issues naturally disappear as records age out of the buffer. This matches the existing detector pattern where `_issues.clear()` precedes re-evaluation.
 
-7. **Override restoration on dispose.** When `WatchdogController.dispose()` is called, restore `HttpOverrides.global` to the previous override captured during install. Only restore if the current override is still the watchdog's instance — another package may have overwritten it since install. Store the previous override reference for identity comparison.
+7. **Override restoration on dispose.** When `SleuthController.dispose()` is called, restore `HttpOverrides.global` to the previous override captured during install. Only restore if the current override is still the sleuth's instance — another package may have overwritten it since install. Store the previous override reference for identity comparison.
 
 8. **Delegate pattern for HttpClient wrapping.** `_MonitoringHttpClient` delegates all `HttpClient` methods to the real client. Only `openUrl()` is intercepted to wrap the returned `HttpClientRequest` with timing instrumentation. Response body size is measured via stream byte counting (a `StreamTransformer` that counts bytes as they pass through), not body buffering — this preserves streaming behavior and adds negligible overhead.
 
-9. **Frequency timer lifecycle.** A 5-second periodic timer drives frequency evaluation. Created in the detector's constructor (or on first record), cancelled in `dispose()`. Follows the same lifecycle pattern as the existing scan timer in `WatchdogController`.
+9. **Frequency timer lifecycle.** A 5-second periodic timer drives frequency evaluation. Created in the detector's constructor (or on first record), cancelled in `dispose()`. Follows the same lifecycle pattern as the existing scan timer in `SleuthController`.
 
 **New detector:**
 
@@ -217,7 +217,7 @@ Fix hints:
 ```
 HttpClient.open() / .get() / .post() / ...
               ↓
-   WatchdogHttpOverrides (chaining proxy)
+   SleuthHttpOverrides (chaining proxy)
               ↓
    _MonitoringHttpClient (wraps real client)
               ↓ (on response complete)
@@ -232,7 +232,7 @@ The detector evaluates on each incoming record (for slow/large) and on a 5-secon
 
 **Configuration:**
 
-New fields on `WatchdogConfig`:
+New fields on `SleuthConfig`:
 
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
@@ -246,13 +246,13 @@ New fields on `WatchdogConfig`:
 
 | File | Action |
 |------|--------|
-| `lib/src/network/http_monitor.dart` | **Create** — `WatchdogHttpOverrides`, chaining logic, `_MonitoringHttpClient` proxy |
+| `lib/src/network/http_monitor.dart` | **Create** — `SleuthHttpOverrides`, chaining logic, `_MonitoringHttpClient` proxy |
 | `lib/src/network/request_record.dart` | **Create** — lightweight record with `toJson()` |
 | `lib/src/detectors/network_monitor_detector.dart` | **Create** — processes records, produces issues, frequency windowing |
 | `lib/src/models/base_detector.dart` | **Edit** — add `DetectorType.networkMonitor` |
 | `lib/src/models/performance_issue.dart` | **Edit** — add `IssueCategory.network` |
-| `lib/src/controller/watchdog_controller.dart` | **Edit** — instantiate detector, install HttpOverrides in `initialize()`, wire record callbacks |
-| `lib/widget_watchdog.dart` | **Edit** — export new public types |
+| `lib/src/controller/sleuth_controller.dart` | **Edit** — instantiate detector, install HttpOverrides in `initialize()`, wire record callbacks |
+| `lib/sleuth.dart` | **Edit** — export new public types |
 | `lib/src/models/session_snapshot.dart` | **Edit** — include recent request records in export |
 | `test/detectors/network_monitor_detector_test.dart` | **Create** |
 | `test/network/http_monitor_test.dart` | **Create** |
@@ -271,7 +271,7 @@ None needed — this detector has no VM dependency. Only degradation path is `en
 
 **Edge cases:**
 
-- **User sets `HttpOverrides.global` after `wrap()`:** Watchdog override is lost. Document: call `WidgetWatchdog.wrap()` after any custom `HttpOverrides.global` setup, or set custom overrides before `wrap()` so chaining captures them.
+- **User sets `HttpOverrides.global` after `wrap()`:** Sleuth override is lost. Document: call `Sleuth.track()` after any custom `HttpOverrides.global` setup, or set custom overrides before `wrap()` so chaining captures them.
 - **Non-HttpClient HTTP libraries** (e.g. `cupertino_http`, `cronet_http`): Not intercepted. Document as known limitation. Dio with default `IOHttpClientAdapter` works (uses `HttpClient` internally).
 - **WebSocket traffic:** Not monitored. Out of scope for v2.
 - **HTTPS certificate validation:** Chaining preserves the previous override's `createHttpClient` including any custom `SecurityContext`. No interference with cert pinning.
@@ -307,7 +307,7 @@ Deviations from spec:
 
 3. **Frequency timer auto-cancels when buffer empties.** Spec decision #9 said timer is cancelled in `dispose()`. The implementation also cancels the timer in `_evaluate()` when `_records.isEmpty` — no point ticking on stale state. Timer restarts on next `processRecord()`.
 
-4. **`_networkMonitor` is nullable, not `late final`.** `WatchdogController` uses `NetworkMonitorDetector?` to handle the case where `exportSnapshot()` is called before `initialize()`. All access sites use null-safe operators.
+4. **`_networkMonitor` is nullable, not `late final`.** `SleuthController` uses `NetworkMonitorDetector?` to handle the case where `exportSnapshot()` is called before `initialize()`. All access sites use null-safe operators.
 
 5. **`open()` scheme inference:** `_MonitoringHttpClient.open()` infers `https` for port 443, `http` for all others. This only affects the recorded URL string, not the actual connection. `HttpClient.open()` has no scheme parameter, so this is best-effort.
 
@@ -440,7 +440,7 @@ Deviations from spec:
 
 **Problem:**
 
-When Widget Watchdog reports a jank frame ("32ms — build phase dominant"), the developer doesn't know *which code* was expensive. DevTools answers this with a full flame chart, but Widget Watchdog can answer it more directly and actionably: "Top functions: `MyWidget.build` (40%), `jsonDecode` (25%)."
+When Sleuth reports a jank frame ("32ms — build phase dominant"), the developer doesn't know *which code* was expensive. DevTools answers this with a full flame chart, but Sleuth can answer it more directly and actionably: "Top functions: `MyWidget.build` (40%), `jsonDecode` (25%)."
 
 **Approach:**
 
@@ -493,7 +493,7 @@ Verdict detail: "Top functions: MyWidget.build (40%), jsonDecode (25%)"
 
 - `FrameVerdict` gains `topFunctions: List<CpuAttribution>?` field (null when unavailable).
 - `VmServiceClient` gains `getCpuSamples(int timeOriginUs, int timeExtentUs)` method. **Clock domain note:** `FrameTiming` uses `dart:ui` monotonic timestamps and `getCpuSamples` uses the VM's monotonic clock (`Dart_TimelineGetMicros`). Both should use the same underlying clock, but verify during implementation that timestamps are comparable. If not, apply an offset calibration using `Timeline.now` at frame capture time.
-- `RenderPipelineAnalyzer` or `WatchdogController` queries CPU samples during jank verdict generation. Preferred location: controller (keeps analyzer pure/testable with injected data).
+- `RenderPipelineAnalyzer` or `SleuthController` queries CPU samples during jank verdict generation. Preferred location: controller (keeps analyzer pure/testable with injected data).
 - Verdict detail string appends function attribution when available.
 - `IssueCard` shows top functions in expanded verdict view.
 - Session export includes `topFunctions` in captured frame entries.
@@ -514,7 +514,7 @@ Raw CPU samples include Dart framework internals (`ComponentElement.performRebui
 | `lib/src/vm/cpu_sample_aggregator.dart` | **Create** — aggregation logic: dedup, sort, top-N, percentage |
 | `lib/src/vm/vm_service_client.dart` | **Edit** — add `getCpuSamples()` method with timeout |
 | `lib/src/models/frame_verdict.dart` | **Edit** — add `topFunctions` field, include in `toJson()` |
-| `lib/src/controller/watchdog_controller.dart` | **Edit** — query CPU samples on jank, inject into verdict |
+| `lib/src/controller/sleuth_controller.dart` | **Edit** — query CPU samples on jank, inject into verdict |
 | `lib/src/models/session_snapshot.dart` | **Edit** — include `topFunctions` in captured frame export |
 | `lib/src/ui/issue_card.dart` | **Edit** — display top functions in expanded verdict |
 | `test/vm/cpu_sample_aggregator_test.dart` | **Create** |
@@ -667,7 +667,7 @@ During tree scans, when building ancestor chains for structural issues, call `Wi
 
 ### v2 Config Changes Summary
 
-New fields on `WatchdogConfig`:
+New fields on `SleuthConfig`:
 
 | Field | Type | Default | Feature |
 |-------|------|---------|---------|
@@ -698,14 +698,14 @@ After v2: **21 detectors** (1 runtime + 1 network + 5 vmOnly + 3 hybrid + 11 str
 
 After implementation, the "What DevTools Still Does Better" README section narrows to:
 
-- **Heap snapshots & object graph**: DevTools can browse every object in the heap, inspect retention paths, and track individual allocations. Widget Watchdog monitors heap trends and GC pressure but cannot drill into specific objects.
-- **Full flame chart & call tree**: DevTools provides zoomable, interactive per-frame timelines with complete call tree visualization. Widget Watchdog shows phase breakdowns with top-5 function attribution per jank frame.
+- **Heap snapshots & object graph**: DevTools can browse every object in the heap, inspect retention paths, and track individual allocations. Sleuth monitors heap trends and GC pressure but cannot drill into specific objects.
+- **Full flame chart & call tree**: DevTools provides zoomable, interactive per-frame timelines with complete call tree visualization. Sleuth shows phase breakdowns with top-5 function attribution per jank frame.
 
 The following are **no longer DevTools-only advantages**:
-- ~~Network inspection~~ → Watchdog monitors HTTP timing, frequency, and response size automatically.
-- ~~Memory inspection~~ → Watchdog tracks heap usage trends and capacity thresholds.
-- ~~CPU profiling~~ → Watchdog attributes jank frames to top functions by CPU sample analysis.
-- ~~Widget-exact attribution~~ → Watchdog provides source file:line in debug mode via `getCreationLocation`.
+- ~~Network inspection~~ → Sleuth monitors HTTP timing, frequency, and response size automatically.
+- ~~Memory inspection~~ → Sleuth tracks heap usage trends and capacity thresholds.
+- ~~CPU profiling~~ → Sleuth attributes jank frames to top functions by CPU sample analysis.
+- ~~Widget-exact attribution~~ → Sleuth provides source file:line in debug mode via `getCreationLocation`.
 
 ### v2 Implementation Order
 

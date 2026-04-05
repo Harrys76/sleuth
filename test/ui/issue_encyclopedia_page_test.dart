@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/ui/issue_card.dart';
-import 'package:widget_watchdog/src/ui/issue_encyclopedia_page.dart';
-import 'package:widget_watchdog/src/utils/issue_explanation_builder.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ui/issue_card.dart';
+import 'package:sleuth/src/ui/issue_encyclopedia_page.dart';
+import 'package:sleuth/src/utils/issue_explanation_builder.dart';
 
 void main() {
   Widget wrap(Widget child) {

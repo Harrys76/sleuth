@@ -1,4 +1,4 @@
-# Widget Watchdog
+# Sleuth
 
 Runtime performance diagnostics package for Flutter mobile apps. 22 detectors across 4 lifecycle types (runtime, vmOnly, hybrid, structural).
 
@@ -20,17 +20,17 @@ cd example && fvm flutter run             # Debug mode
 
 ```
 lib/
-  widget_watchdog.dart          # Public API barrel file + WidgetWatchdog entry point
+  sleuth.dart          # Public API barrel file + Sleuth entry point
   src/
     models/                     # Data classes: PerformanceIssue, FrameStats, FrameVerdict, BaseDetector
     detectors/                  # 22 detector implementations (one file per detector)
-    network/                    # HTTP monitoring: WatchdogHttpOverrides, RequestRecord
+    network/                    # HTTP monitoring: SleuthHttpOverrides, RequestRecord
     analyzer/                   # RenderPipelineAnalyzer, FrameEventCorrelator
-    controller/                 # WatchdogController (orchestrates detectors, config, scan loop)
+    controller/                 # SleuthController (orchestrates detectors, config, scan loop)
     vm/                         # VmServiceClient, TimelineParser
     debug/                      # DebugInstrumentationCoordinator, DebugSnapshot
     ranking/                    # IssueRanker (weighted composite scoring)
-    ui/                         # Overlay widgets: FloatingIssuesCard, IssueCard, AiChatPage, IssueEncyclopediaPage, TriggerButton, WatchdogTheme
+    ui/                         # Overlay widgets: FloatingIssuesCard, IssueCard, AiChatPage, IssueEncyclopediaPage, TriggerButton, SleuthTheme
     utils/                      # WidgetLocation helper, FixHintBuilder
 test/
     mirrors lib/src/ structure + helpers/ and benchmark/
@@ -39,16 +39,16 @@ test/
 ### Key patterns
 
 - **Detectors** extend `BaseDetector` (in `models/base_detector.dart`). Each has a `DetectorType` enum value and `DetectorLifecycle` (runtime, vmOnly, hybrid, structural). Built-in detectors implement 4 lifecycle methods (`prepareScan`, `checkElement`, `afterElement`, `finalizeScan`) for the unified tree walk. Custom detectors override `scanTree` directly.
-- **WatchdogController** owns all detectors, runs the scan loop (unified single-pass tree walk for all 16 tree-scanning detectors), and manages the `FrameVerdict` pipeline.
+- **SleuthController** owns all detectors, runs the scan loop (unified single-pass tree walk for all 16 tree-scanning detectors), and manages the `FrameVerdict` pipeline.
 - **Three-tier verdict**: Correlated (VM timeline matched per-frame) > Full (VM batch) > Basic (FrameTiming only). Falls back automatically.
 - Test helpers live in `test/helpers/` — `benchmark_helpers.dart` and `timeline_test_helpers.dart`.
 
 ## Conventions
 
-- New detectors: add enum value to `DetectorType`, create detector file in `detectors/`, implement `prepareScan`/`checkElement`/`afterElement`/`finalizeScan` (not `scanTree`), register in `WatchdogController`, add tests mirroring existing detector test structure. Tests call `scanTree` (the base class wrapper) — no special test setup needed.
+- New detectors: add enum value to `DetectorType`, create detector file in `detectors/`, implement `prepareScan`/`checkElement`/`afterElement`/`finalizeScan` (not `scanTree`), register in `SleuthController`, add tests mirroring existing detector test structure. Tests call `scanTree` (the base class wrapper) — no special test setup needed.
 - Issues use `IssueConfidence`: confirmed (directly observed), likely (runtime + structural), possible (structural only).
 - Fix hints use `FixHintBuilder` (in `utils/fix_hint_builder.dart`) — never hardcode fixHint strings in detectors.
-- All public API goes through `lib/widget_watchdog.dart` barrel file.
+- All public API goes through `lib/sleuth.dart` barrel file.
 - Package is completely disabled in release mode (`kReleaseMode` guard).
 
 ## Current state

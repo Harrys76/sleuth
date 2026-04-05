@@ -1,13 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/models/ai_chat_adapter.dart';
+import 'package:sleuth/src/models/ai_chat_adapter.dart';
 
 /// Tests for the exclude-pattern merge logic between
-/// [WatchdogConfig.networkExcludePatterns] and
+/// [SleuthConfig.networkExcludePatterns] and
 /// [AiChatAdapter.networkExcludePatterns].
 ///
-/// The merge function in WatchdogController is private, so we replicate it
+/// The merge function in SleuthController is private, so we replicate it
 /// here as a pure function to validate the algorithm. The integration test
-/// would require a full WatchdogController which is tested elsewhere.
+/// would require a full SleuthController which is tested elsewhere.
 List<String>? mergedExcludePatterns({
   List<String>? userPatterns,
   AiChatAdapter? aiChat,

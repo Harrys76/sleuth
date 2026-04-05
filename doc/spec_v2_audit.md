@@ -64,26 +64,26 @@ The findings below are ordered by impact (highest first). Each includes the spec
 
 > **Resolution:** `test/controller/v2_integration_test.dart` — 40 tests across 6 groups: network wiring, heap callback chain, CPU attribution enrichment, controller lifecycle, verdict pipeline, and tree scan + timeline integration. Uses `initializeDetectorsForTest()`, `simulateVmStateChangeForTest()`, `feedTimelineDataForTest()`, `addFrameForTest()`, and `runTreeScanForTest()`.
 
-**Summary:** All four v2 features are wired through `WatchdogController`, but controller-level integration tests do not exist for the v2 callback chains. Each feature's *component* tests are solid (detectors, aggregators, models), but the *wiring* between components is only verified by running the example app.
+**Summary:** All four v2 features are wired through `SleuthController`, but controller-level integration tests do not exist for the v2 callback chains. Each feature's *component* tests are solid (detectors, aggregators, models), but the *wiring* between components is only verified by running the example app.
 
 **Why it matters:** The controller is the single orchestration point. If someone refactors `initialize()`, `_onHeapSample()`, or `_enrichVerdictWithCpuAttribution()`, there are no automated tests to catch broken wiring. The existing 7 controller test files (2012 lines) cover debug instrumentation, degradation contracts, export snapshots, verdict fallback, highlights, interaction context, and issue ranking — but none exercise v2 data flows.
 
 **Untested code paths:**
 
 *v2.1 Network Monitoring — controller wiring:*
-- `watchdog_controller.dart:270-278` — `WatchdogHttpOverrides` install conditional (both `enableNetworkMonitoring` and `enabledDetectors.contains()` guard)
-- `watchdog_controller.dart:273-274` — `onRecord: _networkMonitor!.processRecord` callback binding
-- `watchdog_controller.dart:1091-1095` — `WatchdogHttpOverrides.uninstall()` on dispose
-- Full path: HTTP request → `WatchdogHttpOverrides.openUrl()` → `_MonitoringRequest` → `_MonitoringResponse` → `_onRecord` → `NetworkMonitorDetector.processRecord()` → issues
+- `sleuth_controller.dart:270-278` — `SleuthHttpOverrides` install conditional (both `enableNetworkMonitoring` and `enabledDetectors.contains()` guard)
+- `sleuth_controller.dart:273-274` — `onRecord: _networkMonitor!.processRecord` callback binding
+- `sleuth_controller.dart:1091-1095` — `SleuthHttpOverrides.uninstall()` on dispose
+- Full path: HTTP request → `SleuthHttpOverrides.openUrl()` → `_MonitoringRequest` → `_MonitoringResponse` → `_onRecord` → `NetworkMonitorDetector.processRecord()` → issues
 
 *v2.2 Heap Trend Monitoring — callback chain:*
 - `vm_service_client.dart:184-201` — `getMemoryUsage()` call piggybacked on timeline poll, `onHeapSample?.call()` invocation
-- `watchdog_controller.dart:283-287` — `onHeapSample: _onHeapSample` callback registration
-- `watchdog_controller.dart:855-857` — `_onHeapSample()` pass-through to `_memoryPressure.processHeapSample()`
+- `sleuth_controller.dart:283-287` — `onHeapSample: _onHeapSample` callback registration
+- `sleuth_controller.dart:855-857` — `_onHeapSample()` pass-through to `_memoryPressure.processHeapSample()`
 - Full path: `_pollTimeline()` → `getMemoryUsage()` → `HeapSample` construction → `onHeapSample` callback → `_onHeapSample()` → `MemoryPressureDetector.processHeapSample()` → rolling window → `_evaluate()` → issues
 
 *v2.3 CPU Attribution — two-phase verdict enrichment:*
-- `watchdog_controller.dart:870-896` — `_enrichVerdictWithCpuAttribution()` entire method (guard checks, async query, phase-2 re-emission, capture buffer update)
+- `sleuth_controller.dart:870-896` — `_enrichVerdictWithCpuAttribution()` entire method (guard checks, async query, phase-2 re-emission, capture buffer update)
 - `vm_service_client.dart:259-279` — `getCpuSamples()` with 500ms timeout, `SentinelException` handling
 - Full path: jank frame detected → `verdictNotifier.value = verdict` (phase 1) → `_enrichVerdictWithCpuAttribution()` → `getCpuSamples()` → `_cpuAggregator.aggregate()` → `verdict.withTopFunctions()` → `verdictNotifier.value = enriched` (phase 2) → `_captureBuffer.updateVerdict()`
 

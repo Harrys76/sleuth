@@ -169,7 +169,7 @@ class FrameStatsBuffer {
   /// Processing-throughput FPS: how many frames/sec the engine could produce
   /// given the average [effectiveTotalDuration].
   ///
-  /// Capped at 120. The UI further caps at [WatchdogConfig.fpsTarget] so an
+  /// Capped at 120. The UI further caps at [SleuthConfig.fpsTarget] so an
   /// idle screen in profile mode shows the target (e.g. 60).
   ///
   /// In debug mode, idle screens may show lower FPS due to debug overhead —

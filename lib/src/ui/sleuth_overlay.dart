@@ -1,33 +1,33 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../widget_watchdog.dart' show WidgetWatchdog;
-import '../controller/watchdog_controller.dart';
+import '../../sleuth.dart' show Sleuth;
+import '../controller/sleuth_controller.dart';
 import 'trigger_button.dart';
 import 'floating_issues_card.dart';
 import 'highlight_overlay.dart';
-import 'watchdog_theme.dart';
+import 'sleuth_theme.dart';
 
 /// The main overlay widget wrapping the app.
 ///
 /// - Completely hidden in release mode via [kReleaseMode] guard.
 /// - Isolated with [RepaintBoundary] to never trigger app repaints.
 /// - Shows a draggable trigger button and expandable dashboard.
-class WatchdogOverlay extends StatefulWidget {
-  const WatchdogOverlay({
+class SleuthOverlay extends StatefulWidget {
+  const SleuthOverlay({
     super.key,
     required this.child,
     required this.controller,
   });
 
   final Widget child;
-  final WatchdogController controller;
+  final SleuthController controller;
 
   @override
-  State<WatchdogOverlay> createState() => _WatchdogOverlayState();
+  State<SleuthOverlay> createState() => _SleuthOverlayState();
 }
 
-class _WatchdogOverlayState extends State<WatchdogOverlay> {
+class _SleuthOverlayState extends State<SleuthOverlay> {
   bool _dashboardOpen = false;
 
   @override
@@ -51,7 +51,7 @@ class _WatchdogOverlayState extends State<WatchdogOverlay> {
 
     return Directionality(
       textDirection: TextDirection.ltr,
-      child: WatchdogTheme(
+      child: SleuthTheme(
         data: theme,
         child: Stack(
           children: [
@@ -123,17 +123,17 @@ class _WatchdogOverlayState extends State<WatchdogOverlay> {
     );
   }
 
-  WatchdogThemeData _resolveTheme(BuildContext context) {
+  SleuthThemeData _resolveTheme(BuildContext context) {
     final mqData = MediaQuery.maybeOf(context);
-    if (mqData == null) return const WatchdogThemeData();
+    if (mqData == null) return const SleuthThemeData();
     return mqData.platformBrightness == Brightness.light
-        ? const WatchdogThemeData.light()
-        : const WatchdogThemeData();
+        ? const SleuthThemeData.light()
+        : const SleuthThemeData();
   }
 
   @override
   void dispose() {
-    WidgetWatchdog.notifyControllerDisposed(widget.controller);
+    Sleuth.notifyControllerDisposed(widget.controller);
     widget.controller.dispose();
     super.dispose();
   }

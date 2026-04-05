@@ -1,18 +1,18 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/frame_stats.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 import '../helpers/benchmark_helpers.dart';
 import '../helpers/timeline_test_helpers.dart';
 
 void main() {
   group('VM disconnect degrades gracefully', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -93,10 +93,10 @@ void main() {
   });
 
   group('VM reconnect restages fresh data', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -137,10 +137,10 @@ void main() {
   });
 
   group('verdict path switches on VM state', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -207,7 +207,7 @@ void main() {
 
   group('UI mode indicator matches VM state', () {
     testWidgets('vmConnectedNotifier drives UI state', (tester) async {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
       // Default: disconnected
@@ -226,10 +226,10 @@ void main() {
   });
 
   group('detector group isolation', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 

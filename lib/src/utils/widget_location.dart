@@ -107,7 +107,7 @@ Rect? getGlobalRect(RenderObject ro) {
     }
   } catch (e, s) {
     assert(() {
-      debugPrint('Widget Watchdog: getGlobalRect failed: $e\n$s');
+      debugPrint('Sleuth: getGlobalRect failed: $e\n$s');
       return true;
     }());
   }

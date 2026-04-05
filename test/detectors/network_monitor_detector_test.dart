@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/detectors/network_monitor_detector.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/network/request_record.dart';
+import 'package:sleuth/src/detectors/network_monitor_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/network/request_record.dart';
 
 RequestRecord makeRecord({
   String url = 'https://example.com/api/data',

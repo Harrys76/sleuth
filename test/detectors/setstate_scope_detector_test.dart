@@ -1,8 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/debug/debug_snapshot.dart';
-import 'package:widget_watchdog/src/detectors/setstate_scope_detector.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/debug/debug_snapshot.dart';
+import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 void main() {
   group('SetStateScopeDetector', () {

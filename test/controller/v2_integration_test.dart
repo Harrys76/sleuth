@@ -2,13 +2,13 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/base_detector.dart';
-import 'package:widget_watchdog/src/models/capture_buffer.dart';
-import 'package:widget_watchdog/src/models/cpu_attribution.dart';
-import 'package:widget_watchdog/src/models/frame_stats.dart';
-import 'package:widget_watchdog/src/models/frame_verdict.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/capture_buffer.dart';
+import 'package:sleuth/src/models/cpu_attribution.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/frame_verdict.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 
@@ -17,7 +17,7 @@ void main() {
   // 1. Network monitoring wiring
   // =========================================================================
   group('v2.1 Network monitoring controller wiring', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     tearDown(() {
       controller.dispose();
@@ -26,7 +26,7 @@ void main() {
 
     test('network override installed when enabled (default config)', () {
       HttpOverrides.global = null;
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
 
       // initializeDetectorsForTest doesn't install HTTP overrides (that's
@@ -48,8 +48,8 @@ void main() {
     test('network override NOT installed when enableNetworkMonitoring=false',
         () {
       HttpOverrides.global = null;
-      controller = WatchdogController(
-        config: const WatchdogConfig(enableNetworkMonitoring: false),
+      controller = SleuthController(
+        config: const SleuthConfig(enableNetworkMonitoring: false),
       );
       controller.initializeDetectorsForTest();
 
@@ -64,8 +64,8 @@ void main() {
       HttpOverrides.global = null;
       final detectors = {...DetectorType.values}
         ..remove(DetectorType.networkMonitor);
-      controller = WatchdogController(
-        config: WatchdogConfig(enabledDetectors: detectors),
+      controller = SleuthController(
+        config: SleuthConfig(enabledDetectors: detectors),
       );
       controller.initializeDetectorsForTest();
 
@@ -73,8 +73,8 @@ void main() {
     });
 
     test('network config thresholds pass through to detector', () {
-      controller = WatchdogController(
-        config: const WatchdogConfig(
+      controller = SleuthController(
+        config: const SleuthConfig(
           slowRequestThresholdMs: 5000,
           requestFrequencyLimit: 50,
           largeResponseThresholdBytes: 2097152,
@@ -88,8 +88,8 @@ void main() {
     });
 
     test('network exclude patterns stored in config', () {
-      controller = WatchdogController(
-        config: const WatchdogConfig(
+      controller = SleuthController(
+        config: const SleuthConfig(
           networkExcludePatterns: ['analytics.com', '/health'],
         ),
       );
@@ -104,7 +104,7 @@ void main() {
       // We can't call the real initialize() in tests (it needs VM service),
       // but we can verify the dispose path handles null _httpOverrides safely.
       // tearDown will call dispose, so we just verify state here.
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
 
       // httpOverrides is null since initializeDetectorsForTest doesn't install them
@@ -113,7 +113,7 @@ void main() {
     });
 
     test('default config enables both network flags', () {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
 
       // Both the master switch and detector type must be enabled
@@ -126,7 +126,7 @@ void main() {
     });
 
     test('network issues aggregated after timeline data feed', () {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
 
       // feedTimelineDataForTest triggers _aggregateIssues which collects
@@ -143,10 +143,10 @@ void main() {
   // 2. Heap memory sampling callback chain
   // =========================================================================
   group('v2.2 Heap sample callback chain', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -191,10 +191,10 @@ void main() {
   // 3. Two-phase CPU attribution verdict enrichment
   // =========================================================================
   group('v2.3 CPU attribution enrichment', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -416,10 +416,10 @@ void main() {
   // 4. Controller lifecycle with all v2 features
   // =========================================================================
   group('Controller lifecycle with v2 features', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -461,7 +461,7 @@ void main() {
 
     test('dispose does not throw after partial initialization', () {
       // Create and immediately dispose
-      final ctrl = WatchdogController();
+      final ctrl = SleuthController();
       ctrl.initializeDetectorsForTest();
       expect(() => ctrl.dispose(), returnsNormally);
     });
@@ -572,8 +572,8 @@ void main() {
         ..remove(DetectorType.networkMonitor)
         ..remove(DetectorType.memoryPressure);
 
-      final ctrl = WatchdogController(
-        config: WatchdogConfig(enabledDetectors: detectors),
+      final ctrl = SleuthController(
+        config: SleuthConfig(enabledDetectors: detectors),
       );
       ctrl.initializeDetectorsForTest();
 
@@ -590,10 +590,10 @@ void main() {
   // 5. Verdict pipeline end-to-end
   // =========================================================================
   group('Verdict pipeline integration', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -700,10 +700,10 @@ void main() {
   // 6. Tree scan + timeline integration
   // =========================================================================
   group('Tree scan + timeline integration', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 

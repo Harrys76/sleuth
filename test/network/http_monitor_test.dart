@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/network/http_monitor.dart';
-import 'package:widget_watchdog/src/network/request_record.dart';
+import 'package:sleuth/src/network/http_monitor.dart';
+import 'package:sleuth/src/network/request_record.dart';
 
 void main() {
-  group('WatchdogHttpOverrides', () {
+  group('SleuthHttpOverrides', () {
     late List<RequestRecord> capturedRecords;
-    late WatchdogHttpOverrides overrides;
+    late SleuthHttpOverrides overrides;
 
     setUp(() {
       capturedRecords = [];
@@ -21,8 +21,8 @@ void main() {
     });
 
     test('install sets HttpOverrides.global', () {
-      overrides = WatchdogHttpOverrides(onRecord: capturedRecords.add);
-      WatchdogHttpOverrides.install(overrides);
+      overrides = SleuthHttpOverrides(onRecord: capturedRecords.add);
+      SleuthHttpOverrides.install(overrides);
       expect(HttpOverrides.current, same(overrides));
     });
 
@@ -30,33 +30,33 @@ void main() {
       final previousOverrides = _DummyHttpOverrides();
       HttpOverrides.global = previousOverrides;
 
-      overrides = WatchdogHttpOverrides(onRecord: capturedRecords.add);
-      WatchdogHttpOverrides.install(overrides);
+      overrides = SleuthHttpOverrides(onRecord: capturedRecords.add);
+      SleuthHttpOverrides.install(overrides);
       expect(HttpOverrides.current, same(overrides));
 
-      WatchdogHttpOverrides.uninstall(overrides);
+      SleuthHttpOverrides.uninstall(overrides);
       expect(HttpOverrides.current, same(previousOverrides));
     });
 
     test('uninstall no-op when override was replaced by another', () {
-      overrides = WatchdogHttpOverrides(onRecord: capturedRecords.add);
-      WatchdogHttpOverrides.install(overrides);
+      overrides = SleuthHttpOverrides(onRecord: capturedRecords.add);
+      SleuthHttpOverrides.install(overrides);
 
       // Another package overwrites us
       final thirdParty = _DummyHttpOverrides();
       HttpOverrides.global = thirdParty;
 
       // Our uninstall should NOT clobber the third party
-      WatchdogHttpOverrides.uninstall(overrides);
+      SleuthHttpOverrides.uninstall(overrides);
       expect(HttpOverrides.current, same(thirdParty));
     });
 
     test('install with null previous (no prior override)', () {
       HttpOverrides.global = null;
-      overrides = WatchdogHttpOverrides(onRecord: capturedRecords.add);
-      WatchdogHttpOverrides.install(overrides);
+      overrides = SleuthHttpOverrides(onRecord: capturedRecords.add);
+      SleuthHttpOverrides.install(overrides);
 
-      WatchdogHttpOverrides.uninstall(overrides);
+      SleuthHttpOverrides.uninstall(overrides);
       expect(HttpOverrides.current, isNull);
     });
 
@@ -64,8 +64,8 @@ void main() {
       final previousOverrides = _TrackingHttpOverrides();
       HttpOverrides.global = previousOverrides;
 
-      overrides = WatchdogHttpOverrides(onRecord: capturedRecords.add);
-      WatchdogHttpOverrides.install(overrides);
+      overrides = SleuthHttpOverrides(onRecord: capturedRecords.add);
+      SleuthHttpOverrides.install(overrides);
 
       // Creating an HttpClient should go through the previous override first
       final client = overrides.createHttpClient(null);
@@ -78,7 +78,7 @@ void main() {
       final previousOverrides = _TrackingHttpOverrides();
       HttpOverrides.global = previousOverrides;
 
-      overrides = WatchdogHttpOverrides(onRecord: capturedRecords.add);
+      overrides = SleuthHttpOverrides(onRecord: capturedRecords.add);
 
       final result = overrides.findProxyFromEnvironment(
         Uri.parse('https://example.com'),
@@ -89,11 +89,11 @@ void main() {
     });
 
     test('URL exclusion patterns are passed to monitoring client', () {
-      overrides = WatchdogHttpOverrides(
+      overrides = SleuthHttpOverrides(
         onRecord: capturedRecords.add,
         excludePatterns: ['analytics.example.com'],
       );
-      WatchdogHttpOverrides.install(overrides);
+      SleuthHttpOverrides.install(overrides);
 
       // The exclude patterns are stored — we verify by checking the override
       // accepted them without error. Full exclusion behavior is tested at the
@@ -105,20 +105,20 @@ void main() {
       final first = _DummyHttpOverrides();
       HttpOverrides.global = first;
 
-      final second = WatchdogHttpOverrides(onRecord: (_) {});
-      WatchdogHttpOverrides.install(second);
+      final second = SleuthHttpOverrides(onRecord: (_) {});
+      SleuthHttpOverrides.install(second);
 
-      final third = WatchdogHttpOverrides(onRecord: (_) {});
-      WatchdogHttpOverrides.install(third);
+      final third = SleuthHttpOverrides(onRecord: (_) {});
+      SleuthHttpOverrides.install(third);
 
       expect(HttpOverrides.current, same(third));
 
       // Uninstall third → should restore second
-      WatchdogHttpOverrides.uninstall(third);
+      SleuthHttpOverrides.uninstall(third);
       expect(HttpOverrides.current, same(second));
 
       // Uninstall second → should restore first
-      WatchdogHttpOverrides.uninstall(second);
+      SleuthHttpOverrides.uninstall(second);
       expect(HttpOverrides.current, same(first));
     });
   });
@@ -139,11 +139,11 @@ void main() {
     });
 
     test('exclude patterns wired through to monitoring client', () async {
-      final overrides = WatchdogHttpOverrides(
+      final overrides = SleuthHttpOverrides(
         onRecord: capturedRecords.add,
         excludePatterns: ['analytics.example.com'],
       );
-      WatchdogHttpOverrides.install(overrides);
+      SleuthHttpOverrides.install(overrides);
 
       // createHttpClient returns a _MonitoringHttpClient that receives
       // the exclude patterns. Full behavioral testing (making real HTTP
@@ -158,7 +158,7 @@ void main() {
     });
 
     test('null excludePatterns treats all URLs as monitored', () {
-      final overrides = WatchdogHttpOverrides(
+      final overrides = SleuthHttpOverrides(
         onRecord: capturedRecords.add,
       );
       expect(overrides.excludePatterns, isNull);
@@ -170,7 +170,7 @@ void main() {
     });
 
     test('empty excludePatterns treats all URLs as monitored', () {
-      final overrides = WatchdogHttpOverrides(
+      final overrides = SleuthHttpOverrides(
         onRecord: capturedRecords.add,
         excludePatterns: [],
       );
@@ -182,7 +182,7 @@ void main() {
     });
 
     test('multiple exclusion patterns stored correctly', () {
-      final overrides = WatchdogHttpOverrides(
+      final overrides = SleuthHttpOverrides(
         onRecord: capturedRecords.add,
         excludePatterns: [
           'analytics.example.com',
@@ -217,17 +217,17 @@ void main() {
     });
 
     HttpClient createFailingClient() {
-      // Install a failing override as the "previous" so WatchdogHttpOverrides
+      // Install a failing override as the "previous" so SleuthHttpOverrides
       // delegates to it via the chaining mechanism.
       final failing = _FailingHttpOverrides();
       HttpOverrides.global = failing;
 
-      final overrides = WatchdogHttpOverrides(
+      final overrides = SleuthHttpOverrides(
         onRecord: capturedRecords.add,
         onRequestStarted: (id, _) => startedIds.add(id),
         onRequestEnded: (id) => endedIds.add(id),
       );
-      WatchdogHttpOverrides.install(overrides);
+      SleuthHttpOverrides.install(overrides);
       return overrides.createHttpClient(null);
     }
 
@@ -284,12 +284,12 @@ void main() {
       HttpOverrides.global = failing;
 
       var recordEmitted = false;
-      final overrides = WatchdogHttpOverrides(
+      final overrides = SleuthHttpOverrides(
         onRecord: (_) => recordEmitted = true,
         onRequestStarted: (id, _) {},
         onRequestEnded: (id) => throw StateError('onRequestEnded bug'),
       );
-      WatchdogHttpOverrides.install(overrides);
+      SleuthHttpOverrides.install(overrides);
       final client = overrides.createHttpClient(null);
 
       try {
@@ -311,12 +311,12 @@ void main() {
       final failing = _FailingHttpOverrides();
       HttpOverrides.global = failing;
 
-      final overrides = WatchdogHttpOverrides(
+      final overrides = SleuthHttpOverrides(
         onRecord: (_) => throw StateError('onRecord bug'),
         onRequestStarted: (id, _) {},
         onRequestEnded: (id) {},
       );
-      WatchdogHttpOverrides.install(overrides);
+      SleuthHttpOverrides.install(overrides);
       final client = overrides.createHttpClient(null);
 
       try {
@@ -349,12 +349,12 @@ void main() {
       final success = _SuccessHttpOverrides();
       HttpOverrides.global = success;
 
-      final overrides = WatchdogHttpOverrides(
+      final overrides = SleuthHttpOverrides(
         onRecord: (_) => throw StateError('onRecord bug'),
         onRequestStarted: (id, _) {},
         onRequestEnded: (id) {},
       );
-      WatchdogHttpOverrides.install(overrides);
+      SleuthHttpOverrides.install(overrides);
       final client = overrides.createHttpClient(null);
 
       final request =
@@ -373,12 +373,12 @@ void main() {
       HttpOverrides.global = success;
 
       var recordCalled = false;
-      final overrides = WatchdogHttpOverrides(
+      final overrides = SleuthHttpOverrides(
         onRecord: (_) => recordCalled = true,
         onRequestStarted: (id, _) {},
         onRequestEnded: (id) => throw StateError('onRequestEnded bug'),
       );
-      WatchdogHttpOverrides.install(overrides);
+      SleuthHttpOverrides.install(overrides);
       final client = overrides.createHttpClient(null);
 
       final request =

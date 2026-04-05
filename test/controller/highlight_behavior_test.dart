@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/base_detector.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/models/widget_highlight.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/models/widget_highlight.dart';
 
 void main() {
   group('highlight aggregation', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -78,8 +78,8 @@ void main() {
         'disabled detector produces no highlights in highlightsNotifier',
         (tester) async {
       // Disable opacity detector via config
-      controller = WatchdogController(
-        config: WatchdogConfig(
+      controller = SleuthController(
+        config: SleuthConfig(
           enabledDetectors: {
             // Enable everything except opacity
             ...DetectorType.values.where((t) => t != DetectorType.opacity),
@@ -155,10 +155,10 @@ void main() {
   });
 
   group('selectHighlightForIssue', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -304,35 +304,35 @@ void main() {
   group('detectorNamesForCategory', () {
     test('layout category maps to Layout and Opacity', () {
       final names =
-          WatchdogController.detectorNamesForCategory(IssueCategory.layout);
+          SleuthController.detectorNamesForCategory(IssueCategory.layout);
       expect(names, containsAll(['Layout', 'Opacity']));
     });
 
     test('raster category maps to GPU', () {
       final names =
-          WatchdogController.detectorNamesForCategory(IssueCategory.raster);
+          SleuthController.detectorNamesForCategory(IssueCategory.raster);
       expect(names, contains('GPU'));
     });
 
     test('build category maps to expected detector names', () {
       final names =
-          WatchdogController.detectorNamesForCategory(IssueCategory.build);
+          SleuthController.detectorNamesForCategory(IssueCategory.build);
       expect(
           names, containsAll(['Non-lazy', 'GlobalKey', 'setState', 'Rebuild']));
     });
 
     test('paint category maps to expected detector names', () {
       final names =
-          WatchdogController.detectorNamesForCategory(IssueCategory.paint);
+          SleuthController.detectorNamesForCategory(IssueCategory.paint);
       expect(names, containsAll(['Painter', 'Repaint']));
     });
   });
 
   group('routeName stamping', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/detectors/shader_jank_detector.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/detectors/shader_jank_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 

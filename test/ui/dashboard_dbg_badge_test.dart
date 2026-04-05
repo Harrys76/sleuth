@@ -1,15 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/ui/floating_issues_card.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/ui/floating_issues_card.dart';
 
 void main() {
   group('DBG badge', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -55,8 +55,8 @@ void main() {
 
     testWidgets('DBG badge is present when enableDebugCallbacks is true',
         (tester) async {
-      final dbgController = WatchdogController(
-        config: const WatchdogConfig(enableDebugCallbacks: true),
+      final dbgController = SleuthController(
+        config: const SleuthConfig(enableDebugCallbacks: true),
       );
       dbgController.initializeDetectorsForTest();
 

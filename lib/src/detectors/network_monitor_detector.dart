@@ -8,7 +8,7 @@ import '../utils/fix_hint_builder.dart';
 
 /// Detects slow, excessive, or oversized HTTP requests.
 ///
-/// Receives [RequestRecord]s from the [WatchdogHttpOverrides] monitoring
+/// Receives [RequestRecord]s from the [SleuthHttpOverrides] monitoring
 /// proxy and evaluates three issue types:
 /// - **Slow Request**: response time exceeds threshold
 /// - **Frequency Spike**: too many requests in a 5-second window

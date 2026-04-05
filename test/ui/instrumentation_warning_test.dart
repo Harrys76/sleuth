@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/debug/debug_instrumentation_config.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/ui/floating_issues_card.dart';
-import 'package:widget_watchdog/src/ui/issue_card.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/debug/debug_instrumentation_config.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ui/floating_issues_card.dart';
+import 'package:sleuth/src/ui/issue_card.dart';
 
 void main() {
   group('instrumentation warning banner', () {
@@ -27,7 +27,7 @@ void main() {
 
     testWidgets('NOT shown when isDeepInstrumentationActive is false',
         (tester) async {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
       await tester.pumpWidget(
@@ -48,8 +48,8 @@ void main() {
 
     testWidgets('shown when isDeepInstrumentationActive is true',
         (tester) async {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(enableDeepDebugInstrumentation: true),
+      final controller = SleuthController(
+        config: const SleuthConfig(enableDeepDebugInstrumentation: true),
       );
       controller.initializeDetectorsForTest();
 
@@ -71,8 +71,8 @@ void main() {
 
     testWidgets('NOT shown when deep=true but all sub-flags off',
         (tester) async {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(
+      final controller = SleuthController(
+        config: const SleuthConfig(
           enableDeepDebugInstrumentation: true,
           advanced: DebugInstrumentationConfig(
             widgetBuildProfiling: false,
@@ -101,8 +101,8 @@ void main() {
     });
 
     testWidgets('both warnings visible simultaneously', (tester) async {
-      final controller = WatchdogController(
-        config: const WatchdogConfig(enableDeepDebugInstrumentation: true),
+      final controller = SleuthController(
+        config: const SleuthConfig(enableDeepDebugInstrumentation: true),
       );
       controller.initializeDetectorsForTest();
 

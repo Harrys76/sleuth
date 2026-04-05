@@ -50,7 +50,7 @@ All deviations are simplifications that produce better or equivalent results wit
 **Actual:** Not implemented — events are assigned to the first matching frame (same as original linear scan). This maintains exact behavioral equivalence with the original implementation.
 **Impact:** Low — cross-frame events are rare in practice (events are typically much shorter than frame windows). Implementing proportional splitting would change the output and is better done as a separate follow-up with its own tests.
 
-### WatchdogConfig Additions
+### SleuthConfig Additions
 
 Two new optional fields with sensible defaults:
 
@@ -82,7 +82,7 @@ v3.3 implements Issue-to-Verdict Linking — three UI additions that connect the
 
 #### 1. Jank detection from verdict
 
-Verdicts are only created for jank frames (controller guards: `latest.isJank` at lines 838, 765, 793 of `watchdog_controller.dart`). Any non-null verdict with `relatedIssues.isNotEmpty` is a jank-with-issues verdict. No separate "isJank" field needed on `FrameVerdict`.
+Verdicts are only created for jank frames (controller guards: `latest.isJank` at lines 838, 765, 793 of `sleuth_controller.dart`). Any non-null verdict with `relatedIssues.isNotEmpty` is a jank-with-issues verdict. No separate "isJank" field needed on `FrameVerdict`.
 
 #### 2. Issue matching by intersection
 
@@ -228,7 +228,7 @@ Each of the 28 builder methods hardcodes its `FixEffort` value based on the actu
 | `lib/src/utils/fix_hint_builder.dart` | **New** — 28 static methods + 2 private helpers |
 | `lib/src/detectors/*.dart` (21 files) | Import builder, replace hardcoded fixHint strings, set `fixEffort:` from builder |
 | `lib/src/ui/issue_card.dart` | `_fixEffort()` checks model field first, keyword fallback for legacy |
-| `lib/widget_watchdog.dart` | Export `fix_hint_builder.dart` |
+| `lib/sleuth.dart` | Export `fix_hint_builder.dart` |
 | `test/utils/fix_hint_builder_test.dart` | **New** — 86 tests across 28 groups |
 | `test/models/performance_issue_test.dart` | 9 tests in new `fixEffort` group |
 | `test/models/serialization_test.dart` | 4 assertions added across existing tests + 1 new test |
@@ -280,7 +280,7 @@ The spec listed `session_snapshot.dart` as a changed file. In practice, no chang
 
 #### 5. Reuses existing thresholds and constants
 
-Native growth detection reuses `_sustainedGrowthDurationSec = 10` and `warmupDurationMs` from the heap trend evaluator. Only the slope threshold differs: 1MB/sec for native (vs 500KB/sec for heap). No new `WatchdogConfig` knob added — can be added later if users request configurability.
+Native growth detection reuses `_sustainedGrowthDurationSec = 10` and `warmupDurationMs` from the heap trend evaluator. Only the slope threshold differs: 1MB/sec for native (vs 500KB/sec for heap). No new `SleuthConfig` knob added — can be added later if users request configurability.
 
 ### Files Changed
 
@@ -294,7 +294,7 @@ Native growth detection reuses `_sustainedGrowthDurationSec = 10` and `warmupDur
 | `test/detectors/memory_pressure_detector_test.dart` | `_sample` helper updated, 11 new tests in Native Memory Growth group |
 | `test/utils/fix_hint_builder_test.dart` | 3 new tests: effort level, DevTools keyword, cacheWidth keyword |
 
-No changes to: session_snapshot.dart, watchdog_controller.dart, barrel file, UI files, WatchdogConfig.
+No changes to: session_snapshot.dart, sleuth_controller.dart, barrel file, UI files, SleuthConfig.
 
 ### Spec vs. Implementation Corrections
 
@@ -349,7 +349,7 @@ All correlation uses existing fields (`stableId`, `widgetName`, `category`, `con
 | File | Change |
 |------|--------|
 | `lib/src/analyzer/detector_correlator.dart` | NEW — `DetectorCorrelator`, `CorrelationRule` abstract class, 5 rule implementations |
-| `lib/src/controller/watchdog_controller.dart` | Import, `_detectorCorrelator` field, 2-line change in `_aggregateIssues()` |
+| `lib/src/controller/sleuth_controller.dart` | Import, `_detectorCorrelator` field, 2-line change in `_aggregateIssues()` |
 | `test/analyzer/detector_correlator_test.dart` | NEW — 17 tests: 3 passthrough, 3 suppress, 4 merge, 2 GPU escalate, 1 memory escalate, 2 dedup, 2 ordering |
 
 ### Spec vs. Implementation Corrections
@@ -392,7 +392,7 @@ When a function appears at stack[0] across multiple samples, different stacks ma
 
 #### 4. No controller or FrameVerdict changes needed
 
-The controller calls `_cpuAggregator.aggregate()` and passes the result through `verdict.withTopFunctions()`. The new `callChain` and `inclusivePercentage` fields ride along in the CpuAttribution objects automatically. Zero coupling — no changes to `watchdog_controller.dart`, `frame_verdict.dart`, `session_snapshot.dart`, or `capture_buffer.dart`.
+The controller calls `_cpuAggregator.aggregate()` and passes the result through `verdict.withTopFunctions()`. The new `callChain` and `inclusivePercentage` fields ride along in the CpuAttribution objects automatically. Zero coupling — no changes to `sleuth_controller.dart`, `frame_verdict.dart`, `session_snapshot.dart`, or `capture_buffer.dart`.
 
 ### Files Changed
 
@@ -426,7 +426,7 @@ v3.5 implements Allocation-Rate Detection — on-demand per-class allocation pro
 | `topAllocators` field on `PerformanceIssue` | Done | 4 | 0 |
 | `getAllocationProfile()` on `VmServiceClient` | Done | 5 | 0 |
 | `enrichHeapGrowingIssue()` on `MemoryPressureDetector` | Done | 4 | 1 (see below) |
-| `_enrichWithAllocationProfile()` + `_extractTopAllocators()` on `WatchdogController` | Done | 0 (integration) | 1 (see below) |
+| `_enrichWithAllocationProfile()` + `_extractTopAllocators()` on `SleuthController` | Done | 0 (integration) | 1 (see below) |
 | `heapAllocationHotspot()` on `FixHintBuilder` | Removed (dead code) | 0 | 1 (see below) |
 | Barrel export | Done | 0 | 0 |
 | **Total** | **7/7** | **18** | **3** |
@@ -457,9 +457,9 @@ After `getAllocationProfile(reset: true)`, the "current" values represent alloca
 | `lib/src/models/performance_issue.dart` | `topAllocators: List<AllocationEntry>?` field, toJson/fromJson/copyWith/toString |
 | `lib/src/vm/vm_service_client.dart` | `getAllocationProfile({bool reset})` method (500ms timeout, SentinelException handling) |
 | `lib/src/detectors/memory_pressure_detector.dart` | `_lastTopAllocators` cache, `enrichHeapGrowingIssue()`, enrichment in `_evaluateHeapTrend()`, cleanup in reset/dispose |
-| `lib/src/controller/watchdog_controller.dart` | `_onHeapSample` edge trigger, `_enrichWithAllocationProfile()`, `_extractTopAllocators()`, `_isFrameworkClass()`, `_frameworkClassPrefixes`, `_AllocStat`, `_lastAllocationEnrichmentTime` cooldown |
+| `lib/src/controller/sleuth_controller.dart` | `_onHeapSample` edge trigger, `_enrichWithAllocationProfile()`, `_extractTopAllocators()`, `_isFrameworkClass()`, `_frameworkClassPrefixes`, `_AllocStat`, `_lastAllocationEnrichmentTime` cooldown |
 | `lib/src/utils/fix_hint_builder.dart` | No changes (specced `heapAllocationHotspot()` removed as dead code) |
-| `lib/widget_watchdog.dart` | `export 'src/models/allocation_entry.dart'` |
+| `lib/sleuth.dart` | `export 'src/models/allocation_entry.dart'` |
 | `test/models/allocation_entry_test.dart` | **New.** 5 tests: toJson, fromJson, roundtrip, displayBytes, toString |
 | `test/models/serialization_test.dart` | 4 new tests: topAllocators toJson, fromJson, null default, copyWith |
 | `test/utils/fix_hint_builder_test.dart` | 2 new tests: effort level, hint keywords |
@@ -523,7 +523,7 @@ The spec mentioned "add a note: Raster cache metrics unavailable (Impeller rende
 | `test/detectors/frame_timing_detector_test.dart` | `makeFrame()` helper extended with cache params, 10 new tests in Raster Cache Trends group |
 | `test/utils/fix_hint_builder_test.dart` | 4 new tests: effort levels, keyword checks |
 
-No changes to: performance_issue.dart (IssueCategory.raster already existed), watchdog_controller.dart, barrel file, session_snapshot.dart, UI files.
+No changes to: performance_issue.dart (IssueCategory.raster already existed), sleuth_controller.dart, barrel file, session_snapshot.dart, UI files.
 
 ### Spec vs. Implementation Corrections
 
@@ -545,8 +545,8 @@ Comprehensive code review of all v3 implementation changes (v3.1–v3.10, ~57 fi
 
 | Fix | File | Change |
 |-----|------|--------|
-| M1: Post-dispose async safety | `watchdog_controller.dart` | `_disposed` flag guards all `.then()` callbacks in `_enrichVerdictWithCpuAttribution` and `_enrichWithAllocationProfile` |
-| M2: Stale packageVersion | `watchdog_controller.dart` | `'0.2.0'` → `'0.5.0'` in config |
+| M1: Post-dispose async safety | `sleuth_controller.dart` | `_disposed` flag guards all `.then()` callbacks in `_enrichVerdictWithCpuAttribution` and `_enrichWithAllocationProfile` |
+| M2: Stale packageVersion | `sleuth_controller.dart` | `'0.2.0'` → `'0.5.0'` in config |
 | M3: Duplicate stableId | `nested_scroll_detector.dart` | Generic nested-scroll stableId changed from `'nested_scroll'` → `'nested_scroll_same_axis'` to distinguish from SCSV-specific `'nested_scroll'` |
 | M4: isFrameworkOwned false negatives | `animated_builder_detector.dart` | Removed `name.startsWith('_')` check — private widgets are not necessarily framework-owned |
 | M5: KeepAlive string check | `keep_alive_detector.dart` | Match both `'KeepAlive'` and `'_KeepAlive'` variants |
@@ -607,7 +607,7 @@ These are polish items deferred to a future pass. None affect correctness or per
 | ID | Description | Rationale for deferral |
 |----|-------------|----------------------|
 | M14 | Semantic labels on severity icons, JANK badge, confidence badge | Accessibility improvement — no functional impact |
-| L17 | Extract `_WatchdogColors` class for ~50 hardcoded `Color(0xFF...)` values | Maintainability — no runtime impact |
+| L17 | Extract `_SleuthColors` class for ~50 hardcoded `Color(0xFF...)` values | Maintainability — no runtime impact |
 | L19 | CPU chain display order (percentage before chain name) | UX preference — no functional impact |
 | L20 | Extract `_GuideTabContent` to const StatelessWidget | Minor build optimization — Guide tab is rarely visible |
 | L22 | Animate jank flash with `AnimatedContainer` | Visual polish — current instant flash works correctly |
@@ -616,7 +616,7 @@ These are polish items deferred to a future pass. None affect correctness or per
 
 | File | Changes |
 |------|---------|
-| `controller/watchdog_controller.dart` | `_disposed` flag + async guards, version `0.5.0` |
+| `controller/sleuth_controller.dart` | `_disposed` flag + async guards, version `0.5.0` |
 | `detectors/nested_scroll_detector.dart` | stableId `nested_scroll_same_axis` |
 | `detectors/animated_builder_detector.dart` | Removed `name.startsWith('_')` + unused variable |
 | `detectors/keep_alive_detector.dart` | Both KeepAlive variants + doc comment |
@@ -647,7 +647,7 @@ Three targeted fixes arising from manual testing of the example app overlay. 107
 
 #### 1. Eager highlight collection on first checkbox tap
 
-**File:** `controller/watchdog_controller.dart`
+**File:** `controller/sleuth_controller.dart`
 **Problem:** First checkbox tap on Issues tab always showed "Widget not currently visible" banner, even when the widget was in the tree. Highlights were only collected during the scan loop when `highlightEnabledNotifier` was already true — but on the first tap, highlighting was just enabled, so the previous scan cycle hadn't gathered them.
 **Fix:** `selectHighlightForIssue()` now calls `_collectHighlights()` eagerly if `highlightsNotifier.value` is empty. This is safe because `_collectHighlights()` just gathers already-computed highlights from each detector's last `scanTree()` — no tree walking.
 
@@ -687,7 +687,7 @@ The confidence upgrade gives these detectors +10 ranking points (from `possible`
 
 | File | Change |
 |------|--------|
-| `controller/watchdog_controller.dart` | Eager `_collectHighlights()` in `selectHighlightForIssue()` |
+| `controller/sleuth_controller.dart` | Eager `_collectHighlights()` in `selectHighlightForIssue()` |
 | `detectors/opacity_detector.dart` | `possible` → `confirmed` |
 | `detectors/layout_bottleneck_detector.dart` | `possible` → `confirmed` |
 | `test/detectors/layout_bottleneck_detector_test.dart` | Updated confidence assertion |
@@ -699,7 +699,7 @@ The confidence upgrade gives these detectors +10 ranking points (from `possible`
 
 ### Motivation
 
-The existing 15 demo screens each target a single detector in isolation. Real-world apps trigger multiple detectors simultaneously, and the correlation pipeline (suppress, merge, escalate, deduplicate) is invisible when only one issue appears at a time. Combined screens let developers see how Watchdog handles overlapping issues.
+The existing 15 demo screens each target a single detector in isolation. Real-world apps trigger multiple detectors simultaneously, and the correlation pipeline (suppress, merge, escalate, deduplicate) is invisible when only one issue appears at a time. Combined screens let developers see how Sleuth handles overlapping issues.
 
 ### Combined Demo 1: Social Feed
 
@@ -767,10 +767,10 @@ Replaced the 1,241-line `DashboardSheet` bottom sheet with a ~630-line `Floating
 | `lib/src/ui/floating_issues_card.dart` | **Created** | Draggable floating card replacing DashboardSheet. Stack-based self-positioning, GestureDetector drag on header, ConstrainedBox(300px, 55%). Preserves: export, highlight, jank correlation, warning banners. Removed: TabController, AnimationController, drag-to-expand, filter chips, FPS chart, jank flash/banner. |
 | `lib/src/ui/guide_page.dart` | **Created** | Full-screen StatelessWidget with color legend, guide steps. Shown via `_showGuide` state toggle (not Navigator — card is outside app's Navigator context). |
 | `lib/src/ui/trigger_button.dart` | **Modified** | Added `frameStatsNotifier` parameter. Shows color-coded FPS number below the circle button (green ≥50, amber ≥30, red <30). Height 56→78. |
-| `lib/src/ui/watchdog_overlay.dart` | **Modified** | Swapped DashboardSheet→FloatingIssuesCard, removed bottom-sheet Positioned wrapper, passed frameStatsNotifier to TriggerButton. |
+| `lib/src/ui/sleuth_overlay.dart` | **Modified** | Swapped DashboardSheet→FloatingIssuesCard, removed bottom-sheet Positioned wrapper, passed frameStatsNotifier to TriggerButton. |
 | `lib/src/ui/dashboard_sheet.dart` | **Deleted** | Was 1,241 lines, replaced by floating_issues_card.dart. |
 | `lib/src/ui/frame_chart.dart` | **Deleted** | FPS chart removed — FPS is now a number on TriggerButton. |
-| `lib/src/controller/watchdog_controller.dart` | **Modified** | Updated overlay self-skip from `'DashboardSheet'` to `'FloatingIssuesCard'`. |
+| `lib/src/controller/sleuth_controller.dart` | **Modified** | Updated overlay self-skip from `'DashboardSheet'` to `'FloatingIssuesCard'`. |
 | `test/ui/guide_page_test.dart` | **Created** | 2 tests: legend content, back button. |
 | `test/ui/dashboard_summary_test.dart` | **Adapted** | Removed tab navigation, deleted tab-specific test. 5 tests remain. |
 | `test/ui/jank_verdict_linking_test.dart` | **Adapted** | Deleted jank banner tests (no banner), kept JANK badge + flash tests. 4 tests remain. |
@@ -850,11 +850,11 @@ Fixed three FPS counter bugs: wrong values at startup, no target cap in UI, and 
 
 | File | Action | Details |
 |------|--------|---------|
-| `lib/src/controller/watchdog_controller.dart` | **Modified** | Moved `_frameTiming.start()` before `await client.connect()` so FPS counter captures frames during slow VM connection (1.5–10.5s). `exportSnapshot()` reads live detector buffer (`_frameTiming.frameBuffer`) when initialized, falls back to `frameStatsNotifier.value` pre-init. |
+| `lib/src/controller/sleuth_controller.dart` | **Modified** | Moved `_frameTiming.start()` before `await client.connect()` so FPS counter captures frames during slow VM connection (1.5–10.5s). `exportSnapshot()` reads live detector buffer (`_frameTiming.frameBuffer`) when initialized, falls back to `frameStatsNotifier.value` pre-init. |
 | `lib/src/models/frame_stats.dart` | **Modified** | `averageFps` changed from milliseconds to microseconds for precision. Formula: `(1,000,000 / (totalUs / length)).clamp(0, 120)`. Eliminates truncation artifacts (6.5ms → 6ms was inflating FPS by ~8%). Empty buffer → 0, zero total → 0. |
 | `lib/src/ui/floating_issues_card.dart` | **Modified** | `fpsColor` made target-aware with `{int target = 60}` parameter. Thresholds: green ≥ 83% of target, amber ≥ 50%, red below. Display FPS capped at `fpsTarget`. |
 | `lib/src/ui/trigger_button.dart` | **Modified** | Added `fpsTarget` parameter (default 60). Display FPS capped at `widget.fpsTarget`. Passes target to `fpsColor`. |
-| `lib/src/ui/watchdog_overlay.dart` | **Modified** | Wires `fpsTarget: widget.controller.config.fpsTarget` to `TriggerButton`. |
+| `lib/src/ui/sleuth_overlay.dart` | **Modified** | Wires `fpsTarget: widget.controller.config.fpsTarget` to `TriggerButton`. |
 | `test/models/frame_stats_buffer_fps_test.dart` | **Created** | 9 tests: empty buffer, single frame clamped to 120, 60Hz budget (~62.5 FPS), janky frames (~30 FPS), severe jank (10 FPS), mixed fast+janky (~45.5 FPS), zero durations, clamp to 120, raster bottleneck, sub-millisecond precision. |
 | `example/lib/main.dart` | **Modified** | Added FPS Stress Test demo screen with `AnimationController` + sorting 50k items + triple `BackdropFilter` blur to produce ~20 FPS. |
 

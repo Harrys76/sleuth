@@ -1,15 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
-import 'package:widget_watchdog/src/detectors/gpu_pressure_detector.dart';
-import 'package:widget_watchdog/src/detectors/heavy_compute_detector.dart';
-import 'package:widget_watchdog/src/detectors/memory_pressure_detector.dart';
-import 'package:widget_watchdog/src/detectors/platform_channel_detector.dart';
-import 'package:widget_watchdog/src/detectors/rebuild_detector.dart';
-import 'package:widget_watchdog/src/detectors/repaint_detector.dart';
-import 'package:widget_watchdog/src/detectors/shader_jank_detector.dart';
-import 'package:widget_watchdog/src/detectors/shallow_rebuild_risk_detector.dart';
-import 'package:widget_watchdog/src/models/phase_event.dart';
-import 'package:widget_watchdog/src/vm/timeline_parser.dart';
+import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
+import 'package:sleuth/src/detectors/heavy_compute_detector.dart';
+import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
+import 'package:sleuth/src/detectors/platform_channel_detector.dart';
+import 'package:sleuth/src/detectors/rebuild_detector.dart';
+import 'package:sleuth/src/detectors/repaint_detector.dart';
+import 'package:sleuth/src/detectors/shader_jank_detector.dart';
+import 'package:sleuth/src/detectors/shallow_rebuild_risk_detector.dart';
+import 'package:sleuth/src/models/phase_event.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 import '../helpers/benchmark_helpers.dart';
 

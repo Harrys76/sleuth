@@ -8,7 +8,7 @@ import '../models/ai_chat_adapter.dart';
 import '../models/performance_issue.dart';
 import '../utils/ai_context_builder.dart';
 import 'issue_card.dart';
-import 'watchdog_theme.dart';
+import 'sleuth_theme.dart';
 
 /// Full-screen AI chat page for contextual conversations about a specific
 /// performance issue.
@@ -141,7 +141,7 @@ class _AiChatPageState extends State<AiChatPage>
         if (!mounted) return;
         if (!kReleaseMode) {
           // ignore: avoid_print
-          print('Widget Watchdog AI error: $error');
+          print('Sleuth AI error: $error');
         }
         setState(() {
           final errorText = !kReleaseMode
@@ -174,7 +174,7 @@ class _AiChatPageState extends State<AiChatPage>
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
 
     return FadeTransition(
@@ -194,7 +194,7 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  Widget _buildHeader(WatchdogThemeData theme) {
+  Widget _buildHeader(SleuthThemeData theme) {
     final statusBarHeight = MediaQuery.paddingOf(context).top;
     return Container(
       padding: EdgeInsets.only(
@@ -239,7 +239,7 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  Widget _buildIssueContext(WatchdogThemeData theme) {
+  Widget _buildIssueContext(SleuthThemeData theme) {
     // Cap expanded card height so it can't compress the chat area to zero
     // on small screens. 40% of screen is enough for full detail + fix hint.
     final maxHeight = MediaQuery.sizeOf(context).height * 0.4;
@@ -263,7 +263,7 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  Widget _buildMessageArea(WatchdogThemeData theme) {
+  Widget _buildMessageArea(SleuthThemeData theme) {
     return ListView(
       controller: _scrollController,
       padding: EdgeInsets.symmetric(
@@ -281,7 +281,7 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  Widget _buildStarterQuestions(WatchdogThemeData theme) {
+  Widget _buildStarterQuestions(SleuthThemeData theme) {
     final questions = AiContextBuilder.starterQuestions(widget.issue);
 
     return Padding(
@@ -316,7 +316,7 @@ class _AiChatPageState extends State<AiChatPage>
   }
 
   Widget _buildAvatar({
-    required WatchdogThemeData theme,
+    required SleuthThemeData theme,
     required bool isUser,
   }) {
     // DecoratedBox (NOT Container) to avoid breaking thinking-dots test
@@ -354,7 +354,7 @@ class _AiChatPageState extends State<AiChatPage>
 
   static const double _avatarSize = 20;
 
-  Widget _buildMessageBubble(AiChatMessage msg, WatchdogThemeData theme) {
+  Widget _buildMessageBubble(AiChatMessage msg, SleuthThemeData theme) {
     final isUser = msg.role == AiChatRole.user;
     final labelInset = _avatarSize + theme.spacingMd;
 
@@ -475,7 +475,7 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  Widget _buildStreamingBubble(WatchdogThemeData theme) {
+  Widget _buildStreamingBubble(SleuthThemeData theme) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Row(
@@ -510,7 +510,7 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  Widget _buildThinkingIndicator(WatchdogThemeData theme) {
+  Widget _buildThinkingIndicator(SleuthThemeData theme) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Row(
@@ -534,7 +534,7 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  Widget _buildInputBar(WatchdogThemeData theme) {
+  Widget _buildInputBar(SleuthThemeData theme) {
     return Container(
       padding: EdgeInsets.all(theme.spacingMd),
       decoration: BoxDecoration(
@@ -634,7 +634,7 @@ class _StarterChipState extends State<_StarterChip> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
     return GestureDetector(
       onTap: widget.onTap,
       onTapDown: (_) => setState(() => _pressed = true),

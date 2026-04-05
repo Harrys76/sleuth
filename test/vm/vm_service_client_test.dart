@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
-import 'package:widget_watchdog/src/models/heap_sample.dart';
-import 'package:widget_watchdog/src/vm/timeline_parser.dart';
-import 'package:widget_watchdog/src/vm/vm_service_client.dart';
+import 'package:sleuth/src/models/heap_sample.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
+import 'package:sleuth/src/vm/vm_service_client.dart';
 
 void main() {
   // =========================================================================

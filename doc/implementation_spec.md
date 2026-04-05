@@ -1,8 +1,8 @@
-# Widget Watchdog Implementation Spec
+# Sleuth Implementation Spec
 
 ## Objective
 
-Build `widget_watchdog` into an honest in-app DevTools alternative with:
+Build `sleuth` into an honest in-app DevTools alternative with:
 
 - a mobile-first Flutter performance workflow for Android and iOS apps
 - strong default detectors that are actually trustworthy

@@ -169,7 +169,7 @@ final matches = (isUiThread &&
 
 **Part 2 — Update `_buildRankingContext()` to emit paint/layout phases:**
 
-The ranker fix alone is a production no-op because `_buildRankingContext()` (watchdog_controller.dart:1499-1525) collapses all UI-thread jank to `PipelinePhase.build`:
+The ranker fix alone is a production no-op because `_buildRankingContext()` (sleuth_controller.dart:1499-1525) collapses all UI-thread jank to `PipelinePhase.build`:
 
 ```dart
 // Current (broken — only emits build or raster):
@@ -180,7 +180,7 @@ phase = latest.uiDuration > latest.rasterDuration
 
 When VM Timeline data is available, `RenderPipelineAnalyzer.analyzeFullMode()` and `analyzeCorrelatedMode()` correctly derive fine-grained phases (build/layout/paint/raster) from actual event durations. But `_buildRankingContext()` ignores this and re-derives a coarse binary signal. The result: even with a perfect ranker, paint-phase issues never get boosted because the ranking context never says `suspectedPhase=paint`.
 
-**Fix:** Store the most recent verdict's phase directly in the controller as a dedicated field, rather than re-reading `verdictNotifier.value` and comparing against `frameBuffer.latest`. The problem with `verdict.frameNumber == latest.frameNumber` is that in correlated mode, `_onTimelineData()` selects `worstFrame` from the batch (watchdog_controller.dart:1100-1112) — which is not necessarily `frameBuffer.latest`. By the time `_buildRankingContext()` runs (called from `_aggregateIssues()` at line 1147), `frameBuffer.latest` may be a completely different frame, so the equality check silently discards valid correlated verdicts and falls back to the coarse build/raster heuristic.
+**Fix:** Store the most recent verdict's phase directly in the controller as a dedicated field, rather than re-reading `verdictNotifier.value` and comparing against `frameBuffer.latest`. The problem with `verdict.frameNumber == latest.frameNumber` is that in correlated mode, `_onTimelineData()` selects `worstFrame` from the batch (sleuth_controller.dart:1100-1112) — which is not necessarily `frameBuffer.latest`. By the time `_buildRankingContext()` runs (called from `_aggregateIssues()` at line 1147), `frameBuffer.latest` may be a completely different frame, so the equality check silently discards valid correlated verdicts and falls back to the coarse build/raster heuristic.
 
 ```dart
 // New controller field — set alongside verdictNotifier:
@@ -231,7 +231,7 @@ if (jankActive && latestIsJank) {
 
 **Why NOT cache by frameNumber map:** A map of `{frameNumber → phase}` for recent frames would be more precise, but `_buildRankingContext()` only needs the *most recent* verdict's phase to boost the right category. Multiple frames in the buffer may have different bottlenecks, but the ranker applies a single phase boost — the most recent verdict is the best signal for "what is currently janking."
 
-**Files:** `lib/src/ranking/issue_ranker.dart` (replace `_frameImpactScore` body), `lib/src/controller/watchdog_controller.dart` (update `_buildRankingContext` to read verdict phase), `test/ranking/issue_ranker_test.dart` (test: `suspectedPhase=paint` + `category=paint` → score 3, `suspectedPhase=paint` + `category=build` → score 3, `suspectedPhase=raster` + `category=paint` → score 1), `test/controller/` (controller-level test: paint-phase jank frame with VM timeline → paint-category issues ranked higher than build-category issues).
+**Files:** `lib/src/ranking/issue_ranker.dart` (replace `_frameImpactScore` body), `lib/src/controller/sleuth_controller.dart` (update `_buildRankingContext` to read verdict phase), `test/ranking/issue_ranker_test.dart` (test: `suspectedPhase=paint` + `category=paint` → score 3, `suspectedPhase=paint` + `category=build` → score 3, `suspectedPhase=raster` + `category=paint` → score 1), `test/controller/` (controller-level test: paint-phase jank frame with VM timeline → paint-category issues ranked higher than build-category issues).
 
 **Risk:** Low. Ranker fix is a direct mapping of Flutter's thread model. Controller fix reads an already-computed verdict — no new computation. The fallback preserves current behavior when VM is not connected.
 
@@ -456,7 +456,7 @@ Same pattern for KeepAliveDetector. Add a test: two ListViews both above thresho
 
 **Files:** `lib/src/detectors/global_key_detector.dart`, `lib/src/detectors/keep_alive_detector.dart`, tests.
 
-**Risk:** Low. Changes internal data model. StableId format change means existing suppressions targeting the old bare `'excessive_global_keys'` string won't match per-scrollable IDs — but `_matchesSuppression()` (watchdog_controller.dart:1491-1496) already supports prefix matching, so users can suppress with `'excessive_global_keys'` as a prefix pattern to match all per-scrollable variants.
+**Risk:** Low. Changes internal data model. StableId format change means existing suppressions targeting the old bare `'excessive_global_keys'` string won't match per-scrollable IDs — but `_matchesSuppression()` (sleuth_controller.dart:1491-1496) already supports prefix matching, so users can suppress with `'excessive_global_keys'` as a prefix pattern to match all per-scrollable variants.
 
 ---
 
@@ -527,7 +527,7 @@ The bare names (`'build'`, `'paint'`, `'layout'`) are generic English words. The
 
 **Effort:** Medium | **Theme:** Performance | **Impact:** Eliminates ~7 string allocations per scan in scan-root resolution | ✅ **Shipped**
 
-**Problem:** `WatchdogController` calls `widget.runtimeType.toString()` at 7 locations in the scan-root resolution path. Each call allocates a new String on the UI thread, per element visited:
+**Problem:** `SleuthController` calls `widget.runtimeType.toString()` at 7 locations in the scan-root resolution path. Each call allocates a new String on the UI thread, per element visited:
 
 | Line | Function | String Comparison |
 |------|----------|-------------------|
@@ -568,7 +568,7 @@ if (name.startsWith('_ModalScope')) { ... }
 
 3. **For overlay widget exclusion** (lines 714-717, 785-789), replace string comparisons with `widget is` checks using the actual imported types (`FloatingIssuesCard`, `TriggerButton`, `HighlightOverlay` — all defined in the package).
 
-**Files:** `lib/src/controller/watchdog_controller.dart` (~7 locations), no test changes needed (behavior unchanged).
+**Files:** `lib/src/controller/sleuth_controller.dart` (~7 locations), no test changes needed (behavior unchanged).
 
 **Risk:** None. Pure optimization — same behavior, fewer allocations. The `is` operator is a constant-time type check with zero allocation.
 
@@ -618,7 +618,7 @@ Two separate `.where()` iterations with closures instead of a single-pass count.
 final frames = _buffer.frames;   // allocation #2 (same scan cycle)
 ```
 
-**5. `FrameStatsBuffer.from()` per frame (watchdog_controller.dart:1202):**
+**5. `FrameStatsBuffer.from()` per frame (sleuth_controller.dart:1202):**
 
 ```dart
 frameStatsNotifier.value = FrameStatsBuffer.from(buffer);
@@ -675,9 +675,9 @@ Replaces 2× `.where().length` + 2× `.reduce()` with one loop.
 
 4. **Listener-gated buffer copy** for notifier — only run `FrameStatsBuffer.from(buffer)` when `frameStatsNotifier` has active listeners. The copy itself must still create a **new instance** because `ValueNotifier` uses identity comparison (`FrameStatsBuffer` has no custom `==`), and `ValueListenableBuilder` in `trigger_button.dart:140` and `floating_issues_card.dart:540` only rebuilds when `.value` changes identity. Reusing the same instance would suppress all FPS/jank UI updates. The optimization is skipping the copy entirely when no UI is listening, not eliminating the copy.
 
-5. **Lazy dirty-flag for `fpsPercentiles()`** — `fpsPercentiles()` is only called from `exportSnapshot()` (watchdog_controller.dart:525), not from any per-frame or per-scan hot path. Do NOT maintain a pre-sorted list incrementally on every `add()` — that would move O(N) insertion work onto the hot path to optimize a rarely-called export method. Instead, set a `_percentilesDirty = true` flag on `add()` and rebuild the cached sorted snapshot lazily on the next `fpsPercentiles()` call only when the flag is set.
+5. **Lazy dirty-flag for `fpsPercentiles()`** — `fpsPercentiles()` is only called from `exportSnapshot()` (sleuth_controller.dart:525), not from any per-frame or per-scan hot path. Do NOT maintain a pre-sorted list incrementally on every `add()` — that would move O(N) insertion work onto the hot path to optimize a rarely-called export method. Instead, set a `_percentilesDirty = true` flag on `add()` and rebuild the cached sorted snapshot lazily on the next `fpsPercentiles()` call only when the flag is set.
 
-**Files:** `lib/src/models/frame_stats.dart`, `lib/src/detectors/frame_timing_detector.dart`, `lib/src/controller/watchdog_controller.dart`, tests.
+**Files:** `lib/src/models/frame_stats.dart`, `lib/src/detectors/frame_timing_detector.dart`, `lib/src/controller/sleuth_controller.dart`, tests.
 
 **Risk:** Low. Internal data representation change. External API (`frames`, `fpsPercentiles`) unchanged in type signature. Cached `List.unmodifiable` prevents external mutation while keeping O(1) indexed access (unlike `UnmodifiableListView` over `Queue` which would be O(N)).
 
@@ -771,7 +771,7 @@ For **GlobalKeyDetector** and **KeepAliveDetector** (type-specific counting with
 
 **Effort:** Low | **Theme:** Performance | **Impact:** Reduces redundant list building in issue pipeline | ✅ **Shipped**
 
-**Problem:** `_getAllIssues()` (watchdog_controller.dart:1539-1541) flattens all detector issues into a new list:
+**Problem:** `_getAllIssues()` (sleuth_controller.dart:1539-1541) flattens all detector issues into a new list:
 
 ```dart
 List<PerformanceIssue> _getAllIssues() {
@@ -873,7 +873,7 @@ void _aggregateIssues() {
 
 This eliminates 2 intermediate list allocations per call.
 
-**Files:** `lib/src/controller/watchdog_controller.dart`, no test changes (behavior unchanged).
+**Files:** `lib/src/controller/sleuth_controller.dart`, no test changes (behavior unchanged).
 
 **Risk:** Very low. Each call-site gets a fresh snapshot. No shared mutable cache. The single-loop refactor in `_aggregateIssues` produces identical output with fewer allocations.
 
@@ -982,7 +982,7 @@ No offscreen buffer needed. `ClipOp.difference` is supported on all platforms.
 
 Length-only comparison is insufficient — `WidgetHighlight` has no `==` operator (it contains `Rect`, `String`, `IssueSeverity`, all mutable-like fields), so element-wise comparison would require adding `operator ==` and `hashCode` to `WidgetHighlight`. Instead, use a **generation counter** that increments whenever the highlight list is rebuilt. This is cheap (single `int` comparison), correct (any content change bumps the generation), and doesn't require modifying `WidgetHighlight`.
 
-**Bundle generation into the notifier payload** using a Dart record type. The controller currently exposes `highlightsNotifier` as `ValueNotifier<List<WidgetHighlight>>` (watchdog_controller.dart:171). A plain `int _highlightGeneration` field would be library-private to `watchdog_controller.dart` — `watchdog_overlay.dart` is a different library and cannot access it. More importantly, `HighlightOverlay` is a `StatelessWidget` — passing a plain `int` constructor parameter won't trigger rebuilds when the generation changes. The generation must flow through a `ValueNotifier` so `ValueListenableBuilder` can listen to it.
+**Bundle generation into the notifier payload** using a Dart record type. The controller currently exposes `highlightsNotifier` as `ValueNotifier<List<WidgetHighlight>>` (sleuth_controller.dart:171). A plain `int _highlightGeneration` field would be library-private to `sleuth_controller.dart` — `sleuth_overlay.dart` is a different library and cannot access it. More importantly, `HighlightOverlay` is a `StatelessWidget` — passing a plain `int` constructor parameter won't trigger rebuilds when the generation changes. The generation must flow through a `ValueNotifier` so `ValueListenableBuilder` can listen to it.
 
 **Fix:** Change the notifier's type to carry both generation and highlights in a single record. This keeps a single `ValueListenableBuilder` (no additional listener setup) and ensures generation changes trigger rebuilds AND reach the painter:
 
@@ -1023,7 +1023,7 @@ class HighlightOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
     return IgnorePointer(
       child: ValueListenableBuilder<({int generation, List<WidgetHighlight> items})>(
         valueListenable: highlights,
@@ -1074,9 +1074,9 @@ bool shouldRepaint(_HighlightPainter old) =>
 **Why this works:** Dart records have structural equality — `(generation: 1, items: [...])` ≠ `(generation: 2, items: [...])` — so `ValueNotifier` will always notify on generation bump even if the list contents happen to be identical references. This eliminates the stale-`shouldRepaint` bug.
 
 **Update callers:** All existing code that reads `highlightsNotifier.value` as a `List<WidgetHighlight>` must be updated to read `.items`:
-- `selectHighlightForIssue()` (watchdog_controller.dart:202,205): `highlightsNotifier.value.items`
-- `refreshHighlights()` path (watchdog_controller.dart:655,696): already handled by direct-clear pattern above
-- `watchdog_overlay.dart:72`: `highlights: widget.controller.highlightsNotifier` — type change is transparent, `HighlightOverlay`'s parameter type matches.
+- `selectHighlightForIssue()` (sleuth_controller.dart:202,205): `highlightsNotifier.value.items`
+- `refreshHighlights()` path (sleuth_controller.dart:655,696): already handled by direct-clear pattern above
+- `sleuth_overlay.dart:72`: `highlights: widget.controller.highlightsNotifier` — type change is transparent, `HighlightOverlay`'s parameter type matches.
 
 This catches all content changes (rect moved after scroll, severity changed, detail updated) because any controller-side update increments the generation. Same-content rebuilds still trigger repaint — but the highlight list is only rebuilt on actual scan completion, not on every frame, so this is acceptable overhead.
 
@@ -1084,9 +1084,9 @@ This catches all content changes (rect moved after scroll, severity changed, det
 
 `_collectHighlights()` publishes new `WidgetHighlight` objects with fresh rects (after scroll/rescan), but `selectedHighlightNotifier.value` still holds the **old** `WidgetHighlight` object with stale `rect`. The painter uses `selected.rect` to draw the selected border, so it points at the wrong coordinates even though markers moved.
 
-**Current code path:** `refreshHighlights()` (watchdog_controller.dart:942-951) calls `_runStructuralScans()` then `_collectHighlights()`. Detectors regenerate highlights with updated rects, but `selectedHighlightNotifier` is never updated — it retains the old object.
+**Current code path:** `refreshHighlights()` (sleuth_controller.dart:942-951) calls `_runStructuralScans()` then `_collectHighlights()`. Detectors regenerate highlights with updated rects, but `selectedHighlightNotifier` is never updated — it retains the old object.
 
-**Fix:** After `_collectHighlights()` publishes the new list, resolve the current selection against the fresh highlights. `selectHighlightForIssue()` already matches by `widgetName` or `detectorName` (watchdog_controller.dart:208-228), but we need a lighter mechanism — match by `detectorName + widgetName` within the new list:
+**Fix:** After `_collectHighlights()` publishes the new list, resolve the current selection against the fresh highlights. `selectHighlightForIssue()` already matches by `widgetName` or `detectorName` (sleuth_controller.dart:208-228), but we need a lighter mechanism — match by `detectorName + widgetName` within the new list:
 
 ```dart
 void _collectHighlights() {
@@ -1109,7 +1109,7 @@ void _collectHighlights() {
 
 This ensures the selected border tracks the widget's current position after scroll/rescan, and clears the selection if the widget is no longer in the tree. Add a test: select a highlight → scroll → call `refreshHighlights()` → assert `selectedHighlightNotifier.value.rect` matches the new position.
 
-**Files:** `lib/src/ui/highlight_overlay.dart`, `lib/src/ui/watchdog_overlay.dart` (type change is transparent), `lib/src/controller/watchdog_controller.dart` (change notifier type, add generation counter, update all `.value` reads to `.value.items`, rebind selected highlight), tests.
+**Files:** `lib/src/ui/highlight_overlay.dart`, `lib/src/ui/sleuth_overlay.dart` (type change is transparent), `lib/src/controller/sleuth_controller.dart` (change notifier type, add generation counter, update all `.value` reads to `.value.items`, rebind selected highlight), tests.
 
 **Risk:** Low. The overlay is diagnostic UI — visual fidelity matters less than in app UI. The clip-based approach produces the same visual result without `saveLayer`. The generation counter adds 1 int field — negligible. The selection rebind adds one linear scan of highlights (typically <20 items) per refresh — negligible.
 
@@ -1119,7 +1119,7 @@ This ensures the selected border tracks the widget's current position after scro
 
 **Effort:** Very Low | **Theme:** Correctness | **Impact:** Makes tree-walk failures diagnosable
 
-**Problem:** Two locations in `WatchdogController` silently swallow exceptions:
+**Problem:** Two locations in `SleuthController` silently swallow exceptions:
 
 **Line 731:**
 
@@ -1147,7 +1147,7 @@ try {
   root.visitChildElements(visitor);
 } catch (e, s) {
   assert(() {
-    debugPrint('Widget Watchdog: tree walk failed: $e\n$s');
+    debugPrint('Sleuth: tree walk failed: $e\n$s');
     return true;
   }());
 }
@@ -1155,7 +1155,7 @@ try {
 
 The `assert(() { ... return true; }())` pattern ensures the log is compiled out in profile/release mode (zero overhead), while making failures visible during development.
 
-**Files:** `lib/src/controller/watchdog_controller.dart` (2 locations), no tests needed.
+**Files:** `lib/src/controller/sleuth_controller.dart` (2 locations), no tests needed.
 
 **Risk:** None. Catch behavior unchanged. Only adds debug-mode logging.
 
@@ -1165,7 +1165,7 @@ The `assert(() { ... return true; }())` pattern ensures the log is compiled out 
 
 **Effort:** Very Low | **Theme:** Correctness | **Impact:** Prevents potential crash on detached context
 
-**Problem:** `_currentRouteName()` (watchdog_controller.dart:1429-1433) calls `ModalRoute.of(ctx)` without checking if `ctx` is still mounted:
+**Problem:** `_currentRouteName()` (sleuth_controller.dart:1429-1433) calls `ModalRoute.of(ctx)` without checking if `ctx` is still mounted:
 
 ```dart
 String? _currentRouteName() {
@@ -1189,7 +1189,7 @@ String? _currentRouteName() {
 }
 ```
 
-**Files:** `lib/src/controller/watchdog_controller.dart` (1 line), no tests needed.
+**Files:** `lib/src/controller/sleuth_controller.dart` (1 line), no tests needed.
 
 **Risk:** None. Strictly additive guard. Returns null instead of risking an invalid ancestor walk.
 

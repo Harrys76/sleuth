@@ -5,10 +5,10 @@ import '../vm/timeline_parser.dart';
 import 'performance_issue.dart';
 import 'widget_highlight.dart';
 
-/// Available detector types for configuration via [WatchdogConfig.enabledDetectors].
+/// Available detector types for configuration via [SleuthConfig.enabledDetectors].
 ///
 /// Each value corresponds to one of the 22 performance detectors.
-/// Pass a subset to [WatchdogConfig] to enable only specific detectors.
+/// Pass a subset to [SleuthConfig] to enable only specific detectors.
 enum DetectorType {
   frameTiming,
   shaderJank,
@@ -146,7 +146,7 @@ abstract class BaseDetector {
       notifyWalkCompleted();
     } catch (e, s) {
       assert(() {
-        debugPrint('Widget Watchdog: detector tree walk failed: $e\n$s');
+        debugPrint('Sleuth: detector tree walk failed: $e\n$s');
         return true;
       }());
     }

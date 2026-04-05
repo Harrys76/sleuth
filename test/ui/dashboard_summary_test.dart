@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/ui/floating_issues_card.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/ui/floating_issues_card.dart';
 
 PerformanceIssue _testIssue({
   IssueSeverity severity = IssueSeverity.warning,
@@ -23,10 +23,10 @@ PerformanceIssue _testIssue({
 
 void main() {
   group('Issues summary bar', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 

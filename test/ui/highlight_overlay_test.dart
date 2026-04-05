@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
-import 'package:widget_watchdog/src/models/widget_highlight.dart';
-import 'package:widget_watchdog/src/ui/highlight_overlay.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/models/widget_highlight.dart';
+import 'package:sleuth/src/ui/highlight_overlay.dart';
 
 void main() {
   Widget wrap(Widget child) {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
-import 'watchdog_theme.dart';
+import 'sleuth_theme.dart';
 
 /// Two-mode highlight overlay:
 ///
@@ -23,7 +23,7 @@ class HighlightOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
     return IgnorePointer(
       child: ValueListenableBuilder<
           ({int generation, List<WidgetHighlight> items})>(
@@ -61,7 +61,7 @@ class _HighlightPainter extends CustomPainter {
   final List<WidgetHighlight> highlights;
   final int generation;
   final WidgetHighlight? selected;
-  final WatchdogThemeData theme;
+  final SleuthThemeData theme;
 
   static const _markerSize = 8.0;
 

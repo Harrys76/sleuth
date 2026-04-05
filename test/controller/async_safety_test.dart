@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/src/models/heap_sample.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/heap_sample.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 
@@ -12,7 +12,7 @@ void main() {
 
   group('Heap sample dispose guard', () {
     test('_onHeapSample is no-op after dispose', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.simulateVmStateChangeForTest(true);
       controller.dispose();
@@ -28,7 +28,7 @@ void main() {
     });
 
     test('heap sample before dispose processes normally', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.simulateVmStateChangeForTest(true);
 
@@ -48,7 +48,7 @@ void main() {
 
   group('CPU attribution dispose safety', () {
     test('dispose does not crash with pending enrichment', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.simulateVmStateChangeForTest(true);
 
@@ -64,7 +64,7 @@ void main() {
 
   group('Allocation enrichment dispose safety', () {
     test('enrichment method returns early when vmClient is null', () async {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       // Don't connect VM — _vmClient is null.
 
@@ -84,7 +84,7 @@ void main() {
     });
 
     test('dispose during allocation enrichment delay does not crash', () async {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.simulateVmStateChangeForTest(true);
 
@@ -111,7 +111,7 @@ void main() {
 
   group('Enrichment error visibility', () {
     test('CPU attribution failure does not crash controller', () {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.simulateVmStateChangeForTest(true);
 
@@ -124,7 +124,7 @@ void main() {
     });
 
     test('allocation enrichment failure does not crash controller', () async {
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.simulateVmStateChangeForTest(true);
 
@@ -156,7 +156,7 @@ void main() {
         ),
       );
 
-      final controller = WatchdogController();
+      final controller = SleuthController();
       controller.initializeDetectorsForTest();
       controller.simulateVmStateChangeForTest(true);
 

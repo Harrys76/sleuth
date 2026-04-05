@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/models/allocation_entry.dart';
+import 'package:sleuth/src/models/allocation_entry.dart';
 
 void main() {
   group('AllocationEntry', () {

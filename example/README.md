@@ -1,4 +1,4 @@
-# Widget Watchdog Example
+# Sleuth Example
 
 Demo app with 15 screens, each triggering specific performance detectors.
 

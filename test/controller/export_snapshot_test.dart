@@ -2,17 +2,17 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/widget_watchdog.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/sleuth.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 
 void main() {
   group('exportSnapshot', () {
-    late WatchdogController controller;
+    late SleuthController controller;
 
     setUp(() {
-      controller = WatchdogController();
+      controller = SleuthController();
       controller.initializeDetectorsForTest();
     });
 
@@ -115,8 +115,8 @@ void main() {
     });
 
     test('captureBufferCapacity config respected', () {
-      final smallController = WatchdogController(
-        config: const WatchdogConfig(captureBufferCapacity: 2),
+      final smallController = SleuthController(
+        config: const SleuthConfig(captureBufferCapacity: 2),
       );
       smallController.initializeDetectorsForTest();
 
@@ -136,7 +136,7 @@ void main() {
     test('export before initialize returns empty snapshot', () {
       // Fresh controller without calling initializeDetectorsForTest.
       // Don't dispose — late final detectors haven't been initialized.
-      final fresh = WatchdogController();
+      final fresh = SleuthController();
       final snapshot = fresh.exportSnapshot();
 
       expect(snapshot.capturedFrames, isEmpty);
@@ -326,7 +326,7 @@ void main() {
     });
 
     test('pre-init export has null for v2 optional fields', () {
-      final fresh = WatchdogController();
+      final fresh = SleuthController();
       final snapshot = fresh.exportSnapshot();
 
       expect(snapshot.phaseEvents, isNull);

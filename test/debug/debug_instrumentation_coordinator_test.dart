@@ -1,8 +1,8 @@
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/debug/debug_instrumentation_coordinator.dart';
-import 'package:widget_watchdog/src/debug/debug_snapshot.dart';
+import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
+import 'package:sleuth/src/debug/debug_snapshot.dart';
 
 void main() {
   group('DebugInstrumentationCoordinator', () {

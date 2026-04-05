@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/frame_stats.dart';
 import '../models/performance_issue.dart';
-import 'watchdog_theme.dart';
+import 'sleuth_theme.dart';
 
 /// Draggable 🐕 trigger button with issue count badge and live FPS number.
 ///
@@ -43,7 +43,7 @@ class _TriggerButtonState extends State<TriggerButton> {
           (constraints.maxWidth - 72).clamp(0, constraints.maxWidth - 56),
           (constraints.maxHeight * 0.4).clamp(0, constraints.maxHeight - 78),
         );
-        final theme = WatchdogTheme.of(context);
+        final theme = SleuthTheme.of(context);
         return GestureDetector(
           onPanUpdate: (details) {
             setState(() {

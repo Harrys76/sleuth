@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/controller/watchdog_controller.dart';
-import 'package:widget_watchdog/widget_watchdog.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/sleuth.dart';
 
 void main() {
-  group('WidgetWatchdog static export API', () {
+  group('Sleuth static export API', () {
     tearDown(() {
       // Ensure clean state between tests
       // ignore: invalid_use_of_visible_for_testing_member
-      WidgetWatchdog.notifyControllerDisposed(
+      Sleuth.notifyControllerDisposed(
         // Call with a dummy to not accidentally clear a real one.
         // The real cleanup happens when the widget is disposed.
         _DummyController(),
@@ -16,44 +16,44 @@ void main() {
     });
 
     test('returns null before wrap()', () {
-      expect(WidgetWatchdog.exportSnapshot(), isNull);
-      expect(WidgetWatchdog.exportSnapshotJson(), isNull);
+      expect(Sleuth.exportSnapshot(), isNull);
+      expect(Sleuth.exportSnapshotJson(), isNull);
     });
 
     testWidgets('returns non-null after wrap()', (tester) async {
-      final widget = WidgetWatchdog.wrap(
+      final widget = Sleuth.track(
         child: const MaterialApp(home: Scaffold()),
       );
       await tester.pumpWidget(widget);
 
-      expect(WidgetWatchdog.exportSnapshot(), isNotNull);
-      expect(WidgetWatchdog.exportSnapshotJson(), isNotNull);
+      expect(Sleuth.exportSnapshot(), isNotNull);
+      expect(Sleuth.exportSnapshotJson(), isNotNull);
 
-      final snapshot = WidgetWatchdog.exportSnapshot()!;
+      final snapshot = Sleuth.exportSnapshot()!;
       expect(snapshot.packageVersion, isNotEmpty);
     });
 
     testWidgets('returns null after overlay dispose', (tester) async {
-      // Pump the watchdog overlay
+      // Pump the sleuth overlay
       final key = UniqueKey();
       await tester.pumpWidget(
         KeyedSubtree(
           key: key,
-          child: WidgetWatchdog.wrap(
+          child: Sleuth.track(
             child: const MaterialApp(home: Scaffold()),
           ),
         ),
       );
-      expect(WidgetWatchdog.exportSnapshot(), isNotNull);
+      expect(Sleuth.exportSnapshot(), isNotNull);
 
-      // Replace with an empty widget — triggers WatchdogOverlay.dispose()
+      // Replace with an empty widget — triggers SleuthOverlay.dispose()
       await tester.pumpWidget(const SizedBox());
 
-      expect(WidgetWatchdog.exportSnapshot(), isNull);
-      expect(WidgetWatchdog.exportSnapshotJson(), isNull);
+      expect(Sleuth.exportSnapshot(), isNull);
+      expect(Sleuth.exportSnapshotJson(), isNull);
     });
   });
 }
 
 /// Dummy controller for tearDown cleanup.
-class _DummyController extends WatchdogController {}
+class _DummyController extends SleuthController {}

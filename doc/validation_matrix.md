@@ -1,4 +1,4 @@
-# Widget Watchdog Validation Matrix
+# Sleuth Validation Matrix
 
 ## Purpose
 
@@ -57,7 +57,7 @@ Release readiness is evaluated against this written matrix, not ad hoc spot chec
 **Key:**
 - "Best-effort" = VM may or may not connect; package falls back to FRAME mode gracefully
 - "Good" = VM connects reliably in practice
-- "Available if enabled" = debug callbacks work if `WatchdogConfig(enableDebugCallbacks: true)`
+- "Available if enabled" = debug callbacks work if `SleuthConfig(enableDebugCallbacks: true)`
 - "Not available" = debug callbacks are debug-only; not available in profile mode
 - "Always" = works regardless of VM connectivity
 

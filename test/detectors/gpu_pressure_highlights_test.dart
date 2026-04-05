@@ -2,7 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/detectors/gpu_pressure_detector.dart';
+import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
 
 void main() {
   group('GpuPressureDetector highlights', () {

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/models/phase_event.dart';
-import 'package:widget_watchdog/src/analyzer/frame_event_correlator.dart';
+import 'package:sleuth/src/models/phase_event.dart';
+import 'package:sleuth/src/analyzer/frame_event_correlator.dart';
 
 void main() {
   group('PhaseEvent', () {

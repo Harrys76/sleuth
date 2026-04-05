@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
-import 'package:widget_watchdog/src/models/phase_event.dart';
-import 'package:widget_watchdog/src/vm/timeline_parser.dart';
+import 'package:sleuth/src/models/phase_event.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 TimelineEvent _makeEvent({
   required String name,

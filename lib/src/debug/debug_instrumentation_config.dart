@@ -2,7 +2,7 @@
 ///
 /// Fields express **profiler intent** rather than raw Flutter globals.
 /// Sub-flags only take effect when their parent top-level switch is enabled
-/// on [WatchdogConfig]:
+/// on [SleuthConfig]:
 ///
 /// - [rebuildAttribution] and [paintAttribution] are gated by
 ///   `enableDebugCallbacks`.

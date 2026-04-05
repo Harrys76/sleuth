@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 void main() {
   group('PerformanceIssue routeName', () {

@@ -115,7 +115,7 @@ This intercepts **all** `HttpClient` creation at the dart:io level, meaning
 any package that ultimately uses dart:io (including `http`, `dio` when on
 native) is captured transparently — no per-client wiring needed.
 
-**Relevance to widget_watchdog**: This is the only approach that provides
+**Relevance to sleuth**: This is the only approach that provides
 truly automatic interception without requiring the app developer to modify
 their HTTP client setup.  However:
 - Only works on native platforms (not web).
@@ -239,7 +239,7 @@ and call:
 - `getAllocationProfile(isolateId, gc: true)` — forces GC and returns per-class
   allocation counts
 
-**This is what widget_watchdog already uses** (via VmServiceClient) for GC
+**This is what sleuth already uses** (via VmServiceClient) for GC
 event listening.  The existing `onGcEvent` callback receives GC events.
 
 **Profile mode**: Works in profile mode.  vm_service connection depends on
@@ -319,7 +319,7 @@ drops to approximately zero.
 - `statsfl` — simple FPS chart overlay using addTimingsCallback
 - `flutter_performance_monitor_plus` — full overlay with FPS, jank, build/raster times
 - `flutter_perf_monitor` — real-time FPS + memory overlay
-- **widget_watchdog** already uses this via `FrameTimingDetector`
+- **sleuth** already uses this via `FrameTimingDetector`
 
 **Key insight**: This is the universal, proven, cross-platform approach for
 frame-level performance monitoring.  Every in-app performance package uses it.
@@ -334,7 +334,7 @@ frame-level performance monitoring.  Every in-app performance package uses it.
 appear alongside framework events (build, layout, paint) in DevTools and
 in `getVMTimeline()` output.
 
-**Relevance**: widget_watchdog already consumes timeline events via
+**Relevance**: sleuth already consumes timeline events via
 `getVMTimeline()`.  Custom tracing allows apps to mark expensive operations
 for correlation with frame data.
 
@@ -349,7 +349,7 @@ for correlation with frame data.
 | getCpuSamples               | Stack-sampled CPU time | Yes                  | Yes           | No (DevTools only)    |
 | addTimingsCallback          | Frame build/raster     | No                   | Yes           | Many (statsfl, etc.)  |
 | Timeline.startSync          | Custom trace sections  | No (to emit)         | Yes           | N/A (manual)          |
-| getVMTimeline               | All timeline events    | Yes                  | Yes           | widget_watchdog       |
+| getVMTimeline               | All timeline events    | Yes                  | Yes           | sleuth       |
 
 **Key insight**: No published package has attempted in-app `getCpuSamples`
 consumption.  The serialization cost and the difficulty of building a
@@ -419,9 +419,9 @@ combined with element tree walking, or timeline events when
 
 ---
 
-### 4.4 What widget_watchdog already does
+### 4.4 What sleuth already does
 
-widget_watchdog's `RebuildDetector` and `ShallowRebuildRiskDetector` consume
+sleuth's `RebuildDetector` and `ShallowRebuildRiskDetector` consume
 timeline events containing widget build data.  This works when:
 1. VM service is connected
 2. `debugProfileBuildsEnabled` is true (debug mode only)
@@ -441,7 +441,7 @@ This is the same approach DevTools uses, but consumed in-app.
 **Key insight**: There is no way to get per-widget rebuild counts in profile
 mode without wrapping widgets.  `debugProfileBuildsEnabled` is debug-only.
 The wrapper approach (performance_profiler) works in profile mode but requires
-developer effort.  widget_watchdog's structural/heuristic detectors are the
+developer effort.  sleuth's structural/heuristic detectors are the
 right fallback for profile mode.
 
 ---
@@ -459,7 +459,7 @@ right fallback for profile mode.
 - Embedder events (raster, VSync)
 - GC events
 
-**widget_watchdog already uses this** via `VmServiceClient._pollTimeline()`
+**sleuth already uses this** via `VmServiceClient._pollTimeline()`
 every 500ms.  The `TimelineParser` processes these events.
 
 **Timeline streams**: Controlled via `setVMTimelineFlags(['Dart', 'Embedder', 'GC'])`.
@@ -506,12 +506,12 @@ These events appear in the same stream as framework events and can be correlated
 
 | Approach                     | Direction  | Runtime? | Profile mode? | Package support?       |
 |------------------------------|------------|----------|---------------|------------------------|
-| getVMTimeline                | Consume    | Yes      | Yes           | widget_watchdog        |
+| getVMTimeline                | Consume    | Yes      | Yes           | sleuth        |
 | Integration test tracing     | Consume    | Test     | Yes           | integration_test       |
 | Timeline.startSync/finishSync| Emit       | Yes      | Yes           | dart:developer (stdlib)|
 | setVMTimelineFlags           | Configure  | Yes      | Yes           | vm_service             |
 
-**Key insight**: widget_watchdog is one of the only packages that consumes
+**Key insight**: sleuth is one of the only packages that consumes
 timeline events at runtime for in-app analysis.  Most packages either emit
 events (for DevTools to consume) or consume them only during integration tests.
 This is a genuine differentiator.
@@ -549,11 +549,11 @@ memory allocation profiles) from within the app itself.
   `Service.controlWebServer(enable: true)` and retry
 - Android real devices: the reported URI often uses `127.0.0.1` which is
   the host machine's loopback, not the device's
-- Connection timeout needed (widget_watchdog uses 3 seconds)
+- Connection timeout needed (sleuth uses 3 seconds)
 - DDS (Dart Development Service) may intercept the connection in some
   configurations
 
-**widget_watchdog's approach** (fallback to BASIC mode on connection failure)
+**sleuth's approach** (fallback to BASIC mode on connection failure)
 is the correct pattern — this matches what the landscape shows.
 
 ---
@@ -594,12 +594,12 @@ HTTP inspection, logging, and developer tools in one package.
 
 ---
 
-## 8. What This Means for widget_watchdog
+## 8. What This Means for sleuth
 
 ### Proven feasible by the landscape
 
 1. **Frame timing overlay** (addTimingsCallback) — universally adopted, works
-   in profile mode, near-zero overhead.  widget_watchdog already has this.
+   in profile mode, near-zero overhead.  sleuth already has this.
 
 2. **Network interception** — per-client interceptors (Alice pattern) are the
    standard.  HttpOverrides.global is the only auto-capture approach but has
@@ -609,9 +609,9 @@ HTTP inspection, logging, and developer tools in one package.
    everywhere except web.  Good enough for trend monitoring.
 
 4. **VM service self-connection** — feasible on iOS and desktop, unreliable on
-   Android.  widget_watchdog already handles this correctly with fallback.
+   Android.  sleuth already handles this correctly with fallback.
 
-5. **Timeline event consumption at runtime** — widget_watchdog is ahead of the
+5. **Timeline event consumption at runtime** — sleuth is ahead of the
    curve here.  No other published package does this.
 
 6. **Leak detection via WeakReference + Finalizer** — proven by leak_tracker,
@@ -631,9 +631,9 @@ HTTP inspection, logging, and developer tools in one package.
    why an object is retained, but no package uses this at runtime.  Very
    expensive.
 
-### widget_watchdog's unique position
+### sleuth's unique position
 
-widget_watchdog is the only package that:
+sleuth is the only package that:
 - Consumes VM timeline events at runtime for in-app analysis
 - Combines frame timing + timeline + structural heuristics
 - Has graceful degradation from full VM mode to basic mode

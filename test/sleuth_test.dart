@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/widget_watchdog.dart';
-import 'package:widget_watchdog/src/vm/timeline_parser.dart';
+import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 void main() {
   group('PerformanceIssue', () {

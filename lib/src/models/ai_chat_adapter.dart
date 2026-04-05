@@ -144,11 +144,11 @@ class AiChatAdapter {
   final Stream<String> Function(AiChatRequest request) sendMessage;
 
   /// URL patterns the adapter's provider uses, auto-merged with
-  /// [WatchdogConfig.networkExcludePatterns] so the network monitor
+  /// [SleuthConfig.networkExcludePatterns] so the network monitor
   /// ignores AI API traffic.
   ///
   /// Built-in factory constructors set this automatically. Custom adapters
   /// can set it manually or rely on the host app adding patterns to
-  /// [WatchdogConfig.networkExcludePatterns] directly.
+  /// [SleuthConfig.networkExcludePatterns] directly.
   final List<String>? networkExcludePatterns;
 }

@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/utils/source_location_cache.dart';
+import 'package:sleuth/src/utils/source_location_cache.dart';
 
 void main() {
   group('SourceLocationCache.abbreviatePath', () {

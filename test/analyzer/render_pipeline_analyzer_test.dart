@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/analyzer/frame_event_correlator.dart';
-import 'package:widget_watchdog/src/analyzer/render_pipeline_analyzer.dart';
-import 'package:widget_watchdog/src/models/frame_stats.dart';
-import 'package:widget_watchdog/src/models/frame_verdict.dart';
-import 'package:widget_watchdog/src/vm/timeline_parser.dart';
+import 'package:sleuth/src/analyzer/frame_event_correlator.dart';
+import 'package:sleuth/src/analyzer/render_pipeline_analyzer.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
+import 'package:sleuth/src/models/frame_verdict.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 void main() {
   group('RenderPipelineAnalyzer basic mode', () {

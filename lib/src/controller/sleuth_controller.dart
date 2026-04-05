@@ -12,7 +12,7 @@ import 'package:vm_service/vm_service.dart' show AllocationProfile, Event;
 import '../ui/floating_issues_card.dart';
 import '../ui/highlight_overlay.dart';
 import '../ui/trigger_button.dart';
-import '../ui/watchdog_theme.dart';
+import '../ui/sleuth_theme.dart';
 import '../analyzer/detector_correlator.dart';
 import '../analyzer/frame_event_correlator.dart';
 import '../analyzer/render_pipeline_analyzer.dart';
@@ -62,16 +62,16 @@ import '../vm/vm_service_client.dart';
 import '../vm/timeline_parser.dart';
 
 /// Central controller aggregating all detectors and the pipeline analyzer.
-class WatchdogController {
-  WatchdogController({WatchdogConfig? config})
-      : config = config ?? const WatchdogConfig(),
+class SleuthController {
+  SleuthController({SleuthConfig? config})
+      : config = config ?? const SleuthConfig(),
         _captureBuffer = JankCaptureBuffer(
-          capacity: (config ?? const WatchdogConfig()).captureBufferCapacity,
+          capacity: (config ?? const SleuthConfig()).captureBufferCapacity,
         ) {
     _compileSuppressions();
   }
 
-  final WatchdogConfig config;
+  final SleuthConfig config;
 
   // Precompiled suppression patterns (v6.15).
   late final Set<String> _exactSuppressions;
@@ -99,7 +99,7 @@ class WatchdogController {
   late final NetworkMonitorDetector _networkMonitor;
 
   // HTTP override proxy (not a detector)
-  WatchdogHttpOverrides? _httpOverrides;
+  SleuthHttpOverrides? _httpOverrides;
 
   // Ranking & correlation
   final DetectorCorrelator _detectorCorrelator = const DetectorCorrelator();
@@ -316,7 +316,7 @@ class WatchdogController {
     _syncVmState(connected);
   }
 
-  /// Merges user-configured [WatchdogConfig.networkExcludePatterns] with
+  /// Merges user-configured [SleuthConfig.networkExcludePatterns] with
   /// adapter-provided [AiChatAdapter.networkExcludePatterns] without mutating
   /// either source list.
   List<String>? _mergedExcludePatterns() {
@@ -337,13 +337,13 @@ class WatchdogController {
     // Install HTTP monitoring proxy before any network requests start
     if (config.enableNetworkMonitoring &&
         config.enabledDetectors.contains(DetectorType.networkMonitor)) {
-      _httpOverrides = WatchdogHttpOverrides(
+      _httpOverrides = SleuthHttpOverrides(
         onRecord: _networkMonitor.processRecord,
         onRequestStarted: _networkMonitor.startRequest,
         onRequestEnded: _networkMonitor.endRequest,
         excludePatterns: _mergedExcludePatterns(),
       );
-      WatchdogHttpOverrides.install(_httpOverrides!);
+      SleuthHttpOverrides.install(_httpOverrides!);
     }
 
     _installDebugInstrumentation();
@@ -757,7 +757,7 @@ class WatchdogController {
       root.visitChildElements(visitor);
     } catch (e, s) {
       assert(() {
-        debugPrint('Widget Watchdog: scaffold search failed: $e\n$s');
+        debugPrint('Sleuth: scaffold search failed: $e\n$s');
         return true;
       }());
     }
@@ -986,7 +986,7 @@ class WatchdogController {
   ///
   /// Called by the overlay's [NotificationListener] which is scoped to the
   /// app child only (not the dashboard). Scroll notifications from the
-  /// watchdog UI are excluded.
+  /// sleuth UI are excluded.
   void onScrollActivity(ScrollNotification notification) {
     if (_interactionState == InteractionContext.navigating) return;
     if (notification is ScrollStartNotification) {
@@ -1049,7 +1049,7 @@ class WatchdogController {
       walkCompleted = true;
     } catch (e, s) {
       assert(() {
-        debugPrint('Widget Watchdog: tree walk failed: $e\n$s');
+        debugPrint('Sleuth: tree walk failed: $e\n$s');
         return true;
       }());
     }
@@ -1364,7 +1364,7 @@ class WatchdogController {
       _captureBuffer.updateVerdict(frame.frameNumber, enriched);
     }).catchError((Object e) {
       assert(() {
-        debugPrint('Watchdog: CPU attribution failed: $e');
+        debugPrint('Sleuth: CPU attribution failed: $e');
         return true;
       }());
     });
@@ -1401,7 +1401,7 @@ class WatchdogController {
       _aggregateIssues();
     } catch (e) {
       assert(() {
-        debugPrint('Watchdog: allocation enrichment failed: $e');
+        debugPrint('Sleuth: allocation enrichment failed: $e');
         return true;
       }());
     }
@@ -1704,7 +1704,7 @@ class WatchdogController {
 
     // Restore HttpOverrides before disposing detector
     if (_httpOverrides != null) {
-      WatchdogHttpOverrides.uninstall(_httpOverrides!);
+      SleuthHttpOverrides.uninstall(_httpOverrides!);
       _httpOverrides = null;
     }
 
@@ -1732,9 +1732,9 @@ class WatchdogController {
   }
 }
 
-/// Configuration for [WatchdogController].
-class WatchdogConfig {
-  const WatchdogConfig({
+/// Configuration for [SleuthController].
+class SleuthConfig {
+  const SleuthConfig({
     this.theme,
     this.fpsTarget = 60,
     this.rebuildThreshold = 10,
@@ -1769,16 +1769,16 @@ class WatchdogConfig {
   ///
   /// ```dart
   /// // Force light theme
-  /// WatchdogConfig(theme: WatchdogThemeData.light())
+  /// SleuthConfig(theme: SleuthThemeData.light())
   ///
   /// // Light theme with custom severity colors
-  /// WatchdogConfig(
-  ///   theme: WatchdogThemeData.light().copyWith(
+  /// SleuthConfig(
+  ///   theme: SleuthThemeData.light().copyWith(
   ///     severityCritical: Color(0xFFDC2626),
   ///   ),
   /// )
   /// ```
-  final WatchdogThemeData? theme;
+  final SleuthThemeData? theme;
 
   /// Target frames per second (60 or 120). Drives jank detection thresholds.
   final int fpsTarget;
@@ -1880,7 +1880,7 @@ class WatchdogConfig {
   ///
   /// Use a built-in factory for zero-config setup:
   /// ```dart
-  /// WatchdogConfig(
+  /// SleuthConfig(
   ///   aiChat: AiChatAdapter.anthropic(apiKey: myKey),
   /// )
   /// ```

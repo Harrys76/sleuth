@@ -1,6 +1,6 @@
 ## UI Features: Issue Encyclopedia, AI Chat & Overlay Polish
 
-Origin: Feature expansion to make Widget Watchdog a complete in-app diagnostics experience — not just detection, but education and AI-assisted resolution. Shipped across v2.5.0 and subsequent polish passes.
+Origin: Feature expansion to make Sleuth a complete in-app diagnostics experience — not just detection, but education and AI-assisted resolution. Shipped across v2.5.0 and subsequent polish passes.
 
 **Feature groups:**
 - **Issue Encyclopedia** — searchable educational deep-dives for every detector type
@@ -76,7 +76,7 @@ class AiChatAdapter {
 - Google factory sends API key via `x-goog-api-key` header (not query param) to prevent network monitoring leakage
 - All factories auto-populate `networkExcludePatterns` so the AI provider's own traffic doesn't trigger the network detector
 
-**Configuration:** Set via `WatchdogConfig(aiChat: AiChatAdapter.anthropic(apiKey: myKey))`. When `aiChat` is null, the "Ask AI" link is hidden on all IssueCards.
+**Configuration:** Set via `SleuthConfig(aiChat: AiChatAdapter.anthropic(apiKey: myKey))`. When `aiChat` is null, the "Ask AI" link is hidden on all IssueCards.
 
 #### ai_providers.dart — SSE Streaming Implementation
 
@@ -151,7 +151,7 @@ Also generates **starter questions** — contextual prompts relevant to the spec
 - `AnimatedBuilder` with static `child` — only the `ShaderMask` wrapper rebuilds, not the `Row`/`Icon`/`Text`
 - Gradient math: `dx = value * 6.0 - 3.0`, end `dx + 2.0` — full widget coverage, full sweep range
 
-**Theme tokens (in `WatchdogThemeData`):**
+**Theme tokens (in `SleuthThemeData`):**
 
 | Token | Dark/Light Value | Purpose |
 |-------|-----------------|---------|

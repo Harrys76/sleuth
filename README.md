@@ -1,6 +1,10 @@
-# Widget Watchdog
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Harrys76/sleuth/main/doc/logo.png" width="128" alt="Sleuth logo">
+</p>
 
-[![Pub Version](https://img.shields.io/pub/v/widget_watchdog)](https://pub.dev/packages/widget_watchdog)
+# Sleuth
+
+[![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-1%2C490_passing-brightgreen)]()
@@ -10,7 +14,7 @@ Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, 
 
 ## How It Works
 
-Widget Watchdog runs four layers of analysis:
+Sleuth runs four layers of analysis:
 
 1. **Frame timing** (FrameTiming API) — per-frame build and raster duration, vsync overhead, cache stats. Works on every platform in debug and profile mode. This is the primary signal.
 2. **VM timeline** (vm_service) — when connected, provides sub-phase breakdowns (buildScope, flushLayout, flushPaint, raster). Best-effort; availability depends on platform and runtime environment.
@@ -20,9 +24,9 @@ Widget Watchdog runs four layers of analysis:
 ## Quick Start
 
 ```dart
-import 'package:widget_watchdog/widget_watchdog.dart';
+import 'package:sleuth/sleuth.dart';
 
-void main() => runApp(WidgetWatchdog.wrap(child: MyApp()));
+void main() => runApp(Sleuth.track(child: MyApp()));
 ```
 
 The overlay appears in debug and profile mode. Completely disabled in release builds.
@@ -61,7 +65,7 @@ Both modes run the full overlay, all 22 detectors, and the AI chat. The differen
 These add overhead and are off by default. Enable them when you need deeper attribution:
 
 ```dart
-WatchdogConfig(
+SleuthConfig(
   enableDebugCallbacks: true,        // per-widget rebuild & paint counts
   enableDeepDebugInstrumentation: true, // timeline dirty lists & per-widget build/layout/paint events
 )
@@ -85,9 +89,9 @@ WatchdogConfig(
 ## Configuration
 
 ```dart
-WidgetWatchdog.wrap(
+Sleuth.track(
   child: MyApp(),
-  config: WatchdogConfig(
+  config: SleuthConfig(
     fpsTarget: 60,
     rebuildThreshold: 10,
     maxListChildren: 20,
@@ -122,12 +126,12 @@ WidgetWatchdog.wrap(
 
 **Debug callbacks note:** `enableDebugCallbacks` installs `debugOnRebuildDirtyWidget` and `debugOnProfilePaint` hooks. These conflict with DevTools "Track Widget Rebuilds" — only one can be active at a time. Default `false` to avoid surprising DevTools users.
 
-**Overlay theming:** The overlay auto-detects light/dark backgrounds. Override colors and spacing with `WatchdogThemeData`:
+**Overlay theming:** The overlay auto-detects light/dark backgrounds. Override colors and spacing with `SleuthThemeData`:
 
 ```dart
-WidgetWatchdog.wrap(
+Sleuth.track(
   child: MyApp(),
-  theme: WatchdogThemeData.light().copyWith(
+  theme: SleuthThemeData.light().copyWith(
     cardBackground: Color(0xFFF5F5F5),
     spacingMd: 10, // adjust overlay density (default 8)
   ),
@@ -139,9 +143,9 @@ WidgetWatchdog.wrap(
 Tap "Ask AI" on any issue card to open a contextual AI chat. The package builds a rich system prompt from issue metrics, encyclopedia knowledge, and the causal graph — your AI provider just needs to stream a response.
 
 ```dart
-WidgetWatchdog.wrap(
+Sleuth.track(
   child: MyApp(),
-  config: WatchdogConfig(
+  config: SleuthConfig(
     aiChat: AiChatAdapter.anthropic(apiKey: myKey),
     // Or: AiChatAdapter.openAi(apiKey: myKey)
     // Or: AiChatAdapter.google(apiKey: myKey)
@@ -152,7 +156,7 @@ WidgetWatchdog.wrap(
 Custom backend:
 
 ```dart
-config: WatchdogConfig(
+config: SleuthConfig(
   aiChat: AiChatAdapter(
     sendMessage: (request) async* {
       // request.systemPrompt — rich issue context built by the package
@@ -171,10 +175,10 @@ Export captured jank data and current issues as JSON for sharing or comparison:
 
 ```dart
 // Get a SessionSnapshot object
-final snapshot = WidgetWatchdog.exportSnapshot();
+final snapshot = Sleuth.exportSnapshot();
 
 // Or get formatted JSON directly
-final json = WidgetWatchdog.exportSnapshotJson();
+final json = Sleuth.exportSnapshotJson();
 ```
 
 The dashboard also includes an export button that copies the JSON snapshot to the clipboard.
@@ -252,10 +256,10 @@ Issues include a confidence level reflecting evidence quality:
 
 ## What DevTools Still Does Better
 
-- **Heap snapshots & object graph**: DevTools can browse every object in the heap, inspect retention paths, and track individual allocations. Widget Watchdog monitors heap trends and GC pressure but cannot drill into specific objects.
-- **Full flame chart & call tree**: DevTools provides zoomable, interactive per-frame timelines with complete call tree visualization. Widget Watchdog shows phase breakdowns with top-5 function attribution per jank frame.
+- **Heap snapshots & object graph**: DevTools can browse every object in the heap, inspect retention paths, and track individual allocations. Sleuth monitors heap trends and GC pressure but cannot drill into specific objects.
+- **Full flame chart & call tree**: DevTools provides zoomable, interactive per-frame timelines with complete call tree visualization. Sleuth shows phase breakdowns with top-5 function attribution per jank frame.
 
-Widget Watchdog is best used for **fast in-app triage** — catch the problem, understand the category, then use DevTools when you need deeper investigation.
+Sleuth is best used for **fast in-app triage** — catch the problem, understand the category, then use DevTools when you need deeper investigation.
 
 ## Unsupported Claims
 

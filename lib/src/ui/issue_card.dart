@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/performance_issue.dart';
 import '../utils/issue_metadata_builder.dart';
-import 'watchdog_theme.dart';
+import 'sleuth_theme.dart';
 
 /// A card displaying a single performance issue.
 ///
@@ -91,7 +91,7 @@ class _IssueCardState extends State<IssueCard> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
     final issue = widget.issue;
     return Card(
       color: widget.jankFlash
@@ -219,7 +219,7 @@ class _IssueCardState extends State<IssueCard> {
   }
 
   List<Widget> _buildExpandedContent(
-      PerformanceIssue issue, WatchdogThemeData theme) {
+      PerformanceIssue issue, SleuthThemeData theme) {
     return [
       SizedBox(height: theme.spacingMd),
       Text(
@@ -476,7 +476,7 @@ class _IssueCardState extends State<IssueCard> {
     ];
   }
 
-  Widget _buildLearnMoreLink(WatchdogThemeData theme) {
+  Widget _buildLearnMoreLink(SleuthThemeData theme) {
     return GestureDetector(
       onTap: widget.onLearnMore,
       behavior: HitTestBehavior.opaque,
@@ -503,7 +503,7 @@ class _IssueCardState extends State<IssueCard> {
     );
   }
 
-  Widget _downstreamSection(WatchdogThemeData theme) {
+  Widget _downstreamSection(SleuthThemeData theme) {
     final downstream = widget.downstreamIssues!;
     final visibleCount = downstream.length > 5 ? 5 : downstream.length;
     final overflow = downstream.length - visibleCount;
@@ -572,7 +572,7 @@ class _IssueCardState extends State<IssueCard> {
   List<(String, String)> _aboutContent(PerformanceIssue issue) =>
       IssueMetadataBuilder.entries(issue);
 
-  Widget _categoryBadge(IssueCategory category, WatchdogThemeData theme) {
+  Widget _categoryBadge(IssueCategory category, SleuthThemeData theme) {
     final color = theme.categoryColor(category);
     final label = switch (category) {
       IssueCategory.build => 'BUILD',
@@ -613,7 +613,7 @@ class _IssueCardState extends State<IssueCard> {
     }
   }
 
-  Widget _effortBadge(PerformanceIssue issue, WatchdogThemeData theme) {
+  Widget _effortBadge(PerformanceIssue issue, SleuthThemeData theme) {
     final (label, color) = _fixEffort(issue, theme);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
@@ -632,7 +632,7 @@ class _IssueCardState extends State<IssueCard> {
     );
   }
 
-  Widget _confidenceBadge(IssueConfidence confidence, WatchdogThemeData theme) {
+  Widget _confidenceBadge(IssueConfidence confidence, SleuthThemeData theme) {
     final color = theme.confidenceColor(confidence);
     final label = switch (confidence) {
       IssueConfidence.confirmed => 'CONFIRMED',
@@ -666,7 +666,7 @@ bool _isDebugCallbackSource(ObservationSource? source) =>
 /// Returns (label, color) for the effort badge.
 /// Prefers explicit [FixEffort] from the model; falls back to keyword
 /// inference for legacy issues deserialized without the field.
-(String, Color) _fixEffort(PerformanceIssue issue, WatchdogThemeData theme) {
+(String, Color) _fixEffort(PerformanceIssue issue, SleuthThemeData theme) {
   final effort = issue.fixEffort;
   if (effort != null) {
     return switch (effort) {
@@ -760,7 +760,7 @@ class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
 
   @override
   Widget build(BuildContext context) {
-    final theme = WatchdogTheme.of(context);
+    final theme = SleuthTheme.of(context);
     return RepaintBoundary(
       child: GestureDetector(
         onTap: widget.onTap,

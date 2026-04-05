@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/debug/debug_snapshot.dart';
-import 'package:widget_watchdog/src/detectors/repaint_detector.dart';
-import 'package:widget_watchdog/src/models/base_detector.dart';
-import 'package:widget_watchdog/src/models/performance_issue.dart';
+import 'package:sleuth/src/debug/debug_snapshot.dart';
+import 'package:sleuth/src/detectors/repaint_detector.dart';
+import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 

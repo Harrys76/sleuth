@@ -6,7 +6,7 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 ### v6.1: Controller Async Safety — VM Service Timeouts & Dispose Guards ✅ Shipped
 
-**Problem:** Three async safety issues in `WatchdogController`:
+**Problem:** Three async safety issues in `SleuthController`:
 
 1. **No timeouts on VM service calls.** `getCpuSamples()` and `getAllocationProfile()` are called via `.then()` chains with no timeout. If the VM service hangs (e.g., device disconnects mid-call), these futures block indefinitely, and late callbacks may update disposed notifiers.
 
@@ -18,10 +18,10 @@ Twenty-two improvements across four themes: controller safety, detector accuracy
 
 1. Wrap all VM service future calls with `.timeout(Duration(seconds: 5))`.
 2. Capture a `_disposeGeneration` counter. Increment on dispose. In every `.then()` callback, check `if (_disposeGeneration != gen) return` before touching any state.
-3. Replace `catchError((_) {})` with `catchError((e) { debugPrint('Watchdog: allocation enrichment failed: $e'); })` — visible in debug, silent in release.
+3. Replace `catchError((_) {})` with `catchError((e) { debugPrint('Sleuth: allocation enrichment failed: $e'); })` — visible in debug, silent in release.
 
 **Files changed:**
-- `lib/src/controller/watchdog_controller.dart` — add timeout, generation guard, and debug logging to enrichment chains
+- `lib/src/controller/sleuth_controller.dart` — add timeout, generation guard, and debug logging to enrichment chains
 
 **Testing:**
 1. VM call that exceeds timeout → enrichment skipped, no hang
@@ -239,7 +239,7 @@ The `build()` method becomes a ~30 line method that computes position and delega
 
 **Risk:** Low. Refactoring only.
 
-**Post-Implementation Notes:** Extracted `_buildExpandedContent(PerformanceIssue, WatchdogThemeData)` returning `List<Widget>` (spread into Column with `..._buildExpandedContent()`). `build()` reduced from 346 to ~125 lines. All 6 existing helper methods unchanged.
+**Post-Implementation Notes:** Extracted `_buildExpandedContent(PerformanceIssue, SleuthThemeData)` returning `List<Widget>` (spread into Column with `..._buildExpandedContent()`). `build()` reduced from 346 to ~125 lines. All 6 existing helper methods unchanged.
 
 ---
 
@@ -295,10 +295,10 @@ The `build()` method becomes a ~30 line method that computes position and delega
 
 **Note:** This is a subset of v6.1 but can be implemented independently if v6.1's generation-guard pattern is deferred.
 
-**Approach:** Replace `catchError((_) {})` with `catchError((e) { assert(() { debugPrint('Watchdog: $e'); return true; }()); })` — visible in debug mode, zero-cost in release.
+**Approach:** Replace `catchError((_) {})` with `catchError((e) { assert(() { debugPrint('Sleuth: $e'); return true; }()); })` — visible in debug mode, zero-cost in release.
 
 **Files changed:**
-- `lib/src/controller/watchdog_controller.dart` — replace 3 silent catch blocks
+- `lib/src/controller/sleuth_controller.dart` — replace 3 silent catch blocks
 
 **Testing:**
 1. VM service throws → debug message printed
@@ -315,7 +315,7 @@ The `build()` method becomes a ~30 line method that computes position and delega
 **Approach:** Precompile suppression patterns to `RegExp` objects at controller construction time. Store as `List<RegExp> _compiledSuppressions`. Match against these in `_matchesSuppression`.
 
 **Files changed:**
-- `lib/src/controller/watchdog_controller.dart` — precompile patterns in constructor, use in matching
+- `lib/src/controller/sleuth_controller.dart` — precompile patterns in constructor, use in matching
 
 **Testing:**
 1. Wildcard pattern `opacity_*` still suppresses `opacity_zero`
@@ -358,7 +358,7 @@ platforms:
 
 ### v6.17: Test Gap — Controller Lifecycle Tests ✅ Shipped
 
-**Problem:** No tests for `WatchdogController.initialize()` (only `initializeDetectorsForTest()` is tested), dispose-during-active-scan, concurrent frame processing, or config changes mid-session. These are the highest-risk untested code paths.
+**Problem:** No tests for `SleuthController.initialize()` (only `initializeDetectorsForTest()` is tested), dispose-during-active-scan, concurrent frame processing, or config changes mid-session. These are the highest-risk untested code paths.
 
 **Approach:** Add 10 tests in 3 groups:
 1. Pre-initialization safety: notifier defaults, exportSnapshot, dispose-before-init
@@ -367,7 +367,7 @@ platforms:
 
 **Files changed:**
 - `test/controller/lifecycle_test.dart` — new file (10 tests)
-- `lib/src/controller/watchdog_controller.dart` — `_detectorsReady` guard in `dispose()` to prevent `LateInitializationError` when disposing before initialization
+- `lib/src/controller/sleuth_controller.dart` — `_detectorsReady` guard in `dispose()` to prevent `LateInitializationError` when disposing before initialization
 
 **Risk:** Low. Test-only changes + one-line production guard.
 
@@ -393,7 +393,7 @@ platforms:
 **Risk:** Low. Test-only changes.
 
 **Post-Implementation Notes:**
-- Narrowed scope: `FloatingIssuesCard` and `IssueCard` already have 6 test files with meaningful coverage. `WatchdogOverlay` calls `controller.initialize()` which requires VM service. Focused on the two widgets with genuinely zero tests.
+- Narrowed scope: `FloatingIssuesCard` and `IssueCard` already have 6 test files with meaningful coverage. `SleuthOverlay` calls `controller.initialize()` which requires VM service. Focused on the two widgets with genuinely zero tests.
 - Tests use isolated `ValueNotifier` instances — no controller dependency. Each test creates and disposes its own notifiers.
 - TriggerButton uses `LayoutBuilder` which needs finite constraints; wrapping in `MaterialApp > Scaffold` provides this.
 
@@ -406,7 +406,7 @@ platforms:
 **Approach:** Increase default threshold from 20 to 50. The existing `maxListChildren` config parameter already allows user override, so this is just a default change. At 50 items, the performance cost of non-lazy rendering is measurable; below that, it's noise.
 
 **Files changed:**
-- `lib/src/controller/watchdog_controller.dart` — change `maxListChildren` default from 20 to 50
+- `lib/src/controller/sleuth_controller.dart` — change `maxListChildren` default from 20 to 50
 - `test/detectors/listview_detector_test.dart` — update threshold-boundary tests
 
 **Risk:** Low. Reduces false positives. Users who want the stricter threshold can set `maxListChildren: 20`.
@@ -414,7 +414,7 @@ platforms:
 **Status:** ✅ Shipped
 
 **Post-Implementation Notes (2026-03-31):**
-1. **Wider blast radius than spec:** Both detector constructor defaults updated (ListviewDetector + NestedScrollDetector), not just WatchdogConfig. Also updated description strings and doc comments that hardcoded ">20".
+1. **Wider blast radius than spec:** Both detector constructor defaults updated (ListviewDetector + NestedScrollDetector), not just SleuthConfig. Also updated description strings and doc comments that hardcoded ">20".
 2. **NestedScrollDetector tests also affected:** The spec only listed `listview_detector_test.dart`, but `nested_scroll_detector_test.dart` shares the `maxListChildren` config parameter and had 2 tests with threshold-dependent child counts (25 children, 45 children) that needed updating to 55 and 105 respectively.
 3. **Suppression test also affected:** `test/controller/suppression_test.dart` used `_opacityAndListTree()` with 25 children to trigger `non_lazy_list` — updated to 55.
 4. **Severity thresholds at new default:** Warning at 51-100 children, highlight critical at 101-150, issue critical at 151+ (ListviewDetector uses 3× multiplier for issue severity, NestedScrollDetector uses 2× multiplier).
@@ -449,9 +449,9 @@ platforms:
 
 ### v6.21: Hardcoded Spacing → Theme Tokens ✅ Shipped
 
-**Problem:** While `WatchdogThemeData` centralizes all colors, spacing and sizing remain hardcoded throughout UI files: `EdgeInsets.fromLTRB(10, 6, 4, 4)`, `screenSize.height * 0.30`, `SizedBox(height: 6)`, etc. This makes the overlay's density impossible to customize and creates maintenance burden.
+**Problem:** While `SleuthThemeData` centralizes all colors, spacing and sizing remain hardcoded throughout UI files: `EdgeInsets.fromLTRB(10, 6, 4, 4)`, `screenSize.height * 0.30`, `SizedBox(height: 6)`, etc. This makes the overlay's density impossible to customize and creates maintenance burden.
 
-**Approach:** Add spacing tokens to `WatchdogThemeData`:
+**Approach:** Add spacing tokens to `SleuthThemeData`:
 ```dart
 final double spacingXs;  // 4
 final double spacingSm;  // 6
@@ -463,12 +463,12 @@ final double spacingXl;  // 16
 Replace hardcoded values in all UI files with `theme.spacingMd`, `theme.spacingLg`, etc.
 
 **Files changed:**
-- `lib/src/ui/watchdog_theme.dart` — add spacing tokens
+- `lib/src/ui/sleuth_theme.dart` — add spacing tokens
 - `lib/src/ui/floating_issues_card.dart` — use spacing tokens
 - `lib/src/ui/issue_card.dart` — use spacing tokens
 - `lib/src/ui/trigger_button.dart` — use spacing tokens
 - `lib/src/ui/guide_page.dart` — use spacing tokens
-- `test/ui/watchdog_theme_test.dart` — spacing token tests
+- `test/ui/sleuth_theme_test.dart` — spacing token tests
 
 **Risk:** Low. Visual change — verify overlay looks identical with default spacing values.
 
@@ -481,7 +481,7 @@ Replace hardcoded values in all UI files with `theme.spacingMd`, `theme.spacingL
 - Spacing is theme-independent: both dark and light constructors use identical spacing defaults.
 - `_categoryChip` static method in guide_page.dart lacks `theme` parameter — left hardcoded rather than adding a parameter for one 2px value.
 - `_buildIssuesList` in floating_issues_card.dart: hoisted `theme` variable out of `if (issues.isEmpty)` block to make it available in the non-empty branch.
-- highlight_overlay.dart and watchdog_overlay.dart: no EdgeInsets/SizedBox spacing values to tokenize.
+- highlight_overlay.dart and sleuth_overlay.dart: no EdgeInsets/SizedBox spacing values to tokenize.
 - 1,294 tests pass, 0 analysis issues.
 
 ---

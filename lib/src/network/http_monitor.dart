@@ -7,8 +7,8 @@ import 'request_record.dart';
 /// Chaining [HttpOverrides] that wraps every [HttpClient] with a monitoring
 /// proxy. Records request timing, status, and response size without modifying
 /// behavior. Preserves any previously installed overrides via delegation.
-class WatchdogHttpOverrides extends HttpOverrides {
-  WatchdogHttpOverrides({
+class SleuthHttpOverrides extends HttpOverrides {
+  SleuthHttpOverrides({
     required this.onRecord,
     this.onRequestStarted,
     this.onRequestEnded,
@@ -31,14 +31,14 @@ class WatchdogHttpOverrides extends HttpOverrides {
   final HttpOverrides? _previous;
 
   /// Install this override as [HttpOverrides.global].
-  static void install(WatchdogHttpOverrides overrides) {
+  static void install(SleuthHttpOverrides overrides) {
     HttpOverrides.global = overrides;
   }
 
   /// Restore [HttpOverrides.global] to the previous override.
   /// Only restores if the current global is still [overrides] — another
   /// package may have overwritten us since installation.
-  static void uninstall(WatchdogHttpOverrides overrides) {
+  static void uninstall(SleuthHttpOverrides overrides) {
     if (HttpOverrides.current == overrides) {
       HttpOverrides.global = overrides._previous;
     }

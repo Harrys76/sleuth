@@ -57,7 +57,7 @@
 **Risk:** Low. All changes tighten detection (fewer false positives). Default values through `DetectorThresholds` config remain available for consumers who want different sensitivity.
 
 **Post-Implementation Notes:**
-- Scope expanded beyond "5 detector files, ~1 line each" — also updated: `detector_thresholds.dart` (2 defaults), `watchdog_controller.dart` (`maxGlobalKeys` 10→20), and 2 hardcoded description strings (GlobalKey ">10"→">20", GpuPressure "1.5"→"2.0").
+- Scope expanded beyond "5 detector files, ~1 line each" — also updated: `detector_thresholds.dart` (2 defaults), `sleuth_controller.dart` (`maxGlobalKeys` 10→20), and 2 hardcoded description strings (GlobalKey ">10"→">20", GpuPressure "1.5"→"2.0").
 - `detector_thresholds.dart` doc comment example updated (`gpuPressureRatio: 2.0` → `3.0` with corrected default label).
 - FrameTiming cache thrashing: both guards updated (`previous.pictureCacheCount > 0` → `> 5` at line 253, and `latest.pictureCacheCount > 0` → `> 5` at line 262 for zero-to-nonzero jump detection).
 - AnimatedBuilder test widget `TestAnimatedApp` increased from `List.generate(25)` to `List.generate(51)` (subtree 52 > 50 threshold).
@@ -81,7 +81,7 @@
 
 **Post-Implementation Notes:**
 - Single source line changed: `coverageRatio >= 0.2` → `>= 0.5` in `CorrelatedFrameData.isTrustworthy`.
-- `render_pipeline_analyzer.dart` line 234 already used `coverageRatio >= 0.5` for confidence-dependent wording — now aligned with `isTrustworthy`. The "Partial correlation" else-branch becomes unreachable for trustworthy verdicts (filtered by `watchdog_controller.dart` line 836) but is harmless as a safety net.
+- `render_pipeline_analyzer.dart` line 234 already used `coverageRatio >= 0.5` for confidence-dependent wording — now aligned with `isTrustworthy`. The "Partial correlation" else-branch becomes unreachable for trustworthy verdicts (filtered by `sleuth_controller.dart` line 836) but is harmless as a safety net.
 - 2 tests updated (boundary test values/names for new 0.5 threshold), 1 stale comment fixed (`< 0.2` → `< 0.5`), 1 new test added (coverage=0.3 between old/new threshold, expects false).
 - Total test count: 1,305 (was 1,304).
 
@@ -113,31 +113,31 @@
 
 **Fix:** Reduce default warmup from 5000ms to 3000ms. Apps are typically past startup allocation by 3 seconds. Consumers can still override via constructor.
 
-**Files:** `lib/src/detectors/memory_pressure_detector.dart` line 15, `lib/src/controller/watchdog_controller.dart` line 1409.
+**Files:** `lib/src/detectors/memory_pressure_detector.dart` line 15, `lib/src/controller/sleuth_controller.dart` line 1409.
 
 **Risk:** Very low. May surface startup allocation patterns as `possible` confidence earlier. Configurable — consumers can set `warmupDurationMs` higher if needed.
 
 **Post-Implementation Notes:**
-- Two defaults changed in lockstep: `memory_pressure_detector.dart` line 15 (`warmupDurationMs = 5000` → `3000`) and `watchdog_controller.dart` line 1409 (`memoryWarmupDurationMs = 5000` → `3000`).
+- Two defaults changed in lockstep: `memory_pressure_detector.dart` line 15 (`warmupDurationMs = 5000` → `3000`) and `sleuth_controller.dart` line 1409 (`memoryWarmupDurationMs = 5000` → `3000`).
 - No tests affected — all 6 warmup tests pass explicit `warmupDurationMs: 5000` in constructors, never rely on the default. Main setUp uses `warmupDurationMs: 0` (disabled).
 - No user-facing strings reference the warmup duration value.
-- `warmupDurationMs` is NOT exposed in `DetectorThresholds` — only in `WatchdogConfig.memoryWarmupDurationMs` and the detector constructor directly.
+- `warmupDurationMs` is NOT exposed in `DetectorThresholds` — only in `SleuthConfig.memoryWarmupDurationMs` and the detector constructor directly.
 - Total test count: 1,307 (unchanged).
 
 ---
 
 ### v7.7: Ring Buffer — Replace List.removeAt(0) with Queue ✅ Shipped
 
-**Problem:** `watchdog_controller.dart` lines 903, 909, 921 use `List.removeAt(0)` for three bounded event buffers (phase events capacity 100, GC events capacity 50, platform channels capacity 50). `removeAt(0)` is O(n) because it shifts all remaining elements. Called on every VM timeline poll (500ms) when buffers are full.
+**Problem:** `sleuth_controller.dart` lines 903, 909, 921 use `List.removeAt(0)` for three bounded event buffers (phase events capacity 100, GC events capacity 50, platform channels capacity 50). `removeAt(0)` is O(n) because it shifts all remaining elements. Called on every VM timeline poll (500ms) when buffers are full.
 
 **Fix:** Replace `List<T>` with `Queue<T>` (from `dart:collection`) and use `removeFirst()` which is O(1). Read access patterns (iteration, `.toList()`) are identical.
 
-**Files:** `lib/src/controller/watchdog_controller.dart` lines 100–108 (declarations), 903, 909, 921 (removeAt calls).
+**Files:** `lib/src/controller/sleuth_controller.dart` lines 100–108 (declarations), 903, 909, 921 (removeAt calls).
 
 **Risk:** None. Drop-in replacement. Queue supports the same iteration, `.toList()`, `.length`, `.add()` APIs.
 
 **Post-Implementation Notes:**
-- Added `import 'dart:collection'` to watchdog_controller.dart.
+- Added `import 'dart:collection'` to sleuth_controller.dart.
 - Three buffer declarations changed from `List<T>` to `Queue<T>`: `_phaseEventBuffer`, `_gcEventBuffer`, `_platformChannelBuffer`.
 - Three `removeAt(0)` calls replaced with `removeFirst()` — O(n) → O(1).
 - `List.unmodifiable(queue)` works unchanged — constructor accepts `Iterable<T>`, Queue implements Iterable. Test getters and export snapshots unaffected.
@@ -211,7 +211,7 @@ void _runStructuralScans(BuildContext scanContext) {
 - **Pattern C (depth/nesting tracking, 2 detectors):** NestedScroll uses `List<Axis?> _scrollAxisStack` (push on `checkElement`, pop on `afterElement`). ShallowRebuildRisk uses `int _depth` counter.
 - **Pattern D (multi-pass merge, 1 detector):** SetStateScopeDetector merged `_detectRebuilds` (separate tree walk) into `checkElement`. Safe because rebuild evidence is cumulative (5-second window).
 
-**Files:** `lib/src/models/base_detector.dart`, `lib/src/controller/watchdog_controller.dart`, all 16 detector files in `lib/src/detectors/`. **0 test files changed** — `scanTree` wrapper preserves test contract.
+**Files:** `lib/src/models/base_detector.dart`, `lib/src/controller/sleuth_controller.dart`, all 16 detector files in `lib/src/detectors/`. **0 test files changed** — `scanTree` wrapper preserves test contract.
 
 **Post-Implementation Notes:**
 - All 1,307 tests pass, 0 analysis issues

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:widget_watchdog/src/models/ai_chat_adapter.dart';
+import 'package:sleuth/src/models/ai_chat_adapter.dart';
 
 void main() {
   group('AiChatMessage', () {
