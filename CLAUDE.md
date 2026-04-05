@@ -53,7 +53,8 @@ test/
 
 ## Current state
 
-- **v0.9.2** (current) — v9 accuracy/self-overhead/correctness: 17 milestones — opacity value semantics, paint phase classification, inner subtree walk elimination, highlight overlay GPU optimization, generation-counter shouldRepaint, and more. See CHANGELOG.md.
+- **v0.10.0** (current) — Issue Encyclopedia, contextual AI Chat, IssueCard shimmer Ask AI link, responsive action links, MediaQuery optimization, overlay UI polish. See CHANGELOG.md.
+- v0.9.2: v9 accuracy/self-overhead/correctness: 17 milestones — opacity value semantics, paint phase classification, inner subtree walk elimination, highlight overlay GPU optimization, generation-counter shouldRepaint, and more.
 - v0.9.1: v8 accuracy/correctness/performance fixes: SetState O(N²) fix (v8.1), scaffold scan-root fallback for Cupertino/scaffold-free apps (v8.2), HTTP monitor leak (v8.3), platform channel false positives (v8.4), SetState wording (v8.5).
 - v0.9.0: Unified structural tree walk (v7.9), all v7 milestones shipped.
 - v0.8.2: Ring buffers (v7.7), correlator sort cache (v7.8), VM reconnect polling fix (v7.10).
