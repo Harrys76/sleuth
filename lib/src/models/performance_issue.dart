@@ -301,3 +301,13 @@ extension InteractionContextDisplay on InteractionContext {
         InteractionContext.navigating => 'route transition',
       };
 }
+
+extension ObservationSourceDisplay on ObservationSource {
+  String get displayName => switch (this) {
+        ObservationSource.structural => 'structural scan',
+        ObservationSource.vmTimeline => 'VM timeline',
+        ObservationSource.debugCallback => 'debug callback',
+        ObservationSource.debugCallbackAndStructural =>
+          'debug callback + structural',
+      };
+}

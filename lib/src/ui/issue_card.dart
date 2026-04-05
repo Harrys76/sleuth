@@ -1,7 +1,7 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/performance_issue.dart';
+import '../utils/issue_metadata_builder.dart';
 import 'watchdog_theme.dart';
 
 /// A card displaying a single performance issue.
@@ -27,6 +27,7 @@ class IssueCard extends StatefulWidget {
     this.jankCorrelated = false,
     this.jankFlash = false,
     this.downstreamIssues,
+    this.onLearnMore,
   });
 
   final PerformanceIssue issue;
@@ -56,6 +57,10 @@ class IssueCard extends StatefulWidget {
   /// Downstream issues caused by this root issue, collapsed into expanded
   /// detail. Null or empty for non-root and standalone issues.
   final List<PerformanceIssue>? downstreamIssues;
+
+  /// Called when the user taps "Learn more" — navigates to the full-screen
+  /// detail page. Null hides the link (e.g. for custom detector issues).
+  final VoidCallback? onLearnMore;
 
   @override
   State<IssueCard> createState() => _IssueCardState();
@@ -278,7 +283,7 @@ class _IssueCardState extends State<IssueCard> {
         Padding(
           padding: EdgeInsets.only(top: theme.spacingXxs),
           child: Text(
-            'Source: ${issue.observationSource!._displayName}',
+            'Source: ${issue.observationSource!.displayName}',
             style: TextStyle(
               color: theme.textQuaternary,
               fontSize: 9,
@@ -424,6 +429,30 @@ class _IssueCardState extends State<IssueCard> {
           ],
         ),
       ),
+      if (widget.onLearnMore != null)
+        GestureDetector(
+          onTap: widget.onLearnMore,
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: EdgeInsets.only(top: theme.spacingSm),
+            child: Row(
+              children: [
+                Icon(Icons.menu_book_outlined,
+                    color: theme.textTertiary, size: 13),
+                SizedBox(width: theme.spacingXs),
+                Text(
+                  'Learn more about this issue',
+                  style: TextStyle(
+                    color: theme.textTertiary,
+                    fontSize: 9,
+                    decoration: TextDecoration.underline,
+                    decorationColor: theme.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
     ];
   }
 
@@ -493,40 +522,8 @@ class _IssueCardState extends State<IssueCard> {
     );
   }
 
-  List<(String, String)> _aboutContent(PerformanceIssue issue) {
-    final source =
-        issue.observationSource?._displayName ?? 'heuristic analysis';
-    final confidenceExplanation = switch (issue.confidence) {
-      IssueConfidence.confirmed => 'Directly observed at runtime',
-      IssueConfidence.likely => 'Runtime signal + structural evidence',
-      IssueConfidence.possible =>
-        'Structural pattern only \u2014 no runtime confirmation',
-    };
-    final accuracyNote = kDebugMode
-        ? 'Debug mode adds overhead \u2014 verify in profile mode'
-        : 'Profile mode \u2014 timing data is production-accurate';
-    final verifyWith = switch (issue.category) {
-      IssueCategory.build ||
-      IssueCategory.layout =>
-        'DevTools \u2192 Performance \u2192 Frame Analysis',
-      IssueCategory.paint ||
-      IssueCategory.raster =>
-        'DevTools \u2192 Performance \u2192 Raster Stats',
-      IssueCategory.memory =>
-        'DevTools \u2192 Memory \u2192 Allocation Tracking',
-      IssueCategory.channel =>
-        'DevTools \u2192 Network \u2192 Platform Channels',
-      IssueCategory.network => 'DevTools \u2192 Network',
-      IssueCategory.font =>
-        'DevTools \u2192 Performance \u2192 Timeline Events',
-    };
-    return [
-      ('Based on:', source),
-      ('Confidence:', '${issue.confidence.name} \u2014 $confidenceExplanation'),
-      ('Accuracy:', accuracyNote),
-      ('Verify with:', verifyWith),
-    ];
-  }
+  List<(String, String)> _aboutContent(PerformanceIssue issue) =>
+      IssueMetadataBuilder.entries(issue);
 
   Widget _categoryBadge(IssueCategory category, WatchdogThemeData theme) {
     final color = theme.categoryColor(category);
@@ -678,14 +675,4 @@ bool _isDebugCallbackSource(ObservationSource? source) =>
 
   // Default: medium
   return ('MEDIUM FIX', theme.effortMedium);
-}
-
-extension on ObservationSource {
-  String get _displayName => switch (this) {
-        ObservationSource.structural => 'structural scan',
-        ObservationSource.vmTimeline => 'VM timeline',
-        ObservationSource.debugCallback => 'debug callback',
-        ObservationSource.debugCallbackAndStructural =>
-          'debug callback + structural',
-      };
 }

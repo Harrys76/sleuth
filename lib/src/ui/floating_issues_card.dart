@@ -10,7 +10,9 @@ import '../models/frame_stats.dart';
 import '../models/frame_verdict.dart';
 import '../models/widget_highlight.dart';
 import 'issue_card.dart';
+import 'issue_encyclopedia_page.dart';
 import 'guide_page.dart';
+import '../utils/issue_explanation_builder.dart';
 import 'watchdog_theme.dart';
 
 /// Draggable floating card showing FPS, issue count, and ranked issues list.
@@ -45,6 +47,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   bool _exportFeedbackVisible = false;
   bool _highlightNotFoundVisible = false;
   bool _showGuide = false;
+  bool _showDetail = false;
+  String? _detailStableId;
 
   /// Cached jank-correlated issue keys from verdict, updated via listener.
   Set<String> _cachedJankKeys = const {};
@@ -201,7 +205,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
     return Stack(
       children: [
-        if (!_showGuide)
+        if (!_showGuide && !_showDetail)
           Positioned(
             left: clamped.dx,
             top: clamped.dy,
@@ -218,6 +222,16 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
           Positioned.fill(
             child: GuidePage(
               onClose: () => setState(() => _showGuide = false),
+            ),
+          ),
+        if (_showDetail)
+          Positioned.fill(
+            child: IssueEncyclopediaPage(
+              onClose: () => setState(() {
+                _showDetail = false;
+                _detailStableId = null;
+              }),
+              scrollToStableId: _detailStableId,
             ),
           ),
       ],
@@ -264,6 +278,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             _CardFooter(
               controller: widget.controller,
               onExport: _exportToClipboard,
+              onEncyclopedia: () => setState(() {
+                _detailStableId = null;
+                _showDetail = true;
+              }),
             ),
           ],
         ),
@@ -513,6 +531,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                       jankCorrelated: _cachedJankKeys.contains(issueKey),
                       jankFlash: false,
                       downstreamIssues: downstream,
+                      onLearnMore:
+                          IssueExplanationBuilder.explain(issue.stableId) !=
+                                  null
+                              ? () => setState(() {
+                                    _detailStableId = issue.stableId;
+                                    _showDetail = true;
+                                  })
+                              : null,
                     );
                   },
                 ),
@@ -743,10 +769,15 @@ class _WarningBanners extends StatelessWidget {
 // ─── Card Footer ────────────────────────────────────────────────────────
 
 class _CardFooter extends StatelessWidget {
-  const _CardFooter({required this.controller, required this.onExport});
+  const _CardFooter({
+    required this.controller,
+    required this.onExport,
+    required this.onEncyclopedia,
+  });
 
   final WatchdogController controller;
   final VoidCallback onExport;
+  final VoidCallback onEncyclopedia;
 
   @override
   Widget build(BuildContext context) {
@@ -762,6 +793,19 @@ class _CardFooter extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
+          GestureDetector(
+            onTap: onEncyclopedia,
+            behavior: HitTestBehavior.opaque,
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: Center(
+                child: Icon(Icons.menu_book_outlined,
+                    color: theme.textTertiary, size: 16),
+              ),
+            ),
+          ),
+          SizedBox(width: theme.spacingXs),
           GestureDetector(
             onTap: onExport,
             behavior: HitTestBehavior.opaque,
