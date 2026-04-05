@@ -261,10 +261,10 @@ Widget Watchdog is best used for **fast in-app triage** — catch the problem, u
 
 To set clear expectations:
 
-- This package is **not a replacement** for full DevTools timeline analysis
-- It **cannot attribute exact offending widgets** in profile mode — in debug mode, source file:line is available via `--track-widget-creation`, but profile mode falls back to structural heuristics only
+- This package is **not a replacement** for DevTools heap snapshots or interactive flame charts — it covers breadth (22 detectors, encyclopedia, AI chat) but not the depth of object-level introspection or zoomable timelines
+- **Widget attribution varies by mode** — debug mode provides exact per-widget rebuild/paint counts and source file:line locations. Profile mode provides per-widget-type attribution via VM timeline dirty lists (when VM is connected), falling back to structural heuristics when unavailable. See [Debug vs Profile Mode](#debug-vs-profile-mode) for the full matrix
 - **VM full mode availability** depends on runtime environment and is not guaranteed on all platforms
-- **Memory pressure detection** monitors GC frequency, heap growth trends (linear regression), and capacity thresholds — not individual object leaks or retention paths
+- **Memory pressure detection** monitors GC frequency, heap growth trends (linear regression), and capacity thresholds. When growth is detected, enriches the issue with per-class allocation deltas — but does not track individual object leaks or retention paths
 - **CPU attribution** is statistical (~1 kHz sampling) — functions running <1 ms may not appear; use DevTools CPU profiler for complete call trees
 
 ## Example App
