@@ -82,6 +82,36 @@
   `'excessive_global_keys'`/`'excessive_keep_alive'` stableIds should be updated
   to prefix suppression.
 
+### Added
+
+- **Issue Encyclopedia** with educational "Learn more" deep-dive content for
+  every detector type. Searchable, accessible from IssueCard "Learn more" link.
+- **Contextual AI Chat** (`AiChatPage`): per-issue AI chat with streaming
+  responses, starter questions, thinking indicator, and expandable issue context
+  card. Adapter-based backend for team-provided AI providers.
+- **Actionable fix hints** (`FixHintBuilder`): code snippets and debugging
+  commands in fix hints for all detectors.
+
+### Changed
+
+- **UI: Shimmer "Ask AI" link** in IssueCard — animated purple-blue-pink
+  gradient via `ShaderMask`, performance-isolated with `RepaintBoundary` and
+  `AnimatedBuilder` static child pattern.
+- **UI: Responsive action links** — "Learn more" and "Ask AI" share one row
+  when space allows (right-aligned Ask AI), stack vertically with right-aligned
+  Ask AI when overlay is narrow (<240px), via `LayoutBuilder`.
+- **UI: MediaQuery granular accessors** — all UI files (`AiChatPage`,
+  `FloatingIssuesCard`, `IssueEncyclopediaPage`) switched from
+  `MediaQuery.of(context)` to `sizeOf`/`paddingOf`/`viewInsetsOf` to avoid
+  unnecessary rebuilds.
+- **UI: Status bar overlap fix** — AI chat header respects device safe area
+  via `MediaQuery.paddingOf(context).top`.
+- **UI: Expandable IssueCard in AI chat** — replaced minimal issue summary
+  with real `IssueCard` component (capped at 40% screen height with scroll).
+- **WatchdogThemeData**: added `aiShimmerStart`, `aiShimmerMid`,
+  `aiShimmerEnd` tokens for animated gradient styling.
+- 1,490 tests total (up from 1,343), 0 analysis issues.
+
 ## 0.9.1
 
 ### Fixed

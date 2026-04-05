@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 22 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~1,310 tests, ~16s)
+fvm flutter test                    # Run all tests (~1,490 tests, ~18s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -30,7 +30,7 @@ lib/
     vm/                         # VmServiceClient, TimelineParser
     debug/                      # DebugInstrumentationCoordinator, DebugSnapshot
     ranking/                    # IssueRanker (weighted composite scoring)
-    ui/                         # Overlay widgets: FloatingIssuesCard, GuidePage, IssueCard, TriggerButton
+    ui/                         # Overlay widgets: FloatingIssuesCard, IssueCard, AiChatPage, IssueEncyclopediaPage, TriggerButton, WatchdogTheme
     utils/                      # WidgetLocation helper, FixHintBuilder
 test/
     mirrors lib/src/ structure + helpers/ and benchmark/
@@ -65,4 +65,4 @@ test/
 - v9 roadmap: 17/17 milestones shipped ✅ (v9.1–v9.17). See `doc/spec_v9.md`.
 - Post-implementation audits in `doc/spec_v2_audit.md` and `doc/spec_post_impl_notes.md`.
 - Full spec index in `doc/implementation_spec.md`.
-- 1,368 tests, 0 analysis issues
+- 1,490 tests, 0 analysis issues

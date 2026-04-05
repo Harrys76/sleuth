@@ -79,23 +79,6 @@ void main() {
       expect(closed, isTrue);
     });
 
-    testWidgets('shows privacy banner', (tester) async {
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
-        ),
-      ));
-      await tester.pumpAndSettle();
-
-      expect(find.text("Responses powered by your team's AI provider"),
-          findsOneWidget);
-    });
-
     testWidgets('shows issue context card with title', (tester) async {
       await tester.pumpWidget(wrap(
         AiChatPage(

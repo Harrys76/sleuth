@@ -3,7 +3,7 @@
 [![Pub Version](https://img.shields.io/pub/v/widget_watchdog)](https://pub.dev/packages/widget_watchdog)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C368_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C490_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -36,6 +36,38 @@ flutter run --profile
 # Debug mode (works, but timing is less representative)
 flutter run
 ```
+
+## Debug vs Profile Mode
+
+Both modes run the full overlay, all 22 detectors, and the AI chat. The difference is **what data each mode can access** and **how accurate the timing is**.
+
+| Capability | Debug | Profile | Release |
+|------------|:-----:|:-------:|:-------:|
+| Overlay & all detectors | Yes | Yes | Disabled |
+| Frame timing accuracy | Inflated by debug overhead | Production-accurate | — |
+| VM timeline (build/layout/paint durations) | Yes | Yes | — |
+| Source location in issues (`file.dart:42`) | Yes | No | — |
+| Per-widget rebuild/paint attribution | Yes (opt-in) | Via VM timeline only | — |
+| Deep timeline enrichment (dirty lists) | Yes (opt-in) | No | — |
+| AI Chat & Issue Encyclopedia | Yes | Yes | — |
+
+### When to use which
+
+- **Profile mode** for performance investigation — timing is real, no debug overhead inflating numbers. This is what you should trust.
+- **Debug mode** for root-cause drilling — source locations pinpoint the exact file:line, and opt-in debug callbacks give per-widget rebuild/paint counts. Verify timing fixes in profile mode afterward.
+
+### Debug-only opt-in features
+
+These add overhead and are off by default. Enable them when you need deeper attribution:
+
+```dart
+WatchdogConfig(
+  enableDebugCallbacks: true,        // per-widget rebuild & paint counts
+  enableDeepDebugInstrumentation: true, // timeline dirty lists & per-widget build/layout/paint events
+)
+```
+
+`enableDebugCallbacks` installs `debugOnRebuildDirtyWidget` and `debugOnProfilePaint` — these conflict with DevTools "Track Widget Rebuilds", so only one can be active at a time. The package detects the conflict and yields to DevTools if it's already attached.
 
 ## Platform Support
 
@@ -101,6 +133,37 @@ WidgetWatchdog.wrap(
   ),
 );
 ```
+
+## AI Chat
+
+Tap "Ask AI" on any issue card to open a contextual AI chat. The package builds a rich system prompt from issue metrics, encyclopedia knowledge, and the causal graph — your AI provider just needs to stream a response.
+
+```dart
+WidgetWatchdog.wrap(
+  child: MyApp(),
+  config: WatchdogConfig(
+    aiChat: AiChatAdapter.anthropic(apiKey: myKey),
+    // Or: AiChatAdapter.openAi(apiKey: myKey)
+    // Or: AiChatAdapter.google(apiKey: myKey)
+  ),
+);
+```
+
+Custom backend:
+
+```dart
+config: WatchdogConfig(
+  aiChat: AiChatAdapter(
+    sendMessage: (request) async* {
+      // request.systemPrompt — rich issue context built by the package
+      // request.history — full conversation so far
+      yield* myBackend.stream(request);
+    },
+  ),
+),
+```
+
+Built-in adapters automatically exclude their provider URLs from network monitoring. When no adapter is configured, the "Ask AI" link is hidden.
 
 ## Session Export
 
@@ -181,7 +244,9 @@ Issues include a confidence level reflecting evidence quality:
 - **Heap trend monitoring**: detects sustained memory growth and near-capacity conditions without heap snapshots
 - **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed
 - **Source-location enrichment**: ancestor chains include file:line in debug mode, linking issues directly to source code
-- **Actionable fix hints**: every issue includes what to change, not just what went wrong
+- **Actionable fix hints**: every issue includes what to change, not just what went wrong — with code snippets and debugging commands
+- **Issue Encyclopedia**: in-app educational deep-dives for every detector type — searchable, accessible from any issue card
+- **Contextual AI Chat**: per-issue AI assistant with streaming responses, starter questions, and expandable issue context — bring your team's AI provider
 - **Customizable**: suppress known issues, tune detector thresholds, plug in custom detectors, theme the overlay (60+ color tokens, 6 spacing tokens)
 - **Zero setup**: one line of code, no browser tab, no port forwarding
 
