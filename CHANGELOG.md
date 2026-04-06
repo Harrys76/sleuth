@@ -1,4 +1,4 @@
-## 0.10.1
+## 0.10.2
 
 v10 roadmap: 12 milestones across accuracy, enrichment, and performance.
 
@@ -64,6 +64,10 @@ v10 roadmap: 12 milestones across accuracy, enrichment, and performance.
   `_scrollAxisStack.clear()` + `.add(null)` instead of list re-creation
   in `prepareScan` — reuses the existing list's capacity from previous
   scans.
+
+## 0.10.1
+
+Rebrand: `widget_watchdog` → `sleuth`. All classes, imports, docs, and tests updated.
 
 ## 0.10.0
 

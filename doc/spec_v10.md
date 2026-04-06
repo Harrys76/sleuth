@@ -1,6 +1,6 @@
 ## v10 Roadmap: Performance, Accuracy & Enrichment
 
-**Status: 12/12 milestones shipped** ✅ (v0.10.1)
+**Status: 12/12 milestones shipped** ✅ (v0.10.2)
 
 Origin: Deep codebase audit (2026-04-06) across all 22 detectors, controller, correlator, causal graph, and ranking systems. 14 initial findings identified; 2 dropped after source-level verification (GpuPressureDetector already has `is RenderOpacity` value guard from v9.1; original ultraplan's alternate child-counting approach was unnecessary since `SliverChildListDelegate.children` IS public). 12 verified findings remain across 3 tiers.
 
