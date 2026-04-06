@@ -98,34 +98,40 @@ class GpuPressureDetector extends BaseDetector {
     }
 
     final ro = element.renderObject;
-    if (ro != null) {
-      final typeName = ro.runtimeType.toString();
-      // Detect truly expensive render objects.
-      // Excludes RenderPhysicalModel/Shape (Card, Material) — these are
-      // normal and hardware-accelerated in profile mode.
-      if (typeName.contains('RenderOpacity') ||
-          typeName.contains('RenderClipPath') ||
-          typeName.contains('RenderBackdropFilter') ||
-          typeName.contains('RenderShaderMask')) {
-        // RenderOpacity at 1.0 (passthrough) or 0.0 (short-circuit) skips
-        // saveLayer entirely — not GPU-expensive. Skip to avoid false positives.
-        if (ro is RenderOpacity) {
-          final val = ro.opacity;
-          if (val >= 1.0 || val <= 0.0) return;
-        }
-        if (subtreeSize > 5) {
-          _expensiveNodes.add('$typeName ($subtreeSize descendants)');
-          final rect = getGlobalRect(ro);
-          if (rect != null) {
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: element.widget.runtimeType.toString(),
-              severity: IssueSeverity.warning,
-              detectorName: 'GPU',
-              detail: '$typeName with $subtreeSize descendants',
-            ));
-          }
-        }
+    if (ro == null) return;
+
+    // Direct type checks — no runtimeType.toString() allocation.
+    // Excludes RenderPhysicalModel/Shape (Card, Material) — these are
+    // normal and hardware-accelerated in profile mode.
+    // Note: `is RenderOpacity` correctly excludes RenderAnimatedOpacity
+    // (which extends RenderProxyBox, not RenderOpacity) — the previous
+    // contains('RenderOpacity') matched it as a false positive.
+    String? typeName;
+    if (ro is RenderOpacity) {
+      final val = ro.opacity;
+      if (val >= 1.0 || val <= 0.0) return; // no-op or short-circuit
+      typeName = 'RenderOpacity';
+    } else if (ro is RenderClipPath) {
+      typeName = 'RenderClipPath';
+    } else if (ro is RenderBackdropFilter) {
+      typeName = 'RenderBackdropFilter';
+    } else if (ro is RenderShaderMask) {
+      typeName = 'RenderShaderMask';
+    }
+
+    if (typeName == null) return;
+
+    if (subtreeSize > 5) {
+      _expensiveNodes.add('$typeName ($subtreeSize descendants)');
+      final rect = getGlobalRect(ro);
+      if (rect != null) {
+        _highlights.add(WidgetHighlight(
+          rect: rect,
+          widgetName: typeName, // known from type check — no toString()
+          severity: IssueSeverity.warning,
+          detectorName: 'GPU',
+          detail: '$typeName with $subtreeSize descendants',
+        ));
       }
     }
   }

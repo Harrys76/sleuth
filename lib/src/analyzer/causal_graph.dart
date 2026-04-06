@@ -36,7 +36,7 @@ class CausalGraphRule extends CorrelationRule {
   @override
   String get name => 'CausalGraph';
 
-  // 23 causal rules. Order doesn't matter — all are evaluated, and the
+  // 37 causal rules. Order doesn't matter — all are evaluated, and the
   // graph is built from the full edge set.
   static const _causalRules = <CausalRule>[
     // setState-triggered chains (rebuild intermediate absorbed by Rule 2)
@@ -67,15 +67,36 @@ class CausalGraphRule extends CorrelationRule {
     CausalRule('non_lazy_list', 'heavy_compute'),
     CausalRule('non_lazy_list', 'layout_bottleneck'),
 
+    // Non-lazy ListView/GridView chains (v10.1)
+    CausalRule('non_lazy_listview', 'rebuild_activity'),
+    CausalRule('non_lazy_listview', 'rebuild_debug_*'),
+    CausalRule('non_lazy_listview', 'heavy_compute'),
+    CausalRule('non_lazy_listview', 'layout_bottleneck'),
+    CausalRule('non_lazy_gridview', 'rebuild_activity'),
+    CausalRule('non_lazy_gridview', 'rebuild_debug_*'),
+    CausalRule('non_lazy_gridview', 'heavy_compute'),
+    CausalRule('non_lazy_gridview', 'layout_bottleneck'),
+
     // Rebuild cascade chains (fire when rebuild NOT merged into setstate_scope)
     CausalRule('rebuild_activity', 'heavy_compute'),
     CausalRule('rebuild_activity', 'layout_bottleneck'),
     CausalRule('rebuild_debug_*', 'heavy_compute'),
     CausalRule('rebuild_debug_*', 'layout_bottleneck'),
 
+    // KeepAlive → memory chains (v10.6)
+    CausalRule('excessive_keep_alive:*', 'heap_growing'),
+    CausalRule('excessive_keep_alive:*', 'heap_near_capacity'),
+
+    // Nested scroll → layout/rebuild chains (v10.7)
+    CausalRule('nested_scroll', 'layout_bottleneck'),
+    CausalRule('nested_scroll_same_axis', 'layout_bottleneck'),
+    CausalRule('nested_scroll', 'rebuild_activity'),
+    CausalRule('nested_scroll_same_axis', 'rebuild_activity'),
+
     // Network → downstream chains
     CausalRule('slow_request', 'heavy_compute'),
     CausalRule('request_frequency', 'rebuild_activity'),
+    CausalRule('http_error_spike', 'request_frequency'),
   ];
 
   @override

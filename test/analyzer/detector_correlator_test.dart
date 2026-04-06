@@ -594,6 +594,213 @@ void main() {
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // EscalateKeepAliveMemoryRule (v10.6)
+  // ---------------------------------------------------------------------------
+
+  group('EscalateKeepAliveMemoryRule', () {
+    test('escalates keep-alive from possible to likely with heap_growing', () {
+      final issues = [
+        makeIssue(
+          stableId: 'heap_growing',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'excessive_keep_alive:0',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.possible,
+          detail: 'Route 0 uses AutomaticKeepAliveClientMixin.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final keepAlive = result.firstWhere(
+        (i) => i.stableId == 'excessive_keep_alive:0',
+      );
+      expect(keepAlive.confidence, IssueConfidence.likely);
+      expect(keepAlive.detail, contains('[Correlated]'));
+      expect(keepAlive.detail, contains('Heap pressure'));
+    });
+
+    test('escalates keep-alive with heap_near_capacity', () {
+      final issues = [
+        makeIssue(
+          stableId: 'heap_near_capacity',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'excessive_keep_alive:1',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.possible,
+          detail: 'Route 1 uses AutomaticKeepAliveClientMixin.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final keepAlive = result.firstWhere(
+        (i) => i.stableId == 'excessive_keep_alive:1',
+      );
+      expect(keepAlive.confidence, IssueConfidence.likely);
+      expect(keepAlive.detail, contains('[Correlated]'));
+    });
+
+    test('does NOT escalate when no heap pressure exists', () {
+      final issues = [
+        makeIssue(
+          stableId: 'excessive_keep_alive:0',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.possible,
+          detail: 'Route 0 uses AutomaticKeepAliveClientMixin.',
+        ),
+        makeIssue(
+          stableId: 'slow_request',
+          category: IssueCategory.network,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final keepAlive = result.firstWhere(
+        (i) => i.stableId == 'excessive_keep_alive:0',
+      );
+      expect(keepAlive.confidence, IssueConfidence.possible);
+      expect(keepAlive.detail, isNot(contains('[Correlated]')));
+    });
+
+    test('does NOT escalate already-likely keep-alive', () {
+      final issues = [
+        makeIssue(
+          stableId: 'heap_growing',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'excessive_keep_alive:0',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+          detail: 'Already escalated.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final keepAlive = result.firstWhere(
+        (i) => i.stableId == 'excessive_keep_alive:0',
+      );
+      expect(keepAlive.confidence, IssueConfidence.likely);
+      expect(keepAlive.detail, isNot(contains('[Correlated]')));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // EnrichRebuildRepaintBoundaryRule (v10.9)
+  // ---------------------------------------------------------------------------
+
+  group('EnrichRebuildRepaintBoundaryRule', () {
+    test('annotates rebuild_activity when missing_repaint_boundary present',
+        () {
+      final issues = [
+        makeIssue(
+          stableId: 'missing_repaint_boundary',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.possible,
+        ),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+          detail: 'High rebuild rate: 60 builds/sec.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final rebuild = result.firstWhere(
+        (i) => i.stableId == 'rebuild_activity',
+      );
+      expect(rebuild.detail, contains('[Correlated] Missing RepaintBoundary'));
+      expect(rebuild.detail, contains('unnecessary repaints'));
+      // Confidence should NOT change (informational only).
+      expect(rebuild.confidence, IssueConfidence.confirmed);
+    });
+
+    test(
+        'annotates rebuild_debug_MyWidget when missing_repaint_boundary present',
+        () {
+      final issues = [
+        makeIssue(
+          stableId: 'missing_repaint_boundary',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'rebuild_debug_MyWidget',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+          detail: 'MyWidget: 40 rebuilds/sec.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final rebuild = result.firstWhere(
+        (i) => i.stableId == 'rebuild_debug_MyWidget',
+      );
+      expect(rebuild.detail, contains('[Correlated] Missing RepaintBoundary'));
+      // Confidence unchanged.
+      expect(rebuild.confidence, IssueConfidence.likely);
+    });
+
+    test('does NOT annotate rebuilds when no missing_repaint_boundary', () {
+      final issues = [
+        makeIssue(
+          stableId: 'rebuild_activity',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+          detail: 'High rebuild rate.',
+        ),
+        makeIssue(
+          stableId: 'layout_bottleneck',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.likely,
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final rebuild = result.firstWhere(
+        (i) => i.stableId == 'rebuild_activity',
+      );
+      expect(rebuild.detail, isNot(contains('[Correlated]')));
+      expect(rebuild.confidence, IssueConfidence.confirmed);
+    });
+
+    test('confidence does NOT change (informational only)', () {
+      final issues = [
+        makeIssue(
+          stableId: 'missing_repaint_boundary',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.possible,
+        ),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.possible,
+          detail: 'Low rebuild rate.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final rebuild = result.firstWhere(
+        (i) => i.stableId == 'rebuild_activity',
+      );
+      expect(rebuild.confidence, IssueConfidence.possible);
+      expect(rebuild.detail, contains('[Correlated] Missing RepaintBoundary'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Duplicate stableIds
+  // ---------------------------------------------------------------------------
+
   group('duplicate stableIds', () {
     test('deterministic output when duplicate stableIds exist', () {
       final issues = [

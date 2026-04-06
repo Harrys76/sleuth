@@ -26,12 +26,14 @@ class DetectorCorrelator {
   const DetectorCorrelator();
 
   static const List<CorrelationRule> _rules = [
-    SuppressAnimatedBuilderRule(), // suppress first
-    MergeRebuildSetStateRule(), // merge second
-    EscalateGpuCustomPainterRule(), // escalate third
-    EscalateMemoryImageRule(), // escalate fourth
-    DeduplicateRebuildRepaintRule(), // deduplicate fifth
-    CausalGraphRule(), // causal graph last
+    SuppressAnimatedBuilderRule(), // 1. suppress
+    MergeRebuildSetStateRule(), // 2. merge
+    EscalateGpuCustomPainterRule(), // 3. escalate
+    EscalateMemoryImageRule(), // 4. escalate
+    EscalateKeepAliveMemoryRule(), // 5. escalate (v10.6)
+    EnrichRebuildRepaintBoundaryRule(), // 6. enrich (v10.9)
+    DeduplicateRebuildRepaintRule(), // 7. deduplicate
+    CausalGraphRule(), // 8. causal graph
   ];
 
   /// Apply all correlation rules in sequence and return the modified list.
@@ -243,7 +245,97 @@ class EscalateMemoryImageRule extends CorrelationRule {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 5: Deduplicate Rebuild + Repaint on same widget (applied last)
+// Rule 5: Escalate KeepAlive with Heap Pressure (v10.6)
+// ---------------------------------------------------------------------------
+
+/// When `heap_growing` or `heap_near_capacity` co-occurs with
+/// `excessive_keep_alive:*`, escalates keep-alive confidence from
+/// `possible` to `likely`.
+class EscalateKeepAliveMemoryRule extends CorrelationRule {
+  const EscalateKeepAliveMemoryRule();
+
+  @override
+  String get name => 'EscalateKeepAliveMemory';
+
+  @override
+  List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
+    final hasHeapPressure = issues.any((i) =>
+        i.stableId == 'heap_growing' || i.stableId == 'heap_near_capacity');
+    if (!hasHeapPressure) return issues;
+
+    // Find keep-alive issues (prefix match — stableId is 'excessive_keep_alive:$route')
+    final keepAliveIndices = <int>[];
+    for (var i = 0; i < issues.length; i++) {
+      final id = issues[i].stableId;
+      if (id != null && id.startsWith('excessive_keep_alive:')) {
+        if (issues[i].confidence == IssueConfidence.possible) {
+          keepAliveIndices.add(i);
+        }
+      }
+    }
+    if (keepAliveIndices.isEmpty) return issues;
+
+    return [
+      for (var i = 0; i < issues.length; i++)
+        if (keepAliveIndices.contains(i))
+          issues[i].copyWith(
+            confidence: IssueConfidence.likely,
+            detail: '${issues[i].detail}\n\n'
+                '[Correlated] Heap pressure detected — '
+                'kept-alive pages may be contributing to memory growth.',
+          )
+        else
+          issues[i],
+    ];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rule 6: Enrich Rebuild with RepaintBoundary context (v10.9)
+// ---------------------------------------------------------------------------
+
+/// When `missing_repaint_boundary` co-occurs with rebuild issues,
+/// annotates rebuild issues with a note about potential repaint
+/// propagation. Informational only — no confidence change.
+class EnrichRebuildRepaintBoundaryRule extends CorrelationRule {
+  const EnrichRebuildRepaintBoundaryRule();
+
+  @override
+  String get name => 'EnrichRebuildRepaintBoundary';
+
+  @override
+  List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
+    final hasMissingBoundary =
+        issues.any((i) => i.stableId == 'missing_repaint_boundary');
+    if (!hasMissingBoundary) return issues;
+
+    // Find rebuild issues to annotate
+    final rebuildIndices = <int>[];
+    for (var i = 0; i < issues.length; i++) {
+      final id = issues[i].stableId;
+      if (id == 'rebuild_activity' ||
+          (id != null && id.startsWith('rebuild_debug_'))) {
+        rebuildIndices.add(i);
+      }
+    }
+    if (rebuildIndices.isEmpty) return issues;
+
+    return [
+      for (var i = 0; i < issues.length; i++)
+        if (rebuildIndices.contains(i))
+          issues[i].copyWith(
+            detail: '${issues[i].detail}\n\n'
+                '[Correlated] Missing RepaintBoundary detected — '
+                'rebuilds may propagate unnecessary repaints.',
+          )
+        else
+          issues[i],
+    ];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rule 7: Deduplicate Rebuild + Repaint on same widget
 // ---------------------------------------------------------------------------
 
 /// Deduplicates when the same widget has both `rebuild_debug_$TYPE` and

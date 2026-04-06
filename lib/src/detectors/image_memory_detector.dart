@@ -68,27 +68,49 @@ class ImageMemoryDetector extends BaseDetector {
 
     if (widget is Image) {
       final provider = widget.image;
-      final isResized = provider is ResizeImage;
-      if (!isResized) {
-        final sourceName = extractSourceName(provider);
-        _uncachedImages.add(UncachedImageInfo(
-          sourceName: sourceName,
-          ancestorChain: buildAncestorChain(element),
+      if (provider is! ResizeImage) {
+        _recordUncachedImage(element, provider, 'Image');
+      }
+      return;
+    }
+
+    // DecorationImage in BoxDecoration — separate image loading path.
+    // Container with decoration internally creates a DecoratedBox, so
+    // the tree walk encounters DecoratedBox directly.
+    if (widget is DecoratedBox) {
+      _checkDecorationImage(element, widget.decoration);
+    }
+  }
+
+  void _checkDecorationImage(Element element, Decoration decoration) {
+    if (decoration is! BoxDecoration) return;
+    final image = decoration.image;
+    if (image == null) return;
+    final provider = image.image;
+    if (provider is ResizeImage) return;
+
+    _recordUncachedImage(element, provider, 'DecoratedBox');
+  }
+
+  void _recordUncachedImage(
+      Element element, ImageProvider provider, String widgetName) {
+    final sourceName = extractSourceName(provider);
+    _uncachedImages.add(UncachedImageInfo(
+      sourceName: sourceName,
+      ancestorChain: buildAncestorChain(element),
+    ));
+    final ro = element.renderObject;
+    if (ro != null) {
+      final rect = getGlobalRect(ro);
+      if (rect != null) {
+        _highlights.add(WidgetHighlight(
+          rect: rect,
+          widgetName: widgetName,
+          severity: IssueSeverity.warning,
+          detectorName: 'Image',
+          detail: 'Uncached ${_providerTypeName(provider)}: $sourceName\n'
+              'Add cacheWidth/cacheHeight or wrap in ResizeImage',
         ));
-        final ro = element.renderObject;
-        if (ro != null) {
-          final rect = getGlobalRect(ro);
-          if (rect != null) {
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: 'Image',
-              severity: IssueSeverity.warning,
-              detectorName: 'Image',
-              detail: 'Uncached ${_providerTypeName(provider)}: $sourceName\n'
-                  'Add cacheWidth/cacheHeight or wrap in ResizeImage',
-            ));
-          }
-        }
       }
     }
   }

@@ -131,8 +131,8 @@ void main() {
       }
     });
 
-    test('allExplanations returns all 37 entries', () {
-      expect(IssueExplanationBuilder.allExplanations.length, 37);
+    test('allExplanations returns all 38 entries', () {
+      expect(IssueExplanationBuilder.allExplanations.length, 38);
     });
 
     test('groupedEntries returns 8 groups', () {
@@ -154,7 +154,7 @@ void main() {
       final groups = IssueExplanationBuilder.groupedEntries;
       final totalEntries =
           groups.fold<int>(0, (sum, g) => sum + g.entries.length);
-      expect(totalEntries, 37);
+      expect(totalEntries, 38);
     });
 
     test('readingTheData is non-null for runtime detector entries', () {
@@ -179,6 +179,7 @@ void main() {
         'slow_request',
         'large_response',
         'request_frequency',
+        'http_error_spike',
         'platform_channel_traffic',
       ];
 

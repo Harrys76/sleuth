@@ -399,6 +399,33 @@ class FixHintBuilder {
     );
   }
 
+  static (String, FixEffort) httpErrorSpike({
+    required int errorCount,
+    int transportFailures = 0,
+  }) {
+    final buffer = StringBuffer()
+      ..writeln('$errorCount HTTP errors detected in a 5-second window.')
+      ..writeln()
+      ..writeln('Common causes:')
+      ..writeln(
+          '  1. Retry storms — failed requests triggering exponential retries')
+      ..writeln('  2. Backend outage — server returning 5xx errors')
+      ..writeln('  3. Network connectivity — device losing connection');
+    if (transportFailures > 0) {
+      buffer
+        ..writeln()
+        ..writeln(
+            'Transport failures ($transportFailures) suggest network/DNS issues.');
+    }
+    buffer
+      ..writeln()
+      ..writeln('Fixes:')
+      ..writeln('  • Add exponential backoff with jitter to retry logic')
+      ..writeln('  • Implement circuit breaker pattern for repeated failures')
+      ..writeln('  • Cache successful responses to reduce retry impact');
+    return (buffer.toString(), FixEffort.medium);
+  }
+
   static (String, FixEffort) requestFrequency() {
     return (
       'Batch or debounce repeated requests:\n'

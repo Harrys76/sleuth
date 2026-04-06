@@ -383,5 +383,147 @@ void main() {
       detector.dispose();
       expect(detector.issues, isEmpty);
     });
+
+    // -----------------------------------------------------------------
+    // v10.2: NeverScrollableScrollPhysics suppression
+    // -----------------------------------------------------------------
+
+    group('NeverScrollableScrollPhysics suppression', () {
+      testWidgets(
+          'ListView with NeverScrollableScrollPhysics inside SCSV is NOT flagged',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 200,
+                    child: ListView(
+                      physics: const NeverScrollableScrollPhysics(),
+                      shrinkWrap: true,
+                      children: const [SizedBox(height: 10)],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason:
+                'NeverScrollableScrollPhysics delegates to parent — standard pattern');
+      });
+
+      testWidgets(
+          'ListView WITHOUT NeverScrollableScrollPhysics inside SCSV IS flagged',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 200,
+                    child: ListView(
+                      children: const [SizedBox(height: 10)],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1),
+            reason: 'Same-axis nesting without NeverScrollable should flag');
+      });
+
+      testWidgets(
+          'SCSV with NeverScrollableScrollPhysics inside another SCSV is NOT flagged',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  SingleChildScrollView(
+                    physics: const NeverScrollableScrollPhysics(),
+                    child: Column(
+                      children: const [SizedBox(height: 10)],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason:
+                'NeverScrollableScrollPhysics on SCSV suppresses nesting warning');
+      });
+
+      testWidgets(
+          'SCSV without NeverScrollableScrollPhysics inside another IS flagged',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  SingleChildScrollView(
+                    child: Column(
+                      children: const [SizedBox(height: 10)],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1),
+            reason:
+                'Same-axis SCSV nesting without NeverScrollable should flag');
+      });
+
+      testWidgets(
+          'GridView with NeverScrollableScrollPhysics inside SCSV is NOT flagged',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 200,
+                    child: GridView.count(
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: 2,
+                      children: const [SizedBox(), SizedBox()],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason: 'NeverScrollableScrollPhysics suppresses GridView nesting');
+      });
+    });
   });
 }

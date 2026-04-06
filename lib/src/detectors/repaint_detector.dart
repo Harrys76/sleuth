@@ -121,12 +121,12 @@ class RepaintDetector extends BaseDetector {
   }
 
   Map<String, double> _hotTypes = const {};
-  Map<String, int> _hotCounts = {};
+  final Map<String, int> _hotCounts = {};
 
   @override
   void prepareScan(BuildContext context) {
     _highlights.clear();
-    _hotCounts = {};
+    _hotCounts.clear();
 
     // Compute hot types from per-widget debug paint data
     _hotTypes = const {};

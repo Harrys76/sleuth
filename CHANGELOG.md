@@ -1,3 +1,70 @@
+## 0.10.1
+
+v10 roadmap: 12 milestones across accuracy, enrichment, and performance.
+
+### Accuracy
+
+- **ListView/GridView SliverChildListDelegate detection** (v10.1):
+  `ListviewDetector` now catches `ListView(children: [...])` and
+  `GridView(children: [...])` — the non-builder constructors that use
+  `SliverChildListDelegate` internally and build all children eagerly.
+  New stableIds `non_lazy_listview` / `non_lazy_gridview` with matching
+  causal graph rules.
+- **NeverScrollableScrollPhysics suppression** (v10.2):
+  `NestedScrollDetector` no longer flags same-axis nesting when the inner
+  scrollable uses `NeverScrollableScrollPhysics` — this is a standard
+  Flutter pattern where the inner widget intentionally delegates scrolling
+  to the parent.
+- **DecorationImage detection** (v10.3): `ImageMemoryDetector` now catches
+  images loaded through `DecorationImage` in `BoxDecoration` (via
+  `DecoratedBox`). Previously only `Image` widgets were checked.
+- **GpuPressureDetector is-checks** (v10.4): Replaced
+  `runtimeType.toString()` + `contains()` type matching with direct `is`
+  checks for `RenderOpacity`, `RenderClipPath`, `RenderBackdropFilter`,
+  `RenderShaderMask`. Eliminates string allocation per element AND fixes
+  a false positive on `RenderAnimatedOpacity` (which extends
+  `RenderProxyBox`, not `RenderOpacity`).
+- **LayoutBottleneckDetector widget-level checks** (v10.5): Replaced
+  render-object `runtimeType.toString()` matching with widget-level
+  `is IntrinsicHeight` / `is IntrinsicWidth` checks. Eliminates two
+  `toString()` allocations per element (in both `checkElement` and
+  `afterElement`).
+
+### Enrichment
+
+- **KeepAlive + MemoryPressure escalation** (v10.6): New
+  `EscalateKeepAliveMemoryRule` correlator rule escalates
+  `excessive_keep_alive:*` confidence from `possible` to `likely` when
+  heap pressure (`heap_growing` / `heap_near_capacity`) co-occurs. New
+  causal graph rules connect keep-alive → heap chains.
+- **NestedScroll + LayoutBottleneck causal rules** (v10.7): New causal
+  graph rules connecting `nested_scroll` / `nested_scroll_same_axis` to
+  `layout_bottleneck` and `rebuild_activity`.
+- **HTTP error spike detection** (v10.8): `NetworkMonitorDetector` now
+  detects bursts of HTTP errors (3+ failures with status >= 400 or
+  transport failures in a 5-second window). New stableId
+  `http_error_spike` with `FixHintBuilder.httpErrorSpike()`, encyclopedia
+  entry, and causal rule linking to `request_frequency`.
+- **Rebuild + RepaintBoundary enrichment** (v10.9): New
+  `EnrichRebuildRepaintBoundaryRule` correlator rule annotates rebuild
+  issues (`rebuild_activity`, `rebuild_debug_*`) when
+  `missing_repaint_boundary` co-occurs. Informational only — no
+  confidence change.
+
+### Performance
+
+- **CustomPainterDetector toString** (v10.10): Replaced
+  `element.widget.runtimeType.toString()` with `'CustomPaint'` literal
+  in highlight creation — the widget type is already known from the
+  enclosing `is CustomPaint` guard.
+- **RepaintDetector map allocation** (v10.11): `_hotCounts.clear()`
+  instead of `_hotCounts = {}` in `prepareScan` — reuses the existing
+  map's backing store instead of allocating a new one every scan cycle.
+- **NestedScrollDetector stack allocation** (v10.12):
+  `_scrollAxisStack.clear()` + `.add(null)` instead of list re-creation
+  in `prepareScan` — reuses the existing list's capacity from previous
+  scans.
+
 ## 0.10.0
 
 ### Performance

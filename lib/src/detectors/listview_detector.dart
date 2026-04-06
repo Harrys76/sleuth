@@ -48,12 +48,71 @@ class ListviewDetector extends BaseDetector {
     // Detect SingleChildScrollView + Column/Row pattern (non-lazy list)
     if (widget is SingleChildScrollView) {
       _checkForNonLazyList(element);
+      return;
+    }
+
+    // Detect non-builder ListView/GridView (uses SliverChildListDelegate)
+    if (widget is ListView || widget is GridView) {
+      final delegate = widget is ListView
+          ? widget.childrenDelegate
+          : (widget as GridView).childrenDelegate;
+      if (delegate is SliverChildListDelegate &&
+          delegate.children.length > childThreshold) {
+        _emitNonLazyScrollViewIssue(element, widget, delegate.children.length);
+      }
     }
   }
 
   @override
   void finalizeScan() {
     // Issues are created inline in _checkForNonLazyList — nothing to finalize.
+  }
+
+  void _emitNonLazyScrollViewIssue(
+      Element scrollElement, Widget widget, int childCount) {
+    final widgetName = widget is ListView ? 'ListView' : 'GridView';
+    final stableId =
+        widget is ListView ? 'non_lazy_listview' : 'non_lazy_gridview';
+    final location = buildAncestorChain(scrollElement);
+
+    final ro = scrollElement.renderObject;
+    if (ro != null) {
+      final rect = getGlobalRect(ro);
+      if (rect != null) {
+        _highlights.add(WidgetHighlight(
+          rect: rect,
+          widgetName: widgetName,
+          severity: childCount > childThreshold * 2
+              ? IssueSeverity.critical
+              : IssueSeverity.warning,
+          detectorName: 'Non-lazy',
+          detail: '$childCount children built eagerly',
+        ));
+      }
+    }
+    final (hint, effort) = FixHintBuilder.nonLazyList(
+      childCount: childCount,
+      widgetName: widgetName,
+      ancestorChain: location,
+    );
+    _issues.add(PerformanceIssue(
+      stableId: stableId,
+      severity: childCount > childThreshold * 3
+          ? IssueSeverity.critical
+          : IssueSeverity.warning,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.possible,
+      title: 'Non-lazy $widgetName: $childCount children',
+      detail: '$widgetName with $childCount children builds all items at '
+          'once instead of lazily. Use $widgetName.builder for '
+          'virtualized rendering.\n\n  • $location',
+      fixHint: hint,
+      fixEffort: effort,
+      widgetName: widgetName,
+      ancestorChain: location,
+      observationSource: ObservationSource.structural,
+      detectedAt: DateTime.now(),
+    ));
   }
 
   void _checkForNonLazyList(Element scrollElement) {

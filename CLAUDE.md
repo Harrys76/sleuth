@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 22 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~1,490 tests, ~18s)
+fvm flutter test                    # Run all tests (~1,531 tests, ~18s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -53,7 +53,8 @@ test/
 
 ## Current state
 
-- **v0.10.0** (current) — Issue Encyclopedia, contextual AI Chat, IssueCard shimmer Ask AI link, responsive action links, MediaQuery optimization, overlay UI polish. See CHANGELOG.md.
+- **v0.10.1** (current) — v10 roadmap: 12 milestones across accuracy (ListView/GridView SliverChildListDelegate detection, NeverScrollableScrollPhysics suppression, DecorationImage detection, GPU/Layout is-check replacements), enrichment (KeepAlive+Memory escalation, NestedScroll+Layout causal rules, HTTP error spike detection, Rebuild+RepaintBoundary annotation), and performance (toString elimination, map/list reuse). See `doc/spec_v10.md`.
+- v0.10.0: Issue Encyclopedia, contextual AI Chat, IssueCard shimmer Ask AI link, responsive action links, MediaQuery optimization, overlay UI polish. See CHANGELOG.md.
 - v0.9.2: v9 accuracy/self-overhead/correctness: 17 milestones — opacity value semantics, paint phase classification, inner subtree walk elimination, highlight overlay GPU optimization, generation-counter shouldRepaint, and more.
 - v0.9.1: v8 accuracy/correctness/performance fixes: SetState O(N²) fix (v8.1), scaffold scan-root fallback for Cupertino/scaffold-free apps (v8.2), HTTP monitor leak (v8.3), platform channel false positives (v8.4), SetState wording (v8.5).
 - v0.9.0: Unified structural tree walk (v7.9), all v7 milestones shipped.
@@ -63,7 +64,8 @@ test/
 - v0.7.0: v4 + v5 roadmap — suppression, custom detectors, theming, export enrichment, causal graph, configurable thresholds, detector registry, network correlation, RepaintBoundary detector.
 - v7 roadmap: 10/10 milestones shipped ✅. See `doc/spec_v7.md`.
 - v8 roadmap: 5/5 milestones shipped ✅ (v8.1–v8.5). See `doc/spec_v8.md`.
+- v10 roadmap: 12/12 milestones shipped ✅ (v10.1–v10.12). See `doc/spec_v10.md`.
 - v9 roadmap: 17/17 milestones shipped ✅ (v9.1–v9.17). See `doc/spec_v9.md`.
 - Post-implementation audits in `doc/spec_v2_audit.md` and `doc/spec_post_impl_notes.md`.
 - Full spec index in `doc/implementation_spec.md`.
-- 1,490 tests, 0 analysis issues
+- 1,531 tests, 0 analysis issues

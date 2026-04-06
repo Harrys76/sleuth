@@ -1125,6 +1125,44 @@ class IssueExplanationBuilder {
           'acceptable as a one-time burst.',
     ),
 
+    'http_error_spike': (
+      displayName: 'HTTP Error Spike',
+      category: IssueCategory.network,
+      whatItIs:
+          'Multiple HTTP requests failed (4xx/5xx status codes) or could not '
+          'connect (transport failures) within a 5-second window. This '
+          'suggests backend issues, network problems, or retry storms.',
+      readingTheData:
+          'Like a delivery truck that keeps returning to the warehouse '
+          'because the address is wrong — each failed trip wastes fuel and '
+          'time.\n\n'
+          '• Error count — HTTP responses with status ≥400 or connection '
+          'failures (status -1) in a 5-second window. Alert: ≥3 errors.\n\n'
+          '• Transport failures — Requests that never received a response '
+          '(DNS failure, timeout, connection refused). These are worse than '
+          '4xx/5xx because there is no server-side processing.\n\n'
+          '• Server errors (5xx) — The server received the request but '
+          'failed to process it. Often transient and retriable.\n\n'
+          '• Source: HTTP client instrumentation.',
+      whyItMatters:
+          'Failed requests that trigger automatic retries can create retry '
+          'storms — exponentially increasing network traffic that wastes '
+          'battery, bandwidth, and CPU time. Each retry attempt also blocks '
+          'the HTTP client connection pool, potentially delaying legitimate '
+          'requests. On metered connections, this wastes user data.',
+      howToFix:
+          'Add exponential backoff with jitter to retry logic — never retry '
+          'immediately or at fixed intervals. Implement a circuit breaker '
+          'that stops retrying after N consecutive failures and checks again '
+          'after a cooldown period. Cache successful responses so the app '
+          'can serve stale data during outages. For transport failures, '
+          'check connectivity before retrying.',
+      whenToIgnore:
+          'A brief spike during network transitions (WiFi → cellular) is '
+          'expected. Single 4xx errors from user input (404 from a bad URL, '
+          '401 from expired auth) are not concerning on their own.',
+    ),
+
     // ── Platform Channel ──────────────────────────────────────────────────
 
     'platform_channel_traffic': (

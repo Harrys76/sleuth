@@ -227,5 +227,119 @@ void main() {
       expect(detector.highlights, isEmpty);
       expect(detector.uncachedImages, isEmpty);
     });
+
+    // -----------------------------------------------------------------
+    // v10.3: DecorationImage in BoxDecoration detection
+    // -----------------------------------------------------------------
+
+    group('DecorationImage detection', () {
+      testWidgets('flags DecoratedBox with DecorationImage without ResizeImage',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  image: MemoryImage(_kTransparentPng),
+                ),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.stableId, 'uncached_images');
+        expect(detector.uncachedImages, hasLength(1));
+      });
+
+      testWidgets(
+          'no issue for DecoratedBox with DecorationImage using ResizeImage',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  image: ResizeImage(
+                    MemoryImage(_kTransparentPng),
+                    width: 100,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty);
+        expect(detector.uncachedImages, isEmpty);
+      });
+
+      testWidgets('no issue for DecoratedBox without image', (tester) async {
+        await tester.pumpWidget(
+          const Directionality(
+            textDirection: TextDirection.ltr,
+            child: DecoratedBox(
+              decoration: BoxDecoration(color: Color(0xFFFF0000)),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty);
+        expect(detector.uncachedImages, isEmpty);
+      });
+
+      testWidgets('highlight widgetName is DecoratedBox for decoration images',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  image: MemoryImage(_kTransparentPng),
+                ),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.highlights, hasLength(1));
+        expect(detector.highlights.first.widgetName, 'DecoratedBox');
+      });
+
+      testWidgets(
+          'mixed Image widgets and DecoratedBox images are counted together',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Column(
+              children: [
+                Image(image: MemoryImage(_kTransparentPng)),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    image: DecorationImage(
+                      image: MemoryImage(_kTransparentPng),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.title, contains('2 found'));
+        expect(detector.uncachedImages, hasLength(2));
+        expect(detector.highlights, hasLength(2));
+      });
+    });
   });
 }

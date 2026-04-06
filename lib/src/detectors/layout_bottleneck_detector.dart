@@ -47,15 +47,15 @@ class LayoutBottleneckDetector extends BaseDetector {
 
   @override
   void checkElement(Element element) {
-    final ro = element.renderObject;
-    if (ro != null) {
-      final typeName = ro.runtimeType.toString();
-      if (typeName.contains('RenderIntrinsicHeight') ||
-          typeName.contains('RenderIntrinsicWidth')) {
-        final isNested = _intrinsicDepth > 0;
-        final widgetName = element.widget.runtimeType.toString();
-        _found.add((name: widgetName, nested: isNested));
-        _intrinsicDepth++;
+    final widget = element.widget;
+    if (widget is IntrinsicHeight || widget is IntrinsicWidth) {
+      final isNested = _intrinsicDepth > 0;
+      final widgetName =
+          widget is IntrinsicHeight ? 'IntrinsicHeight' : 'IntrinsicWidth';
+      _found.add((name: widgetName, nested: isNested));
+      _intrinsicDepth++;
+      final ro = element.renderObject;
+      if (ro != null) {
         final rect = getGlobalRect(ro);
         if (rect != null) {
           _highlights.add(WidgetHighlight(
@@ -74,13 +74,9 @@ class LayoutBottleneckDetector extends BaseDetector {
 
   @override
   void afterElement(Element element) {
-    final ro = element.renderObject;
-    if (ro != null) {
-      final typeName = ro.runtimeType.toString();
-      if (typeName.contains('RenderIntrinsicHeight') ||
-          typeName.contains('RenderIntrinsicWidth')) {
-        _intrinsicDepth--;
-      }
+    final widget = element.widget;
+    if (widget is IntrinsicHeight || widget is IntrinsicWidth) {
+      _intrinsicDepth--;
     }
   }
 

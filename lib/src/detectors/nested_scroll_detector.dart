@@ -26,7 +26,7 @@ class NestedScrollDetector extends BaseDetector {
 
   /// Stack tracking the propagated scroll axis through the tree.
   /// Initialized with a null sentinel for the root level.
-  List<Axis?> _scrollAxisStack = [null];
+  final List<Axis?> _scrollAxisStack = [null];
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -44,7 +44,9 @@ class NestedScrollDetector extends BaseDetector {
   void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
-    _scrollAxisStack = [null];
+    _scrollAxisStack
+      ..clear()
+      ..add(null);
   }
 
   @override
@@ -57,8 +59,13 @@ class NestedScrollDetector extends BaseDetector {
     // Detect scroll-inside-scroll (same axis only)
     if (scrollAxis != null && parentAxis != null) {
       if (scrollAxis == parentAxis) {
-        // Same-axis nesting — always flag
-        _checkNestedScroll(element, widget);
+        // NeverScrollableScrollPhysics means the inner widget intentionally
+        // delegates scrolling to the parent — standard Flutter pattern.
+        // Note: does not check ScrollPhysics.parent chain — extremely rare
+        // in practice (e.g. ClampingScrollPhysics(parent: NeverScrollable...)).
+        if (!_hasNeverScrollablePhysics(widget)) {
+          _checkNestedScroll(element, widget);
+        }
       }
       // Cross-axis nesting is a standard pattern (e.g. horizontal
       // ListView inside vertical ScrollView) — suppress.
@@ -80,6 +87,16 @@ class NestedScrollDetector extends BaseDetector {
     if (widget is GridView) return widget.scrollDirection;
     if (widget is CustomScrollView) return widget.scrollDirection;
     return null;
+  }
+
+  static bool _hasNeverScrollablePhysics(Widget widget) {
+    if (widget is ScrollView) {
+      return widget.physics is NeverScrollableScrollPhysics;
+    }
+    if (widget is SingleChildScrollView) {
+      return widget.physics is NeverScrollableScrollPhysics;
+    }
+    return false;
   }
 
   void _checkNestedScroll(Element element, Widget widget) {

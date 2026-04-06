@@ -532,6 +532,219 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // KeepAlive → memory chains (v10.6)
+  // ---------------------------------------------------------------------------
+
+  group('keep-alive causal chains (v10.6)', () {
+    test('excessive_keep_alive:0 → heap_growing', () {
+      final issues = [
+        makeIssue(
+          stableId: 'excessive_keep_alive:0',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'heap_growing',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['heap_growing']);
+      expect(result[0].rootCauseId, isNull);
+      expect(result[1].rootCauseId, 'excessive_keep_alive:0');
+      expect(result[1].downstreamIds, isNull);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Nested scroll → layout/rebuild chains (v10.7)
+  // ---------------------------------------------------------------------------
+
+  group('nested scroll causal chains (v10.7)', () {
+    test('nested_scroll → layout_bottleneck', () {
+      final issues = [
+        makeIssue(
+          stableId: 'nested_scroll',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'layout_bottleneck',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['layout_bottleneck']);
+      expect(result[1].rootCauseId, 'nested_scroll');
+    });
+
+    test('nested_scroll_same_axis → rebuild_activity', () {
+      final issues = [
+        makeIssue(
+          stableId: 'nested_scroll_same_axis',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['rebuild_activity']);
+      expect(result[1].rootCauseId, 'nested_scroll_same_axis');
+    });
+
+    test('nested_scroll_same_axis → layout_bottleneck', () {
+      final issues = [
+        makeIssue(
+          stableId: 'nested_scroll_same_axis',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'layout_bottleneck',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['layout_bottleneck']);
+      expect(result[1].rootCauseId, 'nested_scroll_same_axis');
+    });
+
+    test('nested_scroll → rebuild_activity', () {
+      final issues = [
+        makeIssue(
+          stableId: 'nested_scroll',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['rebuild_activity']);
+      expect(result[1].rootCauseId, 'nested_scroll');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Non-lazy ListView/GridView chains (v10.1)
+  // ---------------------------------------------------------------------------
+
+  group('non-lazy ListView/GridView causal chains (v10.1)', () {
+    test('non_lazy_listview → rebuild_activity', () {
+      final issues = [
+        makeIssue(
+          stableId: 'non_lazy_listview',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['rebuild_activity']);
+      expect(result[1].rootCauseId, 'non_lazy_listview');
+    });
+
+    test('non_lazy_gridview → heavy_compute', () {
+      final issues = [
+        makeIssue(
+          stableId: 'non_lazy_gridview',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'heavy_compute',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['heavy_compute']);
+      expect(result[1].rootCauseId, 'non_lazy_gridview');
+    });
+
+    test('non_lazy_listview → layout_bottleneck', () {
+      final issues = [
+        makeIssue(
+          stableId: 'non_lazy_listview',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'layout_bottleneck',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['layout_bottleneck']);
+      expect(result[1].rootCauseId, 'non_lazy_listview');
+    });
+
+    test('non_lazy_gridview → rebuild_activity', () {
+      final issues = [
+        makeIssue(
+          stableId: 'non_lazy_gridview',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['rebuild_activity']);
+      expect(result[1].rootCauseId, 'non_lazy_gridview');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // HTTP error → request frequency chain (v10.8)
+  // ---------------------------------------------------------------------------
+
+  group('http error causal chains (v10.8)', () {
+    test('http_error_spike → request_frequency', () {
+      final issues = [
+        makeIssue(
+          stableId: 'http_error_spike',
+          category: IssueCategory.network,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'request_frequency',
+          category: IssueCategory.network,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['request_frequency']);
+      expect(result[0].rootCauseId, isNull);
+      expect(result[1].rootCauseId, 'http_error_spike');
+      expect(result[1].downstreamIds, isNull);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Missing RepaintBoundary → downstream chains (v5.8)
   // ---------------------------------------------------------------------------
 

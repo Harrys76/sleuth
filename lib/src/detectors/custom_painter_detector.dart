@@ -76,7 +76,7 @@ class CustomPainterDetector extends BaseDetector {
           if (rect != null) {
             _highlights.add(WidgetHighlight(
               rect: rect,
-              widgetName: element.widget.runtimeType.toString(),
+              widgetName: 'CustomPaint',
               severity: IssueSeverity.warning,
               detectorName: 'Painter',
               detail: 'shouldRepaint always true',

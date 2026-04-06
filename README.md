@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C490_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C531_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -19,7 +19,7 @@ Sleuth runs four layers of analysis:
 1. **Frame timing** (FrameTiming API) — per-frame build and raster duration, vsync overhead, cache stats. Works on every platform in debug and profile mode. This is the primary signal.
 2. **VM timeline** (vm_service) — when connected, provides sub-phase breakdowns (buildScope, flushLayout, flushPaint, raster). Best-effort; availability depends on platform and runtime environment.
 3. **Widget tree scan** (post-frame walk, 1x/sec) — finds structural anti-patterns like non-lazy lists, uncached images, excessive GlobalKeys, and more.
-4. **Network monitoring** (HttpOverrides) — transparent HTTP interception that detects slow requests, frequency spikes, and oversized responses without modifying app networking code.
+4. **Network monitoring** (HttpOverrides) — transparent HTTP interception that detects slow requests, frequency spikes, oversized responses, and HTTP error bursts without modifying app networking code.
 
 ## Quick Start
 
@@ -202,7 +202,7 @@ Issues include a confidence level reflecting evidence quality:
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
 | Frame Timing | FrameTiming API | Frame exceeded budget | Confirmed | Cannot attribute to specific widget |
-| Network Monitor | HttpOverrides | Slow, excessive, or oversized HTTP requests | Confirmed | Only intercepts dart:io HttpClient (not package:http directly) |
+| Network Monitor | HttpOverrides | Slow, excessive, oversized, or error-spiking HTTP requests | Confirmed | Only intercepts dart:io HttpClient (not package:http directly) |
 
 ### VM-Only Detectors (require VM connection)
 
@@ -244,7 +244,7 @@ Issues include a confidence level reflecting evidence quality:
 - **Always on**: no separate tool window, no connection setup — performance data is visible as you use your app
 - **22 detectors**: structural anti-patterns (non-lazy lists, uncached images, excessive GlobalKeys, missing RepaintBoundary) that DevTools does not flag
 - **Causal issue graph**: links root causes to downstream effects — see why an issue matters, not just that it exists
-- **Network monitoring**: in-app detection of slow requests, request floods, oversized responses, and network-to-frame correlation
+- **Network monitoring**: in-app detection of slow requests, request floods, oversized responses, HTTP error spikes, and network-to-frame correlation
 - **Heap trend monitoring**: detects sustained memory growth and near-capacity conditions without heap snapshots
 - **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed
 - **Source-location enrichment**: ancestor chains include file:line in debug mode, linking issues directly to source code

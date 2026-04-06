@@ -126,6 +126,7 @@ class NetworkMonitorDetector extends BaseDetector {
     _evaluateSlowRequests();
     _evaluateLargeResponses();
     _evaluateFrequency();
+    _evaluateErrors();
 
     // Cancel timer when buffer is empty — no point ticking on stale state.
     // Timer restarts on next processRecord().
@@ -229,6 +230,54 @@ class NetworkMonitorDetector extends BaseDetector {
           '(limit: $frequencyLimit)',
       detail: '$recentCount HTTP requests in the last 5 seconds. '
           'Threshold: $frequencyLimit/5s.',
+      fixHint: hint,
+      fixEffort: effort,
+      detectedAt: _clock(),
+    ));
+  }
+
+  void _evaluateErrors() {
+    final now = _clock();
+    final windowStart =
+        now.subtract(const Duration(milliseconds: _frequencyWindowMs));
+    final recentErrors = _records
+        .where((r) =>
+            r.startedAt.isAfter(windowStart) &&
+            (r.statusCode >= 400 || r.statusCode == -1))
+        .toList();
+
+    if (recentErrors.length < 3) return;
+
+    final errorCount = recentErrors.length;
+    final transportFailures =
+        recentErrors.where((r) => r.statusCode == -1).length;
+    final serverErrors = recentErrors.where((r) => r.statusCode >= 500).length;
+
+    final severity = errorCount >= 10 || serverErrors >= 5
+        ? IssueSeverity.critical
+        : IssueSeverity.warning;
+
+    final urlDetails = recentErrors
+        .take(5)
+        .map((r) => '${r.method.toUpperCase()} ${_shortenUrl(r.url)} — '
+            '${r.statusCode == -1 ? 'FAILED' : r.statusCode}')
+        .join('\n');
+
+    final (hint, effort) = FixHintBuilder.httpErrorSpike(
+      errorCount: errorCount,
+      transportFailures: transportFailures,
+    );
+
+    _issues.add(PerformanceIssue(
+      stableId: 'http_error_spike',
+      severity: severity,
+      category: IssueCategory.network,
+      confidence: IssueConfidence.confirmed,
+      title: 'HTTP Error Spike: $errorCount errors in 5s',
+      detail: '$errorCount HTTP errors in the last 5 seconds'
+          '${transportFailures > 0 ? ' ($transportFailures transport failures)' : ''}'
+          '${serverErrors > 0 ? ' ($serverErrors server errors)' : ''}.\n\n'
+          '$urlDetails',
       fixHint: hint,
       fixEffort: effort,
       detectedAt: _clock(),

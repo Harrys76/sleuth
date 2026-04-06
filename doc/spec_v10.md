@@ -1,11 +1,13 @@
 ## v10 Roadmap: Performance, Accuracy & Enrichment
 
+**Status: 12/12 milestones shipped** ✅ (v0.10.1)
+
 Origin: Deep codebase audit (2026-04-06) across all 22 detectors, controller, correlator, causal graph, and ranking systems. 14 initial findings identified; 2 dropped after source-level verification (GpuPressureDetector already has `is RenderOpacity` value guard from v9.1; original ultraplan's alternate child-counting approach was unnecessary since `SliverChildListDelegate.children` IS public). 12 verified findings remain across 3 tiers.
 
 **Tiers:**
-- **Tier 1 — Accuracy** (v10.1–v10.5): Missed signals, false positives, and hot-path type checks.
-- **Tier 2 — Enrichment** (v10.6–v10.9): Cross-detector correlation rules and new detection signals.
-- **Tier 3 — Performance** (v10.10–v10.12): Scan-path overhead and allocation reduction.
+- **Tier 1 — Accuracy** (v10.1–v10.5): Missed signals, false positives, and hot-path type checks. ✅
+- **Tier 2 — Enrichment** (v10.6–v10.9): Cross-detector correlation rules and new detection signals. ✅
+- **Tier 3 — Performance** (v10.10–v10.12): Scan-path overhead and allocation reduction. ✅
 
 ---
 
@@ -809,12 +811,12 @@ Tier 3 — Performance (all independent):
 
 All milestones are independent except v10.7 (causal rules for nested scroll) which benefits from v10.1/v10.2 being done first so the issues it correlates are accurate.
 
-## Verification
+## Verification ✅
 
-For each milestone:
-1. `fvm flutter analyze` — 0 issues
-2. `fvm flutter test` — all ~1,490+ tests pass
-3. Add tests mirroring existing detector test structure in `test/detectors/`
-4. For accuracy fixes (v10.1–v10.5): write tests with both true-positive and false-positive scenarios
-5. For enrichment (v10.6–v10.9): write correlator/causal graph tests
-6. For performance (v10.10–v10.12): verify behavior unchanged via existing tests
+All milestones verified:
+1. `fvm flutter analyze` — 0 issues ✅
+2. `fvm flutter test` — 1,531 tests pass (was 1,490) ✅
+3. Tests added mirroring existing detector test structure in `test/detectors/` ✅
+4. Accuracy fixes (v10.1–v10.5): tests with both true-positive and false-positive scenarios ✅
+5. Enrichment (v10.6–v10.9): correlator and causal graph tests ✅
+6. Performance (v10.10–v10.12): behavior unchanged verified via existing tests ✅
