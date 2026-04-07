@@ -28,6 +28,10 @@ class NestedScrollDetector extends BaseDetector {
   /// Initialized with a null sentinel for the root level.
   final List<Axis?> _scrollAxisStack = [null];
 
+  /// Depth counter: >0 when inside a [NestedScrollView] subtree.
+  /// Inner scrollables are intentional in NestedScrollView — suppress flagging.
+  int _insideNestedScrollView = 0;
+
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
@@ -47,22 +51,33 @@ class NestedScrollDetector extends BaseDetector {
     _scrollAxisStack
       ..clear()
       ..add(null);
+    _insideNestedScrollView = 0;
   }
 
   @override
   void checkElement(Element element) {
     final widget = element.widget;
 
+    // NestedScrollView is the framework's dedicated solution for coordinated
+    // nested scrolling. Its inner scrollables are intentional — suppress
+    // nesting warnings for all descendants.
+    if (widget is NestedScrollView) {
+      _insideNestedScrollView++;
+    }
+
     final scrollAxis = _scrollAxis(widget);
     final parentAxis = _scrollAxisStack.last;
 
-    // Detect scroll-inside-scroll (same axis only)
-    if (scrollAxis != null && parentAxis != null) {
+    // Detect scroll-inside-scroll (same axis only).
+    // Skip when inside NestedScrollView — inner scrollables are intentional.
+    if (_insideNestedScrollView == 0 &&
+        scrollAxis != null &&
+        parentAxis != null) {
       if (scrollAxis == parentAxis) {
         // NeverScrollableScrollPhysics means the inner widget intentionally
         // delegates scrolling to the parent — standard Flutter pattern.
-        // Note: does not check ScrollPhysics.parent chain — extremely rare
-        // in practice (e.g. ClampingScrollPhysics(parent: NeverScrollable...)).
+        // Walks the full ScrollPhysics.parent chain to catch wrapped cases
+        // like ClampingScrollPhysics(parent: NeverScrollableScrollPhysics()).
         if (!_hasNeverScrollablePhysics(widget)) {
           _checkNestedScroll(element, widget);
         }
@@ -78,6 +93,9 @@ class NestedScrollDetector extends BaseDetector {
   @override
   void afterElement(Element element) {
     _scrollAxisStack.removeLast();
+    if (element.widget is NestedScrollView) {
+      _insideNestedScrollView--;
+    }
   }
 
   /// Extract scroll axis from a scrollable widget, or null if not scrollable.
@@ -90,11 +108,22 @@ class NestedScrollDetector extends BaseDetector {
   }
 
   static bool _hasNeverScrollablePhysics(Widget widget) {
+    ScrollPhysics? physics;
     if (widget is ScrollView) {
-      return widget.physics is NeverScrollableScrollPhysics;
+      physics = widget.physics;
+    } else if (widget is SingleChildScrollView) {
+      physics = widget.physics;
     }
-    if (widget is SingleChildScrollView) {
-      return widget.physics is NeverScrollableScrollPhysics;
+    return _physicsChainContainsNever(physics);
+  }
+
+  /// Walk the [ScrollPhysics.parent] chain looking for
+  /// [NeverScrollableScrollPhysics] at any level.
+  static bool _physicsChainContainsNever(ScrollPhysics? physics) {
+    ScrollPhysics? p = physics;
+    while (p != null) {
+      if (p is NeverScrollableScrollPhysics) return true;
+      p = p.parent;
     }
     return false;
   }

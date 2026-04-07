@@ -22,8 +22,13 @@ class LayoutBottleneckDetector extends BaseDetector {
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   final List<({String name, bool nested})> _found = [];
+  final List<({int childCount, String location})> _wrapFindings = [];
   int _intrinsicDepth = 0;
   bool _isEnabled = true;
+
+  /// Threshold for Wrap child count — above this, non-virtualized layout
+  /// becomes costly (all children measured every frame).
+  static const _wrapChildThreshold = 30;
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -42,18 +47,84 @@ class LayoutBottleneckDetector extends BaseDetector {
     _issues.clear();
     _highlights.clear();
     _found.clear();
+    _wrapFindings.clear();
     _intrinsicDepth = 0;
+  }
+
+  /// Framework widgets that use IntrinsicHeight/IntrinsicWidth internally.
+  /// Developers cannot control this usage, so flagging it is noise.
+  static const _frameworkIntrinsicParents = {
+    'DropdownButton',
+    'DropdownButtonFormField',
+    'PopupMenuButton',
+    'AlertDialog',
+    'SimpleDialog',
+    'ExpansionTile',
+  };
+
+  /// Walk up the element tree (max [_maxAncestorLookup] levels) to check
+  /// if a framework widget is an ancestor of this intrinsic node.
+  static const _maxAncestorLookup = 10;
+
+  bool _isInsideFrameworkWidget(Element element) {
+    int depth = 0;
+    bool found = false;
+    element.visitAncestorElements((ancestor) {
+      if (depth >= _maxAncestorLookup) return false;
+      depth++;
+      final name = ancestor.widget.runtimeType.toString();
+      // Handle generic types like DropdownButton<String>
+      final baseName =
+          name.contains('<') ? name.substring(0, name.indexOf('<')) : name;
+      if (_frameworkIntrinsicParents.contains(baseName)) {
+        found = true;
+        return false;
+      }
+      return true;
+    });
+    return found;
   }
 
   @override
   void checkElement(Element element) {
     final widget = element.widget;
+
+    // Detect Wrap with excessive children — non-virtualized layout means all
+    // children are measured every frame regardless of visibility.
+    if (widget is Wrap) {
+      int childCount = 0;
+      element.visitChildren((_) => childCount++);
+      if (childCount > _wrapChildThreshold) {
+        _wrapFindings.add(
+            (childCount: childCount, location: buildAncestorChain(element)));
+        final ro = element.renderObject;
+        if (ro != null) {
+          final rect = getGlobalRect(ro);
+          if (rect != null) {
+            _highlights.add(WidgetHighlight(
+              rect: rect,
+              widgetName: 'Wrap',
+              severity: childCount > _wrapChildThreshold * 2
+                  ? IssueSeverity.critical
+                  : IssueSeverity.warning,
+              detectorName: 'Layout',
+              detail: 'Wrap with $childCount children — non-virtualized layout',
+            ));
+          }
+        }
+      }
+    }
+
     if (widget is IntrinsicHeight || widget is IntrinsicWidth) {
       final isNested = _intrinsicDepth > 0;
+      _intrinsicDepth++; // Always increment — afterElement always decrements.
+
+      // Suppress intrinsics that are internal to framework widgets.
+      if (_isInsideFrameworkWidget(element)) return;
+
       final widgetName =
           widget is IntrinsicHeight ? 'IntrinsicHeight' : 'IntrinsicWidth';
       _found.add((name: widgetName, nested: isNested));
-      _intrinsicDepth++;
       final ro = element.renderObject;
       if (ro != null) {
         final rect = getGlobalRect(ro);
@@ -112,6 +183,30 @@ class LayoutBottleneckDetector extends BaseDetector {
         detectedAt: DateTime.now(),
       ));
     }
+
+    // Emit Wrap bottleneck issues
+    for (final wrap in _wrapFindings) {
+      final (hint, effort) = FixHintBuilder.wrapBottleneck(
+        childCount: wrap.childCount,
+        ancestorChain: wrap.location,
+      );
+      _issues.add(PerformanceIssue(
+        stableId: 'wrap_layout_bottleneck',
+        severity: wrap.childCount > _wrapChildThreshold * 2
+            ? IssueSeverity.critical
+            : IssueSeverity.warning,
+        category: IssueCategory.layout,
+        confidence: IssueConfidence.possible,
+        title: 'Wrap Layout Bottleneck: ${wrap.childCount} children',
+        detail: 'Wrap with ${wrap.childCount} children is non-virtualized '
+            '— all children are laid out every frame regardless of '
+            'visibility.\n\n  • ${wrap.location}',
+        fixHint: hint,
+        fixEffort: effort,
+        observationSource: ObservationSource.structural,
+        detectedAt: DateTime.now(),
+      ));
+    }
   }
 
   @override
@@ -119,6 +214,7 @@ class LayoutBottleneckDetector extends BaseDetector {
     _issues.clear();
     _highlights.clear();
     _found.clear();
+    _wrapFindings.clear();
     _intrinsicDepth = 0;
   }
 }

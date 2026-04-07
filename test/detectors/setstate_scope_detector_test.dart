@@ -288,6 +288,110 @@ void main() {
       });
     });
 
+    // -----------------------------------------------------------------
+    // v11.5: Const subtree discounting
+    // -----------------------------------------------------------------
+
+    group('const subtree discounting', () {
+      testWidgets('first scan uses raw subtree size (no baseline)',
+          (tester) async {
+        detector = SetStateScopeDetector(
+          dirtyRatioThreshold: 0.3,
+          minSubtreeSize: 3,
+        );
+        await tester.pumpWidget(const _Wrapper(child: LargePageWidget()));
+        detector.scanTree(tester.element(find.byType(_Wrapper)));
+
+        // First scan: no baseline → all elements are "mutable" → issue fires
+        expect(detector.issues, isNotEmpty);
+      });
+
+      testWidgets(
+          'detail includes const count when rebuild evidence + const children',
+          (tester) async {
+        final key = GlobalKey<RebuildableConstHeavyWidgetState>();
+        // Use very low threshold so const-discounted ratio still triggers
+        detector = SetStateScopeDetector(
+          dirtyRatioThreshold: 0.01,
+          minSubtreeSize: 3,
+          rebuildEvidenceThreshold: 1,
+        );
+
+        await tester
+            .pumpWidget(_Wrapper(child: RebuildableConstHeavyWidget(key: key)));
+
+        // Scan 1: establish baseline (element widget identity snapshot)
+        detector.scanTree(tester.element(find.byType(_Wrapper)));
+
+        // Trigger a real setState — changes the mutable child's identity
+        // while const children keep the same widget instance
+        key.currentState!.triggerRebuild();
+        await tester.pump();
+
+        // Scan 2: rebuild evidence fires (first child identity changed),
+        // const children are detected as stable
+        detector.scanTree(tester.element(find.byType(_Wrapper)));
+
+        expect(
+            detector.hasRebuildEvidenceFor('RebuildableConstHeavyWidget'), true,
+            reason: 'setState should produce rebuild evidence');
+        expect(detector.issues, isNotEmpty,
+            reason: 'Should still flag wide subtree at low threshold');
+        final detail = detector.issues.first.detail;
+        expect(detail, contains('mutable'),
+            reason: 'Detail should show const/mutable breakdown');
+      });
+
+      testWidgets('const discount suppresses issue that would otherwise fire',
+          (tester) async {
+        final key = GlobalKey<RebuildableConstHeavyWidgetState>();
+        // Use a threshold where the RAW ratio (all elements) fires
+        // but the MUTABLE ratio (after const discount) does not.
+        detector = SetStateScopeDetector(
+          dirtyRatioThreshold: 0.3,
+          minSubtreeSize: 3,
+          rebuildEvidenceThreshold: 1,
+        );
+
+        await tester
+            .pumpWidget(_Wrapper(child: RebuildableConstHeavyWidget(key: key)));
+
+        // Scan 1: establish baseline — no const discount, issues fire
+        detector.scanTree(tester.element(find.byType(_Wrapper)));
+        expect(detector.issues, isNotEmpty,
+            reason: 'First scan (no baseline) should fire with raw size');
+
+        // Trigger rebuild
+        key.currentState!.triggerRebuild();
+        await tester.pump();
+
+        // Scan 2: const discount reduces mutable ratio below threshold
+        detector.scanTree(tester.element(find.byType(_Wrapper)));
+        expect(detector.issues, isEmpty,
+            reason:
+                'Const discount should reduce mutable ratio below threshold');
+      });
+
+      testWidgets('second scan without rebuild uses raw size (no discount)',
+          (tester) async {
+        detector = SetStateScopeDetector(
+          dirtyRatioThreshold: 0.3,
+          minSubtreeSize: 3,
+        );
+
+        // Scan 1: establish baseline
+        await tester.pumpWidget(const _Wrapper(child: LargePageWidget()));
+        detector.scanTree(tester.element(find.byType(_Wrapper)));
+        expect(detector.issues, isNotEmpty);
+
+        // Scan 2: no rebuild happened → should still detect (no discount)
+        detector.scanTree(tester.element(find.byType(_Wrapper)));
+        expect(detector.issues, isNotEmpty,
+            reason:
+                'Without rebuild evidence, const discount should not apply');
+      });
+    });
+
     group('clearSnapshots retention fix', () {
       testWidgets('clearSnapshots nulls widest-widget state', (tester) async {
         detector = SetStateScopeDetector(
@@ -359,6 +463,113 @@ class _SmallStatefulState extends State<SmallStateful> {
   @override
   Widget build(BuildContext context) {
     return const SizedBox(width: 10, height: 10);
+  }
+}
+
+/// StatefulWidget with mostly const children — const discounting should apply.
+class ConstHeavyPageWidget extends StatefulWidget {
+  const ConstHeavyPageWidget({super.key});
+
+  @override
+  State<ConstHeavyPageWidget> createState() => _ConstHeavyPageWidgetState();
+}
+
+class _ConstHeavyPageWidgetState extends State<ConstHeavyPageWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      children: [
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+        SizedBox(height: 10),
+      ],
+    );
+  }
+}
+
+/// StatefulWidget with mostly const children that can trigger setState
+/// externally via GlobalKey. The first child is mutable (changes on rebuild),
+/// while the rest are const. This allows testing const-discounting when
+/// rebuild evidence is present.
+class RebuildableConstHeavyWidget extends StatefulWidget {
+  const RebuildableConstHeavyWidget({super.key});
+
+  @override
+  State<RebuildableConstHeavyWidget> createState() =>
+      RebuildableConstHeavyWidgetState();
+}
+
+class RebuildableConstHeavyWidgetState
+    extends State<RebuildableConstHeavyWidget> {
+  int _counter = 0;
+
+  void triggerRebuild() => setState(() => _counter++);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // One mutable child — changes identity on every rebuild
+        SizedBox(key: ValueKey(_counter), height: 10),
+        // 29 const children — identity stays the same across rebuilds
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        const SizedBox(height: 10),
+      ],
+    );
   }
 }
 

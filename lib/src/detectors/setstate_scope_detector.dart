@@ -62,6 +62,20 @@ class SetStateScopeDetector extends BaseDetector {
   /// Per-type instance counts from the most recent tree walk.
   final Map<String, int> _typeInstanceCounts = {};
 
+  // --- Const/stable element tracking ---
+
+  /// Maps identityHashCode(element) → identityHashCode(element.widget)
+  /// from the previous scan. Const widgets keep the same widget instance
+  /// across rebuilds, so matching identity means the element is stable.
+  Map<int, int> _elementWidgetSnapshots = {};
+  Map<int, int> _newElementWidgetSnapshots = {};
+
+  /// Parallel stack to [_subtreeSizeStack] — counts stable (const) elements.
+  final List<int> _stableCountStack = [];
+
+  /// Stable element count in the widest StatefulWidget's subtree.
+  int _maxStableCount = 0;
+
   // --- Per-scan accumulators ---
 
   int _totalElements = 0;
@@ -97,6 +111,7 @@ class SetStateScopeDetector extends BaseDetector {
   /// Clear tracking state (call on route changes).
   void clearSnapshots() {
     _childSnapshots.clear();
+    _elementWidgetSnapshots.clear();
     _rebuildEvidence.clear();
     _evidenceWindowStart = DateTime.now();
     _widestElement = null;
@@ -113,7 +128,10 @@ class SetStateScopeDetector extends BaseDetector {
     _widestStatefulWidget = null;
     _widestElement = null;
     _newSnapshots = {};
+    _newElementWidgetSnapshots = {};
     _subtreeSizeStack.clear();
+    _stableCountStack.clear();
+    _maxStableCount = 0;
     _walkCompleted = false;
     _pendingEvidence.clear();
     _expireOldEvidence();
@@ -133,6 +151,11 @@ class SetStateScopeDetector extends BaseDetector {
   void checkElement(Element element) {
     _totalElements++;
     _subtreeSizeStack.add(0);
+    _stableCountStack.add(0);
+
+    // Record widget identity for const-element tracking.
+    _newElementWidgetSnapshots[identityHashCode(element)] =
+        identityHashCode(element.widget);
 
     if (element is StatefulElement) {
       final widget = element.widget;
@@ -169,6 +192,19 @@ class SetStateScopeDetector extends BaseDetector {
     if (_subtreeSizeStack.isNotEmpty) {
       _subtreeSizeStack.last += subtreeSize + 1;
     }
+
+    // Stable-element tracking: check if this element's widget identity
+    // matches the previous scan. Const widgets keep the same instance.
+    final stableChildren = _stableCountStack.removeLast();
+    final key = identityHashCode(element);
+    final prevWidgetId = _elementWidgetSnapshots[key];
+    final currWidgetId = _newElementWidgetSnapshots[key];
+    final isStable = prevWidgetId != null && prevWidgetId == currWidgetId;
+    final totalStable = stableChildren + (isStable ? 1 : 0);
+    if (_stableCountStack.isNotEmpty) {
+      _stableCountStack.last += totalStable;
+    }
+
     // Track max inline — same filters as checkElement:
     // skip private-named and framework-owned StatefulWidgets so that
     // Scaffold, Navigator, Overlay, etc. never become the "widest" candidate.
@@ -176,6 +212,7 @@ class SetStateScopeDetector extends BaseDetector {
       final name = element.widget.runtimeType.toString();
       if (!name.startsWith('_') && !isFrameworkWidget(element.widget)) {
         _maxSubtreeSize = subtreeSize;
+        _maxStableCount = totalStable;
         _widestStatefulWidget = name;
         _widestElement = element;
       }
@@ -191,18 +228,27 @@ class SetStateScopeDetector extends BaseDetector {
     // first-element throws (stack empty, _totalElements == 0), and
     // between-sibling throws (stack empty, _totalElements > 0).
     _subtreeSizeStack.clear();
+    _stableCountStack.clear();
     if (!_walkCompleted) return;
 
     // Swap snapshots
     _childSnapshots = _newSnapshots;
+    _elementWidgetSnapshots = _newElementWidgetSnapshots;
 
     if (_totalElements == 0 || _maxSubtreeSize < minSubtreeSize) return;
 
-    final ratio = _maxSubtreeSize / _totalElements;
-    if (ratio <= dirtyRatioThreshold) return;
-
     // Combine signals to decide whether to flag
     final hasRebuildEvidence = hasRebuildEvidenceFor(_widestStatefulWidget!);
+
+    // Use mutable (non-const) element count for ratio when rebuild evidence
+    // exists. Without a rebuild, all elements appear "stable" (no change),
+    // which doesn't mean they're const — just that nothing triggered build().
+    // First scan has no baseline, so _maxStableCount is 0 (conservative).
+    final mutableSubtreeSize = hasRebuildEvidence
+        ? _maxSubtreeSize - _maxStableCount
+        : _maxSubtreeSize;
+    final ratio = mutableSubtreeSize / _totalElements;
+    if (ratio <= dirtyRatioThreshold) return;
     final hasAnimScope =
         _widestElement != null && _containsAnimationScope(_widestElement!);
 
@@ -211,6 +257,10 @@ class SetStateScopeDetector extends BaseDetector {
     final debugCorrelation = _computeDebugCorrelation(_widestStatefulWidget!);
 
     final percent = (ratio * 100).toStringAsFixed(0);
+    final constNote = hasRebuildEvidence && _maxStableCount > 0
+        ? ' ($mutableSubtreeSize mutable of $_maxSubtreeSize total, '
+            '$_maxStableCount const)'
+        : '';
     final rawChain =
         _widestElement != null ? buildAncestorChain(_widestElement!) : null;
     final location = rawChain != null ? '\n\n  • $rawChain' : '';
@@ -236,8 +286,8 @@ class SetStateScopeDetector extends BaseDetector {
               'Wide setState Scope: $_widestStatefulWidget owns ~$percent% of tree',
           detail:
               '$_widestStatefulWidget has $_maxSubtreeSize of $_totalElements '
-              'elements (~$percent%) in its subtree. Rebuild activity was '
-              'detected on this wide subtree.$location',
+              'elements (~$percent%) in its subtree$constNote. Rebuild '
+              'activity was detected on this wide subtree.$location',
           fixHint: hint,
           fixEffort: effort,
           widgetName: _widestStatefulWidget,
@@ -266,8 +316,8 @@ class SetStateScopeDetector extends BaseDetector {
               'Wide setState Scope: $_widestStatefulWidget owns ~$percent% of tree',
           detail:
               '$_widestStatefulWidget has $_maxSubtreeSize of $_totalElements '
-              'elements (~$percent%) in its subtree. Any setState() on this '
-              'widget would rebuild most of the visible tree.$location',
+              'elements (~$percent%) in its subtree$constNote. Any setState() '
+              'on this widget would rebuild most of the visible tree.$location',
           fixHint: hint2,
           fixEffort: effort2,
           widgetName: _widestStatefulWidget,
@@ -423,9 +473,11 @@ class SetStateScopeDetector extends BaseDetector {
     _issues.clear();
     _highlights.clear();
     _childSnapshots.clear();
+    _elementWidgetSnapshots.clear();
     _rebuildEvidence.clear();
     _pendingEvidence.clear();
     _typeInstanceCounts.clear();
     _subtreeSizeStack.clear();
+    _stableCountStack.clear();
   }
 }

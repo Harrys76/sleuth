@@ -32,6 +32,16 @@ class RepaintBoundaryDetector extends BaseDetector {
   bool _isEnabled = true;
   DebugSnapshot? _lastDebugSnapshot;
 
+  /// Threshold: flag when a single scrollable has more boundaries than this.
+  static const _excessiveBoundaryThreshold = 20;
+
+  /// Stack tracking RepaintBoundary counts per scrollable ancestor.
+  /// Pushed on scrollable entry, popped on afterElement.
+  final List<int> _scrollableBoundaryStack = [];
+
+  /// Accumulated excessive-boundary findings for finalizeScan.
+  final List<({int count, String location})> _excessiveFindings = [];
+
   @override
   void updateDebugSnapshot(DebugSnapshot snapshot) {
     _lastDebugSnapshot = snapshot;
@@ -64,11 +74,28 @@ class RepaintBoundaryDetector extends BaseDetector {
     _highlights.clear();
     _found.clear();
     _typeNames.clear();
+    _scrollableBoundaryStack.clear();
+    _excessiveFindings.clear();
   }
 
   @override
   void checkElement(Element element) {
     final widget = element.widget;
+
+    // Track RepaintBoundary counts inside scrollables.
+    // ListView/GridView with addRepaintBoundaries: true (the default) already
+    // wrap each child in RepaintBoundary — these are framework-managed and
+    // should not be flagged. Push -1 sentinel to skip counting for those.
+    if (widget is BoxScrollView) {
+      _scrollableBoundaryStack
+          .add(_delegateAddsRepaintBoundaries(widget) ? -1 : 0);
+    } else if (widget is CustomScrollView) {
+      _scrollableBoundaryStack.add(0);
+    } else if (widget is RepaintBoundary &&
+        _scrollableBoundaryStack.isNotEmpty &&
+        _scrollableBoundaryStack.last >= 0) {
+      _scrollableBoundaryStack.last++;
+    }
 
     if (widget is Opacity ||
         widget is ClipPath ||
@@ -94,6 +121,31 @@ class RepaintBoundaryDetector extends BaseDetector {
             detectorName: 'RepaintBoundary',
             detail: 'No RepaintBoundary within $maxAncestorDepth ancestors',
           ));
+        }
+      }
+    }
+  }
+
+  @override
+  void afterElement(Element element) {
+    final widget = element.widget;
+    if (widget is BoxScrollView || widget is CustomScrollView) {
+      final count = _scrollableBoundaryStack.removeLast();
+      if (count > _excessiveBoundaryThreshold) {
+        _excessiveFindings
+            .add((count: count, location: buildAncestorChain(element)));
+        final ro = element.renderObject;
+        if (ro != null) {
+          final rect = getGlobalRect(ro);
+          if (rect != null) {
+            _highlights.add(WidgetHighlight(
+              rect: rect,
+              widgetName: widget.runtimeType.toString(),
+              severity: IssueSeverity.warning,
+              detectorName: 'RepaintBoundary',
+              detail: '$count RepaintBoundary children — excessive GPU memory',
+            ));
+          }
         }
       }
     }
@@ -156,6 +208,46 @@ class RepaintBoundaryDetector extends BaseDetector {
         ),
       );
     }
+
+    // Emit excessive RepaintBoundary issues
+    for (final finding in _excessiveFindings) {
+      final (exHint, exEffort) = FixHintBuilder.excessiveRepaintBoundary(
+        boundaryCount: finding.count,
+        ancestorChain: finding.location,
+      );
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'excessive_repaint_boundary',
+          severity: IssueSeverity.warning,
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.possible,
+          title: 'Excessive RepaintBoundary: ${finding.count} in scrollable',
+          detail: '${finding.count} RepaintBoundary widgets inside a single '
+              'scrollable. Each creates a separate compositing layer, '
+              'increasing GPU memory.\n\n  • ${finding.location}',
+          fixHint: exHint,
+          fixEffort: exEffort,
+          observationSource: ObservationSource.structural,
+          detectedAt: DateTime.now(),
+        ),
+      );
+    }
+  }
+
+  /// Returns true if the [BoxScrollView]'s delegate has
+  /// `addRepaintBoundaries: true` (the default). When true, the framework
+  /// automatically wraps each child in [RepaintBoundary].
+  static bool _delegateAddsRepaintBoundaries(BoxScrollView widget) {
+    final delegate = widget is ListView
+        ? widget.childrenDelegate
+        : (widget as GridView).childrenDelegate;
+    if (delegate is SliverChildBuilderDelegate) {
+      return delegate.addRepaintBoundaries;
+    }
+    if (delegate is SliverChildListDelegate) {
+      return delegate.addRepaintBoundaries;
+    }
+    return true; // Conservative default: assume framework adds them
   }
 
   /// Check if [ro] has a [RenderRepaintBoundary] within [maxAncestorDepth]
@@ -175,6 +267,8 @@ class RepaintBoundaryDetector extends BaseDetector {
     _highlights.clear();
     _found.clear();
     _typeNames.clear();
+    _scrollableBoundaryStack.clear();
+    _excessiveFindings.clear();
     _lastDebugSnapshot = null;
   }
 }

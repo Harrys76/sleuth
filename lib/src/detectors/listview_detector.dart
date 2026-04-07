@@ -23,6 +23,10 @@ class ListviewDetector extends BaseDetector {
   final List<WidgetHighlight> _highlights = [];
   bool _isEnabled = true;
 
+  /// Depth counter to skip SliverList/SliverGrid that are internal children
+  /// of a ListView/GridView (already detected at the parent level).
+  int _insideBoxScrollView = 0;
+
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
@@ -39,6 +43,7 @@ class ListviewDetector extends BaseDetector {
   void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
+    _insideBoxScrollView = 0;
   }
 
   @override
@@ -53,6 +58,7 @@ class ListviewDetector extends BaseDetector {
 
     // Detect non-builder ListView/GridView (uses SliverChildListDelegate)
     if (widget is ListView || widget is GridView) {
+      _insideBoxScrollView++;
       final delegate = widget is ListView
           ? widget.childrenDelegate
           : (widget as GridView).childrenDelegate;
@@ -60,6 +66,25 @@ class ListviewDetector extends BaseDetector {
           delegate.children.length > childThreshold) {
         _emitNonLazyScrollViewIssue(element, widget, delegate.children.length);
       }
+      return;
+    }
+
+    // Detect non-builder SliverList/SliverGrid inside CustomScrollView
+    // (skip when inside ListView/GridView — already detected at parent level)
+    if (_insideBoxScrollView == 0 && widget is SliverMultiBoxAdaptorWidget) {
+      final delegate = widget.delegate;
+      if (delegate is SliverChildListDelegate &&
+          delegate.children.length > childThreshold) {
+        _emitNonLazySliverIssue(element, widget, delegate.children.length);
+      }
+    }
+  }
+
+  @override
+  void afterElement(Element element) {
+    final widget = element.widget;
+    if (widget is ListView || widget is GridView) {
+      _insideBoxScrollView--;
     }
   }
 
@@ -106,6 +131,52 @@ class ListviewDetector extends BaseDetector {
       detail: '$widgetName with $childCount children builds all items at '
           'once instead of lazily. Use $widgetName.builder for '
           'virtualized rendering.\n\n  • $location',
+      fixHint: hint,
+      fixEffort: effort,
+      widgetName: widgetName,
+      ancestorChain: location,
+      observationSource: ObservationSource.structural,
+      detectedAt: DateTime.now(),
+    ));
+  }
+
+  void _emitNonLazySliverIssue(Element sliverElement,
+      SliverMultiBoxAdaptorWidget widget, int childCount) {
+    final widgetName = widget is SliverGrid ? 'SliverGrid' : 'SliverList';
+    final location = buildAncestorChain(sliverElement);
+
+    final ro = sliverElement.renderObject;
+    if (ro != null) {
+      final rect = getGlobalRect(ro);
+      if (rect != null) {
+        _highlights.add(WidgetHighlight(
+          rect: rect,
+          widgetName: widgetName,
+          severity: childCount > childThreshold * 2
+              ? IssueSeverity.critical
+              : IssueSeverity.warning,
+          detectorName: 'Non-lazy',
+          detail: '$childCount children built eagerly',
+        ));
+      }
+    }
+    final (hint, effort) = FixHintBuilder.nonLazySliver(
+      childCount: childCount,
+      widgetName: widgetName,
+      ancestorChain: location,
+    );
+    _issues.add(PerformanceIssue(
+      stableId:
+          'non_lazy_${widgetName == 'SliverGrid' ? 'sliver_grid' : 'sliver_list'}',
+      severity: childCount > childThreshold * 3
+          ? IssueSeverity.critical
+          : IssueSeverity.warning,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.possible,
+      title: 'Non-lazy $widgetName: $childCount children',
+      detail: '$widgetName with SliverChildListDelegate builds all '
+          '$childCount children at once instead of lazily. Use '
+          '$widgetName.builder for virtualized rendering.\n\n  • $location',
       fixHint: hint,
       fixEffort: effort,
       widgetName: widgetName,

@@ -276,6 +276,176 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
       expect(detector.issues.first.confidence, IssueConfidence.possible);
     });
+    // -----------------------------------------------------------------
+    // v11.6: Excessive RepaintBoundary in scrollables
+    // -----------------------------------------------------------------
+
+    group('excessive RepaintBoundary', () {
+      // Note: addRepaintBoundaries: false on ListViews/GridViews to avoid
+      // counting framework-added internal boundaries, testing only explicit ones.
+
+      testWidgets('flags ListView with >20 RepaintBoundary children',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: ListView(
+              addRepaintBoundaries: false,
+              children: List.generate(
+                25,
+                (i) => RepaintBoundary(
+                  key: ValueKey(i),
+                  child: SizedBox(height: 10, width: 10),
+                ),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        final excessiveIssues = detector.issues
+            .where((i) => i.stableId == 'excessive_repaint_boundary')
+            .toList();
+        expect(excessiveIssues, hasLength(1));
+        // Count includes 25 explicit + framework-internal boundaries
+        expect(excessiveIssues.first.stableId, 'excessive_repaint_boundary');
+        expect(excessiveIssues.first.category, IssueCategory.paint);
+      });
+
+      testWidgets('no issue for ListView with <=20 RepaintBoundary children',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: ListView(
+              addRepaintBoundaries: false,
+              children: List.generate(
+                5,
+                (i) => RepaintBoundary(
+                  key: ValueKey(i),
+                  child: SizedBox(height: 10, width: 10),
+                ),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        final excessiveIssues = detector.issues
+            .where((i) => i.stableId == 'excessive_repaint_boundary')
+            .toList();
+        expect(excessiveIssues, isEmpty);
+      });
+
+      testWidgets('flags GridView with >20 RepaintBoundary children',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: GridView.count(
+              addRepaintBoundaries: false,
+              crossAxisCount: 5,
+              children: List.generate(
+                25,
+                (i) => RepaintBoundary(
+                  key: ValueKey(i),
+                  child: SizedBox(height: 10, width: 10),
+                ),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        final excessiveIssues = detector.issues
+            .where((i) => i.stableId == 'excessive_repaint_boundary')
+            .toList();
+        expect(excessiveIssues, hasLength(1));
+      });
+
+      testWidgets('nested scrollables tracked independently', (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: ListView(
+              addRepaintBoundaries: false,
+              children: [
+                // Outer has only 1 RepaintBoundary — below threshold
+                RepaintBoundary(
+                  child: SizedBox(
+                    height: 200,
+                    child: ListView(
+                      addRepaintBoundaries: false,
+                      children: List.generate(
+                        25,
+                        (i) => RepaintBoundary(
+                          key: ValueKey(i),
+                          child: SizedBox(height: 10, width: 10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        final excessiveIssues = detector.issues
+            .where((i) => i.stableId == 'excessive_repaint_boundary')
+            .toList();
+        // Inner ListView has 25 boundaries — flagged.
+        // Outer ListView has 1 boundary — not flagged.
+        expect(excessiveIssues, hasLength(1));
+      });
+
+      testWidgets(
+          'framework-added boundaries (addRepaintBoundaries: true) are NOT counted',
+          (tester) async {
+        // Default ListView adds RepaintBoundary per child automatically.
+        // 25 items → 25 framework boundaries. These should NOT trigger
+        // the excessive threshold.
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: ListView.builder(
+              itemCount: 25,
+              itemBuilder: (_, i) => SizedBox(
+                key: ValueKey(i),
+                height: 10,
+                width: 10,
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        final excessiveIssues = detector.issues
+            .where((i) => i.stableId == 'excessive_repaint_boundary')
+            .toList();
+        expect(excessiveIssues, isEmpty,
+            reason:
+                'Framework-added RepaintBoundaries should not count toward threshold');
+      });
+
+      testWidgets('existing missing-boundary tests still pass', (tester) async {
+        // Verify no interference: CustomPaint without boundary still detected
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: CustomPaint(
+              painter: _StubPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.stableId, 'missing_repaint_boundary');
+      });
+    });
   });
 }
 

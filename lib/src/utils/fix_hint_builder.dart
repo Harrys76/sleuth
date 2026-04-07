@@ -274,6 +274,23 @@ class FixHintBuilder {
   }
 
   // ---------------------------------------------------------------------------
+  // LayoutBottleneckDetector — Wrap
+  // ---------------------------------------------------------------------------
+
+  static (String, FixEffort) wrapBottleneck({
+    required int childCount,
+    String? ancestorChain,
+  }) {
+    final location = ancestorChain != null ? ' ($ancestorChain)' : '';
+    return (
+      'Wrap with $childCount children is non-virtualized$location. '
+          'Consider chunking items into rows manually or using a '
+          'GridView.builder for large item counts.',
+      FixEffort.medium,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // ListviewDetector
   // ---------------------------------------------------------------------------
 
@@ -286,6 +303,20 @@ class FixHintBuilder {
     return (
       '$childCount children built eagerly$location. '
           'Use ListView.builder() or ListView.separated() '
+          'to lazily build visible items only.',
+      FixEffort.quick,
+    );
+  }
+
+  static (String, FixEffort) nonLazySliver({
+    required int childCount,
+    required String widgetName,
+    String? ancestorChain,
+  }) {
+    final location = _locationSuffix(widgetName, ancestorChain);
+    return (
+      '$childCount children built eagerly$location. '
+          'Use $widgetName.builder() with SliverChildBuilderDelegate '
           'to lazily build visible items only.',
       FixEffort.quick,
     );
@@ -636,6 +667,20 @@ class FixHintBuilder {
   // ---------------------------------------------------------------------------
   // RepaintBoundaryDetector
   // ---------------------------------------------------------------------------
+
+  static (String, FixEffort) excessiveRepaintBoundary({
+    required int boundaryCount,
+    String? ancestorChain,
+  }) {
+    final location = ancestorChain != null ? ' ($ancestorChain)' : '';
+    return (
+      '$boundaryCount RepaintBoundary widgets in a single scrollable$location. '
+          'Each creates a compositing layer consuming GPU memory. '
+          'Remove unnecessary boundaries — ListView and GridView already '
+          'add RepaintBoundary for each child by default.',
+      FixEffort.quick,
+    );
+  }
 
   static (String, FixEffort) missingRepaintBoundary({
     String? widgetName,

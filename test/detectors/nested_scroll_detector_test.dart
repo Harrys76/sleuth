@@ -525,5 +525,172 @@ void main() {
             reason: 'NeverScrollableScrollPhysics suppresses GridView nesting');
       });
     });
+
+    // -----------------------------------------------------------------
+    // v11.2: ScrollPhysics.parent chain + NestedScrollView suppression
+    // -----------------------------------------------------------------
+
+    group('ScrollPhysics.parent chain walk', () {
+      testWidgets(
+          'ClampingScrollPhysics(parent: NeverScrollable) inside SCSV is NOT flagged',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 200,
+                    child: ListView(
+                      physics: const ClampingScrollPhysics(
+                        parent: NeverScrollableScrollPhysics(),
+                      ),
+                      children: const [SizedBox(height: 10)],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason:
+                'NeverScrollableScrollPhysics in parent chain should suppress');
+      });
+
+      testWidgets(
+          'BouncingScrollPhysics(parent: ClampingScrollPhysics) inside SCSV IS flagged',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 200,
+                    child: ListView(
+                      physics: const BouncingScrollPhysics(
+                        parent: ClampingScrollPhysics(),
+                      ),
+                      children: const [SizedBox(height: 10)],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1),
+            reason:
+                'No NeverScrollableScrollPhysics in chain — should still flag');
+      });
+    });
+
+    group('NestedScrollView suppression', () {
+      testWidgets('ListView inside NestedScrollView body is NOT flagged',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: MediaQuery(
+              data: const MediaQueryData(),
+              child: NestedScrollView(
+                headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: 100),
+                  ),
+                ],
+                body: ListView(
+                  children: const [SizedBox(height: 10)],
+                ),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason:
+                'NestedScrollView coordinates scrolling — inner scrollables are intentional');
+      });
+
+      testWidgets('same-axis nesting WITHOUT NestedScrollView is still flagged',
+          (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 200,
+                    child: ListView(
+                      children: const [SizedBox(height: 10)],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1),
+            reason: 'Without NestedScrollView, same-axis nesting is flagged');
+      });
+
+      testWidgets(
+          'nesting detection resumes after leaving NestedScrollView subtree',
+          (tester) async {
+        // Tree: SCSV > Column > [ NestedScrollView(body: ListView), ListView ]
+        // The NestedScrollView suppresses its inner ListView.
+        // The sibling ListView (after NSV) should still be flagged.
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: MediaQuery(
+              data: const MediaQueryData(),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    SizedBox(
+                      height: 300,
+                      child: NestedScrollView(
+                        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                          const SliverToBoxAdapter(
+                            child: SizedBox(height: 50),
+                          ),
+                        ],
+                        body: ListView(
+                          children: const [SizedBox(height: 10)],
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      height: 200,
+                      child: ListView(
+                        children: const [SizedBox(height: 10)],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        // Only the sibling ListView outside NestedScrollView should be flagged
+        expect(detector.issues, hasLength(1),
+            reason:
+                'ListView inside NestedScrollView suppressed, sibling flagged');
+      });
+    });
   });
 }
