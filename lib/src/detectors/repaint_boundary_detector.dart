@@ -66,6 +66,7 @@ class RepaintBoundaryDetector extends BaseDetector {
     'BackdropFilter',
     'ShaderMask',
     'CustomPaint',
+    'ColorFiltered',
   ];
 
   @override
@@ -101,7 +102,8 @@ class RepaintBoundaryDetector extends BaseDetector {
         widget is ClipPath ||
         widget is BackdropFilter ||
         widget is ShaderMask ||
-        widget is CustomPaint) {
+        widget is CustomPaint ||
+        widget is ColorFiltered) {
       // Opacity at 1.0 (passthrough) or 0.0 (no paint) doesn't trigger
       // saveLayer — RepaintBoundary check unnecessary.
       if (widget is Opacity &&

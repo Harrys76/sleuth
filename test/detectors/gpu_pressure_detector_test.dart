@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
@@ -169,6 +171,18 @@ void main() {
             reason: 'Fractional opacity triggers saveLayer — should flag');
       });
 
+      testWidgets('flags ColorFiltered with deep subtree (v11.8)',
+          (tester) async {
+        detector.vmConnected = false;
+
+        await tester.pumpWidget(const _ColorFilteredDeepTree());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isNotEmpty,
+            reason: 'ColorFiltered with deep subtree should be flagged');
+        expect(detector.issues.first.detail, contains('RenderColorFiltered'));
+      });
+
       testWidgets('mentions VM unavailable when disconnected', (tester) async {
         detector.vmConnected = false;
 
@@ -325,6 +339,93 @@ void main() {
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
     });
+
+    // -----------------------------------------------------------------
+    // v11.12: BackdropFilter sigma-aware severity
+    // -----------------------------------------------------------------
+
+    group('BackdropFilter sigma-aware severity', () {
+      testWidgets('suppresses BackdropFilter with low sigma (<=2.0)',
+          (tester) async {
+        await tester.pumpWidget(const _BackdropFilterTree(sigma: 1.0));
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason: 'Low sigma (1.0) should be suppressed');
+        expect(detector.highlights, isEmpty);
+      });
+
+      testWidgets('suppresses BackdropFilter at sigma boundary (2.0)',
+          (tester) async {
+        await tester.pumpWidget(const _BackdropFilterTree(sigma: 2.0));
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason: 'Sigma 2.0 at threshold — should be suppressed');
+      });
+
+      testWidgets('flags BackdropFilter with medium sigma (5.0)',
+          (tester) async {
+        await tester.pumpWidget(const _BackdropFilterTree(sigma: 5.0));
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isNotEmpty,
+            reason: 'Sigma 5.0 should be flagged');
+        expect(
+          detector.issues.first.detail,
+          contains('σ=5.0'),
+        );
+      });
+
+      testWidgets('critical highlight for high sigma (>10.0)', (tester) async {
+        await tester.pumpWidget(const _BackdropFilterTree(sigma: 15.0));
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.highlights, isNotEmpty);
+        expect(detector.highlights.first.severity, IssueSeverity.critical);
+        expect(detector.highlights.first.detail, contains('σ=15.0'));
+      });
+
+      testWidgets('warning highlight for moderate sigma', (tester) async {
+        await tester.pumpWidget(const _BackdropFilterTree(sigma: 5.0));
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.highlights, isNotEmpty);
+        expect(detector.highlights.first.severity, IssueSeverity.warning);
+      });
+
+      testWidgets('expensive node detail includes sigma', (tester) async {
+        await tester.pumpWidget(const _BackdropFilterTree(sigma: 8.0));
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isNotEmpty);
+        expect(
+          detector.issues.first.detail,
+          contains('σ=8.0'),
+        );
+      });
+
+      testWidgets('sigma just above threshold (3.0) is flagged',
+          (tester) async {
+        await tester.pumpWidget(const _BackdropFilterTree(sigma: 3.0));
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isNotEmpty,
+            reason: 'Sigma 3.0 is above 2.0 threshold — should flag');
+      });
+
+      testWidgets('non-blur ImageFilter gracefully handled', (tester) async {
+        // BackdropFilter with a non-blur filter (dilate) — sigma extraction
+        // returns null, so no suppression or sigma detail.
+        await tester.pumpWidget(const _BackdropFilterNonBlur());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isNotEmpty,
+            reason: 'Non-blur BackdropFilter should still be flagged');
+        // No sigma in detail since it's not a blur filter.
+        expect(detector.issues.first.detail, isNot(contains('σ=')));
+      });
+    });
   });
 }
 
@@ -384,6 +485,79 @@ class _OpacityDeepTree extends StatelessWidget {
             (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Widget tree with ColorFiltered wrapping many descendants.
+class _ColorFilteredDeepTree extends StatelessWidget {
+  const _ColorFilteredDeepTree();
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: ColorFiltered(
+        colorFilter:
+            const ColorFilter.mode(Color(0x80000000), BlendMode.srcATop),
+        child: Column(
+          children: List.generate(
+            10,
+            (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Widget tree with BackdropFilter wrapping many descendants at a given sigma.
+class _BackdropFilterTree extends StatelessWidget {
+  const _BackdropFilterTree({required this.sigma});
+  final double sigma;
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Stack(
+        children: [
+          BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+            child: Column(
+              children: List.generate(
+                10,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// BackdropFilter with a non-blur ImageFilter (dilate).
+class _BackdropFilterNonBlur extends StatelessWidget {
+  const _BackdropFilterNonBlur();
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Stack(
+        children: [
+          BackdropFilter(
+            filter: ui.ImageFilter.dilate(radiusX: 2, radiusY: 2),
+            child: Column(
+              children: List.generate(
+                10,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

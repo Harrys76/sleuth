@@ -154,8 +154,127 @@ Added `FixHintBuilder.nonLazySliver()` for SliverList/SliverGrid-specific fix hi
 
 ---
 
-## Verification
+## Verification (v11.1–v11.6)
 
 - `fvm flutter test` — 1,561 tests passing ✅
 - `fvm flutter analyze` — 0 issues ✅
 - Two adversarial reviews completed with all findings resolved
+
+---
+
+# v11 Detector Audit — Part 2 (v11.7–v11.12)
+
+6 detectors, 6 milestones. Second audit pass covering remaining detector gaps.
+
+## P1 — Accuracy & Detection Gaps
+
+### v11.7: FadeTransition opacity detection (OpacityDetector) ✅
+
+**Problem**: `AnimatedOpacity` internally builds `FadeTransition` → both produce `RenderAnimatedOpacity`. Previous code would double-count.
+
+**Solution**:
+- Added `_insideAnimatedOpacity` depth counter
+- Split AnimatedOpacity/FadeTransition into separate branches in `checkElement`
+- FadeTransition only checked when `_insideAnimatedOpacity == 0` (not inside AnimatedOpacity)
+- Extracted shared `_checkSettledAtZero()` helper for both paths
+- Added `afterElement` to decrement counter
+
+**Files**: `opacity_detector.dart`, `opacity_detector_test.dart`
+**Tests**: 4 new tests (FadeTransition at zero, at non-zero, dedup with AnimatedOpacity, mixed counts)
+
+### v11.8: ColorFiltered GPU detection (GpuPressureDetector + RepaintBoundaryDetector) ✅
+
+**Problem**: `ColorFiltered` creates `_ColorFilterRenderObject` (private class) — can't use `is` check on render object. Not detected as expensive GPU node.
+
+**Solution**:
+- GpuPressureDetector: Added `element.widget is ColorFiltered` check (widget-level, not render-object-level)
+- RepaintBoundaryDetector: Added `'ColorFiltered'` to `_expensiveTypeNames` and `widget is ColorFiltered` check
+
+**Files**: `gpu_pressure_detector.dart`, `repaint_boundary_detector.dart`, both test files
+**Tests**: 3 new tests (deep subtree flagged, shallow subtree not flagged, issue detail)
+
+### v11.9: Small image suppression (ImageMemoryDetector) ✅
+
+**Problem**: Images displayed at ≤50px (icons, avatars) have negligible memory savings from `cacheWidth`/`cacheHeight` (~10KB for 50×50 RGBA). Flagging them is noise.
+
+**Solution**:
+- Added `_smallImageThreshold = 50.0` constant
+- Added `_isSmallImage(Element)` — checks render object size via `RenderBox.hasSize`
+- Skips zero-size render objects (unloaded images or unconstrained widgets)
+- Applied to both Image and DecoratedBox paths
+
+**Key insight**: `Element.renderObject` for Image's StatefulElement walks down to `RenderSemanticsAnnotations` (not `RenderImage`). In tests, root tight constraints (800×600) override SizedBox — tests use `Center` wrapper to convert to loose constraints.
+
+**Files**: `image_memory_detector.dart`, `image_memory_detector_test.dart`
+**Tests**: 5 new tests (24×24, 50×50 boundary, 51×51, 300×300, DecoratedBox)
+
+## P2 — Enrichment & Severity
+
+### v11.10: TweenAnimationBuilder child detection (AnimatedBuilderDetector) ✅
+
+**Problem**: `TweenAnimationBuilder` without `child` has the same performance issue as `AnimatedBuilder` without `child` — entire builder subtree rebuilds per tick. Not detected.
+
+**Key challenge**: `TweenAnimationBuilder extends ImplicitlyAnimatedWidget`, which `isFrameworkWidget()` classifies as framework-owned → false negatives inside Scaffold/Navigator.
+
+**Solution**:
+- Added TweenAnimationBuilder check in `afterElement` (separate from AnimatedBuilder)
+- Skipped `isFrameworkOwned` for TweenAnimationBuilder — always user-placed, never framework-created
+- Extracted `_recordNoChild()` helper to share logic
+- Track `_widgetNames` for per-type title and debug evidence lookup
+- Dynamic dominant widget name in title and FixHintBuilder
+
+**Files**: `animated_builder_detector.dart`, `animated_builder_detector_test.dart`
+**Tests**: 4 new tests (flagged without child, passes with child, not blocked by framework ancestor, small subtree ignored)
+
+### v11.11: Runtime font loading detection (FontLoadingDetector) ✅
+
+**Problem**: `google_fonts` (and similar packages) load fonts at runtime via HTTP, causing text flicker (FOUT/FOIT). Not detected separately from generic custom font counting.
+
+**Detection signal**: `fontFamilyFallback` — google_fonts sets this on TextStyles. Bundled fonts never need it.
+
+**Solution**:
+- Added `_runtimeLoadedFamilies` set
+- Extracted `_checkStyle()` helper for Text and RichText
+- Checks `fontFamilyFallback` non-empty as runtime loading indicator
+- New `runtime_font_loading` issue (confidence: likely, severity: warning/critical based on count)
+- New `FixHintBuilder.runtimeFontLoading()` method
+
+**Files**: `font_loading_detector.dart`, `fix_hint_builder.dart`, `font_loading_detector_test.dart`
+**Tests**: 7 new tests (flagged, not flagged without fallback, system font ignored, multiple families, severity, RichText, dispose)
+
+### v11.12: BackdropFilter sigma-aware severity (GpuPressureDetector) ✅
+
+**Problem**: All BackdropFilters treated equally. Low-sigma blurs (σ ≤ 2.0) are cheap; high-sigma blurs (σ > 10.0) are extremely expensive. Flat severity wastes developer attention.
+
+**Key challenge**: `_GaussianBlurImageFilter` is private — fields `sigmaX`/`sigmaY` only accessible via `toString()` returning `'ImageFilter.blur(sigmaX, sigmaY, TileMode.clamp)'`.
+
+**Solution**:
+- Added `_extractMaxBlurSigma(ui.ImageFilter?)` — regex extracts sigma from `toString()`
+- `_lowSigmaThreshold = 2.0` — suppress cheap blurs entirely
+- `_highSigmaThreshold = 10.0` — critical severity for expensive blurs
+- Sigma included in expensive node detail and highlight detail (`σ=X.X`)
+
+**Files**: `gpu_pressure_detector.dart`, `gpu_pressure_detector_test.dart`
+**Tests**: 6 new tests (low sigma suppressed, boundary, medium flagged, critical highlight, warning highlight, detail includes sigma)
+
+---
+
+## Adversarial Review Findings (v11.7–v11.12)
+
+3 bugs found and fixed, 3 test gaps filled:
+
+| # | Type | Detector | Finding | Resolution |
+|---|------|----------|---------|------------|
+| 1 | Bug | Opacity | `_insideAnimatedOpacity` not reset in `dispose()` — stale counter after dispose/reuse | Added `_insideAnimatedOpacity = 0` to `dispose()` |
+| 2 | Bug | FontLoading | `runtime_font_loading` confidence too high (`likely`) — `fontFamilyFallback` is a heuristic that can produce false positives | Downgraded to `IssueConfidence.possible` |
+| 3 | Bug | GpuPressure | BackdropFilter sigma extracted twice (once for early return, once for detail enrichment) | Refactored to extract once into `backdropSigma` variable reused in both paths |
+| 4 | Test | GpuPressure | No test for sigma at exact boundary (σ=3.0) | Added boundary test verifying sigma 3.0 is flagged (above `_lowSigmaThreshold` 2.0) |
+| 5 | Test | GpuPressure | No test for non-blur ImageFilter (e.g. `ImageFilter.dilate`) | Added test with `_BackdropFilterNonBlur` widget verifying non-blur filters still flagged |
+| 6 | Test | FontLoading | No test for `runtime_font_loading` and `multiple_custom_fonts` coexistence | Added coexistence test verifying both issues emitted simultaneously |
+
+---
+
+## Verification (v11.7–v11.12)
+
+- `fvm flutter test` — 1,594 tests passing ✅
+- `fvm flutter analyze` — 0 issues ✅

@@ -68,4 +68,5 @@ test/
 - v9 roadmap: 17/17 milestones shipped ✅ (v9.1–v9.17). See `doc/spec_v9.md`.
 - Post-implementation audits in `doc/spec_v2_audit.md` and `doc/spec_post_impl_notes.md`.
 - Full spec index in `doc/implementation_spec.md`.
-- 1,531 tests, 0 analysis issues
+- v11 roadmap: 12/12 milestones shipped ✅ (v11.1–v11.12, two adversarial reviews). See `doc/spec_v11.md`.
+- 1,594 tests, 0 analysis issues

@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
@@ -26,6 +28,13 @@ class GpuPressureDetector extends BaseDetector {
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   bool _isEnabled = true;
+
+  /// BackdropFilter with blur sigma at or below this threshold is suppressed
+  /// — the GPU cost is negligible for very small blurs.
+  static const _lowSigmaThreshold = 2.0;
+
+  /// BackdropFilter with blur sigma above this threshold gets critical severity.
+  static const _highSigmaThreshold = 10.0;
 
   int _lastRasterUs = 0;
   int _lastUiUs = 0;
@@ -107,6 +116,7 @@ class GpuPressureDetector extends BaseDetector {
     // (which extends RenderProxyBox, not RenderOpacity) — the previous
     // contains('RenderOpacity') matched it as a false positive.
     String? typeName;
+    double? backdropSigma;
     if (ro is RenderOpacity) {
       final val = ro.opacity;
       if (val >= 1.0 || val <= 0.0) return; // no-op or short-circuit
@@ -114,23 +124,49 @@ class GpuPressureDetector extends BaseDetector {
     } else if (ro is RenderClipPath) {
       typeName = 'RenderClipPath';
     } else if (ro is RenderBackdropFilter) {
+      if (element.widget is BackdropFilter) {
+        backdropSigma =
+            _extractMaxBlurSigma((element.widget as BackdropFilter).filter);
+        if (backdropSigma != null && backdropSigma <= _lowSigmaThreshold) {
+          return;
+        }
+      }
       typeName = 'RenderBackdropFilter';
     } else if (ro is RenderShaderMask) {
       typeName = 'RenderShaderMask';
+    } else if (element.widget is ColorFiltered) {
+      // ColorFiltered uses a private _ColorFilterRenderObject — can't use
+      // `is` check on the render object. Check the widget type instead.
+      typeName = 'RenderColorFiltered';
     }
 
     if (typeName == null) return;
 
     if (subtreeSize > 5) {
-      _expensiveNodes.add('$typeName ($subtreeSize descendants)');
+      // Sigma-aware detail for BackdropFilter.
+      String nodeDetail = '$typeName ($subtreeSize descendants)';
+      String highlightDetail = '$typeName with $subtreeSize descendants';
+      IssueSeverity highlightSeverity = IssueSeverity.warning;
+
+      if (backdropSigma != null) {
+        final sigmaStr = backdropSigma.toStringAsFixed(1);
+        nodeDetail = '$typeName ($subtreeSize descendants, σ=$sigmaStr)';
+        highlightDetail =
+            '$typeName with $subtreeSize descendants (σ=$sigmaStr)';
+        if (backdropSigma > _highSigmaThreshold) {
+          highlightSeverity = IssueSeverity.critical;
+        }
+      }
+
+      _expensiveNodes.add(nodeDetail);
       final rect = getGlobalRect(ro);
       if (rect != null) {
         _highlights.add(WidgetHighlight(
           rect: rect,
           widgetName: typeName, // known from type check — no toString()
-          severity: IssueSeverity.warning,
+          severity: highlightSeverity,
           detectorName: 'GPU',
-          detail: '$typeName with $subtreeSize descendants',
+          detail: highlightDetail,
         ));
       }
     }
@@ -198,6 +234,23 @@ class GpuPressureDetector extends BaseDetector {
         ),
       );
     }
+  }
+
+  /// Extract the maximum blur sigma from a [ui.ImageFilter].
+  ///
+  /// `_GaussianBlurImageFilter` is private — `toString()` returns
+  /// `'ImageFilter.blur(sigmaX, sigmaY, TileMode.clamp)'`.
+  static final _blurSigmaRegExp =
+      RegExp(r'ImageFilter\.blur\((\d+\.?\d*),\s*(\d+\.?\d*)');
+
+  static double? _extractMaxBlurSigma(ui.ImageFilter? filter) {
+    if (filter == null) return null;
+    final match = _blurSigmaRegExp.firstMatch(filter.toString());
+    if (match == null) return null;
+    final sigmaX = double.tryParse(match.group(1)!);
+    final sigmaY = double.tryParse(match.group(2)!);
+    if (sigmaX == null || sigmaY == null) return null;
+    return sigmaX > sigmaY ? sigmaX : sigmaY;
   }
 
   @override

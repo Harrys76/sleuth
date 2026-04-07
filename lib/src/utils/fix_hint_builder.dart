@@ -82,6 +82,23 @@ class FixHintBuilder {
     );
   }
 
+  static (String, FixEffort) runtimeFontLoading({
+    required int fontCount,
+    List<String>? families,
+  }) {
+    final familyInfo = families != null && families.isNotEmpty
+        ? ' (${families.take(3).join(", ")})'
+        : '';
+    return (
+      '$fontCount font${fontCount == 1 ? '' : 's'} loaded at runtime$familyInfo. '
+          'Runtime-loaded fonts (e.g. google_fonts) trigger HTTP requests '
+          'during first render, causing text flicker.\n'
+          'Pre-download with GoogleFonts.pendingFonts() in main(), '
+          'or bundle fonts in pubspec.yaml assets.',
+      FixEffort.medium,
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // FrameTimingDetector
   // ---------------------------------------------------------------------------

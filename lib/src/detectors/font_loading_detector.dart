@@ -20,6 +20,7 @@ class FontLoadingDetector extends BaseDetector {
   final int maxFamilies;
   final List<PerformanceIssue> _issues = [];
   final Set<String> _customFonts = {};
+  final Set<String> _runtimeLoadedFamilies = {};
   bool _isEnabled = true;
 
   // Common system fonts that don't need loading
@@ -56,6 +57,7 @@ class FontLoadingDetector extends BaseDetector {
   void prepareScan(BuildContext context) {
     _issues.clear();
     _customFonts.clear();
+    _runtimeLoadedFamilies.clear();
   }
 
   @override
@@ -63,25 +65,66 @@ class FontLoadingDetector extends BaseDetector {
     final widget = element.widget;
 
     if (widget is Text && widget.style?.fontFamily != null) {
-      final family = widget.style!.fontFamily!;
-      if (!_systemFonts.contains(family)) {
-        _customFonts.add(family);
-      }
+      _checkStyle(widget.style!);
     }
 
     if (widget is RichText) {
       final style = widget.text.style;
       if (style?.fontFamily != null) {
-        final family = style!.fontFamily!;
-        if (!_systemFonts.contains(family)) {
-          _customFonts.add(family);
-        }
+        _checkStyle(style!);
       }
+    }
+  }
+
+  void _checkStyle(TextStyle style) {
+    final family = style.fontFamily;
+    if (family == null || _systemFonts.contains(family)) return;
+
+    _customFonts.add(family);
+
+    // google_fonts (and similar runtime-loading packages) set
+    // fontFamilyFallback so the engine can fall back while the font
+    // downloads. Bundled fonts never need this.
+    final fallbacks = style.fontFamilyFallback;
+    if (fallbacks != null && fallbacks.isNotEmpty) {
+      _runtimeLoadedFamilies.add(family);
     }
   }
 
   @override
   void finalizeScan() {
+    // Runtime-loaded fonts (e.g. google_fonts) — higher confidence because
+    // fontFamilyFallback is a heuristic signal — google_fonts and similar
+    // runtime-loading packages set it, but apps with intentional fallback
+    // chains may trigger false positives.  Use `possible` confidence.
+    if (_runtimeLoadedFamilies.isNotEmpty) {
+      final count = _runtimeLoadedFamilies.length;
+      final families = _runtimeLoadedFamilies.toList();
+      final (hint, effort) = FixHintBuilder.runtimeFontLoading(
+        fontCount: count,
+        families: families,
+      );
+
+      _issues.add(PerformanceIssue(
+        stableId: 'runtime_font_loading',
+        severity: count > 2 ? IssueSeverity.critical : IssueSeverity.warning,
+        category: IssueCategory.font,
+        confidence: IssueConfidence.possible,
+        title: 'Runtime Font Loading: $count '
+            'famil${count == 1 ? 'y' : 'ies'}',
+        detail: '$count font famil${count == 1 ? 'y' : 'ies'} '
+            'appear${count == 1 ? 's' : ''} to be loaded at runtime '
+            '(fontFamilyFallback detected): '
+            '${families.take(5).join(", ")}.\n'
+            'Runtime-loaded fonts trigger HTTP requests during first render, '
+            'causing visible text flicker (FOUT/FOIT).',
+        fixHint: hint,
+        fixEffort: effort,
+        observationSource: ObservationSource.structural,
+        detectedAt: DateTime.now(),
+      ));
+    }
+
     // Note: We can detect custom font usage but can't confirm loading
     // status from the widget tree alone. Flag as informational.
     if (_customFonts.length > maxFamilies) {
@@ -111,5 +154,6 @@ class FontLoadingDetector extends BaseDetector {
   void dispose() {
     _issues.clear();
     _customFonts.clear();
+    _runtimeLoadedFamilies.clear();
   }
 }

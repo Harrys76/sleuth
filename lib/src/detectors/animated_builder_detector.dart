@@ -45,6 +45,7 @@ class AnimatedBuilderDetector extends BaseDetector {
   set isEnabled(bool value) => _isEnabled = value;
 
   final List<String> _found = [];
+  final List<String> _widgetNames = [];
   final List<int> _subtreeSizeStack = [];
 
   @override
@@ -52,6 +53,7 @@ class AnimatedBuilderDetector extends BaseDetector {
     _issues.clear();
     _highlights.clear();
     _found.clear();
+    _widgetNames.clear();
     _subtreeSizeStack.clear();
   }
 
@@ -68,24 +70,40 @@ class AnimatedBuilderDetector extends BaseDetector {
     }
 
     final widget = element.widget;
+
+    // AnimatedBuilder — framework creates these internally (scroll physics,
+    // transitions), so filter via isFrameworkOwned.
     if (widget is AnimatedBuilder && widget.child == null) {
       if (isFrameworkOwned(element)) return;
+      _recordNoChild(element, 'AnimatedBuilder', subtreeSize);
+      return;
+    }
 
-      if (subtreeSize > minSubtreeSize) {
-        _found.add(buildAncestorChain(element));
-        final ro = element.renderObject;
-        if (ro != null) {
-          final rect = getGlobalRect(ro);
-          if (rect != null) {
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: 'AnimatedBuilder',
-              severity: IssueSeverity.warning,
-              detectorName: 'AnimatedBuilder',
-              detail: 'No child — $subtreeSize widgets rebuild per tick',
-            ));
-          }
-        }
+    // TweenAnimationBuilder — always user-placed, never framework-created.
+    // Skip isFrameworkOwned: TweenAnimationBuilder extends
+    // ImplicitlyAnimatedWidget which isFrameworkWidget() classifies as
+    // framework-owned, causing false negatives inside Scaffold/Navigator.
+    if (widget is TweenAnimationBuilder && widget.child == null) {
+      _recordNoChild(element, 'TweenAnimationBuilder', subtreeSize);
+    }
+  }
+
+  void _recordNoChild(Element element, String widgetName, int subtreeSize) {
+    if (subtreeSize <= minSubtreeSize) return;
+
+    _found.add(buildAncestorChain(element));
+    _widgetNames.add(widgetName);
+    final ro = element.renderObject;
+    if (ro != null) {
+      final rect = getGlobalRect(ro);
+      if (rect != null) {
+        _highlights.add(WidgetHighlight(
+          rect: rect,
+          widgetName: widgetName,
+          severity: IssueSeverity.warning,
+          detectorName: 'AnimatedBuilder',
+          detail: 'No child — $subtreeSize widgets rebuild per tick',
+        ));
       }
     }
   }
@@ -96,25 +114,36 @@ class AnimatedBuilderDetector extends BaseDetector {
     if (_found.isNotEmpty) {
       final locations = _found.take(5).map((chain) => '  • $chain').join('\n');
 
-      // Check debug snapshot for AnimatedBuilder rebuild/paint evidence.
+      // Determine dominant widget name for title and hints.
+      final typeCounts = <String, int>{};
+      for (final name in _widgetNames) {
+        typeCounts[name] = (typeCounts[name] ?? 0) + 1;
+      }
+      final dominantName =
+          typeCounts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+
+      // Check debug snapshot for rebuild/paint evidence.
       String? debugEvidence;
       IssueConfidence confidence = IssueConfidence.possible;
       ObservationSource? source;
       final ds = _lastDebugSnapshot;
       if (ds != null) {
-        final abRate = ds.rebuildsPerSecond('AnimatedBuilder');
-        final paintRate = ds.paintsPerSecondForType('AnimatedBuilder');
-        if (abRate > 30) {
-          debugEvidence = 'AnimatedBuilder rebuilding at ${abRate.round()}/sec'
-              '${paintRate > 30 ? ', painting at ${paintRate.round()}/sec' : ''}'
-              ' (debug callback).';
-          confidence = IssueConfidence.likely;
-          source = ObservationSource.debugCallbackAndStructural;
+        for (final typeName in typeCounts.keys) {
+          final abRate = ds.rebuildsPerSecond(typeName);
+          final paintRate = ds.paintsPerSecondForType(typeName);
+          if (abRate > 30) {
+            debugEvidence = '$typeName rebuilding at ${abRate.round()}/sec'
+                '${paintRate > 30 ? ', painting at ${paintRate.round()}/sec' : ''}'
+                ' (debug callback).';
+            confidence = IssueConfidence.likely;
+            source = ObservationSource.debugCallbackAndStructural;
+            break;
+          }
         }
       }
 
       final (hint, effort) = FixHintBuilder.animatedBuilderNoChild(
-        widgetName: 'AnimatedBuilder',
+        widgetName: dominantName,
         ancestorChain: _found.isNotEmpty ? _found.first : null,
       );
 
@@ -124,8 +153,8 @@ class AnimatedBuilderDetector extends BaseDetector {
           severity: IssueSeverity.warning,
           category: IssueCategory.build,
           confidence: confidence,
-          title: 'AnimatedBuilder without child: ${_found.length} found',
-          detail: '${_found.length} AnimatedBuilder(s) do not use the child '
+          title: '$dominantName without child: ${_found.length} found',
+          detail: '${_found.length} animation builder(s) do not use the child '
               'parameter. The entire builder subtree rebuilds on every '
               'animation tick (60x/sec).'
               '${debugEvidence != null ? '\n\n$debugEvidence' : ''}'
@@ -158,6 +187,8 @@ class AnimatedBuilderDetector extends BaseDetector {
   void dispose() {
     _issues.clear();
     _highlights.clear();
+    _found.clear();
+    _widgetNames.clear();
     _subtreeSizeStack.clear();
     _lastDebugSnapshot = null;
   }

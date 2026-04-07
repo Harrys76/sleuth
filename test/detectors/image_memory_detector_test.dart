@@ -322,10 +322,14 @@ void main() {
             child: Column(
               children: [
                 Image(image: MemoryImage(_kTransparentPng)),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    image: DecorationImage(
-                      image: MemoryImage(_kTransparentPng),
+                SizedBox(
+                  width: 100,
+                  height: 100,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      image: DecorationImage(
+                        image: MemoryImage(_kTransparentPng),
+                      ),
                     ),
                   ),
                 ),
@@ -339,6 +343,115 @@ void main() {
         expect(detector.issues.first.title, contains('2 found'));
         expect(detector.uncachedImages, hasLength(2));
         expect(detector.highlights, hasLength(2));
+      });
+    });
+
+    // -----------------------------------------------------------------
+    // v11.9: Small image suppression
+    // -----------------------------------------------------------------
+
+    group('small image suppression', () {
+      // Center converts the root's tight viewport constraints to loose
+      // constraints, allowing SizedBox to apply the intended size.
+      testWidgets('small image (24x24) not flagged', (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: Image(image: MemoryImage(_kTransparentPng)),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason: 'Small images (<= 50px) should be suppressed');
+      });
+
+      testWidgets('image at boundary (50x50) not flagged', (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Center(
+              child: SizedBox(
+                width: 50,
+                height: 50,
+                child: Image(image: MemoryImage(_kTransparentPng)),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason: '50x50 is at threshold — should be suppressed');
+      });
+
+      testWidgets('large image (300x300) still flagged', (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Center(
+              child: SizedBox(
+                width: 300,
+                height: 300,
+                child: Image(image: MemoryImage(_kTransparentPng)),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1),
+            reason: 'Large images should still be flagged');
+      });
+
+      testWidgets('image at 51x51 still flagged', (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Center(
+              child: SizedBox(
+                width: 51,
+                height: 51,
+                child: Image(image: MemoryImage(_kTransparentPng)),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1),
+            reason: '51x51 is above threshold — should be flagged');
+      });
+
+      testWidgets('small DecoratedBox image also suppressed', (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Center(
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    image: DecorationImage(
+                      image: MemoryImage(_kTransparentPng),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty,
+            reason: 'Small DecoratedBox images should also be suppressed');
       });
     });
   });

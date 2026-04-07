@@ -30,6 +30,11 @@ class OpacityDetector extends BaseDetector {
   final List<String> _found = [];
   bool _isEnabled = true;
 
+  /// Depth counter: >0 when inside an [AnimatedOpacity] subtree.
+  /// AnimatedOpacity internally builds a FadeTransition — suppress the
+  /// internal one to avoid double-counting.
+  int _insideAnimatedOpacity = 0;
+
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
@@ -47,6 +52,7 @@ class OpacityDetector extends BaseDetector {
     _issues.clear();
     _highlights.clear();
     _found.clear();
+    _insideAnimatedOpacity = 0;
   }
 
   @override
@@ -71,27 +77,42 @@ class OpacityDetector extends BaseDetector {
         }
       }
     } else if (widget is AnimatedOpacity) {
-      final ro = element.renderObject;
-      if (ro is RenderAnimatedOpacity) {
-        final currentOpacity = ro.opacity.value;
-        final status = ro.opacity.status;
-        // Only flag when animation has settled at 0.0 (v9.1). A fade-in
-        // passing through 0.0 on its way to 1.0 is a transient state, not
-        // a structural problem worth reporting.
-        if (currentOpacity == 0.0 &&
-            (status == AnimationStatus.completed ||
-                status == AnimationStatus.dismissed)) {
-          _found.add(buildAncestorChain(element));
-          final rect = getGlobalRect(ro);
-          if (rect != null) {
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: 'AnimatedOpacity',
-              severity: IssueSeverity.warning,
-              detectorName: 'Opacity',
-              detail: 'opacity: 0.0 — invisible but still active',
-            ));
-          }
+      _insideAnimatedOpacity++;
+      _checkSettledAtZero(element, 'AnimatedOpacity');
+    } else if (widget is FadeTransition && _insideAnimatedOpacity == 0) {
+      // Only flag standalone FadeTransition — AnimatedOpacity internally
+      // builds a FadeTransition, which is already counted at the parent level.
+      _checkSettledAtZero(element, 'FadeTransition');
+    }
+  }
+
+  @override
+  void afterElement(Element element) {
+    if (element.widget is AnimatedOpacity) {
+      _insideAnimatedOpacity--;
+    }
+  }
+
+  /// Shared check for AnimatedOpacity / FadeTransition: both produce
+  /// [RenderAnimatedOpacity]. Flag only when settled at 0.0.
+  void _checkSettledAtZero(Element element, String widgetName) {
+    final ro = element.renderObject;
+    if (ro is RenderAnimatedOpacity) {
+      final currentOpacity = ro.opacity.value;
+      final status = ro.opacity.status;
+      if (currentOpacity == 0.0 &&
+          (status == AnimationStatus.completed ||
+              status == AnimationStatus.dismissed)) {
+        _found.add(buildAncestorChain(element));
+        final rect = getGlobalRect(ro);
+        if (rect != null) {
+          _highlights.add(WidgetHighlight(
+            rect: rect,
+            widgetName: widgetName,
+            severity: IssueSeverity.warning,
+            detectorName: 'Opacity',
+            detail: 'opacity: 0.0 — invisible but still active',
+          ));
         }
       }
     }
@@ -127,5 +148,6 @@ class OpacityDetector extends BaseDetector {
     _issues.clear();
     _highlights.clear();
     _found.clear();
+    _insideAnimatedOpacity = 0;
   }
 }

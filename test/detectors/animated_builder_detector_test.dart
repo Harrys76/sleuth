@@ -28,7 +28,7 @@ void main() {
       expect(detector.issues, isNotEmpty);
       expect(
         detector.issues.first.title,
-        contains('AnimatedBuilder without child'),
+        contains('without child'),
       );
     });
 
@@ -174,6 +174,52 @@ void main() {
       detector.scanTree(tester.element(find.byType(MediumAnimatedBuilder)));
 
       expect(detector.issues, isEmpty);
+    });
+
+    // -----------------------------------------------------------------
+    // v11.10: TweenAnimationBuilder detection
+    // -----------------------------------------------------------------
+
+    group('TweenAnimationBuilder detection', () {
+      testWidgets('flags TweenAnimationBuilder without child', (tester) async {
+        await tester.pumpWidget(const TestTweenBuilder(useChild: false));
+        detector.scanTree(tester.element(find.byType(TestTweenBuilder)));
+
+        expect(detector.issues, isNotEmpty);
+        expect(detector.issues.first.title, contains('TweenAnimationBuilder'));
+        expect(detector.issues.first.title, contains('without child'));
+      });
+
+      testWidgets('no issue when TweenAnimationBuilder uses child',
+          (tester) async {
+        await tester.pumpWidget(const TestTweenBuilder(useChild: true));
+        detector.scanTree(tester.element(find.byType(TestTweenBuilder)));
+
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets(
+          'not blocked by isFrameworkOwned inside Scaffold-like ancestor',
+          (tester) async {
+        // TweenAnimationBuilder extends ImplicitlyAnimatedWidget, which
+        // isFrameworkWidget() classifies as framework-owned. Wrapping it in
+        // another StatefulWidget that IS framework-owned (ScrollView, etc.)
+        // should NOT suppress detection.
+        await tester.pumpWidget(const TweenBuilderInsideFrameworkWidget());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isNotEmpty,
+            reason: 'TweenAnimationBuilder should be detected even inside '
+                'framework-owned ancestors');
+      });
+
+      testWidgets('ignores small TweenAnimationBuilder subtrees',
+          (tester) async {
+        await tester.pumpWidget(const TinyTweenBuilder());
+        detector.scanTree(tester.element(find.byType(TinyTweenBuilder)));
+
+        expect(detector.issues, isEmpty);
+      });
     });
   });
 }
@@ -337,6 +383,86 @@ class ScrollPageNoAnimatedBuilder extends StatelessWidget {
             30,
             (i) => SizedBox(key: ValueKey(i), height: 10),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// --- v11.10: TweenAnimationBuilder test widgets ---
+
+class TestTweenBuilder extends StatelessWidget {
+  const TestTweenBuilder({super.key, required this.useChild});
+  final bool useChild;
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: 1),
+        duration: const Duration(seconds: 1),
+        child: useChild
+            ? Column(
+                children: List.generate(
+                  51,
+                  (i) => SizedBox(key: ValueKey(i), height: 10),
+                ),
+              )
+            : null,
+        builder: (context, value, child) {
+          if (child != null) return child;
+          return Column(
+            children: List.generate(
+              51,
+              (i) => SizedBox(key: ValueKey(i), height: 10),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class TinyTweenBuilder extends StatelessWidget {
+  const TinyTweenBuilder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: 1),
+        duration: const Duration(seconds: 1),
+        builder: (context, value, child) {
+          return const SizedBox(width: 10, height: 10);
+        },
+      ),
+    );
+  }
+}
+
+/// TweenAnimationBuilder inside a framework-owned StatefulWidget ancestor.
+/// Tests that isFrameworkOwned does NOT suppress TweenAnimationBuilder.
+class TweenBuilderInsideFrameworkWidget extends StatelessWidget {
+  const TweenBuilderInsideFrameworkWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: SingleChildScrollView(
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(seconds: 1),
+          builder: (context, value, child) {
+            return Column(
+              children: List.generate(
+                51,
+                (i) => SizedBox(key: ValueKey(i), height: 10),
+              ),
+            );
+          },
         ),
       ),
     );

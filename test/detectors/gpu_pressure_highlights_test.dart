@@ -70,6 +70,38 @@ void main() {
       );
     });
 
+    testWidgets('detects ColorFiltered with deep subtree (v11.8)',
+        (tester) async {
+      await tester.pumpWidget(const _ColorFilteredDeepTree());
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.highlights, isNotEmpty,
+          reason: 'ColorFiltered with deep subtree should produce highlights');
+      expect(
+        detector.highlights
+            .any((h) => h.detail?.contains('RenderColorFiltered') ?? false),
+        isTrue,
+        reason: 'Should mention RenderColorFiltered in detail',
+      );
+    });
+
+    testWidgets('no highlights for ColorFiltered with shallow subtree',
+        (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: ColorFiltered(
+            colorFilter: ColorFilter.mode(Color(0x80000000), BlendMode.srcATop),
+            child: SizedBox(width: 10, height: 10),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.highlights, isEmpty,
+          reason: 'Shallow subtree (<6) should not produce highlights');
+    });
+
     testWidgets('no highlights for simple tree without expensive nodes',
         (tester) async {
       await tester.pumpWidget(
@@ -120,6 +152,28 @@ class _ShaderMaskDeepTree extends StatelessWidget {
           const Offset(0, 100),
           const [Color(0xFFFFFFFF), Color(0x00FFFFFF)],
         ),
+        child: Column(
+          children: List.generate(
+            10,
+            (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Widget tree with ColorFiltered wrapping many descendants to trigger detection.
+class _ColorFilteredDeepTree extends StatelessWidget {
+  const _ColorFilteredDeepTree();
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: ColorFiltered(
+        colorFilter:
+            const ColorFilter.mode(Color(0x80000000), BlendMode.srcATop),
         child: Column(
           children: List.generate(
             10,

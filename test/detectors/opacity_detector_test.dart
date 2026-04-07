@@ -262,5 +262,152 @@ void main() {
       expect(detector.issues, isNotEmpty);
       expect(detector.highlights.first.widgetName, 'Opacity');
     });
+
+    // -----------------------------------------------------------------------
+    // FadeTransition detection (v11.7)
+    // -----------------------------------------------------------------------
+
+    testWidgets('flags FadeTransition settled at opacity 0.0', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: _FadeTransitionAtZero(),
+        ),
+      );
+      // Pump to settle animation at 0.0
+      await tester.pumpAndSettle();
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isNotEmpty);
+      expect(detector.issues.first.title,
+          contains('Invisible Opacity Widgets Still Active'));
+    });
+
+    testWidgets('FadeTransition at 0.5 not flagged', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: _FadeTransitionAtValue(0.5),
+        ),
+      );
+      await tester.pumpAndSettle();
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isEmpty);
+    });
+
+    testWidgets('FadeTransition highlight has widgetName FadeTransition',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: _FadeTransitionAtZero(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.highlights, isNotEmpty);
+      expect(detector.highlights.first.widgetName, 'FadeTransition');
+      expect(detector.highlights.first.detectorName, 'Opacity');
+    });
+
+    testWidgets('counts mixed Opacity, AnimatedOpacity, and FadeTransition',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              const Opacity(opacity: 0.0, child: SizedBox()),
+              const AnimatedOpacity(
+                opacity: 0.0,
+                duration: Duration.zero,
+                child: SizedBox(),
+              ),
+              _FadeTransitionAtZero(),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.title, contains(': 3'));
+    });
   });
+}
+
+/// FadeTransition settled at opacity 0.0.
+class _FadeTransitionAtZero extends StatefulWidget {
+  @override
+  State<_FadeTransitionAtZero> createState() => _FadeTransitionAtZeroState();
+}
+
+class _FadeTransitionAtZeroState extends State<_FadeTransitionAtZero>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: Duration.zero,
+      value: 0.0,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: const SizedBox(width: 10, height: 10),
+    );
+  }
+}
+
+/// FadeTransition at a configurable settled value.
+class _FadeTransitionAtValue extends StatefulWidget {
+  const _FadeTransitionAtValue(this.value);
+  final double value;
+
+  @override
+  State<_FadeTransitionAtValue> createState() => _FadeTransitionAtValueState();
+}
+
+class _FadeTransitionAtValueState extends State<_FadeTransitionAtValue>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: Duration.zero,
+      value: widget.value,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: const SizedBox(width: 10, height: 10),
+    );
+  }
 }

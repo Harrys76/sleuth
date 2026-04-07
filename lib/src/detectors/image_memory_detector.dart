@@ -39,6 +39,11 @@ class ImageMemoryDetector extends BaseDetector {
   final List<UncachedImageInfo> _uncachedImages = [];
   bool _isEnabled = true;
 
+  /// Images displayed at this size or smaller are suppressed — the memory
+  /// savings from cacheWidth/cacheHeight are negligible (a 50×50 RGBA image
+  /// is only ~10KB).
+  static const _smallImageThreshold = 50.0;
+
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
@@ -68,7 +73,7 @@ class ImageMemoryDetector extends BaseDetector {
 
     if (widget is Image) {
       final provider = widget.image;
-      if (provider is! ResizeImage) {
+      if (provider is! ResizeImage && !_isSmallImage(element)) {
         _recordUncachedImage(element, provider, 'Image');
       }
       return;
@@ -88,6 +93,7 @@ class ImageMemoryDetector extends BaseDetector {
     if (image == null) return;
     final provider = image.image;
     if (provider is ResizeImage) return;
+    if (_isSmallImage(element)) return;
 
     _recordUncachedImage(element, provider, 'DecoratedBox');
   }
@@ -139,6 +145,23 @@ class ImageMemoryDetector extends BaseDetector {
         detectedAt: DateTime.now(),
       ));
     }
+  }
+
+  /// Returns true if the element's render object has a known size that is
+  /// at or below [_smallImageThreshold] in both dimensions.
+  ///
+  /// Images whose render object has zero width or height are NOT considered
+  /// small — a zero size typically means the image hasn't decoded yet or the
+  /// widget is unconstrained, not that the developer intends a tiny image.
+  static bool _isSmallImage(Element element) {
+    final ro = element.renderObject;
+    if (ro is RenderBox && ro.hasSize) {
+      final size = ro.size;
+      if (size.width <= 0 || size.height <= 0) return false;
+      return size.width <= _smallImageThreshold &&
+          size.height <= _smallImageThreshold;
+    }
+    return false;
   }
 
   static String _providerTypeName(ImageProvider provider) {
