@@ -53,7 +53,7 @@ test/
 
 ## Current state
 
-- **v0.10.2** (current) — v10 roadmap: 12 milestones across accuracy, enrichment, and performance. See `doc/spec_v10.md`. — v10 roadmap: 12 milestones across accuracy (ListView/GridView SliverChildListDelegate detection, NeverScrollableScrollPhysics suppression, DecorationImage detection, GPU/Layout is-check replacements), enrichment (KeepAlive+Memory escalation, NestedScroll+Layout causal rules, HTTP error spike detection, Rebuild+RepaintBoundary annotation), and performance (toString elimination, map/list reuse). See `doc/spec_v10.md`.
+- **v0.10.2** (current) — v10 roadmap (12 milestones: accuracy, enrichment, performance) + v11 detector audit (12 milestones: gaps, false positives, enrichment across 11 detectors). See `doc/spec_v10.md` and `doc/spec_v11.md`.
 - v0.10.0: Issue Encyclopedia, contextual AI Chat, IssueCard shimmer Ask AI link, responsive action links, MediaQuery optimization, overlay UI polish. See CHANGELOG.md.
 - v0.9.2: v9 accuracy/self-overhead/correctness: 17 milestones — opacity value semantics, paint phase classification, inner subtree walk elimination, highlight overlay GPU optimization, generation-counter shouldRepaint, and more.
 - v0.9.1: v8 accuracy/correctness/performance fixes: SetState O(N²) fix (v8.1), scaffold scan-root fallback for Cupertino/scaffold-free apps (v8.2), HTTP monitor leak (v8.3), platform channel false positives (v8.4), SetState wording (v8.5).

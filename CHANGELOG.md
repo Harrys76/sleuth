@@ -1,8 +1,55 @@
 ## 0.10.2
 
-v10 roadmap: 12 milestones across accuracy, enrichment, and performance.
+v10 roadmap (12 milestones) + v11 detector audit (12 milestones).
 
-### Accuracy
+### v11 Detector Audit
+
+Two-part adversarial audit across 11 detectors. 12 milestones covering detection
+gaps, false positive suppression, and enrichment.
+
+**Part 1 — Accuracy & Detection Gaps (v11.1–v11.6):**
+
+- **SliverChildListDelegate detection** (v11.1): `ListviewDetector` now catches
+  `ListView(children: [...])`, `GridView(children: [...])`, and
+  `CustomScrollView > SliverList(delegate: SliverChildListDelegate([...]))` —
+  the non-builder constructors that build all children eagerly.
+- **NeverScrollableScrollPhysics suppression** (v11.2): `NestedScrollDetector`
+  no longer flags same-axis nesting when the inner scrollable uses
+  `NeverScrollableScrollPhysics` or is inside a `NestedScrollView`.
+- **Framework IntrinsicWidth suppression** (v11.3): `LayoutBottleneckDetector`
+  no longer flags `IntrinsicWidth`/`IntrinsicHeight` inside framework widgets
+  (`DropdownButton`, `AlertDialog`, `ExpansionTile`, etc.).
+- **Wrap excessive children** (v11.4): `LayoutBottleneckDetector` now detects
+  `Wrap` with >30 children — non-virtualized layout that measures every child.
+- **Const subtree discounting** (v11.5): `SetStateScopeDetector` tracks element
+  identity across scans. When rebuild evidence exists, discounts const subtrees
+  from the rebuild scope count.
+- **Excessive RepaintBoundary** (v11.6): `RepaintBoundaryDetector` detects >20
+  user-added `RepaintBoundary` widgets inside a scrollable — excessive compositing
+  layers waste GPU memory.
+
+**Part 2 — Accuracy & Enrichment (v11.7–v11.12):**
+
+- **FadeTransition detection** (v11.7): `OpacityDetector` now catches standalone
+  `FadeTransition` settled at opacity 0.0, with deduplication to avoid
+  double-counting `AnimatedOpacity`'s internal `FadeTransition`.
+- **ColorFiltered GPU detection** (v11.8): `GpuPressureDetector` and
+  `RepaintBoundaryDetector` now detect `ColorFiltered` widgets with deep subtrees.
+  Uses widget-level check (private `_ColorFilterRenderObject` not accessible via `is`).
+- **Small image suppression** (v11.9): `ImageMemoryDetector` no longer flags
+  images ≤50×50 logical pixels — `cacheWidth`/`cacheHeight` savings are negligible
+  for icons and small avatars.
+- **TweenAnimationBuilder child** (v11.10): `AnimatedBuilderDetector` now catches
+  `TweenAnimationBuilder` without `child` parameter. Skips `isFrameworkOwned` check
+  since `TweenAnimationBuilder` is always user-placed.
+- **Runtime font loading** (v11.11): `FontLoadingDetector` detects fonts likely
+  loaded at runtime (e.g., `google_fonts`) via `fontFamilyFallback` heuristic.
+  New stableId `runtime_font_loading` with severity escalation at 3+ families.
+- **BackdropFilter sigma severity** (v11.12): `GpuPressureDetector` now extracts
+  blur sigma from `BackdropFilter`. Low sigma (≤2.0) suppressed entirely; high
+  sigma (>10.0) escalated to critical. Detail includes `σ=X.X`.
+
+### Accuracy (v10)
 
 - **ListView/GridView SliverChildListDelegate detection** (v10.1):
   `ListviewDetector` now catches `ListView(children: [...])` and

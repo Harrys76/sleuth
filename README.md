@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C531_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C594_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -219,25 +219,25 @@ Issues include a confidence level reflecting evidence quality:
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
 | Rebuild | VM build count + tree | High rebuild activity | Confirmed for count, Possible for widget attribution | Degrades to structural density report without VM |
-| GPU Pressure | VM raster timing + render tree | Raster thread dominance | Confirmed for ratio, Likely when nodes coexist | Degrades to structural node detection without VM |
+| GPU Pressure | VM raster timing + render tree | Raster thread dominance | Confirmed for ratio, Likely when nodes coexist | Degrades to structural node detection without VM. Sigma-aware severity for BackdropFilter; ColorFiltered detection via widget type |
 | Shallow Rebuild Risk | VM build count + tree depth | Shallow StatefulWidgets exist during high build activity | Possible | Degrades to structural risk report without VM |
 
 ### Structural Detectors (tree scan only)
 
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
-| setState Scope | Element tree | StatefulWidget owns large subtree | Possible–Likely | Needs rebuild evidence to confirm |
-| Layout Bottleneck | Render tree | IntrinsicHeight/Width present | Possible | Present does not mean slow |
-| ListView | Element tree | Non-lazy list with many children | Possible | May be intentional for small lists |
-| Image Memory | Element tree | Image without cacheWidth/Height | Possible | Small images may not matter |
+| setState Scope | Element tree | StatefulWidget owns large subtree | Possible–Likely | Needs rebuild evidence to confirm. Const subtree discounting when rebuild evidence present |
+| Layout Bottleneck | Render tree | IntrinsicHeight/Width present, Wrap with excessive children | Possible | Present does not mean slow. Framework-internal intrinsics (DropdownButton, AlertDialog) suppressed |
+| ListView | Element tree | Non-lazy list with many children | Possible | May be intentional for small lists. Catches ListView/GridView/SliverList non-builder constructors |
+| Image Memory | Element tree | Image without cacheWidth/Height | Possible | Images ≤50px suppressed — negligible memory savings |
 | GlobalKey | Element tree | Many GlobalKeys in scrollable | Possible | May be necessary for state preservation |
-| Nested Scroll | Element tree | Scroll-inside-scroll pattern | Possible | May be intentional with NeverScrollableScrollPhysics |
+| Nested Scroll | Element tree | Scroll-inside-scroll pattern | Possible | NeverScrollableScrollPhysics and NestedScrollView automatically suppressed |
 | CustomPainter | Element tree | shouldRepaint always true | Possible | May be needed for animated painters |
 | Keep Alive | Element tree | Many keep-alive pages | Possible | Trade-off between memory and rebuild cost |
-| AnimatedBuilder | Element tree | No child param on large subtree | Possible | Only matters if subtree is large |
-| Opacity | Element tree | Opacity(0.0) or AnimatedOpacity(0.0) widget present | Possible | Widget still participates in hit testing and semantics |
-| Font Loading | Element tree | Non-system font in use | Possible | Font may already be loaded |
-| RepaintBoundary | Element + render tree | Expensive GPU widget without RepaintBoundary ancestor | Possible–Confirmed | Escalates with debug paint rate evidence |
+| AnimatedBuilder | Element tree | No child param on large subtree | Possible | Only matters if subtree is large. Also detects TweenAnimationBuilder without child |
+| Opacity | Element tree | Opacity(0.0), AnimatedOpacity(0.0), or FadeTransition(0.0) settled | Possible | Widget still participates in hit testing and semantics. FadeTransition deduped with AnimatedOpacity |
+| Font Loading | Element tree | Non-system font in use, runtime-loaded fonts (fontFamilyFallback heuristic) | Possible | Font may already be loaded. Runtime detection is heuristic — intentional fallback chains may trigger |
+| RepaintBoundary | Element + render tree | Expensive GPU widget without RepaintBoundary ancestor, excessive boundaries in scrollables | Possible–Confirmed | Escalates with debug paint rate evidence. ColorFiltered detected via widget type |
 
 ## What This Does Better Than DevTools
 
