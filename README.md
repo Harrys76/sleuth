@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C741_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C784_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -271,6 +271,8 @@ Issues include a confidence level reflecting evidence quality:
 
 - **Always on**: no separate tool window, no connection setup — performance data is visible as you use your app
 - **22 detectors**: structural anti-patterns (non-lazy lists, uncached images, excessive GlobalKeys, missing RepaintBoundary) that DevTools does not flag
+- **Confidence explanations**: every issue explains *why* its confidence is confirmed/likely/possible — what evidence was used and what would upgrade it
+- **Severity auto-escalation**: persistent warnings automatically escalate to critical after 30 scan cycles; structural findings upgrade to likely when corroborated by frame jank or rebuild evidence
 - **Causal issue graph**: 52 rules linking root causes to downstream effects — see why an issue matters, not just that it exists
 - **Fix verification**: capture baseline → fix → compare. Cooldown-based resolution with hot-reload grace period
 - **Historical trending**: per-issue recurrence time-series tracks worsening/improving/stable/intermittent patterns across scan cycles

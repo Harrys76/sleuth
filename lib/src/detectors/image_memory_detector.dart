@@ -142,6 +142,8 @@ class ImageMemoryDetector extends BaseDetector {
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.structural,
+        confidenceReason:
+            'Structural scan only — missing cacheWidth/cacheHeight',
         detectedAt: DateTime.now(),
       ));
     }

@@ -138,7 +138,8 @@ class _IssueCardState extends State<IssueCard> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    _confidenceBadge(issue.confidence, theme),
+                    _confidenceBadge(
+                        issue.confidence, theme, issue.confidenceReason),
                     if (widget.jankCorrelated) ...[
                       SizedBox(width: theme.spacingXs),
                       Container(
@@ -632,7 +633,8 @@ class _IssueCardState extends State<IssueCard> {
     );
   }
 
-  Widget _confidenceBadge(IssueConfidence confidence, SleuthThemeData theme) {
+  Widget _confidenceBadge(
+      IssueConfidence confidence, SleuthThemeData theme, String? reason) {
     final color = theme.confidenceColor(confidence);
     final label = switch (confidence) {
       IssueConfidence.confirmed => 'CONFIRMED',
@@ -640,7 +642,7 @@ class _IssueCardState extends State<IssueCard> {
       IssueConfidence.possible => 'POSSIBLE',
     };
 
-    return Container(
+    final badge = Container(
       padding: EdgeInsets.symmetric(
           horizontal: theme.spacingSm, vertical: theme.spacingXxs),
       decoration: BoxDecoration(
@@ -656,6 +658,9 @@ class _IssueCardState extends State<IssueCard> {
         ),
       ),
     );
+
+    if (reason == null) return badge;
+    return Tooltip(message: reason, child: badge);
   }
 }
 

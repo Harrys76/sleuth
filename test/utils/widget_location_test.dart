@@ -120,7 +120,9 @@ void main() {
       // Both should have source location (from cache on second call)
       expect(chain1, contains('widget_location_test.dart:'));
       expect(chain2, contains('widget_location_test.dart:'));
-      expect(sourceLocationCache.length, 1); // Only one type cached
+      // Cache stores locations for all non-framework ancestor types too,
+      // not just the leaf. At least TestLeafWidget must be cached.
+      expect(sourceLocationCache.length, greaterThanOrEqualTo(1));
     });
   });
 

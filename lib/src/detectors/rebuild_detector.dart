@@ -334,6 +334,8 @@ class RebuildDetector extends BaseDetector {
         ancestorChain: snapshot.ancestorChains[typeName],
         observationSource: ObservationSource.debugCallback,
         detectedAt: DateTime.now(),
+        confidenceReason:
+            'Measured directly from debug callback rebuild counter',
       ));
     }
   }
@@ -386,6 +388,7 @@ class RebuildDetector extends BaseDetector {
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
+      confidenceReason: 'Measured directly from VM timeline build count',
     ));
   }
 
@@ -419,6 +422,8 @@ class RebuildDetector extends BaseDetector {
       fixEffort: effort,
       observationSource: ObservationSource.structural,
       detectedAt: DateTime.now(),
+      confidenceReason:
+          'Structural scan only — connect VM for higher confidence',
     ));
   }
 

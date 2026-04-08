@@ -154,6 +154,8 @@ class KeepAliveDetector extends BaseDetector {
             fixEffort: effort,
             widgetName: data.typeName,
             observationSource: ObservationSource.structural,
+            confidenceReason:
+                'Structural scan only — AutomaticKeepAliveClientMixin count',
             detectedAt: DateTime.now(),
           ),
         );

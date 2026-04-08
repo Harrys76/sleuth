@@ -215,6 +215,7 @@ class FrameTimingDetector extends BaseDetector {
           fixHint: hint1,
           fixEffort: effort1,
           detectedAt: DateTime.now(),
+          confidenceReason: 'Measured directly from FrameTiming API',
         ),
       );
     } else if (jankPercent > 15) {
@@ -232,6 +233,7 @@ class FrameTimingDetector extends BaseDetector {
           fixHint: hint2,
           fixEffort: effort2,
           detectedAt: DateTime.now(),
+          confidenceReason: 'Measured directly from FrameTiming API',
         ),
       );
     }
@@ -317,6 +319,7 @@ class FrameTimingDetector extends BaseDetector {
         fixHint: hint,
         fixEffort: effort,
         detectedAt: DateTime.now(),
+        confidenceReason: 'Measured directly from FrameTiming API',
       ));
     }
 
@@ -339,6 +342,7 @@ class FrameTimingDetector extends BaseDetector {
         fixHint: hint,
         fixEffort: effort,
         detectedAt: DateTime.now(),
+        confidenceReason: 'Measured directly from FrameTiming API',
       ));
     }
   }

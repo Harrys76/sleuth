@@ -85,6 +85,8 @@ class PerformanceIssue {
     this.rankingBreakdown,
     this.rootCauseId,
     this.downstreamIds,
+    this.confidenceReason,
+    this.packageName,
   });
 
   /// How severe this issue is (ok, warning, critical).
@@ -158,6 +160,14 @@ class PerformanceIssue {
   /// Set by [CausalGraphRule] during cross-detector correlation.
   final List<String>? downstreamIds;
 
+  /// Human-readable explanation of why [confidence] is at its current level.
+  /// Set by detectors at issue creation and updated by correlator escalation.
+  final String? confidenceReason;
+
+  /// Package name extracted from the leaf element's source location.
+  /// Null in profile mode or when source tracking is unavailable.
+  final String? packageName;
+
   Map<String, dynamic> toJson() => {
         'severity': severity.name,
         'category': category.name,
@@ -182,6 +192,8 @@ class PerformanceIssue {
         if (rankingBreakdown != null) 'rankingBreakdown': rankingBreakdown,
         if (rootCauseId != null) 'rootCauseId': rootCauseId,
         if (downstreamIds != null) 'downstreamIds': downstreamIds,
+        if (confidenceReason != null) 'confidenceReason': confidenceReason,
+        if (packageName != null) 'packageName': packageName,
       };
 
   factory PerformanceIssue.fromJson(Map<String, dynamic> json) =>
@@ -224,6 +236,8 @@ class PerformanceIssue {
         rootCauseId: json['rootCauseId'] as String?,
         downstreamIds:
             (json['downstreamIds'] as List<dynamic>?)?.cast<String>(),
+        confidenceReason: json['confidenceReason'] as String?,
+        packageName: json['packageName'] as String?,
       );
 
   PerformanceIssue copyWith({
@@ -247,6 +261,8 @@ class PerformanceIssue {
     Map<String, int>? rankingBreakdown,
     String? rootCauseId,
     List<String>? downstreamIds,
+    String? confidenceReason,
+    String? packageName,
   }) {
     return PerformanceIssue(
       severity: severity ?? this.severity,
@@ -269,6 +285,8 @@ class PerformanceIssue {
       rankingBreakdown: rankingBreakdown ?? this.rankingBreakdown,
       rootCauseId: rootCauseId ?? this.rootCauseId,
       downstreamIds: downstreamIds ?? this.downstreamIds,
+      confidenceReason: confidenceReason ?? this.confidenceReason,
+      packageName: packageName ?? this.packageName,
     );
   }
 

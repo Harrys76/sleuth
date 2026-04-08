@@ -171,6 +171,8 @@ class GlobalKeyDetector extends BaseDetector {
             fixEffort: effort,
             widgetName: data.typeName,
             observationSource: ObservationSource.structural,
+            confidenceReason:
+                'Structural scan only — GlobalKey count in scrollable',
             detectedAt: DateTime.now(),
           ),
         );
@@ -219,6 +221,8 @@ class GlobalKeyDetector extends BaseDetector {
       fixHint: hint,
       fixEffort: effort,
       observationSource: ObservationSource.structural,
+      confidenceReason:
+          'Cross-scan key identity comparison — keys recreated between scans',
       detectedAt: DateTime.now(),
     ));
   }

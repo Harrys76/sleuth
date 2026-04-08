@@ -30,11 +30,14 @@ class SessionSnapshot {
     this.recentFrames,
     this.recurrenceTrends,
     this.widgetHeatMap,
+    this.sessionSummary,
   });
 
   /// Schema version for forward-compatible parsing.
   /// v1: implicit (no field), v2: adds phase/GC/channel events, FPS
   /// percentiles, ranking scores, and recent frames.
+  /// v3: adds sessionSummary (top issues, causal edges, frame histogram,
+  /// detector hit rates, memory trend summary).
   final int schemaVersion;
 
   /// Wall-clock time when this snapshot was exported.
@@ -96,6 +99,11 @@ class SessionSnapshot {
   /// and severity stats. Null when no recurrence data has been collected.
   final Map<String, Map<String, dynamic>>? recurrenceTrends;
 
+  /// Pre-computed summary for export consumers. Contains topIssues,
+  /// causalEdges, frameHistogram, detectorHitRates, and memoryTrendSummary.
+  /// Null for v1/v2 snapshots or when no summary data is available.
+  final Map<String, dynamic>? sessionSummary;
+
   Map<String, dynamic> toJson() => {
         'schemaVersion': schemaVersion,
         'exportedAt': exportedAt.toIso8601String(),
@@ -123,6 +131,8 @@ class SessionSnapshot {
           'widgetHeatMap': widgetHeatMap!.map((e) => e.toJson()).toList(),
         if (recurrenceTrends != null && recurrenceTrends!.isNotEmpty)
           'recurrenceTrends': recurrenceTrends,
+        if (sessionSummary != null && sessionSummary!.isNotEmpty)
+          'sessionSummary': sessionSummary,
       };
 
   /// Pretty-printed JSON string for export/sharing.
@@ -177,6 +187,7 @@ class SessionSnapshot {
                 (k, v) => MapEntry(k, v as Map<String, dynamic>),
               )
             : null,
+        sessionSummary: json['sessionSummary'] as Map<String, dynamic>?,
       );
 }
 

@@ -63,6 +63,8 @@ class ShaderJankDetector extends BaseDetector {
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: DateTime.now(),
+          confidenceReason:
+              'Measured directly from VM timeline shader_compile events',
         ));
       }
     }

@@ -181,6 +181,8 @@ class LayoutBottleneckDetector extends BaseDetector {
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.structural,
+        confidenceReason:
+            'Confirmed — IntrinsicHeight/Width always triggers two-pass layout',
         detectedAt: DateTime.now(),
       ));
     }
@@ -205,6 +207,8 @@ class LayoutBottleneckDetector extends BaseDetector {
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.structural,
+        confidenceReason:
+            'Structural scan only — Wrap child count exceeds threshold',
         detectedAt: DateTime.now(),
       ));
     }

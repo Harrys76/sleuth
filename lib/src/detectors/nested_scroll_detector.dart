@@ -169,6 +169,8 @@ class NestedScrollDetector extends BaseDetector {
             widgetName: 'SingleChildScrollView',
             ancestorChain: location,
             observationSource: ObservationSource.structural,
+            confidenceReason:
+                'Structural scan only — scroll-inside-scroll pattern found',
             detectedAt: DateTime.now(),
           ),
         );
@@ -198,6 +200,8 @@ class NestedScrollDetector extends BaseDetector {
         widgetName: widgetTypeName,
         ancestorChain: location,
         observationSource: ObservationSource.structural,
+        confidenceReason:
+            'Structural scan only — scroll-inside-scroll pattern found',
         detectedAt: DateTime.now(),
       ),
     );

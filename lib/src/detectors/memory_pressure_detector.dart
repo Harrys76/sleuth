@@ -138,6 +138,7 @@ class MemoryPressureDetector extends BaseDetector {
         fixEffort: effort,
         observationSource: ObservationSource.vmTimeline,
         detectedAt: _clock(),
+        confidenceReason: 'VM GC frequency elevated + object churn rate',
       ));
     }
   }
@@ -179,6 +180,7 @@ class MemoryPressureDetector extends BaseDetector {
           observationSource: ObservationSource.vmTimeline,
           detectedAt: _clock(),
           topAllocators: _lastTopAllocators,
+          confidenceReason: 'Heap trend analysis + sustained growth regression',
         ));
       }
     } else {
@@ -232,6 +234,7 @@ class MemoryPressureDetector extends BaseDetector {
         fixEffort: effort,
         observationSource: ObservationSource.vmTimeline,
         detectedAt: _clock(),
+        confidenceReason: 'Measured directly from VM heap capacity sampling',
       ));
     }
   }
@@ -275,6 +278,8 @@ class MemoryPressureDetector extends BaseDetector {
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: _clock(),
+          confidenceReason:
+              'Native memory trend analysis + sustained growth regression',
         ));
       }
     } else {

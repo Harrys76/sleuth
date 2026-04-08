@@ -24,7 +24,7 @@ void main() {
       final snapshot = controller.exportSnapshot();
 
       expect(snapshot.packageVersion, '0.5.2');
-      expect(snapshot.schemaVersion, 2);
+      expect(snapshot.schemaVersion, 3);
       expect(snapshot.capturedFrames, isEmpty);
       expect(snapshot.currentIssues, isEmpty);
       expect(snapshot.frameStatsSummary.totalFrames, 0);
@@ -236,12 +236,12 @@ void main() {
       expect(controller.platformChannelBufferForTest, hasLength(2));
     });
 
-    test('export includes schemaVersion 2', () {
+    test('export includes schemaVersion 3', () {
       final snapshot = controller.exportSnapshot();
-      expect(snapshot.schemaVersion, 2);
+      expect(snapshot.schemaVersion, 3);
 
       final json = snapshot.toJson();
-      expect(json['schemaVersion'], 2);
+      expect(json['schemaVersion'], 3);
     });
 
     test('export includes phaseEvents when buffer non-empty', () {
@@ -357,10 +357,202 @@ void main() {
       final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
       final restored = SessionSnapshot.fromJson(decoded);
 
-      expect(restored.schemaVersion, 2);
+      expect(restored.schemaVersion, 3);
       expect(restored.recentFrames, hasLength(5));
       expect(restored.phaseEvents, isNotNull);
       expect(restored.gcEvents, isNotNull);
+    });
+
+    // -----------------------------------------------------------------------
+    // Session summary (v3 — 3b.9)
+    // -----------------------------------------------------------------------
+
+    test('sessionSummary contains frameHistogram when frames exist', () {
+      for (var i = 1; i <= 5; i++) {
+        controller.addFrameForTest(FrameStats(
+          frameNumber: i,
+          uiDuration: const Duration(microseconds: 8000),
+          rasterDuration: const Duration(microseconds: 4000),
+          timestamp: DateTime.now(),
+        ));
+      }
+
+      final snapshot = controller.exportSnapshot();
+      expect(snapshot.sessionSummary, isNotNull);
+      expect(snapshot.sessionSummary!.containsKey('frameHistogram'), isTrue);
+    });
+
+    test('frame histogram bins are correct for known frame durations', () {
+      // <16ms: ui=8ms, raster=4ms → totalDuration = max(8,4) = 8ms
+      controller.addFrameForTest(FrameStats(
+        frameNumber: 1,
+        uiDuration: const Duration(milliseconds: 8),
+        rasterDuration: const Duration(milliseconds: 4),
+        timestamp: DateTime.now(),
+      ));
+      // 16-33ms: ui=20ms, raster=10ms → totalDuration = 20ms
+      controller.addFrameForTest(FrameStats(
+        frameNumber: 2,
+        uiDuration: const Duration(milliseconds: 20),
+        rasterDuration: const Duration(milliseconds: 10),
+        timestamp: DateTime.now(),
+      ));
+      // 33-50ms: ui=40ms, raster=10ms → totalDuration = 40ms
+      controller.addFrameForTest(FrameStats(
+        frameNumber: 3,
+        uiDuration: const Duration(milliseconds: 40),
+        rasterDuration: const Duration(milliseconds: 10),
+        timestamp: DateTime.now(),
+      ));
+      // 50-100ms: ui=70ms, raster=10ms → totalDuration = 70ms
+      controller.addFrameForTest(FrameStats(
+        frameNumber: 4,
+        uiDuration: const Duration(milliseconds: 70),
+        rasterDuration: const Duration(milliseconds: 10),
+        timestamp: DateTime.now(),
+      ));
+      // >100ms: ui=120ms, raster=10ms → totalDuration = 120ms
+      controller.addFrameForTest(FrameStats(
+        frameNumber: 5,
+        uiDuration: const Duration(milliseconds: 120),
+        rasterDuration: const Duration(milliseconds: 10),
+        timestamp: DateTime.now(),
+      ));
+
+      final snapshot = controller.exportSnapshot();
+      final histogram =
+          snapshot.sessionSummary!['frameHistogram'] as Map<String, dynamic>;
+
+      expect(histogram['<16ms'], 1);
+      expect(histogram['16-33ms'], 1);
+      expect(histogram['33-50ms'], 1);
+      expect(histogram['50-100ms'], 1);
+      expect(histogram['>100ms'], 1);
+    });
+
+    test('detectorHitRates counts issues by detector correctly', () {
+      // Inject issues directly into the controller's notifier so
+      // exportSnapshot() sees them during ranking.
+      controller.issuesNotifier.value = [
+        const PerformanceIssue(
+          severity: IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.possible,
+          title: 'test',
+          detail: 'test',
+          fixHint: 'test',
+          stableId: 'non_lazy_list',
+        ),
+        const PerformanceIssue(
+          severity: IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.possible,
+          title: 'test2',
+          detail: 'test',
+          fixHint: 'test',
+          stableId: 'non_lazy_listview',
+        ),
+        const PerformanceIssue(
+          severity: IssueSeverity.critical,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+          title: 'heavy build',
+          detail: 'test',
+          fixHint: 'test',
+          stableId: 'heavy_compute',
+        ),
+      ];
+
+      final snapshot = controller.exportSnapshot();
+      expect(snapshot.sessionSummary, isNotNull);
+      final hitRates =
+          snapshot.sessionSummary!['detectorHitRates'] as Map<String, dynamic>;
+
+      // non_lazy_list and non_lazy_listview both map to 'listview'
+      expect(hitRates['listview'], 2);
+      // heavy_compute maps to 'heavyCompute'
+      expect(hitRates['heavyCompute'], 1);
+    });
+
+    test('topIssues returns at most 5, ordered by rankingScore', () {
+      // Inject 7 issues with varying severity so ranking produces
+      // a deterministic order.
+      controller.issuesNotifier.value = List.generate(7, (i) {
+        final severity = i < 3 ? IssueSeverity.critical : IssueSeverity.warning;
+        return PerformanceIssue(
+          severity: severity,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.possible,
+          title: 'Issue $i',
+          detail: 'detail',
+          fixHint: 'fix',
+          stableId: 'test_issue_$i',
+        );
+      });
+
+      final snapshot = controller.exportSnapshot();
+      expect(snapshot.sessionSummary, isNotNull);
+      final topIssues = snapshot.sessionSummary!['topIssues'] as List<dynamic>;
+
+      expect(topIssues.length, lessThanOrEqualTo(5));
+      expect(topIssues, isNotEmpty);
+
+      // Verify descending ranking score order (first should be >= second, etc.)
+      for (var i = 0; i < topIssues.length - 1; i++) {
+        final current = topIssues[i] as Map<String, dynamic>;
+        final next = topIssues[i + 1] as Map<String, dynamic>;
+        // rankingScore may be null for some issues, but the ranker should
+        // populate it. When present, verify ordering.
+        if (current['rankingScore'] != null && next['rankingScore'] != null) {
+          expect(
+            current['rankingScore'] as int,
+            greaterThanOrEqualTo(next['rankingScore'] as int),
+            reason: 'topIssues should be ordered by rankingScore descending',
+          );
+        }
+      }
+    });
+
+    test('sessionSummary is null when no issues and no frames', () {
+      final snapshot = controller.exportSnapshot();
+      expect(snapshot.sessionSummary, isNull);
+    });
+
+    test('sessionSummary includes causalEdges for related issues', () {
+      controller.issuesNotifier.value = const [
+        PerformanceIssue(
+          severity: IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+          title: 'Wide setState',
+          detail: 'test',
+          fixHint: 'test',
+          stableId: 'setstate_scope',
+        ),
+        PerformanceIssue(
+          severity: IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+          title: 'Heavy compute',
+          detail: 'test',
+          fixHint: 'test',
+          stableId: 'heavy_compute',
+        ),
+      ];
+
+      final snapshot = controller.exportSnapshot();
+      expect(snapshot.sessionSummary, isNotNull);
+      final edges = snapshot.sessionSummary!['causalEdges'] as List<dynamic>?;
+      expect(edges, isNotNull);
+      expect(edges, isNotEmpty);
+
+      // Verify the expected edge exists
+      final hasExpectedEdge = edges!.any((e) {
+        final edge = e as Map<String, dynamic>;
+        return edge['cause'] == 'setstate_scope' &&
+            edge['effect'] == 'heavy_compute';
+      });
+      expect(hasExpectedEdge, isTrue);
     });
   });
 }

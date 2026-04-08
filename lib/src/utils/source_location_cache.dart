@@ -74,9 +74,84 @@ class SourceLocationCache {
     return path;
   }
 
+  /// Returns structured location data for the [element]'s widget, or null.
+  ///
+  /// Unlike [lookup] which returns a formatted string, this returns the
+  /// abbreviated path, line number, and extracted package name separately.
+  ({String location, String? packageName})? lookupStructured(Element element) {
+    _trackingAvailable ??=
+        WidgetInspectorService.instance.isWidgetCreationTracked();
+    if (!_trackingAvailable!) return null;
+
+    final typeName = element.widget.runtimeType.toString();
+    if (_structuredCache.containsKey(typeName)) {
+      return _structuredCache[typeName];
+    }
+    if (_cache.length >= maxEntries) return null;
+
+    final location = _resolve(element);
+    if (location == null) return null;
+
+    // Also populate the string cache for backward compatibility.
+    _cache[typeName] = location;
+
+    final result = _resolveStructured(element);
+    if (result != null) {
+      _structuredCache[typeName] = result;
+    }
+    return result;
+  }
+
+  ({String location, String? packageName})? _resolveStructured(
+      Element element) {
+    try {
+      final node = element.toDiagnosticsNode();
+      final delegate = InspectorSerializationDelegate(
+        service: WidgetInspectorService.instance,
+      );
+      final props = delegate.additionalNodeProperties(node);
+      final loc = props['creationLocation'];
+      if (loc is! Map<String, Object?>) return null;
+
+      final file = loc['file'] as String?;
+      final line = loc['line'] as int?;
+      if (file == null || line == null) return null;
+
+      return (
+        location: '${abbreviatePath(file)}:$line',
+        packageName: extractPackageName(file),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  final Map<String, ({String location, String? packageName})> _structuredCache =
+      {};
+
+  /// Extracts the package name from a source file path.
+  ///
+  /// - `/path/packages/my_app/lib/screens/home.dart` → `my_app`
+  /// - `lib/screens/home.dart` → null (app root code)
+  /// - `/path/packages/flutter/lib/src/widgets/container.dart` → `flutter`
+  static String? extractPackageName(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final packagesIdx = normalized.lastIndexOf('/packages/');
+    if (packagesIdx == -1) return null;
+
+    final afterPackages =
+        normalized.substring(packagesIdx + '/packages/'.length);
+    final libIdx = afterPackages.indexOf('/lib/');
+    if (libIdx == -1) return null;
+
+    final name = afterPackages.substring(0, libIdx);
+    return name.isNotEmpty ? name : null;
+  }
+
   /// Clears cached entries and resets the tracking availability flag.
   void clear() {
     _cache.clear();
+    _structuredCache.clear();
     _trackingAvailable = null;
   }
 

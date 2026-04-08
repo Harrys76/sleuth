@@ -207,6 +207,11 @@ class RepaintBoundaryDetector extends BaseDetector {
           fixHint: hint,
           fixEffort: effort,
           observationSource: source,
+          confidenceReason: confidence == IssueConfidence.confirmed
+              ? 'Debug callback paint rate confirms excessive repaints'
+              : confidence == IssueConfidence.likely
+                  ? 'Debug callback paint rate + structural GPU node scan'
+                  : 'Structural scan only — enable debug callbacks for paint evidence',
           detectedAt: DateTime.now(),
         ),
       );
@@ -231,6 +236,8 @@ class RepaintBoundaryDetector extends BaseDetector {
           fixHint: exHint,
           fixEffort: exEffort,
           observationSource: ObservationSource.structural,
+          confidenceReason:
+              'Structural scan only — excessive boundaries in scrollable',
           detectedAt: DateTime.now(),
         ),
       );

@@ -137,6 +137,8 @@ class OpacityDetector extends BaseDetector {
           fixHint: hint,
           fixEffort: effort,
           observationSource: ObservationSource.structural,
+          confidenceReason:
+              'Confirmed — widget opacity value directly observed as 0.0',
           detectedAt: DateTime.now(),
         ),
       );

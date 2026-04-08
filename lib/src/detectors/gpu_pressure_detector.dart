@@ -56,8 +56,11 @@ class GpuPressureDetector extends BaseDetector {
       // Downgrade remaining structural issues to possible confidence.
       for (int i = 0; i < _issues.length; i++) {
         if (_issues[i].confidence != IssueConfidence.possible) {
-          _issues[i] =
-              _issues[i].copyWith(confidence: IssueConfidence.possible);
+          _issues[i] = _issues[i].copyWith(
+            confidence: IssueConfidence.possible,
+            confidenceReason:
+                'Structural pattern only — connect VM for higher confidence',
+          );
         }
       }
     }
@@ -205,6 +208,7 @@ class GpuPressureDetector extends BaseDetector {
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: DateTime.now(),
+          confidenceReason: 'Measured directly from VM timeline raster timing',
         ),
       );
     }
@@ -231,6 +235,9 @@ class GpuPressureDetector extends BaseDetector {
           fixEffort: effort,
           observationSource: ObservationSource.structural,
           detectedAt: DateTime.now(),
+          confidenceReason: hasRasterDominance
+              ? 'Raster dominance timing + structural render node scan'
+              : 'Structural pattern only — connect VM for higher confidence',
         ),
       );
     }

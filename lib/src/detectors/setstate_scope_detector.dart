@@ -266,9 +266,21 @@ class SetStateScopeDetector extends BaseDetector {
         _widestElement != null ? buildAncestorChain(_widestElement!) : null;
     final location = rawChain != null ? '\n\n  • $rawChain' : '';
 
+    // Compute confidenceReason based on the same logic as the confidence level.
+    String confidenceReasonFor(IssueConfidence c) => switch (c) {
+          IssueConfidence.confirmed =>
+            'Measured directly from debug callback rebuild counter',
+          IssueConfidence.likely =>
+            'Rebuild evidence detected + structural subtree scan',
+          IssueConfidence.possible =>
+            'Structural scan only — connect VM for higher confidence',
+        };
+
     if (hasRebuildEvidence) {
       final baseConfidence =
           hasAnimScope ? IssueConfidence.possible : IssueConfidence.likely;
+      final effectiveConfidence =
+          debugCorrelation?.confidence ?? baseConfidence;
 
       final (hint, effort) = FixHintBuilder.setStateScope(
         widgetName: _widestStatefulWidget ?? 'Unknown',
@@ -282,7 +294,7 @@ class SetStateScopeDetector extends BaseDetector {
           severity:
               ratio > 0.5 ? IssueSeverity.critical : IssueSeverity.warning,
           category: IssueCategory.build,
-          confidence: debugCorrelation?.confidence ?? baseConfidence,
+          confidence: effectiveConfidence,
           title:
               'Wide setState Scope: $_widestStatefulWidget owns ~$percent% of tree',
           detail:
@@ -296,11 +308,15 @@ class SetStateScopeDetector extends BaseDetector {
           observationSource:
               debugCorrelation?.source ?? ObservationSource.structural,
           detectedAt: DateTime.now(),
+          confidenceReason: confidenceReasonFor(effectiveConfidence),
         ),
       );
       _addHighlight(_widestElement!, _widestStatefulWidget!, hasRebuildEvidence,
           percent, _maxSubtreeSize);
     } else if (!hasAnimScope) {
+      final effectiveConfidence =
+          debugCorrelation?.confidence ?? IssueConfidence.possible;
+
       final (hint2, effort2) = FixHintBuilder.setStateScope(
         widgetName: _widestStatefulWidget ?? 'Unknown',
         subtreePercent: int.tryParse(percent) ?? 0,
@@ -312,7 +328,7 @@ class SetStateScopeDetector extends BaseDetector {
           stableId: 'setstate_scope',
           severity: IssueSeverity.warning,
           category: IssueCategory.build,
-          confidence: debugCorrelation?.confidence ?? IssueConfidence.possible,
+          confidence: effectiveConfidence,
           title:
               'Wide setState Scope: $_widestStatefulWidget owns ~$percent% of tree',
           detail:
@@ -326,6 +342,7 @@ class SetStateScopeDetector extends BaseDetector {
           observationSource:
               debugCorrelation?.source ?? ObservationSource.structural,
           detectedAt: DateTime.now(),
+          confidenceReason: confidenceReasonFor(effectiveConfidence),
         ),
       );
       _addHighlight(_widestElement!, _widestStatefulWidget!, hasRebuildEvidence,

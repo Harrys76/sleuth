@@ -176,6 +176,7 @@ class NetworkMonitorDetector extends BaseDetector {
       fixHint: hint,
       fixEffort: effort,
       detectedAt: _clock(),
+      confidenceReason: 'Measured directly from HTTP interception',
     ));
   }
 
@@ -212,6 +213,7 @@ class NetworkMonitorDetector extends BaseDetector {
       fixHint: hint,
       fixEffort: effort,
       detectedAt: _clock(),
+      confidenceReason: 'Measured directly from HTTP interception',
     ));
   }
 
@@ -237,6 +239,7 @@ class NetworkMonitorDetector extends BaseDetector {
       fixHint: hint,
       fixEffort: effort,
       detectedAt: _clock(),
+      confidenceReason: 'Measured directly from HTTP interception',
     ));
   }
 
@@ -285,6 +288,7 @@ class NetworkMonitorDetector extends BaseDetector {
       fixHint: hint,
       fixEffort: effort,
       detectedAt: _clock(),
+      confidenceReason: 'Measured directly from HTTP interception',
     ));
   }
 
@@ -353,6 +357,7 @@ class NetworkMonitorDetector extends BaseDetector {
         fixHint: hint,
         fixEffort: effort,
         detectedAt: _clock(),
+        confidenceReason: 'Request timing correlation + URL pattern matching',
       ));
       dupIndex++;
     }

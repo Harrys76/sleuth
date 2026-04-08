@@ -1,3 +1,41 @@
+## 0.10.8
+
+Pillar 3b: Enrichment — output & presentation improvements that make diagnostics more
+actionable without adding new detection capabilities.
+
+### Enrichment — Output & Presentation (Pillar 3b)
+
+- **Confidence explanations** (`confidenceReason`): Every issue now explains *why* its
+  confidence is confirmed/likely/possible — what evidence was used, what would upgrade it.
+  Confirmed: "Measured directly from {source}". Likely: "{evidence1} + {evidence2}".
+  Possible: "Structural scan only — {upgrade hint}". Correlator appends escalation context
+  when upgrading confidence. Displayed as tooltip on the confidence badge in IssueCard.
+- **Severity auto-escalation**: Warning-severity issues that persist for 30+ scan cycles
+  (cumulative, not consecutive) automatically escalate to critical. Prevents alert fatigue
+  from persistent warnings that never resolve. Uses existing `RecurrenceTrend.presentCount`
+  — no separate state map needed.
+- **Structural + runtime correlation** (2 new correlator rules):
+  - `EscalateStructuralWithJankRule`: structural issues (non_lazy_list, layout_bottleneck,
+    nested_scroll, etc.) upgrade possible→likely when sustained_jank/jank_detected co-occurs.
+  - `EscalateStructuralWithRebuildRule`: animated_builder_no_child/setstate_scope upgrade
+    possible→likely when rebuild_activity co-occurs.
+- **Code location precision**: `buildAncestorChain()` now appends source location
+  (`file:line`) for each non-framework ancestor, not just the leaf element. Added
+  `lookupStructured()` returning structured data with package name extraction. New
+  `packageName` field on `PerformanceIssue` from leaf element source location.
+- **Session summary export** (`sessionSummary`): Pre-computed summary in SessionSnapshot
+  with 5 fields: `topIssues` (top 5 by ranking score), `causalEdges` (active cause→effect
+  pairs), `frameHistogram` (duration bins: <16ms/16-33ms/33-50ms/50-100ms/>100ms),
+  `detectorHitRates` (issue count per detector), `memoryTrendSummary` (heap growth stats).
+  Schema version bumped to v3. Backward compatible with v2 exports.
+
+### Adversarial Review Findings (Pillar 3b)
+
+- **Missing stableId prefix mappings**: `_detectorNameFromStableId()` was missing entries
+  for `shader_compilation` (shaderJank), `repaint_debug_` (repaint), and `stateful_density`
+  (rebuild) — these fell through to 'custom' in detector hit rates. Fixed by adding 3 entries
+  to the prefix map.
+
 ## 0.10.7
 
 Pillar 3a: Enrichment — analysis & tracking features that deepen diagnostic intelligence

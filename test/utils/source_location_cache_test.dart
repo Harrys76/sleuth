@@ -170,6 +170,66 @@ void main() {
       expect(location!.contains('/Users/'), isFalse);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // extractPackageName (3b.8)
+  // ---------------------------------------------------------------------------
+
+  group('SourceLocationCache.extractPackageName', () {
+    test('extracts package name from packages path', () {
+      expect(
+        SourceLocationCache.extractPackageName(
+            '/path/packages/my_app/lib/screens/home.dart'),
+        'my_app',
+      );
+    });
+
+    test('returns null for app root code (no packages/ segment)', () {
+      expect(
+        SourceLocationCache.extractPackageName('lib/screens/home.dart'),
+        isNull,
+      );
+    });
+
+    test('extracts flutter from framework path', () {
+      expect(
+        SourceLocationCache.extractPackageName(
+            '/path/packages/flutter/lib/src/widgets/container.dart'),
+        'flutter',
+      );
+    });
+
+    test('returns null for empty string', () {
+      expect(
+        SourceLocationCache.extractPackageName(''),
+        isNull,
+      );
+    });
+
+    test('handles Windows-style backslashes', () {
+      expect(
+        SourceLocationCache.extractPackageName(
+            'C:\\path\\packages\\my_app\\lib\\x.dart'),
+        'my_app',
+      );
+    });
+
+    test('returns null when no /lib/ after package name', () {
+      expect(
+        SourceLocationCache.extractPackageName(
+            '/path/packages/my_app/src/widget.dart'),
+        isNull,
+      );
+    });
+
+    test('uses last /packages/ occurrence', () {
+      expect(
+        SourceLocationCache.extractPackageName(
+            '/packages/outer/lib/packages/inner/lib/widget.dart'),
+        'inner',
+      );
+    });
+  });
 }
 
 class _TestWidget extends StatelessWidget {

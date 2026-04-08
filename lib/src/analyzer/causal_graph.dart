@@ -255,6 +255,45 @@ class CausalGraphRule extends CorrelationRule {
     return result;
   }
 
+  /// Returns the list of active causal edges for the given issues.
+  ///
+  /// Each edge is a `{cause, effect}` map representing a directed
+  /// relationship between two stableIds. Only edges where both cause
+  /// and effect are present in [issues] are returned.
+  static List<Map<String, String>> activeEdges(List<PerformanceIssue> issues) {
+    if (issues.length < 2) return const [];
+
+    final idToIndices = <String, List<int>>{};
+    for (var i = 0; i < issues.length; i++) {
+      final id = issues[i].stableId;
+      if (id != null) {
+        (idToIndices[id] ??= []).add(i);
+      }
+    }
+    if (idToIndices.isEmpty) return const [];
+
+    final edges = <Map<String, String>>[];
+    final seen = <String>{};
+
+    for (final rule in _causalRules) {
+      final causeIndices = _findMatching(idToIndices, rule.causePattern);
+      final effectIndices = _findMatching(idToIndices, rule.effectPattern);
+
+      for (final ci in causeIndices) {
+        for (final ei in effectIndices) {
+          if (ci == ei) continue;
+          final causeId = issues[ci].stableId!;
+          final effectId = issues[ei].stableId!;
+          final key = '$causeId→$effectId';
+          if (seen.add(key)) {
+            edges.add({'cause': causeId, 'effect': effectId});
+          }
+        }
+      }
+    }
+    return edges;
+  }
+
   /// Find all issue indices matching a stableId [pattern].
   /// Supports exact match and trailing `*` prefix match.
   static List<int> _findMatching(

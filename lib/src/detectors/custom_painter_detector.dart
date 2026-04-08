@@ -124,6 +124,8 @@ class CustomPainterDetector extends BaseDetector {
           fixHint: hint1,
           fixEffort: effort1,
           observationSource: source,
+          confidenceReason:
+              'Structural scan only — connect VM for higher confidence',
           detectedAt: DateTime.now(),
         ),
       );
@@ -151,6 +153,7 @@ class CustomPainterDetector extends BaseDetector {
             fixHint: hint2,
             fixEffort: effort2,
             observationSource: ObservationSource.debugCallbackAndStructural,
+            confidenceReason: 'Debug callback paint rate + structural scan',
             detectedAt: DateTime.now(),
           ));
         }

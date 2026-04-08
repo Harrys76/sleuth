@@ -31,9 +31,11 @@ class DetectorCorrelator {
     EscalateGpuCustomPainterRule(), // 3. escalate
     EscalateMemoryImageRule(), // 4. escalate
     EscalateKeepAliveMemoryRule(), // 5. escalate (v10.6)
-    EnrichRebuildRepaintBoundaryRule(), // 6. enrich (v10.9)
-    DeduplicateRebuildRepaintRule(), // 7. deduplicate
-    CausalGraphRule(), // 8. causal graph
+    EscalateStructuralWithJankRule(), // 6. escalate (v0.10.8)
+    EscalateStructuralWithRebuildRule(), // 7. escalate (v0.10.8)
+    EnrichRebuildRepaintBoundaryRule(), // 8. enrich (v10.9)
+    DeduplicateRebuildRepaintRule(), // 9. deduplicate
+    CausalGraphRule(), // 10. causal graph
   ];
 
   /// Apply all correlation rules in sequence and return the modified list.
@@ -191,6 +193,8 @@ class EscalateGpuCustomPainterRule extends CorrelationRule {
 
     final escalated = painter.copyWith(
       confidence: IssueConfidence.likely,
+      confidenceReason:
+          'Upgraded from possible: GPU raster pressure corroborates structural finding',
       detail: '${painter.detail}\n\n'
           '[Correlated] GPU raster pressure detected — '
           'this painter is likely contributing to raster overhead.',
@@ -232,6 +236,8 @@ class EscalateMemoryImageRule extends CorrelationRule {
 
     final escalated = image.copyWith(
       confidence: IssueConfidence.likely,
+      confidenceReason:
+          'Upgraded from possible: heap growth corroborates structural finding',
       detail: '${image.detail}\n\n'
           '[Correlated] Heap growth detected — '
           'uncached images are likely contributing to memory pressure.',
@@ -280,6 +286,8 @@ class EscalateKeepAliveMemoryRule extends CorrelationRule {
         if (keepAliveIndices.contains(i))
           issues[i].copyWith(
             confidence: IssueConfidence.likely,
+            confidenceReason:
+                'Upgraded from possible: heap pressure corroborates structural finding',
             detail: '${issues[i].detail}\n\n'
                 '[Correlated] Heap pressure detected — '
                 'kept-alive pages may be contributing to memory growth.',
@@ -291,7 +299,105 @@ class EscalateKeepAliveMemoryRule extends CorrelationRule {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 6: Enrich Rebuild with RepaintBoundary context (v10.9)
+// Rule 6: Escalate structural issues with jank evidence (v0.10.8)
+// ---------------------------------------------------------------------------
+
+/// When `sustained_jank` or `jank_detected` co-occurs with structural-only
+/// layout/list issues, escalates from `possible` to `likely`.
+///
+/// Covers structural detectors that lack their own escalation rule:
+/// non_lazy_list, non_lazy_listview, non_lazy_gridview, layout_bottleneck,
+/// nested_scroll, nested_scroll_same_axis.
+class EscalateStructuralWithJankRule extends CorrelationRule {
+  const EscalateStructuralWithJankRule();
+
+  @override
+  String get name => 'EscalateStructuralWithJank';
+
+  static const _structuralIds = {
+    'non_lazy_list',
+    'non_lazy_listview',
+    'non_lazy_gridview',
+    'layout_bottleneck',
+    'wrap_layout_bottleneck',
+    'nested_scroll',
+    'nested_scroll_same_axis',
+  };
+
+  @override
+  List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
+    final hasJank = issues.any(
+        (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected');
+    if (!hasJank) return issues;
+
+    var changed = false;
+    final result = <PerformanceIssue>[];
+    for (final issue in issues) {
+      if (issue.confidence == IssueConfidence.possible &&
+          issue.stableId != null &&
+          _structuralIds.contains(issue.stableId)) {
+        changed = true;
+        result.add(issue.copyWith(
+          confidence: IssueConfidence.likely,
+          confidenceReason:
+              'Upgraded from possible: frame jank corroborates structural finding',
+          detail: '${issue.detail}\n\n'
+              '[Correlated] Frame jank detected — '
+              'this structural pattern is likely contributing to jank.',
+        ));
+      } else {
+        result.add(issue);
+      }
+    }
+    return changed ? result : issues;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rule 7: Escalate structural issues with rebuild evidence (v0.10.8)
+// ---------------------------------------------------------------------------
+
+/// When `rebuild_activity` or `rebuild_debug_*` co-occurs with
+/// `animated_builder_no_child` or `setstate_scope`, escalates from
+/// `possible` to `likely`.
+class EscalateStructuralWithRebuildRule extends CorrelationRule {
+  const EscalateStructuralWithRebuildRule();
+
+  @override
+  String get name => 'EscalateStructuralWithRebuild';
+
+  @override
+  List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
+    final hasRebuildEvidence = issues.any((i) =>
+        i.stableId == 'rebuild_activity' ||
+        (i.stableId != null && i.stableId!.startsWith('rebuild_debug_')));
+    if (!hasRebuildEvidence) return issues;
+
+    var changed = false;
+    final result = <PerformanceIssue>[];
+    for (final issue in issues) {
+      if (issue.confidence == IssueConfidence.possible &&
+          (issue.stableId == 'animated_builder_no_child' ||
+              issue.stableId == 'setstate_scope')) {
+        changed = true;
+        result.add(issue.copyWith(
+          confidence: IssueConfidence.likely,
+          confidenceReason:
+              'Upgraded from possible: rebuild evidence corroborates structural finding',
+          detail: '${issue.detail}\n\n'
+              '[Correlated] Rebuild activity detected — '
+              'this pattern is likely contributing to excessive rebuilds.',
+        ));
+      } else {
+        result.add(issue);
+      }
+    }
+    return changed ? result : issues;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rule 8: Enrich Rebuild with RepaintBoundary context (v10.9)
 // ---------------------------------------------------------------------------
 
 /// When `missing_repaint_boundary` co-occurs with rebuild issues,

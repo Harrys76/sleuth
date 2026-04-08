@@ -1,6 +1,6 @@
 ## v11 Detector Audit: Gaps, False Positives & Hot-Path Performance
 
-**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7)
+**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) + Pillar 3b (4 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7 / v0.10.8)
 
 Origin: Adversarial audit (2026-04-07) of 5 detectors (ListviewDetector, NestedScrollDetector, LayoutBottleneckDetector, SetStateScopeDetector, RepaintBoundaryDetector). Found 6 gaps and false positives across detection coverage, accuracy, and enrichment. All milestones implemented, adversarial-reviewed twice (8 fix-round findings resolved), 1,561 tests passing, 0 analysis issues.
 
@@ -793,3 +793,69 @@ New `WidgetHeatMapEntry` model and `buildWidgetHeatMap()` function.
 - `fvm flutter analyze` — 0 issues ✅
 - All 5 milestones + 2 adversarial review fixes shipped
 - All roadmaps complete: v7 (10/10), v8 (5/5), v9 (17/17), v10 (12/12), v11 (19/19), Pillar 2a (3/3), Pillar 2b (4/4)
+
+---
+
+## Pillar 3b: Enrichment — Output & Presentation (v0.10.8)
+
+**Status: 4/4 milestones shipped** ✅
+
+Pillar 3b completes the enrichment pillar by improving how Sleuth communicates diagnostics — richer exports, confidence explanations, severity escalation, and precise source locations.
+
+### 3b.6 — Confidence Explanation
+
+Added `confidenceReason` field (`String?`) to `PerformanceIssue`. Each of the 22 detectors sets the reason at issue-creation time using tier templates:
+- **Confirmed**: "Measured directly from {source}"
+- **Likely**: "{evidence1} + {evidence2}"
+- **Possible**: "Structural scan only — {upgrade hint}"
+
+The 3 existing correlator escalation rules and 2 new rules (see 3b.7) append `[Correlated] Upgraded from possible: ...` when upgrading confidence. IssueCard displays the reason as a `Tooltip` on the confidence badge.
+
+**Files:** `performance_issue.dart`, all 22 detectors, `detector_correlator.dart`, `issue_card.dart`
+
+### 3b.7 — Severity Auto-Escalation
+
+**Part A — Duration-based escalation:** In `_aggregateIssues()`, after correlation and before ranking, warning-severity issues with `RecurrenceTrend.presentCount >= 30` (cumulative) are escalated to critical. Append `[Auto-escalated: persisted for N scan cycles]` to confidenceReason.
+
+**Part B — Structural + runtime correlation (2 new rules):**
+- `EscalateStructuralWithJankRule`: non_lazy_list, layout_bottleneck, nested_scroll (+ variants) upgrade possible→likely when sustained_jank/jank_detected co-occurs
+- `EscalateStructuralWithRebuildRule`: animated_builder_no_child, setstate_scope upgrade possible→likely when rebuild_activity/rebuild_debug_* co-occurs
+
+**Files:** `sleuth_controller.dart`, `detector_correlator.dart`
+
+### 3b.8 — Code Location Precision
+
+Enhanced `buildAncestorChain()` to append source location for each non-framework ancestor (not just leaf). Format: `"HomeScreen (lib/screens/home.dart:42) > Column > MyWidget (lib/widgets/my.dart:15)"`. Profile mode degrades gracefully (no locations appended).
+
+Added `lookupStructured()` to `SourceLocationCache` returning `({String location, String? packageName})?`. Added `extractPackageName()` static method parsing `/packages/{name}/lib/` from paths. Added `packageName` field to `PerformanceIssue`.
+
+**Files:** `source_location_cache.dart`, `widget_location.dart`, `performance_issue.dart`
+
+### 3b.9 — Session Summary Export
+
+Added `sessionSummary` field (`Map<String, dynamic>?`) to `SessionSnapshot`. Computed lazily at export time via `_buildSessionSummary()` with 5 fields:
+
+1. **topIssues** — Top 5 by rankingScore (stableId, title, severity, confidence, confidenceReason, rankingScore, widgetName)
+2. **causalEdges** — Active cause→effect pairs via `CausalGraphRule.activeEdges()`
+3. **frameHistogram** — Duration bins: `<16ms`, `16-33ms`, `33-50ms`, `50-100ms`, `>100ms`
+4. **detectorHitRates** — Issue count per detector via stableId prefix mapping
+5. **memoryTrendSummary** — startBytes, endBytes, peakBytes, growthRatePerSec, sampleCount
+
+Schema version bumped from 2 → 3. Backward compatible with v2 exports.
+
+**Files:** `session_snapshot.dart`, `sleuth_controller.dart`, `causal_graph.dart`
+
+### Adversarial Review Findings (Pillar 3b)
+
+| # | Type | Component | Finding | Resolution |
+|---|------|-----------|---------|------------|
+| 1 | Bug | `sleuth_controller.dart` | `_detectorNameFromStableId()` missing entries for `shader_compilation`, `repaint_debug_`, `stateful_density` — fell through to 'custom' | Added 3 entries to prefix map |
+
+---
+
+## Verification (Pillar 3b)
+
+- `fvm flutter test` — 1,784 tests passing ✅
+- `fvm flutter analyze` — 0 issues ✅
+- All 4 milestones + 1 adversarial review fix shipped
+- All roadmaps complete: v7 (10/10), v8 (5/5), v9 (17/17), v10 (12/12), v11 (19/19), Pillar 2a (3/3), Pillar 2b (4/4), Pillar 3a (5/5), Pillar 3b (4/4)

@@ -78,7 +78,11 @@ const _frameworkNames = {
 /// Example output (profile mode or tracking unavailable):
 ///   "NestedScrollDemo > Column > SingleChildScrollView"
 String buildAncestorChain(Element element, {int maxDepth = 6}) {
-  final chain = <String>[typeNameCache.lookup(element.widget)];
+  // Leaf element: always include, with source location if available.
+  final leafName = typeNameCache.lookup(element.widget);
+  final leafLoc = sourceLocationCache.lookup(element);
+  final leafEntry = leafLoc != null ? '$leafName ($leafLoc)' : leafName;
+  final chain = <String>[leafEntry];
 
   element.visitAncestorElements((ancestor) {
     final name = typeNameCache.lookup(ancestor.widget);
@@ -86,18 +90,20 @@ String buildAncestorChain(Element element, {int maxDepth = 6}) {
     if (name.startsWith('_') || _frameworkNames.contains(name)) {
       return true; // keep walking
     }
-    chain.add(name);
+    // Append source location for each non-framework ancestor.
+    final loc = sourceLocationCache.lookup(ancestor);
+    chain.add(loc != null ? '$name ($loc)' : name);
     return chain.length < maxDepth + 1;
   });
 
-  final base = chain.reversed.join(' > ');
+  return chain.reversed.join(' > ');
+}
 
-  // Append source location for the leaf element when available (debug mode).
-  final sourceLocation = sourceLocationCache.lookup(element);
-  if (sourceLocation != null) {
-    return '$base ($sourceLocation)';
-  }
-  return base;
+/// Extracts the package name from the leaf element's source location.
+/// Returns null in profile mode or when tracking is unavailable.
+String? extractPackageNameFromElement(Element element) {
+  final structured = sourceLocationCache.lookupStructured(element);
+  return structured?.packageName;
 }
 
 /// Get the global bounding rect for a RenderObject, or null if unavailable.

@@ -202,6 +202,7 @@ class ListviewDetector extends BaseDetector {
           : IssueSeverity.warning,
       category: IssueCategory.build,
       confidence: IssueConfidence.possible,
+      confidenceReason: 'Structural scan only — non-lazy list pattern found',
       title: 'Non-lazy $widgetName: $childCount children',
       detail: '$widgetName with $childCount children builds all items at '
           'once instead of lazily. Use $widgetName.builder for '
@@ -248,6 +249,7 @@ class ListviewDetector extends BaseDetector {
           : IssueSeverity.warning,
       category: IssueCategory.build,
       confidence: IssueConfidence.possible,
+      confidenceReason: 'Structural scan only — non-lazy list pattern found',
       title: 'Non-lazy $widgetName: $childCount children',
       detail: '$widgetName with SliverChildListDelegate builds all '
           '$childCount children at once instead of lazily. Use '
@@ -325,6 +327,7 @@ class ListviewDetector extends BaseDetector {
           : IssueSeverity.warning,
       category: IssueCategory.build,
       confidence: IssueConfidence.possible,
+      confidenceReason: 'Structural scan only — eager sliver pattern found',
       title: 'Eager Sliver: SliverToBoxAdapter + $childType '
           'with $childCount children',
       detail: 'SliverToBoxAdapter wrapping a $childType with $childCount '
@@ -370,6 +373,8 @@ class ListviewDetector extends BaseDetector {
       severity: IssueSeverity.warning,
       category: IssueCategory.build,
       confidence: IssueConfidence.possible,
+      confidenceReason:
+          'Structural scan only — SliverFillRemaining misuse pattern found',
       title: 'SliverFillRemaining Misuse: scrollable child with '
           'hasScrollBody: false',
       detail: 'SliverFillRemaining(hasScrollBody: false) contains a '
@@ -427,6 +432,7 @@ class ListviewDetector extends BaseDetector {
       widgetName: 'SliverToBoxAdapter',
       ancestorChain: location,
       observationSource: ObservationSource.structural,
+      confidenceReason: 'Structural scan only — eager sliver pattern found',
       detectedAt: DateTime.now(),
     ));
   }
@@ -483,6 +489,8 @@ class ListviewDetector extends BaseDetector {
             widgetName: 'SingleChildScrollView',
             ancestorChain: location,
             observationSource: ObservationSource.structural,
+            confidenceReason:
+                'Structural scan only — non-lazy list pattern found',
             detectedAt: DateTime.now(),
           ));
         }

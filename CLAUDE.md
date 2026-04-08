@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 22 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~1,741 tests, ~18s)
+fvm flutter test                    # Run all tests (~1,784 tests, ~18s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -53,7 +53,8 @@ test/
 
 ## Current state
 
-- **v0.10.7** (current) — Pillar 3a enrichment: Expanded causal rules (37→52), RecurrenceTrend ring-buffer time-series, InteractionContext typing+appLifecycle, WidgetHeatMapEntry aggregation, FixBaseline/FixVerificationResult with 5-cycle cooldown. Adversarial review: framework filter expansion, grace period counter reset. See `doc/spec_v11.md`.
+- **v0.10.8** (current) — Pillar 3b output & presentation: confidenceReason field on all 22 detectors, severity auto-escalation (warning→critical after 30 cycles), 2 new correlator rules (structural+jank, structural+rebuild), multi-ancestor source locations, packageName extraction, session summary export (topIssues/causalEdges/frameHistogram/detectorHitRates/memoryTrendSummary), schema v3. Adversarial review: 3 missing stableId prefix mappings. See `doc/spec_v11.md`.
+- v0.10.7: Pillar 3a enrichment: Expanded causal rules (37→52), RecurrenceTrend ring-buffer time-series, InteractionContext typing+appLifecycle, WidgetHeatMapEntry aggregation, FixBaseline/FixVerificationResult with 5-cycle cooldown. Adversarial review: framework filter expansion, grace period counter reset. See `doc/spec_v11.md`.
 - v0.10.6: Pillar 2b resource management: Adaptive scan frequency (M4), _getAllIssues generation cache (M5), detector lazy initialization (M6), debug callback TypeNameCache (M7). Adversarial review: timer leak fix, parallel timer chain guard, concurrent detector mutation guard. See `doc/spec_v11.md`.
 - v0.10.5: Pillar 2a hot-path performance: TypeNameCache (M1), highlight dirty-check (M2), timeline case-matching (M3). Reduces tree walk allocations by ~40-60%.
 - v0.10.4: v11.19: Sliver anti-pattern detection in ListviewDetector (SliverToBoxAdapter large subtrees, SliverFillRemaining misuse, shrinkWrap inside slivers). See `doc/spec_v11.md`.
@@ -73,4 +74,4 @@ test/
 - Post-implementation audits in `doc/spec_v2_audit.md` and `doc/spec_post_impl_notes.md`.
 - Full spec index in `doc/implementation_spec.md`.
 - v11 roadmap: 19/19 milestones shipped ✅ (v11.1–v11.19, four adversarial reviews). See `doc/spec_v11.md`.
-- 1,741 tests, 0 analysis issues
+- 1,784 tests, 0 analysis issues

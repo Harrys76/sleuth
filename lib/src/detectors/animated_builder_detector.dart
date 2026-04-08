@@ -162,6 +162,9 @@ class AnimatedBuilderDetector extends BaseDetector {
           fixHint: hint,
           fixEffort: effort,
           observationSource: source,
+          confidenceReason: confidence == IssueConfidence.likely
+              ? 'Debug callback rebuild rate + structural subtree scan'
+              : 'Structural scan only — enable debug callbacks for rebuild evidence',
           detectedAt: DateTime.now(),
         ),
       );

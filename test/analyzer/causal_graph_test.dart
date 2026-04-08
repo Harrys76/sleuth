@@ -1069,4 +1069,109 @@ void main() {
       expect(layout.downstreamIds, contains('sustained_jank'));
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // activeEdges static method (v0.10.7 — 3b.9 Session Summary Export)
+  // ---------------------------------------------------------------------------
+
+  group('activeEdges', () {
+    bool hasEdge(
+      List<Map<String, String>> edges,
+      String cause,
+      String effect,
+    ) =>
+        edges.any((e) => e['cause'] == cause && e['effect'] == effect);
+
+    test('returns edges for co-occurring issues with a causal rule', () {
+      final issues = [
+        makeIssue(stableId: 'setstate_scope'),
+        makeIssue(stableId: 'heavy_compute'),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+
+      expect(edges, isNotEmpty);
+      expect(hasEdge(edges, 'setstate_scope', 'heavy_compute'), isTrue);
+    });
+
+    test('returns empty for single issue', () {
+      final issues = [makeIssue(stableId: 'setstate_scope')];
+      final edges = CausalGraphRule.activeEdges(issues);
+
+      expect(edges, isEmpty);
+    });
+
+    test('returns empty for unrelated issues', () {
+      final issues = [
+        makeIssue(
+          stableId: 'shader_compilation',
+          category: IssueCategory.raster,
+        ),
+        makeIssue(
+          stableId: 'gc_pressure',
+          category: IssueCategory.memory,
+        ),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+
+      expect(edges, isEmpty);
+    });
+
+    test('deduplicates same cause-effect pair from multiple rule matches', () {
+      // non_lazy_list has rules pointing to both rebuild_activity and
+      // heavy_compute. Two separate issues that both match rebuild_debug_*
+      // prefix should not produce duplicate edges for the same pair.
+      final issues = [
+        makeIssue(stableId: 'non_lazy_list'),
+        makeIssue(stableId: 'rebuild_activity'),
+        makeIssue(stableId: 'heavy_compute'),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+
+      // Count edges from non_lazy_list → rebuild_activity
+      final rebuildEdges = edges.where(
+        (e) =>
+            e['cause'] == 'non_lazy_list' && e['effect'] == 'rebuild_activity',
+      );
+      expect(rebuildEdges, hasLength(1),
+          reason: 'Same cause→effect pair should appear exactly once');
+
+      // Count edges from non_lazy_list → heavy_compute
+      final computeEdges = edges.where(
+        (e) => e['cause'] == 'non_lazy_list' && e['effect'] == 'heavy_compute',
+      );
+      expect(computeEdges, hasLength(1));
+    });
+
+    test('returns edges for prefix-matched stableIds', () {
+      final issues = [
+        makeIssue(stableId: 'rebuild_debug_MyWidget'),
+        makeIssue(stableId: 'heavy_compute'),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+
+      expect(edges, isNotEmpty);
+      expect(
+        hasEdge(edges, 'rebuild_debug_MyWidget', 'heavy_compute'),
+        isTrue,
+      );
+    });
+
+    test('returns empty for empty issue list', () {
+      final edges = CausalGraphRule.activeEdges([]);
+      expect(edges, isEmpty);
+    });
+
+    test('returns multiple edges for multi-hop chain', () {
+      final issues = [
+        makeIssue(stableId: 'setstate_scope'),
+        makeIssue(stableId: 'heavy_compute'),
+        makeIssue(
+            stableId: 'layout_bottleneck', category: IssueCategory.layout),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+
+      expect(hasEdge(edges, 'setstate_scope', 'heavy_compute'), isTrue);
+      expect(hasEdge(edges, 'setstate_scope', 'layout_bottleneck'), isTrue);
+    });
+  });
 }

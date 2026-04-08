@@ -136,6 +136,8 @@ class ShallowRebuildRiskDetector extends BaseDetector {
       IssueConfidence confidence = IssueConfidence.possible;
       ObservationSource source = ObservationSource.vmTimeline;
       String? debugDetail;
+      String confidenceReason =
+          'Structural scan only — connect VM for higher confidence';
 
       final ds = _lastDebugSnapshot;
       if (ds != null) {
@@ -145,6 +147,8 @@ class ShallowRebuildRiskDetector extends BaseDetector {
           source = ObservationSource.debugCallbackAndStructural;
           debugDetail =
               '${topUsage.widgetName} rebuilding at ${rate.round()}/sec.';
+          confidenceReason =
+              'Debug callback rebuild rate + shallow tree position';
         }
       }
 
@@ -173,6 +177,7 @@ class ShallowRebuildRiskDetector extends BaseDetector {
           ancestorChain: topUsage.location,
           observationSource: source,
           detectedAt: DateTime.now(),
+          confidenceReason: confidenceReason,
         ),
       );
     } else if (!vmConnected) {
@@ -180,6 +185,8 @@ class ShallowRebuildRiskDetector extends BaseDetector {
       IssueConfidence confidence = IssueConfidence.possible;
       ObservationSource source = ObservationSource.structural;
       String? debugDetail;
+      String confidenceReason =
+          'Structural scan only — connect VM for higher confidence';
 
       final ds = _lastDebugSnapshot;
       if (ds != null) {
@@ -189,6 +196,8 @@ class ShallowRebuildRiskDetector extends BaseDetector {
           source = ObservationSource.debugCallbackAndStructural;
           debugDetail =
               '${topUsage.widgetName} rebuilding at ${rate.round()}/sec.';
+          confidenceReason =
+              'Debug callback rebuild rate + shallow tree position';
         }
       }
 
@@ -218,6 +227,7 @@ class ShallowRebuildRiskDetector extends BaseDetector {
           ancestorChain: topUsage.location,
           observationSource: source,
           detectedAt: DateTime.now(),
+          confidenceReason: confidenceReason,
         ),
       );
     }

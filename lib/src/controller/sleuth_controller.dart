@@ -13,6 +13,7 @@ import '../ui/floating_issues_card.dart';
 import '../ui/highlight_overlay.dart';
 import '../ui/trigger_button.dart';
 import '../ui/sleuth_theme.dart';
+import '../analyzer/causal_graph.dart';
 import '../analyzer/detector_correlator.dart';
 import '../analyzer/frame_event_correlator.dart';
 import '../analyzer/render_pipeline_analyzer.dart';
@@ -732,8 +733,18 @@ class SleuthController {
       rankingContext,
     );
 
+    // Compute session summary (v3)
+    final heapSamples = _initialized && _memoryPressure.heapSamples.isNotEmpty
+        ? _memoryPressure.heapSamples
+        : null;
+    final summary = _buildSessionSummary(
+      rankedWithScores,
+      frames,
+      heapSamples,
+    );
+
     return SessionSnapshot(
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportedAt: DateTime.now(),
       capturedFrames: _captureBuffer.entries,
       currentIssues: List.unmodifiable(rankedWithScores),
@@ -752,9 +763,7 @@ class SleuthController {
               _networkMonitor.records.isNotEmpty
           ? _networkMonitor.records
           : null,
-      heapSamples: _initialized && _memoryPressure.heapSamples.isNotEmpty
-          ? _memoryPressure.heapSamples
-          : null,
+      heapSamples: heapSamples,
       suppressedCount: suppressedCountNotifier.value,
       phaseEvents: _phaseEventBuffer.isNotEmpty
           ? List.unmodifiable(_phaseEventBuffer)
@@ -774,11 +783,158 @@ class SleuthController {
       widgetHeatMap: rankedWithScores.isNotEmpty
           ? buildWidgetHeatMap(rankedWithScores)
           : null,
+      sessionSummary: summary.isNotEmpty ? summary : null,
     );
   }
 
   /// Export session snapshot as a formatted JSON string.
   String exportSnapshotJson() => exportSnapshot().toJsonString();
+
+  /// Builds the v3 session summary with pre-computed aggregations.
+  Map<String, dynamic> _buildSessionSummary(
+    List<PerformanceIssue> ranked,
+    List<FrameStats> frames,
+    List<HeapSample>? heapSamples,
+  ) {
+    final summary = <String, dynamic>{};
+
+    // Top 5 issues by ranking score
+    if (ranked.isNotEmpty) {
+      final top = ranked.take(5).map((i) => {
+            'stableId': i.stableId,
+            'title': i.title,
+            'severity': i.severity.name,
+            'confidence': i.confidence.name,
+            if (i.confidenceReason != null)
+              'confidenceReason': i.confidenceReason,
+            if (i.rankingScore != null) 'rankingScore': i.rankingScore,
+            if (i.widgetName != null) 'widgetName': i.widgetName,
+          });
+      summary['topIssues'] = top.toList();
+    }
+
+    // Causal edges
+    if (ranked.length >= 2) {
+      final edges = CausalGraphRule.activeEdges(ranked);
+      if (edges.isNotEmpty) {
+        summary['causalEdges'] = edges;
+      }
+    }
+
+    // Frame timing histogram
+    if (frames.isNotEmpty) {
+      final histogram = <String, int>{
+        '<16ms': 0,
+        '16-33ms': 0,
+        '33-50ms': 0,
+        '50-100ms': 0,
+        '>100ms': 0,
+      };
+      for (final f in frames) {
+        final ms = f.effectiveTotalDuration.inMilliseconds;
+        if (ms < 16) {
+          histogram['<16ms'] = histogram['<16ms']! + 1;
+        } else if (ms < 33) {
+          histogram['16-33ms'] = histogram['16-33ms']! + 1;
+        } else if (ms < 50) {
+          histogram['33-50ms'] = histogram['33-50ms']! + 1;
+        } else if (ms < 100) {
+          histogram['50-100ms'] = histogram['50-100ms']! + 1;
+        } else {
+          histogram['>100ms'] = histogram['>100ms']! + 1;
+        }
+      }
+      summary['frameHistogram'] = histogram;
+    }
+
+    // Detector hit rates — count issues by stableId prefix
+    if (ranked.isNotEmpty) {
+      final hitRates = <String, int>{};
+      for (final issue in ranked) {
+        final id = issue.stableId ?? issue.title;
+        final detector = _detectorNameFromStableId(id);
+        hitRates[detector] = (hitRates[detector] ?? 0) + 1;
+      }
+      summary['detectorHitRates'] = hitRates;
+    }
+
+    // Memory trend summary
+    if (heapSamples != null && heapSamples.length >= 2) {
+      final first = heapSamples.first;
+      final last = heapSamples.last;
+      final peak =
+          heapSamples.map((s) => s.heapUsage).reduce((a, b) => a > b ? a : b);
+      final elapsedSecs = last.timestamp.difference(first.timestamp).inSeconds;
+      final growthRate = elapsedSecs > 0
+          ? (last.heapUsage - first.heapUsage) / elapsedSecs
+          : 0.0;
+      summary['memoryTrendSummary'] = {
+        'startBytes': first.heapUsage,
+        'endBytes': last.heapUsage,
+        'peakBytes': peak,
+        'growthRatePerSec': double.parse(growthRate.toStringAsFixed(1)),
+        'sampleCount': heapSamples.length,
+      };
+    }
+
+    return summary;
+  }
+
+  /// Maps a stableId to its detector name for hit rate aggregation.
+  static String _detectorNameFromStableId(String stableId) {
+    // StableId patterns → detector mapping
+    const prefixMap = <String, String>{
+      'sustained_jank': 'frameTiming',
+      'jank_detected': 'frameTiming',
+      'raster_cache': 'frameTiming',
+      'shader_jank': 'shaderJank',
+      'shader_compilation': 'shaderJank',
+      'heavy_compute': 'heavyCompute',
+      'platform_channel': 'platformChannel',
+      'gc_pressure': 'memoryPressure',
+      'heap_growing': 'memoryPressure',
+      'heap_near_capacity': 'memoryPressure',
+      'native_memory': 'memoryPressure',
+      'excessive_repaint': 'repaint',
+      'repaint_debug_': 'repaint',
+      'rebuild_activity': 'rebuild',
+      'rebuild_debug_': 'rebuild',
+      'stateful_density': 'rebuild',
+      'setstate_scope': 'setStateScope',
+      'raster_dominance': 'gpuPressure',
+      'expensive_gpu': 'gpuPressure',
+      'shallow_rebuild': 'shallowRebuildRisk',
+      'layout_bottleneck': 'layoutBottleneck',
+      'wrap_layout': 'layoutBottleneck',
+      'non_lazy_list': 'listview',
+      'non_lazy_gridview': 'listview',
+      'non_lazy_listview': 'listview',
+      'sliver_': 'listview',
+      'uncached_images': 'imageMemory',
+      'excessive_global': 'globalKey',
+      'global_key_recreation': 'globalKey',
+      'nested_scroll': 'nestedScroll',
+      'always_repaint_painter': 'customPainter',
+      'frequent_repaint_painter': 'customPainter',
+      'excessive_keep_alive': 'keepAlive',
+      'animated_builder': 'animatedBuilder',
+      'opacity_zero': 'opacity',
+      'runtime_font': 'fontLoading',
+      'multiple_custom_fonts': 'fontLoading',
+      'slow_request': 'networkMonitor',
+      'large_response': 'networkMonitor',
+      'request_frequency': 'networkMonitor',
+      'http_error_spike': 'networkMonitor',
+      'duplicate_request': 'networkMonitor',
+      'missing_repaint_boundary': 'repaintBoundary',
+      'excessive_repaint_boundary': 'repaintBoundary',
+    };
+
+    for (final entry in prefixMap.entries) {
+      if (stableId.startsWith(entry.key)) return entry.value;
+    }
+    return 'custom';
+  }
 
   /// Capture a baseline of current issues for fix verification.
   ///
@@ -1869,6 +2025,10 @@ class SleuthController {
     }
     suppressedCountNotifier.value = suppressedCount;
 
+    // Duration-based severity escalation: warning → critical after 30+ cycles.
+    // Uses cumulative presentCount (not consecutive) to avoid oscillation.
+    _applyDurationEscalation(visible);
+
     // Rank by impact: severity dominates, then frame impact, confidence,
     // recurrence. See IssueRanker for score formula and tier guarantees.
     final ranked = _ranker.rank(visible, _buildRankingContext());
@@ -1877,6 +2037,36 @@ class SleuthController {
     // state survives list rebuilds. Safe to always update the notifier —
     // titles with live counters (e.g. "45 GC/min") will reflect fresh data.
     issuesNotifier.value = ranked;
+  }
+
+  /// Threshold for duration-based severity escalation (scan cycles).
+  static const _escalationThreshold = 30;
+
+  /// Promotes warning-severity issues to critical when they have persisted
+  /// for [_escalationThreshold]+ cumulative scan cycles.
+  ///
+  /// Mutates [issues] in place (replaces elements via index) to avoid an
+  /// extra list allocation. Only escalates warnings — ok and critical are
+  /// left untouched.
+  void _applyDurationEscalation(List<PerformanceIssue> issues) {
+    for (var i = 0; i < issues.length; i++) {
+      final issue = issues[i];
+      if (issue.severity != IssueSeverity.warning) continue;
+
+      final id = issue.stableId ?? issue.title;
+      final trend = _recurrenceTrends[id];
+      if (trend == null || trend.presentCount < _escalationThreshold) continue;
+
+      final reason = issue.confidenceReason != null
+          ? '${issue.confidenceReason} '
+              '[Auto-escalated: persisted for ${trend.presentCount} scan cycles]'
+          : 'Auto-escalated: persisted for ${trend.presentCount} scan cycles';
+
+      issues[i] = issue.copyWith(
+        severity: IssueSeverity.critical,
+        confidenceReason: reason,
+      );
+    }
   }
 
   /// Splits [config.suppressedIssues] into exact matches and prefix patterns.

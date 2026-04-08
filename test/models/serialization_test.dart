@@ -1455,4 +1455,281 @@ void main() {
       expect(updated.title, 'Updated');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // confidenceReason serialization (3b.6)
+  // ---------------------------------------------------------------------------
+
+  group('PerformanceIssue confidenceReason serialization', () {
+    test('confidenceReason round-trips through toJson/fromJson', () {
+      const original = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'Test',
+        detail: 'detail',
+        fixHint: 'fix',
+        stableId: 'non_lazy_list',
+        confidenceReason: 'Structural scan only',
+      );
+
+      final json = original.toJson();
+      expect(json['confidenceReason'], 'Structural scan only');
+
+      final restored = PerformanceIssue.fromJson(json);
+      expect(restored.confidenceReason, 'Structural scan only');
+    });
+
+    test('confidenceReason null when absent in JSON (backward compat)', () {
+      final json = {
+        'severity': 'warning',
+        'category': 'build',
+        'confidence': 'possible',
+        'title': 'T',
+        'detail': 'D',
+        'fixHint': 'F',
+        'debugModeDisclaimer': false,
+      };
+
+      final issue = PerformanceIssue.fromJson(json);
+      expect(issue.confidenceReason, isNull);
+    });
+
+    test('confidenceReason omitted from toJson when null', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+      );
+
+      final json = issue.toJson();
+      expect(json.containsKey('confidenceReason'), isFalse);
+    });
+
+    test('copyWith preserves confidenceReason', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        confidenceReason: 'Structural scan only',
+      );
+
+      final updated = issue.copyWith(title: 'Updated');
+      expect(updated.confidenceReason, 'Structural scan only');
+      expect(updated.title, 'Updated');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // packageName serialization (3b.8)
+  // ---------------------------------------------------------------------------
+
+  group('PerformanceIssue packageName serialization', () {
+    test('packageName round-trips through toJson/fromJson', () {
+      const original = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'Test',
+        detail: 'detail',
+        fixHint: 'fix',
+        packageName: 'my_app',
+      );
+
+      final json = original.toJson();
+      expect(json['packageName'], 'my_app');
+
+      final restored = PerformanceIssue.fromJson(json);
+      expect(restored.packageName, 'my_app');
+    });
+
+    test('packageName null when absent in JSON (backward compat)', () {
+      final json = {
+        'severity': 'warning',
+        'category': 'build',
+        'confidence': 'possible',
+        'title': 'T',
+        'detail': 'D',
+        'fixHint': 'F',
+        'debugModeDisclaimer': false,
+      };
+
+      final issue = PerformanceIssue.fromJson(json);
+      expect(issue.packageName, isNull);
+    });
+
+    test('packageName omitted from toJson when null', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+      );
+
+      final json = issue.toJson();
+      expect(json.containsKey('packageName'), isFalse);
+    });
+
+    test('copyWith preserves packageName', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        packageName: 'my_app',
+      );
+
+      final updated = issue.copyWith(title: 'Updated');
+      expect(updated.packageName, 'my_app');
+      expect(updated.title, 'Updated');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // SessionSnapshot v3 sessionSummary serialization (3b.9)
+  // ---------------------------------------------------------------------------
+
+  group('SessionSnapshot sessionSummary serialization', () {
+    test('sessionSummary round-trips through toJson/fromJson', () {
+      final summary = <String, dynamic>{
+        'topIssues': [
+          {
+            'stableId': 'heavy_compute',
+            'title': 'Heavy computation',
+            'severity': 'critical',
+            'confidence': 'confirmed',
+            'rankingScore': 339,
+          },
+        ],
+        'causalEdges': [
+          {'cause': 'setstate_scope', 'effect': 'heavy_compute'},
+        ],
+        'frameHistogram': {
+          '<16ms': 40,
+          '16-33ms': 10,
+          '33-50ms': 3,
+          '50-100ms': 2,
+          '>100ms': 1,
+        },
+        'detectorHitRates': {'heavyCompute': 2, 'setStateScope': 1},
+        'memoryTrendSummary': {
+          'startBytes': 50000000,
+          'endBytes': 70000000,
+          'peakBytes': 75000000,
+          'growthRatePerSec': 200.0,
+          'sampleCount': 10,
+        },
+      };
+
+      final snapshot = SessionSnapshot(
+        schemaVersion: 3,
+        exportedAt: DateTime.utc(2026, 4, 1),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 56,
+          jankFrames: 6,
+          averageFps: 58.0,
+          worstFrameTimeUs: 120000,
+        ),
+        sessionSummary: summary,
+      );
+
+      final json = snapshot.toJson();
+      expect(json.containsKey('sessionSummary'), isTrue);
+
+      final restored = SessionSnapshot.fromJson(json);
+      expect(restored.sessionSummary, isNotNull);
+
+      final restoredSummary = restored.sessionSummary!;
+      expect(restoredSummary['topIssues'], hasLength(1));
+      expect(
+        (restoredSummary['topIssues'] as List)[0]['stableId'],
+        'heavy_compute',
+      );
+      expect(restoredSummary['causalEdges'], hasLength(1));
+      expect(restoredSummary['frameHistogram']['<16ms'], 40);
+      expect(restoredSummary['detectorHitRates']['heavyCompute'], 2);
+      expect(restoredSummary['memoryTrendSummary']['peakBytes'], 75000000);
+    });
+
+    test('sessionSummary null when absent in JSON (v2 backward compat)', () {
+      final json = {
+        'schemaVersion': 2,
+        'exportedAt': '2026-04-01T00:00:00.000Z',
+        'capturedFrames': <dynamic>[],
+        'currentIssues': <dynamic>[],
+        'frameStatsSummary': {
+          'totalFrames': 0,
+          'jankFrames': 0,
+          'averageFps': 0.0,
+          'worstFrameTimeUs': 0,
+        },
+      };
+
+      final snapshot = SessionSnapshot.fromJson(json);
+      expect(snapshot.sessionSummary, isNull);
+    });
+
+    test('schema v2 JSON (no sessionSummary) parses without error', () {
+      final json = {
+        'schemaVersion': 2,
+        'exportedAt': '2026-04-01T00:00:00.000Z',
+        'packageVersion': '0.5.0',
+        'isVmConnected': true,
+        'isDebugMode': false,
+        'capturedFrames': <dynamic>[],
+        'currentIssues': <dynamic>[
+          {
+            'severity': 'warning',
+            'category': 'build',
+            'confidence': 'possible',
+            'title': 'Test issue',
+            'detail': 'detail',
+            'fixHint': 'fix',
+            'debugModeDisclaimer': false,
+          },
+        ],
+        'frameStatsSummary': {
+          'totalFrames': 100,
+          'jankFrames': 5,
+          'averageFps': 58.0,
+          'worstFrameTimeUs': 45000,
+        },
+      };
+
+      final snapshot = SessionSnapshot.fromJson(json);
+      expect(snapshot.schemaVersion, 2);
+      expect(snapshot.sessionSummary, isNull);
+      expect(snapshot.currentIssues, hasLength(1));
+      expect(snapshot.packageVersion, '0.5.0');
+    });
+
+    test('toJson omits sessionSummary when null', () {
+      final snapshot = SessionSnapshot(
+        exportedAt: DateTime.utc(2026, 4, 1),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 0,
+          jankFrames: 0,
+          averageFps: 0,
+          worstFrameTimeUs: 0,
+        ),
+      );
+
+      final json = snapshot.toJson();
+      expect(json.containsKey('sessionSummary'), isFalse);
+    });
+  });
 }

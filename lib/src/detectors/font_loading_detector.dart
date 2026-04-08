@@ -121,6 +121,8 @@ class FontLoadingDetector extends BaseDetector {
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.structural,
+        confidenceReason:
+            'Structural scan only — runtime font loading heuristic',
         detectedAt: DateTime.now(),
       ));
     }
@@ -145,6 +147,8 @@ class FontLoadingDetector extends BaseDetector {
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.structural,
+        confidenceReason:
+            'Structural scan only — font families detected in widget tree',
         detectedAt: DateTime.now(),
       ));
     }

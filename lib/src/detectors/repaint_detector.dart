@@ -258,6 +258,7 @@ class RepaintDetector extends BaseDetector {
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
+      confidenceReason: 'Measured directly from VM timeline paint events',
     ));
   }
 
@@ -296,6 +297,7 @@ class RepaintDetector extends BaseDetector {
         ancestorChain: snapshot.ancestorChains[typeName],
         observationSource: ObservationSource.debugCallback,
         detectedAt: DateTime.now(),
+        confidenceReason: 'Measured directly from debug callback paint counter',
       ));
     }
   }
@@ -325,6 +327,7 @@ class RepaintDetector extends BaseDetector {
       fixEffort: effort,
       observationSource: ObservationSource.debugCallback,
       detectedAt: DateTime.now(),
+      confidenceReason: 'Aggregate debug callback count + structural scan',
     ));
   }
 

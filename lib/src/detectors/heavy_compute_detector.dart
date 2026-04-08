@@ -85,6 +85,8 @@ class HeavyComputeDetector extends BaseDetector {
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
+      confidenceReason:
+          'Measured directly from VM timeline long UI-thread event',
     );
   }
 
@@ -104,6 +106,8 @@ class HeavyComputeDetector extends BaseDetector {
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
+      confidenceReason:
+          'Measured directly from VM timeline long UI-thread event',
     );
   }
 

@@ -801,6 +801,309 @@ void main() {
   // Duplicate stableIds
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // EscalateStructuralWithJankRule (v0.10.8)
+  // ---------------------------------------------------------------------------
+
+  group('EscalateStructuralWithJankRule', () {
+    test('escalates non_lazy_list from possible to likely with sustained_jank',
+        () {
+      final issues = [
+        makeIssue(
+          stableId: 'sustained_jank',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'non_lazy_list',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.possible,
+          detail: 'Non-lazy list detected.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final nonLazy = result.firstWhere(
+        (i) => i.stableId == 'non_lazy_list',
+      );
+      expect(nonLazy.confidence, IssueConfidence.likely);
+      expect(nonLazy.confidenceReason, isNotNull);
+      expect(nonLazy.confidenceReason, contains('jank'));
+      expect(nonLazy.detail, contains('[Correlated]'));
+    });
+
+    test('does NOT escalate already-likely non_lazy_list', () {
+      final issues = [
+        makeIssue(
+          stableId: 'sustained_jank',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'non_lazy_list',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.likely,
+          detail: 'Already likely.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final nonLazy = result.firstWhere(
+        (i) => i.stableId == 'non_lazy_list',
+      );
+      expect(nonLazy.confidence, IssueConfidence.likely);
+      expect(nonLazy.detail, isNot(contains('[Correlated]')));
+    });
+
+    test('no jank present — no change', () {
+      final issues = [
+        makeIssue(
+          stableId: 'non_lazy_list',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.possible,
+          detail: 'Non-lazy list detected.',
+        ),
+        makeIssue(
+          stableId: 'slow_request',
+          category: IssueCategory.network,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final nonLazy = result.firstWhere(
+        (i) => i.stableId == 'non_lazy_list',
+      );
+      expect(nonLazy.confidence, IssueConfidence.possible);
+      expect(nonLazy.detail, isNot(contains('[Correlated]')));
+    });
+
+    test('also triggers with jank_detected', () {
+      final issues = [
+        makeIssue(
+          stableId: 'jank_detected',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'layout_bottleneck',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.possible,
+          detail: 'Layout bottleneck.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final layout = result.firstWhere(
+        (i) => i.stableId == 'layout_bottleneck',
+      );
+      expect(layout.confidence, IssueConfidence.likely);
+      expect(layout.detail, contains('[Correlated]'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // EscalateStructuralWithRebuildRule (v0.10.8)
+  // ---------------------------------------------------------------------------
+
+  group('EscalateStructuralWithRebuildRule', () {
+    test(
+        'escalates animated_builder_no_child from possible to likely with rebuild_activity',
+        () {
+      // Paint issue keeps animated_builder alive past SuppressAnimatedBuilderRule.
+      final issues = [
+        makeIssue(
+          stableId: 'rebuild_activity',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'animated_builder_no_child',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.possible,
+          detail: 'AnimatedBuilder without child.',
+        ),
+        makeIssue(
+          stableId: 'excessive_repaint',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final animBuilder = result.firstWhere(
+        (i) => i.stableId == 'animated_builder_no_child',
+      );
+      expect(animBuilder.confidence, IssueConfidence.likely);
+      expect(animBuilder.confidenceReason, isNotNull);
+      expect(animBuilder.confidenceReason, contains('rebuild'));
+      expect(animBuilder.detail, contains('[Correlated]'));
+    });
+
+    test('no rebuild evidence — suppressed by SuppressAnimatedBuilderRule', () {
+      // Without paint issues AND without rebuild evidence, suppress rule
+      // removes animated_builder before escalation can fire.
+      final issues = [
+        makeIssue(
+          stableId: 'animated_builder_no_child',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.possible,
+          detail: 'AnimatedBuilder without child.',
+        ),
+        makeIssue(
+          stableId: 'slow_request',
+          category: IssueCategory.network,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      expect(
+        result.any((i) => i.stableId == 'animated_builder_no_child'),
+        isFalse,
+        reason:
+            'SuppressAnimatedBuilderRule removes possible animated_builder when no paint issues exist',
+      );
+    });
+
+    test(
+        'no rebuild evidence with paint issues present — animated_builder survives but not escalated',
+        () {
+      final issues = [
+        makeIssue(
+          stableId: 'animated_builder_no_child',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.possible,
+          detail: 'AnimatedBuilder without child.',
+        ),
+        makeIssue(
+          stableId: 'excessive_repaint',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      // Paint issues exist → SuppressAnimatedBuilderRule does NOT suppress.
+      // No rebuild evidence → EscalateStructuralWithRebuildRule does NOT escalate.
+      final animBuilder = result.firstWhere(
+        (i) => i.stableId == 'animated_builder_no_child',
+      );
+      expect(animBuilder.confidence, IssueConfidence.possible);
+      expect(animBuilder.detail, isNot(contains('[Correlated]')));
+    });
+
+    test('also triggers with rebuild_debug_ prefix', () {
+      final issues = [
+        makeIssue(
+          stableId: 'rebuild_debug_MyWidget',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'setstate_scope',
+          widgetName: 'OtherWidget',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.possible,
+          detail: 'Wide setState scope.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      // MergeRebuildSetStateRule runs first — it looks for rebuild_debug_ matching
+      // widgetName or falls back to rebuild_activity. rebuild_debug_MyWidget won't
+      // match OtherWidget and it's not rebuild_activity, so no merge.
+      // EscalateStructuralWithRebuildRule sees rebuild_debug_ prefix → escalates.
+      final setStateScopeIssues =
+          result.where((i) => i.stableId == 'setstate_scope').toList();
+      expect(setStateScopeIssues, hasLength(1));
+      expect(setStateScopeIssues[0].confidence, IssueConfidence.likely);
+      expect(setStateScopeIssues[0].detail, contains('[Correlated]'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Existing escalation rules set confidenceReason (3b.6 verification)
+  // ---------------------------------------------------------------------------
+
+  group('Existing escalation rules set confidenceReason', () {
+    test('EscalateGpuCustomPainterRule sets confidenceReason', () {
+      final issues = [
+        makeIssue(
+          stableId: 'raster_dominance',
+          category: IssueCategory.raster,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'always_repaint_painter',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.possible,
+          detail: 'CustomPainter returns true.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final painter = result.firstWhere(
+        (i) => i.stableId == 'always_repaint_painter',
+      );
+      expect(painter.confidence, IssueConfidence.likely);
+      expect(painter.confidenceReason, isNotNull);
+      expect(painter.confidenceReason, contains('GPU raster pressure'));
+    });
+
+    test('EscalateMemoryImageRule sets confidenceReason', () {
+      final issues = [
+        makeIssue(
+          stableId: 'heap_growing',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'uncached_images',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.possible,
+          detail: 'Images without resizing.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final images = result.firstWhere(
+        (i) => i.stableId == 'uncached_images',
+      );
+      expect(images.confidence, IssueConfidence.likely);
+      expect(images.confidenceReason, isNotNull);
+      expect(images.confidenceReason, contains('heap growth'));
+    });
+
+    test('EscalateKeepAliveMemoryRule sets confidenceReason', () {
+      final issues = [
+        makeIssue(
+          stableId: 'heap_growing',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'excessive_keep_alive:0',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.possible,
+          detail: 'Route 0 uses keep-alive.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final keepAlive = result.firstWhere(
+        (i) => i.stableId == 'excessive_keep_alive:0',
+      );
+      expect(keepAlive.confidence, IssueConfidence.likely);
+      expect(keepAlive.confidenceReason, isNotNull);
+      expect(keepAlive.confidenceReason, contains('heap pressure'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Duplicate stableIds (existing group continues below)
+  // ---------------------------------------------------------------------------
+
   group('duplicate stableIds', () {
     test('deterministic output when duplicate stableIds exist', () {
       final issues = [

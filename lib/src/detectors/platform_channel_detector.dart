@@ -114,6 +114,8 @@ class PlatformChannelDetector extends BaseDetector {
         fixEffort: effort,
         observationSource: ObservationSource.vmTimeline,
         detectedAt: _clock(),
+        confidenceReason:
+            'Measured directly from VM timeline platform channel events',
       );
       _issues
         ..clear()
