@@ -296,9 +296,12 @@ void main() {
         responseBytes: 2000000,
         startedAt: fakeNow,
       ));
-      // Add more records to trigger frequency
+      // Add more records with different URLs to trigger frequency without duplicates
       for (int i = 0; i < 3; i++) {
-        detector.processRecord(makeRecord(startedAt: fakeNow));
+        detector.processRecord(makeRecord(
+          url: 'https://example.com/api/endpoint$i',
+          startedAt: fakeNow,
+        ));
       }
       expect(detector.issues, hasLength(3));
       expect(detector.issues.map((i) => i.stableId).toSet(), {
@@ -386,6 +389,243 @@ void main() {
 
       final (count, _) = detector.pendingRequestSnapshot();
       expect(count, 0);
+    });
+
+    // ---------------------------------------------------------------
+    // Duplicate request detection (v11.15)
+    // ---------------------------------------------------------------
+
+    test('3 identical GET requests within 500ms flagged as duplicate', () {
+      final base = fakeNow;
+      for (int i = 0; i < 3; i++) {
+        detector.processRecord(makeRecord(
+          url: 'https://api.example.com/users?page=1',
+          method: 'GET',
+          startedAt: base.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, hasLength(1));
+      expect(dupIssues.first.severity, IssueSeverity.warning);
+      expect(dupIssues.first.confidence, IssueConfidence.likely);
+      expect(dupIssues.first.category, IssueCategory.network);
+    });
+
+    test('2 identical requests NOT flagged (below threshold)', () {
+      final base = fakeNow;
+      for (int i = 0; i < 2; i++) {
+        detector.processRecord(makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: base.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, isEmpty);
+    });
+
+    test('same URL but different methods not grouped as duplicates', () {
+      final base = fakeNow;
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        startedAt: base,
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'POST',
+        startedAt: base.add(const Duration(milliseconds: 100)),
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'PUT',
+        startedAt: base.add(const Duration(milliseconds: 200)),
+      ));
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, isEmpty);
+    });
+
+    test('requests >500ms apart not clustered as duplicates', () {
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        startedAt: fakeNow,
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        startedAt: fakeNow.add(const Duration(milliseconds: 600)),
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        startedAt: fakeNow.add(const Duration(milliseconds: 1200)),
+      ));
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, isEmpty);
+    });
+
+    test('requests exactly 500ms apart are still clustered', () {
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        startedAt: fakeNow,
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        startedAt: fakeNow.add(const Duration(milliseconds: 250)),
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        startedAt: fakeNow.add(const Duration(milliseconds: 500)),
+      ));
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, hasLength(1),
+          reason: '500ms span (0→500) should be within window (<=500ms)');
+    });
+
+    test('requests at 501ms apart are NOT clustered', () {
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        startedAt: fakeNow,
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        startedAt: fakeNow.add(const Duration(milliseconds: 250)),
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        startedAt: fakeNow.add(const Duration(milliseconds: 501)),
+      ));
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, isEmpty, reason: '501ms span exceeds 500ms window');
+    });
+
+    test('severity critical at 10+ duplicate requests', () {
+      final base = fakeNow;
+      for (int i = 0; i < 10; i++) {
+        detector.processRecord(makeRecord(
+          url: 'https://api.example.com/data',
+          method: 'GET',
+          startedAt: base.add(Duration(milliseconds: i * 40)),
+        ));
+      }
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, hasLength(1));
+      expect(dupIssues.first.severity, IssueSeverity.critical);
+    });
+
+    test('duplicate issue cleared when records age out of window', () {
+      final base = fakeNow;
+      // Add 3 duplicates within 500ms
+      for (int i = 0; i < 3; i++) {
+        detector.processRecord(makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: base.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      expect(
+        detector.issues
+            .where((i) => i.stableId?.startsWith('duplicate_request') == true),
+        hasLength(1),
+      );
+
+      // Advance clock past 5s window and add a non-duplicate record
+      fakeNow = base.add(const Duration(seconds: 6));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/other',
+        method: 'GET',
+        startedAt: fakeNow,
+      ));
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, isEmpty);
+    });
+
+    test('different query params treated as same endpoint for dedup', () {
+      final base = fakeNow;
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users?page=1',
+        method: 'GET',
+        startedAt: base,
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users?page=2',
+        method: 'GET',
+        startedAt: base.add(const Duration(milliseconds: 100)),
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/users?page=3',
+        method: 'GET',
+        startedAt: base.add(const Duration(milliseconds: 200)),
+      ));
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, hasLength(1));
+    });
+
+    test('maxCluster tracks largest cluster when later cluster is smaller', () {
+      // Regression: [0ms, 100ms, 200ms, 700ms, 800ms]
+      // First cluster=3, second cluster=2. maxCluster should be 3.
+      final base = fakeNow;
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/data',
+        method: 'GET',
+        startedAt: base,
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/data',
+        method: 'GET',
+        startedAt: base.add(const Duration(milliseconds: 100)),
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/data',
+        method: 'GET',
+        startedAt: base.add(const Duration(milliseconds: 200)),
+      ));
+      // Gap > 500ms
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/data',
+        method: 'GET',
+        startedAt: base.add(const Duration(milliseconds: 700)),
+      ));
+      detector.processRecord(makeRecord(
+        url: 'https://api.example.com/data',
+        method: 'GET',
+        startedAt: base.add(const Duration(milliseconds: 800)),
+      ));
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, hasLength(1),
+          reason: 'First cluster of 3 should exceed threshold');
+    });
+
+    test('duplicate fixHint mentions caching and deduplication', () {
+      final base = fakeNow;
+      for (int i = 0; i < 3; i++) {
+        detector.processRecord(makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: base.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final issue = detector.issues.firstWhere(
+          (i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(issue.fixHint, contains('Cache'));
+      expect(issue.fixHint, contains('Deduplicate'));
     });
   });
 }

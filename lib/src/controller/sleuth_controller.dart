@@ -373,6 +373,7 @@ class SleuthController {
 
     _frameTiming = FrameTimingDetector(
       fpsTarget: config.fpsTarget,
+      warmupFrameCount: config.frameTimingWarmupFrameCount,
       onFrameStats: _onFrameStats,
     )..isEnabled = enabled.contains(DetectorType.frameTiming);
 
@@ -1754,6 +1755,7 @@ class SleuthConfig {
     this.largeResponseThresholdBytes = 1048576,
     this.networkExcludePatterns,
     this.memoryWarmupDurationMs = 3000,
+    this.frameTimingWarmupFrameCount = 180,
     this.platformChannelDurationThresholdMs = 8,
     this.suppressedIssues = const {},
     this.customDetectors = const [],
@@ -1844,6 +1846,10 @@ class SleuthConfig {
   /// Duration in milliseconds to suppress heap growth alerts after the first
   /// heap sample. Prevents false positives from normal app startup allocation.
   final int memoryWarmupDurationMs;
+
+  /// Number of frames to suppress jank evaluation at startup (~3s at 60fps).
+  /// Set to 0 in tests to disable warmup suppression.
+  final int frameTimingWarmupFrameCount;
 
   /// Cumulative platform channel duration threshold in milliseconds per window.
   /// Fires when total channel call time exceeds this even if call count is low.

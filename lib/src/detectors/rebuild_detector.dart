@@ -38,6 +38,22 @@ class RebuildDetector extends BaseDetector {
   static const int _maxHighlightsPerType = 3;
   bool _isEnabled = true;
 
+  /// Widget types designed to rebuild on every data/tick event.
+  /// These use a 3x threshold multiplier to avoid false positives
+  /// from expected high-frequency rebuilds.
+  static const _builderWidgetTypes = {
+    'StreamBuilder',
+    'FutureBuilder',
+    'ValueListenableBuilder',
+    'AnimatedBuilder',
+    'ListenableBuilder',
+    'TweenAnimationBuilder',
+    'StreamBuilderBase',
+  };
+
+  /// Threshold multiplier for builder widget types.
+  static const int _builderThresholdMultiplier = 3;
+
   int _buildEventCount = 0;
   bool _vmConnected = false;
   DateTime _windowStart;
@@ -191,7 +207,10 @@ class RebuildDetector extends BaseDetector {
     if (snapshot != null) {
       for (final entry in snapshot.rebuildCounts.entries) {
         final rate = snapshot.rebuildsPerSecond(entry.key);
-        if (rate >= rebuildsPerSecThreshold) {
+        final threshold = _builderWidgetTypes.contains(entry.key)
+            ? rebuildsPerSecThreshold * _builderThresholdMultiplier
+            : rebuildsPerSecThreshold;
+        if (rate >= threshold) {
           hotTypes[entry.key] = rate;
         }
       }
@@ -206,7 +225,10 @@ class RebuildDetector extends BaseDetector {
         counts[name] = (counts[name] ?? 0) + 1;
       }
       for (final entry in counts.entries) {
-        if (entry.value >= rebuildsPerSecThreshold) {
+        final threshold = _builderWidgetTypes.contains(entry.key)
+            ? rebuildsPerSecThreshold * _builderThresholdMultiplier
+            : rebuildsPerSecThreshold;
+        if (entry.value >= threshold) {
           hotTypes[entry.key] = entry.value.toDouble();
         }
       }
@@ -274,7 +296,14 @@ class RebuildDetector extends BaseDetector {
       final count = entry.value;
       final rate = snapshot.rebuildsPerSecond(typeName);
 
-      if (rate < rebuildsPerSecThreshold) continue;
+      // Builder widgets are designed to rebuild on data/tick changes —
+      // apply a higher threshold to avoid false positives.
+      final isBuilder = _builderWidgetTypes.contains(typeName);
+      final effectiveThreshold = isBuilder
+          ? rebuildsPerSecThreshold * _builderThresholdMultiplier
+          : rebuildsPerSecThreshold;
+
+      if (rate < effectiveThreshold) continue;
 
       final elapsedSec =
           snapshot.elapsed.inMicroseconds / Duration.microsecondsPerSecond;
@@ -285,9 +314,11 @@ class RebuildDetector extends BaseDetector {
         ancestorChain: snapshot.ancestorChains[typeName],
       );
 
+      final builderNote = isBuilder ? ' (builder widget)' : '';
+
       _issues.add(PerformanceIssue(
         stableId: 'rebuild_debug_$typeName',
-        severity: rate > rebuildsPerSecThreshold * 3
+        severity: rate > effectiveThreshold * 3
             ? IssueSeverity.critical
             : IssueSeverity.warning,
         category: IssueCategory.build,
@@ -295,7 +326,7 @@ class RebuildDetector extends BaseDetector {
         title: 'Excessive Rebuilds: $typeName (${rate.round()}/sec)',
         detail: '$typeName: $count rebuilds in '
             '${elapsedSec.toStringAsFixed(1)}s '
-            '(${rate.round()}/sec).',
+            '(${rate.round()}/sec).$builderNote',
         fixHint: hint,
         fixEffort: effort,
         widgetName: typeName,

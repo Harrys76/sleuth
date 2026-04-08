@@ -18,6 +18,7 @@ class FrameTimingDetector extends BaseDetector {
     int? warningThresholdMs,
     int? criticalThresholdMs,
     this.fpsTarget = 60,
+    this.warmupFrameCount = _defaultWarmupFrameCount,
     this.onFrameStats,
   })  : warningThresholdMs = warningThresholdMs ?? (1000 ~/ fpsTarget),
         criticalThresholdMs = criticalThresholdMs ?? ((1000 ~/ fpsTarget) * 2),
@@ -32,6 +33,7 @@ class FrameTimingDetector extends BaseDetector {
   final int warningThresholdMs;
   final int criticalThresholdMs;
   final int fpsTarget;
+  final int warmupFrameCount;
   final void Function(FrameStatsBuffer buffer)? onFrameStats;
 
   final FrameStatsBuffer _buffer = FrameStatsBuffer();
@@ -39,6 +41,13 @@ class FrameTimingDetector extends BaseDetector {
   bool _isEnabled = true;
   int _frameNumber = 0;
   TimingsCallback? _callback;
+
+  // -- Warmup suppression --
+  // First ~3 seconds of monitoring produce jank from shader compilation,
+  // route initialization, and Dart VM warmup. Suppress issue evaluation
+  // during this window to avoid false positives on every app launch.
+  static const int _defaultWarmupFrameCount = 180; // ~3s at 60fps
+  int _totalFramesSeen = 0;
 
   // -- Raster cache trend thresholds --
   static const int _thrashingWindowFrames = 15;
@@ -83,6 +92,7 @@ class FrameTimingDetector extends BaseDetector {
   @visibleForTesting
   void addFrameForTest(FrameStats stats) {
     if (!_isEnabled) return;
+    _totalFramesSeen++;
     _buffer.add(stats);
     _evaluateJank();
     _evaluateCacheTrends();
@@ -112,6 +122,7 @@ class FrameTimingDetector extends BaseDetector {
 
     for (final timing in timings) {
       _frameNumber++;
+      _totalFramesSeen++;
 
       // Extract all 5 phase timestamps for frame-event correlation.
       final vsyncStartUs =
@@ -169,6 +180,10 @@ class FrameTimingDetector extends BaseDetector {
     _issues.removeWhere(
         (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected');
 
+    // Suppress jank evaluation during warmup period (shader compilation,
+    // route init, Dart VM warmup produce non-actionable jank).
+    if (_totalFramesSeen < warmupFrameCount) return;
+
     final frames = _buffer.frames;
     if (frames.length < 5) return; // Need enough data
 
@@ -182,6 +197,9 @@ class FrameTimingDetector extends BaseDetector {
     }
     final jankPercent = (jankCount / frames.length * 100).round();
 
+    // Classify jank frames by bottleneck thread for attribution.
+    final bottleneck = _classifyJankBottleneck(frames);
+
     if (severeCount >= 3) {
       final (hint1, effort1) = FixHintBuilder.sustainedJank();
       _issues.add(
@@ -191,8 +209,9 @@ class FrameTimingDetector extends BaseDetector {
           category: IssueCategory.build,
           confidence: IssueConfidence.confirmed,
           title:
-              'Sustained Jank: $severeCount severe frames ($jankPercent% janky)',
-          detail: _buildDetail(worst),
+              'Sustained Jank${bottleneck.label}: $severeCount severe frames '
+              '($jankPercent% janky)',
+          detail: '${_buildDetail(worst)}\n${bottleneck.summary}',
           fixHint: hint1,
           fixEffort: effort1,
           detectedAt: DateTime.now(),
@@ -206,8 +225,10 @@ class FrameTimingDetector extends BaseDetector {
           severity: IssueSeverity.warning,
           category: IssueCategory.build,
           confidence: IssueConfidence.confirmed,
-          title: 'Jank Detected: $jankPercent% of frames over budget',
-          detail: _buildDetail(worst),
+          title:
+              'Jank Detected${bottleneck.label}: $jankPercent% of frames over '
+              'budget',
+          detail: '${_buildDetail(worst)}\n${bottleneck.summary}',
           fixHint: hint2,
           fixEffort: effort2,
           detectedAt: DateTime.now(),
@@ -217,6 +238,8 @@ class FrameTimingDetector extends BaseDetector {
   }
 
   void _evaluateCacheTrends() {
+    if (_totalFramesSeen < warmupFrameCount) return;
+
     final frames = _buffer.frames;
     if (frames.length < 2) return;
 
@@ -320,6 +343,58 @@ class FrameTimingDetector extends BaseDetector {
     }
   }
 
+  /// Classify jank frames by which thread is the bottleneck.
+  _JankBottleneck _classifyJankBottleneck(List<FrameStats> frames) {
+    int uiBound = 0, rasterBound = 0, pipelineStall = 0;
+    final budgetUs = warningThresholdMs * 1000;
+
+    for (final f in frames) {
+      if (!f.isJank) continue;
+      if (f.buildToRasterGap.inMicroseconds > budgetUs ~/ 4 &&
+          f.uiDuration.inMicroseconds < budgetUs &&
+          f.rasterDuration.inMicroseconds < budgetUs) {
+        pipelineStall++;
+      } else if (f.uiDuration > f.rasterDuration) {
+        uiBound++;
+      } else {
+        rasterBound++;
+      }
+    }
+
+    final total = uiBound + rasterBound + pipelineStall;
+    if (total == 0) return const _JankBottleneck.none();
+
+    if (pipelineStall > uiBound && pipelineStall > rasterBound) {
+      return _JankBottleneck(
+        label: ' (pipeline stall)',
+        summary: 'Thread attribution: $uiBound UI-bound, '
+            '$rasterBound raster-bound, $pipelineStall pipeline stall '
+            '— raster thread backed up from previous frames.',
+      );
+    }
+    if (uiBound > rasterBound) {
+      return _JankBottleneck(
+        label: ' (UI-bound)',
+        summary: 'Thread attribution: $uiBound UI-bound, '
+            '$rasterBound raster-bound, $pipelineStall pipeline stall '
+            '— focus on reducing build/layout/paint work.',
+      );
+    }
+    if (rasterBound > uiBound) {
+      return _JankBottleneck(
+        label: ' (raster-bound)',
+        summary: 'Thread attribution: $uiBound UI-bound, '
+            '$rasterBound raster-bound, $pipelineStall pipeline stall '
+            '— focus on reducing GPU compositing work.',
+      );
+    }
+    return _JankBottleneck(
+      label: ' (mixed)',
+      summary: 'Thread attribution: $uiBound UI-bound, '
+          '$rasterBound raster-bound, $pipelineStall pipeline stall.',
+    );
+  }
+
   String _buildDetail(FrameStats stats) {
     final buf = StringBuffer()
       ..writeln('UI Thread: ${stats.uiDuration.inMilliseconds}ms')
@@ -386,10 +461,20 @@ class FrameTimingDetector extends BaseDetector {
     _stopListening();
     _buffer.clear();
     _issues.clear();
+    _totalFramesSeen = 0;
     _consecutiveThrashingFrames = 0;
     _consecutiveGrowthFrames = 0;
     _consecutiveZeroCacheFrames = 0;
     _impellerDetected = false;
     _lastTimelineData = null;
   }
+}
+
+class _JankBottleneck {
+  const _JankBottleneck({required this.label, required this.summary});
+  const _JankBottleneck.none()
+      : label = '',
+        summary = '';
+  final String label;
+  final String summary;
 }

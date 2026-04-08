@@ -1,3 +1,44 @@
+## 0.10.3
+
+v11 detector audit Part 3 (v11.13–v11.18): 6 milestones covering duplicate request
+detection, GlobalKey recreation tracking, subtree cost enrichment, and thread-attributed
+jank classification.
+
+### v11 Detector Audit — Part 3 (v11.13–v11.18)
+
+- **Builder widget suppression** (v11.13): `FrameTimingDetector` now applies a 3x
+  threshold multiplier for builder-pattern widgets (e.g., `StreamBuilder`,
+  `FutureBuilder`, `ValueListenableBuilder`) that are designed to rebuild frequently.
+  Reduces false positive jank warnings during normal reactive updates.
+- **Warmup frame suppression** (v11.14): `FrameTimingDetector` suppresses jank
+  detection during the first 180 frames (~3s at 60fps). Configurable via
+  `SleuthConfig.frameTimingWarmupFrameCount`. Prevents startup initialization from
+  triggering spurious jank issues.
+- **Duplicate request detection** (v11.15): `NetworkMonitorDetector` detects ≥3
+  identical requests (same method + normalized URL) clustered within 500ms. Indicates
+  missing caching, redundant fetches, or rebuild-triggered API calls. Indexed stableIds
+  (`duplicate_request:0`, `duplicate_request:1`) for per-endpoint tracking. Critical
+  severity at ≥10 duplicates.
+- **GlobalKey recreation detection** (v11.16): `GlobalKeyDetector` tracks key
+  identity across scans via `identityHashCode`. Detects symmetric churn (new keys ≈
+  gone keys) indicating keys recreated in `build()` instead of stored in `State`.
+  Asymmetric changes (navigation) are filtered out. Configurable threshold (default 5).
+- **KeepAlive subtree cost enrichment** (v11.17): `KeepAliveDetector` now tracks
+  total elements per scrollable and reports average subtree size in issue detail.
+  Provides concrete cost data beyond simple page counts.
+- **Thread-attributed jank classification** (v11.18): `FrameTimingDetector` classifies
+  jank frames as UI-bound, raster-bound, pipeline stall, or mixed based on phase
+  timestamps. Title includes bottleneck label; detail includes thread timing summary.
+
+### Adversarial Review Findings (v11.13–v11.18)
+
+- **maxCluster overwrite bug** (NetworkMonitor): Sliding window cluster count
+  overwrote previous larger values. Fixed with `if (clusterSize > maxCluster)` guard.
+- **Non-indexed stableId** (NetworkMonitor): `duplicate_request` shared across
+  multiple endpoint groups. Fixed to `duplicate_request:$dupIndex`.
+- **3 boundary tests added**: Duplicate cluster at exactly 500ms window, cluster at
+  501ms (split), and maxCluster regression test.
+
 ## 0.10.2
 
 v10 roadmap (12 milestones) + v11 detector audit (12 milestones).

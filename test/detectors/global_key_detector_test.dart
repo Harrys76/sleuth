@@ -222,6 +222,344 @@ void main() {
     });
 
     // -----------------------------------------------------------------
+    // v11.16: GlobalKey recreation detection
+    // -----------------------------------------------------------------
+
+    testWidgets('no recreation issue on first scan (no previous data)',
+        (tester) async {
+      final recreationDetector =
+          GlobalKeyDetector(threshold: 100, recreationThreshold: 3);
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              5,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+      final recIssues = recreationDetector.issues
+          .where((i) => i.stableId == 'global_key_recreation');
+      expect(recIssues, isEmpty,
+          reason: 'First scan has no previous key set to compare');
+    });
+
+    testWidgets('recreation flagged when keys change between scans',
+        (tester) async {
+      final recreationDetector =
+          GlobalKeyDetector(threshold: 100, recreationThreshold: 3);
+
+      // Scan 1: pump with one set of GlobalKeys
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              5,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      // Scan 2: pump with NEW GlobalKeys (simulates build() recreation)
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              5,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      final recIssues = recreationDetector.issues
+          .where((i) => i.stableId == 'global_key_recreation');
+      expect(recIssues, hasLength(1));
+      expect(recIssues.first.severity, IssueSeverity.warning);
+      expect(recIssues.first.confidence, IssueConfidence.likely);
+      expect(recIssues.first.category, IssueCategory.build);
+      expect(recIssues.first.detail, contains('replaced with new instances'));
+    });
+
+    testWidgets('no recreation when same keys persist across scans',
+        (tester) async {
+      final recreationDetector =
+          GlobalKeyDetector(threshold: 100, recreationThreshold: 3);
+
+      // Use stable keys stored outside build
+      final stableKeys = List.generate(5, (_) => GlobalKey());
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: stableKeys
+                .map((k) => PublicWidget(key: k, height: 10))
+                .toList(),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      // Scan 2: same keys
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: stableKeys
+                .map((k) => PublicWidget(key: k, height: 10))
+                .toList(),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      final recIssues = recreationDetector.issues
+          .where((i) => i.stableId == 'global_key_recreation');
+      expect(recIssues, isEmpty);
+    });
+
+    testWidgets('navigation (asymmetric churn) not flagged as recreation',
+        (tester) async {
+      final recreationDetector =
+          GlobalKeyDetector(threshold: 100, recreationThreshold: 3);
+
+      // Scan 1: 5 keys
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              5,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      // Scan 2: 8 keys (5 new + 3 extra — purely additive, like navigation)
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              8,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      // All 5 old keys are gone (goneKeys=5), 8 new keys (newKeys=8).
+      // min(8, 5) = 5 >= threshold=3, so this WILL be flagged.
+      // To test true asymmetric churn (navigation adding keys without
+      // removing), we need stable keys that persist.
+      // This is actually symmetric churn — let's test with real navigation.
+      recreationDetector.dispose();
+
+      // Real navigation test: keep old keys, add new ones
+      final navDetector =
+          GlobalKeyDetector(threshold: 100, recreationThreshold: 3);
+      final stableKeys = List.generate(5, (_) => GlobalKey());
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: stableKeys
+                .map((k) => PublicWidget(key: k, height: 10))
+                .toList(),
+          ),
+        ),
+      );
+      navDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      // Scan 2: keep old keys + add 5 more (navigation push)
+      final newKeys = List.generate(5, (_) => GlobalKey());
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              ...stableKeys.map((k) => PublicWidget(key: k, height: 10)),
+              ...newKeys.map((k) => PublicWidget(key: k, height: 10)),
+            ],
+          ),
+        ),
+      );
+      navDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      // newKeys=5, goneKeys=0 → min(5,0)=0 → no recreation
+      final recIssues = navDetector.issues
+          .where((i) => i.stableId == 'global_key_recreation');
+      expect(recIssues, isEmpty,
+          reason: 'Purely additive key changes (navigation) should not '
+              'be flagged as recreation');
+    });
+
+    testWidgets('recreation below threshold not flagged', (tester) async {
+      final recreationDetector =
+          GlobalKeyDetector(threshold: 100, recreationThreshold: 5);
+
+      // Scan 1: 3 keys
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              3,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      // Scan 2: 3 new keys (churn=3, below threshold=5)
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              3,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      final recIssues = recreationDetector.issues
+          .where((i) => i.stableId == 'global_key_recreation');
+      expect(recIssues, isEmpty);
+    });
+
+    testWidgets('critical severity at 3x recreation threshold', (tester) async {
+      final recreationDetector =
+          GlobalKeyDetector(threshold: 100, recreationThreshold: 3);
+
+      // Scan 1
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              10,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      // Scan 2: 10 new keys → churn=10, threshold=3, 3x=9 → critical
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              10,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      final recIssue = recreationDetector.issues
+          .firstWhere((i) => i.stableId == 'global_key_recreation');
+      expect(recIssue.severity, IssueSeverity.critical);
+    });
+
+    testWidgets('dispose resets recreation tracking state', (tester) async {
+      final recreationDetector =
+          GlobalKeyDetector(threshold: 100, recreationThreshold: 3);
+
+      // Scan 1
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              5,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      // Dispose resets state
+      recreationDetector.dispose();
+
+      // Scan 2 after dispose: should act like first scan (no prev data)
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              5,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      final recIssues = recreationDetector.issues
+          .where((i) => i.stableId == 'global_key_recreation');
+      expect(recIssues, isEmpty,
+          reason: 'After dispose, prevKeyIds is empty — no comparison');
+    });
+
+    testWidgets('recreation fixHint mentions storing keys in State',
+        (tester) async {
+      final recreationDetector =
+          GlobalKeyDetector(threshold: 100, recreationThreshold: 3);
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              5,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: List.generate(
+              5,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      recreationDetector.scanTree(tester.element(find.byType(Directionality)));
+
+      final recIssue = recreationDetector.issues
+          .firstWhere((i) => i.stableId == 'global_key_recreation');
+      expect(recIssue.fixHint, contains('State'));
+      expect(recIssue.fixHint, contains('build()'));
+    });
+
+    // -----------------------------------------------------------------
     // v9.6: Per-scrollable accumulation
     // -----------------------------------------------------------------
 

@@ -354,6 +354,90 @@ void main() {
     });
 
     // -----------------------------------------------------------------
+    // v11.17: Subtree cost enrichment
+    // -----------------------------------------------------------------
+
+    testWidgets('issue detail contains avg subtree size', (tester) async {
+      final controller = PageController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            height: 400,
+            width: 400,
+            child: PageView(
+              controller: controller,
+              children: List.generate(
+                4,
+                (i) => _KeepAlivePage(key: ValueKey(i), label: 'Page $i'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      for (int i = 1; i < 4; i++) {
+        controller.jumpToPage(i);
+        await tester.pumpAndSettle();
+      }
+      controller.jumpToPage(0);
+      await tester.pumpAndSettle();
+
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.detail, contains('elements per page'));
+      expect(detector.issues.first.detail, contains('total in scrollable'));
+    });
+
+    testWidgets('subtree cost increases with heavier page content',
+        (tester) async {
+      final controller = PageController();
+      addTearDown(controller.dispose);
+
+      // Use pages with more complex subtrees
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            height: 400,
+            width: 400,
+            child: PageView(
+              controller: controller,
+              children: List.generate(
+                4,
+                (i) => _HeavyKeepAlivePage(
+                    key: ValueKey(i), label: 'Page $i', childCount: 20),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      for (int i = 1; i < 4; i++) {
+        controller.jumpToPage(i);
+        await tester.pumpAndSettle();
+      }
+      controller.jumpToPage(0);
+      await tester.pumpAndSettle();
+
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, hasLength(1));
+      // Heavy pages should report a larger total element count
+      final detail = detector.issues.first.detail;
+      final totalMatch =
+          RegExp(r'\((\d+) total in scrollable\)').firstMatch(detail);
+      expect(totalMatch, isNotNull);
+      final totalElements = int.parse(totalMatch!.group(1)!);
+      // Each page has 20 SizedBox children + wrapper elements; total should
+      // be significantly more than with simple pages.
+      expect(totalElements, greaterThan(50));
+    });
+
+    // -----------------------------------------------------------------
     // v9.6: Per-scrollable accumulation
     // -----------------------------------------------------------------
 
@@ -438,5 +522,36 @@ class _KeepAlivePageState extends State<_KeepAlivePage>
   Widget build(BuildContext context) {
     super.build(context);
     return Center(child: Text(widget.label));
+  }
+}
+
+/// Heavier keep-alive page with many child widgets for subtree cost testing.
+class _HeavyKeepAlivePage extends StatefulWidget {
+  const _HeavyKeepAlivePage({
+    super.key,
+    required this.label,
+    required this.childCount,
+  });
+  final String label;
+  final int childCount;
+
+  @override
+  State<_HeavyKeepAlivePage> createState() => _HeavyKeepAlivePageState();
+}
+
+class _HeavyKeepAlivePageState extends State<_HeavyKeepAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return Column(
+      children: List.generate(
+        widget.childCount,
+        (i) => SizedBox(height: 5, child: Text('${widget.label}:$i')),
+      ),
+    );
   }
 }

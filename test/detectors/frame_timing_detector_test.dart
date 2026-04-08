@@ -9,7 +9,7 @@ void main() {
     late FrameTimingDetector detector;
 
     setUp(() {
-      detector = FrameTimingDetector();
+      detector = FrameTimingDetector(warmupFrameCount: 0);
     });
 
     FrameStats makeFrame({
@@ -181,7 +181,7 @@ void main() {
 
     test('custom thresholds affect jank detection', () {
       // 120fps target: 8ms budget, severe = 16ms
-      detector = FrameTimingDetector(fpsTarget: 120);
+      detector = FrameTimingDetector(fpsTarget: 120, warmupFrameCount: 0);
 
       // Frames at 12ms — not janky at 60fps but janky at 120fps
       for (var i = 0; i < 20; i++) {
@@ -529,6 +529,237 @@ void main() {
             .where((i) => i.stableId == 'raster_cache_thrashing')
             .toList();
         expect(thrashing, hasLength(1));
+      });
+    });
+
+    // -- Warmup Suppression (v11.13) --
+
+    group('Warmup Suppression', () {
+      late FrameTimingDetector warmupDetector;
+
+      setUp(() {
+        warmupDetector = FrameTimingDetector(warmupFrameCount: 180);
+      });
+
+      test('no jank issues during warmup period despite severe frames', () {
+        // Feed 179 severe jank frames (just below warmupFrameCount=180)
+        for (var i = 0; i < 179; i++) {
+          warmupDetector.addFrameForTest(makeFrame(
+            uiMs: 40,
+            rasterMs: 40,
+            frameNumber: i + 1,
+          ));
+        }
+
+        expect(warmupDetector.issues, isEmpty,
+            reason: 'Warmup period should suppress jank evaluation');
+      });
+
+      test('jank issues fire after warmup period ends', () {
+        // Fill warmup with good frames
+        for (var i = 0; i < 180; i++) {
+          warmupDetector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+          ));
+        }
+        expect(warmupDetector.issues, isEmpty);
+
+        // Now add severe jank frames — should be evaluated
+        for (var i = 0; i < 5; i++) {
+          warmupDetector.addFrameForTest(makeFrame(
+            uiMs: 40,
+            rasterMs: 40,
+            frameNumber: 181 + i,
+          ));
+        }
+
+        expect(warmupDetector.issues, isNotEmpty,
+            reason: 'Jank should be detected after warmup');
+      });
+
+      test('warmup boundary: frame 180 triggers evaluation', () {
+        // 179 severe frames during warmup — no issues
+        for (var i = 0; i < 179; i++) {
+          warmupDetector.addFrameForTest(makeFrame(
+            uiMs: 40,
+            rasterMs: 40,
+            frameNumber: i + 1,
+          ));
+        }
+        expect(warmupDetector.issues, isEmpty);
+
+        // Frame 180 exits warmup — evaluation starts
+        warmupDetector.addFrameForTest(makeFrame(
+          uiMs: 40,
+          rasterMs: 40,
+          frameNumber: 180,
+        ));
+        expect(warmupDetector.issues, isNotEmpty,
+            reason: 'Frame 180 should exit warmup and trigger evaluation');
+      });
+
+      test('cache trends also suppressed during warmup', () {
+        // Feed monotonically growing cache during warmup
+        for (var i = 0; i < 179; i++) {
+          warmupDetector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+            pictureCacheBytes: 50000 + i * 1024,
+            layerCacheBytes: 20000,
+          ));
+        }
+
+        final cacheIssues = warmupDetector.issues
+            .where((i) => i.category == IssueCategory.raster)
+            .toList();
+        expect(cacheIssues, isEmpty,
+            reason: 'Cache trends should be suppressed during warmup');
+      });
+
+      test('dispose resets warmup counter', () {
+        // Advance past warmup
+        for (var i = 0; i < 185; i++) {
+          warmupDetector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 6,
+            frameNumber: i + 1,
+          ));
+        }
+
+        warmupDetector.dispose();
+
+        // After dispose, warmup starts fresh — severe frames should be suppressed
+        for (var i = 0; i < 5; i++) {
+          warmupDetector.addFrameForTest(makeFrame(
+            uiMs: 40,
+            rasterMs: 40,
+            frameNumber: i + 1,
+          ));
+        }
+        expect(warmupDetector.issues, isEmpty,
+            reason: 'Warmup counter should reset on dispose');
+      });
+    });
+
+    // -- Thread-Specific Jank Attribution (v11.18) --
+
+    group('Thread Attribution', () {
+      test('UI-bound jank labeled in title', () {
+        // Create frames where UI thread is the bottleneck
+        addGoodFrames(5);
+        // Add UI-dominant jank frames (>15% to trigger warning)
+        for (var i = 0; i < 10; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 25,
+            rasterMs: 8,
+            frameNumber: 100 + i,
+          ));
+        }
+        final jankIssue = detector.issues.firstWhere(
+          (i) =>
+              i.stableId == 'jank_detected' || i.stableId == 'sustained_jank',
+        );
+        expect(jankIssue.title, contains('UI-bound'));
+        expect(jankIssue.detail, contains('Thread attribution'));
+        expect(jankIssue.detail, contains('UI-bound'));
+      });
+
+      test('raster-bound jank labeled in title', () {
+        addGoodFrames(5);
+        // Add raster-dominant jank frames
+        for (var i = 0; i < 10; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 25,
+            frameNumber: 100 + i,
+          ));
+        }
+        final jankIssue = detector.issues.firstWhere(
+          (i) =>
+              i.stableId == 'jank_detected' || i.stableId == 'sustained_jank',
+        );
+        expect(jankIssue.title, contains('raster-bound'));
+        expect(jankIssue.detail, contains('raster-bound'));
+      });
+
+      test('pipeline stall labeled when gap is dominant', () {
+        addGoodFrames(5);
+        // Add frames with pipeline stall: both threads under budget but
+        // large buildToRasterGap. Use FrameStats directly for gap control.
+        for (var i = 0; i < 10; i++) {
+          detector.addFrameForTest(FrameStats(
+            frameNumber: 100 + i,
+            uiDuration: const Duration(milliseconds: 10),
+            rasterDuration: const Duration(milliseconds: 10),
+            timestamp: DateTime.now(),
+            frameBudgetMs: 16,
+            buildToRasterGap: const Duration(milliseconds: 20),
+            totalSpan: const Duration(milliseconds: 40),
+          ));
+        }
+        final jankIssue = detector.issues.firstWhere(
+          (i) =>
+              i.stableId == 'jank_detected' || i.stableId == 'sustained_jank',
+        );
+        expect(jankIssue.title, contains('pipeline stall'));
+        expect(jankIssue.detail, contains('pipeline stall'));
+      });
+
+      test('mixed attribution when UI and raster counts equal', () {
+        addGoodFrames(5);
+        // Add equal UI and raster jank frames
+        for (var i = 0; i < 5; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 25,
+            rasterMs: 8,
+            frameNumber: 100 + i,
+          ));
+        }
+        for (var i = 0; i < 5; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 8,
+            rasterMs: 25,
+            frameNumber: 200 + i,
+          ));
+        }
+        final jankIssue = detector.issues.firstWhere(
+          (i) =>
+              i.stableId == 'jank_detected' || i.stableId == 'sustained_jank',
+        );
+        expect(jankIssue.title, contains('mixed'));
+      });
+
+      test('attribution detail includes thread counts', () {
+        addGoodFrames(5);
+        for (var i = 0; i < 10; i++) {
+          detector.addFrameForTest(makeFrame(
+            uiMs: 25,
+            rasterMs: 8,
+            frameNumber: 100 + i,
+          ));
+        }
+        final jankIssue = detector.issues.firstWhere(
+          (i) =>
+              i.stableId == 'jank_detected' || i.stableId == 'sustained_jank',
+        );
+        // Detail should show counts for all three categories
+        expect(jankIssue.detail, contains('UI-bound'));
+        expect(jankIssue.detail, contains('raster-bound'));
+        expect(jankIssue.detail, contains('pipeline stall'));
+      });
+
+      test('no attribution label when no jank frames', () {
+        addGoodFrames(20);
+        expect(
+          detector.issues.where(
+            (i) =>
+                i.stableId == 'jank_detected' || i.stableId == 'sustained_jank',
+          ),
+          isEmpty,
+        );
       });
     });
   });

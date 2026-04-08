@@ -10,6 +10,9 @@ class _ScrollableAccumulator {
   _ScrollableAccumulator(this.element);
   final Element element;
   int count = 0;
+
+  /// Total element count inside this scrollable (for avg subtree cost).
+  int totalElements = 0;
 }
 
 /// Detects excessive AutomaticKeepAlive usage in PageView/TabBarView.
@@ -44,8 +47,14 @@ class KeepAliveDetector extends BaseDetector {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
-  final List<({String chain, int count, Rect? rect, String typeName})>
-      _scrollableData = [];
+  final List<
+      ({
+        String chain,
+        int count,
+        int totalElements,
+        Rect? rect,
+        String typeName,
+      })> _scrollableData = [];
   final List<_ScrollableAccumulator> _scrollableStack = [];
 
   @override
@@ -64,6 +73,11 @@ class KeepAliveDetector extends BaseDetector {
     // Count KeepAlive for all active scrollables BEFORE pushing, so the
     // scrollable's own element isn't counted for itself.
     if (_scrollableStack.isNotEmpty) {
+      // Track total element count for subtree cost enrichment.
+      for (final acc in _scrollableStack) {
+        acc.totalElements++;
+      }
+
       if (name == 'KeepAlive' || name == '_KeepAlive') {
         for (final acc in _scrollableStack) {
           acc.count++;
@@ -86,6 +100,7 @@ class KeepAliveDetector extends BaseDetector {
         _scrollableData.add((
           chain: buildAncestorChain(element),
           count: acc.count,
+          totalElements: acc.totalElements,
           rect: element.renderObject != null
               ? getGlobalRect(element.renderObject!)
               : null,
@@ -100,6 +115,9 @@ class KeepAliveDetector extends BaseDetector {
     _scrollableStack.clear();
     for (final (i, data) in _scrollableData.indexed) {
       if (data.count > threshold) {
+        final avgSubtreeSize =
+            data.count > 0 ? data.totalElements ~/ data.count : 0;
+
         if (data.rect != null) {
           _highlights.add(WidgetHighlight(
             rect: data.rect!,
@@ -114,6 +132,11 @@ class KeepAliveDetector extends BaseDetector {
         final (hint, effort) =
             FixHintBuilder.excessiveKeepAlive(count: data.count);
 
+        final subtreeCostLine = avgSubtreeSize > 0
+            ? '\n~$avgSubtreeSize elements per page '
+                '(${data.totalElements} total in scrollable).'
+            : '';
+
         _issues.add(
           PerformanceIssue(
             stableId: 'excessive_keep_alive:$i',
@@ -125,7 +148,7 @@ class KeepAliveDetector extends BaseDetector {
             title: 'Excessive Keep-Alive: ${data.count} in ${data.typeName}',
             detail: '${data.count} widgets are using '
                 'AutomaticKeepAliveClientMixin, keeping them all in '
-                'memory.\n\n  • ${data.chain}',
+                'memory.$subtreeCostLine\n\n  • ${data.chain}',
             fixHint: hint,
             fixEffort: effort,
             widgetName: data.typeName,

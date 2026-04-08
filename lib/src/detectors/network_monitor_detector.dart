@@ -45,6 +45,9 @@ class NetworkMonitorDetector extends BaseDetector {
   static const int _bufferCapacity = 200;
   static const int _frequencyWindowMs = 5000;
   static const int _criticalSlowThresholdMs = 5000;
+  static const int _duplicateWindowMs = 500;
+  static const int _duplicateThreshold = 3;
+  static const int _criticalDuplicateThreshold = 10;
 
   final Queue<RequestRecord> _records = Queue<RequestRecord>();
   final List<PerformanceIssue> _issues = [];
@@ -127,6 +130,7 @@ class NetworkMonitorDetector extends BaseDetector {
     _evaluateLargeResponses();
     _evaluateFrequency();
     _evaluateErrors();
+    _evaluateDuplicates();
 
     // Cancel timer when buffer is empty — no point ticking on stale state.
     // Timer restarts on next processRecord().
@@ -282,6 +286,88 @@ class NetworkMonitorDetector extends BaseDetector {
       fixEffort: effort,
       detectedAt: _clock(),
     ));
+  }
+
+  void _evaluateDuplicates() {
+    // Group recent records by normalized URL (method + path, no query params).
+    // Flag when ≥3 requests to the same endpoint have startedAt within 500ms
+    // of each other — indicates missing cache or redundant fetches.
+    final now = _clock();
+    final windowStart =
+        now.subtract(const Duration(milliseconds: _frequencyWindowMs));
+    final recentRecords =
+        _records.where((r) => r.startedAt.isAfter(windowStart)).toList();
+
+    // Group by method + normalized URL
+    final groups = <String, List<RequestRecord>>{};
+    for (final record in recentRecords) {
+      final key = '${record.method.toUpperCase()} ${_normalizeUrl(record.url)}';
+      (groups[key] ??= []).add(record);
+    }
+
+    int dupIndex = 0;
+    for (final entry in groups.entries) {
+      final records = entry.value;
+      if (records.length < _duplicateThreshold) continue;
+
+      // Check if at least _duplicateThreshold records cluster within 500ms
+      records.sort((a, b) => a.startedAt.compareTo(b.startedAt));
+      int maxCluster = 1;
+      int clusterStart = 0;
+      for (var i = 1; i < records.length; i++) {
+        if (records[i]
+                .startedAt
+                .difference(records[clusterStart].startedAt)
+                .inMilliseconds <=
+            _duplicateWindowMs) {
+          final clusterSize = i - clusterStart + 1;
+          if (clusterSize > maxCluster) maxCluster = clusterSize;
+        } else {
+          clusterStart = i;
+        }
+      }
+
+      if (maxCluster < _duplicateThreshold) continue;
+
+      final severity = maxCluster >= _criticalDuplicateThreshold
+          ? IssueSeverity.critical
+          : IssueSeverity.warning;
+
+      final (hint, effort) = FixHintBuilder.duplicateRequest(
+        url: records.first.url,
+        count: maxCluster,
+      );
+
+      _issues.add(PerformanceIssue(
+        stableId: 'duplicate_request:$dupIndex',
+        severity: severity,
+        category: IssueCategory.network,
+        confidence: IssueConfidence.likely,
+        title: 'Duplicate Requests: ${entry.key.split(' ').first} '
+            '${_shortenUrl(records.first.url)} ×$maxCluster in '
+            '${_duplicateWindowMs}ms',
+        detail: '$maxCluster identical requests to '
+            '${_shortenUrl(records.first.url)} within ${_duplicateWindowMs}ms. '
+            'This often indicates missing caching, redundant fetches from '
+            'multiple widgets, or a rebuild triggering repeated API calls.',
+        fixHint: hint,
+        fixEffort: effort,
+        detectedAt: _clock(),
+      ));
+      dupIndex++;
+    }
+  }
+
+  /// Normalize URL for duplicate comparison: strip query params, keep
+  /// scheme + host + path. Different query params to the same endpoint
+  /// are treated as the same resource for dedup purposes.
+  static String _normalizeUrl(String url) {
+    try {
+      final uri = Uri.parse(url);
+      return uri.replace(query: '', fragment: '').toString();
+    } catch (_) {
+      return url;
+    }
   }
 
   static String _shortenUrl(String url) {

@@ -1,6 +1,6 @@
 ## v11 Detector Audit: Gaps, False Positives & Milestones
 
-**Status: 6/6 milestones shipped** ✅ (v0.10.2)
+**Status: 18/18 milestones shipped** ✅ (v0.10.3)
 
 Origin: Adversarial audit (2026-04-07) of 5 detectors (ListviewDetector, NestedScrollDetector, LayoutBottleneckDetector, SetStateScopeDetector, RepaintBoundaryDetector). Found 6 gaps and false positives across detection coverage, accuracy, and enrichment. All milestones implemented, adversarial-reviewed twice (8 fix-round findings resolved), 1,561 tests passing, 0 analysis issues.
 
@@ -278,3 +278,137 @@ Added `FixHintBuilder.nonLazySliver()` for SliverList/SliverGrid-specific fix hi
 
 - `fvm flutter test` — 1,594 tests passing ✅
 - `fvm flutter analyze` — 0 issues ✅
+
+---
+
+# v11 Detector Audit — Part 3 (v11.13–v11.18)
+
+6 milestones. Third audit pass covering runtime detector enrichment: duplicate detection,
+cross-scan identity tracking, subtree cost metrics, and thread attribution.
+
+## P1 — Accuracy & False Positive Reduction
+
+### v11.13: Builder widget suppression (FrameTimingDetector) ✅
+
+**Problem**: Builder widgets (`StreamBuilder`, `FutureBuilder`, `ValueListenableBuilder`) are
+designed to rebuild frequently. Default jank thresholds flag normal reactive rebuilds as issues.
+
+**Solution**:
+- Added 3x threshold multiplier for builder-pattern widgets during jank evaluation
+- Builder widgets identified by type name matching against known builder set
+- Reduces false positive jank warnings during normal reactive data flow
+
+**Files**: `frame_timing_detector.dart`, `frame_timing_detector_test.dart`
+**Tests**: Builder suppression applied, non-builder widgets not suppressed
+
+### v11.14: Warmup frame suppression (FrameTimingDetector) ✅
+
+**Problem**: App startup triggers expensive initialization (loading assets, building initial widget
+tree, shader warmup). These frames are always slow and produce spurious jank issues.
+
+**Solution**:
+- Added `warmupFrameCount` parameter (default 180 ≈ 3s at 60fps)
+- Frames within warmup window are excluded from jank evaluation
+- Configurable via `SleuthConfig.frameTimingWarmupFrameCount`
+- Test controllers pass `frameTimingWarmupFrameCount: 0` to avoid warmup interference
+
+**Files**: `frame_timing_detector.dart`, `sleuth_controller.dart`, `frame_verdict_fallback_test.dart`, `issue_ranking_integration_test.dart`
+**Tests**: Warmup frames suppressed, post-warmup jank detected, configurable via SleuthConfig
+
+## P2 — Detection Gaps
+
+### v11.15: Duplicate request detection (NetworkMonitorDetector) ✅
+
+**Problem**: Multiple identical HTTP requests within a short window (e.g., 3+ GETs to the same
+endpoint within 500ms) indicate missing caching, redundant widget fetches, or rebuild-triggered
+API calls. Not detected.
+
+**Solution**:
+- Added `_evaluateDuplicates()` method called from `_evaluate()`
+- Groups recent records by `method + _normalizeUrl(url)` (strips query params)
+- Sliding window cluster detection: sorts by `startedAt`, finds max cluster within 500ms window
+- Constants: `_duplicateWindowMs=500`, `_duplicateThreshold=3`, `_criticalDuplicateThreshold=10`
+- Indexed stableIds: `duplicate_request:0`, `duplicate_request:1` for per-endpoint tracking
+- `FixHintBuilder.duplicateRequest()` for caching/dedup hints
+
+**Key challenge**: Sliding window `maxCluster` must use `if (clusterSize > maxCluster)` guard —
+direct assignment overwrites previous larger cluster values when the window slides.
+
+**Files**: `network_monitor_detector.dart`, `fix_hint_builder.dart`, `network_monitor_detector_test.dart`
+**Tests**: 11 tests — 3+ duplicates flagged, 2 not flagged, different endpoints not flagged,
+different methods not flagged, critical at 10+, boundary 500ms/501ms, maxCluster regression
+
+### v11.16: GlobalKey recreation detection (GlobalKeyDetector) ✅
+
+**Problem**: GlobalKeys recreated in `build()` (instead of stored in `State`) cause framework to
+unmount and remount subtrees every frame. Expensive and invisible to other detectors.
+
+**Solution**:
+- Added `_prevKeyIds` / `_currentKeyIds` sets tracking `identityHashCode(key)` per scan
+- `checkElement` collects identity hashes for all GlobalKey-bearing widgets
+- `finalizeScan` calls `_evaluateKeyRecreation()`:
+  - Computes `newKeys = current - prev`, `goneKeys = prev - current`
+  - `churnCount = min(newKeys.length, goneKeys.length)` — symmetric churn = recreation
+  - Asymmetric changes (navigation: many new, few gone) filtered out
+- Configurable `recreationThreshold` (default 5)
+- `FixHintBuilder.globalKeyRecreation()` — store keys in State fields
+- Confidence: `likely` (cross-scan identity is strong signal but not direct observation)
+
+**Files**: `global_key_detector.dart`, `fix_hint_builder.dart`, `global_key_detector_test.dart`
+**Tests**: 8 tests — first scan no issue, recreation flagged, stable keys not flagged,
+navigation filtered, below threshold not flagged, critical at 3x, dispose resets, fixHint content
+
+## P3 — Enrichment
+
+### v11.17: KeepAlive subtree cost enrichment (KeepAliveDetector) ✅
+
+**Problem**: `KeepAliveDetector` reports page count but not subtree cost. 5 keep-alive pages with
+10 elements each is very different from 5 pages with 500 elements each.
+
+**Solution**:
+- Added `totalElements` field to `_ScrollableAccumulator`
+- `checkElement` increments `totalElements` for all active accumulators on every element
+- `afterElement` includes `totalElements` in scrollable data record
+- `finalizeScan` computes `avgSubtreeSize = totalElements ~/ count` and includes in detail
+
+**Files**: `keep_alive_detector.dart`, `keep_alive_detector_test.dart`
+**Tests**: 2 new tests — subtree size reported in detail, heavy pages produce higher counts
+
+### v11.18: Thread-attributed jank classification (FrameTimingDetector) ✅
+
+**Problem**: Jank frames reported without distinguishing UI-thread vs raster-thread bottleneck.
+Developers can't tell if the fix is in build/layout code or in painting/compositing.
+
+**Solution**:
+- Added `_classifyJankBottleneck()` returning `_JankBottleneck(label, summary)`
+- Classification logic:
+  - **Pipeline stall**: `buildToRasterGap > budget/4` AND both threads individually under budget
+  - **UI-bound**: `uiDuration > rasterDuration`
+  - **Raster-bound**: otherwise
+  - **Mixed**: fallback when no clear signal
+- Title includes bottleneck label; detail includes thread timing summary
+
+**Files**: `frame_timing_detector.dart`, `frame_timing_detector_test.dart`
+**Tests**: 6 tests — UI-bound, raster-bound, pipeline stall, mixed, detail counts, no attribution without jank
+
+---
+
+## Adversarial Review Findings (v11.13–v11.18)
+
+5 findings identified and fixed:
+
+| # | Type | Detector | Finding | Resolution |
+|---|------|----------|---------|------------|
+| 1 | Bug | NetworkMonitor | `maxCluster` direct assignment overwrote previous larger cluster when window slides | Added `if (clusterSize > maxCluster)` guard |
+| 2 | Convention | NetworkMonitor | `duplicate_request` stableId shared across endpoint groups — breaks per-issue tracking | Changed to `duplicate_request:$dupIndex` indexed stableId |
+| 3 | Test | NetworkMonitor | No test for cluster at exact 500ms boundary | Added boundary test (500ms → clustered, 501ms → split) |
+| 4 | Test | NetworkMonitor | No test for maxCluster regression (larger cluster followed by smaller) | Added regression test verifying max is preserved |
+| 5 | Test | NetworkMonitor | Existing "3 simultaneous issues" test broke due to new duplicate detection on same-URL records | Fixed by using different URLs per record |
+
+---
+
+## Verification (v11.13–v11.18)
+
+- `fvm flutter test` — 1,631 tests passing ✅
+- `fvm flutter analyze` — 0 issues ✅
+- Adversarial review completed, all findings resolved

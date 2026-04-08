@@ -139,6 +139,18 @@ class FixHintBuilder {
     );
   }
 
+  static (String, FixEffort) globalKeyRecreation({required int churnCount}) {
+    return (
+      '$churnCount GlobalKeys recreated between scans.\n'
+          'Fixes:\n'
+          '  • Store GlobalKeys in State fields, not in build()\n'
+          '  • Use late final or initialize in initState()\n'
+          '  • Consider ValueKey(item.id) if you only need identity, '
+          'not state access',
+      FixEffort.quick,
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // GpuPressureDetector
   // ---------------------------------------------------------------------------
@@ -481,6 +493,21 @@ class FixHintBuilder {
           '_debounce = Timer(Duration(milliseconds: 300), () => fetch(q));\n'
           'Consider caching responses or using a single stream '
           'subscription instead of polling.',
+      FixEffort.medium,
+    );
+  }
+
+  static (String, FixEffort) duplicateRequest({
+    required String url,
+    required int count,
+  }) {
+    return (
+      '$count requests to the same endpoint in <500ms.\n'
+          'Fixes:\n'
+          '  • Cache responses — subsequent callers get the cached result\n'
+          '  • Share a single Future across widgets (e.g. FutureProvider)\n'
+          '  • Deduplicate at the repository layer with an in-flight map\n'
+          '  • Check if multiple widgets independently fetch the same data',
       FixEffort.medium,
     );
   }

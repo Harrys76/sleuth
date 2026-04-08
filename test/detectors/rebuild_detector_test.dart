@@ -845,6 +845,108 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
   });
+
+  // -- Builder Widget Suppression (v11.14) --
+
+  group('builder widget suppression', () {
+    late RebuildDetector detector;
+
+    setUp(() {
+      detector = RebuildDetector(clock: () => DateTime(2026, 1, 1));
+      detector.vmConnected = true;
+    });
+
+    test('StreamBuilder at 15/sec not flagged (below 3x threshold)', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {'StreamBuilder': 15},
+        totalPaintCount: 0,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+
+      expect(detector.issues, isEmpty,
+          reason: 'StreamBuilder at 15/sec < 30 (3x threshold of 10)');
+    });
+
+    test('StreamBuilder at 35/sec flagged with builder note', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {'StreamBuilder': 35},
+        totalPaintCount: 0,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.detail, contains('builder widget'));
+      expect(detector.issues.first.widgetName, 'StreamBuilder');
+    });
+
+    test('FutureBuilder at 25/sec not flagged', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {'FutureBuilder': 25},
+        totalPaintCount: 0,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+
+      expect(detector.issues, isEmpty);
+    });
+
+    test('non-builder widget still flagged at normal threshold', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {'MyWidget': 15, 'StreamBuilder': 15},
+        totalPaintCount: 0,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.widgetName, 'MyWidget');
+      expect(detector.issues.first.detail, isNot(contains('builder widget')));
+    });
+
+    testWidgets('enriched VM names path also applies builder multiplier',
+        (tester) async {
+      final fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
+      late DateTime now;
+      now = fakeNow;
+      final det = RebuildDetector(clock: () => now);
+      det.vmConnected = true;
+
+      // 20 StreamBuilder dirty names — below 3x threshold (30)
+      final dirtyNames = List.generate(20, (_) => 'StreamBuilder');
+      det.processTimelineData(ParsedTimelineData(
+        buildEventCount: 50,
+        phaseEvents: [
+          PhaseEvent(
+            phase: TimelinePhase.build,
+            timestampUs: 1000000,
+            durationUs: 5000,
+            dirtyList: dirtyNames,
+          ),
+        ],
+      ));
+      now = fakeNow.add(const Duration(seconds: 2));
+      det.processTimelineData(ParsedTimelineData(buildEventCount: 0));
+      det.evaluateNow();
+
+      // The aggregate build count (50) exceeds threshold, so VM issue fires.
+      // But StreamBuilder should NOT appear in highlights (below 3x threshold).
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: _TestStatefulWidget(),
+        ),
+      );
+      det.scanTree(tester.element(find.byType(Directionality)));
+
+      final streamHighlights =
+          det.highlights.where((h) => h.widgetName == 'StreamBuilder').toList();
+      expect(streamHighlights, isEmpty,
+          reason:
+              'StreamBuilder below 3x threshold should not produce highlights');
+    });
+  });
 }
 
 class _TestStatefulWidget extends StatefulWidget {

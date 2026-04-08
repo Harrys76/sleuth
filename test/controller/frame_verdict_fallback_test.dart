@@ -8,7 +8,9 @@ void main() {
     late SleuthController controller;
 
     setUp(() {
-      controller = SleuthController();
+      controller = SleuthController(
+        config: const SleuthConfig(frameTimingWarmupFrameCount: 0),
+      );
       controller.initializeDetectorsForTest();
     });
 

@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C594_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C631_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -201,8 +201,8 @@ Issues include a confidence level reflecting evidence quality:
 
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
-| Frame Timing | FrameTiming API | Frame exceeded budget | Confirmed | Cannot attribute to specific widget |
-| Network Monitor | HttpOverrides | Slow, excessive, oversized, or error-spiking HTTP requests | Confirmed | Only intercepts dart:io HttpClient (not package:http directly) |
+| Frame Timing | FrameTiming API | Frame exceeded budget, thread attribution (UI-bound/raster-bound/pipeline stall) | Confirmed | Cannot attribute to specific widget |
+| Network Monitor | HttpOverrides | Slow, excessive, oversized, error-spiking, or duplicate HTTP requests | Confirmed | Only intercepts dart:io HttpClient (not package:http directly) |
 
 ### VM-Only Detectors (require VM connection)
 
@@ -230,7 +230,7 @@ Issues include a confidence level reflecting evidence quality:
 | Layout Bottleneck | Render tree | IntrinsicHeight/Width present, Wrap with excessive children | Possible | Present does not mean slow. Framework-internal intrinsics (DropdownButton, AlertDialog) suppressed |
 | ListView | Element tree | Non-lazy list with many children | Possible | May be intentional for small lists. Catches ListView/GridView/SliverList non-builder constructors |
 | Image Memory | Element tree | Image without cacheWidth/Height | Possible | Images ≤50px suppressed — negligible memory savings |
-| GlobalKey | Element tree | Many GlobalKeys in scrollable | Possible | May be necessary for state preservation |
+| GlobalKey | Element tree | Many GlobalKeys in scrollable, cross-scan key recreation | Possible–Likely | May be necessary for state preservation |
 | Nested Scroll | Element tree | Scroll-inside-scroll pattern | Possible | NeverScrollableScrollPhysics and NestedScrollView automatically suppressed |
 | CustomPainter | Element tree | shouldRepaint always true | Possible | May be needed for animated painters |
 | Keep Alive | Element tree | Many keep-alive pages | Possible | Trade-off between memory and rebuild cost |
@@ -244,7 +244,7 @@ Issues include a confidence level reflecting evidence quality:
 - **Always on**: no separate tool window, no connection setup — performance data is visible as you use your app
 - **22 detectors**: structural anti-patterns (non-lazy lists, uncached images, excessive GlobalKeys, missing RepaintBoundary) that DevTools does not flag
 - **Causal issue graph**: links root causes to downstream effects — see why an issue matters, not just that it exists
-- **Network monitoring**: in-app detection of slow requests, request floods, oversized responses, HTTP error spikes, and network-to-frame correlation
+- **Network monitoring**: in-app detection of slow requests, request floods, oversized responses, HTTP error spikes, duplicate request clusters, and network-to-frame correlation
 - **Heap trend monitoring**: detects sustained memory growth and near-capacity conditions without heap snapshots
 - **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed
 - **Source-location enrichment**: ancestor chains include file:line in debug mode, linking issues directly to source code

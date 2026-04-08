@@ -12,14 +12,19 @@ class _ScrollableAccumulator {
   int count = 0;
 }
 
+/// Minimum churn count to report key recreation.
+const int _defaultRecreationThreshold = 5;
+
 /// Detects excessive GlobalKey usage inside scrollable widgets.
 ///
 /// **Structural Detector** — counts user-assigned GlobalKey instances on
 /// children of ListView, GridView, PageView per-scrollable (>threshold
 /// prevents element recycling).
 class GlobalKeyDetector extends BaseDetector {
-  GlobalKeyDetector({this.threshold = 20})
-      : super(
+  GlobalKeyDetector({
+    this.threshold = 20,
+    this.recreationThreshold = _defaultRecreationThreshold,
+  }) : super(
           type: DetectorType.globalKey,
           lifecycle: DetectorLifecycle.structural,
           name: 'Global Key',
@@ -27,6 +32,10 @@ class GlobalKeyDetector extends BaseDetector {
         );
 
   final int threshold;
+
+  /// Minimum symmetric key churn count to report recreation.
+  final int recreationThreshold;
+
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   bool _isEnabled = true;
@@ -68,22 +77,33 @@ class GlobalKeyDetector extends BaseDetector {
       _scrollableData = [];
   final List<_ScrollableAccumulator> _scrollableStack = [];
 
+  /// Cross-scan key identity tracking for recreation detection.
+  Set<int> _prevKeyIds = {};
+  final Set<int> _currentKeyIds = {};
+
   @override
   void prepareScan(BuildContext context) {
     _issues.clear();
     _highlights.clear();
     _scrollableData.clear();
     _scrollableStack.clear();
+    _currentKeyIds.clear();
   }
 
   @override
   void checkElement(Element element) {
     final widget = element.widget;
+    final key = widget.key;
+
+    // Collect identity hash for cross-scan recreation detection.
+    if (key is GlobalKey) {
+      _currentKeyIds.add(identityHashCode(key));
+    }
 
     // Count GlobalKey for all active scrollables BEFORE pushing, so the
     // scrollable's own key isn't counted for itself (matches current behavior
     // where _countUserGlobalKeys starts from scrollElement.visitChildren).
-    if (_scrollableStack.isNotEmpty && widget.key is GlobalKey) {
+    if (_scrollableStack.isNotEmpty && key is GlobalKey) {
       final name = widget.runtimeType.toString();
       if (!name.startsWith('_') && !frameworkWidgets.contains(name)) {
         for (final acc in _scrollableStack) {
@@ -155,6 +175,51 @@ class GlobalKeyDetector extends BaseDetector {
         );
       }
     }
+
+    // Cross-scan recreation detection: compare key identity sets.
+    _evaluateKeyRecreation();
+    _prevKeyIds = Set.of(_currentKeyIds);
+  }
+
+  /// Detect GlobalKey recreation by comparing identity sets across scans.
+  ///
+  /// Navigation causes asymmetric churn (mostly adds or mostly removes).
+  /// Recreation causes symmetric churn (keys disappear and new ones appear
+  /// in equal measure). Using min(new, gone) filters navigation from
+  /// rebuild-driven recreation.
+  void _evaluateKeyRecreation() {
+    if (_prevKeyIds.isEmpty) return;
+
+    final newKeys = _currentKeyIds.difference(_prevKeyIds);
+    final goneKeys = _prevKeyIds.difference(_currentKeyIds);
+    final churnCount =
+        newKeys.length < goneKeys.length ? newKeys.length : goneKeys.length;
+
+    if (churnCount < recreationThreshold) return;
+
+    final severity = churnCount >= recreationThreshold * 3
+        ? IssueSeverity.critical
+        : IssueSeverity.warning;
+
+    final (hint, effort) =
+        FixHintBuilder.globalKeyRecreation(churnCount: churnCount);
+
+    _issues.add(PerformanceIssue(
+      stableId: 'global_key_recreation',
+      severity: severity,
+      category: IssueCategory.build,
+      confidence: IssueConfidence.likely,
+      title: 'GlobalKey Recreation: $churnCount keys recreated between scans',
+      detail: '$churnCount GlobalKey instances were replaced with new '
+          'instances between scans. This usually means GlobalKeys are '
+          'created inside build() instead of being stored in State. '
+          'Recreated keys force full subtree rebuilds and prevent '
+          'element recycling.',
+      fixHint: hint,
+      fixEffort: effort,
+      observationSource: ObservationSource.structural,
+      detectedAt: DateTime.now(),
+    ));
   }
 
   @override
@@ -163,5 +228,7 @@ class GlobalKeyDetector extends BaseDetector {
     _highlights.clear();
     _scrollableData.clear();
     _scrollableStack.clear();
+    _prevKeyIds.clear();
+    _currentKeyIds.clear();
   }
 }
