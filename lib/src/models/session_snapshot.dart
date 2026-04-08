@@ -8,6 +8,7 @@ import 'heap_sample.dart';
 import 'performance_issue.dart';
 import 'phase_event.dart';
 import 'platform_channel_summary.dart';
+import 'widget_heat_map_entry.dart';
 
 /// A point-in-time snapshot of a sleuth session for export.
 class SessionSnapshot {
@@ -27,6 +28,8 @@ class SessionSnapshot {
     this.gcEvents,
     this.platformChannelEvents,
     this.recentFrames,
+    this.recurrenceTrends,
+    this.widgetHeatMap,
   });
 
   /// Schema version for forward-compatible parsing.
@@ -84,6 +87,15 @@ class SessionSnapshot {
   /// Null when no frames have been recorded.
   final List<FrameStats>? recentFrames;
 
+  /// Top widgets ranked by cumulative performance cost.
+  /// Null when no issues have widget attribution.
+  final List<WidgetHeatMapEntry>? widgetHeatMap;
+
+  /// Per-stableId recurrence trend summaries.
+  /// Each value is a summary map with trend direction, total occurrences,
+  /// and severity stats. Null when no recurrence data has been collected.
+  final Map<String, Map<String, dynamic>>? recurrenceTrends;
+
   Map<String, dynamic> toJson() => {
         'schemaVersion': schemaVersion,
         'exportedAt': exportedAt.toIso8601String(),
@@ -107,6 +119,10 @@ class SessionSnapshot {
               platformChannelEvents!.map((e) => e.toJson()).toList(),
         if (recentFrames != null && recentFrames!.isNotEmpty)
           'recentFrames': recentFrames!.map((f) => f.toJson()).toList(),
+        if (widgetHeatMap != null && widgetHeatMap!.isNotEmpty)
+          'widgetHeatMap': widgetHeatMap!.map((e) => e.toJson()).toList(),
+        if (recurrenceTrends != null && recurrenceTrends!.isNotEmpty)
+          'recurrenceTrends': recurrenceTrends,
       };
 
   /// Pretty-printed JSON string for export/sharing.
@@ -149,6 +165,17 @@ class SessionSnapshot {
             ? (json['recentFrames'] as List<dynamic>)
                 .map((e) => FrameStats.fromJson(e as Map<String, dynamic>))
                 .toList()
+            : null,
+        widgetHeatMap: json['widgetHeatMap'] != null
+            ? (json['widgetHeatMap'] as List<dynamic>)
+                .map((e) =>
+                    WidgetHeatMapEntry.fromJson(e as Map<String, dynamic>))
+                .toList()
+            : null,
+        recurrenceTrends: json['recurrenceTrends'] != null
+            ? (json['recurrenceTrends'] as Map<String, dynamic>).map(
+                (k, v) => MapEntry(k, v as Map<String, dynamic>),
+              )
             : null,
       );
 }

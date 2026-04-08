@@ -345,6 +345,107 @@ void main() {
       });
     });
 
+    group('keyboard/typing state', () {
+      testWidgets('onKeyboardVisibilityChanged sets typing on keyboard show',
+          (tester) async {
+        await tester.pumpWidget(_minimalApp);
+        expect(controller.interactionStateForTest, InteractionContext.idle);
+
+        controller.onKeyboardVisibilityChanged(visible: true);
+        expect(controller.interactionStateForTest, InteractionContext.typing);
+      });
+
+      testWidgets('typing returns to idle after keyboard hide debounce',
+          (tester) async {
+        await tester.pumpWidget(_minimalApp);
+        controller.onKeyboardVisibilityChanged(visible: true);
+        expect(controller.interactionStateForTest, InteractionContext.typing);
+
+        controller.onKeyboardVisibilityChanged(visible: false);
+        // Still typing (debounce not elapsed)
+        expect(controller.interactionStateForTest, InteractionContext.typing);
+
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(controller.interactionStateForTest, InteractionContext.idle);
+      });
+
+      testWidgets('typing has priority over scrolling', (tester) async {
+        await tester.pumpWidget(_minimalApp);
+        final ctx = tester.element(find.byType(Directionality));
+
+        // Start typing
+        controller.onKeyboardVisibilityChanged(visible: true);
+        expect(controller.interactionStateForTest, InteractionContext.typing);
+
+        // Scroll should NOT downgrade to scrolling
+        controller.onScrollActivity(_scrollStart(ctx));
+        expect(controller.interactionStateForTest, InteractionContext.typing);
+      });
+
+      testWidgets('navigating has priority over typing', (tester) async {
+        await tester.pumpWidget(_minimalApp);
+
+        // Navigate first
+        controller.interactionStateForTest = InteractionContext.navigating;
+
+        // Keyboard should NOT downgrade from navigating
+        controller.onKeyboardVisibilityChanged(visible: true);
+        expect(
+            controller.interactionStateForTest, InteractionContext.navigating);
+      });
+
+      testWidgets('typing context stamped on issues', (tester) async {
+        await tester.pumpWidget(_minimalApp);
+        final ctx = tester.element(find.byType(Directionality));
+
+        controller.onKeyboardVisibilityChanged(visible: true);
+        controller.runTreeScanForTest(ctx);
+
+        final issues = controller.issuesNotifier.value;
+        expect(issues, isNotEmpty);
+        expect(issues.first.interactionContext, InteractionContext.typing);
+      });
+    });
+
+    group('app lifecycle state', () {
+      test('onAppLifecycleChanged sets appLifecycle on pause', () {
+        controller.onAppLifecycleChanged(AppLifecycleState.paused);
+        expect(controller.interactionStateForTest,
+            InteractionContext.appLifecycle);
+      });
+
+      test('onAppLifecycleChanged sets appLifecycle on inactive', () {
+        controller.onAppLifecycleChanged(AppLifecycleState.inactive);
+        expect(controller.interactionStateForTest,
+            InteractionContext.appLifecycle);
+      });
+
+      test('onAppLifecycleChanged returns to idle on resume', () {
+        controller.onAppLifecycleChanged(AppLifecycleState.paused);
+        expect(controller.interactionStateForTest,
+            InteractionContext.appLifecycle);
+
+        controller.onAppLifecycleChanged(AppLifecycleState.resumed);
+        expect(controller.interactionStateForTest, InteractionContext.idle);
+      });
+
+      testWidgets('appLifecycle context stamped on issues', (tester) async {
+        await tester.pumpWidget(_minimalApp);
+        final ctx = tester.element(find.byType(Directionality));
+
+        // Produce issues
+        controller.runTreeScanForTest(ctx);
+
+        // Then background
+        controller.onAppLifecycleChanged(AppLifecycleState.paused);
+
+        final issues = controller.issuesNotifier.value;
+        expect(issues, isNotEmpty);
+        expect(
+            issues.first.interactionContext, InteractionContext.appLifecycle);
+      });
+    });
+
     group('overlay isolation', () {
       testWidgets('dashboard scroll does not trigger onScrollActivity',
           (tester) async {

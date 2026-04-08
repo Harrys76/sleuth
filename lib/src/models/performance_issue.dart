@@ -26,7 +26,10 @@ enum IssueCategory {
 enum IssueConfidence { confirmed, likely, possible }
 
 /// The user interaction state when an issue was observed.
-enum InteractionContext { idle, scrolling, navigating }
+///
+/// Priority ordering for overlapping states (highest wins):
+/// navigating > typing > scrolling > idle > appLifecycle
+enum InteractionContext { idle, scrolling, navigating, typing, appLifecycle }
 
 /// Identifies the data source that produced a detection, so the UI can show
 /// provenance and users can understand the strength of the evidence.
@@ -299,6 +302,8 @@ extension InteractionContextDisplay on InteractionContext {
         InteractionContext.idle => 'idle',
         InteractionContext.scrolling => 'scrolling',
         InteractionContext.navigating => 'route transition',
+        InteractionContext.typing => 'typing',
+        InteractionContext.appLifecycle => 'app lifecycle',
       };
 }
 

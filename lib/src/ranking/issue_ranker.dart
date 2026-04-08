@@ -93,8 +93,9 @@ class IssueRanker {
   int _score(PerformanceIssue issue, IssueRankingContext context) {
     var recurrence = _recurrenceScore(
         issue.stableId ?? issue.title, context.recurrenceCounts);
-    // Deprioritize scrolling-context issues — they're usually transient
-    if (issue.interactionContext == InteractionContext.scrolling) {
+    // Deprioritize transient-context issues
+    if (issue.interactionContext == InteractionContext.scrolling ||
+        issue.interactionContext == InteractionContext.appLifecycle) {
       recurrence = (recurrence * 0.7).round();
     }
     return (_severityScore(issue.severity) * 100) +
@@ -140,7 +141,8 @@ class IssueRanker {
       PerformanceIssue issue, IssueRankingContext context) {
     var recurrence = _recurrenceScore(
         issue.stableId ?? issue.title, context.recurrenceCounts);
-    if (issue.interactionContext == InteractionContext.scrolling) {
+    if (issue.interactionContext == InteractionContext.scrolling ||
+        issue.interactionContext == InteractionContext.appLifecycle) {
       recurrence = (recurrence * 0.7).round();
     }
     return {

@@ -49,6 +49,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'src/controller/sleuth_controller.dart';
+import 'src/models/fix_verification_result.dart';
 import 'src/models/session_snapshot.dart';
 import 'src/ui/sleuth_overlay.dart';
 
@@ -74,6 +75,10 @@ export 'src/models/gc_event_summary.dart';
 export 'src/models/heap_sample.dart';
 export 'src/models/phase_event.dart';
 export 'src/models/platform_channel_summary.dart';
+export 'src/models/recurrence_trend.dart';
+export 'src/models/widget_heat_map_entry.dart';
+export 'src/models/fix_verification_result.dart'
+    show FixVerificationResult, FixVerificationStatus, IssueVerificationEntry;
 export 'src/network/request_record.dart';
 export 'src/utils/fix_hint_builder.dart';
 
@@ -121,4 +126,20 @@ class Sleuth {
   /// Export session snapshot as a formatted JSON string.
   /// Returns null in release mode, before [wrap], or after overlay disposal.
   static String? exportSnapshotJson() => _controller?.exportSnapshotJson();
+
+  /// Capture a baseline of current issues for fix verification.
+  /// After applying a fix and hot-reloading, call [compareToBaseline]
+  /// to see which issues improved or resolved.
+  static void captureBaseline() => _controller?.captureBaseline();
+
+  /// Compare current issues against the captured baseline.
+  /// Returns null if no baseline was captured or in release mode.
+  static FixVerificationResult? compareToBaseline() =>
+      _controller?.compareToBaseline();
+
+  /// Whether a fix baseline has been captured.
+  static bool get hasBaseline => _controller?.hasBaseline ?? false;
+
+  /// Clear the fix verification baseline.
+  static void clearBaseline() => _controller?.clearBaseline();
 }

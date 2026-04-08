@@ -1,6 +1,6 @@
 ## v11 Detector Audit: Gaps, False Positives & Hot-Path Performance
 
-**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) shipped** ✅ (v0.10.5 / v0.10.6)
+**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7)
 
 Origin: Adversarial audit (2026-04-07) of 5 detectors (ListviewDetector, NestedScrollDetector, LayoutBottleneckDetector, SetStateScopeDetector, RepaintBoundaryDetector). Found 6 gaps and false positives across detection coverage, accuracy, and enrichment. All milestones implemented, adversarial-reviewed twice (8 fix-round findings resolved), 1,561 tests passing, 0 analysis issues.
 
@@ -658,4 +658,138 @@ Scope: All Pillar 2b changes in `sleuth_controller.dart` and `debug_instrumentat
 - `fvm flutter test` — 1,678 tests passing ✅
 - `fvm flutter analyze` — 0 issues ✅
 - All 4 milestones + 3 adversarial review fixes shipped
+
+---
+
+## Pillar 3a: Enrichment — Analysis & Tracking (v0.10.7)
+
+**Status: 5/5 milestones shipped** ✅
+
+Enrichment features that deepen diagnostic intelligence beyond per-frame detection:
+causal chain expansion, historical trending, interaction context enrichment, widget
+heat map aggregation, and fix verification.
+
+---
+
+### Pillar 3a.1: Expanded Causal Chain Rules
+
+**Effort:** Low | **Theme:** Enrichment | **Impact:** P1 — connects more root causes to downstream effects
+
+Added 15 new `CausalRule` entries (8 logical patterns) to `causal_graph.dart`:
+
+- `setstate_scope` → `rebuild_debug_*` (high setState scope causes widget rebuilds)
+- `uncached_images` → `gc_pressure` (uncached images stress GC)
+- `excessive_keep_alive:*` → `gc_pressure` (too many keep-alive pages stress GC)
+- `animated_builder_no_child` → `excessive_repaint` / `excessive_repaint_debug`
+- `layout_bottleneck` → `sustained_jank` / `jank_detected`
+- `runtime_font_loading` / `multiple_custom_fonts` → `sustained_jank` / `jank_detected`
+- `platform_channel_traffic` → `heavy_compute`
+- `duplicate_request:*` → `rebuild_activity` / `rebuild_debug_*`
+
+Total rule count: 37 → 52. 14 new tests.
+
+**Files modified:**
+- `lib/src/analyzer/causal_graph.dart` — 15 new rules, updated count comment
+- `test/analyzer/causal_graph_test.dart` — 14 new tests
+
+---
+
+### Pillar 3a.2: Historical Trending Time-Series
+
+**Effort:** Medium | **Theme:** Enrichment | **Impact:** P1 — enables trend-based insights (worsening/improving/intermittent)
+
+New `RecurrenceTrend` model: ring-buffered (capacity 60) per-issue presence/absence tracker.
+
+- `RecurrenceEntry(scanCycle, present, severity)` — individual data points
+- `TrendDirection` enum: worsening, improving, stable, intermittent
+- `computeTrend(window)` — compares severity average of first half vs second half; ≥3 transitions = intermittent
+- `isStale(currentScanCycle)` — evicts after 120 absent cycles
+- `toJson()` — summary-only (trend + counts, not raw ring buffer)
+- `SleuthController._recurrenceTrends` replaces flat `_recurrenceCounts`
+- `_updateRecurrence()` rewritten: records presence/absence per cycle, evicts stale entries
+- `_buildRankingContext()` derives recurrence counts from trends (filtered to present-only, clamped 0–5)
+- `recurrenceCountsForTest` backward-compatible: only returns entries where last entry is present
+
+**Files modified:**
+- `lib/src/models/recurrence_trend.dart` (new) — RecurrenceTrend, RecurrenceEntry, TrendDirection
+- `lib/src/controller/sleuth_controller.dart` — replaced _recurrenceCounts, rewrote _updateRecurrence
+- `test/models/recurrence_trend_test.dart` (new) — 19 tests
+
+---
+
+### Pillar 3a.3: Interaction Context Enrichment
+
+**Effort:** Medium | **Theme:** Enrichment | **Impact:** P1 — keyboard/typing and app lifecycle awareness for issue stamping
+
+- Added `typing` and `appLifecycle` to `InteractionContext` enum with priority ordering
+- `onKeyboardVisibilityChanged(visible)`: detects keyboard via `WidgetsBindingObserver.didChangeMetrics()`, viewInsets.bottom delta. Debounced hide→idle transition (300ms)
+- `onAppLifecycleChanged(AppLifecycleState)`: sets `appLifecycle` on paused/inactive, returns to idle on resumed
+- Priority guards: typing does not downgrade from navigating; scrolling does not downgrade from typing
+- `appLifecycle` deprioritized in ranking alongside `scrolling` (transient context)
+- Overlay: `_SleuthOverlayState` implements `WidgetsBindingObserver` with `didChangeMetrics()`, `didChangeAppLifecycleState()`, `reassemble()`
+
+**Files modified:**
+- `lib/src/models/performance_issue.dart` — added `typing`, `appLifecycle` to enum
+- `lib/src/controller/sleuth_controller.dart` — keyboard/lifecycle handlers, priority guards
+- `lib/src/ui/sleuth_overlay.dart` — WidgetsBindingObserver mixin, metric/lifecycle forwarding
+- `lib/src/ranking/issue_ranker.dart` — appLifecycle transient deprioritization
+- `test/controller/interaction_context_test.dart` — 8 new tests
+
+---
+
+### Pillar 3a.4: Widget Heat Map Aggregation
+
+**Effort:** Medium | **Theme:** Enrichment | **Impact:** P1 — surfaces "top offending" widgets by cumulative impact
+
+New `WidgetHeatMapEntry` model and `buildWidgetHeatMap()` function.
+
+- Aggregates issues by `widgetName`, computing issueCount, totalRankingScore, detectorStableIds, worstSeverity
+- Filters ~50 framework widget names (`_frameworkPrefixes`): layout primitives, scrollables, scaffold/chrome, builders, buttons, painting/clipping, sizing constraints, text
+- Sorted by totalRankingScore descending, capped at `maxEntries` (default 10)
+- Round-trip JSON serialization (toJson/fromJson)
+- Included in `SessionSnapshot` export as `widgetHeatMap`
+
+**Files modified:**
+- `lib/src/models/widget_heat_map_entry.dart` (new) — model, builder, framework filter
+- `lib/src/models/session_snapshot.dart` — added widgetHeatMap field + serialization
+- `lib/src/controller/sleuth_controller.dart` — exportSnapshot includes heat map
+- `lib/sleuth.dart` — export widget_heat_map_entry.dart
+- `test/models/widget_heat_map_test.dart` (new) — 9 tests
+
+---
+
+### Pillar 3a.5: Fix Verification
+
+**Effort:** Medium | **Theme:** Enrichment | **Impact:** P1 — enables objective before/after comparison for performance fixes
+
+- `FixBaseline`: captures per-issue snapshots (severity, rankingScore), tracks consecutiveAbsentCycles per stableId
+- `FixVerificationResult`: comparison result with per-issue `IssueVerificationEntry` categorized as resolved/improved/unchanged/worsened/newIssue
+- Resolution requires 5 consecutive absent cycles (cooldown)
+- Severity comparison: lower severity or score delta < -10 = improved; higher or > +10 = worsened
+- 3-cycle hot-reload grace period: `notifyReassemble()` resets grace counter and clears absence counters
+- Public API: `Sleuth.captureBaseline()`, `Sleuth.compareToBaseline()`, `Sleuth.hasBaseline`, `Sleuth.clearBaseline()`
+
+**Files modified:**
+- `lib/src/models/fix_verification_result.dart` (new) — FixBaseline, FixVerificationResult, BaselineIssueSnapshot, captureFixBaseline()
+- `lib/src/controller/sleuth_controller.dart` — baseline state, grace period, notifyReassemble
+- `lib/src/ui/sleuth_overlay.dart` — reassemble() forwarding
+- `lib/sleuth.dart` — exports + static API methods
+- `test/models/fix_verification_test.dart` (new) — 12 tests
+
+---
+
+## Adversarial Review Findings (Pillar 3a)
+
+| # | Type | Component | Finding | Resolution |
+|---|------|-----------|---------|------------|
+| 1 | Bug | `widget_heat_map_entry.dart` | `_frameworkPrefixes` missing ListView, GridView, Scaffold, AppBar, buttons, etc. | Added 18 framework widgets across scrollable, scaffold/chrome, and button categories |
+| 2 | Bug | `sleuth_controller.dart` | `notifyReassemble()` sets grace period but doesn't reset absence counters — false resolution after hot reload | Added `_fixBaseline!.consecutiveAbsentCycles.clear()` in `notifyReassemble()` |
+
+---
+
+## Verification (Pillar 3a)
+
+- `fvm flutter test` — 1,741 tests passing ✅
+- `fvm flutter analyze` — 0 issues ✅
+- All 5 milestones + 2 adversarial review fixes shipped
 - All roadmaps complete: v7 (10/10), v8 (5/5), v9 (17/17), v10 (12/12), v11 (19/19), Pillar 2a (3/3), Pillar 2b (4/4)

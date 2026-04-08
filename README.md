@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C678_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C741_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -170,6 +170,31 @@ config: SleuthConfig(
 
 Built-in adapters automatically exclude their provider URLs from network monitoring. When no adapter is configured, the "Ask AI" link is hidden.
 
+## Fix Verification
+
+Capture a baseline of current issues, apply a fix, and compare to see what improved:
+
+```dart
+// 1. Capture baseline before fixing
+Sleuth.captureBaseline();
+
+// 2. Apply your fix, hot-reload
+
+// 3. Compare after a few scan cycles
+final result = Sleuth.compareToBaseline();
+if (result != null) {
+  print('Resolved: ${result.resolved.length}');
+  print('Improved: ${result.improved.length}');
+  print('Worsened: ${result.worsened.length}');
+  print('New issues: ${result.newIssues.length}');
+}
+
+// 4. Clear when done
+Sleuth.clearBaseline();
+```
+
+Issues are marked "resolved" only after being absent for 5 consecutive scan cycles (cooldown). Hot-reload triggers a 3-cycle grace period to avoid false resolution reports during reload transients.
+
 ## Session Export
 
 Export captured jank data and current issues as JSON for sharing or comparison:
@@ -184,7 +209,9 @@ final json = Sleuth.exportSnapshotJson();
 
 The dashboard also includes an export button that copies the JSON snapshot to the clipboard.
 
-Returns `null` in release mode, before `wrap()` is called, or after overlay disposal.
+Exports include recurrence trends (per-issue worsening/improving/stable/intermittent) and widget heat map (top offending widgets by cumulative ranking score).
+
+Returns `null` in release mode, before `track()` is called, or after overlay disposal.
 
 ## Confidence Levels
 
@@ -244,7 +271,10 @@ Issues include a confidence level reflecting evidence quality:
 
 - **Always on**: no separate tool window, no connection setup — performance data is visible as you use your app
 - **22 detectors**: structural anti-patterns (non-lazy lists, uncached images, excessive GlobalKeys, missing RepaintBoundary) that DevTools does not flag
-- **Causal issue graph**: links root causes to downstream effects — see why an issue matters, not just that it exists
+- **Causal issue graph**: 52 rules linking root causes to downstream effects — see why an issue matters, not just that it exists
+- **Fix verification**: capture baseline → fix → compare. Cooldown-based resolution with hot-reload grace period
+- **Historical trending**: per-issue recurrence time-series tracks worsening/improving/stable/intermittent patterns across scan cycles
+- **Widget heat map**: "top offenders" ranking aggregates issues by widget, filtering framework internals
 - **Network monitoring**: in-app detection of slow requests, request floods, oversized responses, HTTP error spikes, duplicate request clusters, and network-to-frame correlation
 - **Heap trend monitoring**: detects sustained memory growth and near-capacity conditions without heap snapshots
 - **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed

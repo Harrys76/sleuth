@@ -787,4 +787,286 @@ void main() {
       expect(result[1].rootCauseId, 'missing_repaint_boundary');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Pillar 3a: New causal patterns (v0.10.7)
+  // ---------------------------------------------------------------------------
+
+  group('Pillar 3a causal chains', () {
+    test('setstate_scope → rebuild_debug_* (non-merged rebuild)', () {
+      final issues = [
+        makeIssue(
+          stableId: 'setstate_scope',
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'rebuild_debug_Column',
+          confidence: IssueConfidence.likely,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['rebuild_debug_Column']);
+      expect(result[1].rootCauseId, 'setstate_scope');
+    });
+
+    test('uncached_images → gc_pressure', () {
+      final issues = [
+        makeIssue(
+          stableId: 'uncached_images',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'gc_pressure',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['gc_pressure']);
+      expect(result[1].rootCauseId, 'uncached_images');
+    });
+
+    test('excessive_keep_alive:* → gc_pressure', () {
+      final issues = [
+        makeIssue(
+          stableId: 'excessive_keep_alive:0',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'gc_pressure',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['gc_pressure']);
+      expect(result[1].rootCauseId, 'excessive_keep_alive:0');
+    });
+
+    test('animated_builder_no_child → excessive_repaint', () {
+      final issues = [
+        makeIssue(
+          stableId: 'animated_builder_no_child',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'excessive_repaint',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['excessive_repaint']);
+      expect(result[1].rootCauseId, 'animated_builder_no_child');
+    });
+
+    test('animated_builder_no_child → excessive_repaint_debug', () {
+      final issues = [
+        makeIssue(
+          stableId: 'animated_builder_no_child',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'excessive_repaint_debug',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['excessive_repaint_debug']);
+      expect(result[1].rootCauseId, 'animated_builder_no_child');
+    });
+
+    test('layout_bottleneck → sustained_jank', () {
+      final issues = [
+        makeIssue(
+          stableId: 'layout_bottleneck',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'sustained_jank',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['sustained_jank']);
+      expect(result[1].rootCauseId, 'layout_bottleneck');
+    });
+
+    test('layout_bottleneck → jank_detected', () {
+      final issues = [
+        makeIssue(
+          stableId: 'layout_bottleneck',
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'jank_detected',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['jank_detected']);
+      expect(result[1].rootCauseId, 'layout_bottleneck');
+    });
+
+    test('runtime_font_loading → sustained_jank', () {
+      final issues = [
+        makeIssue(
+          stableId: 'runtime_font_loading',
+          category: IssueCategory.font,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'sustained_jank',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['sustained_jank']);
+      expect(result[1].rootCauseId, 'runtime_font_loading');
+    });
+
+    test('multiple_custom_fonts → jank_detected', () {
+      final issues = [
+        makeIssue(
+          stableId: 'multiple_custom_fonts',
+          category: IssueCategory.font,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'jank_detected',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['jank_detected']);
+      expect(result[1].rootCauseId, 'multiple_custom_fonts');
+    });
+
+    test('platform_channel_traffic → heavy_compute', () {
+      final issues = [
+        makeIssue(
+          stableId: 'platform_channel_traffic',
+          category: IssueCategory.channel,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'heavy_compute',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['heavy_compute']);
+      expect(result[1].rootCauseId, 'platform_channel_traffic');
+    });
+
+    test('duplicate_request:* → rebuild_activity', () {
+      final issues = [
+        makeIssue(
+          stableId: 'duplicate_request:0',
+          category: IssueCategory.network,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          confidence: IssueConfidence.likely,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['rebuild_activity']);
+      expect(result[1].rootCauseId, 'duplicate_request:0');
+    });
+
+    test('duplicate_request:* → rebuild_debug_*', () {
+      final issues = [
+        makeIssue(
+          stableId: 'duplicate_request:0',
+          category: IssueCategory.network,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'rebuild_debug_MyWidget',
+          confidence: IssueConfidence.likely,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['rebuild_debug_MyWidget']);
+      expect(result[1].rootCauseId, 'duplicate_request:0');
+    });
+
+    test('no false chain when only one side present', () {
+      // Only platform_channel_traffic, no heavy_compute → no chain
+      final issues = [
+        makeIssue(
+          stableId: 'platform_channel_traffic',
+          category: IssueCategory.channel,
+        ),
+        makeIssue(
+          stableId: 'gc_pressure',
+          category: IssueCategory.memory,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      for (final issue in result) {
+        expect(issue.rootCauseId, isNull);
+        expect(issue.downstreamIds, isNull);
+      }
+    });
+
+    test('multiple new rules fire simultaneously without cycles', () {
+      final issues = [
+        makeIssue(
+          stableId: 'uncached_images',
+          category: IssueCategory.memory,
+          severity: IssueSeverity.warning,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'gc_pressure',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'layout_bottleneck',
+          category: IssueCategory.layout,
+          severity: IssueSeverity.warning,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'sustained_jank',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      // Two independent chains should coexist
+      expect(result, hasLength(4));
+      final uncached =
+          result.firstWhere((i) => i.stableId == 'uncached_images');
+      expect(uncached.downstreamIds, contains('gc_pressure'));
+
+      final layout =
+          result.firstWhere((i) => i.stableId == 'layout_bottleneck');
+      expect(layout.downstreamIds, contains('sustained_jank'));
+    });
+  });
 }

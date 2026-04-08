@@ -1,3 +1,43 @@
+## 0.10.7
+
+Pillar 3a: Enrichment — analysis & tracking features that deepen diagnostic intelligence
+beyond per-frame detection.
+
+### Enrichment — Analysis & Tracking (Pillar 3a)
+
+- **Expanded causal chain rules**: 15 new `CausalRule` entries (8 logical patterns) linking
+  setState→rebuild, uncached images→GC pressure, animated builder→repaint, layout bottleneck→jank,
+  font loading→jank, platform channel→heavy compute, and duplicate requests→rebuilds. Total rules:
+  37→52.
+- **Historical trending time-series** (`RecurrenceTrend`): Ring-buffered (capacity 60) per-issue
+  presence/absence tracker with `TrendDirection` computation (worsening/improving/stable/intermittent).
+  Replaces flat `_recurrenceCounts` map. Stale eviction after 120 absent cycles. Exported in
+  session snapshots as summary-only (trend + counts, not raw ring buffer).
+- **Interaction context enrichment**: Added `typing` and `appLifecycle` to `InteractionContext`.
+  Keyboard detection via `WidgetsBindingObserver.didChangeMetrics()` with debounced transitions.
+  App lifecycle forwarding via `didChangeAppLifecycleState()`. Priority ordering:
+  navigating > typing > scrolling > idle > appLifecycle. `appLifecycle` deprioritized in ranking
+  alongside `scrolling`.
+- **Widget heat map aggregation** (`WidgetHeatMapEntry`): Lazy per-widget issue aggregation for
+  "top offenders" ranking. Filters ~50 framework widget names (layout primitives, scrollables,
+  scaffold/chrome, builders, buttons). Sorted by cumulative ranking score. Exported in session
+  snapshots.
+- **Fix verification** (`FixBaseline`, `FixVerificationResult`): Manual baseline capture with
+  5-cycle cooldown before declaring issues resolved. 3-cycle hot-reload grace period (resets
+  absence counters on reassemble). Per-issue status: resolved/improved/unchanged/worsened/newIssue.
+  Public API: `Sleuth.captureBaseline()`, `Sleuth.compareToBaseline()`, `Sleuth.hasBaseline`,
+  `Sleuth.clearBaseline()`.
+
+### Adversarial Review Findings (Pillar 3a)
+
+- **Incomplete framework widget filter**: `_frameworkPrefixes` was missing common widgets
+  (ListView, GridView, Scaffold, AppBar, buttons, etc.) — heat map could surface framework
+  widgets as "top offenders". Fixed by adding 18 additional framework widget names across
+  scrollables, scaffold/chrome, and button categories.
+- **Grace period not resetting baseline counters**: `notifyReassemble()` set the grace period
+  but did not clear `consecutiveAbsentCycles` — hot reload after 4 absent cycles + 1 more
+  could falsely report an issue as resolved. Fixed by clearing absence counters on reassemble.
+
 ## 0.10.6
 
 Pillar 2b: Resource management — reduce CPU, memory, and GC pressure from Sleuth's own

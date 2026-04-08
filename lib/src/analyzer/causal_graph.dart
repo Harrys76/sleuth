@@ -36,7 +36,7 @@ class CausalGraphRule extends CorrelationRule {
   @override
   String get name => 'CausalGraph';
 
-  // 37 causal rules. Order doesn't matter — all are evaluated, and the
+  // 52 causal rules. Order doesn't matter — all are evaluated, and the
   // graph is built from the full edge set.
   static const _causalRules = <CausalRule>[
     // setState-triggered chains (rebuild intermediate absorbed by Rule 2)
@@ -97,6 +97,39 @@ class CausalGraphRule extends CorrelationRule {
     CausalRule('slow_request', 'heavy_compute'),
     CausalRule('request_frequency', 'rebuild_activity'),
     CausalRule('http_error_spike', 'request_frequency'),
+
+    // --- Pillar 3a: 8 new causal patterns (v0.10.7) ---
+
+    // setState scope → excessive rebuilds (complements merge rule —
+    // catches rebuild_debug_* variants NOT consumed by MergeRebuildSetStateRule)
+    CausalRule('setstate_scope', 'rebuild_debug_*'),
+
+    // Uncached images → GC pressure (complements existing → heap_growing/heap_near_capacity)
+    CausalRule('uncached_images', 'gc_pressure'),
+
+    // Keep-alive → GC pressure (complements existing → heap_growing/heap_near_capacity)
+    CausalRule('excessive_keep_alive:*', 'gc_pressure'),
+
+    // AnimatedBuilder without child → excessive repaints
+    CausalRule('animated_builder_no_child', 'excessive_repaint'),
+    CausalRule('animated_builder_no_child', 'excessive_repaint_debug'),
+
+    // Layout bottleneck → frame jank
+    CausalRule('layout_bottleneck', 'sustained_jank'),
+    CausalRule('layout_bottleneck', 'jank_detected'),
+
+    // Font loading → frame jank
+    CausalRule('runtime_font_loading', 'sustained_jank'),
+    CausalRule('runtime_font_loading', 'jank_detected'),
+    CausalRule('multiple_custom_fonts', 'sustained_jank'),
+    CausalRule('multiple_custom_fonts', 'jank_detected'),
+
+    // Platform channel traffic → compute pressure
+    CausalRule('platform_channel_traffic', 'heavy_compute'),
+
+    // Duplicate requests → rebuilds
+    CausalRule('duplicate_request:*', 'rebuild_activity'),
+    CausalRule('duplicate_request:*', 'rebuild_debug_*'),
   ];
 
   @override

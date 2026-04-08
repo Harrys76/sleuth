@@ -53,7 +53,10 @@ import '../models/frame_verdict.dart';
 import '../models/performance_issue.dart';
 import '../models/phase_event.dart';
 import '../models/platform_channel_summary.dart';
+import '../models/fix_verification_result.dart';
+import '../models/recurrence_trend.dart';
 import '../models/session_snapshot.dart';
+import '../models/widget_heat_map_entry.dart';
 import '../models/widget_highlight.dart';
 import '../network/http_monitor.dart';
 import '../ranking/issue_ranker.dart';
@@ -105,7 +108,14 @@ class SleuthController {
   // Ranking & correlation
   final DetectorCorrelator _detectorCorrelator = const DetectorCorrelator();
   final IssueRanker _ranker = const IssueRanker();
-  final Map<String, int> _recurrenceCounts = {};
+  final Map<String, RecurrenceTrend> _recurrenceTrends = {};
+  int _scanCycleIndex = 0;
+
+  // Fix verification baseline (Pillar 3a)
+  FixBaseline? _fixBaseline;
+  int _postReassembleGraceCycles = 0;
+  static const _reassembleGraceCycles = 3;
+  static const _fixCooldownCycles = 5;
 
   // Cached verdict phase for ranking context (v9.2)
   PipelinePhase? _lastVerdictPhase;
@@ -122,6 +132,8 @@ class SleuthController {
   // Interaction context
   InteractionContext _interactionState = InteractionContext.idle;
   Timer? _scrollIdleTimer;
+  Timer? _typingIdleTimer;
+  bool _keyboardVisible = false;
 
   // Allocation enrichment
   DateTime? _lastAllocationEnrichmentTime;
@@ -580,9 +592,23 @@ class SleuthController {
   void addFrameForTest(FrameStats stats) => _frameTiming.addFrameForTest(stats);
 
   /// Exposes recurrence counts for testing ranking integration.
+  /// Only includes currently-present issues (last entry was present),
+  /// matching the old `Map<String, int>` semantics.
   @visibleForTesting
-  Map<String, int> get recurrenceCountsForTest =>
-      Map.unmodifiable(_recurrenceCounts);
+  Map<String, int> get recurrenceCountsForTest => {
+        for (final e in _recurrenceTrends.entries)
+          if (e.value.entries.isNotEmpty && e.value.entries.last.present)
+            e.key: e.value.presentCount,
+      };
+
+  /// Exposes recurrence trends for testing historical trending.
+  @visibleForTesting
+  Map<String, RecurrenceTrend> get recurrenceTrendsForTest =>
+      Map.unmodifiable(_recurrenceTrends);
+
+  /// Current scan cycle index (for testing).
+  @visibleForTesting
+  int get scanCycleIndexForTest => _scanCycleIndex;
 
   /// Current adaptive scan interval in milliseconds (for testing).
   @visibleForTesting
@@ -739,11 +765,58 @@ class SleuthController {
           ? List.unmodifiable(_platformChannelBuffer)
           : null,
       recentFrames: frames.isNotEmpty ? List.unmodifiable(frames) : null,
+      recurrenceTrends: _recurrenceTrends.isNotEmpty
+          ? {
+              for (final e in _recurrenceTrends.entries)
+                e.key: e.value.toJson(),
+            }
+          : null,
+      widgetHeatMap: rankedWithScores.isNotEmpty
+          ? buildWidgetHeatMap(rankedWithScores)
+          : null,
     );
   }
 
   /// Export session snapshot as a formatted JSON string.
   String exportSnapshotJson() => exportSnapshot().toJsonString();
+
+  /// Capture a baseline of current issues for fix verification.
+  ///
+  /// After making a code change and hot-reloading, call [compareToBaseline]
+  /// to see which issues were resolved, improved, or worsened.
+  void captureBaseline() {
+    _fixBaseline = captureFixBaseline(issuesNotifier.value);
+  }
+
+  /// Compare current issues against the captured baseline.
+  ///
+  /// Returns null if no baseline has been captured.
+  /// Uses a 5-cycle cooldown before declaring an issue "resolved"
+  /// to avoid false positives from intermittent issues.
+  FixVerificationResult? compareToBaseline() {
+    final baseline = _fixBaseline;
+    if (baseline == null) return null;
+    return baseline.compare(
+      issuesNotifier.value,
+      cooldownCycles: _fixCooldownCycles,
+    );
+  }
+
+  /// Whether a fix baseline has been captured.
+  bool get hasBaseline => _fixBaseline != null;
+
+  /// Clear the fix verification baseline.
+  void clearBaseline() => _fixBaseline = null;
+
+  /// Notify the controller that a hot reload (reassemble) occurred.
+  /// Activates a grace period where fix verification absence tracking
+  /// is paused, preventing false "resolved" reports from tree-reset artifacts.
+  void notifyReassemble() {
+    if (_fixBaseline != null) {
+      _postReassembleGraceCycles = _reassembleGraceCycles;
+      _fixBaseline!.consecutiveAbsentCycles.clear();
+    }
+  }
 
   /// The overlay element — set by the overlay widget.
   BuildContext? _overlayContext;
@@ -1178,6 +1251,8 @@ class SleuthController {
   /// sleuth UI are excluded.
   void onScrollActivity(ScrollNotification notification) {
     if (_interactionState == InteractionContext.navigating) return;
+    // Typing has priority over scrolling — don't downgrade
+    if (_interactionState == InteractionContext.typing) return;
     if (notification is ScrollStartNotification) {
       _scrollIdleTimer?.cancel();
       if (_interactionState != InteractionContext.scrolling) {
@@ -1190,6 +1265,44 @@ class SleuthController {
         _interactionState = InteractionContext.idle;
         _aggregateIssues();
       });
+    }
+  }
+
+  /// Update interaction state when keyboard visibility changes.
+  ///
+  /// Called by the overlay's [WidgetsBindingObserver.didChangeMetrics]
+  /// when viewport insets change (keyboard appearing/disappearing).
+  void onKeyboardVisibilityChanged({required bool visible}) {
+    if (_interactionState == InteractionContext.navigating) return;
+    if (visible && !_keyboardVisible) {
+      _keyboardVisible = true;
+      _typingIdleTimer?.cancel();
+      // Typing takes priority over scrolling (priority ordering)
+      _interactionState = InteractionContext.typing;
+      _aggregateIssues();
+    } else if (!visible && _keyboardVisible) {
+      _keyboardVisible = false;
+      _typingIdleTimer?.cancel();
+      _typingIdleTimer = Timer(const Duration(milliseconds: 300), () {
+        if (_interactionState == InteractionContext.typing) {
+          _interactionState = InteractionContext.idle;
+          _aggregateIssues();
+        }
+      });
+    }
+  }
+
+  /// Update interaction state for app lifecycle transitions.
+  ///
+  /// Called by the overlay's [WidgetsBindingObserver.didChangeAppLifecycleState].
+  void onAppLifecycleChanged(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _interactionState = InteractionContext.appLifecycle;
+      _aggregateIssues();
+    } else if (state == AppLifecycleState.resumed) {
+      _interactionState = InteractionContext.idle;
+      _aggregateIssues();
     }
   }
 
@@ -1823,21 +1936,60 @@ class SleuthController {
     return IssueRankingContext(
       jankActive: jankActive,
       suspectedPhase: phase,
-      recurrenceCounts: _recurrenceCounts,
+      recurrenceCounts: {
+        for (final e in _recurrenceTrends.entries)
+          if (e.value.entries.isNotEmpty && e.value.entries.last.present)
+            e.key: e.value.presentCount.clamp(0, 5),
+      },
     );
   }
 
-  /// Increment recurrence for present issues, remove absent ones.
+  /// Record presence/absence for each issue in the recurrence time-series.
   /// Called only from the scan path to keep rates consistent across lifecycles.
   void _updateRecurrence(List<PerformanceIssue> currentIssues) {
+    _scanCycleIndex++;
     final currentIds = <String>{};
     for (final issue in currentIssues) {
       final id = issue.stableId ?? issue.title;
       currentIds.add(id);
-      _recurrenceCounts[id] = (_recurrenceCounts[id] ?? 0) + 1;
+      final trend = _recurrenceTrends.putIfAbsent(id, RecurrenceTrend.new);
+      trend.recordPresent(
+        _scanCycleIndex,
+        severityIndex: _severityToIndex(issue.severity),
+      );
     }
-    _recurrenceCounts.removeWhere((id, _) => !currentIds.contains(id));
+    // Record absence for tracked issues not in current scan
+    for (final entry in _recurrenceTrends.entries) {
+      if (!currentIds.contains(entry.key)) {
+        entry.value.recordAbsent(_scanCycleIndex);
+      }
+    }
+    // Evict stale entries (unseen for 120+ cycles)
+    _recurrenceTrends.removeWhere((_, trend) => trend.isStale(_scanCycleIndex));
+
+    // Update fix baseline absence/presence tracking
+    final baseline = _fixBaseline;
+    if (baseline != null) {
+      // Skip tracking during post-hot-reload grace period
+      if (_postReassembleGraceCycles > 0) {
+        _postReassembleGraceCycles--;
+        return;
+      }
+      for (final id in baseline.issueSnapshots.keys) {
+        if (currentIds.contains(id)) {
+          baseline.recordPresence(id);
+        } else {
+          baseline.recordAbsence(id);
+        }
+      }
+    }
   }
+
+  static int _severityToIndex(IssueSeverity s) => switch (s) {
+        IssueSeverity.critical => 3,
+        IssueSeverity.warning => 2,
+        IssueSeverity.ok => 1,
+      };
 
   List<PerformanceIssue> _getAllIssues() {
     if (_cachedIssueGeneration == _issueGeneration &&
@@ -1926,10 +2078,11 @@ class SleuthController {
     _disposed = true;
     _treeScanTimer?.cancel();
     _scrollIdleTimer?.cancel();
+    _typingIdleTimer?.cancel();
     _overlayContext = null;
     _lastScanContext = null;
     _appChildContext = null;
-    _recurrenceCounts.clear();
+    _recurrenceTrends.clear();
     _captureBuffer.clear();
     _phaseEventBuffer.clear();
     _gcEventBuffer.clear();

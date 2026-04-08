@@ -27,19 +27,45 @@ class SleuthOverlay extends StatefulWidget {
   State<SleuthOverlay> createState() => _SleuthOverlayState();
 }
 
-class _SleuthOverlayState extends State<SleuthOverlay> {
+class _SleuthOverlayState extends State<SleuthOverlay>
+    with WidgetsBindingObserver {
   bool _dashboardOpen = false;
+  double _lastBottomInset = 0;
 
   @override
   void initState() {
     super.initState();
     if (!kReleaseMode) {
+      WidgetsBinding.instance.addObserver(this);
       widget.controller.initialize().then((_) {
         if (mounted) {
           widget.controller.startTreeScanning(context);
         }
       });
     }
+  }
+
+  @override
+  void didChangeMetrics() {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final bottomInset = view.viewInsets.bottom / view.devicePixelRatio;
+    if (bottomInset > 0 && _lastBottomInset == 0) {
+      widget.controller.onKeyboardVisibilityChanged(visible: true);
+    } else if (bottomInset == 0 && _lastBottomInset > 0) {
+      widget.controller.onKeyboardVisibilityChanged(visible: false);
+    }
+    _lastBottomInset = bottomInset;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    widget.controller.onAppLifecycleChanged(state);
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    widget.controller.notifyReassemble();
   }
 
   @override
@@ -133,6 +159,7 @@ class _SleuthOverlayState extends State<SleuthOverlay> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     Sleuth.notifyControllerDisposed(widget.controller);
     widget.controller.dispose();
     super.dispose();
