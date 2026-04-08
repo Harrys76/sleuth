@@ -1,6 +1,6 @@
 ## v11 Detector Audit: Gaps, False Positives & Hot-Path Performance
 
-**Status: 19/19 milestones + Pillar 2a (3 milestones) shipped** ✅ (v0.10.5)
+**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) shipped** ✅ (v0.10.5 / v0.10.6)
 
 Origin: Adversarial audit (2026-04-07) of 5 detectors (ListviewDetector, NestedScrollDetector, LayoutBottleneckDetector, SetStateScopeDetector, RepaintBoundaryDetector). Found 6 gaps and false positives across detection coverage, accuracy, and enrichment. All milestones implemented, adversarial-reviewed twice (8 fix-round findings resolved), 1,561 tests passing, 0 analysis issues.
 
@@ -562,3 +562,100 @@ and not element-type batching (negligible after toString fix).
 - `fvm flutter test` — 1,657 tests passing ✅
 - `fvm flutter analyze` — 0 issues ✅
 - Adversarial review completed, all findings resolved
+
+---
+
+## Pillar 2b: Performance — Resource Management
+
+**Status: 4/4 milestones shipped + adversarial review complete** (v0.10.6)
+
+Reduces Sleuth's own CPU, memory, and GC pressure when the app is healthy. Follows Pillar 2a (hot-path performance, v0.10.5) which targeted tree walk allocations. Pillar 2b targets idle overhead — the cost Sleuth pays when it's running but the app has no issues.
+
+**Area 10 (Encyclopedia precomputation) was skipped** — `IssueExplanationBuilder._explanations` is already a `static const Map` with O(1) lookup and zero runtime allocations. <1% overhead.
+
+---
+
+### M7: Debug Callback TypeNameCache (smallest scope, shipped first)
+
+**Problem:** `_handleRebuildDirtyWidget` and `_handleProfilePaint` in `DebugInstrumentationCoordinator` call `element.widget.runtimeType.toString()` per rebuild/paint callback. At 1,000 rebuilds/sec, that's 1,000 string allocations/sec. The global `TypeNameCache` (Pillar 2a M1) is cleared every scan cycle, so it can't be reused for continuous-callback paths.
+
+**Solution:** Private `Map<Type, String> _typeNames` inside coordinator. Never cleared between snapshots (persists for maximum hit rate, bounded by unique widget types ~50–200). Only cleared in `dispose()`.
+
+**Files modified:**
+- `lib/src/debug/debug_instrumentation_coordinator.dart` — `_typeNames` map, `_typeName()` helper, 2 call site replacements, `dispose()` clear
+- `test/debug/debug_instrumentation_coordinator_test.dart` — 2 tests: cache avoids repeated allocations, cache persists across snapshot windows
+
+---
+
+### M4: Adaptive Scan Frequency (highest CPU impact)
+
+**Problem:** Fixed `Timer.periodic(1000ms)` in `startTreeScanning()` fires every second regardless of app health. On a 3,000-element app, each scan costs ~80ms. When the app is healthy (0 issues), this is wasted CPU.
+
+**Solution:** Replaced `Timer.periodic` with self-rescheduling `Timer`. Backs off to `min(treeScanIntervalMs * 2, 2000ms)` after 3 consecutive clean (zero-issue) scan cycles. Returns to normal interval immediately when issues appear. `FrameTiming` callbacks and VM timeline processing remain event-driven and unaffected.
+
+**Config:** `SleuthConfig.adaptiveScanEnabled` (default `true`). Set `false` for fixed interval.
+
+**Design decisions:**
+- Only the tree walk timer is adaptive. Frame timing and VM timeline are event-driven — zero added latency.
+- `RebuildDetector._hotTypes` normalizes to per-second rates via `DebugSnapshot.elapsed`, so longer intervals preserve accuracy.
+- 3-consecutive threshold prevents thrashing on issue flicker.
+- Max 2000ms cap bounds worst-case detection latency.
+
+**Files modified:**
+- `lib/src/controller/sleuth_controller.dart` — `_consecutiveCleanScans`, `_currentScanIntervalMs`, `_scheduleNextScan()`, `SleuthConfig.adaptiveScanEnabled`
+- `test/controller/adaptive_scan_test.dart` (new) — 7 tests: back-off, return-to-normal, flicker debounce, opt-out, small/large interval caps, dispose safety
+
+---
+
+### M5: Issue Allocation Reduction
+
+**Problem:** `_getAllIssues()` creates a new list via `[for (d in _detectors) ...d.issues]` and is called 4+ times during timeline data arrival. Each call allocates a fresh list even when no detector has produced new issues.
+
+**Solution:** Generation-counter cache. `_issueGeneration` increments when detectors produce fresh issues (after structural scans, timeline evaluateNow, and frame stats updates). `_getAllIssues()` returns the cached list when `_cachedIssueGeneration == _issueGeneration`.
+
+**Stamp-skip optimization (Part A) was rejected:** Detectors recreate fresh unstamped issues each `finalizeScan()`, so `copyWith` is always needed for route/interaction/debugMode stamping.
+
+**Files modified:**
+- `lib/src/controller/sleuth_controller.dart` — `_issueGeneration`, `_cachedIssueGeneration`, `_cachedAllIssues`, generation increments in 3 code paths
+- `test/controller/issue_allocation_test.dart` (new) — 4 tests: cache reuse, fresh list after scan, generation independence, cache + adaptive tracking interaction
+
+---
+
+### M6: Detector Lazy Initialization
+
+**Problem:** All 22 detectors instantiated eagerly in `_initializeDetectors()` regardless of `config.enabledDetectors`. Each detector allocates internal buffers. A user enabling only 5 detectors still pays construction cost for all 22.
+
+**Solution:** Factory-map pattern. `Map<DetectorType, BaseDetector Function()>` with 19 entries for non-typed detectors. Only detectors present in `enabledDetectors` are constructed. 3 typed detectors (`_frameTiming`, `_memoryPressure`, `_networkMonitor`) always constructed — they have special access patterns beyond the `BaseDetector` interface. Custom detectors always present.
+
+**Runtime toggling:** `enableDetector(DetectorType)` constructs from factory map and adds to `_detectors`. `disableDetector(DetectorType)` removes from list. Both defer list mutations if called during an active scan iteration (see adversarial review finding #2/#3).
+
+**Design decision:** Typed detectors kept as `late final` (not nullable) to avoid ~20 null-check sites across the codebase. Their `isEnabled` flag gates detection logic.
+
+**Files modified:**
+- `lib/src/controller/sleuth_controller.dart` — factory map, `enableDetector()`, `disableDetector()`, typed detector `isEnabled` flag-flipping
+- `test/controller/lazy_detector_test.dart` (new) — 8 tests: partial init, default 22, runtime enable/disable, typed flag toggle, custom detectors, idempotent enable, partial scan correctness
+
+---
+
+## Adversarial Review Findings (Pillar 2b)
+
+Scope: All Pillar 2b changes in `sleuth_controller.dart` and `debug_instrumentation_coordinator.dart`.
+
+| # | Type | Component | Finding | Resolution |
+|---|------|-----------|---------|------------|
+| 1 | Bug | `_scheduleNextScan` | Timer leak: dispose during mid-flight callback creates infinite orphan timer chain | Added `if (_disposed) return;` guard at 3 points in `_scheduleNextScan` |
+| 2 | Fragility | `disableDetector` | `removeWhere` could throw ConcurrentModificationError if called from notifier listener during scan | Added `_isIteratingDetectors` flag; mutations deferred to `_pendingDetectorMutations`, drained after iteration |
+| 3 | Fragility | `enableDetector` | `add` same concurrent modification risk as #2 | Same deferred-mutation pattern |
+| 4 | Fragility | `startTreeScanning` | Rapid start/stop creates parallel timer chains via stale post-frame callbacks | Added `_scanTimerGeneration` counter; stale callbacks bail on generation mismatch |
+| 5 | Convention | `_issueGeneration` | Int overflow after millions of cycles | Safe: 64-bit int at 3 increments/sec = ~97 billion years |
+| 6 | Convention | `_typeNames` | Not cleared in `snapshot()` | Correct by design: type names don't change at runtime, cleared in `dispose()` |
+| 7 | Convention | `_detectorFactories` | Stale config if SleuthConfig replaced | Not possible: `config` is `final` on controller, set once in constructor |
+
+---
+
+## Verification (Pillar 2b)
+
+- `fvm flutter test` — 1,678 tests passing ✅
+- `fvm flutter analyze` — 0 issues ✅
+- All 4 milestones + 3 adversarial review fixes shipped
+- All roadmaps complete: v7 (10/10), v8 (5/5), v9 (17/17), v10 (12/12), v11 (19/19), Pillar 2a (3/3), Pillar 2b (4/4)

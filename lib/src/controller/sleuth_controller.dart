@@ -162,6 +162,32 @@ class SleuthController {
   bool _disposed = false;
   Timer? _treeScanTimer;
 
+  /// Incremented on each [startTreeScanning] call to invalidate stale
+  /// post-frame callbacks from a previous timer chain. Prevents parallel
+  /// timer chains when startTreeScanning is called rapidly (e.g. widget
+  /// remount during hot reload).
+  int _scanTimerGeneration = 0;
+
+  /// Consecutive scan cycles with zero issues. Used by adaptive scan to
+  /// determine when to back off the tree walk interval.
+  int _consecutiveCleanScans = 0;
+
+  /// Adaptive back-off threshold: require this many consecutive clean cycles
+  /// before slowing down, to avoid thrashing on flicker.
+  static const _cleanScanThreshold = 3;
+
+  /// Maximum back-off interval in ms regardless of [treeScanIntervalMs].
+  static const _maxBackOffMs = 2000;
+
+  // -- M5: Issue allocation reduction caches --
+
+  /// Generation counter incremented when detectors produce fresh issues
+  /// (after structural scans or timeline evaluateNow). Allows
+  /// [_getAllIssues] to return a cached list when nothing has changed.
+  int _issueGeneration = 0;
+  int _cachedIssueGeneration = -1;
+  List<PerformanceIssue>? _cachedAllIssues;
+
   /// Notifies listeners when issues change.
   final ValueNotifier<List<PerformanceIssue>> issuesNotifier = ValueNotifier(
     [],
@@ -372,6 +398,9 @@ class SleuthController {
   void _initializeDetectors() {
     final enabled = config.enabledDetectors;
 
+    // Typed detectors are always constructed — they have special access
+    // patterns (frame buffer, heap samples, HTTP records) beyond the
+    // BaseDetector interface. Their isEnabled flag gates detection logic.
     _frameTiming = FrameTimingDetector(
       fpsTarget: config.fpsTarget,
       warmupFrameCount: config.frameTimingWarmupFrameCount,
@@ -390,60 +419,151 @@ class SleuthController {
       largeResponseBytes: config.largeResponseThresholdBytes,
     )..isEnabled = enabled.contains(DetectorType.networkMonitor);
 
+    // Factory map for non-typed detectors. Only detectors present in
+    // [enabledDetectors] are constructed — saves buffer allocations and
+    // reduces the unified walk iteration count (M6: lazy initialization).
+    final factories = <DetectorType, BaseDetector Function()>{
+      DetectorType.shaderJank: () => ShaderJankDetector(
+            thresholdMs: config.thresholds.shaderJankMs,
+          ),
+      DetectorType.heavyCompute: () => HeavyComputeDetector(
+            lagThresholdMs: config.thresholds.heavyComputeGapMs,
+          ),
+      DetectorType.platformChannel: () => PlatformChannelDetector(
+            callsPerSecThreshold: config.platformChannelLimit,
+            durationThresholdUs:
+                config.platformChannelDurationThresholdMs * 1000,
+          ),
+      DetectorType.repaint: RepaintDetector.new,
+      DetectorType.rebuild: () =>
+          RebuildDetector(rebuildsPerSecThreshold: config.rebuildThreshold),
+      DetectorType.setStateScope: () => SetStateScopeDetector(
+            dirtyRatioThreshold:
+                config.thresholds.setStateScopeOwnershipPercent,
+          ),
+      DetectorType.gpuPressure: () => GpuPressureDetector(
+            rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
+          ),
+      DetectorType.shallowRebuildRisk: () => ShallowRebuildRiskDetector(
+            depthThreshold: config.thresholds.shallowRebuildMaxDepth,
+          ),
+      DetectorType.layoutBottleneck: LayoutBottleneckDetector.new,
+      DetectorType.listview: () =>
+          ListviewDetector(childThreshold: config.maxListChildren),
+      DetectorType.imageMemory: ImageMemoryDetector.new,
+      DetectorType.globalKey: () =>
+          GlobalKeyDetector(threshold: config.maxGlobalKeys),
+      DetectorType.nestedScroll: () =>
+          NestedScrollDetector(childThreshold: config.maxListChildren),
+      DetectorType.customPainter: CustomPainterDetector.new,
+      DetectorType.keepAlive: () =>
+          KeepAliveDetector(threshold: config.thresholds.keepAliveMax),
+      DetectorType.animatedBuilder: () => AnimatedBuilderDetector(
+            minSubtreeSize: config.thresholds.animatedBuilderMinSubtreeSize,
+          ),
+      DetectorType.opacity: OpacityDetector.new,
+      DetectorType.fontLoading: () => FontLoadingDetector(
+            maxFamilies: config.thresholds.fontLoadingMaxFamilies,
+          ),
+      DetectorType.repaintBoundary: RepaintBoundaryDetector.new,
+    };
+
+    // Persist factory map for runtime enable/disable (enableDetector).
+    _detectorFactories = factories;
+
     _detectors = [
       _frameTiming,
-      ShaderJankDetector(
-        thresholdMs: config.thresholds.shaderJankMs,
-      )..isEnabled = enabled.contains(DetectorType.shaderJank),
-      HeavyComputeDetector(
-        lagThresholdMs: config.thresholds.heavyComputeGapMs,
-      )..isEnabled = enabled.contains(DetectorType.heavyCompute),
-      PlatformChannelDetector(
-        callsPerSecThreshold: config.platformChannelLimit,
-        durationThresholdUs: config.platformChannelDurationThresholdMs * 1000,
-      )..isEnabled = enabled.contains(DetectorType.platformChannel),
+      // Only construct non-typed detectors that are enabled.
+      for (final entry in factories.entries)
+        if (enabled.contains(entry.key)) entry.value()..isEnabled = true,
       _memoryPressure,
-      RepaintDetector()..isEnabled = enabled.contains(DetectorType.repaint),
-      RebuildDetector(rebuildsPerSecThreshold: config.rebuildThreshold)
-        ..isEnabled = enabled.contains(DetectorType.rebuild),
-      SetStateScopeDetector(
-        dirtyRatioThreshold: config.thresholds.setStateScopeOwnershipPercent,
-      )..isEnabled = enabled.contains(DetectorType.setStateScope),
-      GpuPressureDetector(
-        rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
-      )..isEnabled = enabled.contains(DetectorType.gpuPressure),
-      ShallowRebuildRiskDetector(
-        depthThreshold: config.thresholds.shallowRebuildMaxDepth,
-      )..isEnabled = enabled.contains(DetectorType.shallowRebuildRisk),
-      LayoutBottleneckDetector()
-        ..isEnabled = enabled.contains(DetectorType.layoutBottleneck),
-      ListviewDetector(childThreshold: config.maxListChildren)
-        ..isEnabled = enabled.contains(DetectorType.listview),
-      ImageMemoryDetector()
-        ..isEnabled = enabled.contains(DetectorType.imageMemory),
-      GlobalKeyDetector(threshold: config.maxGlobalKeys)
-        ..isEnabled = enabled.contains(DetectorType.globalKey),
-      NestedScrollDetector(childThreshold: config.maxListChildren)
-        ..isEnabled = enabled.contains(DetectorType.nestedScroll),
-      CustomPainterDetector()
-        ..isEnabled = enabled.contains(DetectorType.customPainter),
-      KeepAliveDetector(
-        threshold: config.thresholds.keepAliveMax,
-      )..isEnabled = enabled.contains(DetectorType.keepAlive),
-      AnimatedBuilderDetector(
-        minSubtreeSize: config.thresholds.animatedBuilderMinSubtreeSize,
-      )..isEnabled = enabled.contains(DetectorType.animatedBuilder),
-      OpacityDetector()..isEnabled = enabled.contains(DetectorType.opacity),
-      FontLoadingDetector(
-        maxFamilies: config.thresholds.fontLoadingMaxFamilies,
-      )..isEnabled = enabled.contains(DetectorType.fontLoading),
-      RepaintBoundaryDetector()
-        ..isEnabled = enabled.contains(DetectorType.repaintBoundary),
       _networkMonitor,
       // Custom detectors — always enabled (explicitly opted-in via config)
       for (final d in config.customDetectors) d..isEnabled = true,
     ];
     _detectorsReady = true;
+  }
+
+  /// Factory map for non-typed detectors, persisted for runtime enable.
+  Map<DetectorType, BaseDetector Function()> _detectorFactories = {};
+
+  /// True while `_scanTree` or `_onTimelineData` is iterating [_detectors].
+  /// When set, [enableDetector]/[disableDetector] defer list mutations to
+  /// [_pendingDetectorMutations] to avoid ConcurrentModificationError.
+  bool _isIteratingDetectors = false;
+  final List<void Function()> _pendingDetectorMutations = [];
+
+  /// Apply any detector enable/disable calls that were deferred because
+  /// they arrived during an active scan or timeline iteration.
+  void _drainPendingDetectorMutations() {
+    if (_pendingDetectorMutations.isEmpty) return;
+    final pending = List.of(_pendingDetectorMutations);
+    _pendingDetectorMutations.clear();
+    for (final mutation in pending) {
+      mutation();
+    }
+  }
+
+  /// Constructs and adds a detector at runtime if not already present.
+  ///
+  /// No-op for the 3 typed detectors (frameTiming, memoryPressure,
+  /// networkMonitor) — use their `isEnabled` flag instead.
+  void enableDetector(DetectorType type) {
+    if (!_detectorsReady) return;
+    // Typed detectors: just flip the flag (safe during iteration).
+    if (type == DetectorType.frameTiming) {
+      _frameTiming.isEnabled = true;
+      return;
+    }
+    if (type == DetectorType.memoryPressure) {
+      _memoryPressure.isEnabled = true;
+      return;
+    }
+    if (type == DetectorType.networkMonitor) {
+      _networkMonitor.isEnabled = true;
+      return;
+    }
+    // Defer list mutation if we're mid-iteration.
+    if (_isIteratingDetectors) {
+      _pendingDetectorMutations.add(() => enableDetector(type));
+      return;
+    }
+    // Non-typed: construct if not already in the list.
+    if (_detectors.any((d) => d.type == type)) {
+      _detectors.firstWhere((d) => d.type == type).isEnabled = true;
+      return;
+    }
+    final factory = _detectorFactories[type];
+    if (factory != null) {
+      _detectors.add(factory()..isEnabled = true);
+    }
+  }
+
+  /// Removes a non-typed detector at runtime, freeing its internal buffers.
+  ///
+  /// For typed detectors, disables without removing (they're always needed
+  /// for framework access patterns like frame buffer and heap samples).
+  void disableDetector(DetectorType type) {
+    if (!_detectorsReady) return;
+    // Typed detectors: just flip the flag — don't remove (safe during iteration).
+    if (type == DetectorType.frameTiming) {
+      _frameTiming.isEnabled = false;
+      return;
+    }
+    if (type == DetectorType.memoryPressure) {
+      _memoryPressure.isEnabled = false;
+      return;
+    }
+    if (type == DetectorType.networkMonitor) {
+      _networkMonitor.isEnabled = false;
+      return;
+    }
+    // Defer list mutation if we're mid-iteration.
+    if (_isIteratingDetectors) {
+      _pendingDetectorMutations.add(() => disableDetector(type));
+      return;
+    }
+    _detectors.removeWhere((d) => d.type == type);
   }
 
   /// Initialize detectors without VM client or SchedulerBinding.
@@ -464,12 +584,38 @@ class SleuthController {
   Map<String, int> get recurrenceCountsForTest =>
       Map.unmodifiable(_recurrenceCounts);
 
+  /// Current adaptive scan interval in milliseconds (for testing).
+  @visibleForTesting
+  int get currentScanIntervalMsForTest => _currentScanIntervalMs;
+
+  /// Consecutive clean-scan count (for testing).
+  @visibleForTesting
+  int get consecutiveCleanScansForTest => _consecutiveCleanScans;
+
+  /// Number of live detectors in the list (for testing lazy init).
+  @visibleForTesting
+  int get detectorCountForTest => _detectors.length;
+
+  /// Computed scan interval: backs off when the app is healthy.
+  int get _currentScanIntervalMs {
+    if (!config.adaptiveScanEnabled ||
+        _consecutiveCleanScans < _cleanScanThreshold) {
+      return config.treeScanIntervalMs;
+    }
+    return (config.treeScanIntervalMs * 2).clamp(0, _maxBackOffMs);
+  }
+
   @visibleForTesting
   void runTreeScanForTest(BuildContext context) {
     _lastScanContext = context;
     _runStructuralScans(context);
     _collectHighlights();
     _aggregateIssues();
+    if (issuesNotifier.value.isEmpty) {
+      _consecutiveCleanScans++;
+    } else {
+      _consecutiveCleanScans = 0;
+    }
     _updateRecurrence(issuesNotifier.value);
   }
 
@@ -634,20 +780,47 @@ class SleuthController {
   BuildContext? _appChildContext;
 
   /// Start periodic tree scanning. Call from widget with BuildContext.
+  ///
+  /// Uses a self-rescheduling [Timer] so the interval can adapt between
+  /// firings based on [_currentScanIntervalMs] (backs off when clean).
   void startTreeScanning(BuildContext context) {
     _overlayContext = context;
     _treeScanTimer?.cancel();
-    _treeScanTimer = Timer.periodic(
-      Duration(milliseconds: config.treeScanIntervalMs),
-      (_) {
+    _scanTimerGeneration++;
+    _scheduleNextScan();
+  }
+
+  /// Schedules the next tree scan after [_currentScanIntervalMs].
+  ///
+  /// Guards against two hazards:
+  /// 1. **Post-dispose rescheduling**: if [dispose] runs while the timer
+  ///    callback is mid-flight, the cancel() kills the pending Timer but not
+  ///    the already-queued post-frame callback. [_disposed] prevents orphans.
+  /// 2. **Parallel timer chains**: if [startTreeScanning] is called rapidly
+  ///    (widget remount / hot reload), the old post-frame callback could still
+  ///    fire after a new chain starts. [_scanTimerGeneration] ensures only the
+  ///    latest chain reschedules.
+  void _scheduleNextScan() {
+    if (_disposed) return;
+    final generation = _scanTimerGeneration;
+    _treeScanTimer = Timer(
+      Duration(milliseconds: _currentScanIntervalMs),
+      () {
+        if (_disposed || generation != _scanTimerGeneration) return;
         final ctx = _overlayContext;
         if (ctx != null) {
           final element = ctx as Element;
           if (element.mounted) {
             SchedulerBinding.instance.addPostFrameCallback((_) {
+              if (_disposed || generation != _scanTimerGeneration) return;
               if (element.mounted) _scanTree(ctx);
+              _scheduleNextScan();
             });
+          } else {
+            _scheduleNextScan();
           }
+        } else {
+          _scheduleNextScan();
         }
       },
     );
@@ -696,6 +869,10 @@ class SleuthController {
     }
     _lastScanContext = scanContext;
 
+    // Guard _detectors iteration — enable/disable calls that arrive via
+    // notifier listeners during scan/aggregation are deferred.
+    _isIteratingDetectors = true;
+
     // Pass debug snapshot to detectors
     if (debugSnapshot != null) {
       for (final d in _detectors) {
@@ -706,8 +883,18 @@ class SleuthController {
     // Run all tree-scanning detectors
     _runStructuralScans(scanContext);
 
-    // Aggregate and rank all issues
+    // Aggregate and rank all issues (fires issuesNotifier listeners).
     _aggregateIssues();
+
+    _isIteratingDetectors = false;
+    _drainPendingDetectorMutations();
+
+    // Track consecutive clean scans for adaptive interval back-off.
+    if (issuesNotifier.value.isEmpty) {
+      _consecutiveCleanScans++;
+    } else {
+      _consecutiveCleanScans = 0;
+    }
 
     // Update recurrence from scan path only (not timeline path) so all
     // detectors increment at the same rate regardless of lifecycle.
@@ -1074,6 +1261,9 @@ class SleuthController {
     for (final d in legacy) {
       d.scanTree(scanContext);
     }
+
+    // Invalidate _getAllIssues cache — detectors have fresh issues.
+    _issueGeneration++;
   }
 
   /// Aggregate highlights from all detectors that produce them.
@@ -1131,6 +1321,9 @@ class SleuthController {
     // FrameTimingDetector uses custom method (not processTimelineData)
     _frameTiming.updateTimelineData(data);
 
+    // Guard _detectors iteration against concurrent enable/disable.
+    _isIteratingDetectors = true;
+
     // Feed timeline data to vmOnly and hybrid detectors
     for (final d in _detectors) {
       if (d.isEnabled &&
@@ -1148,6 +1341,9 @@ class SleuthController {
         d.evaluateNow();
       }
     }
+
+    // Invalidate _getAllIssues cache — detectors have fresh issues.
+    _issueGeneration++;
 
     // Generate verdict for slow frames (full mode with VM timeline data)
     // Local variables bridge jank decision → post-aggregation capture.
@@ -1233,6 +1429,9 @@ class SleuthController {
     // frameStatsNotifier is already updated by _onFrameStats callback
     _aggregateIssues();
 
+    _isIteratingDetectors = false;
+    _drainPendingDetectorMutations();
+
     // Capture AFTER aggregation so relatedIssues carry route/context tags.
     if (captureFrame != null &&
         captureVerdict != null &&
@@ -1293,6 +1492,9 @@ class SleuthController {
     if (frameStatsNotifier.hasListeners || !_initialized) {
       frameStatsNotifier.value = FrameStatsBuffer.from(buffer);
     }
+
+    // FrameTimingDetector may have updated its issues — invalidate cache.
+    _issueGeneration++;
 
     // Generate FRAME-mode verdict for jank frames when VM is not connected.
     final latest = buffer.latest;
@@ -1638,7 +1840,13 @@ class SleuthController {
   }
 
   List<PerformanceIssue> _getAllIssues() {
-    return [for (final d in _detectors) ...d.issues];
+    if (_cachedIssueGeneration == _issueGeneration &&
+        _cachedAllIssues != null) {
+      return _cachedAllIssues!;
+    }
+    _cachedAllIssues = [for (final d in _detectors) ...d.issues];
+    _cachedIssueGeneration = _issueGeneration;
+    return _cachedAllIssues!;
   }
 
   // -- Debug instrumentation helpers --
@@ -1767,6 +1975,7 @@ class SleuthConfig {
     this.maxGlobalKeys = 20,
     this.platformChannelLimit = 20,
     this.treeScanIntervalMs = 1000,
+    this.adaptiveScanEnabled = true,
     this.enabledDetectors = const {...DetectorType.values},
     this.captureBufferCapacity = 50,
     this.enableDebugCallbacks = false,
@@ -1823,6 +2032,14 @@ class SleuthConfig {
 
   /// Interval in milliseconds between widget tree scans.
   final int treeScanIntervalMs;
+
+  /// Whether to back off the scan interval when no issues are detected.
+  ///
+  /// When enabled (default), the controller doubles the scan interval (up to
+  /// 2 s) after 3 consecutive clean scan cycles, and returns to the normal
+  /// interval immediately when issues appear. FrameTiming and VM timeline
+  /// paths are event-driven and unaffected.
+  final bool adaptiveScanEnabled;
 
   /// Which detectors are active. Defaults to all [DetectorType] values.
   final Set<DetectorType> enabledDetectors;

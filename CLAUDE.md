@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 22 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~1,657 tests, ~18s)
+fvm flutter test                    # Run all tests (~1,678 tests, ~18s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -53,7 +53,8 @@ test/
 
 ## Current state
 
-- **v0.10.5** (current) — Pillar 2a hot-path performance: TypeNameCache (M1), highlight dirty-check (M2), timeline case-matching (M3). Reduces tree walk allocations by ~40-60%.
+- **v0.10.6** (current) — Pillar 2b resource management: Adaptive scan frequency (M4), _getAllIssues generation cache (M5), detector lazy initialization (M6), debug callback TypeNameCache (M7). Adversarial review: timer leak fix, parallel timer chain guard, concurrent detector mutation guard. See `doc/spec_v11.md`.
+- v0.10.5: Pillar 2a hot-path performance: TypeNameCache (M1), highlight dirty-check (M2), timeline case-matching (M3). Reduces tree walk allocations by ~40-60%.
 - v0.10.4: v11.19: Sliver anti-pattern detection in ListviewDetector (SliverToBoxAdapter large subtrees, SliverFillRemaining misuse, shrinkWrap inside slivers). See `doc/spec_v11.md`.
 - v0.10.3: v11 detector audit Part 3 (6 milestones: duplicate request detection, GlobalKey recreation, subtree cost enrichment, thread attribution, warmup/builder suppression). See `doc/spec_v11.md`.
 - v0.10.0: Issue Encyclopedia, contextual AI Chat, IssueCard shimmer Ask AI link, responsive action links, MediaQuery optimization, overlay UI polish. See CHANGELOG.md.
@@ -71,4 +72,4 @@ test/
 - Post-implementation audits in `doc/spec_v2_audit.md` and `doc/spec_post_impl_notes.md`.
 - Full spec index in `doc/implementation_spec.md`.
 - v11 roadmap: 19/19 milestones shipped ✅ (v11.1–v11.19, four adversarial reviews). See `doc/spec_v11.md`.
-- 1,657 tests, 0 analysis issues
+- 1,678 tests, 0 analysis issues

@@ -1,3 +1,42 @@
+## 0.10.6
+
+Pillar 2b: Resource management — reduce CPU, memory, and GC pressure from Sleuth's own
+runtime overhead when the app is healthy.
+
+### Performance — Resource Management (Pillar 2b)
+
+- **Adaptive scan frequency** (M4): Replaced fixed `Timer.periodic(1s)` with self-rescheduling
+  `Timer`. After 3 consecutive clean (zero-issue) scan cycles, the interval doubles (capped
+  at 2s). Returns to normal immediately when issues appear. `FrameTiming` and VM timeline
+  paths remain event-driven and unaffected. Opt out via `SleuthConfig(adaptiveScanEnabled: false)`.
+- **Issue allocation reduction** (M5): `_getAllIssues()` generation-counter cache prevents
+  redundant list allocations. The method is called 4+ times per timeline event — now returns
+  a cached list when no detector has produced fresh issues. Generation increments on structural
+  scan, timeline evaluateNow, and frame stats updates.
+- **Detector lazy initialization** (M6): Factory-map pattern for non-typed detectors. Only
+  detectors present in `SleuthConfig.enabledDetectors` are constructed at startup.
+  `enableDetector()`/`disableDetector()` for runtime toggling. 3 typed detectors (frameTiming,
+  memoryPressure, networkMonitor) always constructed (special access patterns). Custom detectors
+  always present. Default config still constructs all 22 detectors.
+- **Debug callback TypeNameCache** (M7): Private `Map<Type, String>` in
+  `DebugInstrumentationCoordinator` replaces per-callback `runtimeType.toString()` (~1,000
+  string allocations/sec). Separate from the global `typeNameCache` (not cleared per scan).
+  Bounded naturally by unique widget types (~50–200).
+
+### Adversarial Review Findings (Pillar 2b)
+
+- **Timer leak after dispose** (M4): `_scheduleNextScan()` could create an infinite orphan timer
+  chain if `dispose()` ran while the timer callback was mid-flight. Fixed by adding `_disposed`
+  guards at method entry, timer callback entry, and post-frame callback entry.
+- **Parallel timer chains** (M4): Rapid `startTreeScanning()` calls (e.g. widget remount during
+  hot reload) could create duplicate timer chains. Fixed by adding `_scanTimerGeneration` counter
+  — stale callbacks bail out when the generation no longer matches.
+- **Concurrent detector modification** (M6): `enableDetector()`/`disableDetector()` could mutate
+  the `_detectors` list during active iteration in scan or timeline paths. Fixed by adding
+  `_isIteratingDetectors` guard — mutations are deferred to `_pendingDetectorMutations` and
+  drained after the iteration completes. Typed detector flag-flips remain immediate (no list
+  mutation).
+
 ## 0.10.5
 
 Pillar 2a: Hot-path performance optimizations — reduce Sleuth's own runtime overhead.

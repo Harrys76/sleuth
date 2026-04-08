@@ -42,6 +42,14 @@ class DebugInstrumentationCoordinator {
   final Map<String, String> _ancestorChains = {};
   int _paintCount = 0;
 
+  /// Per-callback type name cache. Avoids `runtimeType.toString()` string
+  /// allocation on every rebuild/paint callback (~1,000/sec when active).
+  /// Not cleared between snapshots — persists for maximum hit rate.
+  /// Bounded naturally by unique widget types in the app (~50–200).
+  final Map<Type, String> _typeNames = {};
+
+  String _typeName(Type type) => _typeNames[type] ??= type.toString();
+
   bool _rebuildInstalled = false;
   bool _paintInstalled = false;
   DateTime _lastSnapshotTime = DateTime.now();
@@ -136,12 +144,13 @@ class DebugInstrumentationCoordinator {
     _rebuildCounts.clear();
     _paintCounts.clear();
     _ancestorChains.clear();
+    _typeNames.clear();
     _paintCount = 0;
   }
 
   void _handleRebuildDirtyWidget(Element element, bool builtOnce) {
     if (!builtOnce) return; // Skip initial builds — only count actual rebuilds
-    final typeName = element.widget.runtimeType.toString();
+    final typeName = _typeName(element.widget.runtimeType);
     if (_rebuildCounts.length >= _maxTrackedTypes &&
         !_rebuildCounts.containsKey(typeName)) {
       return; // Cap reached, ignore new types
@@ -164,7 +173,7 @@ class DebugInstrumentationCoordinator {
     _paintCount++;
     final creator = renderObject.debugCreator;
     if (creator is DebugCreator) {
-      final typeName = creator.element.widget.runtimeType.toString();
+      final typeName = _typeName(creator.element.widget.runtimeType);
       if (_paintCounts.length >= _maxTrackedTypes &&
           !_paintCounts.containsKey(typeName)) {
         return; // Cap reached, ignore new types

@@ -424,6 +424,81 @@ void main() {
       }());
     });
 
+    test('type name cache avoids repeated toString allocations', () {
+      var clockTime = DateTime(2025, 1, 1, 0, 0, 0);
+      final coord = DebugInstrumentationCoordinator(
+        clock: () => clockTime,
+      );
+
+      assert(() {
+        coord.install();
+
+        // Fire 100 rebuild callbacks with 3 unique types.
+        for (int i = 0; i < 100; i++) {
+          final types = ['WidgetA', 'WidgetB', 'WidgetC'];
+          debugOnRebuildDirtyWidget?.call(
+            _FakeElement(types[i % 3]),
+            true,
+          );
+        }
+
+        // Fire paint callbacks with 2 unique types.
+        for (int i = 0; i < 50; i++) {
+          final types = ['PaintX', 'PaintY'];
+          debugOnProfilePaint?.call(
+            _FakeRenderObjectWithCreator(
+              _FakeElement(types[i % 2]),
+            ),
+          );
+        }
+
+        clockTime = clockTime.add(const Duration(seconds: 1));
+        final snap = coord.snapshot();
+
+        // Verify snapshot data is correct despite caching.
+        expect(snap.rebuildCounts, {
+          'WidgetA': 34,
+          'WidgetB': 33,
+          'WidgetC': 33,
+        });
+        expect(snap.paintCounts, {'PaintX': 25, 'PaintY': 25});
+        expect(snap.totalPaintCount, 50);
+
+        // After dispose, cache should be cleared (no leak).
+        coord.dispose();
+        return true;
+      }());
+    });
+
+    test('type name cache persists across snapshot windows', () {
+      var clockTime = DateTime(2025, 1, 1, 0, 0, 0);
+      final coord = DebugInstrumentationCoordinator(
+        clock: () => clockTime,
+      );
+
+      assert(() {
+        coord.install();
+
+        // Window 1: introduce types.
+        debugOnRebuildDirtyWidget?.call(_FakeElement('Foo'), true);
+        debugOnRebuildDirtyWidget?.call(_FakeElement('Bar'), true);
+        clockTime = clockTime.add(const Duration(seconds: 1));
+        final snap1 = coord.snapshot();
+        expect(snap1.rebuildCounts, {'Foo': 1, 'Bar': 1});
+
+        // Window 2: same types reused (cache hit — no new toString() calls).
+        debugOnRebuildDirtyWidget?.call(_FakeElement('Foo'), true);
+        debugOnRebuildDirtyWidget?.call(_FakeElement('Bar'), true);
+        debugOnRebuildDirtyWidget?.call(_FakeElement('Foo'), true);
+        clockTime = clockTime.add(const Duration(seconds: 1));
+        final snap2 = coord.snapshot();
+        expect(snap2.rebuildCounts, {'Foo': 2, 'Bar': 1});
+
+        coord.dispose();
+        return true;
+      }());
+    });
+
     test('selective install: installPaint=false', () {
       assert(() {
         final coord = DebugInstrumentationCoordinator(

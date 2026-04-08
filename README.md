@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C657_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C678_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -106,6 +106,7 @@ Sleuth.track(
     slowRequestThresholdMs: 2000,      // flag requests slower than this
     requestFrequencyLimit: 30,         // max requests per 5s window
     largeResponseThresholdBytes: 1048576, // flag responses larger than 1MB
+    adaptiveScanEnabled: true,         // back off scan interval when app is healthy (default true)
     networkExcludePatterns: ['analytics.example.com'], // exclude URLs from monitoring
     enabledDetectors: {
       DetectorType.frameTiming,
