@@ -82,6 +82,11 @@ class GlobalKeyDetector extends BaseDetector {
   Set<int> _prevKeyIds = {};
   final Set<int> _currentKeyIds = {};
 
+  /// Tracks the scan root identity to detect route changes.
+  /// When the scan root changes, _prevKeyIds is reset to avoid false
+  /// recreation warnings from normal page transitions.
+  int? _prevScanRootId;
+
   @override
   void prepareScan(BuildContext context) {
     _issues.clear();
@@ -89,6 +94,15 @@ class GlobalKeyDetector extends BaseDetector {
     _scrollableData.clear();
     _scrollableStack.clear();
     _currentKeyIds.clear();
+
+    // Detect route change by tracking scan root identity.
+    // When the visible page changes, reset previous key set to avoid
+    // false recreation warnings from normal navigation churn.
+    final rootId = identityHashCode(context);
+    if (_prevScanRootId != null && rootId != _prevScanRootId) {
+      _prevKeyIds.clear();
+    }
+    _prevScanRootId = rootId;
   }
 
   @override
@@ -235,5 +249,6 @@ class GlobalKeyDetector extends BaseDetector {
     _scrollableStack.clear();
     _prevKeyIds.clear();
     _currentKeyIds.clear();
+    _prevScanRootId = null;
   }
 }

@@ -1042,7 +1042,14 @@ class SleuthController {
           if (element.mounted) {
             SchedulerBinding.instance.addPostFrameCallback((_) {
               if (_disposed || generation != _scanTimerGeneration) return;
-              if (element.mounted) _scanTree(ctx);
+              try {
+                if (element.mounted) _scanTree(ctx);
+              } catch (e, st) {
+                assert(() {
+                  debugPrint('Sleuth: scan error: $e\n$st');
+                  return true;
+                }());
+              }
               _scheduleNextScan();
             });
           } else {
@@ -1101,22 +1108,23 @@ class SleuthController {
     // Guard _detectors iteration — enable/disable calls that arrive via
     // notifier listeners during scan/aggregation are deferred.
     _isIteratingDetectors = true;
-
-    // Pass debug snapshot to detectors
-    if (debugSnapshot != null) {
-      for (final d in _detectors) {
-        if (d.isEnabled) d.updateDebugSnapshot(debugSnapshot!);
+    try {
+      // Pass debug snapshot to detectors
+      if (debugSnapshot != null) {
+        for (final d in _detectors) {
+          if (d.isEnabled) d.updateDebugSnapshot(debugSnapshot!);
+        }
       }
+
+      // Run all tree-scanning detectors
+      _runStructuralScans(scanContext);
+
+      // Aggregate and rank all issues (fires issuesNotifier listeners).
+      _aggregateIssues();
+    } finally {
+      _isIteratingDetectors = false;
+      _drainPendingDetectorMutations();
     }
-
-    // Run all tree-scanning detectors
-    _runStructuralScans(scanContext);
-
-    // Aggregate and rank all issues (fires issuesNotifier listeners).
-    _aggregateIssues();
-
-    _isIteratingDetectors = false;
-    _drainPendingDetectorMutations();
 
     // Track consecutive clean scans for adaptive interval back-off.
     if (issuesNotifier.value.isEmpty) {

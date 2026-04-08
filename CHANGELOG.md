@@ -36,6 +36,28 @@ actionable without adding new detection capabilities.
   (rebuild) — these fell through to 'custom' in detector hit rates. Fixed by adding 3 entries
   to the prefix map.
 
+### Full Branch Adversarial Review (Pillars 1-3)
+
+- **Scan chain exception safety** (HIGH): Adaptive self-rescheduling scan loop could die
+  permanently if any detector threw during `_runStructuralScans()` or `_aggregateIssues()`,
+  leaving `_isIteratingDetectors` stuck true and preventing future scans. Fixed with
+  `try/finally` in `_scanTree` (always clears iteration guard and drains mutations) and
+  `try/catch` in `_scheduleNextScan` callback (always reschedules).
+- **Unstable duplicate-request stableIds** (HIGH): `duplicate_request:$dupIndex` used a
+  per-scan loop index that jittered as records aged in/out of the buffer, breaking recurrence
+  tracking and duration escalation. Fixed by deriving stableId from a stable method+URL
+  hash fingerprint.
+- **POST requests falsely flagged as duplicates** (MEDIUM): Duplicate detection grouped by
+  method+URL without considering request body, flagging POSTs with different payloads as
+  duplicates. Fixed by limiting duplicate detection to idempotent methods (GET/HEAD/OPTIONS).
+- **GlobalKey recreation false positive on route change** (MEDIUM): Cross-scan key identity
+  comparison was not scoped to a stable route, so page transitions with similar GlobalKey
+  counts triggered false recreation warnings. Fixed by tracking scan root identity and
+  resetting previous key set on route change.
+- **Missing sliver stableIds in correlator** (MEDIUM): `EscalateStructuralWithJankRule` only
+  covered legacy list IDs, missing 5 new sliver anti-pattern IDs added in Pillar 1. These
+  stayed at `possible` even with jank evidence. Fixed by adding all sliver IDs to `_structuralIds`.
+
 ## 0.10.7
 
 Pillar 3a: Enrichment — analysis & tracking features that deepen diagnostic intelligence

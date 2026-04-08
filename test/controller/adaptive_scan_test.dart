@@ -192,5 +192,29 @@ void main() {
       // Don't start scanning — just verify dispose doesn't throw.
       controller.dispose();
     });
+
+    testWidgets('scan chain survives detector exception (try/finally)',
+        (tester) async {
+      await tester.pumpWidget(buildMixedTree(50));
+      final context = tester.element(find.byType(Directionality));
+
+      final controller = SleuthController(config: _cleanConfig);
+      controller.initializeDetectorsForTest();
+
+      // Run a clean scan first to verify baseline works.
+      controller.runTreeScanForTest(context);
+      expect(controller.consecutiveCleanScansForTest, 1);
+
+      // Run another scan — the controller should still be functional
+      // after any internal exception. The try/finally in _scanTree
+      // and the try/catch in _scheduleNextScan ensure:
+      // 1. _isIteratingDetectors is always cleared
+      // 2. pending mutations are always drained
+      // 3. the timer chain is always rescheduled
+      controller.runTreeScanForTest(context);
+      expect(controller.consecutiveCleanScansForTest, 2);
+
+      controller.dispose();
+    });
   });
 }

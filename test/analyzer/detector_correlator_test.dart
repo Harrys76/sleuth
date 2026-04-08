@@ -900,6 +900,40 @@ void main() {
       expect(layout.confidence, IssueConfidence.likely);
       expect(layout.detail, contains('[Correlated]'));
     });
+
+    test('escalates sliver stableIds with sustained_jank', () {
+      // Verify all new sliver IDs are covered by the rule.
+      const sliverIds = [
+        'non_lazy_sliver_list',
+        'non_lazy_sliver_grid',
+        'sliver_to_box_adapter_large',
+        'sliver_fill_remaining_scrollable',
+        'sliver_to_box_adapter_shrinkwrap',
+      ];
+
+      for (final sliverId in sliverIds) {
+        final issues = [
+          makeIssue(
+            stableId: 'sustained_jank',
+            category: IssueCategory.build,
+            confidence: IssueConfidence.confirmed,
+          ),
+          makeIssue(
+            stableId: sliverId,
+            category: IssueCategory.layout,
+            confidence: IssueConfidence.possible,
+            detail: 'Sliver anti-pattern.',
+          ),
+        ];
+
+        final result = correlator.correlate(issues);
+        final sliver = result.firstWhere((i) => i.stableId == sliverId);
+        expect(sliver.confidence, IssueConfidence.likely,
+            reason: '$sliverId should be escalated with jank');
+        expect(sliver.detail, contains('[Correlated]'),
+            reason: '$sliverId detail should have [Correlated] tag');
+      }
+    });
   });
 
   // ---------------------------------------------------------------------------

@@ -309,10 +309,15 @@ class NetworkMonitorDetector extends BaseDetector {
       (groups[key] ??= []).add(record);
     }
 
-    int dupIndex = 0;
     for (final entry in groups.entries) {
       final records = entry.value;
       if (records.length < _duplicateThreshold) continue;
+
+      // Only detect duplicates for idempotent methods where repeated
+      // identical requests are clearly redundant. POST/PUT/PATCH may
+      // hit the same URL with different payloads intentionally.
+      final method = entry.key.split(' ').first;
+      if (method != 'GET' && method != 'HEAD' && method != 'OPTIONS') continue;
 
       // Check if at least _duplicateThreshold records cluster within 500ms
       records.sort((a, b) => a.startedAt.compareTo(b.startedAt));
@@ -342,8 +347,11 @@ class NetworkMonitorDetector extends BaseDetector {
         count: maxCluster,
       );
 
+      // Use method+URL fingerprint for stable identity across scans.
+      // Index-based IDs jitter when records age in/out of the buffer.
+      final fingerprint = entry.key.hashCode.abs().toRadixString(16);
       _issues.add(PerformanceIssue(
-        stableId: 'duplicate_request:$dupIndex',
+        stableId: 'duplicate_request:$fingerprint',
         severity: severity,
         category: IssueCategory.network,
         confidence: IssueConfidence.likely,
@@ -359,7 +367,6 @@ class NetworkMonitorDetector extends BaseDetector {
         detectedAt: _clock(),
         confidenceReason: 'Request timing correlation + URL pattern matching',
       ));
-      dupIndex++;
     }
   }
 

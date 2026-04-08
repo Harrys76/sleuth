@@ -853,9 +853,23 @@ Schema version bumped from 2 → 3. Backward compatible with v2 exports.
 
 ---
 
-## Verification (Pillar 3b)
+### Full Branch Adversarial Review (Pillars 1-3)
 
-- `fvm flutter test` — 1,784 tests passing ✅
+Comprehensive adversarial review of all 78 changed files (8,880 insertions) across all 3 pillars. Covered 7 attack vectors: logic bugs & correctness, detection accuracy, performance & resource leaks, serialization & backward compatibility, correlator & escalation interactions, UI correctness, test coverage gaps.
+
+| # | Severity | Component | Finding | Resolution |
+|---|----------|-----------|---------|------------|
+| 1 | HIGH | `sleuth_controller.dart` | Adaptive scan chain dies on first detector exception — `_isIteratingDetectors` stuck true, timer chain broken | Wrapped scan body in `try/finally` (always clears guard, drains mutations); wrapped callback in `try/catch` (always reschedules) |
+| 2 | HIGH | `network_monitor_detector.dart` | `duplicate_request:$dupIndex` uses unstable loop index — stableIds jitter as records age in/out | Derived stableId from method+URL hash fingerprint |
+| 3 | MEDIUM | `network_monitor_detector.dart` | POST/PUT/PATCH requests flagged as duplicates despite potentially different payloads | Limited duplicate detection to idempotent methods (GET/HEAD/OPTIONS) |
+| 4 | MEDIUM | `global_key_detector.dart` | Cross-scan key recreation comparison not scoped to route — page transitions produce false `global_key_recreation` warnings | Track scan root identity via `identityHashCode(context)`; reset `_prevKeyIds` on route change |
+| 5 | MEDIUM | `detector_correlator.dart` | `EscalateStructuralWithJankRule._structuralIds` missing 5 new sliver IDs added in Pillar 1 | Added `non_lazy_sliver_list`, `non_lazy_sliver_grid`, `sliver_to_box_adapter_large`, `sliver_fill_remaining_scrollable`, `sliver_to_box_adapter_shrinkwrap` |
+
+---
+
+## Verification (Final)
+
+- `fvm flutter test` — 1,791 tests passing ✅
 - `fvm flutter analyze` — 0 issues ✅
-- All 4 milestones + 1 adversarial review fix shipped
+- All 4 milestones + 1 Pillar 3b adversarial fix + 5 full branch adversarial fixes shipped
 - All roadmaps complete: v7 (10/10), v8 (5/5), v9 (17/17), v10 (12/12), v11 (19/19), Pillar 2a (3/3), Pillar 2b (4/4), Pillar 3a (5/5), Pillar 3b (4/4)

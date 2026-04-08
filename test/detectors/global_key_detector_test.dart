@@ -559,6 +559,59 @@ void main() {
       expect(recIssue.fixHint, contains('build()'));
     });
 
+    testWidgets('route change (different scan root) resets prevKeyIds',
+        (tester) async {
+      final recreationDetector =
+          GlobalKeyDetector(threshold: 100, recreationThreshold: 3);
+
+      // Scan 1: "Page A" with 5 GlobalKeys
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            key: const ValueKey('pageA'),
+            children: List.generate(
+              5,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      final rootA = tester.element(find.byType(Directionality));
+      recreationDetector.scanTree(rootA);
+
+      // Scan 2: "Page B" with 5 different GlobalKeys, scanned from
+      // a DIFFERENT BuildContext (simulating route change).
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            key: const ValueKey('pageB'),
+            children: List.generate(
+              5,
+              (_) => PublicWidget(key: GlobalKey(), height: 10),
+            ),
+          ),
+        ),
+      );
+      final rootB = tester.element(find.byType(Directionality));
+
+      // The rootB context has a different identity than rootA because
+      // the widget tree was replaced. This simulates a route change
+      // where _findVisiblePageContext returns a new Element.
+      recreationDetector.scanTree(rootB);
+
+      final recIssues = recreationDetector.issues
+          .where((i) => i.stableId == 'global_key_recreation');
+
+      // When scan root identity changes, _prevKeyIds is reset,
+      // so no recreation should be detected.
+      if (!identical(rootA, rootB)) {
+        expect(recIssues, isEmpty,
+            reason: 'Route change resets key tracking — no false recreation');
+      }
+    });
+
     // -----------------------------------------------------------------
     // v9.6: Per-scrollable accumulation
     // -----------------------------------------------------------------

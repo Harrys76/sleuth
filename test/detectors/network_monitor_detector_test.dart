@@ -627,5 +627,96 @@ void main() {
       expect(issue.fixHint, contains('Cache'));
       expect(issue.fixHint, contains('Deduplicate'));
     });
+
+    test('stableId is URL-derived, not index-based', () {
+      final base = fakeNow;
+      // Add duplicates for two different endpoints
+      for (int i = 0; i < 3; i++) {
+        detector.processRecord(makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: base.add(Duration(milliseconds: i * 100)),
+        ));
+        detector.processRecord(makeRecord(
+          url: 'https://api.example.com/posts',
+          method: 'GET',
+          startedAt: base.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true)
+          .toList();
+      expect(dupIssues, hasLength(2));
+
+      // Each stableId should be stable (URL-derived fingerprint)
+      final ids = dupIssues.map((i) => i.stableId).toSet();
+      expect(ids.length, 2, reason: 'Each endpoint should have a distinct ID');
+
+      // Re-process same records — IDs should be identical
+      fakeNow = base; // reset clock
+      final detector2 = NetworkMonitorDetector(clock: () => fakeNow);
+      for (int i = 0; i < 3; i++) {
+        detector2.processRecord(makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: base.add(Duration(milliseconds: i * 100)),
+        ));
+        detector2.processRecord(makeRecord(
+          url: 'https://api.example.com/posts',
+          method: 'GET',
+          startedAt: base.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final ids2 = detector2.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true)
+          .map((i) => i.stableId)
+          .toSet();
+      expect(ids2, ids, reason: 'Same endpoints should produce same stableIds');
+    });
+
+    test('POST requests not flagged as duplicates', () {
+      final base = fakeNow;
+      for (int i = 0; i < 5; i++) {
+        detector.processRecord(makeRecord(
+          url: 'https://api.example.com/submit',
+          method: 'POST',
+          startedAt: base.add(Duration(milliseconds: i * 50)),
+        ));
+      }
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, isEmpty,
+          reason: 'POST may have different payloads — not idempotent');
+    });
+
+    test('PUT requests not flagged as duplicates', () {
+      final base = fakeNow;
+      for (int i = 0; i < 5; i++) {
+        detector.processRecord(makeRecord(
+          url: 'https://api.example.com/resource/1',
+          method: 'PUT',
+          startedAt: base.add(Duration(milliseconds: i * 50)),
+        ));
+      }
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, isEmpty, reason: 'PUT may carry different payloads');
+    });
+
+    test('HEAD requests flagged as duplicates (idempotent)', () {
+      final base = fakeNow;
+      for (int i = 0; i < 3; i++) {
+        detector.processRecord(makeRecord(
+          url: 'https://api.example.com/health',
+          method: 'HEAD',
+          startedAt: base.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final dupIssues = detector.issues
+          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      expect(dupIssues, hasLength(1),
+          reason: 'HEAD is idempotent — duplicates should be flagged');
+    });
   });
 }
