@@ -1,3 +1,33 @@
+## 0.10.5
+
+Pillar 2a: Hot-path performance optimizations — reduce Sleuth's own runtime overhead.
+
+### Performance — Hot Path (Pillar 2a)
+
+- **Widget type name cache** (M1): Shared `TypeNameCache` (`Map<Type, String>`) eliminates
+  redundant `runtimeType.toString()` string allocations during the unified tree walk.
+  On a 5K-element tree with ~50 unique widget types, reduces ~15,000+ duplicate allocations
+  per scan to ~50. Applied across 11 detectors and `buildAncestorChain`.
+- **Highlight generation dirty-check** (M2): `_collectHighlights()` now skips the list
+  spread, generation increment, and notifier update when no highlights exist before or
+  after the scan. Eliminates unnecessary `CustomPainter` repaint every scan cycle during
+  normal operation (no issues detected). Includes defensive selected-highlight clearing.
+- **Timeline parser case-matching** (M3): Replaced `toLowerCase()` per-event string
+  allocation with direct multi-case matching for all known Flutter timeline event name
+  variants (BUILD/build/Build, LAYOUT/layout/Layout, etc.). Eliminates 2 string
+  allocations per timeline event.
+
+### Adversarial Review Findings (Pillar 2a)
+
+- **Stale selected highlight** (M2): Traced all code paths — zero→zero fast path cannot
+  leave `selectedHighlightNotifier` stale in practice (non-empty→empty transition always
+  triggers full collection). Added defensive null-clear as belt-and-suspenders.
+- **Custom detector cache reuse** (M1): Verified that custom detectors calling `scanTree()`
+  after the unified walk correctly reuse cache entries from the same scan cycle.
+- **Timeline case coverage** (M3): Verified all known Flutter timeline event name variants
+  across v2.x and v3+ are covered. `_isChannelEvent` handles actual
+  `debugProfilePlatformChannels` format (`'Platform Channel send ...'`).
+
 ## 0.10.4
 
 v11 detector audit Part 4 (v11.19): Sliver anti-pattern detection in ListviewDetector.

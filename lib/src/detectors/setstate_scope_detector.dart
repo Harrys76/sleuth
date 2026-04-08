@@ -5,6 +5,7 @@ import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
 /// Detects StatefulWidgets that own too large a portion of the widget tree.
@@ -159,7 +160,7 @@ class SetStateScopeDetector extends BaseDetector {
 
     if (element is StatefulElement) {
       final widget = element.widget;
-      final name = widget.runtimeType.toString();
+      final name = typeNameCache.lookup(widget);
       if (!name.startsWith('_') && !isFrameworkWidget(widget)) {
         // --- Rebuild detection (merged from _detectRebuilds) ---
         Widget? firstChildWidget;
@@ -209,7 +210,7 @@ class SetStateScopeDetector extends BaseDetector {
     // skip private-named and framework-owned StatefulWidgets so that
     // Scaffold, Navigator, Overlay, etc. never become the "widest" candidate.
     if (element is StatefulElement && subtreeSize > _maxSubtreeSize) {
-      final name = element.widget.runtimeType.toString();
+      final name = typeNameCache.lookup(element.widget);
       if (!name.startsWith('_') && !isFrameworkWidget(element.widget)) {
         _maxSubtreeSize = subtreeSize;
         _maxStableCount = totalStable;
@@ -397,7 +398,7 @@ class SetStateScopeDetector extends BaseDetector {
       }
       // Also check for ListenableBuilder by name (it may not extend AnimatedWidget
       // in all Flutter versions)
-      final name = el.widget.runtimeType.toString();
+      final name = typeNameCache.lookup(el.widget);
       if (name == 'ListenableBuilder' || name == 'ValueListenableBuilder') {
         found = true;
         return;
@@ -438,7 +439,7 @@ class SetStateScopeDetector extends BaseDetector {
     if (widget is EditableText) return true;
     if (widget is ModalBarrier) return true;
 
-    final name = widget.runtimeType.toString();
+    final name = typeNameCache.lookup(widget);
     // _ModalScope<T> runtimeType includes the generic parameter
     // (e.g. '_ModalScope<dynamic>'), so use startsWith.
     if (name.startsWith('_ModalScope')) return true;

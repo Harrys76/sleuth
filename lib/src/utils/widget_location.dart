@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import 'source_location_cache.dart';
+import 'type_name_cache.dart';
 
 /// Module-level cache for widget source location lookups.
 ///
@@ -77,10 +78,10 @@ const _frameworkNames = {
 /// Example output (profile mode or tracking unavailable):
 ///   "NestedScrollDemo > Column > SingleChildScrollView"
 String buildAncestorChain(Element element, {int maxDepth = 6}) {
-  final chain = <String>[element.widget.runtimeType.toString()];
+  final chain = <String>[typeNameCache.lookup(element.widget)];
 
   element.visitAncestorElements((ancestor) {
-    final name = ancestor.widget.runtimeType.toString();
+    final name = typeNameCache.lookup(ancestor.widget);
     // Skip private and known framework widgets
     if (name.startsWith('_') || _frameworkNames.contains(name)) {
       return true; // keep walking

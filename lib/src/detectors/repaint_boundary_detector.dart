@@ -6,6 +6,7 @@ import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
 /// Detects expensive GPU widgets without a [RepaintBoundary] ancestor.
@@ -113,12 +114,12 @@ class RepaintBoundaryDetector extends BaseDetector {
       final ro = element.renderObject;
       if (ro != null && !_hasRepaintBoundaryAncestor(ro)) {
         _found.add(buildAncestorChain(element));
-        _typeNames.add(widget.runtimeType.toString());
+        _typeNames.add(typeNameCache.lookup(widget));
         final rect = getGlobalRect(ro);
         if (rect != null) {
           _highlights.add(WidgetHighlight(
             rect: rect,
-            widgetName: widget.runtimeType.toString(),
+            widgetName: typeNameCache.lookup(widget),
             severity: IssueSeverity.warning,
             detectorName: 'RepaintBoundary',
             detail: 'No RepaintBoundary within $maxAncestorDepth ancestors',
@@ -142,7 +143,7 @@ class RepaintBoundaryDetector extends BaseDetector {
           if (rect != null) {
             _highlights.add(WidgetHighlight(
               rect: rect,
-              widgetName: widget.runtimeType.toString(),
+              widgetName: typeNameCache.lookup(widget),
               severity: IssueSeverity.warning,
               detectorName: 'RepaintBoundary',
               detail: '$count RepaintBoundary children — excessive GPU memory',

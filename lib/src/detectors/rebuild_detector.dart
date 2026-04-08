@@ -6,6 +6,7 @@ import '../models/phase_event.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
@@ -157,7 +158,7 @@ class RebuildDetector extends BaseDetector {
   @override
   void checkElement(Element element) {
     final widget = element.widget;
-    final name = widget.runtimeType.toString();
+    final name = typeNameCache.lookup(widget);
 
     // Track StatefulWidget rebuild indicators
     if (element is StatefulElement) {

@@ -1,6 +1,6 @@
-## v11 Detector Audit: Gaps, False Positives & Milestones
+## v11 Detector Audit: Gaps, False Positives & Hot-Path Performance
 
-**Status: 18/18 milestones shipped** ✅ (v0.10.3)
+**Status: 19/19 milestones + Pillar 2a (3 milestones) shipped** ✅ (v0.10.5)
 
 Origin: Adversarial audit (2026-04-07) of 5 detectors (ListviewDetector, NestedScrollDetector, LayoutBottleneckDetector, SetStateScopeDetector, RepaintBoundaryDetector). Found 6 gaps and false positives across detection coverage, accuracy, and enrichment. All milestones implemented, adversarial-reviewed twice (8 fix-round findings resolved), 1,561 tests passing, 0 analysis issues.
 
@@ -467,5 +467,98 @@ not flagged, non-lazy dedup), dispose (1), existing regression confirmed (1)
 ## Verification (v11.19)
 
 - `fvm flutter test` — 1,648 tests passing ✅
+- `fvm flutter analyze` — 0 issues ✅
+- Adversarial review completed, all findings resolved
+
+---
+
+## Pillar 2a: Hot-Path Performance Optimization (v0.10.5)
+
+**Status: 3/3 milestones shipped** ✅
+
+Origin: Profile-guided audit of Sleuth's own runtime overhead. Investigation revealed
+`runtimeType.toString()` string allocation is the dominant per-element cost during the
+unified tree walk — not virtual dispatch overhead, not issue deduplication (already O(n)),
+and not element-type batching (negligible after toString fix).
+
+---
+
+### Pillar 2a M1: Widget Type Name Cache (P0)
+
+**Effort:** Medium | **Theme:** Performance | **Impact:** P0 — eliminates ~40-60% of tree walk allocation pressure
+
+**Problem:** `widget.runtimeType.toString()` called per-element in 3 detectors' `checkElement()` unconditionally (RebuildDetector, KeepAliveDetector, RepaintDetector) plus `buildAncestorChain()` in widget_location.dart. On a 5K-element tree with ~50 unique widget types, creates 15,000+ duplicate string allocations per scan.
+
+**Solution:** Shared `TypeNameCache` — a `Map<Type, String>` module-level singleton (follows existing `sourceLocationCache` pattern). Cleared once per scan by `SleuthController` before the unified tree walk. Detectors call `typeNameCache.lookup(widget)` instead of `widget.runtimeType.toString()`. Lazily computes each type's string once, turning O(elements x detectors) allocations into O(unique_types).
+
+**Key design decision:** Module-level singleton rather than passing as parameter to `checkElement()`. Avoids changing the `BaseDetector` API, which would break custom detectors.
+
+**Files changed:** `lib/src/utils/type_name_cache.dart` (new), `sleuth_controller.dart`, 11 detectors (`rebuild_detector`, `keep_alive_detector`, `repaint_detector`, `global_key_detector`, `setstate_scope_detector`, `nested_scroll_detector`, `repaint_boundary_detector`, `listview_detector`, `layout_bottleneck_detector`, `shallow_rebuild_risk_detector`), `widget_location.dart`.
+
+**Tests:** 6 new (cache correctness, identity caching, clear behavior, lazy population, generic types).
+
+---
+
+### Pillar 2a M2: Highlight Generation Dirty-Check (P1)
+
+**Effort:** Low | **Theme:** Performance | **Impact:** P1 — eliminates unnecessary overlay repaint every scan cycle
+
+**Problem:** `_collectHighlights()` unconditionally increments `_highlightGeneration` and rebuilds the highlight list every scan. Triggers `CustomPainter.shouldRepaint()` even when no highlights exist (common case: no issues detected, overlay enabled).
+
+**Solution:** Zero-highlights fast path: if no detector has highlights AND previous list was empty, skip the list spread, generation increment, and notifier update entirely. Includes defensive `selectedHighlightNotifier` null-clear for belt-and-suspenders safety.
+
+**Key challenge:** Highlights include `Rect` values that change on scroll. The dirty-check only applies to the zero→zero case. When highlights exist, full collection always runs to propagate rect updates.
+
+**Files changed:** `lib/src/controller/sleuth_controller.dart`.
+
+**Tests:** 3 new (generation stable on zero→zero, increments on appear, increments on disappear).
+
+---
+
+### Pillar 2a M3: Timeline Parser Case-Matching (P2)
+
+**Effort:** Low | **Theme:** Performance | **Impact:** P2 — minor allocation reduction off the tree-walk hot path
+
+**Problem:** `TimelineParser.parse()` calls `.toLowerCase()` on every event's `name` and `cat` fields, creating 2 string allocations per event. For a 500-event batch, that's 1,000 allocations.
+
+**Solution:** Direct multi-case matching for all known Flutter timeline event name variants across v2.x and v3+ (e.g., `BUILD`/`build`/`Build`, `LAYOUT (root)`/`layout (root)`, `GPURasterizer::Draw`/`gpurasterizer::draw`). Eliminates both `toLowerCase()` calls.
+
+**Key constraint:** Must cover all known case variants explicitly. Flutter event naming is stable and well-documented across versions, but the approach is inherently more fragile than toLowerCase for unknown future variants.
+
+**Files changed:** `lib/src/vm/timeline_parser.dart`.
+
+**Tests:** All 28 existing timeline parser tests pass (cover all case variants).
+
+---
+
+### Skipped Optimizations (with justification)
+
+| Optimization | Why skipped |
+|---|---|
+| Issue deduplication hash-set | Already O(n) via `Map` in `DetectorCorrelator` |
+| Tree walk short-circuiting | Breaks accumulator detectors (RebuildDetector, SetStateScopeDetector) |
+| Element-type batching | <1% gain after M1 eliminates toString cost |
+| Ranker allocation | Already uses Dart 3 records, short-circuits for ≤1 issue |
+| `copyWith` in `_aggregateIssues` | ~50 copies per scan, negligible |
+
+---
+
+## Adversarial Review Findings (Pillar 2a)
+
+1 defensive fix applied, 4 false alarms dismissed with code path traces:
+
+| # | Type | Component | Finding | Resolution |
+|---|------|-----------|---------|------------|
+| 1 | Fragility | M2: `_collectHighlights` | `selectedHighlightNotifier` could theoretically persist stale during zero→zero fast path | Added defensive null-clear. Traced all paths — scenario can't happen in practice (non-empty→empty always triggers full collection first). |
+| 2 | False alarm | M2: `pendingIssueSelection` | Claimed pending selection lost when dirty-check skips | Verified: pending fulfillment code is outside `_collectHighlights()`, always executes. |
+| 3 | False alarm | M1: Custom detector cache | Claimed cache stale for custom detector `scanTree()` | Custom detectors run in same scan cycle — cache entries valid. Reuse is beneficial. |
+| 4 | False alarm | M3: Missing event names | Claimed old code matched `buildscope`/`flushlayout` | Verified: old `_isBuild` was `name == 'build'`, does NOT match `'buildscope'`. |
+| 5 | Convention | M3: Timeline fragility | Multi-case matching less future-proof than toLowerCase | Accepted: known variants well-covered, naming stable across Flutter versions. |
+
+---
+
+## Verification (Pillar 2a)
+
+- `fvm flutter test` — 1,657 tests passing ✅
 - `fvm flutter analyze` — 0 issues ✅
 - Adversarial review completed, all findings resolved

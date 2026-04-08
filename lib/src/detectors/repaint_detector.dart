@@ -6,6 +6,7 @@ import '../models/phase_event.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
@@ -147,7 +148,7 @@ class RepaintDetector extends BaseDetector {
   void checkElement(Element element) {
     if (_hotTypes.isEmpty) return;
 
-    final name = element.widget.runtimeType.toString();
+    final name = typeNameCache.lookup(element.widget);
     final rate = _hotTypes[name];
     if (rate != null) {
       final count = _hotCounts[name] ?? 0;

@@ -4,6 +4,7 @@ import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
 class _ScrollableAccumulator {
@@ -104,7 +105,7 @@ class GlobalKeyDetector extends BaseDetector {
     // scrollable's own key isn't counted for itself (matches current behavior
     // where _countUserGlobalKeys starts from scrollElement.visitChildren).
     if (_scrollableStack.isNotEmpty && key is GlobalKey) {
-      final name = widget.runtimeType.toString();
+      final name = typeNameCache.lookup(widget);
       if (!name.startsWith('_') && !frameworkWidgets.contains(name)) {
         for (final acc in _scrollableStack) {
           acc.count++;
@@ -130,7 +131,7 @@ class GlobalKeyDetector extends BaseDetector {
           rect: element.renderObject != null
               ? getGlobalRect(element.renderObject!)
               : null,
-          typeName: element.widget.runtimeType.toString(),
+          typeName: typeNameCache.lookup(element.widget),
         ));
       }
     }

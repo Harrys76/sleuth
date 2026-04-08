@@ -4,6 +4,7 @@ import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
@@ -86,7 +87,7 @@ class ShallowRebuildRiskDetector extends BaseDetector {
     // that would rebuild widely if they depend on inherited widgets.
     // Skip framework widgets that are expected at shallow depth.
     if (element is StatefulElement && _depth <= depthThreshold) {
-      final name = widget.runtimeType.toString();
+      final name = typeNameCache.lookup(widget);
       const frameworkWidgets = {
         'Scaffold',
         'CupertinoPageScaffold',

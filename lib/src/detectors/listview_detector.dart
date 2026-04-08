@@ -4,6 +4,7 @@ import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
 /// Detects non-lazy ListView/GridView with many children and sliver
@@ -294,7 +295,7 @@ class ListviewDetector extends BaseDetector {
     Widget childWidget,
     int childCount,
   ) {
-    final childType = childWidget.runtimeType.toString();
+    final childType = typeNameCache.lookup(childWidget);
     final location = buildAncestorChain(sliverElement);
 
     final ro = sliverElement.renderObject;

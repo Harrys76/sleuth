@@ -77,34 +77,65 @@ class ParsedTimelineData {
 class TimelineParser {
   TimelineParser._();
 
-  // Known event name patterns (lowercased).
+  // Known event name patterns — multi-case matching to avoid toLowerCase()
+  // allocation per event (Pillar 2a M3).
   // Flutter emits BUILD, LAYOUT, PAINT (v3+); LAYOUT (root) / PAINT (root) (v3.13+).
-  static bool _isBuild(String name) => name == 'build';
+  // Older versions: Build, Layout, Paint (v2.x).
+  static bool _isBuild(String name) =>
+      name == 'BUILD' || name == 'build' || name == 'Build';
   static bool _isLayout(String name) =>
-      name == 'layout' || name.startsWith('layout (');
+      name == 'LAYOUT' ||
+      name == 'layout' ||
+      name == 'Layout' ||
+      name.startsWith('LAYOUT (') ||
+      name.startsWith('layout (') ||
+      name.startsWith('Layout (');
   static bool _isPaint(String name) =>
-      name == 'paint' || name.startsWith('paint (');
+      name == 'PAINT' ||
+      name == 'paint' ||
+      name == 'Paint' ||
+      name.startsWith('PAINT (') ||
+      name.startsWith('paint (') ||
+      name.startsWith('Paint (');
   static const _rasterNames = {
+    'GPURasterizer::Draw',
     'gpurasterizer::draw',
+    'GPURasterizer',
     'gpurasterizer',
+    'Rasterizer::DoDraw',
     'rasterizer::dodraw',
+    'Raster',
     'raster',
   };
   static const _shaderNames = {
+    'ShaderCompilation',
     'shadercompilation',
+    'Shader_Compilation',
     'shader_compilation',
+    'Pipeline::Create',
     'pipeline::create',
   };
   static const _channelNames = {
+    'PlatformChannel',
     'platformchannel',
+    'Platform_Channel',
     'platform_channel',
+    'MethodChannel',
     'methodchannel',
   };
 
-  /// Prefix for real platform channel timeline events emitted by
-  /// `debugProfilePlatformChannels` (lowercased).
-  /// Format: 'platform channel send [channelName]#[methodName]'
-  static const _channelPrefix = 'platform channel send ';
+  /// Prefixes for real platform channel timeline events emitted by
+  /// `debugProfilePlatformChannels`.
+  /// Format: 'Platform Channel send [channelName]#[methodName]'
+  /// (Note: actual Flutter output uses lowercase 'send'.)
+  static bool _isChannelEvent(String name) =>
+      name.startsWith('Platform Channel send ') ||
+      name.startsWith('Platform Channel Send ') ||
+      name.startsWith('platform channel send ');
+
+  /// Whether a category string contains a GC marker (case-insensitive).
+  static bool _isGcCategory(String cat) =>
+      cat.contains('GC') || cat.contains('gc');
 
   /// Parse a string-encoded int from timeline args.
   ///
@@ -148,10 +179,10 @@ class TimelineParser {
       final json = event.json;
       if (json == null) continue;
 
-      final name = (json['name'] as String? ?? '').toLowerCase();
+      final name = json['name'] as String? ?? '';
       final ph = json['ph'] as String? ?? '';
       final dur = json['dur'] as int?;
-      final cat = (json['cat'] as String? ?? '').toLowerCase();
+      final cat = json['cat'] as String? ?? '';
 
       // Complete duration events (ph == 'X') have a 'dur' field
       if (ph == 'X' && dur != null) {
@@ -212,10 +243,9 @@ class TimelineParser {
               durationUs: dur,
             ));
           }
-        } else if (_channelNames.contains(name) ||
-            name.startsWith(_channelPrefix)) {
+        } else if (_channelNames.contains(name) || _isChannelEvent(name)) {
           channels.add(event);
-        } else if (cat.contains('gc')) {
+        } else if (_isGcCategory(cat)) {
           gcs.add(event);
         }
       } else if (ph == 'B' || ph == 'E') {
@@ -223,7 +253,7 @@ class TimelineParser {
         if (_isBuild(name) && ph == 'B') {
           buildCount++;
         }
-        if (cat.contains('gc')) {
+        if (_isGcCategory(cat)) {
           gcs.add(event);
         }
       }

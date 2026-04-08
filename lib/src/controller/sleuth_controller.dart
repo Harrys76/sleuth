@@ -59,6 +59,7 @@ import '../network/http_monitor.dart';
 import '../ranking/issue_ranker.dart';
 import '../vm/cpu_sample_aggregator.dart';
 import '../vm/vm_service_client.dart';
+import '../utils/type_name_cache.dart';
 import '../vm/timeline_parser.dart';
 
 /// Central controller aggregating all detectors and the pipeline analyzer.
@@ -1021,6 +1022,7 @@ class SleuthController {
     }
 
     // Phase 1: Preparation
+    typeNameCache.clear();
     for (final d in unified) {
       d.prepareScan(scanContext);
     }
@@ -1079,6 +1081,28 @@ class SleuthController {
   /// Detectors collect highlights during their scanTree() calls.
   /// This method just gathers them — no tree walking or re-detection.
   void _collectHighlights() {
+    // Fast path: if no highlights existed last scan and no detector produced
+    // any this scan, skip the list spread, generation increment, and notifier
+    // update to avoid unnecessary overlay repaints (Pillar 2a M2).
+    if (highlightsNotifier.value.items.isEmpty) {
+      bool anyHighlights = false;
+      for (final d in _detectors) {
+        if (d.highlights.isNotEmpty) {
+          anyHighlights = true;
+          break;
+        }
+      }
+      if (!anyHighlights) {
+        // Defensive: clear stale selection if somehow non-null while
+        // highlights are empty (shouldn't happen, but safe-guards against
+        // future code paths that set selection without highlights).
+        if (selectedHighlightNotifier.value != null) {
+          selectedHighlightNotifier.value = null;
+        }
+        return;
+      }
+    }
+
     _highlightGeneration++;
     final items = [for (final d in _detectors) ...d.highlights];
     highlightsNotifier.value = (generation: _highlightGeneration, items: items);

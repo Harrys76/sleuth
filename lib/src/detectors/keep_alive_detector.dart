@@ -4,6 +4,7 @@ import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
 class _ScrollableAccumulator {
@@ -68,7 +69,7 @@ class KeepAliveDetector extends BaseDetector {
   @override
   void checkElement(Element element) {
     final widget = element.widget;
-    final name = widget.runtimeType.toString();
+    final name = typeNameCache.lookup(widget);
 
     // Count KeepAlive for all active scrollables BEFORE pushing, so the
     // scrollable's own element isn't counted for itself.
@@ -104,7 +105,7 @@ class KeepAliveDetector extends BaseDetector {
           rect: element.renderObject != null
               ? getGlobalRect(element.renderObject!)
               : null,
-          typeName: element.widget.runtimeType.toString(),
+          typeName: typeNameCache.lookup(element.widget),
         ));
       }
     }

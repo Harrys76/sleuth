@@ -4,6 +4,7 @@ import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
 /// Detects SingleChildScrollView wrapping Column with many children.
@@ -130,7 +131,7 @@ class NestedScrollDetector extends BaseDetector {
 
   void _checkNestedScroll(Element element, Widget widget) {
     final location = buildAncestorChain(element);
-    final widgetTypeName = widget.runtimeType.toString();
+    final widgetTypeName = typeNameCache.lookup(widget);
 
     if (widget is SingleChildScrollView) {
       int childCount = 0;

@@ -4,6 +4,7 @@ import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
 /// Detects intrinsic dimension render objects that cause layout bottlenecks.
@@ -72,7 +73,7 @@ class LayoutBottleneckDetector extends BaseDetector {
     element.visitAncestorElements((ancestor) {
       if (depth >= _maxAncestorLookup) return false;
       depth++;
-      final name = ancestor.widget.runtimeType.toString();
+      final name = typeNameCache.lookup(ancestor.widget);
       // Handle generic types like DropdownButton<String>
       final baseName =
           name.contains('<') ? name.substring(0, name.indexOf('<')) : name;

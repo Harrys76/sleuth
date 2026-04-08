@@ -154,6 +154,107 @@ void main() {
     });
   });
 
+  group('highlight dirty-check (Pillar 2a M2)', () {
+    late SleuthController controller;
+
+    setUp(() {
+      controller = SleuthController();
+      controller.initializeDetectorsForTest();
+    });
+
+    tearDown(() {
+      controller.dispose();
+    });
+
+    testWidgets('generation unchanged when zero highlights across scans',
+        (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(width: 10, height: 10),
+        ),
+      );
+
+      final context = tester.element(find.byType(Directionality));
+      controller.runTreeScanForTest(context);
+      final gen1 = controller.highlightsNotifier.value.generation;
+
+      controller.runTreeScanForTest(context);
+      final gen2 = controller.highlightsNotifier.value.generation;
+
+      expect(gen2, gen1,
+          reason: 'Generation should not increment when 0→0 highlights');
+    });
+
+    testWidgets('generation increments when highlights appear', (tester) async {
+      // First scan: clean tree, no highlights
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(width: 10, height: 10),
+        ),
+      );
+      controller.runTreeScanForTest(
+        tester.element(find.byType(Directionality)),
+      );
+      final genBefore = controller.highlightsNotifier.value.generation;
+
+      // Second scan: tree with Opacity(0.0) → highlights produced
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Opacity(
+            opacity: 0.0,
+            child: SizedBox(width: 10, height: 10),
+          ),
+        ),
+      );
+      controller.runTreeScanForTest(
+        tester.element(find.byType(Directionality)),
+      );
+      final genAfter = controller.highlightsNotifier.value.generation;
+
+      expect(genAfter, greaterThan(genBefore),
+          reason: 'Generation must increment when highlights appear');
+      expect(controller.highlightsNotifier.value.items, isNotEmpty);
+    });
+
+    testWidgets('generation increments when highlights disappear',
+        (tester) async {
+      // First scan: tree with Opacity(0.0) → highlights produced
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Opacity(
+            opacity: 0.0,
+            child: SizedBox(width: 10, height: 10),
+          ),
+        ),
+      );
+      controller.runTreeScanForTest(
+        tester.element(find.byType(Directionality)),
+      );
+      expect(controller.highlightsNotifier.value.items, isNotEmpty);
+      final genBefore = controller.highlightsNotifier.value.generation;
+
+      // Second scan: clean tree → highlights gone
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(width: 10, height: 10),
+        ),
+      );
+      controller.runTreeScanForTest(
+        tester.element(find.byType(Directionality)),
+      );
+      final genAfter = controller.highlightsNotifier.value.generation;
+
+      expect(genAfter, greaterThan(genBefore),
+          reason: 'Generation must increment when highlights disappear');
+      expect(controller.highlightsNotifier.value.items, isEmpty);
+    });
+  });
+
   group('selectHighlightForIssue', () {
     late SleuthController controller;
 
