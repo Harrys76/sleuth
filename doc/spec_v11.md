@@ -412,3 +412,60 @@ Developers can't tell if the fix is in build/layout code or in painting/composit
 - `fvm flutter test` — 1,631 tests passing ✅
 - `fvm flutter analyze` — 0 issues ✅
 - Adversarial review completed, all findings resolved
+
+---
+
+# Part 4: Sliver Anti-Pattern Detection (v11.19)
+
+## P1 — Detection Gap
+
+### v11.19: Sliver anti-pattern detection (ListviewDetector) ✅
+
+**Problem**: Three common CustomScrollView misuse patterns are invisible to all 22 detectors:
+SliverToBoxAdapter wrapping large Column/Row subtrees, SliverFillRemaining(hasScrollBody: false)
+with scrollable children, and SliverToBoxAdapter wrapping shrinkWrap scrollables. Adjacent to
+ListviewDetector's existing non-lazy list checks.
+
+**Solution**:
+- **Check A — SliverToBoxAdapter + large Column/Row**: `_insideSliverToBoxAdapter` depth counter
+  incremented in `checkElement`, decremented in `afterElement`. `_checkSliverToBoxAdapterChild()`
+  recursive wrapper traversal (same pattern as `_checkForNonLazyList`) finds Column/Row through
+  Padding/SizedBox/Center wrappers. Warning at >50 children (shared `childThreshold`), critical
+  at >150 (3x). StableId: `sliver_to_box_adapter_large`.
+- **Check B — SliverFillRemaining(hasScrollBody: false) + scrollable child**:
+  `_insideSliverFillNoScroll` depth counter — only increments when `hasScrollBody == false`.
+  Scrollable findings (ListView, GridView, CustomScrollView, SingleChildScrollView) recorded in
+  `_sliverFillFindings` deferred list, emitted in `finalizeScan()`. Always warning severity.
+  StableId: `sliver_fill_remaining_scrollable`.
+- **Check C — SliverToBoxAdapter + shrinkWrap scrollable**: Fires when inside SliverToBoxAdapter
+  AND widget is ListView/GridView with `shrinkWrap == true`. Dedup: `!isNonLazy` guard skips
+  if same widget already fired the non-lazy check. Always warning severity.
+  StableId: `sliver_to_box_adapter_shrinkwrap`.
+- 3 new `FixHintBuilder` methods: `sliverToBoxAdapterLarge()`, `sliverFillRemainingScrollable()`,
+  `sliverToBoxAdapterShrinkWrap()`.
+- Updated detector description to `'Detects non-lazy lists and sliver anti-patterns'`.
+
+**Files**: `listview_detector.dart`, `fix_hint_builder.dart`, `listview_detector_test.dart`
+**Tests**: 18 new tests — Check A (6: flag/threshold/Row/single-widget/wrapper/critical),
+Check B (6: ListView/GridView/SingleChildScrollView/CustomScrollView flagged, hasScrollBody:true
+not flagged, non-scrollable not flagged), Check C (4: ListView/GridView flagged, shrinkWrap:false
+not flagged, non-lazy dedup), dispose (1), existing regression confirmed (1)
+
+---
+
+## Adversarial Review Findings (v11.19)
+
+2 findings identified and fixed:
+
+| # | Type | Detector | Finding | Resolution |
+|---|------|----------|---------|------------|
+| 1 | Bug | ListviewDetector | Check B: `SingleChildScrollView` inside `SliverFillRemaining(hasScrollBody: false)` caught by earlier `SingleChildScrollView` branch — Check B finding never recorded (false negative) | Added Check B recording inside the `SingleChildScrollView` branch when `_insideSliverFillNoScroll > 0`. Removed dead `widget is SingleChildScrollView` from later branch. |
+| 2 | Test | ListviewDetector | No test coverage for Check B with `SingleChildScrollView` or `CustomScrollView` descendants | Added 2 tests covering both scrollable types inside `SliverFillRemaining(hasScrollBody: false)` |
+
+---
+
+## Verification (v11.19)
+
+- `fvm flutter test` — 1,648 tests passing ✅
+- `fvm flutter analyze` — 0 issues ✅
+- Adversarial review completed, all findings resolved

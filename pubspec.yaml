@@ -1,6 +1,6 @@
 name: sleuth
 description: "Runtime performance diagnostics for Flutter apps — frame timing, VM timeline, and widget-tree heuristics to surface bottlenecks and actionable fixes."
-version: 0.10.3
+version: 0.10.4
 homepage: https://github.com/Harrys76/sleuth
 repository: https://github.com/Harrys76/sleuth
 issue_tracker: https://github.com/Harrys76/sleuth/issues

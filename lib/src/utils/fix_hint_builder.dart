@@ -337,6 +337,45 @@ class FixHintBuilder {
     );
   }
 
+  static (String, FixEffort) sliverToBoxAdapterLarge({
+    required int childCount,
+    required String childType,
+    String? ancestorChain,
+  }) {
+    final location = _locationSuffix(null, ancestorChain);
+    return (
+      'Replace SliverToBoxAdapter + $childType ($childCount children) with '
+          'SliverList.builder for lazy loading$location.',
+      FixEffort.medium,
+    );
+  }
+
+  static (String, FixEffort) sliverFillRemainingScrollable({
+    String? ancestorChain,
+  }) {
+    final location = _locationSuffix(null, ancestorChain);
+    return (
+      'Use SliverFillRemaining(hasScrollBody: true) when the child is a '
+          'scrollable$location. hasScrollBody: false gives unconstrained '
+          'height, forcing the scrollable child to shrinkWrap and build '
+          'all children eagerly.',
+      FixEffort.quick,
+    );
+  }
+
+  static (String, FixEffort) sliverToBoxAdapterShrinkWrap({
+    required String scrollableType,
+    String? ancestorChain,
+  }) {
+    final location = _locationSuffix(null, ancestorChain);
+    return (
+      'Replace SliverToBoxAdapter + $scrollableType(shrinkWrap: true) with '
+          'SliverList.builder/SliverGrid.builder$location. shrinkWrap forces '
+          'eager measurement of all children, defeating lazy loading.',
+      FixEffort.medium,
+    );
+  }
+
   static (String, FixEffort) nonLazySliver({
     required int childCount,
     required String widgetName,

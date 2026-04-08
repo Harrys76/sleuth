@@ -1,3 +1,30 @@
+## 0.10.4
+
+v11 detector audit Part 4 (v11.19): Sliver anti-pattern detection in ListviewDetector.
+
+### v11 Detector Audit — Part 4 (v11.19)
+
+- **Sliver anti-pattern detection** (v11.19): `ListviewDetector` extended with 3 new
+  checks for common CustomScrollView misuse patterns:
+  - **Check A**: SliverToBoxAdapter wrapping Column/Row with >50 children — defeats
+    lazy loading. Warning at >50, critical at >150 children.
+  - **Check B**: SliverFillRemaining(hasScrollBody: false) containing a scrollable
+    child (ListView, GridView, CustomScrollView, SingleChildScrollView) — forces
+    shrinkWrap and eager building.
+  - **Check C**: SliverToBoxAdapter wrapping shrinkWrap ListView/GridView — forces
+    eager measurement of all children instead of lazy loading.
+  - Dedup logic prevents double-reporting when non-lazy and shrinkWrap checks overlap.
+  - 3 new `FixHintBuilder` methods with actionable replacement patterns.
+
+### Adversarial Review Findings (v11.19)
+
+- **Check B false negative** (ListviewDetector): SingleChildScrollView inside
+  SliverFillRemaining(hasScrollBody: false) was caught by the SingleChildScrollView
+  branch before the Check B branch could record it. Fixed by recording the finding
+  before running the non-lazy list check. Removed dead code from the later branch.
+- **Missing test coverage** (ListviewDetector): No tests for Check B with
+  SingleChildScrollView or CustomScrollView descendants. Added 2 tests.
+
 ## 0.10.3
 
 v11 detector audit Part 3 (v11.13–v11.18): 6 milestones covering duplicate request

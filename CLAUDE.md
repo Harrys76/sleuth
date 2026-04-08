@@ -53,7 +53,8 @@ test/
 
 ## Current state
 
-- **v0.10.3** (current) — v11 detector audit Part 3 (6 milestones: duplicate request detection, GlobalKey recreation, subtree cost enrichment, thread attribution, warmup/builder suppression). See `doc/spec_v11.md`.
+- **v0.10.4** (current) — v11.19: Sliver anti-pattern detection in ListviewDetector (SliverToBoxAdapter large subtrees, SliverFillRemaining misuse, shrinkWrap inside slivers). See `doc/spec_v11.md`.
+- v0.10.3: v11 detector audit Part 3 (6 milestones: duplicate request detection, GlobalKey recreation, subtree cost enrichment, thread attribution, warmup/builder suppression). See `doc/spec_v11.md`.
 - v0.10.0: Issue Encyclopedia, contextual AI Chat, IssueCard shimmer Ask AI link, responsive action links, MediaQuery optimization, overlay UI polish. See CHANGELOG.md.
 - v0.9.2: v9 accuracy/self-overhead/correctness: 17 milestones — opacity value semantics, paint phase classification, inner subtree walk elimination, highlight overlay GPU optimization, generation-counter shouldRepaint, and more.
 - v0.9.1: v8 accuracy/correctness/performance fixes: SetState O(N²) fix (v8.1), scaffold scan-root fallback for Cupertino/scaffold-free apps (v8.2), HTTP monitor leak (v8.3), platform channel false positives (v8.4), SetState wording (v8.5).
@@ -68,5 +69,5 @@ test/
 - v9 roadmap: 17/17 milestones shipped ✅ (v9.1–v9.17). See `doc/spec_v9.md`.
 - Post-implementation audits in `doc/spec_v2_audit.md` and `doc/spec_post_impl_notes.md`.
 - Full spec index in `doc/implementation_spec.md`.
-- v11 roadmap: 18/18 milestones shipped ✅ (v11.1–v11.18, three adversarial reviews). See `doc/spec_v11.md`.
-- 1,631 tests, 0 analysis issues
+- v11 roadmap: 19/19 milestones shipped ✅ (v11.1–v11.19, four adversarial reviews). See `doc/spec_v11.md`.
+- 1,648 tests, 0 analysis issues
