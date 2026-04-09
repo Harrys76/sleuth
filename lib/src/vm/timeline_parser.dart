@@ -256,6 +256,16 @@ class TimelineParser {
         if (_isGcCategory(cat)) {
           gcs.add(event);
         }
+      } else if (ph == 'b' || ph == 'e') {
+        // Async Begin/End events — emitted by TimelineTask.start/finish.
+        // Flutter's `debugProfilePlatformChannels` wraps each platform-channel
+        // send in a TimelineTask, so channel events arrive as 'b'/'e' pairs
+        // (lowercase, async). Capture only the 'b' event to count each call
+        // exactly once. 'dur' is null on async events, so duration tracking
+        // won't work — but the frequency threshold is what matters.
+        if (ph == 'b' && _isChannelEvent(name)) {
+          channels.add(event);
+        }
       }
     }
 

@@ -18,7 +18,6 @@ class MemoryPressureDetector extends BaseDetector {
     this.growthThresholdBytesPerSec = 512000,
     this.capacityThresholdPercent = 0.80,
   })  : _clock = clock ?? DateTime.now,
-        _trackingStart = (clock ?? DateTime.now)(),
         super(
           type: DetectorType.memoryPressure,
           lifecycle: DetectorLifecycle.vmOnly,
@@ -41,9 +40,18 @@ class MemoryPressureDetector extends BaseDetector {
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
 
-  int _gcEventCount = 0;
-  DateTime _trackingStart;
   DateTime? _firstHeapSampleTime;
+
+  // -- GC rate sliding window --
+  //
+  // Tracks GC batches received within the last [_gcWindowDuration]. Without
+  // a sliding window, a long-running app dilutes any recent GC burst: a user
+  // who explores other demos for 60s and then hits a churn-heavy demo would
+  // see `(N events / 60s+ elapsed) * 60` fall below the 30/min threshold even
+  // though N events in the last ~5s clearly indicates pressure. The window
+  // gives us an "events per 10 seconds" rate that responds to real bursts.
+  static const Duration _gcWindowDuration = Duration(seconds: 10);
+  final Queue<({DateTime ts, int count})> _gcWindow = Queue();
 
   // -- Heap trend rolling window --
 
@@ -75,10 +83,10 @@ class MemoryPressureDetector extends BaseDetector {
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
 
-    _gcEventCount += data.gcEvents.length;
-
     // Only evaluate when we have real GC events
     if (data.gcEvents.isEmpty) return;
+
+    _gcWindow.add((ts: _clock(), count: data.gcEvents.length));
 
     _evaluate();
   }
@@ -109,11 +117,9 @@ class MemoryPressureDetector extends BaseDetector {
   void _evaluate() {
     _issues.clear();
 
-    // GC pressure needs elapsed > 0 to compute per-minute rate.
-    // Heap evaluations work immediately — no elapsed guard needed.
-    final elapsed = _clock().difference(_trackingStart);
-    if (elapsed.inSeconds > 0 && _gcEventCount > 0) {
-      _evaluateGcPressure(elapsed);
+    _evictExpiredGcBatches();
+    if (_gcWindow.isNotEmpty) {
+      _evaluateGcPressure();
     }
 
     _evaluateHeapTrend();
@@ -121,8 +127,27 @@ class MemoryPressureDetector extends BaseDetector {
     _evaluateNativeGrowth();
   }
 
-  void _evaluateGcPressure(Duration elapsed) {
-    final gcPerMinute = (_gcEventCount / elapsed.inSeconds) * 60;
+  /// Evict GC batches older than the sliding window.
+  ///
+  /// Window boundary is inclusive: a batch whose timestamp equals
+  /// `now - _gcWindowDuration` is retained. A batch strictly before
+  /// that is dropped.
+  void _evictExpiredGcBatches() {
+    final cutoff = _clock().subtract(_gcWindowDuration);
+    while (_gcWindow.isNotEmpty && _gcWindow.first.ts.isBefore(cutoff)) {
+      _gcWindow.removeFirst();
+    }
+  }
+
+  void _evaluateGcPressure() {
+    final windowEvents = _gcWindow.fold<int>(0, (s, b) => s + b.count);
+    if (windowEvents == 0) return;
+
+    // Fixed-window denominator: (events / window seconds) * 60.
+    // Using the window size rather than elapsed-since-first-event keeps
+    // the rate stable under bursty traffic and prevents a lone event
+    // from registering as "infinite rate" before the window has filled.
+    final gcPerMinute = (windowEvents / _gcWindowDuration.inSeconds) * 60;
     if (gcPerMinute > 30) {
       final (hint, effort) = FixHintBuilder.gcPressure();
       _issues.add(PerformanceIssue(
@@ -317,20 +342,18 @@ class MemoryPressureDetector extends BaseDetector {
   }
 
   void reset() {
-    _gcEventCount = 0;
+    _gcWindow.clear();
     _heapSamples.clear();
     _sustainedGrowthStart = null;
     _sustainedNativeGrowthStart = null;
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
-    _trackingStart = _clock();
     _issues.clear();
   }
 
   @override
   void dispose() {
-    _gcEventCount = 0;
-    _trackingStart = _clock();
+    _gcWindow.clear();
     _heapSamples.clear();
     _sustainedGrowthStart = null;
     _sustainedNativeGrowthStart = null;

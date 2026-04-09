@@ -1,6 +1,6 @@
 # Sleuth Example
 
-Demo app with 15 screens, each triggering specific performance detectors.
+Demo app with 23 screens organized by category, each triggering specific performance detectors.
 
 ## Running
 
@@ -14,23 +14,31 @@ cd example && flutter run
 
 ## Demo Screens
 
-| # | Screen | Detectors Triggered |
-|---|--------|-------------------|
-| 1 | High-Level setState | Rebuild, SetStateScope |
-| 2 | Non-Lazy ListView | ListView |
-| 3 | IntrinsicHeight Abuse | LayoutBottleneck |
-| 4 | Always-Repaint CustomPainter | CustomPainter |
-| 5 | Uncached Images | ImageMemory |
-| 6 | GlobalKey Overuse | GlobalKey |
-| 7 | Nested Scroll | NestedScroll |
-| 8 | Heavy Compute | HeavyCompute, FrameTiming |
-| 9 | KeepAlive Overuse | KeepAlive |
-| 10 | Opacity Zero | Opacity |
-| 11 | AnimatedBuilder No Child | AnimatedBuilder |
-| 12 | Shallow Rebuild Risk | ShallowRebuildRisk |
-| 13 | Font Loading Stress | FontLoading |
-| 14 | Repaint Stress | Repaint |
-| 15 | Network Stress | NetworkMonitor |
+| # | Screen | Detectors Triggered | Category |
+|---|--------|-------------------|----------|
+| 1 | High-Level setState | Rebuild, SetStateScope | Build |
+| 2 | Non-Lazy ListView | ListView | Build |
+| 3 | AnimatedBuilder No Child | AnimatedBuilder | Build |
+| 4 | Shallow Rebuild Risk | ShallowRebuildRisk | Build |
+| 5 | Heavy Compute | HeavyCompute, FrameTiming | Build |
+| 6 | Repaint Stress | Repaint | Paint |
+| 7 | Always-Repaint CustomPainter | CustomPainter | Paint |
+| 8 | Missing RepaintBoundary | RepaintBoundary | Paint |
+| 9 | Opacity Zero | Opacity | GPU & Rendering |
+| 10 | GPU Pressure | GpuPressure | GPU & Rendering |
+| 11 | Shader Jank | ShaderJank | GPU & Rendering |
+| 12 | FPS Stress Test | HeavyCompute, GpuPressure | GPU & Rendering |
+| 13 | IntrinsicHeight Abuse | LayoutBottleneck | Layout |
+| 14 | Nested Scroll | NestedScroll | Layout |
+| 15 | Uncached Images | ImageMemory | Memory |
+| 16 | Memory Pressure | MemoryPressure | Memory |
+| 17 | KeepAlive Overuse | KeepAlive | Memory |
+| 18 | Network Stress | NetworkMonitor | Network & I/O |
+| 19 | Platform Channel Traffic | PlatformChannel | Network & I/O |
+| 20 | Font Loading Stress | FontLoading | Network & I/O |
+| 21 | GlobalKey Overuse | GlobalKey | Keys & Identity |
+| 22 | Combined: Social Feed | Image, Opacity, Layout, setState | Combined |
+| 23 | Combined: Analytics Dashboard | Painter, AnimBuilder, GlobalKey, Font | Combined |
 
 Each demo includes `BAD:` and `FIX:` annotations explaining the anti-pattern and its fix.
 

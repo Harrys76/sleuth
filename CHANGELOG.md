@@ -1,3 +1,74 @@
+## 0.11.0
+
+Pillar 5 Part 1: Demo Infrastructure & Missing Detector Demos — DemoScaffold shared
+layout, 5 new demos, and categorized home screen navigation.
+
+### Demo Infrastructure (Pillar 5, Part 1)
+
+- **DemoScaffold** (M1): Shared scaffold with collapsible description banner, AppBar, and
+  Expanded body slot. All 23 demos use consistent layout with `BAD:`/`FIX:` annotations.
+- **Shader Jank demo** (M2): Navigates to a page with BackdropFilter(σ=20), ShaderMask,
+  ColorFiltered, and combined effects. Includes Impeller caveat (pre-compiled shaders).
+- **Platform Channel Traffic demo** (M3): Rapid fire (50 concurrent calls), sustained load
+  (50 calls/sec via Timer.periodic), and single call modes with scrollable log. Timer
+  properly cancelled in `dispose()`.
+- **Memory Pressure demo** (M4): Separate Dart heap (+10MB Maps) and native (+10MB Uint8List)
+  allocation buttons, GC churn mode (100 batches, retain first only), visual bar chart.
+  Per-batch KB tracking for accurate MB display.
+- **GPU Pressure demo** (M5): 10 cards each stacking ClipPath(antiAliasWithSaveLayer) →
+  Opacity(0.85) → BackdropFilter(σ=15) → ColorFiltered, with >5 descendants per node.
+- **RepaintBoundary demo** (M6): Uses SingleChildScrollView+Column (not ListView.builder
+  which auto-wraps in RepaintBoundary). 14 Opacity(0.7) cards + 1 animated CustomPaint
+  card. AnimationController disposed properly.
+- **Home screen categorization** (M7): 8 categories (Build, Paint, GPU & Rendering, Layout,
+  Memory, Network & I/O, Keys & Identity, Combined) with all 23 demos navigable.
+
+### Adversarial Review Findings (Pillar 5 Part 1, Round 1)
+
+- **Memory MB overcount**: `_dartMB` getter multiplied `_dartObjects.length * 10` assuming
+  every batch was ~10MB, but `GC Churn` retained only a tiny sentinel batch that was then
+  counted as a full 10MB. Fixed with per-batch KB tracking (`_dartBatchKB` list) so each
+  batch reports its actual size.
+- **Hardcoded light-theme color**: The memory visualization card used a literal
+  `Colors.grey.shade100` that was unreadable in dark mode. Replaced with
+  `Theme.of(context).colorScheme.surfaceContainerLow`.
+
+### Adversarial Review Findings (Pillar 5 Part 1, Round 2)
+
+- **GC rate dilution** (CRITICAL): `MemoryPressureDetector._evaluateGcPressure` computed
+  `gcPerMinute = _gcEventCount / (now - _trackingStart).inSeconds * 60`, so the denominator
+  grew unbounded across a session. A user who explored other demos for 60s then hit GC
+  Churn would see `(N events / 60s+ elapsed) * 60` fall below the 30/min threshold even
+  though N events in the last 5s clearly indicated pressure. Replaced with a 10-second
+  sliding window (`Queue<({DateTime ts, int count})> _gcWindow`) with timestamp-based
+  eviction, yielding a stable "events per 10s × 6" rate that responds to real bursts.
+  All 55 memory pressure detector tests still pass.
+- **setState-after-dispose in platform channel demo** (HIGH): `_triggerRapidFire` and
+  `_triggerSingle` awaited `Future.wait` / `invokeMethod` without a `mounted` guard before
+  calling `setState`, causing a crash if the user navigated away mid-call. Fixed by adding
+  `if (!mounted) return;` after each await and guarding `_addLog` internally.
+- **Global `debugProfilePlatformChannels` clobber** (HIGH): The demo hardcoded
+  `debugProfilePlatformChannels = false` on dispose, silently stomping a developer's global
+  setting if they had enabled it in `main.dart`. Fixed by capturing the prior value in
+  `initState` and restoring it in `dispose`.
+- **Memory "Dart Heap" label misleading** (MEDIUM): The stats card labeled the counter
+  "Dart Heap" but the value only tracked *retained* allocations, which stayed at 0 during
+  GC Churn mode. Users reasonably concluded the demo was broken. Renamed to
+  "Retained (Dart)" and updated the demo description to explain that churn allocations are
+  intentionally transient.
+- **RepaintBoundary demo description inaccurate** (MEDIUM): Description claimed the detector
+  flagged "Opacity(0.7) with 6+ descendants", but the real check is for non-trivial opacity
+  values (between 0.0 and 1.0 exclusive) without a `RepaintBoundary` ancestor within 5
+  levels. Rewrote to match actual detector logic, enumerating the 6 widget classes
+  flagged (Opacity, ClipPath, BackdropFilter, ShaderMask, CustomPaint, ColorFiltered).
+- **Impeller silent failure in shader jank demo** (MEDIUM): `ShaderCompilation` timeline
+  events only fire on the Skia backend. Impeller (default iOS 3.16+, Android 3.22+)
+  pre-compiles shaders offline, so the demo silently produced zero detector hits on
+  modern devices and users reasonably concluded the detector was broken. There is no
+  public Flutter API to detect the active graphics backend from Dart, so added a
+  prominent `_ImpellerWarningBanner` at the top of the shader-heavy page explaining the
+  incompatibility and instructing users to relaunch with `--no-enable-impeller`.
+
 ## 0.10.9
 
 Pillar 4: Issue Documentation Quality — comprehensive encyclopedia content for all 46

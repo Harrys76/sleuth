@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C819_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C821_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -306,14 +306,14 @@ To set clear expectations:
 
 ## Example App
 
-The `example/` directory includes 18 demo screens, each triggering a specific detector:
+The `example/` directory includes 23 demo screens organized by category, each triggering a specific detector:
 
 ```bash
 cd example
 flutter run
 ```
 
-Demos cover: high-level setState, non-lazy ListView, IntrinsicHeight abuse, always-repaint CustomPainter, uncached images, GlobalKey overuse, nested scroll, heavy compute, KeepAlive overuse, Opacity zero, AnimatedBuilder without child, shallow rebuild risk, font loading stress, repaint stress, network stress, FPS stress test, and two combined multi-detector scenarios (analytics dashboard, social feed).
+Demos cover: high-level setState, non-lazy ListView, IntrinsicHeight abuse, always-repaint CustomPainter, uncached images, GlobalKey overuse, nested scroll, heavy compute, KeepAlive overuse, Opacity zero, AnimatedBuilder without child, shallow rebuild risk, font loading stress, repaint stress, network stress, FPS stress test, shader jank, platform channel traffic, memory pressure, GPU pressure, missing RepaintBoundary, and two combined multi-detector scenarios (analytics dashboard, social feed).
 
 Each demo includes `BAD:` and `FIX:` annotations explaining the anti-pattern and its fix.
 

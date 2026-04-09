@@ -460,4 +460,80 @@ void main() {
       expect(data.platformChannelEvents, isEmpty);
     });
   });
+
+  group('TimelineParser async platform channel events', () {
+    // Flutter's debugProfilePlatformChannels wraps each send in a
+    // TimelineTask, which emits async begin/end events with lowercase
+    // ph='b'/'e' — NOT the sync ph='X' format used by legacy helpers.
+    TimelineEvent makeAsyncEvent({
+      required String name,
+      required String ph,
+      int? ts,
+      int id = 1,
+    }) =>
+        TimelineEvent.parse({
+          'name': name,
+          'cat': '',
+          'ph': ph,
+          if (ts != null) 'ts': ts,
+          'id': '$id',
+          'pid': 1,
+          'tid': 1,
+        })!;
+
+    test('async begin (ph=b) platform channel event is classified', () {
+      final events = [
+        makeAsyncEvent(
+          name: 'Platform Channel send sleuth_demo_channel#getData',
+          ph: 'b',
+          ts: 1000,
+        ),
+      ];
+
+      final data = TimelineParser.parse(events);
+      expect(data.platformChannelEvents, hasLength(1));
+    });
+
+    test('async end (ph=e) is NOT double-counted', () {
+      final events = [
+        makeAsyncEvent(
+          name: 'Platform Channel send sleuth_demo_channel#ping',
+          ph: 'b',
+          ts: 1000,
+        ),
+        makeAsyncEvent(
+          name: 'Platform Channel send sleuth_demo_channel#ping',
+          ph: 'e',
+          ts: 2000,
+        ),
+      ];
+
+      final data = TimelineParser.parse(events);
+      expect(data.platformChannelEvents, hasLength(1));
+    });
+
+    test('50 rapid async sends are all captured', () {
+      final events = [
+        for (var i = 0; i < 50; i++)
+          makeAsyncEvent(
+            name: 'Platform Channel send sleuth_demo_channel#getData',
+            ph: 'b',
+            ts: 1000 + i,
+            id: i,
+          ),
+      ];
+
+      final data = TimelineParser.parse(events);
+      expect(data.platformChannelEvents, hasLength(50));
+    });
+
+    test('non-channel async event is NOT classified', () {
+      final events = [
+        makeAsyncEvent(name: 'SomeAsyncWork', ph: 'b', ts: 1000),
+      ];
+
+      final data = TimelineParser.parse(events);
+      expect(data.platformChannelEvents, isEmpty);
+    });
+  });
 }

@@ -1,6 +1,6 @@
 ## v11 Detector Audit: Gaps, False Positives & Hot-Path Performance
 
-**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) + Pillar 3b (4 milestones) + Pillar 4 (10 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7 / v0.10.8 / v0.10.9)
+**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) + Pillar 3b (4 milestones) + Pillar 4 (10 milestones) + Pillar 5 Part 1 (7 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7 / v0.10.8 / v0.10.9 / v0.11.0)
 
 Origin: Adversarial audit (2026-04-07) of 5 detectors (ListviewDetector, NestedScrollDetector, LayoutBottleneckDetector, SetStateScopeDetector, RepaintBoundaryDetector). Found 6 gaps and false positives across detection coverage, accuracy, and enrichment. All milestones implemented, adversarial-reviewed twice (8 fix-round findings resolved), 1,561 tests passing, 0 analysis issues.
 
@@ -921,8 +921,68 @@ Comprehensive encyclopedia content for all 46 issue types with cross-references,
 
 ---
 
+---
+
+## Pillar 5 Part 1: Demo Infrastructure & Missing Detector Demos (v0.11.0)
+
+Full spec: `doc/spec_v11_pillar5_part1.md`
+
+### Milestones
+
+| Milestone | Title | Priority |
+|-----------|-------|----------|
+| M1 | DemoScaffold shared layout (collapsible banner + Expanded body) | P0 |
+| M2 | Shader Jank demo (BackdropFilter, ShaderMask, ColorFiltered, Impeller caveat) | P0 |
+| M3 | Platform Channel Traffic demo (rapid fire, sustained load, single call, log area) | P0 |
+| M4 | Memory Pressure demo (Dart heap, native Uint8List, GC churn, visual bar chart) | P0 |
+| M5 | GPU Pressure demo (4 stacked GPU layers, >5 descendants, diagonal clip) | P0 |
+| M6 | Missing RepaintBoundary demo (SingleChildScrollView, Opacity(0.7), animated CustomPaint) | P0 |
+| M7 | Home screen categorization (8 categories, 23 demos) | P1 |
+
+### Adversarial Review Findings (Pillar 5 Part 1 — Round 1)
+
+| # | Severity | Component | Finding | Resolution |
+|---|----------|-----------|---------|------------|
+| 1 | HIGH | `memory_pressure_demo.dart` | `_dartMB` used `_dartObjects.length * 10`, overcounting GC Churn batches (~600KB) as 10MB | Introduced `_dartBatchKB` list tracking actual per-batch estimated KB |
+| 2 | MEDIUM | `memory_pressure_demo.dart` | Hardcoded `Colors.grey.shade100` on visualization card breaks dark mode | Replaced with `Theme.of(context).colorScheme.surfaceContainerLow` |
+
+### Adversarial Review Findings (Pillar 5 Part 1 — Round 2)
+
+Second-round review targeted the demos' ability to actually trigger their detectors and
+to avoid resource leaks. 7 findings across 3 severity levels; all fixed.
+
+| # | Severity | Component | Finding | Resolution |
+|---|----------|-----------|---------|------------|
+| 1 | CRITICAL | `lib/src/detectors/memory_pressure_detector.dart` | `_evaluateGcPressure` used `_gcEventCount / (now - _trackingStart).inSeconds * 60`, so the denominator grew unbounded across a session. A GC burst after 60s of unrelated exploration would be diluted below the 30/min threshold even though the burst itself exceeded it. | Replaced lifetime-based rate with a 10-second sliding window (`Queue<({DateTime ts, int count})> _gcWindow`) with timestamp-based eviction. Removed `_trackingStart` and `_gcEventCount` fields. All 55 memory pressure detector tests still pass. |
+| 2 | HIGH | `example/lib/demos/platform_channel_demo.dart` | `_triggerRapidFire` and `_triggerSingle` called `setState` after `await Future.wait(...)`/`await _channel.invokeMethod(...)` without `mounted` checks; navigating away mid-call crashed the app | Added `if (!mounted) return;` after each await. `_addLog` guards internally. |
+| 3 | HIGH | `example/lib/demos/platform_channel_demo.dart` | Unconditionally set `debugProfilePlatformChannels = true` in `initState` and `= false` in `dispose`, silently clobbering any global setting the developer had enabled in `main.dart` | Snapshot prior value in `initState` (`_priorDebugProfilePlatformChannels`), restore in `dispose` |
+| 4 | MEDIUM | `example/lib/demos/memory_pressure_demo.dart` | Stats label "Dart Heap" was misleading — it only tracked *retained* allocations, so GC Churn mode left the counter at 0 and users concluded the demo was broken | Renamed stat to "Retained (Dart)"; updated demo description to explain that churn allocations are intentionally transient |
+| 5 | MEDIUM | `example/lib/demos/repaint_boundary_demo.dart` | Description claimed the detector flagged "Opacity(0.7) with 6+ descendants" — real check is non-trivial opacity values (0.0 < x < 1.0) without a `RepaintBoundary` ancestor within 5 levels, across 6 widget classes | Rewrote description to match detector logic and enumerate the 6 flagged widget classes (Opacity, ClipPath, BackdropFilter, ShaderMask, CustomPaint, ColorFiltered) |
+| 6 | MEDIUM | `example/lib/demos/shader_jank_demo.dart` | `ShaderCompilation` timeline events only fire on the Skia backend. Impeller (default iOS 3.16+, Android 3.22+) pre-compiles shaders offline, so the demo silently produced zero detector hits on modern devices and no Dart API exists to detect the graphics backend at runtime | Added `_ImpellerWarningBanner` widget at the top of `_ShaderHeavyPage`'s ListView, using `colorScheme.errorContainer` to explain the Skia/Impeller difference and direct users to relaunch with `--no-enable-impeller` |
+
+Self-attack on Round 2 fixes (second-order regressions checked):
+- **Clock monotonicity in sliding window**: `DateTime.now()` is not guaranteed monotonic, but test clocks are injected via `_clock`; and in production the scan cadence (every few seconds) provides enough slack that NTP skew below 10s won't empty the window prematurely.
+- **Queue growth bounds**: `_gcWindow` evicts on every `processTimelineData` call, so the queue cannot grow beyond the number of scan cycles in the 10s window.
+- **Hot reload**: Hot reload recreates the detector fresh, so no stale state survives.
+- **setState guards**: Guards are placed *after* each await but *before* any `_log.add`; no path bypasses them.
+- **Banner UI on Skia**: The banner is always shown, including on Skia where detection does work — this is intentional (it still correctly describes what the user is observing).
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `example/lib/demo_scaffold.dart` | New — DemoScaffold + _CollapsibleBanner widgets |
+| `example/lib/demos/shader_jank_demo.dart` | New — ShaderJank demo with 4 GPU effects |
+| `example/lib/demos/platform_channel_demo.dart` | New — PlatformChannel demo with 3 modes + log |
+| `example/lib/demos/memory_pressure_demo.dart` | New — MemoryPressure demo with Dart/native/GC churn |
+| `example/lib/demos/gpu_pressure_demo.dart` | New — GpuPressure demo with 4 stacked layers |
+| `example/lib/demos/repaint_boundary_demo.dart` | New — RepaintBoundary demo with Opacity + CustomPaint |
+| `example/lib/main.dart` | Rewritten — 8 categories, 23 demos, new imports |
+
+---
+
 ## Verification (Final)
 
-- `fvm flutter test` — 1,819 tests passing ✅
+- `fvm flutter test` — 1,821 tests passing ✅
 - `fvm flutter analyze` — 0 issues ✅
-- All roadmaps complete: v7 (10/10), v8 (5/5), v9 (17/17), v10 (12/12), v11 (19/19), Pillar 2a (3/3), Pillar 2b (4/4), Pillar 3a (5/5), Pillar 3b (4/4), Pillar 4 (10/10)
+- All roadmaps complete: v7 (10/10), v8 (5/5), v9 (17/17), v10 (12/12), v11 (19/19), Pillar 2a (3/3), Pillar 2b (4/4), Pillar 3a (5/5), Pillar 3b (4/4), Pillar 4 (10/10), Pillar 5 Part 1 (7/7 + 2 adversarial reviews)
