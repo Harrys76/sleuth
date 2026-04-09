@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 22 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~1,791 tests, ~18s)
+fvm flutter test                    # Run all tests (~1,819 tests, ~20s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -53,7 +53,8 @@ test/
 
 ## Current state
 
-- **v0.10.8** (current) — Pillar 3b output & presentation: confidenceReason field on all 22 detectors, severity auto-escalation (warning→critical after 30 cycles), 2 new correlator rules (structural+jank, structural+rebuild), multi-ancestor source locations, packageName extraction, session summary export (topIssues/causalEdges/frameHistogram/detectorHitRates/memoryTrendSummary), schema v3. Adversarial reviews: 3 missing stableId prefix mappings (Pillar 3b); scan chain exception safety, stable duplicate-request IDs, POST duplicate exclusion, GlobalKey route-change guard, sliver correlator coverage (full branch). See `doc/spec_v11.md`.
+- **v0.10.9** (current) — Pillar 4 issue documentation quality: 8 missing encyclopedia entries (38→46 total), readingTheData for all 46 entries, build/memory/paint/raster/network content enrichment (14 entries), relatedIssues cross-references with bidirectional links derived from causal graph, related issues UI chips with scroll-to, AI context integration, content quality guardrail tests. Adversarial review: chip scroll-to bug fix (per-entry GlobalKey map), repaint_debug bidirectional relations, content threshold enrichments. See `doc/spec_v11_pillar4.md`.
+- v0.10.8: Pillar 3b output & presentation: confidenceReason field on all 22 detectors, severity auto-escalation (warning→critical after 30 cycles), 2 new correlator rules (structural+jank, structural+rebuild), multi-ancestor source locations, packageName extraction, session summary export (topIssues/causalEdges/frameHistogram/detectorHitRates/memoryTrendSummary), schema v3. Adversarial reviews: 3 missing stableId prefix mappings (Pillar 3b); scan chain exception safety, stable duplicate-request IDs, POST duplicate exclusion, GlobalKey route-change guard, sliver correlator coverage (full branch). See `doc/spec_v11.md`.
 - v0.10.7: Pillar 3a enrichment: Expanded causal rules (37→52), RecurrenceTrend ring-buffer time-series, InteractionContext typing+appLifecycle, WidgetHeatMapEntry aggregation, FixBaseline/FixVerificationResult with 5-cycle cooldown. Adversarial review: framework filter expansion, grace period counter reset. See `doc/spec_v11.md`.
 - v0.10.6: Pillar 2b resource management: Adaptive scan frequency (M4), _getAllIssues generation cache (M5), detector lazy initialization (M6), debug callback TypeNameCache (M7). Adversarial review: timer leak fix, parallel timer chain guard, concurrent detector mutation guard. See `doc/spec_v11.md`.
 - v0.10.5: Pillar 2a hot-path performance: TypeNameCache (M1), highlight dirty-check (M2), timeline case-matching (M3). Reduces tree walk allocations by ~40-60%.
@@ -74,4 +75,5 @@ test/
 - Post-implementation audits in `doc/spec_v2_audit.md` and `doc/spec_post_impl_notes.md`.
 - Full spec index in `doc/implementation_spec.md`.
 - v11 roadmap: 19/19 milestones shipped ✅ (v11.1–v11.19, four adversarial reviews). See `doc/spec_v11.md`.
-- 1,791 tests, 0 analysis issues
+- v11 Pillar 4: 10/10 milestones shipped ✅ (v11.20–v11.29, one adversarial review). See `doc/spec_v11_pillar4.md`.
+- 1,819 tests, 0 analysis issues

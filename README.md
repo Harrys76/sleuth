@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C791_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C819_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -282,7 +282,7 @@ Issues include a confidence level reflecting evidence quality:
 - **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed
 - **Source-location enrichment**: ancestor chains include file:line in debug mode, linking issues directly to source code
 - **Actionable fix hints**: every issue includes what to change, not just what went wrong — with code snippets and debugging commands
-- **Issue Encyclopedia**: in-app educational deep-dives for every detector type — searchable, accessible from any issue card
+- **Issue Encyclopedia**: in-app educational deep-dives for all 46 issue types — searchable, with cross-references between related issues, accessible from any issue card
 - **Contextual AI Chat**: per-issue AI assistant with streaming responses, starter questions, and expandable issue context — bring your team's AI provider
 - **Customizable**: suppress known issues, tune detector thresholds, plug in custom detectors, theme the overlay (60+ color tokens, 6 spacing tokens)
 - **Zero setup**: one line of code, no browser tab, no port forwarding

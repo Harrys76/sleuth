@@ -77,6 +77,16 @@ class AiContextBuilder {
       if (explanation.whenToIgnore != null) {
         buf.writeln('When to ignore: ${explanation.whenToIgnore}');
       }
+      if (explanation.relatedIssues != null &&
+          explanation.relatedIssues!.isNotEmpty) {
+        final names = explanation.relatedIssues!
+            .map((id) => IssueExplanationBuilder.explain(id)?.displayName)
+            .whereType<String>()
+            .toList();
+        if (names.isNotEmpty) {
+          buf.writeln('Related issues: ${names.join(', ')}');
+        }
+      }
       buf.writeln();
     }
 

@@ -9,6 +9,7 @@ typedef IssueExplanation = ({
   String whyItMatters,
   String howToFix,
   String? whenToIgnore,
+  List<String>? relatedIssues,
 });
 
 /// Provides detailed educational explanations for each issue type.
@@ -123,13 +124,22 @@ class IssueExplanationBuilder {
           'First frame after app launch or route transition often jitters due '
           'to shader warmup and tree construction. If sustained jank only '
           'appears on first navigation, consider shader warm-up strategies.',
+      relatedIssues: [
+        'gc_pressure',
+        'layout_bottleneck',
+        'multiple_custom_fonts',
+        'runtime_font_loading',
+        'shader_compilation'
+      ],
     ),
 
     'jank_detected': (
       displayName: 'Jank Detected',
       category: IssueCategory.build,
       whatItIs: 'A single frame took longer than its time budget to render. At '
-          '60 FPS the budget is 16.7ms — this frame exceeded that threshold.',
+          '60 FPS the budget is 16.7ms — this frame exceeded that threshold. '
+          'Unlike sustained jank, this is an isolated spike that may or may '
+          'not indicate a systemic problem depending on frequency.',
       readingTheData: 'Like a single skipped beat in music — noticeable '
           'but brief, unlike sustained jank which is the song repeatedly '
           'skipping.\n\n'
@@ -152,6 +162,12 @@ class IssueExplanationBuilder {
           'Occasional single jank frames during complex transitions or first '
           'renders are normal. Focus on sustained patterns rather than '
           'isolated spikes.',
+      relatedIssues: [
+        'layout_bottleneck',
+        'multiple_custom_fonts',
+        'runtime_font_loading',
+        'shader_compilation'
+      ],
     ),
 
     'raster_cache_thrashing': (
@@ -159,7 +175,8 @@ class IssueExplanationBuilder {
       category: IssueCategory.raster,
       whatItIs: 'The raster cache is rapidly evicting and re-creating entries. '
           'Flutter caches rendered layer images to avoid re-rasterizing them '
-          'each frame — thrashing means this cache is not effective.',
+          'each frame — thrashing means this cache is not effective and '
+          'the GPU must redo work it already completed.',
       readingTheData:
           'Like a painter who keeps throwing away finished canvases and '
           'repainting them from scratch — the work is wasted and the gallery '
@@ -181,6 +198,7 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Brief thrashing during route transitions is expected as old route '
           'layers are evicted and new ones are created.',
+      relatedIssues: ['raster_dominance'],
     ),
 
     'raster_cache_growing': (
@@ -188,14 +206,17 @@ class IssueExplanationBuilder {
       category: IssueCategory.raster,
       whatItIs:
           'The raster cache is steadily growing in size, meaning more and '
-          'more rendered layers are being cached without eviction.',
+          'more rendered layers are being cached without eviction. This '
+          'unbounded growth consumes GPU memory progressively, and if left '
+          'unchecked the device may start evicting useful entries or '
+          'trigger memory pressure warnings from the operating system.',
       readingTheData:
           'Like a warehouse that keeps accepting deliveries but never ships '
           'anything out — eventually it runs out of floor space.\n\n'
-          '• Cache KB — Current raster cache size. Growing means more layers '
-          'cached without eviction.\n\n'
-          '• Growth frames — Consecutive frames with monotonically increasing '
-          'cache size. Alert: 30+ frames.\n\n'
+          '• Cache size — Current raster cache in KB. Normal: <500 KB and '
+          'stable. Alert: monotonic growth over 30 frames.\n\n'
+          '• Growth frames — Consecutive frames with increasing cache size. '
+          'Normal: 0 (stable). Alert: 30+ consecutive growth frames.\n\n'
           '• Source: FrameTiming API cache bytes.',
       whyItMatters: 'An ever-growing raster cache consumes GPU memory. On '
           'memory-constrained devices this can trigger system memory pressure, '
@@ -209,6 +230,7 @@ class IssueExplanationBuilder {
           'During initial app exploration (navigating to new screens for the '
           'first time), cache growth is expected. Concern arises when growth '
           'continues indefinitely on a single screen.',
+      relatedIssues: ['raster_dominance'],
     ),
 
     // ── Shader & Compute ──────────────────────────────────────────────────
@@ -219,7 +241,9 @@ class IssueExplanationBuilder {
       whatItIs:
           'The GPU shader compiler ran during this frame. Shaders are small '
           'GPU programs that Flutter compiles on first use — this compilation '
-          'is expensive and blocks the raster thread.',
+          'is expensive and blocks the raster thread. On Impeller (default '
+          'on iOS since Flutter 3.16), shaders are pre-compiled at build '
+          'time, making this detection Skia-specific.',
       readingTheData:
           'Like a chef sharpening a new knife before the first cut — slow '
           'the first time, but instant on every use after.\n\n'
@@ -241,7 +265,10 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Shader compilation is expected on the very first run after install '
           'or update. If you see it repeatedly on the same screens, your '
-          'warm-up bundle may be incomplete.',
+          'warm-up bundle may be incomplete. On Impeller-enabled builds '
+          '(iOS default), this detection should not fire — if it does, '
+          'verify you are running with Impeller enabled.',
+      relatedIssues: ['jank_detected', 'sustained_jank'],
     ),
 
     'heavy_compute': (
@@ -249,7 +276,8 @@ class IssueExplanationBuilder {
       category: IssueCategory.build,
       whatItIs: 'A long-running synchronous operation was detected on the UI '
           'thread. The main isolate was blocked for longer than the frame '
-          'budget, preventing the framework from building or rendering.',
+          'budget, preventing the framework from building, laying out, or '
+          'rendering any widgets until the computation completes.',
       readingTheData:
           'Like a cashier doing complex math by hand while a long line of '
           'customers waits — everything stops until the calculation '
@@ -268,9 +296,27 @@ class IssueExplanationBuilder {
           'Move the heavy work to a background isolate using Isolate.run() '
           'or compute(). Common culprits: JSON parsing of large payloads, '
           'image processing, cryptographic operations, complex data '
-          'transformations. If the work cannot be moved off-thread, break it '
-          'into smaller chunks scheduled across multiple frames.',
+          'transformations.\n\n'
+          'Before (blocks UI thread):\n'
+          '  final data = jsonDecode(hugeJsonString);\n\n'
+          'After (runs in background isolate):\n'
+          '  final data = await Isolate.run(\n'
+          '    () => jsonDecode(hugeJsonString),\n'
+          '  );\n\n'
+          'Isolate.run() (Dart 2.19+) is the modern API; compute() is a '
+          'convenience wrapper with identical behavior. Both require a '
+          'top-level or static function — closures capturing local state '
+          'will fail at runtime. If the work cannot be moved off-thread, '
+          'break it into smaller chunks scheduled across multiple frames.',
       whenToIgnore: null,
+      relatedIssues: [
+        'large_response',
+        'non_lazy_list',
+        'platform_channel_traffic',
+        'rebuild_activity',
+        'setstate_scope',
+        'slow_request'
+      ],
     ),
 
     // ── Memory ────────────────────────────────────────────────────────────
@@ -280,7 +326,9 @@ class IssueExplanationBuilder {
       category: IssueCategory.memory,
       whatItIs: 'The garbage collector is running frequently — more often than '
           'expected for normal app operation. Each GC cycle pauses the Dart '
-          'isolate briefly to reclaim unused memory.',
+          'isolate briefly to reclaim unused memory, and when collections '
+          'happen back-to-back the cumulative pauses become noticeable as '
+          'micro-stutters.',
       readingTheData: 'Like a janitor who keeps interrupting a meeting to '
           'empty small trash cans — each visit is brief, but they add up and '
           'break concentration.\n\n'
@@ -290,20 +338,31 @@ class IssueExplanationBuilder {
           'the monitoring window.\n\n'
           '• Source: VM Timeline GC events.',
       whyItMatters:
-          'Frequent GC pauses accumulate within a frame\'s budget. While each '
-          'pause is short (1–5ms), multiple pauses per frame can push total '
-          'frame time over budget. GC pressure also indicates high allocation '
+          'Frequent GC pauses cause micro-stutters — brief freezes under '
+          '5ms that individually seem harmless but accumulate within a '
+          'frame\'s budget. Multiple pauses per frame can push total frame '
+          'time over budget. GC pressure also indicates high allocation '
           'rate, which itself wastes CPU cycles.',
       howToFix:
           'Reduce object allocation rate: cache objects that are recreated '
           'each frame, use const constructors for immutable widgets, avoid '
-          'creating closures or lists inside build(). Use DevTools Memory '
-          'tab to identify top allocating classes and find the allocation '
-          'hot spots.',
+          'creating closures or lists inside build(). Migrate static '
+          'widgets to const constructors so the framework can reuse them '
+          'without allocation:\n\n'
+          'Before: Container(color: Colors.blue)\n'
+          'After: const ColoredBox(color: Colors.blue)\n\n'
+          'Use DevTools Memory tab to identify top allocating classes and '
+          'find the allocation hot spots.',
       whenToIgnore:
           'Brief GC spikes during route transitions or initial data loading '
           'are normal. Concern arises when GC stays elevated during steady-state '
           'interaction (scrolling, idle).',
+      relatedIssues: [
+        'excessive_keep_alive',
+        'heap_growing',
+        'sustained_jank',
+        'uncached_images'
+      ],
     ),
 
     'heap_growing': (
@@ -332,13 +391,28 @@ class IssueExplanationBuilder {
           'Check for undisposed controllers, uncancelled StreamSubscriptions, '
           'and Timer instances in your StatefulWidgets. Every resource '
           'acquired in initState() or didChangeDependencies() must be '
-          'released in dispose(). Use DevTools Memory view to take heap '
-          'snapshots before and after a user flow — compare to find retained '
-          'objects.',
+          'released in dispose().\n\n'
+          'DevTools snapshot walkthrough:\n'
+          '1. Open DevTools Memory tab\n'
+          '2. Take a heap snapshot (baseline)\n'
+          '3. Perform the user flow that triggers growth\n'
+          '4. Take a second snapshot\n'
+          '5. Diff the two snapshots — sort by retained size\n\n'
+          'Retained size is the total memory freed if the object were '
+          'collected (includes everything it references). Shallow size is '
+          'just the object itself. A 100-byte object retaining a 10MB '
+          'image has 100B shallow but ~10MB retained — retained size '
+          'reveals the true leak cost.',
       whenToIgnore:
           'Heap growth during initial app startup or when loading large '
           'datasets is expected. The concern is growth that continues after '
           'the app reaches steady state.',
+      relatedIssues: [
+        'excessive_keep_alive',
+        'gc_pressure',
+        'heap_near_capacity',
+        'uncached_images'
+      ],
     ),
 
     'heap_near_capacity': (
@@ -374,6 +448,12 @@ class IssueExplanationBuilder {
           'operation without real concern — the VM will expand. Focus on '
           'apps where capacity is already large (> 200MB) or where heap '
           'usage is growing steadily.',
+      relatedIssues: [
+        'excessive_keep_alive',
+        'heap_growing',
+        'native_memory_growing',
+        'uncached_images'
+      ],
     ),
 
     'native_memory_growing': (
@@ -408,6 +488,7 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Initial image loading causes expected native memory growth. '
           'Concern arises when it grows continuously without plateau.',
+      relatedIssues: ['heap_near_capacity', 'uncached_images'],
     ),
 
     // ── Rebuild & Repaint ─────────────────────────────────────────────────
@@ -439,10 +520,25 @@ class IssueExplanationBuilder {
           'use it, use const constructors for static subtrees, split large '
           'widgets into smaller components that rebuild independently. '
           'Consider ValueListenableBuilder, AnimatedBuilder, or '
-          'BlocBuilder/Selector to rebuild only the affected subtree.',
+          'BlocBuilder/Selector to rebuild only the affected subtree. '
+          'Use DevTools Widget Inspector to identify which widgets are '
+          'rebuilding and trace the rebuild source.',
       whenToIgnore: 'High rebuild activity during animations is expected — '
           'AnimationController drives 60 rebuilds/sec by design. Focus on '
           'rebuilds during user interactions like typing or scrolling.',
+      relatedIssues: [
+        'animated_builder_no_child',
+        'duplicate_request',
+        'heavy_compute',
+        'layout_bottleneck',
+        'nested_scroll',
+        'nested_scroll_same_axis',
+        'non_lazy_list',
+        'request_frequency',
+        'setstate_scope',
+        'shallow_rebuild_risk',
+        'stateful_density'
+      ],
     ),
 
     'rebuild_debug': (
@@ -473,6 +569,7 @@ class IssueExplanationBuilder {
           'Animation-driven widgets (inside AnimatedBuilder) are expected to '
           'rebuild every frame. Clock/timer widgets also rebuild frequently '
           'by design.',
+      relatedIssues: ['setstate_scope'],
     ),
 
     'stateful_density': (
@@ -482,7 +579,16 @@ class IssueExplanationBuilder {
           'A high density of StatefulWidgets was found in the widget tree '
           'relative to the total tree size. Each StatefulWidget maintains '
           'its own State object and lifecycle.',
-      readingTheData: null,
+      readingTheData:
+          'Like an office where every employee has their own private '
+          'assistant — each assistant tracks independent state, and '
+          'coordinating them all adds overhead.\n\n'
+          '• Density ratio — StatefulWidgets as a percentage of total widgets '
+          'in the scanned subtree. Normal: <20%. Alert: >30% '
+          '(default, configurable).\n\n'
+          '• Stateful count / Total count — Absolute numbers. A ratio of '
+          '45/100 is more concerning than 5/15.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'Many StatefulWidgets in a small area amplifies the cost of '
           'rebuilds — each one independently manages state, runs build(), '
@@ -497,6 +603,7 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Form-heavy screens naturally have high StatefulWidget density '
           '(each TextField is stateful). This is expected and acceptable.',
+      relatedIssues: ['rebuild_activity', 'setstate_scope'],
     ),
 
     'excessive_repaint': (
@@ -520,14 +627,29 @@ class IssueExplanationBuilder {
           'large areas repaint unnecessarily, it increases raster time and '
           'can cause raster-thread jank.',
       howToFix:
-          'Add RepaintBoundary widgets to isolate frequently-painting regions '
-          'from static content. Check CustomPainter.shouldRepaint() — return '
-          'false when the painter\'s inputs haven\'t changed. Avoid '
-          'animations that invalidate large parent regions.',
+          'Add RepaintBoundary widgets to create repaint island boundaries — '
+          'each boundary creates an isolated compositing layer that repaints '
+          'independently without affecting its parent or siblings. Place '
+          'boundaries at natural isolation points: list items, cards, '
+          'animated widgets, and toolbar regions.\n\n'
+          'Check CustomPainter.shouldRepaint() — return false when the '
+          'painter\'s inputs haven\'t changed. Avoid animations that '
+          'invalidate large parent regions. Use DevTools Performance '
+          'overlay or debugPaintLayerBordersEnabled to visualize layer '
+          'boundaries and verify that repaint islands are correctly '
+          'isolated.',
       whenToIgnore:
           'Active animations and scroll-driven content are expected to '
           'repaint frequently. Focus on unexpected repaints during idle or '
           'static screens.',
+      relatedIssues: [
+        'always_repaint_painter',
+        'animated_builder_no_child',
+        'excessive_repaint_boundary',
+        'frequent_repaint_painter',
+        'missing_repaint_boundary',
+        'repaint_debug'
+      ],
     ),
 
     'repaint_debug': (
@@ -539,8 +661,8 @@ class IssueExplanationBuilder {
       readingTheData:
           'Like one wall in your house that needs a fresh coat every week '
           '— something about that specific surface keeps getting dirty.\n\n'
-          '• Repaint rate/sec — How many times this render object repainted '
-          'per second.\n\n'
+          '• Repaint rate — How many times this render object repainted '
+          'per second. Normal: 0–1/sec at idle. Alert: >10/sec.\n\n'
           '• Widget type — The class name of the repainting widget.\n\n'
           '• Debug mode only — values may differ in profile mode.\n\n'
           '• Source: debugOnRepaintRenderObject callback.',
@@ -554,6 +676,11 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Widgets inside active animations are expected to repaint every '
           'frame.',
+      relatedIssues: [
+        'excessive_repaint',
+        'excessive_repaint_debug',
+        'missing_repaint_boundary'
+      ],
     ),
 
     'excessive_repaint_debug': (
@@ -567,7 +694,7 @@ class IssueExplanationBuilder {
           'Like a maintenance crew repainting the entire building daily '
           '— most surfaces are still fresh, but nobody checks first.\n\n'
           '• Repaint rate — Aggregate repaint frequency across all tracked '
-          'render objects.\n\n'
+          'render objects. Normal: 0–2/sec at idle. Alert: >10/sec.\n\n'
           '• Debug mode only — rates may differ in profile mode.\n\n'
           '• Source: Debug-mode paint profiling callbacks.',
       whyItMatters:
@@ -581,6 +708,12 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'During full-screen transitions or scroll, high repaint rate is '
           'expected.',
+      relatedIssues: [
+        'always_repaint_painter',
+        'animated_builder_no_child',
+        'missing_repaint_boundary',
+        'repaint_debug'
+      ],
     ),
 
     // ── GPU & Raster ──────────────────────────────────────────────────────
@@ -614,6 +747,13 @@ class IssueExplanationBuilder {
           'GPU-intensive screens (complex animations, many overlapping '
           'transparent layers) may naturally be raster-dominated without '
           'being a problem if frames still meet budget.',
+      relatedIssues: [
+        'always_repaint_painter',
+        'frequent_repaint_painter',
+        'missing_repaint_boundary',
+        'raster_cache_growing',
+        'raster_cache_thrashing'
+      ],
     ),
 
     'expensive_gpu_nodes': (
@@ -626,7 +766,8 @@ class IssueExplanationBuilder {
           'Like adding extra layers of gift wrapping — each layer looks nice '
           'but the package gets heavier and harder to handle.\n\n'
           '• Node count — Expensive GPU render nodes found (Opacity, ClipPath, '
-          'ShaderMask, BackdropFilter).\n\n'
+          'ShaderMask, BackdropFilter). Each saveLayer can add 2–4ms per '
+          'frame on mid-range devices.\n\n'
           '• Descendant count — Subtree size under each expensive node. '
           'Alert: >5 descendants under specific node types.\n\n'
           '• Source: Structural render tree walk + VM raster timing.',
@@ -645,6 +786,7 @@ class IssueExplanationBuilder {
       whenToIgnore: 'Some visual effects genuinely require saveLayer (e.g., '
           'BackdropFilter for blur). The concern is unnecessary layers '
           'from convenience widgets.',
+      relatedIssues: ['opacity_zero'],
     ),
 
     // ── setState Scope ────────────────────────────────────────────────────
@@ -656,20 +798,47 @@ class IssueExplanationBuilder {
           'A StatefulWidget high in the tree is calling setState(), causing '
           'a large subtree to rebuild. The rebuild cost is proportional to '
           'the number of descendant widgets that must be reconstructed.',
-      readingTheData: null,
+      readingTheData:
+          'Like a fire alarm that evacuates the entire building when only '
+          'one room has smoke — the scope of the response far exceeds the '
+          'scope of the problem.\n\n'
+          '• Descendant count — Widgets below the setState caller. '
+          'Normal: <50. Alert: >200 descendants '
+          '(default, configurable).\n\n'
+          '• Depth — How far above the leaf widgets the setState caller sits. '
+          'Higher depth means wider blast radius.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters: 'When setState is called on a widget near the root, every '
           'descendant\'s build() method runs again — even widgets whose '
           'data hasn\'t changed. This is the most common cause of '
           'unnecessary CPU work in Flutter apps.',
-      howToFix: 'Move state down to the smallest widget that needs it. Use '
-          'ValueListenableBuilder, AnimatedBuilder, or state management '
-          '(Provider.select, BlocSelector, Riverpod select) to rebuild '
-          'only the widgets that depend on the changing value. Extract '
-          'static portions of the subtree into const widgets that the '
-          'framework can skip during diff.',
+      howToFix: 'Move state down to the smallest widget that needs it. '
+          'Extract the changing value into a ValueNotifier and use '
+          'ValueListenableBuilder to rebuild only the dependent widget:\n\n'
+          'Before (rebuilds entire subtree):\n'
+          '  setState(() => _count++);\n\n'
+          'After (rebuilds only the Text):\n'
+          '  final _count = ValueNotifier(0);\n'
+          '  ValueListenableBuilder<int>(\n'
+          '    valueListenable: _count,\n'
+          '    builder: (_, val, __) => Text("\$val"),\n'
+          '  )\n\n'
+          'For state management solutions, use Riverpod select(), '
+          'BlocSelector, or Provider.select() to rebuild only the '
+          'widgets that depend on the changing value. Extract static '
+          'portions of the subtree into const widgets that the framework '
+          'can skip during diff.',
       whenToIgnore:
           'If the StatefulWidget has a small subtree (< 50 widgets), the '
           'rebuild cost is negligible regardless of scope.',
+      relatedIssues: [
+        'heavy_compute',
+        'layout_bottleneck',
+        'rebuild_activity',
+        'rebuild_debug',
+        'shallow_rebuild_risk',
+        'stateful_density'
+      ],
     ),
 
     // ── Shallow Rebuild Risk ──────────────────────────────────────────────
@@ -680,7 +849,14 @@ class IssueExplanationBuilder {
       whatItIs: 'A StatefulWidget near the top of the tree was found without '
           'targeted state management. If this widget calls setState(), the '
           'entire deep subtree below it will rebuild.',
-      readingTheData: null,
+      readingTheData:
+          'Like a dam with a hairline crack — no flooding yet, but the '
+          'potential damage grows with every meter of water behind it.\n\n'
+          '• Subtree depth — How deep the tree extends below this widget. '
+          'Normal: <100 descendants. Alert: >200 descendants.\n\n'
+          '• Risk level — Based on subtree size and absence of targeted '
+          'state patterns (no ValueListenableBuilder, BlocBuilder, etc.).\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'This is a structural risk — it may not be causing jank yet, but '
           'it creates a "blast radius" problem. As the subtree grows or '
@@ -696,6 +872,7 @@ class IssueExplanationBuilder {
           'If the widget never calls setState() (e.g., it only sets state '
           'in initState), the structural risk does not translate to actual '
           'cost.',
+      relatedIssues: ['rebuild_activity', 'setstate_scope'],
     ),
 
     // ── Structural: ListView ──────────────────────────────────────────────
@@ -707,19 +884,41 @@ class IssueExplanationBuilder {
           'builds all its children eagerly instead of lazily. This means '
           'every item in the list is constructed and laid out immediately, '
           'even items far off-screen.',
-      readingTheData: null,
+      readingTheData:
+          'Like a restaurant that cooks every menu item before any customer '
+          'orders — most of the food goes to waste.\n\n'
+          '• Child count — Number of eagerly-built children. Normal: <20. '
+          'Alert: >50 children (default, configurable).\n\n'
+          '• Widget type — Whether it is a ListView, Column, or Row. '
+          'ListView(children: [...]) is the most common offender.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'Eager list construction wastes memory and CPU. A list with 1,000 '
           'items builds all 1,000 widgets upfront, even though only ~10 are '
           'visible. This causes slow initial render and high memory usage.',
-      howToFix:
-          'Replace ListView(children: [...]) with ListView.builder() which '
-          'lazily constructs only visible items plus a small buffer. For '
-          'lists with separators, use ListView.separated(). For grids, '
-          'use GridView.builder() or SliverGrid with a delegate.',
+      howToFix: 'Replace ListView(children: [...]) with ListView.builder():\n\n'
+          'Before (eager — builds all items):\n'
+          '  ListView(children: items.map((i) => ItemTile(i)).toList())\n\n'
+          'After (lazy — builds only visible items):\n'
+          '  ListView.builder(\n'
+          '    itemCount: items.length,\n'
+          '    itemBuilder: (_, i) => ItemTile(items[i]),\n'
+          '  )\n\n'
+          'If all items have the same height, add itemExtent for an extra '
+          'performance boost — the framework skips measuring each child '
+          'and can jump directly to any scroll offset. For lists with '
+          'separators, use ListView.separated(). For grids, use '
+          'GridView.builder() or SliverGrid with a delegate.',
       whenToIgnore:
           'Lists with fewer than ~20 small items have negligible eager-build '
           'cost. Static menus and option lists are fine as non-lazy.',
+      relatedIssues: [
+        'heavy_compute',
+        'layout_bottleneck',
+        'rebuild_activity',
+        'sliver_to_box_adapter_large',
+        'sliver_to_box_adapter_shrinkwrap'
+      ],
     ),
 
     // ── Structural: Image Memory ──────────────────────────────────────────
@@ -730,7 +929,14 @@ class IssueExplanationBuilder {
       whatItIs: 'Image widgets were found without cacheWidth or cacheHeight '
           'parameters. The image codec will decode the full-resolution '
           'image into memory, regardless of how small it is displayed.',
-      readingTheData: null,
+      readingTheData:
+          'Like printing a billboard-sized poster to hang on a fridge — '
+          'the resolution is wasted and the paper costs a fortune.\n\n'
+          '• Image count — Number of Image widgets without cacheWidth/'
+          'cacheHeight. Alert: ≥1 uncached image.\n\n'
+          '• Memory waste estimate — A 4000×3000 image at full resolution '
+          'uses ~48MB; at 200×150 display size it needs only ~120KB.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'A 4000×3000 photo decoded at full resolution consumes ~48MB of '
           'memory (width × height × 4 bytes). If displayed in a 200×150 '
@@ -741,10 +947,21 @@ class IssueExplanationBuilder {
           'display size: Image.network(url, cacheWidth: 400). Use the '
           'device pixel ratio for sharp rendering: '
           'cacheWidth: (200 * MediaQuery.devicePixelRatioOf(context)).round(). '
-          'For CachedNetworkImage, use memCacheWidth/memCacheHeight.',
-      whenToIgnore:
-          'Small images (icons, avatars under 100×100) have negligible '
-          'full-resolution cost. SVG and vector images are not affected.',
+          'For CachedNetworkImage, use memCacheWidth/memCacheHeight.\n\n'
+          'Alternatively, wrap the ImageProvider with ResizeImage for '
+          'provider-level resizing:\n'
+          '  Image(image: ResizeImage(NetworkImage(url), width: 400))\n\n'
+          'ResizeImage works with any ImageProvider and applies resize '
+          'before caching, saving both memory and decode time.',
+      whenToIgnore: 'Small images (icons, avatars under 100×100 pixels) have '
+          'negligible full-resolution cost. SVG and vector images are '
+          'not affected.',
+      relatedIssues: [
+        'gc_pressure',
+        'heap_growing',
+        'heap_near_capacity',
+        'native_memory_growing'
+      ],
     ),
 
     // ── Structural: GlobalKey ─────────────────────────────────────────────
@@ -756,7 +973,16 @@ class IssueExplanationBuilder {
           'A large number of GlobalKey instances were found, particularly '
           'inside scrollable containers. Each GlobalKey maintains a '
           'persistent reference to its Element across the entire app.',
-      readingTheData: null,
+      readingTheData:
+          'Like giving every student in a school a master key — each key '
+          'grants global access, and managing hundreds of them becomes a '
+          'security and logistics nightmare.\n\n'
+          '• GlobalKey count — Total GlobalKeys found in the scanned subtree. '
+          'Normal: <5. Alert: >10 GlobalKeys '
+          '(default, configurable).\n\n'
+          '• Location — Whether keys are inside a scrollable (worse) or '
+          'at page level (expected).\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters: 'GlobalKeys are expensive: they prevent the framework from '
           'efficiently recycling Elements during scroll, force global '
           'registry lookups, and can cause subtle bugs when two widgets '
@@ -769,6 +995,7 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'A small number of GlobalKeys (< 5) at the page level is normal '
           'and expected (Form, Navigator, Scaffold).',
+      relatedIssues: ['global_key_recreation'],
     ),
 
     // ── Structural: Nested Scroll ─────────────────────────────────────────
@@ -780,7 +1007,15 @@ class IssueExplanationBuilder {
           'A scrollable widget was found nested inside another scrollable '
           'widget. The inner scroll view receives gesture events that the '
           'outer one also wants to handle.',
-      readingTheData: null,
+      readingTheData:
+          'Like putting a treadmill on a moving sidewalk — both are '
+          'trying to control your direction, and the result is '
+          'unpredictable.\n\n'
+          '• Nesting depth — Number of scrollable ancestors. Normal: 1 '
+          '(single scroll). Alert: ≥2 nested scrollables.\n\n'
+          '• Axis relationship — Same-axis (both vertical) is worse than '
+          'cross-axis (horizontal inside vertical).\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'Nested scrollables with conflicting axes create confusing UX — '
           'users struggle to predict which scroll view will respond. Same-axis '
@@ -794,6 +1029,7 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Intentional cross-axis scrolling (e.g., horizontal carousel '
           'inside vertical page) with explicit height constraints is fine.',
+      relatedIssues: ['layout_bottleneck', 'rebuild_activity'],
     ),
 
     'nested_scroll_same_axis': (
@@ -804,18 +1040,44 @@ class IssueExplanationBuilder {
           'or both horizontal) are nested. This is a stronger signal than '
           'general nested scrolling because same-axis nesting almost always '
           'indicates a structural problem.',
-      readingTheData: null,
+      readingTheData:
+          'Like two escalators stacked vertically where both try to carry '
+          'you in the same direction — the inner one fights the outer one '
+          'for control.\n\n'
+          '• Inner list type — The nested scrollable widget (ListView, '
+          'SingleChildScrollView, GridView). ShrinkWrap is often forced.\n\n'
+          '• Axis — Both scrollables share the same axis (vertical/vertical '
+          'or horizontal/horizontal). Alert: any same-axis nesting.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'Same-axis nested scrollables cause: (1) the inner list builds '
           'all children eagerly (ShrinkWrap), defeating lazy construction, '
           '(2) confusing scroll physics where the user can\'t tell which '
           'list is scrolling, and (3) potential infinite height constraint '
           'errors.',
-      howToFix: 'Migrate to CustomScrollView with Slivers: replace the outer '
-          'ListView with CustomScrollView, and convert inner lists to '
-          'SliverList or SliverGrid. This gives a single scroll controller '
-          'and maintains lazy building throughout.',
+      howToFix: 'Migrate to CustomScrollView with Slivers:\n\n'
+          'Before (nested same-axis):\n'
+          '  ListView(children: [\n'
+          '    Header(),\n'
+          '    ListView(shrinkWrap: true, children: items),\n'
+          '  ])\n\n'
+          'After (flat slivers):\n'
+          '  CustomScrollView(slivers: [\n'
+          '    SliverToBoxAdapter(child: Header()),\n'
+          '    SliverList.builder(\n'
+          '      itemCount: items.length,\n'
+          '      itemBuilder: (_, i) => items[i],\n'
+          '    ),\n'
+          '  ])\n\n'
+          'If the inner list must remain a separate widget, add '
+          'NeverScrollableScrollPhysics() to disable its independent '
+          'scrolling and let the outer controller drive it.',
       whenToIgnore: null,
+      relatedIssues: [
+        'layout_bottleneck',
+        'rebuild_activity',
+        'sliver_fill_remaining_scrollable'
+      ],
     ),
 
     // ── Structural: Opacity ───────────────────────────────────────────────
@@ -827,21 +1089,35 @@ class IssueExplanationBuilder {
           'An Opacity or AnimatedOpacity widget with value 0.0 was found. '
           'Despite being fully invisible, the child widget is still built, '
           'laid out, painted, hit-tested, and included in the semantics tree.',
-      readingTheData: null,
+      readingTheData:
+          'Like paying a full-time employee to sit in an office with the '
+          'lights off — they are doing all the work but producing no '
+          'visible output.\n\n'
+          '• Opacity value — The literal opacity. Alert: exactly 0.0.\n\n'
+          '• Child subtree cost — Descendant count below the Opacity widget. '
+          'Larger subtrees waste more resources when invisible. Normal '
+          'waste: 0 widgets. Alert: any subtree at opacity 0.0.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'An invisible Opacity widget wastes all four pipeline phases '
           '(build, layout, paint, raster) plus allocates a saveLayer GPU '
           'buffer. It also confuses screen readers, which announce invisible '
           'content to accessibility users.',
       howToFix: 'Replace Opacity(opacity: 0.0) with Visibility(visible: false) '
-          'to skip paint and hit-testing. If you also want to skip layout '
-          '(collapse the space), use Visibility(visible: false, '
-          'maintainSize: false). For animated show/hide, use '
-          'AnimatedSwitcher or FadeTransition which can remove the child '
-          'entirely when opacity reaches zero.',
+          'to skip paint and hit-testing. Visibility provides granular '
+          'control via flags:\n\n'
+          '• maintainSize: true — keeps the widget\'s space in layout '
+          '(like CSS visibility: hidden). false collapses the space.\n'
+          '• maintainState: true — keeps the State object alive so it '
+          'resumes where it left off when made visible again.\n'
+          '• maintainAnimation: true — keeps animations ticking while '
+          'invisible so they are at the correct frame when revealed.\n\n'
+          'For animated show/hide, use AnimatedSwitcher or FadeTransition '
+          'which can remove the child entirely when opacity reaches zero.',
       whenToIgnore:
           'Mid-animation opacity values near 0 are expected during fade '
           'transitions. This detection targets static 0.0 values only.',
+      relatedIssues: ['expensive_gpu_nodes'],
     ),
 
     // ── Structural: Layout ────────────────────────────────────────────────
@@ -854,7 +1130,14 @@ class IssueExplanationBuilder {
           'These widgets force a two-pass layout: first measuring the '
           'child\'s intrinsic dimensions, then laying out with those '
           'constraints.',
-      readingTheData: null,
+      readingTheData:
+          'Like measuring a room twice before placing each piece of '
+          'furniture — the extra measurement pass doubles the work.\n\n'
+          '• Nesting depth — IntrinsicHeight/Width nesting levels. Cost is '
+          'O(2^N) for N levels. Normal: 1 level. Alert: ≥2 nested levels.\n\n'
+          '• Subtree size — Descendants under the intrinsic widget. Larger '
+          'subtrees amplify the two-pass cost. Alert: >50 descendants.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'Two-pass layout doubles the layout cost for the affected subtree. '
           'When nested (IntrinsicHeight containing IntrinsicWidth), the cost '
@@ -868,6 +1151,16 @@ class IssueExplanationBuilder {
           'A single IntrinsicHeight wrapping a small subtree (< 20 widgets) '
           'has negligible cost. The concern is nesting or wrapping large '
           'subtrees.',
+      relatedIssues: [
+        'jank_detected',
+        'nested_scroll',
+        'nested_scroll_same_axis',
+        'non_lazy_list',
+        'rebuild_activity',
+        'setstate_scope',
+        'sustained_jank',
+        'wrap_layout_bottleneck'
+      ],
     ),
 
     // ── Structural: CustomPainter ─────────────────────────────────────────
@@ -879,7 +1172,15 @@ class IssueExplanationBuilder {
           'A CustomPainter was found whose shouldRepaint() always returns '
           'true. This forces the framework to repaint this widget every '
           'single frame, regardless of whether its visual state changed.',
-      readingTheData: null,
+      readingTheData:
+          'Like a security camera that records 24/7 even when nothing is '
+          'moving — it fills up storage with identical frames.\n\n'
+          '• shouldRepaint — Always returns true. Normal: returns false '
+          'when inputs unchanged. Alert: unconditional true.\n\n'
+          '• Paint complexity — Number of drawing operations in the '
+          'painter. More operations means more wasted GPU work per '
+          'unnecessary repaint. Alert: any always-repaint painter.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'Always-repaint painters generate unnecessary paint work every '
           'frame. For complex painters with many drawing operations, this '
@@ -892,6 +1193,11 @@ class IssueExplanationBuilder {
           'with a child parameter to separate animated and static content.',
       whenToIgnore: 'Painters that genuinely change every frame (real-time '
           'visualizations, particle systems) need shouldRepaint → true.',
+      relatedIssues: [
+        'excessive_repaint',
+        'excessive_repaint_debug',
+        'raster_dominance'
+      ],
     ),
 
     'frequent_repaint_painter': (
@@ -900,7 +1206,15 @@ class IssueExplanationBuilder {
       whatItIs: 'A CustomPainter is repainting at a high frequency. While '
           'shouldRepaint() may be implemented, it is returning true too '
           'often — the painter\'s inputs are changing rapidly.',
-      readingTheData: null,
+      readingTheData:
+          'Like a painter who checks their work every 5 seconds and touches '
+          'up something each time — the constant small changes add up to '
+          'significant effort.\n\n'
+          '• Repaint rate — How often shouldRepaint returns true. Normal: '
+          '<10/sec. Alert: >30/sec (default, configurable).\n\n'
+          '• Input change rate — How rapidly the painter\'s Listenable or '
+          'fields change. Fast-changing inputs drive high repaint rate.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'Frequent repainting of complex painters can dominate raster '
           'thread time. Each repaint records all drawing commands and '
@@ -913,6 +1227,7 @@ class IssueExplanationBuilder {
           'propagating to parent layers.',
       whenToIgnore: 'Painters used for active animations (progress indicators, '
           'waveforms) are expected to repaint frequently.',
+      relatedIssues: ['excessive_repaint', 'raster_dominance'],
     ),
 
     // ── Structural: Keep Alive ────────────────────────────────────────────
@@ -924,7 +1239,16 @@ class IssueExplanationBuilder {
           'Many pages or tab contents are using AutomaticKeepAliveClientMixin '
           'to stay alive when scrolled off-screen or when tabs switch. Each '
           'kept-alive subtree remains in memory with its full State.',
-      readingTheData: null,
+      readingTheData:
+          'Like keeping every room in a hotel fully lit and heated even '
+          'when only 2 of 20 rooms have guests — the energy bill grows '
+          'with every empty room kept "ready."\n\n'
+          '• KeepAlive count — Number of kept-alive tabs or pages. '
+          'Normal: 2–3. Alert: >5 kept-alive subtrees '
+          '(default, configurable).\n\n'
+          '• Memory per subtree — Each kept-alive page retains its full '
+          'widget/element tree, controllers, and cached data.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'Keep-alive subtrees consume memory even when invisible. With many '
           'tabs or pages kept alive, the app retains large widget/element '
@@ -939,6 +1263,7 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'A small number of keep-alive tabs (2–3) is a reasonable trade-off '
           'between memory and user experience (instant tab switching).',
+      relatedIssues: ['gc_pressure', 'heap_growing', 'heap_near_capacity'],
     ),
 
     // ── Structural: AnimatedBuilder ───────────────────────────────────────
@@ -949,27 +1274,44 @@ class IssueExplanationBuilder {
       whatItIs: 'An AnimatedBuilder (or similar transition widget) was found '
           'without using the child parameter. The entire subtree inside '
           'the builder callback is rebuilt on every animation tick (60x/sec).',
-      readingTheData: null,
+      readingTheData:
+          'Like reprinting an entire newspaper every hour just to update '
+          'the clock in the corner — 99% of the content is unchanged.\n\n'
+          '• Subtree size — Descendants rebuilt on every animation tick. '
+          'Normal: 0 (child parameter used). Alert: >5 descendants '
+          'rebuilt per tick without child.\n\n'
+          '• Animation rate — Typically 60 ticks/sec, meaning the subtree '
+          'rebuilds 60 times per second.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'Without the child optimization, every animation frame rebuilds '
           'the entire widget subtree inside the builder — even static '
           'content that doesn\'t depend on the animation value. For complex '
           'subtrees, this creates 60 expensive rebuilds per second.',
-      howToFix:
-          'Pass static widgets via the child parameter. The child is built '
-          'once and passed to the builder callback as a pre-built widget:\n'
+      howToFix: 'Pass static widgets via the child parameter. The framework '
+          'builds the child widget once, caches the resulting Element '
+          'subtree, and passes the pre-built widget to the builder '
+          'callback on every animation tick. Because the same widget '
+          'instance is reused, the framework skips the diff and rebuild '
+          'for that entire subtree — only the wrapping transform/opacity/'
+          'alignment is updated each frame:\n\n'
           'AnimatedBuilder(\n'
           '  animation: controller,\n'
-          '  child: const ExpensiveChild(), // built once\n'
+          '  child: const ExpensiveChild(), // built once, cached\n'
           '  builder: (context, child) => Transform.rotate(\n'
           '    angle: controller.value,\n'
-          '    child: child, // reused each frame\n'
+          '    child: child, // reused each frame — no rebuild\n'
           '  ),\n'
           ')',
       whenToIgnore:
           'If the entire subtree truly depends on the animation value '
           '(e.g., a canvas that redraws based on progress), the child '
           'parameter provides no benefit.',
+      relatedIssues: [
+        'excessive_repaint',
+        'excessive_repaint_debug',
+        'rebuild_activity'
+      ],
     ),
 
     // ── Structural: Font Loading ──────────────────────────────────────────
@@ -981,7 +1323,15 @@ class IssueExplanationBuilder {
           'Multiple custom (non-system) fonts are in use. Custom fonts must '
           'be loaded from assets or network before they can render — until '
           'loaded, Flutter shows invisible text (FOIT) or a fallback font.',
-      readingTheData: null,
+      readingTheData:
+          'Like a printing press that needs a different set of metal type '
+          'for each language — loading and switching between sets takes '
+          'time and storage.\n\n'
+          '• Font family count — Distinct custom font families detected. '
+          'Normal: 1–2. Alert: ≥3 custom font families.\n\n'
+          '• Bundle size impact — Each font file is typically 50–500KB. '
+          'Multiple weights multiply the cost.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'Each custom font adds to app bundle size and initial load time. '
           'If fonts load asynchronously, text flashes from fallback to '
@@ -996,6 +1346,7 @@ class IssueExplanationBuilder {
           'Apps with strong brand requirements may need multiple custom '
           'fonts. If fonts are bundled in the app (not network-loaded), '
           'the runtime cost is minimal after first render.',
+      relatedIssues: ['jank_detected', 'sustained_jank'],
     ),
 
     // ── Structural: RepaintBoundary ───────────────────────────────────────
@@ -1008,7 +1359,14 @@ class IssueExplanationBuilder {
           'or similar) was found without a RepaintBoundary ancestor. '
           'Without the boundary, repaints propagate up to the nearest '
           'existing boundary, potentially repainting a large parent region.',
-      readingTheData: null,
+      readingTheData: 'Like a paint spill with no containment — without a tarp '
+          '(boundary), the spill spreads across the entire floor.\n\n'
+          '• Expensive widget type — The GPU-heavy widget missing a boundary '
+          '(CustomPainter, BackdropFilter, ShaderMask). Alert: any '
+          'expensive widget without a nearby RepaintBoundary.\n\n'
+          '• Propagation distance — How far repaints travel up the tree '
+          'before hitting an existing boundary. Farther = more wasted work.\n\n'
+          '• Source: Structural tree walk.',
       whyItMatters:
           'When expensive paint operations share a repaint boundary with '
           'cheaper content, any change to either region repaints everything. '
@@ -1020,11 +1378,23 @@ class IssueExplanationBuilder {
           ')\n'
           'This creates a separate compositing layer that is cached and '
           'only re-rasterized when the painter marks itself as needing '
-          'repaint.',
+          'repaint.\n\n'
+          'When NOT to add a RepaintBoundary: each boundary allocates a '
+          'GPU-backed layer (~100KB+ memory). Adding boundaries around '
+          'static content that rarely repaints wastes GPU memory with no '
+          'benefit. Verify with debugPaintLayerBordersEnabled before and '
+          'after to confirm the boundary actually reduces repaint area.',
       whenToIgnore:
           'If the expensive widget already repaints rarely (static content) '
           'or if the parent boundary is already small, adding another '
           'RepaintBoundary adds layer overhead without benefit.',
+      relatedIssues: [
+        'excessive_repaint',
+        'excessive_repaint_boundary',
+        'excessive_repaint_debug',
+        'raster_dominance',
+        'repaint_debug'
+      ],
     ),
 
     // ── Network ───────────────────────────────────────────────────────────
@@ -1059,6 +1429,7 @@ class IssueExplanationBuilder {
           'Initial cold-start requests (first request after app launch) '
           'are often slower due to DNS and connection setup. File uploads '
           'naturally take longer.',
+      relatedIssues: ['heavy_compute'],
     ),
 
     'large_response': (
@@ -1091,6 +1462,7 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'File downloads and media streaming responses are expected to be '
           'large. Focus on API/JSON responses that could be trimmed.',
+      relatedIssues: ['heavy_compute'],
     ),
 
     'request_frequency': (
@@ -1123,6 +1495,7 @@ class IssueExplanationBuilder {
           'Initial screen loads that fetch multiple independent resources '
           'in parallel may briefly spike request frequency. This is '
           'acceptable as a one-time burst.',
+      relatedIssues: ['http_error_spike', 'rebuild_activity'],
     ),
 
     'http_error_spike': (
@@ -1161,6 +1534,7 @@ class IssueExplanationBuilder {
           'A brief spike during network transitions (WiFi → cellular) is '
           'expected. Single 4xx errors from user input (404 from a bad URL, '
           '401 from expired auth) are not concerning on their own.',
+      relatedIssues: ['request_frequency'],
     ),
 
     // ── Platform Channel ──────────────────────────────────────────────────
@@ -1191,11 +1565,291 @@ class IssueExplanationBuilder {
           'sending one message per value. For continuous data streams '
           '(sensor data, location updates), use EventChannel with native-side '
           'throttling rather than polling via MethodChannel. Cache native '
-          'values on the Dart side to avoid repeated round-trips.',
+          'values on the Dart side to avoid repeated round-trips.\n\n'
+          'For any non-trivial channel usage, use Pigeon (code-gen) to '
+          'generate type-safe Dart + Kotlin/Swift bindings. Pigeon '
+          'eliminates stringly-typed method names that cause silent '
+          'failures when either side renames a method.',
       whenToIgnore:
           'Brief spikes during initialization (plugin setup, permission '
           'checks) are normal. Concern arises when high traffic persists '
           'during steady-state interaction.',
+      relatedIssues: ['heavy_compute'],
+    ),
+
+    // ── v11.20: Missing entries ──────────────────────────────────────────
+
+    'duplicate_request': (
+      displayName: 'Duplicate Request',
+      category: IssueCategory.network,
+      whatItIs:
+          'The same HTTP request was made multiple times within a short window. '
+          'Sleuth fingerprints requests by method, URL, and body hash — when '
+          'two or more in-flight requests share the same fingerprint, this '
+          'issue is emitted.',
+      readingTheData:
+          'Like ordering the same meal twice because you forgot you already '
+          'ordered — the kitchen does double the work and you get food you '
+          'don\'t need.\n\n'
+          '• Duplicate count — Number of identical in-flight requests. '
+          'Normal: 1 (unique). Alert: ≥2 concurrent duplicates.\n\n'
+          '• Fingerprint — The method + URL hash identifying the duplicate '
+          'group. All requests in the group share this fingerprint.\n\n'
+          '• Source: HTTP client instrumentation.',
+      whyItMatters:
+          'Duplicate requests waste bandwidth, battery, and server resources. '
+          'They also cause redundant state updates — if both responses trigger '
+          'setState, the widget rebuilds twice with identical data. On metered '
+          'connections this directly costs the user money.',
+      howToFix:
+          'Add request deduplication: maintain a Map of in-flight request '
+          'fingerprints to their Future, and return the existing Future for '
+          'duplicates instead of making a new request. Common causes: rebuild-'
+          'triggered fetches in build() or didChangeDependencies() without '
+          'a guard, pull-to-refresh double-tap, and paginated lists that '
+          'request the same page twice during fast scroll.',
+      whenToIgnore:
+          'POST requests with intentional side effects (e.g., analytics '
+          'events, idempotent writes) may legitimately fire multiple times.',
+      relatedIssues: ['rebuild_activity'],
+    ),
+
+    'wrap_layout_bottleneck': (
+      displayName: 'Wrap Layout Bottleneck',
+      category: IssueCategory.layout,
+      whatItIs: 'A Wrap widget was found with a large number of children. Wrap '
+          'performs O(N) layout passes to flow-position each child, measuring '
+          'every child to determine line breaks.',
+      readingTheData:
+          'Like a shelf stocker who must try every item in every slot to '
+          'find the best arrangement — more items means exponentially more '
+          'trial placements.\n\n'
+          '• Child count — Number of children in the Wrap. Normal: <30. '
+          'Alert: >50 children (default, configurable).\n\n'
+          '• Layout cost — Each child is measured and positioned sequentially; '
+          'no lazy skipping of off-screen items.\n\n'
+          '• Source: Structural tree walk.',
+      whyItMatters:
+          'Wrap layout cost scales linearly with child count, but unlike '
+          'ListView it cannot lazily skip off-screen children. A Wrap with '
+          '100+ children lays out all of them every frame, even those '
+          'scrolled out of view, making it a hidden layout bottleneck.',
+      howToFix: 'For large collections of chips, tags, or badges, consider a '
+          'lazy alternative: place items in a ListView with rows computed '
+          'manually, or use a flow-layout package that supports lazy '
+          'rendering. For static content, ensure the Wrap is wrapped in a '
+          'RepaintBoundary so layout cost does not propagate upward.',
+      whenToIgnore:
+          'Wrap widgets with fewer than ~30 small children (chips, icons) '
+          'have negligible layout cost and are fine as-is.',
+      relatedIssues: ['layout_bottleneck'],
+    ),
+
+    'sliver_to_box_adapter_large': (
+      displayName: 'Large SliverToBoxAdapter',
+      category: IssueCategory.build,
+      whatItIs:
+          'A SliverToBoxAdapter wrapping a large subtree was found inside a '
+          'CustomScrollView. SliverToBoxAdapter converts a box widget into a '
+          'sliver, but it builds the entire subtree eagerly — no lazy '
+          'construction.',
+      readingTheData:
+          'Like stuffing an entire filing cabinet into a single folder — '
+          'the folder system was designed for quick access, but one '
+          'giant folder defeats the purpose.\n\n'
+          '• Descendant count — Widgets inside the SliverToBoxAdapter. '
+          'Normal: <50. Alert: >100 descendants.\n\n'
+          '• Lazy alternative — SliverList.builder would lazily construct '
+          'only visible items instead of all descendants.\n\n'
+          '• Source: Structural tree walk.',
+      whyItMatters: 'Unlike SliverList which lazily builds only visible items, '
+          'SliverToBoxAdapter builds its entire child subtree upfront. A '
+          'large subtree (100+ descendants) defeats the purpose of using '
+          'slivers for lazy rendering, causing slow initial build and '
+          'high memory usage.',
+      howToFix: 'If the content is a list of items, replace SliverToBoxAdapter('
+          'child: Column(children: items)) with SliverList.builder() for '
+          'lazy construction. If it is a single large widget, consider '
+          'breaking it into multiple smaller slivers so only visible '
+          'portions are built.',
+      whenToIgnore:
+          'SliverToBoxAdapter wrapping a small, fixed-size widget (header, '
+          'footer, banner) is the intended use case and is perfectly fine.',
+      relatedIssues: ['non_lazy_list'],
+    ),
+
+    'sliver_fill_remaining_scrollable': (
+      displayName: 'SliverFillRemaining Scrollable',
+      category: IssueCategory.build,
+      whatItIs: 'A SliverFillRemaining was found containing a scrollable child '
+          '(ListView, SingleChildScrollView, etc.). SliverFillRemaining '
+          'sizes its child to fill the remaining viewport space, creating '
+          'a nested scroll conflict.',
+      readingTheData:
+          'Like two steering wheels in one car — both can turn, but the '
+          'driver never knows which one is in control.\n\n'
+          '• Inner scrollable type — The scrollable widget inside '
+          'SliverFillRemaining (ListView, SingleChildScrollView, etc.).\n\n'
+          '• hasScrollBody — Whether the sliver expects a scrollable child. '
+          'Alert: scrollable child present regardless of flag setting.\n\n'
+          '• Source: Structural tree walk.',
+      whyItMatters:
+          'A scrollable inside SliverFillRemaining creates competing scroll '
+          'physics — the inner scrollable fights with the outer '
+          'CustomScrollView for gesture ownership. Users experience '
+          'unpredictable scroll behavior where sometimes the inner list '
+          'scrolls and sometimes the outer one does.',
+      howToFix: 'Replace SliverFillRemaining(child: ListView(...)) with a '
+          'SliverList that directly contains the items. If you need the '
+          '"fill remaining space" behavior, use SliverFillRemaining with '
+          'hasScrollBody: false for non-scrollable content, or restructure '
+          'so the inner content participates in the outer scroll via slivers.',
+      whenToIgnore:
+          'SliverFillRemaining with hasScrollBody: true is intentional '
+          'when you want the inner scrollable to take over scrolling after '
+          'outer slivers are fully scrolled.',
+      relatedIssues: ['nested_scroll_same_axis'],
+    ),
+
+    'sliver_to_box_adapter_shrinkwrap': (
+      displayName: 'ShrinkWrap Inside Sliver',
+      category: IssueCategory.build,
+      whatItIs:
+          'A ListView or GridView with shrinkWrap: true was found inside a '
+          'SliverToBoxAdapter. ShrinkWrap forces the list to measure all '
+          'children to determine its own size, eliminating lazy construction.',
+      readingTheData:
+          'Like using a tape measure on every book to figure out the shelf '
+          'height — instead of just stacking books as they fit.\n\n'
+          '• Child count — Items in the shrinkWrapped list. Normal: <10. '
+          'Alert: >20 items with shrinkWrap inside a sliver.\n\n'
+          '• Build cost — All children are built and measured upfront, '
+          'defeating the lazy rendering that slivers are designed for.\n\n'
+          '• Source: Structural tree walk.',
+      whyItMatters:
+          'shrinkWrap: true builds and measures every child to compute the '
+          'list\'s total height. Inside a sliver context this is doubly '
+          'wasteful — you chose slivers for lazy rendering but shrinkWrap '
+          'defeats it. A 500-item shrinkWrapped list builds all 500 items.',
+      howToFix: 'Replace SliverToBoxAdapter(child: ListView(shrinkWrap: true, '
+          'children: items)) with SliverList.builder(itemBuilder: ..., '
+          'itemCount: items.length). This gives true lazy construction '
+          'within the CustomScrollView\'s viewport. If the items have a '
+          'known fixed height, add itemExtent for an additional performance '
+          'boost — the framework can skip child measurement entirely and '
+          'jump directly to any scroll offset.',
+      whenToIgnore:
+          'Very small lists (< 10 items) with fixed-height items have '
+          'negligible shrinkWrap cost.',
+      relatedIssues: ['non_lazy_list'],
+    ),
+
+    'global_key_recreation': (
+      displayName: 'GlobalKey Recreation',
+      category: IssueCategory.build,
+      whatItIs: 'A GlobalKey is being created inside a build() method or other '
+          'frequently-called code path. Each call creates a new GlobalKey '
+          'instance, which unregisters the old key and re-registers the '
+          'new one in the global registry.',
+      readingTheData:
+          'Like giving someone a new passport every time they cross a '
+          'border — the old one is invalidated, the new one must be '
+          'registered, and their travel history is lost.\n\n'
+          '• Recreation frequency — How often the GlobalKey is recreated. '
+          'Normal: 0 (created once). Alert: any recreation detected.\n\n'
+          '• State loss — Each recreation destroys the associated State '
+          'object, losing scroll position, form input, and animation '
+          'progress.\n\n'
+          '• Source: Structural tree walk.',
+      whyItMatters:
+          'GlobalKey recreation forces the framework to detach and reattach '
+          'the Element on every rebuild, destroying all State (including '
+          'scroll position, animation progress, and form input). It also '
+          'triggers a full subtree rebuild rather than a diff-based update, '
+          'and can cause "Multiple widgets used the same GlobalKey" errors.',
+      howToFix:
+          'Move GlobalKey creation to a final instance field on the State '
+          'class or to initState(). Never create GlobalKeys inside build(), '
+          'loops, or callbacks that run more than once:\n'
+          '// Bad: recreated every build\n'
+          'Widget build(context) {\n'
+          '  final key = GlobalKey(); // new key each frame!\n'
+          '  ...\n'
+          '}\n'
+          '// Good: created once\n'
+          'final _formKey = GlobalKey<FormState>();',
+      whenToIgnore: null,
+      relatedIssues: ['excessive_global_keys'],
+    ),
+
+    'excessive_repaint_boundary': (
+      displayName: 'Excessive RepaintBoundary',
+      category: IssueCategory.paint,
+      whatItIs:
+          'Too many RepaintBoundary widgets were found in close proximity. '
+          'Each RepaintBoundary creates a separate compositing layer that '
+          'the GPU must manage independently.',
+      readingTheData:
+          'Like dividing a house into 50 separate climate zones — each '
+          'zone needs its own thermostat and ductwork, and the overhead '
+          'of managing them all exceeds the energy savings.\n\n'
+          '• Boundary count — RepaintBoundary widgets in the visible region. '
+          'Normal: <15. Alert: >20 boundaries in proximity.\n\n'
+          '• GPU layer cost — Each boundary creates a compositing layer '
+          'that consumes GPU memory (~100KB+ per layer).\n\n'
+          '• Source: Structural tree walk.',
+      whyItMatters:
+          'Each RepaintBoundary allocates a GPU-backed compositing layer. '
+          'Too many layers increase GPU memory usage and compositing cost — '
+          'the raster thread must composite all layers each frame. Beyond '
+          '~15-20 boundaries in a visible region, the overhead of managing '
+          'layers can exceed the savings from isolated repainting.',
+      howToFix:
+          'Audit RepaintBoundary placement: keep them at natural isolation '
+          'points (list items, cards, animated regions) rather than wrapping '
+          'every widget. Remove boundaries around static content that rarely '
+          'or never repaints — they add layer overhead with no benefit. Use '
+          'debugPaintLayerBordersEnabled to visualize layer boundaries and '
+          'identify excessive layering.',
+      whenToIgnore:
+          'Scrollable list items automatically get RepaintBoundary from '
+          'the framework — these are expected and beneficial.',
+      relatedIssues: ['excessive_repaint', 'missing_repaint_boundary'],
+    ),
+
+    'runtime_font_loading': (
+      displayName: 'Runtime Font Loading',
+      category: IssueCategory.font,
+      whatItIs: 'A custom font is being loaded at runtime (via FontLoader or '
+          'network) rather than being bundled in the app assets. The font '
+          'is unavailable until the download and parsing completes.',
+      readingTheData:
+          'Like a sign painter who only starts painting the shop sign '
+          'after the grand opening — customers see a blank storefront '
+          'until the work is done.\n\n'
+          '• Load time — Duration from font request to availability. '
+          'Normal: 0ms (bundled). Alert: >0ms (runtime loading detected).\n\n'
+          '• Font file size — Typically 50–500KB per font file. Larger '
+          'files take longer to download on slow connections.\n\n'
+          '• Source: Structural tree walk.',
+      whyItMatters:
+          'Runtime font loading causes Flash of Invisible Text (FOIT) or '
+          'Flash of Unstyled Text (FOUT) — text using the font is either '
+          'invisible or rendered in a fallback font until loading completes. '
+          'On slow networks this can last several seconds, creating a '
+          'jarring visual experience. Each font file is typically 50–500KB.',
+      howToFix: 'Bundle fonts in the app assets via pubspec.yaml rather than '
+          'loading them at runtime. If runtime loading is required (e.g., '
+          'user-selected fonts), preload fonts during a splash screen or '
+          'loading state before navigating to content that uses them. Use '
+          'FontLoader.load() in an initialization step and show a fallback '
+          'font with a smooth transition when the custom font becomes '
+          'available.',
+      whenToIgnore:
+          'Apps that support user-customizable fonts (e.g., e-readers, '
+          'design tools) need runtime loading by design. The concern is '
+          'unexpected runtime loading of fonts that could be bundled.',
+      relatedIssues: ['jank_detected', 'sustained_jank'],
     ),
   };
 }

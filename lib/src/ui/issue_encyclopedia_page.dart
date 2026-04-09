@@ -6,7 +6,7 @@ import '../models/performance_issue.dart';
 import '../utils/issue_explanation_builder.dart';
 import 'sleuth_theme.dart';
 
-/// Full-screen encyclopedia listing all 37 issue types, grouped by category.
+/// Full-screen encyclopedia listing all detected issue types, grouped by category.
 ///
 /// Supports search, expandable entries, and scroll-to from "Learn more" links.
 /// Replaces the single-issue [IssueDetailPage].
@@ -38,10 +38,10 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
   final Set<String> _expandedEntries = {};
   Timer? _searchDebounce;
 
-  /// Single GlobalKey for the scroll-to target, only created when needed.
-  GlobalKey? _scrollTargetKey;
+  /// Keys for entry tiles that need scroll-to support.
+  final Map<String, GlobalKey> _entryKeys = {};
 
-  /// Whether the scroll-to target has completed its initial scroll.
+  /// Whether the initial scroll-to target has completed its scroll.
   bool _scrollTargetScrolled = false;
 
   @override
@@ -57,7 +57,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
         IssueExplanationBuilder.allExplanations
             .containsKey(widget.scrollToStableId)) {
       _expandedEntries.add(widget.scrollToStableId!);
-      _scrollTargetKey = GlobalKey();
+      _entryKeys[widget.scrollToStableId!] = GlobalKey();
     }
 
     _searchController.addListener(_onSearchChanged);
@@ -82,25 +82,43 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
   }
 
   void _scrollToTarget() {
-    if (_scrollTargetScrolled || _scrollTargetKey?.currentContext == null) {
-      return;
-    }
+    if (_scrollTargetScrolled || widget.scrollToStableId == null) return;
+    final key = _entryKeys[widget.scrollToStableId!];
+    if (key?.currentContext == null) return;
     _scrollTargetScrolled = true;
     Scrollable.ensureVisible(
-      _scrollTargetKey!.currentContext!,
+      key!.currentContext!,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
     );
   }
 
+  /// Returns (or creates) a GlobalKey for the given entry stableId.
+  GlobalKey _keyForEntry(String stableId) =>
+      _entryKeys.putIfAbsent(stableId, () => GlobalKey());
+
   bool _matchesSearch(IssueExplanation entry) {
     if (_searchQuery.isEmpty) return true;
-    return entry.displayName.toLowerCase().contains(_searchQuery) ||
+    if (entry.displayName.toLowerCase().contains(_searchQuery) ||
         entry.whatItIs.toLowerCase().contains(_searchQuery) ||
         (entry.readingTheData?.toLowerCase().contains(_searchQuery) ?? false) ||
         entry.whyItMatters.toLowerCase().contains(_searchQuery) ||
         entry.howToFix.toLowerCase().contains(_searchQuery) ||
-        (entry.whenToIgnore?.toLowerCase().contains(_searchQuery) ?? false);
+        (entry.whenToIgnore?.toLowerCase().contains(_searchQuery) ?? false)) {
+      return true;
+    }
+    // Search related issue display names.
+    final related = entry.relatedIssues;
+    if (related != null) {
+      for (final id in related) {
+        final rel = IssueExplanationBuilder.explain(id);
+        if (rel != null &&
+            rel.displayName.toLowerCase().contains(_searchQuery)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   @override
@@ -120,7 +138,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     );
 
     // Schedule scroll after frame if needed.
-    if (_scrollTargetKey != null && !_scrollTargetScrolled) {
+    if (widget.scrollToStableId != null && !_scrollTargetScrolled) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToTarget());
     }
 
@@ -326,7 +344,8 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     final isScrollTarget = stableId == widget.scrollToStableId;
 
     return Container(
-      key: isScrollTarget ? _scrollTargetKey : null,
+      key: _entryKeys[stableId] ??
+          (isScrollTarget ? _keyForEntry(stableId) : null),
       decoration: BoxDecoration(
         color: theme.sectionBackground,
         borderRadius: BorderRadius.circular(8),
@@ -376,13 +395,13 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
           ),
           // Expandable content — skip AnimatedSize for scroll target on first frame
           if (isScrollTarget && !_scrollTargetScrolled && isExpanded)
-            _entryContent(entry, theme)
+            _entryContent(stableId, entry, theme)
           else
             AnimatedSize(
               duration: const Duration(milliseconds: 250),
               curve: Curves.easeInOut,
               child: isExpanded
-                  ? _entryContent(entry, theme)
+                  ? _entryContent(stableId, entry, theme)
                   : const SizedBox.shrink(),
             ),
         ],
@@ -390,7 +409,11 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     );
   }
 
-  Widget _entryContent(IssueExplanation entry, SleuthThemeData theme) {
+  Widget _entryContent(
+    String stableId,
+    IssueExplanation entry,
+    SleuthThemeData theme,
+  ) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
           theme.spacingMd, 0, theme.spacingMd, theme.spacingMd),
@@ -410,8 +433,75 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
             SizedBox(height: theme.spacingSm),
             _sectionBlock('When to ignore', entry.whenToIgnore!, theme),
           ],
+          if (entry.relatedIssues != null &&
+              entry.relatedIssues!.isNotEmpty) ...[
+            SizedBox(height: theme.spacingSm),
+            _relatedIssuesBlock(entry.relatedIssues!, theme),
+          ],
         ],
       ),
+    );
+  }
+
+  Widget _relatedIssuesBlock(
+    List<String> relatedIds,
+    SleuthThemeData theme,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Related issues',
+          style: TextStyle(
+            color: theme.textPrimary,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
+          ),
+        ),
+        SizedBox(height: theme.spacingXxs),
+        Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          children: [
+            for (final id in relatedIds)
+              if (IssueExplanationBuilder.explain(id) case final related?)
+                GestureDetector(
+                  onTap: () {
+                    final key = _keyForEntry(id);
+                    setState(() => _expandedEntries.add(id));
+                    // Scroll to the target after next frame.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      final ctx = key.currentContext;
+                      if (ctx != null) {
+                        Scrollable.ensureVisible(
+                          ctx,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOutCubic,
+                        );
+                      }
+                    });
+                  },
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: theme.pageBackground,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: theme.border, width: 0.5),
+                    ),
+                    child: Text(
+                      related.displayName,
+                      style: TextStyle(
+                        color: theme.textSecondary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ),
+          ],
+        ),
+      ],
     );
   }
 

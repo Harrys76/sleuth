@@ -1,6 +1,6 @@
 ## v11 Detector Audit: Gaps, False Positives & Hot-Path Performance
 
-**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) + Pillar 3b (4 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7 / v0.10.8)
+**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) + Pillar 3b (4 milestones) + Pillar 4 (10 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7 / v0.10.8 / v0.10.9)
 
 Origin: Adversarial audit (2026-04-07) of 5 detectors (ListviewDetector, NestedScrollDetector, LayoutBottleneckDetector, SetStateScopeDetector, RepaintBoundaryDetector). Found 6 gaps and false positives across detection coverage, accuracy, and enrichment. All milestones implemented, adversarial-reviewed twice (8 fix-round findings resolved), 1,561 tests passing, 0 analysis issues.
 
@@ -867,9 +867,62 @@ Comprehensive adversarial review of all 78 changed files (8,880 insertions) acro
 
 ---
 
-## Verification (Final)
+## Verification (Pillars 1-3)
 
 - `fvm flutter test` — 1,791 tests passing ✅
 - `fvm flutter analyze` — 0 issues ✅
 - All 4 milestones + 1 Pillar 3b adversarial fix + 5 full branch adversarial fixes shipped
 - All roadmaps complete: v7 (10/10), v8 (5/5), v9 (17/17), v10 (12/12), v11 (19/19), Pillar 2a (3/3), Pillar 2b (4/4), Pillar 3a (5/5), Pillar 3b (4/4)
+
+---
+
+## Pillar 4 — Issue Documentation Quality (v0.10.9)
+
+**Status: 10/10 milestones shipped** ✅
+
+Full spec: [`spec_v11_pillar4.md`](spec_v11_pillar4.md)
+
+### Summary
+
+Comprehensive encyclopedia content for all 46 issue types with cross-references, enriched explanations, and quality guardrail tests.
+
+### Milestones
+
+| Milestone | Title | Priority |
+|-----------|-------|----------|
+| v11.20 | Add 8 missing encyclopedia entries (38→46) | P0 |
+| v11.21 | Fix stale count + missing test coverage | P0 |
+| v11.22 | readingTheData for all 46 entries | P1 |
+| v11.23 | Enrich build-phase entries (heavy_compute, setstate_scope, animated_builder_no_child) | P1 |
+| v11.24 | Enrich memory/image entries (gc_pressure, heap_growing, uncached_images) | P1 |
+| v11.25 | Enrich paint/layout entries (excessive_repaint, missing_repaint_boundary, layout_bottleneck, opacity_zero) | P1 |
+| v11.26 | Enrich raster/network/scroll entries (shader_compilation, platform_channel_traffic, non_lazy_list, nested_scroll_same_axis) | P1 |
+| v11.27 | Add relatedIssues field + bidirectional cross-references | P2 |
+| v11.28 | Render relatedIssues in encyclopedia UI + AI context | P2 |
+| v11.29 | Content quality guardrail tests | P2 |
+
+### Adversarial Review Findings (Pillar 4)
+
+| # | Severity | Component | Finding | Resolution |
+|---|----------|-----------|---------|------------|
+| 1 | CRITICAL | `issue_encyclopedia_page.dart` | Related issue chip tap used single `_scrollTargetKey` — always scrolled to initial target, not the tapped chip's entry | Replaced single GlobalKey with per-entry key map (`Map<String, GlobalKey> _entryKeys`) |
+| 2 | LOW | `issue_explanation_builder.dart` | `repaint_debug` was only runtime entry without relatedIssues (null) | Added cross-references to `excessive_repaint`, `excessive_repaint_debug`, `missing_repaint_boundary` + reverse entries |
+| 3 | LOW | `issue_explanation_builder.dart` | 5 entries had readingTheData without metric patterns matching guardrail regex | Enriched `raster_cache_growing`, `gc_pressure`, `heavy_compute`, `expensive_gpu_nodes`, `excessive_repaint_debug` with numeric thresholds |
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `lib/src/utils/issue_explanation_builder.dart` | 8 new entries, readingTheData for all 46, relatedIssues field + data, 14 entries enriched |
+| `lib/src/ui/issue_encyclopedia_page.dart` | relatedIssues UI chips with scroll-to, per-entry GlobalKey map, search integration |
+| `lib/src/utils/ai_context_builder.dart` | relatedIssues in system prompt |
+| `test/utils/issue_explanation_builder_test.dart` | Quality guardrails, content assertions, relatedIssues validation |
+| `test/ui/issue_encyclopedia_page_test.dart` | relatedIssues rendering + chip interaction tests |
+
+---
+
+## Verification (Final)
+
+- `fvm flutter test` — 1,819 tests passing ✅
+- `fvm flutter analyze` — 0 issues ✅
+- All roadmaps complete: v7 (10/10), v8 (5/5), v9 (17/17), v10 (12/12), v11 (19/19), Pillar 2a (3/3), Pillar 2b (4/4), Pillar 3a (5/5), Pillar 3b (4/4), Pillar 4 (10/10)

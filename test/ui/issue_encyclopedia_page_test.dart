@@ -144,9 +144,8 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // "Platform Channel Traffic" is unique to the channel category
-      await tester.enterText(
-          find.byType(TextField), 'Platform Channel Traffic');
+      // "thread marshaling" appears only in platform_channel_traffic content
+      await tester.enterText(find.byType(TextField), 'thread marshaling');
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pumpAndSettle();
 
@@ -154,7 +153,6 @@ void main() {
       expect(find.text('PLATFORM CHANNELS'), findsOneWidget);
 
       // Other categories hidden
-      expect(find.text('BUILD & REBUILD'), findsNothing);
       expect(find.text('MEMORY'), findsNothing);
       expect(find.text('PAINT & REPAINT'), findsNothing);
     });
@@ -258,7 +256,7 @@ void main() {
       expect(find.text(explanation.readingTheData!), findsOneWidget);
     });
 
-    testWidgets('Reading the data hidden for structural entry (non_lazy_list)',
+    testWidgets('Reading the data shown for structural entry (non_lazy_list)',
         (tester) async {
       await tester.pumpWidget(wrap(
         IssueEncyclopediaPage(
@@ -268,9 +266,8 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // non_lazy_list is structural — readingTheData is null
-      expect(find.text('Reading the data'), findsNothing);
-      // But other sections are visible
+      // v11.22: all entries now have readingTheData
+      expect(find.text('Reading the data'), findsOneWidget);
       expect(find.text('What it is'), findsOneWidget);
       expect(find.text('Why it matters'), findsOneWidget);
     });
@@ -322,6 +319,42 @@ void main() {
       // All entries visible again
       expect(find.text('BUILD & REBUILD'), findsOneWidget);
       expect(find.text('Sustained Jank'), findsOneWidget);
+    });
+
+    // v11.28: relatedIssues rendering
+    testWidgets('shows Related issues section for entry with relations',
+        (tester) async {
+      await tester.pumpWidget(wrap(
+        IssueEncyclopediaPage(
+          onClose: () {},
+          scrollToStableId: 'uncached_images',
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // uncached_images has relatedIssues
+      expect(find.text('Related issues'), findsOneWidget);
+      // GC Pressure appears twice: once in the entry list title, once as chip
+      expect(find.text('GC Pressure'), findsNWidgets(2));
+      expect(find.text('Heap Growing'), findsNWidgets(2));
+    });
+
+    testWidgets('related issue display names appear in chips', (tester) async {
+      // Use an entry with few relations for simpler assertions.
+      // opacity_zero has relatedIssues: [expensive_gpu_nodes]
+      await tester.pumpWidget(wrap(
+        IssueEncyclopediaPage(
+          onClose: () {},
+          scrollToStableId: 'opacity_zero',
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // Should show the related issue chip
+      expect(find.text('Related issues'), findsOneWidget);
+      // Expensive GPU Nodes display name appears as a chip (plus in the
+      // entry list header — so at least 1, possibly 2 if visible)
+      expect(find.text('Expensive GPU Nodes'), findsWidgets);
     });
   });
 

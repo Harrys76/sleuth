@@ -177,4 +177,5 @@ The full spec is split by roadmap era. Each file is self-contained.
 | [spec_v9.md](spec_v9.md) | 1255 | **v9: accuracy, self-overhead & correctness (17 milestones)** | **All shipped** |
 | [spec_v10.md](spec_v10.md) | 820 | **v10: performance, accuracy & enrichment (12 milestones)** | **All shipped** |
 | [spec_v11.md](spec_v11.md) | 875 | **v11: detector audit (19 milestones) + Pillar 2a (3) + Pillar 2b (4) + Pillar 3a (5) + Pillar 3b (4)** | **All shipped** |
+| [spec_v11_pillar4.md](spec_v11_pillar4.md) | 280 | **Pillar 4: Issue Documentation Quality (10 milestones: v11.20–v11.29)** | **All shipped** |
 | [spec_ui_features.md](spec_ui_features.md) | 180 | UI features: Issue Encyclopedia, AI Chat, IssueCard shimmer, overlay polish | All shipped |

@@ -1,3 +1,61 @@
+## 0.10.9
+
+Pillar 4: Issue Documentation Quality — comprehensive encyclopedia content for all 46
+issue types with cross-references, enriched explanations, and quality guardrail tests.
+
+### Issue Documentation Quality (Pillar 4)
+
+- **8 missing encyclopedia entries** (v11.20): Added entries for `duplicate_request`,
+  `wrap_layout_bottleneck`, `sliver_to_box_adapter_large`, `sliver_fill_remaining_scrollable`,
+  `sliver_to_box_adapter_shrinkwrap`, `global_key_recreation`, `excessive_repaint_boundary`,
+  and `runtime_font_loading`. Total entries: 38→46. Every detector stableId now resolves
+  to a non-null explanation.
+- **Stale count fix** (v11.21): Removed hard-coded "37 issue types" from encyclopedia doc
+  comment. Added missing `http_error_spike` to test coverage.
+- **readingTheData for all entries** (v11.22): All 46 entries now include "Reading the data"
+  with real-world analogies, threshold interpretation, and normal-vs-abnormal guidance.
+  Structural entries that previously had `null` readingTheData now explain element counts,
+  thresholds, and what the numbers mean.
+- **Build-phase enrichment** (v11.23): `heavy_compute` howToFix adds `Isolate.run()` vs
+  `compute()` code examples. `setstate_scope` adds `ValueListenableBuilder` extraction
+  pattern. `animated_builder_no_child` explains why `child` is reused.
+- **Memory/image enrichment** (v11.24): `gc_pressure` adds micro-stutter description + const
+  constructor example. `heap_growing` adds DevTools Memory tab walkthrough (retained vs
+  shallow size). `uncached_images` adds `ResizeImage` pattern.
+- **Paint/layout enrichment** (v11.25): `excessive_repaint` adds RepaintBoundary "island"
+  concept. `missing_repaint_boundary` adds when-NOT-to-add guidance. `layout_bottleneck`
+  adds `CrossAxisAlignment.stretch` alternative. `opacity_zero` adds Visibility flag
+  explanations (`maintainSize`, `maintainState`, `maintainAnimation`).
+- **Raster/network/scroll enrichment** (v11.26): `shader_compilation` adds Impeller context.
+  `platform_channel_traffic` adds Pigeon code-gen + EventChannel patterns. `non_lazy_list`
+  adds `ListView.builder` code + `itemExtent` tip. `nested_scroll_same_axis` adds
+  `CustomScrollView` migration snippet.
+- **Related issues cross-references** (v11.27): New `relatedIssues` field on
+  `IssueExplanation` typedef. All 46 entries populated with bidirectional cross-references
+  derived from the causal graph (52 rules). If A lists B, B lists A.
+- **Related issues UI rendering** (v11.28): Encyclopedia entries show "Related issues"
+  section with tappable chips. Tapping a chip expands and scrolls to the target entry.
+  AI context builder includes related issues in system prompts. Search matches related
+  issue display names.
+- **Content quality guardrail tests** (v11.29): Automated regression tests enforce minimum
+  word counts (whatItIs ≥ 20, whyItMatters ≥ 20, howToFix ≥ 30), metric thresholds in
+  readingTheData (≥ 25/46 entries), analogy patterns, code examples (≥ 10 entries), DevTools
+  references (≥ 5 entries), and comprehensive stableId completeness.
+
+### Adversarial Review Findings (Pillar 4)
+
+- **Chip scroll-to bug** (CRITICAL): Related issue chip tap in encyclopedia used a single
+  `_scrollTargetKey` that only pointed to the initial `scrollToStableId`, not the tapped
+  chip's entry. Tapping any chip would scroll to the wrong target or nowhere. Fixed by
+  replacing single GlobalKey with per-entry key map (`Map<String, GlobalKey> _entryKeys`).
+- **Missing bidirectional relatedIssues** (LOW): `repaint_debug` was the only runtime entry
+  without relatedIssues. Added cross-references to `excessive_repaint`,
+  `excessive_repaint_debug`, and `missing_repaint_boundary` (and reverse entries).
+- **Content below quality thresholds** (LOW): Several entries had readingTheData without
+  metric patterns matching the guardrail regex. Enriched `raster_cache_growing`,
+  `gc_pressure`, `heavy_compute`, `expensive_gpu_nodes`, and `excessive_repaint_debug`
+  with specific numeric thresholds.
+
 ## 0.10.8
 
 Pillar 3b: Enrichment — output & presentation improvements that make diagnostics more
