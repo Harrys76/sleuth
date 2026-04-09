@@ -46,9 +46,10 @@ class _CombinedSocialFeedDemoState extends State<CombinedSocialFeedDemo> {
       title: 'Social Feed (Combined)',
       description:
           '❌ BAD: Top-level setState rebuilds all $_cardCount cards on every '
-          'like. Avatars and post images are decoded at full resolution '
-          '(800×800), IntrinsicHeight forces two-pass layout per row, and '
-          'an Opacity(0.0) "load more" banner is still laid out and painted.\n'
+          'like. Post images are fetched at full 800×600 resolution with '
+          'no cacheWidth, IntrinsicHeight forces two-pass layout per row, '
+          'and an Opacity(0.0) "load more" banner is still laid out and '
+          'painted.\n'
           '✅ FIX: Move the like counter into a ValueNotifier, add cacheWidth '
           'on every network image, drop the IntrinsicHeight, and omit the '
           'invisible banner entirely.\n\n'

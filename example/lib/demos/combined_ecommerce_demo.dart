@@ -61,16 +61,18 @@ class _CombinedEcommerceDemoState extends State<CombinedEcommerceDemo>
       title: 'E-Commerce (Combined)',
       description:
           '❌ BAD: $_heroCount hero images decoded at full resolution '
-          '(800×800) trigger imageMemory; AnimatedBuilder without `child` '
-          'rebuilds the price tag subtree per tick; IntrinsicHeight wraps '
-          'the size chip row (two-pass layout); a non-lazy '
+          '(800×800) trigger imageMemory; an outer AnimatedBuilder '
+          'without `child` wraps the whole product page and rebuilds '
+          'every widget per animation tick; IntrinsicHeight wraps the '
+          'size chip row (two-pass layout); a non-lazy '
           '$_reviewCount-review ListView is built eagerly inside the '
           'scroll view; 6 GlobalKeys are created fresh in build(); and '
           'an Opacity(0.0) loading spinner covers the Add to Cart button.\n'
-          '✅ FIX: cacheWidth: 520 on every hero, AnimatedBuilder with a '
-          'static child, a fixed-height Row for sizes, ListView.builder '
-          '(shrinkWrap + NeverScrollableScrollPhysics), GlobalKey as '
-          'final State fields, and Visibility instead of Opacity(0.0).\n\n'
+          '✅ FIX: cacheWidth: 520 on every hero, remove the outer '
+          'AnimatedBuilder wrapper and give the inner price-tag '
+          'AnimatedBuilder a static child, a fixed-height Row for sizes, '
+          'a bounded-height ListView.builder, GlobalKey as final State '
+          'fields, and Visibility instead of Opacity(0.0).\n\n'
           '▶ Tap a size chip to update. In the bad path the whole page '
           'rebuilds; in the fixed path only the chip row updates.',
       // ❌ The outer AnimatedBuilder listens to the same controller the
