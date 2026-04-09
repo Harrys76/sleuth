@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C821_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C823_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -306,16 +306,35 @@ To set clear expectations:
 
 ## Example App
 
-The `example/` directory includes 23 demo screens organized by category, each triggering a specific detector:
+The `example/` directory includes 25 demo screens organized into 8 categories (Build, Paint, GPU & Rendering, Layout, Memory, Network & I/O, Keys & Identity, Combined). Every demo is wrapped in the shared `DemoScaffold`, which provides a **Before/After toggle** and a **live metrics bar** so you can flip between the anti-pattern and its fix in-place and watch Sleuth's detection appear and disappear:
 
 ```bash
 cd example
 flutter run
 ```
 
-Demos cover: high-level setState, non-lazy ListView, IntrinsicHeight abuse, always-repaint CustomPainter, uncached images, GlobalKey overuse, nested scroll, heavy compute, KeepAlive overuse, Opacity zero, AnimatedBuilder without child, shallow rebuild risk, font loading stress, repaint stress, network stress, FPS stress test, shader jank, platform channel traffic, memory pressure, GPU pressure, missing RepaintBoundary, and two combined multi-detector scenarios (analytics dashboard, social feed).
+**Every demo ships a working "Fixed Pattern" body** — not a description — so the segmented toggle shows a real comparison:
 
-Each demo includes `BAD:` and `FIX:` annotations explaining the anti-pattern and its fix.
+- Top-level `setState` → `ValueNotifier` + `ValueListenableBuilder`
+- `ListView(children: List.generate(...))` → `ListView.builder` with `itemExtent`
+- `IntrinsicHeight` row → `CrossAxisAlignment.stretch`
+- `Image.network` without caching → `cacheWidth` / `cacheHeight`
+- `GlobalKey()` in `build()` → `final` field
+- `Opacity(opacity: 0.0)` → `Visibility(visible: false)`
+- `AnimatedBuilder` without `child` → extracted `child`
+- `Fibonacci` on main thread → `Isolate.run()`
+- 40 concurrent HTTP gets → in-memory cache + pagination
+
+**Demos with live metric chips:** high-level setState (bad/fixed rebuilds), non-lazy list (widgets built), heavy compute (ms per call), FPS stress test (live FPS via `addTimingsCallback`), repaint stress (paints/sec), network stress (request count), memory pressure (retained MB).
+
+**Combined multi-detector demos** stack 4–5 anti-patterns in one realistic screen and show every corresponding fix applied together:
+
+- **E-Commerce Product Page** — hero carousel, rotating price `AnimatedBuilder`, `IntrinsicHeight` size row, 200-review list, 4 `GlobalKey`s, hidden `Opacity(0.0)` loading banner
+- **Chat App** — tabbed conversations with `AutomaticKeepAliveClientMixin`, uncached avatars, 40ms platform-channel typing poll, top-level `setState` on message arrival
+- **Social Feed** — cards with uncached post images, `IntrinsicHeight` header row, `Opacity(0.0)` "load more" banner, top-level `setState` on Like
+- **Analytics Dashboard** — `CustomPainter.shouldRepaint` always-true, non-extracted `AnimatedBuilder`, refresh that rebuilds every tile
+
+Each demo description follows the `❌ BAD / ✅ FIX / ▶ action` format with an explicit reproduction step telling you what to tap to trigger the detection.
 
 ## Dependencies
 

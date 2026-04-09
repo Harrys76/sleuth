@@ -1,3 +1,210 @@
+## 0.11.1
+
+Pillar 5 Part 2: Demo Quality Enhancements & Combined Demos — Before/After toggle,
+live metrics bars, reproduction instructions, and two realistic multi-detector
+scenarios (E-Commerce and Chat). Three adversarial review rounds, 18 findings resolved
+(9 Pillar 5 Part 2 + 4 demo polish + 5 demo↔detector alignment) plus a
+`KeepAliveDetector` false-positive bug fix discovered during the chat demo migration.
+
+### Demo Quality Enhancements (Pillar 5, Part 2)
+
+- **Before/After toggle in DemoScaffold** (M8): Upgraded `DemoScaffold` from `StatelessWidget`
+  to `StatefulWidget`. When a demo supplies a `fixedBody`, a Material 3 `SegmentedButton`
+  appears just below the AppBar letting developers switch between the anti-pattern and its
+  corrected version in-place. The ternary swap in the build tree fully unmounts the hidden
+  side, so timers, animations, and controllers in the non-visible subtree stop automatically.
+  An optional `onToggle` callback lets demos reset counters or pause global callbacks when
+  the user flips the switch.
+- **Fixed-pattern implementations for all 23 demos** (M9): Every existing demo now ships a
+  real, working "Fixed Pattern" body — not a text description. Each fix matches what the
+  detector is meant to catch: `ValueNotifier` + `ValueListenableBuilder` for setState scope,
+  `ListView.builder` + `itemExtent` for non-lazy lists, `cacheWidth`/`cacheHeight` for
+  image memory, `GlobalKey` stored as `final` fields, extracted `AnimatedBuilder.child`,
+  `Isolate.run()` for heavy compute, and so on.
+- **Live metrics bar** (M10): New `MetricsBar` + `MetricChip` widgets render a compact row
+  of live counters between the description and the body. Wired into `high_level_setstate`
+  (Bad/Fixed rebuilds), `non_lazy_list` (built widgets), `heavy_compute` (compute time ms),
+  `fps_stress_test` (live FPS via `SchedulerBinding.addTimingsCallback`), `repaint_stress`
+  (paints/sec sliding window), `network_stress` (request count), and `memory_pressure`
+  (retained MB). Counters reset on toggle so the Before/After comparison is honest.
+- **Reproduction instructions on every demo** (M11): Every `description` string now follows
+  the `❌ BAD / ✅ FIX / ▶ <action>` format with an explicit imperative action telling the
+  developer what to tap, scroll, or watch to see Sleuth flag the issue.
+- **Combined E-Commerce Page demo** (M12): New `combined_ecommerce_demo.dart` — a realistic
+  product detail page that stacks 5 anti-patterns: 6-hero carousel with full-resolution
+  images (ImageMemory), rotating price `AnimatedBuilder` with no extracted child, size chip
+  row wrapped in `IntrinsicHeight` (LayoutBottleneck), 200-review non-lazy `ListView`, and
+  4 `GlobalKey()` instances created fresh on every build. The fixed body applies every
+  corresponding fix including a `Visibility` swap for the previously `Opacity(0.0)` loading
+  banner.
+- **Combined Chat App demo** (M13): New `combined_chat_demo.dart` — a tabbed messaging
+  interface with 5 conversations, all using `AutomaticKeepAliveClientMixin` (KeepAlive),
+  uncached circular avatars (ImageMemory), a 40ms simulated-platform-channel "typing"
+  poll (PlatformChannelTraffic at 25 calls/sec — above the 20/sec threshold), and
+  top-level `setState` on every incoming message (SetStateScope + Rebuild). The fixed
+  body debounces the typing poll, caps keep-alive to 2 tabs, isolates the message list
+  in a `ValueNotifier`, and extracts the text input into its own `StatefulWidget`.
+  `debugProfilePlatformChannels` is saved/restored on dispose and never clobbers a
+  developer's global setting.
+- **Home screen wiring** (M14): Added E-Commerce and Chat entries to the "Combined" category
+  in `main.dart`. Demo count: 23 → 25.
+
+### Adversarial Review Findings (Pillar 5 Part 2)
+
+Two rounds of review focused on (a) whether the "fix" in each demo actually eliminates the
+detector rather than merely masking it, and (b) whether the new `StatefulWidget` demos
+leak timers, controllers, or client handles on dispose or navigation-away. 9 real findings
+across 3 demos, all resolved.
+
+- **FAB double-action neutralizes the fix** (CRITICAL, three demos): In
+  `combined_analytics_dashboard_demo.dart`, `combined_social_feed_demo.dart`, and
+  `high_level_setstate_demo.dart`, the FAB handler called both `_counter++ +
+  fixedCounter.value++` AND `setState(() {})` unconditionally. Even when the user had
+  switched to the fixed body, the outer `State`'s top-level `setState` rebuilt the entire
+  subtree — burying the `ValueListenableBuilder`'s isolated update and hiding the fix the
+  demo was meant to demonstrate. Most severe in `high_level_setstate_demo` because
+  `_FixedBody`/`_FixedGrid` are not `const`, so the top-level rebuild hit every tile.
+  **Fix:** Added an `_isFixed` field synced via `onToggle`; the FAB only calls `setState`
+  when `!_isFixed`, so the fixed path's isolated rebuild is actually isolated.
+- **E-Commerce hero carousel never reached ImageMemoryDetector threshold** (CRITICAL):
+  `ImageMemoryDetector` flags at `count > 5`, but the demo's horizontal
+  `ListView.builder` only realized 2–4 hero items due to the default 250px cacheExtent on
+  phones — the 6-hero carousel never actually placed >5 `Image.network` widgets in the
+  tree simultaneously, so the detector silently never fired. **Fix:** Converted both bad
+  and fixed hero carousels to `SingleChildScrollView` + `Row`, forcing all 6 heroes into
+  the element tree. The fixed version still shows the `cacheWidth: 520` improvement.
+- **E-Commerce "fixed" reviews ListView wasn't actually paginated** (HIGH): The fixed body
+  used `ListView.builder(shrinkWrap: true, physics: NeverScrollableScrollPhysics)` inside
+  a `SingleChildScrollView`. Under infinite main-axis constraints, `shrinkWrap` still
+  realizes every one of the 200 items — the "pagination" fix didn't paginate anything.
+  **Fix:** Wrapped the inner `ListView.builder` in `SizedBox(height: 480)` to give it a
+  bounded viewport; only the visible window is realized.
+- **HttpClient leak on mid-request dispose** (HIGH, `network_stress_demo.dart`):
+  `_triggerFrequencySpike` awaited `Future.wait([40 gets])` and then early-returned on
+  `!mounted` before closing the `HttpClient`. Navigating away mid-flight leaked the client
+  until GC. **Fix:** Moved `client.close(force: true)` into a `finally` block so cleanup
+  runs on every exit path.
+- **Unbounded log growth** (MEDIUM, `network_stress_demo.dart`): `_log` grew by every
+  toggle and tap; long demo sessions janked the `ListView` rendering it. **Fix:** Added
+  `_maxLogLines = 200` with trim-on-append in `_addLog`.
+- **Unbounded message list growth** (MEDIUM, `combined_chat_demo.dart`): The 40ms message
+  arrival timer did `[...notifier.value, msg]` on every tick. Long sessions would blow
+  past 1,000 messages per tab. **Fix:** Added `_maxMessagesPerTab = 100` via an
+  `_appendCapped` helper that drops the oldest entry when full.
+- **Narrow exception handling in typing poll** (LOW, `combined_chat_demo.dart`):
+  `_startBadTypingPoll` only caught `MissingPluginException` and `PlatformException` —
+  any other throw tore down the demo. **Fix:** Added a defensive `catch (_)` fallback
+  plus a `mounted` guard so the poll keeps running if the platform side misbehaves.
+
+Self-attacks on the fixes (second-order regressions checked): the `_isFixed` gate uses a
+single boolean synced synchronously from `onToggle`; there's no path where the FAB fires
+before the toggle completes, because `setState` in `DemoScaffold._handleToggle` runs before
+`widget.onToggle?.call`. The `try/finally` in `_triggerFrequencySpike` runs even on
+throw-during-await, so `client.close` is guaranteed. The 480px review viewport is large
+enough to show a page of reviews on phones but small enough that the `ListView.builder`
+only realizes ~8 items at a time.
+
+### KeepAliveDetector False-Positive Bug Fix (uncovered during chat demo migration)
+
+Symptom: the chat demo's fixed mode (only 2 of 6 tabs opting in) still reported "excessive
+keep-alive" — same as the bad mode. Investigation revealed two layered bugs in
+`KeepAliveDetector`:
+
+1. The detector matched `KeepAlive` widgets by type name, but Flutter's
+   `AutomaticKeepAlive.build()` ALWAYS wraps its child in `KeepAlive(keepAlive: ...)` —
+   so a string match counts every page regardless of opt-in.
+2. Falling back to `element.widget.keepAlive` is also wrong: `AutomaticKeepAlive` updates
+   the child render object's parent data via `ParentDataElement.applyWidgetOutOfTurn()`,
+   which mutates the render object but does NOT replace `element.widget`. So
+   `widget.keepAlive` stays at the stale `false` from the very first build, even after
+   the keep-alive flips to `true`.
+
+**Fix:** Read `element.renderObject.parentData` and cast to `KeepAliveParentDataMixin`.
+That's the authoritative signal that the framework itself uses for retention decisions.
+Added `_isActiveKeepAlive()` helper in `lib/src/detectors/keep_alive_detector.dart`.
+
+Added 2 regression tests in `test/detectors/keep_alive_detector_test.dart`:
+`_OptOutKeepAlivePage` (all `wantKeepAlive=false`, must NOT fire) and
+`_ConfigurableKeepAlivePage` (mixed wantKeepAlive, mirrors the chat demo fixed pattern).
+Test count: 1,823 → 1,825.
+
+### Adversarial Review Round 5 — Migrated Demo Polish (4 findings)
+
+A dedicated review pass over the demos migrated to `DemoScaffold` in M9:
+
+1. **CRITICAL `non_lazy_list_demo.dart`**: `_BadBody.build()` and `_FixedBody.build()` both
+   contained `builtCount.value = 0;` at the start of build. On rebuild (after the post-frame
+   callback had set the counter non-zero), this called `notifyListeners` which marked the
+   ancestor `ValueListenableBuilder` in MetricsBar dirty during the build phase, risking
+   "setState or markNeedsBuild called during build" assertion. **Fix:** removed in-build
+   reset; reset moved to `_handleToggle` (outside build phase). Kept `var running = 0;` +
+   post-frame publish pattern.
+2. **TEXT `combined_chat_demo.dart`**: description said "cacheWidth: 48" but code uses `64`;
+   code comment said "48px for 24×24 avatars" but avatars display 32×32. Aligned to 64 and
+   32×32 for high-DPI.
+3. **TEXT `combined_ecommerce_demo.dart`**: description said "cacheWidth: 400" but code uses
+   `520`. Aligned to 520.
+4. **CONVENTION `fps_stress_test_demo.dart`**: missing `▶ action` marker. Added.
+
+### Adversarial Review Round 6 — Demo ↔ Detector Alignment (5 findings)
+
+A focused pass that asked: **does each demo actually fire the detector it claims to
+demonstrate, given today's tightened thresholds?** Detectors have been narrowed across
+multiple pillars (Pillar 2a hot-path, Pillar 2b lazy init, Pillar 3a/3b enrichment, the
+v11 detector audit) and several demos had silently drifted below their trigger threshold —
+they showed pretty UI but produced zero issue cards.
+
+| # | Demo | Root cause | Resolution |
+|---|------|-----------|-----------|
+| 1 | `global_key_demo.dart` | 15 keys but `GlobalKeyDetector.threshold = 20`; description mis-stated threshold as 10 | Bumped `_itemCount` to 25; corrected description |
+| 2 | `non_lazy_list_demo.dart` | 40 children but `ListviewDetector.childThreshold = 50` (fires on `> 50`) | Bumped `_itemCount` to 60 |
+| 3 | `animated_builder_demo.dart` | 6 progress bars built a ~14-widget subtree, well below `AnimatedBuilderDetector.minSubtreeSize = 50` | Added `_barCount = 12`; enriched each row to `Row(SizedBox(label) + Expanded(LinearProgressIndicator) + SizedBox(percentage))`. Total subtree ≈ 135 widgets. `_StaticBarColumn` mirrors the structure for the fixed path |
+| 4 | `combined_analytics_dashboard_demo.dart` | 25 tiles below ListView threshold; 25 GlobalKeys lived in `SingleChildScrollView+Column` (wrong scope — excessive branch only counts inside LV/GV/PV); recreation branch never fired because keys were a stable `final List<GlobalKey> _tileKeys` State field | Bumped `_tileCount` to 60; removed `_tileKeys` field; moved key allocation INSIDE `_BadDashboard.build()` as `final tileKeys = List.generate(...)`; wrapped `_BadDashboard` in an outer `AnimatedBuilder(animation: _controller)` so every tick rebuilds the bad subtree. Net effect: ListviewDetector fires (60 > 50) AND GlobalKey **recreation** fires (`churnCount = 60 ≥ recreationThreshold = 5`). Mirrors the same outer-AnimatedBuilder pattern used in `combined_ecommerce_demo.dart` |
+| 5 | `nested_scroll_demo.dart` | Original demo had ONE `SingleChildScrollView` with 30 children — no actual nesting AND below threshold. `NestedScrollDetector` requires `parentAxis != null && scrollAxis == parentAxis` AND `childCount > 50` | Bumped `_itemCount` to 60; wrapped inner SCSV in `SingleChildScrollView > Column > SizedBox(height: 480) > SingleChildScrollView`. The bounded 480px viewport keeps the inner scrollable from crashing on unbounded height while preserving the same-axis nesting |
+
+**Key insight uncovered:** `GlobalKeyDetector` has **two modes with different scoping**.
+The **excessive** branch (`global_key_detector.dart:131`) is gated by
+`_isInListLikeScrollable` and only counts keys inside `ListView/GridView/PageView`. The
+**recreation** branch (`global_key_detector.dart:113-116`) collects
+`identityHashCode(key)` **globally** in `checkElement`, NOT gated by scrollable scope. So
+you can trigger recreation by allocating new `GlobalKey` instances inside any widget's
+`build()` — as long as the build runs repeatedly. The combined_analytics fix exploits this
+exactly.
+
+**Demos audited and dismissed (no fix needed):** `custom_painter_demo`,
+`font_loading_demo`, `gpu_pressure_demo`, `heavy_compute_demo`, `high_level_setstate_demo`,
+`intrinsic_height_demo`, `network_stress_demo`, `opacity_zero_demo`,
+`platform_channel_demo`, `repaint_boundary_demo`, `repaint_stress_demo`, `shader_jank_demo`,
+`shallow_rebuild_risk_demo`, `uncached_image_demo`, `combined_chat_demo`,
+`combined_ecommerce_demo`, `combined_social_feed_demo`. Each was traced through its
+detector's `checkElement` path with current thresholds and confirmed to still fire.
+
+### Files Changed (Pillar 5 Part 2)
+
+| File | Change |
+|------|--------|
+| `example/lib/demo_scaffold.dart` | Upgraded to `StatefulWidget`; added `fixedBody`, `onToggle`, `metricsBar`; added `MetricsBar` + `MetricChip` helpers |
+| `example/lib/demos/combined_chat_demo.dart` | New — tabbed chat with 5 anti-patterns, bounded message list, save/restore of `debugProfilePlatformChannels`, broad exception handling |
+| `example/lib/demos/combined_ecommerce_demo.dart` | New — product detail page with 5 anti-patterns, bounded-height reviews list, hero carousel via `Row` (not `ListView.builder`) |
+| `example/lib/demos/combined_analytics_dashboard_demo.dart` | Migrated to `DemoScaffold` with `fixedBody`; added `_isFixed` FAB gate |
+| `example/lib/demos/combined_social_feed_demo.dart` | Migrated to `DemoScaffold` with `fixedBody`; added `_isFixed` FAB gate |
+| `example/lib/demos/high_level_setstate_demo.dart` | Added `fixedBody` + `_isFixed` FAB gate; dual rebuild counters |
+| `example/lib/demos/network_stress_demo.dart` | `HttpClient` try/finally leak fix; `_log` capped at 200 lines; added `_triggerCached` and `_triggerPaginated` fixed-body actions |
+| `example/lib/demos/heavy_compute_demo.dart` | Added `Isolate.run` fixed body with compute-time metric chip |
+| `example/lib/demos/fps_stress_test_demo.dart` | Added debounced/cached fixed body with live FPS metric chip |
+| `example/lib/demos/non_lazy_list_demo.dart` | Added `ListView.builder` fixed body with built-widgets metric chip |
+| `example/lib/demos/repaint_stress_demo.dart` | Added `RepaintBoundary`-wrapped fixed body with paints/sec metric chip |
+| `example/lib/demos/memory_pressure_demo.dart` | Added bounded-pool fixed body |
+| `example/lib/demos/intrinsic_height_demo.dart`, `opacity_zero_demo.dart`, `custom_painter_demo.dart`, `font_loading_demo.dart`, `uncached_image_demo.dart`, `shallow_rebuild_risk_demo.dart`, `keepalive_demo.dart`, `shader_jank_demo.dart`, `platform_channel_demo.dart`, `gpu_pressure_demo.dart`, `repaint_boundary_demo.dart` | Migrated to `DemoScaffold.fixedBody` with real corrected implementations |
+| `example/lib/main.dart` | Added E-Commerce and Chat route entries in the Combined category |
+| `lib/src/detectors/keep_alive_detector.dart` | Bug fix: read `KeepAliveParentDataMixin` from render-object parent data instead of stale `widget.keepAlive` (added `_isActiveKeepAlive` helper) |
+| `test/detectors/keep_alive_detector_test.dart` | Added 2 regression tests: `_OptOutKeepAlivePage`, `_ConfigurableKeepAlivePage` |
+| `example/lib/demos/global_key_demo.dart` | Round 6: 15 → 25 keys (above `threshold=20`); corrected description |
+| `example/lib/demos/non_lazy_list_demo.dart` | Round 6: 40 → 60 children (above `childThreshold=50`); Round 5: removed in-build counter reset (race) |
+| `example/lib/demos/animated_builder_demo.dart` | Round 6: 6 → 12 progress bars + richer Row structure (~135 widgets > `minSubtreeSize=50`); `_StaticBarColumn` mirrors |
+| `example/lib/demos/combined_analytics_dashboard_demo.dart` | Round 6: 25 → 60 tiles; in-build `GlobalKey` allocation; outer `AnimatedBuilder` wrap forces per-tick rebuilds → ListView (60>50) AND GlobalKey recreation (churnCount=60≥5) both fire |
+| `example/lib/demos/nested_scroll_demo.dart` | Round 6: 30 → 60 children; added outer `SingleChildScrollView > Column > SizedBox(480)` wrapper (original demo had no nesting at all) |
+
 ## 0.11.0
 
 Pillar 5 Part 1: Demo Infrastructure & Missing Detector Demos — DemoScaffold shared

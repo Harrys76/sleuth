@@ -106,6 +106,18 @@ class _PlatformChannelDemoState extends State<PlatformChannelDemo> {
     // guard is needed after these awaits.
   }
 
+  /// Called by DemoScaffold when the toggle flips. If the user moves to
+  /// the Fixed Pattern while the sustained load is running, stop it — the
+  /// fix is "don't spam the channel in the first place".
+  void _handleToggle(bool isFixed) {
+    if (isFixed && _sustainedRunning) {
+      _sustainedTimer?.cancel();
+      _sustainedTimer = null;
+      _addLog('Switched to Fixed Pattern — sustained load stopped.');
+      setState(() => _sustainedRunning = false);
+    }
+  }
+
   @override
   void dispose() {
     _sustainedTimer?.cancel();
@@ -124,8 +136,12 @@ class _PlatformChannelDemoState extends State<PlatformChannelDemo> {
           '❌ BAD: Excessive platform channel calls (>20/sec) block the UI thread.\n'
           '✅ FIX: Batch calls, use EventChannel for streams, or use Pigeon.\n\n'
           '▶ Tap "Rapid Fire" or "Sustained Load" — Sleuth flags >20 calls/sec '
-          'or >8ms cumulative duration per second.\n\n'
+          'or >8ms cumulative duration per second.\n'
+          '▶ Flip to Fixed Pattern — a single batched call replaces 50 chatty '
+          'ones, staying well below the threshold.\n\n'
           'Requires VM service connection (profile mode).',
+      onToggle: _handleToggle,
+      fixedBody: _buildFixedBody(context),
       body: Column(
         children: [
           Padding(
@@ -182,6 +198,83 @@ class _PlatformChannelDemoState extends State<PlatformChannelDemo> {
           const SizedBox(height: 16),
         ],
       ),
+    );
+  }
+
+  /// Fixed-pattern body: a single batched call replaces the 50 chatty ones.
+  /// Sleuth should not flag this — total calls/sec stays well below the
+  /// 20/sec threshold because we invoke the channel at most once per tap.
+  Widget _buildFixedBody(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              FilledButton.icon(
+                onPressed: () async {
+                  _addLog(
+                    'Batched call: fetching 50 items in one invocation...',
+                  );
+                  try {
+                    await _channel.invokeMethod<void>('getBatch', {
+                      'indices': List<int>.generate(50, (i) => i),
+                    });
+                    if (!mounted) return;
+                    _addLog('Batched call: success (1 round-trip).');
+                  } on MissingPluginException {
+                    if (!mounted) return;
+                    _addLog(
+                      'Batched call: MissingPluginException (demo only).',
+                    );
+                  } on PlatformException catch (e) {
+                    if (!mounted) return;
+                    _addLog('Batched call error: $e');
+                  }
+                },
+                icon: const Icon(Icons.inventory_2),
+                label: const Text('Batched Call (50 items, 1 round-trip)'),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                onPressed: () {
+                  _addLog(
+                    'EventChannel pattern: stream updates instead of polling.',
+                  );
+                },
+                icon: const Icon(Icons.stream),
+                label: const Text('Simulate EventChannel Stream'),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: ListView.builder(
+                itemCount: _log.length,
+                itemBuilder: (_, i) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    _log[i],
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 }

@@ -256,6 +256,95 @@ void main() {
       expect(detector.highlights.first.detectorName, 'KeepAlive');
     });
 
+    testWidgets(
+        'not flagged when pages wrap in AutomaticKeepAlive with '
+        'wantKeepAlive=false', (tester) async {
+      // Regression: `AutomaticKeepAlive.build()` ALWAYS wraps children in a
+      // `KeepAlive(keepAlive: _keepingAlive, ...)`, even when no descendant
+      // has dispatched a KeepAliveNotification. Matching by type name alone
+      // (or by the stale `element.widget.keepAlive` field) would count every
+      // page in a PageView/TabBarView as a live keep-alive and falsely flag
+      // any scrollable with enough tabs. We must read the render object
+      // parent data to get the authoritative signal.
+      detector = KeepAliveDetector(threshold: 1);
+      final controller = PageController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            height: 400,
+            width: 400,
+            child: PageView(
+              controller: controller,
+              children: List.generate(
+                6,
+                (i) => _OptOutKeepAlivePage(key: ValueKey(i), label: 'P$i'),
+              ),
+            ),
+          ),
+        ),
+      );
+      // Visit all pages so their AutomaticKeepAlive wrappers materialize in
+      // the element tree (they'd otherwise be lazily built). Pages use a
+      // client mixin with `wantKeepAlive => false` so no notification fires
+      // and `KeepAliveParentDataMixin.keepAlive` stays false.
+      for (int i = 1; i < 6; i++) {
+        controller.jumpToPage(i);
+        await tester.pumpAndSettle();
+      }
+      controller.jumpToPage(0);
+      await tester.pumpAndSettle();
+
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, isEmpty,
+          reason: 'inactive KeepAlive wrappers should not be counted');
+    });
+
+    testWidgets(
+        'mixed wantKeepAlive: only opted-in pages counted toward threshold',
+        (tester) async {
+      // Mirrors the combined chat demo's "fixed" pattern: a small subset of
+      // tabs keep alive, the majority opt out. The detector must count only
+      // the opted-in subset, so a reasonable threshold keeps the fixed path
+      // silent.
+      detector = KeepAliveDetector(threshold: 5);
+      final controller = PageController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            height: 400,
+            width: 400,
+            child: PageView(
+              controller: controller,
+              children: List.generate(
+                6,
+                (i) => _ConfigurableKeepAlivePage(
+                  key: ValueKey(i),
+                  label: 'P$i',
+                  keepAlive: i < 2, // only first two opt in
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      for (int i = 1; i < 6; i++) {
+        controller.jumpToPage(i);
+        await tester.pumpAndSettle();
+      }
+      controller.jumpToPage(0);
+      await tester.pumpAndSettle();
+
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(detector.issues, isEmpty,
+          reason: 'only 2 active keep-alives, below threshold of 5');
+    });
+
     testWidgets('not flagged in ListView', (tester) async {
       // KeepAlive in ListView is normal framework behavior — detector only
       // checks PageView/TabBarView.
@@ -553,5 +642,58 @@ class _HeavyKeepAlivePageState extends State<_HeavyKeepAlivePage>
         (i) => SizedBox(height: 5, child: Text('${widget.label}:$i')),
       ),
     );
+  }
+}
+
+/// Uses `AutomaticKeepAliveClientMixin` but opts OUT of keep-alive by
+/// returning `false` from `wantKeepAlive`. `AutomaticKeepAlive` still wraps
+/// the child in a `KeepAlive` widget, but its `keepAlive` parent data stays
+/// false. The detector must NOT count these.
+class _OptOutKeepAlivePage extends StatefulWidget {
+  const _OptOutKeepAlivePage({super.key, required this.label});
+  final String label;
+
+  @override
+  State<_OptOutKeepAlivePage> createState() => _OptOutKeepAlivePageState();
+}
+
+class _OptOutKeepAlivePageState extends State<_OptOutKeepAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => false;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return Center(child: Text(widget.label));
+  }
+}
+
+/// Variant where each instance can independently opt in/out of keep-alive.
+/// Mirrors the combined chat demo's "fixed" pattern where only a subset of
+/// tabs actually requests keep-alive.
+class _ConfigurableKeepAlivePage extends StatefulWidget {
+  const _ConfigurableKeepAlivePage({
+    super.key,
+    required this.label,
+    required this.keepAlive,
+  });
+  final String label;
+  final bool keepAlive;
+
+  @override
+  State<_ConfigurableKeepAlivePage> createState() =>
+      _ConfigurableKeepAlivePageState();
+}
+
+class _ConfigurableKeepAlivePageState extends State<_ConfigurableKeepAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => widget.keepAlive;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return Center(child: Text(widget.label));
   }
 }

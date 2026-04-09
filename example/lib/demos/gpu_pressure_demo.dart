@@ -25,13 +25,23 @@ class GpuPressureDemo extends StatelessWidget {
           'multiple GPU-heavy layers, prefer Clip.hardEdge over antiAliasWithSaveLayer.\n\n'
           '▶ Scroll through the cards — each one stacks BackdropFilter (σ=15), '
           'ClipPath, ColorFiltered, and Opacity on a subtree with >5 descendants. '
-          'Sleuth flags expensive render nodes and raster dominance.',
+          'Sleuth flags expensive render nodes and raster dominance.\n'
+          '▶ Flip to Fixed Pattern — the same cards rendered with a single '
+          'hard-edge clip and no stacked filters. Detector should go quiet.',
       body: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: 10,
         itemBuilder: (context, index) => Padding(
           padding: const EdgeInsets.only(bottom: 16),
           child: _HeavyGpuCard(index: index),
+        ),
+      ),
+      fixedBody: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: 10,
+        itemBuilder: (context, index) => Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: _LightGpuCard(index: index),
         ),
       ),
     );
@@ -141,6 +151,88 @@ class _HeavyGpuCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Fixed-pattern card: same visual structure, single hard-edge clip, no
+/// BackdropFilter, no fractional Opacity, no ColorFiltered. The GPU
+/// pressure detector should not flag this subtree.
+class _LightGpuCard extends StatelessWidget {
+  const _LightGpuCard({required this.index});
+
+  final int index;
+
+  static const _cardColors = [
+    Colors.blue,
+    Colors.purple,
+    Colors.teal,
+    Colors.indigo,
+    Colors.pink,
+    Colors.orange,
+    Colors.cyan,
+    Colors.deepPurple,
+    Colors.green,
+    Colors.red,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final baseColor = _cardColors[index % _cardColors.length];
+
+    // ✅ Single hard-edge clip (no antiAliasWithSaveLayer)
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.hardEdge,
+      child: DecoratedBox(
+        // ✅ Solid-color gradient background — no blur layer
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [baseColor.shade600, baseColor.shade800],
+          ),
+        ),
+        child: SizedBox(
+          height: 180,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.layers, color: Colors.white, size: 28),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Light Card #${index + 1}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Single clip, solid gradient, no stacked filters.',
+                  style: TextStyle(fontSize: 13, color: Colors.white70),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _EffectChip(label: 'HardEdge', color: baseColor),
+                    const SizedBox(width: 6),
+                    _EffectChip(label: 'Solid BG', color: baseColor),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

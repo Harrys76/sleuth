@@ -54,11 +54,18 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
   // ignore: unused_field
   int _churnBytesSeen = 0;
 
+  /// When true, the demo is in "bounded pool" fixed mode: allocations are
+  /// capped to [_fixedPoolCapMB] and GC churn is suppressed.
+  bool _isFixedMode = false;
+  static const int _fixedPoolCapMB = 20;
+
   int get _dartMB => _dartBatchKB.fold(0, (s, kb) => s + kb) ~/ 1024;
 
   int get _nativeMB => (_ffiBuffers.length * _ffiBufferBytes) ~/ (1024 * 1024);
 
   int get _totalAllocations => _dartObjects.length + _ffiBuffers.length;
+
+  int get _totalMB => _dartMB + _nativeMB;
 
   // ── Dart Heap ──
 
@@ -77,6 +84,7 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
       _dartObjects.add(batch);
       _dartBatchKB.add(10 * 1024); // ~10MB
     });
+    if (_isFixedMode) _enforcePoolCap();
   }
 
   // ── Native Memory (FFI) ──
@@ -92,6 +100,7 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
       buffer[i] = 1;
     }
     setState(() => _ffiBuffers.add(buffer));
+    if (_isFixedMode) _enforcePoolCap();
   }
 
   // ── GC Churn ──
@@ -102,6 +111,8 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
       _churnTimer = null;
       setState(() => _churning = false);
     } else {
+      // In fixed mode, churn is suppressed (the "pool" simulates reuse).
+      if (_isFixedMode) return;
       setState(() => _churning = true);
       // Every 50ms, allocate ~1MB of garbage that immediately becomes
       // unreachable. Over a few seconds this overflows new-space repeatedly,
@@ -130,6 +141,42 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
     });
   }
 
+  /// In fixed mode, auto-release the oldest allocations whenever total
+  /// retained memory exceeds the 20 MB cap. This is the "bounded pool"
+  /// fix: the pool keeps its size under control even under heavy use.
+  void _enforcePoolCap() {
+    var released = false;
+    // Dart heap: drop oldest batches first.
+    while (_totalMB > _fixedPoolCapMB && _dartObjects.isNotEmpty) {
+      _dartObjects.removeAt(0);
+      _dartBatchKB.removeAt(0);
+      released = true;
+    }
+    // Native: free oldest FFI buffers.
+    while (_totalMB > _fixedPoolCapMB && _ffiBuffers.isNotEmpty) {
+      final buffer = _ffiBuffers.removeAt(0);
+      calloc.free(buffer);
+      released = true;
+    }
+    if (released) setState(() {});
+  }
+
+  /// Called from DemoScaffold.onToggle when the user flips the segmented
+  /// control. Stops the churn timer and applies the pool cap on entry to
+  /// fixed mode; leaves existing state alone on return to bad mode.
+  void _handleToggle(bool isFixed) {
+    setState(() => _isFixedMode = isFixed);
+    if (isFixed) {
+      // Stop the churn timer — bounded pools never generate garbage.
+      if (_churning) {
+        _churnTimer?.cancel();
+        _churnTimer = null;
+        _churning = false;
+      }
+      _enforcePoolCap();
+    }
+  }
+
   @override
   void dispose() {
     _churnTimer?.cancel();
@@ -143,8 +190,6 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return DemoScaffold(
       title: 'Memory Pressure',
       description:
@@ -159,74 +204,131 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
           '▶ Toggle "GC Churn" on for ~5 seconds to trigger `gc_pressure` '
           '(>30 GC/min). The "Retained (Dart)" counter stays at 0 during '
           'churn because the allocations are intentionally transient.\n\n'
+          '▶ Flip to Fixed Pattern — retained memory is capped at '
+          '${_fixedPoolCapMB}MB and churn is replaced with a reusable pool.\n\n'
           'Requires VM service connection (profile mode). Heap/native trend '
           'signals have a 3s warmup before evaluation begins.',
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // ── Stats ──
+      metricsBar: MetricsBar(
+        chips: [
+          MetricChip(label: 'Retained (Dart)', value: '$_dartMB', unit: ' MB'),
+          MetricChip(label: 'Native', value: '$_nativeMB', unit: ' MB'),
+          MetricChip(label: 'Allocations', value: '$_totalAllocations'),
+          if (_isFixedMode)
+            const MetricChip(
+              label: 'Cap',
+              value: '$_fixedPoolCapMB',
+              unit: ' MB',
+            ),
+        ],
+      ),
+      onToggle: _handleToggle,
+      body: _buildControls(isFixed: false),
+      fixedBody: _buildControls(isFixed: true),
+    );
+  }
+
+  Widget _buildControls({required bool isFixed}) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          // ── Stats ──
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _StatColumn(label: 'Retained (Dart)', value: '$_dartMB MB'),
+                  _StatColumn(label: 'Native', value: '$_nativeMB MB'),
+                  _StatColumn(
+                    label: 'Allocations',
+                    value: '$_totalAllocations',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (isFixed) ...[
+            const SizedBox(height: 12),
             DecoratedBox(
               decoration: BoxDecoration(
-                color: colorScheme.surfaceContainerLow,
+                color: colorScheme.primaryContainer,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(12),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _StatColumn(label: 'Retained (Dart)', value: '$_dartMB MB'),
-                    _StatColumn(label: 'Native', value: '$_nativeMB MB'),
-                    _StatColumn(
-                      label: 'Allocations',
-                      value: '$_totalAllocations',
+                    Icon(
+                      Icons.lock_clock,
+                      size: 20,
+                      color: colorScheme.onPrimaryContainer,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Bounded pool active — cap: $_fixedPoolCapMB MB. '
+                        'Allocations beyond the cap auto-release oldest batches '
+                        'and FFI buffers. GC churn is suppressed.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colorScheme.onPrimaryContainer,
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 24),
-
-            // ── Allocation Buttons ──
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: [
-                FilledButton.icon(
-                  onPressed: _allocateDartHeap,
-                  icon: const Icon(Icons.add_circle),
-                  label: const Text('Dart Heap +10MB'),
-                ),
-                FilledButton.icon(
-                  onPressed: _allocateNative,
-                  icon: const Icon(Icons.add_circle_outline),
-                  label: const Text('Native +10MB'),
-                ),
-                FilledButton.icon(
-                  onPressed: _toggleChurn,
-                  icon: Icon(_churning ? Icons.stop : Icons.grain),
-                  label: Text(_churning ? 'Stop Churn' : 'GC Churn'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // ── Release ──
-            OutlinedButton.icon(
-              onPressed: _releaseAll,
-              icon: const Icon(Icons.delete_sweep),
-              label: const Text('Release All'),
-            ),
-            const SizedBox(height: 24),
-
-            // ── Visual representation ──
-            Expanded(
-              child: _MemoryVisualization(dartMB: _dartMB, nativeMB: _nativeMB),
-            ),
           ],
-        ),
+          const SizedBox(height: 24),
+
+          // ── Allocation Buttons ──
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              FilledButton.icon(
+                onPressed: _allocateDartHeap,
+                icon: const Icon(Icons.add_circle),
+                label: const Text('Dart Heap +10MB'),
+              ),
+              FilledButton.icon(
+                onPressed: _allocateNative,
+                icon: const Icon(Icons.add_circle_outline),
+                label: const Text('Native +10MB'),
+              ),
+              FilledButton.icon(
+                // In fixed mode, churn is disabled — a pool never generates
+                // garbage. Grey out the button to signal the behavior change.
+                onPressed: isFixed ? null : _toggleChurn,
+                icon: Icon(_churning ? Icons.stop : Icons.grain),
+                label: Text(_churning ? 'Stop Churn' : 'GC Churn'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // ── Release ──
+          OutlinedButton.icon(
+            onPressed: _releaseAll,
+            icon: const Icon(Icons.delete_sweep),
+            label: const Text('Release All'),
+          ),
+          const SizedBox(height: 24),
+
+          // ── Visual representation ──
+          Expanded(
+            child: _MemoryVisualization(dartMB: _dartMB, nativeMB: _nativeMB),
+          ),
+        ],
       ),
     );
   }

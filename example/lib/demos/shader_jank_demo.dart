@@ -22,7 +22,8 @@ class ShaderJankDemo extends StatelessWidget {
           '❌ BAD: First-time GPU shader compilation causes frame drops.\n'
           '✅ FIX: Pre-warm shaders during splash screen, or use Impeller.\n\n'
           '▶ Tap "Navigate" — the first visit compiles shaders and jank is '
-          'visible. Subsequent visits are smooth (shaders are cached).\n\n'
+          'visible. Subsequent visits are smooth (shaders are cached).\n'
+          '▶ Flip to Fixed Pattern to see the architecture-level fix.\n\n'
           'Note: Impeller (default on iOS since Flutter 3.16, Android since '
           '3.22) pre-compiles shaders offline. This demo only triggers on '
           'the Skia backend. Use --no-enable-impeller to test.',
@@ -46,6 +47,134 @@ class ShaderJankDemo extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 color: Theme.of(context).colorScheme.outline,
+              ),
+            ),
+          ],
+        ),
+      ),
+      fixedBody: const _ShaderJankFixedBody(),
+    );
+  }
+}
+
+/// Fixed-pattern body for the shader jank demo.
+///
+/// Unlike most other demos, there is no runtime fix here — the fix is an
+/// architecture change (pre-warm shaders at splash time, or switch to
+/// Impeller). This body explains the two approaches so developers know
+/// what to actually change.
+class _ShaderJankFixedBody extends StatelessWidget {
+  const _ShaderJankFixedBody();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Icon(Icons.check_circle, size: 64, color: colorScheme.primary),
+          const SizedBox(height: 16),
+          Text(
+            'The fix is an architecture change',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _FixCard(
+            icon: Icons.rocket_launch,
+            title: 'Option 1: Impeller (recommended)',
+            body:
+                'Impeller pre-compiles all shaders offline. Default on iOS '
+                'since Flutter 3.16 and Android since 3.22. If your project '
+                'has opted out of Impeller, remove the opt-out and the '
+                'entire class of jank disappears.',
+          ),
+          const SizedBox(height: 12),
+          _FixCard(
+            icon: Icons.auto_awesome,
+            title: 'Option 2: Shader warm-up (Skia fallback)',
+            body:
+                'Generate a bundled SkSL file and pass it via '
+                '`--bundle-sksl-path=flutter_01.sksl.json` at build time. '
+                'Flutter will pre-compile those shaders during splash, so '
+                'the first render is already warm.\n\n'
+                'Capture the SkSL file by running a profile build and '
+                'exercising every visual effect the app uses.',
+          ),
+          const SizedBox(height: 12),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                'Neither fix can be demonstrated at runtime from within '
+                'the example app — both happen at build/splash time. '
+                'Toggle back to the Bad Pattern and navigate to see the '
+                'problem you are fixing.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colorScheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FixCard extends StatelessWidget {
+  const _FixCard({required this.icon, required this.title, required this.body});
+
+  final IconData icon;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 20, color: colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              body,
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSurfaceVariant,
+                height: 1.4,
               ),
             ),
           ],

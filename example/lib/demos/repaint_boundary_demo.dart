@@ -49,7 +49,9 @@ class _RepaintBoundaryDemoState extends State<RepaintBoundaryDemo>
           '✅ FIX: Wrap expensive widgets in RepaintBoundary to isolate repaints.\n\n'
           '▶ Scroll through the list — each card uses Opacity(0.7) (a value '
           'the detector considers non-trivial, unlike 0.0 or 1.0). The animated '
-          'card continuously repaints, dragging the whole tree with it.\n\n'
+          'card continuously repaints, dragging the whole tree with it.\n'
+          '▶ Flip to Fixed Pattern — every expensive widget is wrapped in '
+          'RepaintBoundary. Detector should go quiet.\n\n'
           'The detector flags Opacity, ClipPath, BackdropFilter, ShaderMask, '
           'CustomPaint, and ColorFiltered widgets that do not have a '
           'RepaintBoundary ancestor within 5 levels.',
@@ -64,6 +66,22 @@ class _RepaintBoundaryDemoState extends State<RepaintBoundaryDemo>
             // ❌ 14 static cards with Opacity(0.7) and no RepaintBoundary
             for (var i = 0; i < 14; i++) ...[
               _OpacityCard(index: i),
+              if (i < 13) const SizedBox(height: 12),
+            ],
+          ],
+        ),
+      ),
+      fixedBody: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // ✅ Same animated card, now isolated behind RepaintBoundary —
+            // the parent scroll view no longer repaints on every tick.
+            RepaintBoundary(child: _AnimatedPulseCard(animation: _controller)),
+            const SizedBox(height: 12),
+            // ✅ Same 14 cards, each inside its own RepaintBoundary.
+            for (var i = 0; i < 14; i++) ...[
+              RepaintBoundary(child: _OpacityCard(index: i)),
               if (i < 13) const SizedBox(height: 12),
             ],
           ],

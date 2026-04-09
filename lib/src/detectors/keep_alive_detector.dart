@@ -1,3 +1,4 @@
+import 'package:flutter/rendering.dart' show KeepAliveParentDataMixin;
 import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
@@ -6,6 +7,24 @@ import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
+
+/// Returns true if [element] is an active `KeepAlive` wrapper.
+///
+/// Flutter's `AutomaticKeepAlive.build()` unconditionally returns
+/// `KeepAlive(keepAlive: _keepingAlive, child: _child)`, but when a
+/// descendant dispatches a `KeepAliveNotification` it updates the wrapped
+/// child's render-object parent data **out of turn** via
+/// `ParentDataElement.applyWidgetOutOfTurn()`. That call mutates the
+/// child render object's parent data but does NOT update `element.widget`
+/// on the `KeepAlive` element — so `widget.keepAlive` remains the stale
+/// `false` value from the very first build. The authoritative signal is
+/// the child render object's `KeepAliveParentDataMixin.keepAlive` flag.
+bool _isActiveKeepAlive(Element element) {
+  if (element.widget is! KeepAlive) return false;
+  final renderObject = element.renderObject;
+  final parentData = renderObject?.parentData;
+  return parentData is KeepAliveParentDataMixin && parentData.keepAlive;
+}
 
 class _ScrollableAccumulator {
   _ScrollableAccumulator(this.element);
@@ -79,7 +98,23 @@ class KeepAliveDetector extends BaseDetector {
         acc.totalElements++;
       }
 
-      if (name == 'KeepAlive' || name == '_KeepAlive') {
+      // Only count KeepAlive widgets that are ACTIVELY keeping the subtree
+      // alive. Flutter's AutomaticKeepAlive always wraps its child in a
+      // `KeepAlive(keepAlive: _keepingAlive, ...)` (see
+      // widgets/automatic_keep_alive.dart:281), so every materialized
+      // TabBarView/PageView page has a KeepAlive node in its ancestry
+      // regardless of whether the page opts in via
+      // AutomaticKeepAliveClientMixin. Matching on type name alone would
+      // count inactive wrappers as live keep-alives — a false positive
+      // that flags any TabBarView with enough tabs, even ones with zero
+      // wantKeepAlive opt-ins.
+      //
+      // We can't trust `element.widget.keepAlive` either: when
+      // AutomaticKeepAlive activates, it calls
+      // `ParentDataElement.applyWidgetOutOfTurn` which updates the child
+      // render object's parent data but does NOT update `element.widget`
+      // on the KeepAlive element. See `_isActiveKeepAlive` for details.
+      if (_isActiveKeepAlive(element)) {
         for (final acc in _scrollableStack) {
           acc.count++;
         }

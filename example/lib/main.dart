@@ -3,6 +3,8 @@ import 'package:sleuth/sleuth.dart';
 
 import 'demos/animated_builder_demo.dart';
 import 'demos/combined_analytics_dashboard_demo.dart';
+import 'demos/combined_chat_demo.dart';
+import 'demos/combined_ecommerce_demo.dart';
 import 'demos/combined_social_feed_demo.dart';
 import 'demos/custom_painter_demo.dart';
 import 'demos/font_loading_demo.dart';
@@ -291,6 +293,21 @@ class DemoHome extends StatelessWidget {
             subtitle: 'Painter • AnimBuilder • GlobalKey • Font • Non-lazy',
             color: Colors.teal,
             builder: (_) => const CombinedAnalyticsDashboardDemo(),
+          ),
+          _DemoRoute(
+            icon: Icons.shopping_cart,
+            title: 'Combined: E-Commerce Page',
+            subtitle: 'Image • Layout • AnimBuilder • ListView • GlobalKey',
+            color: Colors.deepOrange,
+            builder: (_) => const CombinedEcommerceDemo(),
+          ),
+          _DemoRoute(
+            icon: Icons.chat,
+            title: 'Combined: Chat App',
+            subtitle:
+                'Rebuild • KeepAlive • PlatformChannel • Image • SetState',
+            color: Colors.blue,
+            builder: (_) => const CombinedChatDemo(),
           ),
         ],
       ),
