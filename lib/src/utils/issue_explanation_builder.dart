@@ -31,6 +31,59 @@ class IssueExplanationBuilder {
     return _explanations[_baseId(stableId)];
   }
 
+  /// Substitute contextual placeholders in an explanation template against a
+  /// concrete issue. Supported placeholders (all optional — missing data is
+  /// replaced with a sensible fallback so templates never break):
+  ///
+  /// - `{widgetName}`   → `issue.widgetName` or `'the widget'`
+  /// - `{routeName}`    → `issue.routeName` or `'the current route'`
+  /// - `{severity}`     → `'critical' | 'warning'`
+  /// - `{count}`        → the first integer parsed from `issue.title`, or
+  ///                       `'several'`. Best-effort — only use in templates
+  ///                       where the first integer IS the count semantic.
+  /// - `{title}`        → `issue.title`
+  /// - `{stableId}`     → `issue.stableId ?? ''`
+  ///
+  /// Unknown placeholders are left untouched (not replaced with an empty
+  /// string) so a typo is visible in-app instead of silently blank.
+  static IssueExplanation substitute(
+    IssueExplanation template,
+    PerformanceIssue issue,
+  ) {
+    String apply(String text) => _substitutePlaceholders(text, issue);
+    return (
+      displayName: template.displayName,
+      category: template.category,
+      whatItIs: apply(template.whatItIs),
+      readingTheData: template.readingTheData == null
+          ? null
+          : apply(template.readingTheData!),
+      whyItMatters: apply(template.whyItMatters),
+      howToFix: apply(template.howToFix),
+      whenToIgnore:
+          template.whenToIgnore == null ? null : apply(template.whenToIgnore!),
+      relatedIssues: template.relatedIssues,
+    );
+  }
+
+  static final RegExp _countExtractor = RegExp(r'(\d+)');
+
+  static String _substitutePlaceholders(String text, PerformanceIssue issue) {
+    final widgetName = issue.widgetName ?? 'the widget';
+    final routeName = issue.routeName ?? 'the current route';
+    final severity =
+        issue.severity == IssueSeverity.critical ? 'critical' : 'warning';
+    final countMatch = _countExtractor.firstMatch(issue.title);
+    final count = countMatch?.group(1) ?? 'several';
+    return text
+        .replaceAll('{widgetName}', widgetName)
+        .replaceAll('{routeName}', routeName)
+        .replaceAll('{severity}', severity)
+        .replaceAll('{count}', count)
+        .replaceAll('{title}', issue.title)
+        .replaceAll('{stableId}', issue.stableId ?? '');
+  }
+
   /// All explanations for the encyclopedia page.
   static Map<String, IssueExplanation> get allExplanations => _explanations;
 
@@ -275,9 +328,10 @@ class IssueExplanationBuilder {
       displayName: 'Heavy Computation',
       category: IssueCategory.build,
       whatItIs: 'A long-running synchronous operation was detected on the UI '
-          'thread. The main isolate was blocked for longer than the frame '
-          'budget, preventing the framework from building, laying out, or '
-          'rendering any widgets until the computation completes.',
+          'thread in {routeName}. The main isolate was blocked for longer '
+          'than the frame budget, preventing the framework from building, '
+          'laying out, or rendering any widgets until the computation '
+          'completes.',
       readingTheData:
           'Like a cashier doing complex math by hand while a long line of '
           'customers waits — everything stops until the calculation '
@@ -496,10 +550,10 @@ class IssueExplanationBuilder {
     'rebuild_activity': (
       displayName: 'Rebuild Activity',
       category: IssueCategory.build,
-      whatItIs:
-          'A high number of widget rebuilds were detected in a short time '
-          'window. The framework is reconstructing widget subtrees more '
-          'frequently than expected for the current interaction.',
+      whatItIs: '{count} widget rebuilds were detected in a short time window '
+          'around {widgetName}. The framework is reconstructing widget '
+          'subtrees more frequently than expected for the current '
+          'interaction.',
       readingTheData:
           'Like a doorbell that rings 30 times a minute — each ring '
           'interrupts what you\'re doing, and at that rate you can\'t get '
@@ -880,10 +934,9 @@ class IssueExplanationBuilder {
     'non_lazy_list': (
       displayName: 'Non-Lazy List',
       category: IssueCategory.build,
-      whatItIs: 'A ListView (or Column/Row with many children) was found that '
-          'builds all its children eagerly instead of lazily. This means '
-          'every item in the list is constructed and laid out immediately, '
-          'even items far off-screen.',
+      whatItIs: '{widgetName} was found with {count} children built eagerly '
+          'instead of lazily. This means every item in the list is '
+          'constructed and laid out immediately, even items far off-screen.',
       readingTheData:
           'Like a restaurant that cooks every menu item before any customer '
           'orders — most of the food goes to waste.\n\n'
@@ -969,10 +1022,9 @@ class IssueExplanationBuilder {
     'excessive_global_keys': (
       displayName: 'Excessive GlobalKeys',
       category: IssueCategory.build,
-      whatItIs:
-          'A large number of GlobalKey instances were found, particularly '
-          'inside scrollable containers. Each GlobalKey maintains a '
-          'persistent reference to its Element across the entire app.',
+      whatItIs: '{count} GlobalKey instances were found inside {widgetName}. '
+          'Each GlobalKey maintains a persistent reference to its Element '
+          'across the entire app.',
       readingTheData:
           'Like giving every student in a school a master key — each key '
           'grants global access, and managing hundreds of them becomes a '
@@ -1004,9 +1056,9 @@ class IssueExplanationBuilder {
       displayName: 'Nested Scrollables',
       category: IssueCategory.build,
       whatItIs:
-          'A scrollable widget was found nested inside another scrollable '
-          'widget. The inner scroll view receives gesture events that the '
-          'outer one also wants to handle.',
+          '{widgetName} was found nested inside another scrollable widget. '
+          'The inner scroll view receives gesture events that the outer '
+          'one also wants to handle.',
       readingTheData:
           'Like putting a treadmill on a moving sidewalk — both are '
           'trying to control your direction, and the result is '
@@ -1235,10 +1287,10 @@ class IssueExplanationBuilder {
     'excessive_keep_alive': (
       displayName: 'Excessive KeepAlive',
       category: IssueCategory.memory,
-      whatItIs:
-          'Many pages or tab contents are using AutomaticKeepAliveClientMixin '
-          'to stay alive when scrolled off-screen or when tabs switch. Each '
-          'kept-alive subtree remains in memory with its full State.',
+      whatItIs: '{count} pages or tab contents are using '
+          'AutomaticKeepAliveClientMixin to stay alive when scrolled '
+          'off-screen or when tabs switch. Each kept-alive subtree '
+          'remains in memory with its full State.',
       readingTheData:
           'Like keeping every room in a hotel fully lit and heated even '
           'when only 2 of 20 rooms have guests — the energy bill grows '
@@ -1271,9 +1323,9 @@ class IssueExplanationBuilder {
     'animated_builder_no_child': (
       displayName: 'AnimatedBuilder Without Child',
       category: IssueCategory.build,
-      whatItIs: 'An AnimatedBuilder (or similar transition widget) was found '
-          'without using the child parameter. The entire subtree inside '
-          'the builder callback is rebuilt on every animation tick (60x/sec).',
+      whatItIs: '{widgetName} was found without using the child parameter. '
+          'The entire subtree inside the builder callback is rebuilt on '
+          'every animation tick (60x/sec).',
       readingTheData:
           'Like reprinting an entire newspaper every hour just to update '
           'the clock in the corner — 99% of the content is unchanged.\n\n'

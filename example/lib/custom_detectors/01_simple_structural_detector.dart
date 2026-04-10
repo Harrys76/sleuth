@@ -68,6 +68,19 @@ class TooltipUsageDetector extends SimpleStructuralDetector {
         key: 'tooltip_usage',
       );
 
+  /// Framework-provided tooltip messages that Material widgets create
+  /// automatically (AppBar back button, drawer hamburger, etc.).
+  /// These are not user-authored and should not be flagged.
+  static const _frameworkMessages = <String>{
+    'Back',
+    'Close',
+    'Open navigation menu',
+    'Search',
+    'Show menu',
+    'More',
+    'Dismiss',
+  };
+
   @override
   void inspect(Element element) {
     // Cheap type check first — [inspect] runs on every element in the
@@ -76,6 +89,9 @@ class TooltipUsageDetector extends SimpleStructuralDetector {
 
     final tooltip = element.widget as Tooltip;
     final message = tooltip.message ?? '';
+
+    // Skip standard Material framework tooltips (e.g. AppBar back button).
+    if (_frameworkMessages.contains(message)) return;
 
     // stableId should be STABLE across rebuilds so the correlator can
     // dedupe the finding over the life of the app. Do NOT use

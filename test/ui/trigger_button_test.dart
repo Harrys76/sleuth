@@ -203,6 +203,108 @@ void main() {
       fps.dispose();
     });
 
+    testWidgets('topRight alignment with default offset matches old position',
+        (tester) async {
+      final issues = ValueNotifier<List<PerformanceIssue>>([]);
+      final vm = ValueNotifier<bool>(false);
+      final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
+
+      // 400×800 viewport
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(size: Size(400, 800)),
+          child: MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: const MediaQueryData(size: Size(400, 800)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: TriggerButton(
+                issuesNotifier: issues,
+                vmConnectedNotifier: vm,
+                frameStatsNotifier: fps,
+                isDebugMode: false,
+                onTap: () {},
+                initialAlignment: Alignment.topRight,
+                initialOffset: const Offset(16, 64),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Old position was (maxWidth - 72, maxHeight * 0.4) ≈ (328, 320)
+      // New: maxX = 400-56 = 344; anchorX = 344 - 16 = 328
+      //      maxY = 800-78 = 722; anchorY = 722 is not right...
+      //      top-right means y from top: anchorY = offset.dy = 64
+      final emojiPos = tester.getTopLeft(find.text('\u{1F415}'));
+      // X should be near right edge (~328)
+      expect(emojiPos.dx, greaterThan(300));
+      // Y should be near top (~64)
+      expect(emojiPos.dy, lessThan(150));
+
+      issues.dispose();
+      vm.dispose();
+      fps.dispose();
+    });
+
+    testWidgets('bottomLeft alignment places button at bottom-left',
+        (tester) async {
+      final issues = ValueNotifier<List<PerformanceIssue>>([]);
+      final vm = ValueNotifier<bool>(false);
+      final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
+
+      await tester.pumpWidget(wrap(
+        TriggerButton(
+          issuesNotifier: issues,
+          vmConnectedNotifier: vm,
+          frameStatsNotifier: fps,
+          isDebugMode: false,
+          onTap: () {},
+          initialAlignment: Alignment.bottomLeft,
+          initialOffset: const Offset(16, 64),
+        ),
+      ));
+
+      final emojiPos = tester.getTopLeft(find.text('\u{1F415}'));
+      // Left side: anchorX = offset.dx = 16
+      expect(emojiPos.dx, lessThan(50));
+      // Bottom: anchorY = maxY - offset.dy, should be near bottom
+      expect(emojiPos.dy, greaterThan(300));
+
+      issues.dispose();
+      vm.dispose();
+      fps.dispose();
+    });
+
+    testWidgets('topLeft with zero offset places button at origin',
+        (tester) async {
+      final issues = ValueNotifier<List<PerformanceIssue>>([]);
+      final vm = ValueNotifier<bool>(false);
+      final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
+
+      await tester.pumpWidget(wrap(
+        TriggerButton(
+          issuesNotifier: issues,
+          vmConnectedNotifier: vm,
+          frameStatsNotifier: fps,
+          isDebugMode: false,
+          onTap: () {},
+          initialAlignment: Alignment.topLeft,
+          initialOffset: Offset.zero,
+        ),
+      ));
+
+      final emojiPos = tester.getTopLeft(find.text('\u{1F415}'));
+      // Should be at (0, 0) — top-left corner
+      expect(emojiPos.dx, lessThan(30));
+      expect(emojiPos.dy, lessThan(100));
+
+      issues.dispose();
+      vm.dispose();
+      fps.dispose();
+    });
+
     testWidgets('drag does not crash', (tester) async {
       final issues = ValueNotifier<List<PerformanceIssue>>([]);
       final vm = ValueNotifier<bool>(false);

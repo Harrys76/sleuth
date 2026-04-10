@@ -99,6 +99,36 @@ void main() {
       },
     );
 
+    testWidgets('01 TooltipUsageDetector ignores framework-provided tooltips', (
+      tester,
+    ) async {
+      // AppBar's back button generates Tooltip("Back") — the detector
+      // should skip it because it's a framework tooltip, not user-authored.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: const [
+                Tooltip(message: 'Back', child: Text('framework')),
+                Tooltip(message: 'Close', child: Text('framework')),
+                Tooltip(message: 'user tooltip', child: Text('user-authored')),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final detector = TooltipUsageDetector();
+      addTearDown(detector.dispose);
+
+      final context = tester.element(find.byType(MaterialApp));
+      detector.scanTree(context);
+
+      // Only the user-authored tooltip should be flagged.
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.detail, contains('user tooltip'));
+    });
+
     test('All three detectors co-exist in a SleuthConfig', () {
       // This is the real-world wiring snippet from the README. We just
       // want to confirm that constructing a config with all three

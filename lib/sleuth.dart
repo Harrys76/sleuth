@@ -82,6 +82,7 @@ export 'src/models/fix_verification_result.dart'
     show FixVerificationResult, FixVerificationStatus, IssueVerificationEntry;
 export 'src/network/request_record.dart';
 export 'src/utils/fix_hint_builder.dart';
+export 'src/utils/session_markdown_exporter.dart';
 
 /// Entry point for the Sleuth package.
 ///
@@ -127,6 +128,18 @@ class Sleuth {
   /// Export session snapshot as a formatted JSON string.
   /// Returns null in release mode, before [wrap], or after overlay disposal.
   static String? exportSnapshotJson() => _controller?.exportSnapshotJson();
+
+  /// Export a human-readable markdown summary suitable for pasting into
+  /// Slack, a PR description, or a bug report. Includes the top ranked
+  /// issues, frame stats, and causal chains.
+  ///
+  /// Unlike [exportSnapshotJson], this is lossy by design — it trims to
+  /// the top 5 issues by default and drops the raw frame histogram.
+  ///
+  /// Returns `null` in release mode or before [track] has been called.
+  /// Pass [topN] to override the issue count (capped at 20).
+  static String? exportSummary({int topN = 5}) =>
+      _controller?.exportSummary(topN: topN);
 
   /// Capture a baseline of current issues for fix verification.
   /// After applying a fix and hot-reloading, call [compareToBaseline]

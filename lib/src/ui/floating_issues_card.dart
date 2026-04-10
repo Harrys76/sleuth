@@ -27,14 +27,22 @@ class FloatingIssuesCard extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onClose,
+    this.isDebugMode = kDebugMode,
   });
 
   final SleuthController controller;
   final VoidCallback onClose;
 
+  /// Whether we are in debug mode. Defaults to [kDebugMode].
+  /// Exposed as a param so tests can override it.
+  @visibleForTesting
+  final bool isDebugMode;
+
   @override
   State<FloatingIssuesCard> createState() => _FloatingIssuesCardState();
 }
+
+enum _CardWindowState { normal, minimized, maximized }
 
 class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   /// Drag offset — applied via inner [Positioned], null until first build.
@@ -48,9 +56,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   bool _exportFeedbackVisible = false;
   bool _highlightNotFoundVisible = false;
+  bool _debugBannerDismissed = false;
   bool _showGuide = false;
   bool _showDetail = false;
   String? _detailStableId;
+  PerformanceIssue? _detailContextIssue;
   bool _showAiChat = false;
   String? _chatIssueStableId;
   final Map<String, List<AiChatMessage>> _chatHistories = {};
@@ -65,6 +75,17 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   static const double _defaultCardWidth = 300;
   static const double _minCardWidth = 220;
   static const double _minCardHeight = 250;
+
+  // ─── Window state (M2) ─────────────────────────────────────────────
+  // ignore: prefer_final_fields
+  _CardWindowState _windowState = _CardWindowState.normal;
+
+  /// Stored when transitioning away from normal so restore is exact.
+  /// Drag while minimized does NOT update these — restore always returns
+  /// to the position the card was in when minimize/maximize was tapped.
+  Offset? _preTransitionOffset;
+  double? _preTransitionWidth;
+  double? _preTransitionHeight;
 
   /// User-set card height. Null = default (55% of screen).
   double? _cardHeight;
@@ -88,7 +109,51 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     widget.controller.issuesNotifier.removeListener(_onIssuesChanged);
     _exportFeedbackTimer?.cancel();
     _highlightNotFoundTimer?.cancel();
+    _preTransitionOffset = null;
+    _preTransitionWidth = null;
+    _preTransitionHeight = null;
     super.dispose();
+  }
+
+  // ─── Window controls (M2) ──────────────────────────────────────────
+
+  void _minimize() {
+    if (_windowState == _CardWindowState.minimized) return;
+    setState(() {
+      _preTransitionOffset ??= _cardOffset;
+      _preTransitionWidth ??= _cardWidth;
+      _preTransitionHeight ??= _cardHeight;
+      _windowState = _CardWindowState.minimized;
+      _cardHeight = 54; // Title bar (44) + vertical padding (6+4).
+    });
+  }
+
+  void _maximize(BuildContext context) {
+    if (_windowState == _CardWindowState.maximized) return;
+    final size = MediaQuery.sizeOf(context);
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    setState(() {
+      _preTransitionOffset ??= _cardOffset;
+      _preTransitionWidth ??= _cardWidth;
+      _preTransitionHeight ??= _cardHeight;
+      _windowState = _CardWindowState.maximized;
+      _cardOffset = Offset(16, topPadding + 16);
+      _cardWidth = size.width - 32;
+      _cardHeight = size.height - topPadding - 32 - keyboard;
+    });
+  }
+
+  void _restore() {
+    setState(() {
+      if (_preTransitionOffset != null) _cardOffset = _preTransitionOffset;
+      if (_preTransitionWidth != null) _cardWidth = _preTransitionWidth!;
+      _cardHeight = _preTransitionHeight; // nullable — default height
+      _preTransitionOffset = null;
+      _preTransitionWidth = null;
+      _preTransitionHeight = null;
+      _windowState = _CardWindowState.normal;
+    });
   }
 
   PerformanceIssue _findIssueByStableId(String key) {
@@ -214,8 +279,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     final topPadding = MediaQuery.paddingOf(context).top;
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
     final maxAllowedHeight = screenSize.height - topPadding - 20;
+    final isMinimized = _windowState == _CardWindowState.minimized;
+
+    // When maximized, dynamically track keyboard so the card shrinks.
+    if (_windowState == _CardWindowState.maximized) {
+      _cardHeight = screenSize.height - topPadding - 32 - keyboardHeight;
+    }
+
     final cardHeight = (_cardHeight ?? screenSize.height * 0.55)
-        .clamp(_minCardHeight, maxAllowedHeight);
+        .clamp(isMinimized ? 54.0 : _minCardHeight, maxAllowedHeight);
     final effectiveWidth = _cardWidth.clamp(_minCardWidth, screenSize.width);
     _cachedTopPadding = topPadding;
     _cachedEffectiveWidth = effectiveWidth;
@@ -240,8 +312,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               clipBehavior: Clip.none,
               children: [
                 _buildCardBody(effectiveWidth, cardHeight, theme, screenSize),
-                _buildResizeHandle(
-                    screenSize, clamped, cardHeight, maxAllowedHeight, theme),
+                if (!isMinimized)
+                  _buildResizeHandle(
+                      screenSize, clamped, cardHeight, maxAllowedHeight, theme),
               ],
             ),
           ),
@@ -257,8 +330,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               onClose: () => setState(() {
                 _showDetail = false;
                 _detailStableId = null;
+                _detailContextIssue = null;
               }),
               scrollToStableId: _detailStableId,
+              contextIssue: _detailContextIssue,
             ),
           ),
         if (_showAiChat)
@@ -295,6 +370,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   Widget _buildCardBody(double effectiveWidth, double cardHeight,
       SleuthThemeData theme, Size screenSize) {
+    final isMinimized = _windowState == _CardWindowState.minimized;
     return ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: effectiveWidth,
@@ -307,24 +383,32 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildHeader(screenSize, theme),
-            _StatusRow(controller: widget.controller),
-            Divider(color: theme.border, height: 1),
-            _WarningBanners(
-              exportFeedbackVisible: _exportFeedbackVisible,
-              highlightNotFoundVisible: _highlightNotFoundVisible,
-              isDeepInstrumentationActive:
-                  widget.controller.isDeepInstrumentationActive,
-            ),
-            Flexible(child: RepaintBoundary(child: _buildIssuesList())),
-            _CardFooter(
-              controller: widget.controller,
-              onExport: _exportToClipboard,
-              onEncyclopedia: () => setState(() {
-                _detailStableId = null;
-                _showDetail = true;
-              }),
-            ),
+            _buildHeader(screenSize, effectiveWidth, theme),
+            if (!isMinimized) ...[
+              _StatusRow(controller: widget.controller),
+              Divider(color: theme.border, height: 1),
+              _WarningBanners(
+                exportFeedbackVisible: _exportFeedbackVisible,
+                highlightNotFoundVisible: _highlightNotFoundVisible,
+                isDeepInstrumentationActive:
+                    widget.controller.isDeepInstrumentationActive,
+              ),
+              if (widget.isDebugMode &&
+                  widget.controller.config.showDebugModeBanner &&
+                  !_debugBannerDismissed)
+                _DebugModeBanner(
+                  onDismiss: () => setState(() => _debugBannerDismissed = true),
+                ),
+              Flexible(child: RepaintBoundary(child: _buildIssuesList())),
+              _CardFooter(
+                controller: widget.controller,
+                onExport: _exportToClipboard,
+                onEncyclopedia: () => setState(() {
+                  _detailStableId = null;
+                  _showDetail = true;
+                }),
+              ),
+            ],
           ],
         ),
       ),
@@ -360,7 +444,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   // ─── Header ──────────────────────────────────────────────────────────
 
-  Widget _buildHeader(Size screenSize, SleuthThemeData theme) {
+  Widget _buildHeader(
+      Size screenSize, double effectiveWidth, SleuthThemeData theme) {
+    final isMinimized = _windowState == _CardWindowState.minimized;
+    final isNormal = _windowState == _CardWindowState.normal;
+    // Only show window controls when the card is wide enough to avoid overflow.
+    final showWindowControls = effectiveWidth >= 280 || !isNormal;
     return GestureDetector(
       onPanUpdate: (details) {
         setState(() {
@@ -369,26 +458,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               _cachedEffectiveWidth, _cachedKeyboardHeight);
         });
       },
-      onDoubleTap: () {
-        setState(() {
-          final fullWidth = screenSize.width;
-          if (_cardWidth >= fullWidth - 1) {
-            // Restore to default
-            _cardWidth = _defaultCardWidth;
-          } else {
-            // Maximize — edge to edge
-            _cardWidth = fullWidth;
-            _cardOffset = Offset(0, _cardOffset?.dy ?? screenSize.height * 0.3);
-          }
-        });
-      },
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: EdgeInsets.fromLTRB(
             10, theme.spacingSm, theme.spacingXs, theme.spacingXs),
         child: Row(
           children: [
-            const Text('🐕', style: TextStyle(fontSize: 14)),
+            const Text('\u{1F415}', style: TextStyle(fontSize: 14)),
             SizedBox(width: theme.spacingXs),
             Expanded(
               child: Text(
@@ -401,27 +477,57 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            // VM+ / FRAME badge
-            ValueListenableBuilder<bool>(
-              valueListenable: widget.controller.vmConnectedNotifier,
-              builder: (_, connected, __) => Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                decoration: BoxDecoration(
-                  color: connected ? theme.badgeVmBg : theme.badgeFrameBg,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  connected ? 'VM+' : 'FRAME',
-                  style: TextStyle(
-                    color: connected ? theme.badgeVmText : theme.badgeFrameText,
-                    fontSize: 8,
-                    fontWeight: FontWeight.bold,
+            // Issue count badge (visible when minimized so user sees at a glance)
+            if (isMinimized)
+              ValueListenableBuilder<List<PerformanceIssue>>(
+                valueListenable: widget.controller.issuesNotifier,
+                builder: (_, issues, __) => issues.isEmpty
+                    ? const SizedBox.shrink()
+                    : DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: theme.severityWarning.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 1),
+                          child: Text(
+                            '${issues.length}',
+                            style: TextStyle(
+                              color: theme.severityWarning,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+            // VM+ / FRAME badge (hidden when minimized to save space)
+            if (!isMinimized)
+              ValueListenableBuilder<bool>(
+                valueListenable: widget.controller.vmConnectedNotifier,
+                builder: (_, connected, __) => Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: connected ? theme.badgeVmBg : theme.badgeFrameBg,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    connected ? 'VM+' : 'FRAME',
+                    style: TextStyle(
+                      color:
+                          connected ? theme.badgeVmText : theme.badgeFrameText,
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
-            ),
-            // DBG badge
-            if (kDebugMode && widget.controller.isDebugCallbacksActive)
+            // DBG badge (hidden when minimized)
+            if (!isMinimized &&
+                kDebugMode &&
+                widget.controller.isDebugCallbacksActive)
               Container(
                 margin: const EdgeInsets.only(left: 3),
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
@@ -438,29 +544,54 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                   ),
                 ),
               ),
-            // Guide button
-            _headerIconButton(
-              icon: Icons.help_outline,
-              color: theme.textTertiary,
-              onTap: () => setState(() => _showGuide = true),
-              tooltip: 'Guide',
-            ),
-            // Highlight overlay toggle
-            ValueListenableBuilder<bool>(
-              valueListenable: widget.controller.highlightEnabledNotifier,
-              builder: (_, enabled, __) => _headerIconButton(
-                icon: enabled ? Icons.layers : Icons.layers_outlined,
-                color: enabled ? theme.checkboxActive : theme.textTertiary,
-                onTap: () {
-                  final newValue = !enabled;
-                  widget.controller.highlightEnabledNotifier.value = newValue;
-                  if (!newValue) {
-                    widget.controller.clearSelectedHighlight();
-                  }
-                },
-                tooltip: enabled ? 'Hide overlay' : 'Show overlay',
+            // Guide button (hidden when minimized)
+            if (!isMinimized)
+              _headerIconButton(
+                icon: Icons.help_outline,
+                color: theme.textTertiary,
+                onTap: () => setState(() => _showGuide = true),
+                tooltip: 'Guide',
               ),
-            ),
+            // Highlight overlay toggle (hidden when minimized)
+            if (!isMinimized)
+              ValueListenableBuilder<bool>(
+                valueListenable: widget.controller.highlightEnabledNotifier,
+                builder: (_, enabled, __) => _headerIconButton(
+                  icon: enabled ? Icons.layers : Icons.layers_outlined,
+                  color: enabled ? theme.checkboxActive : theme.textTertiary,
+                  onTap: () {
+                    final newValue = !enabled;
+                    widget.controller.highlightEnabledNotifier.value = newValue;
+                    if (!newValue) {
+                      widget.controller.clearSelectedHighlight();
+                    }
+                  },
+                  tooltip: enabled ? 'Hide overlay' : 'Show overlay',
+                ),
+              ),
+            // Window controls — compact 28px to save header space.
+            // Hidden at narrow widths (<280px) to prevent Row overflow.
+            if (showWindowControls && isNormal)
+              _compactHeaderButton(
+                icon: Icons.minimize,
+                color: theme.textTertiary,
+                onTap: _minimize,
+                tooltip: 'Minimize',
+              ),
+            if (showWindowControls && isNormal)
+              _compactHeaderButton(
+                icon: Icons.crop_square,
+                color: theme.textTertiary,
+                onTap: () => _maximize(context),
+                tooltip: 'Maximize',
+              ),
+            if (showWindowControls && !isNormal)
+              _compactHeaderButton(
+                icon: Icons.filter_none,
+                color: theme.textTertiary,
+                onTap: _restore,
+                tooltip: 'Restore',
+              ),
             // Close button
             _headerIconButton(
               icon: Icons.close,
@@ -487,9 +618,30 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
-        width: 44,
+        width: 36,
         height: 44,
         child: Center(child: Icon(icon, color: color, size: 16)),
+      ),
+    );
+  }
+
+  Widget _compactHeaderButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    required Color color,
+    String? tooltip,
+  }) {
+    return Semantics(
+      label: tooltip,
+      button: true,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: 24,
+          height: 44,
+          child: Center(child: Icon(icon, color: color, size: 12)),
+        ),
       ),
     );
   }
@@ -558,6 +710,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                     return IssueCard(
                       key: ValueKey(issueKey),
                       issue: issue,
+                      recurrenceTrend: widget.controller
+                          .recurrenceTrends[issue.stableId ?? issue.title],
                       deepInstrumentationActive:
                           widget.controller.isDeepInstrumentationActive,
                       initiallyExpanded: _expandedIssueId == issueKey,
@@ -578,6 +732,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                                   null
                               ? () => setState(() {
                                     _detailStableId = issue.stableId;
+                                    _detailContextIssue = issue;
                                     _showDetail = true;
                                   })
                               : null,
@@ -685,6 +840,66 @@ class _StatusRow extends StatelessWidget {
             },
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Debug Mode Banner ──────────────────────────────────────────────────
+
+class _DebugModeBanner extends StatelessWidget {
+  const _DebugModeBanner({required this.onDismiss});
+
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = SleuthTheme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.bannerWarningBg,
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: theme.spacingSm,
+          vertical: theme.spacingXs,
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.warning_amber, size: 14, color: theme.bannerWarningText),
+            SizedBox(width: theme.spacingXs),
+            Expanded(
+              child: Text(
+                'Debug mode \u2014 timings are ~10\u00D7 slower than production. '
+                'Run with flutter run --profile for accurate measurements.',
+                style: TextStyle(
+                  color: theme.bannerWarningText,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+            SizedBox(width: theme.spacingXs),
+            Semantics(
+              label: 'Dismiss debug mode banner',
+              button: true,
+              child: GestureDetector(
+                onTap: onDismiss,
+                behavior: HitTestBehavior.opaque,
+                child: SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: Center(
+                    child: Icon(
+                      Icons.close,
+                      size: 14,
+                      color: theme.bannerWarningText,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

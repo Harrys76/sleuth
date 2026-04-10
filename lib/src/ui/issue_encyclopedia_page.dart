@@ -18,12 +18,17 @@ class IssueEncyclopediaPage extends StatefulWidget {
     super.key,
     required this.onClose,
     this.scrollToStableId,
+    this.contextIssue,
   });
 
   final VoidCallback onClose;
 
   /// If non-null, the entry with this stableId opens expanded and scrolled-to.
   final String? scrollToStableId;
+
+  /// If non-null, contextual placeholders in the matching entry's template are
+  /// substituted with values from this issue (widget name, route, count, etc.).
+  final PerformanceIssue? contextIssue;
 
   @override
   State<IssueEncyclopediaPage> createState() => _IssueEncyclopediaPageState();
@@ -343,6 +348,11 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     final isExpanded = _expandedEntries.contains(stableId);
     final isScrollTarget = stableId == widget.scrollToStableId;
 
+    // Apply contextual substitution for the target entry.
+    final effectiveEntry = isScrollTarget && widget.contextIssue != null
+        ? IssueExplanationBuilder.substitute(entry, widget.contextIssue!)
+        : entry;
+
     return Container(
       key: _entryKeys[stableId] ??
           (isScrollTarget ? _keyForEntry(stableId) : null),
@@ -372,7 +382,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
                 children: [
                   Expanded(
                     child: Text(
-                      entry.displayName,
+                      effectiveEntry.displayName,
                       style: TextStyle(
                         color: theme.textPrimary,
                         fontSize: 12,
@@ -395,13 +405,13 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
           ),
           // Expandable content — skip AnimatedSize for scroll target on first frame
           if (isScrollTarget && !_scrollTargetScrolled && isExpanded)
-            _entryContent(stableId, entry, theme)
+            _entryContent(stableId, effectiveEntry, theme)
           else
             AnimatedSize(
               duration: const Duration(milliseconds: 250),
               curve: Curves.easeInOut,
               child: isExpanded
-                  ? _entryContent(stableId, entry, theme)
+                  ? _entryContent(stableId, effectiveEntry, theme)
                   : const SizedBox.shrink(),
             ),
         ],

@@ -1,6 +1,6 @@
 ## v11 Detector Audit: Gaps, False Positives & Hot-Path Performance
 
-**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) + Pillar 3b (4 milestones) + Pillar 4 (10 milestones) + Pillar 5 Part 1 (7 milestones) + Pillar 5 Part 2 (7 milestones) + Pillar 6 Part 1 (7 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7 / v0.10.8 / v0.10.9 / v0.11.0 / v0.11.1 / v0.12.0)
+**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) + Pillar 3b (4 milestones) + Pillar 4 (10 milestones) + Pillar 5 Part 1 (7 milestones) + Pillar 5 Part 2 (7 milestones) + Pillar 6 Part 1 (7 milestones) + Pillar 6 Part 2 (8 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7 / v0.10.8 / v0.10.9 / v0.11.0 / v0.11.1 / v0.12.0 / v0.12.1)
 
 Origin: Adversarial audit (2026-04-07) of 5 detectors (ListviewDetector, NestedScrollDetector, LayoutBottleneckDetector, SetStateScopeDetector, RepaintBoundaryDetector). Found 6 gaps and false positives across detection coverage, accuracy, and enrichment. All milestones implemented, adversarial-reviewed twice (8 fix-round findings resolved), 1,869 tests passing, 0 analysis issues.
 
@@ -1158,7 +1158,7 @@ timers, controllers, or client handles on dispose or navigation?" and turned up 
 
 - `fvm flutter test` — 1,825 tests passing ✅
 - `fvm flutter analyze` — 0 issues ✅ (both `sleuth` package and `example` app)
-- All roadmaps complete: v7 (10/10), v8 (5/5), v9 (17/17), v10 (12/12), v11 (19/19), Pillar 2a (3/3), Pillar 2b (4/4), Pillar 3a (5/5), Pillar 3b (4/4), Pillar 4 (10/10), Pillar 5 Part 1 (7/7 + 2 adversarial reviews), Pillar 5 Part 2 (7/7 + 3 adversarial review rounds + KeepAliveDetector bug fix)
+- All roadmaps complete: v7 (10/10), v8 (5/5), v9 (17/17), v10 (12/12), v11 (19/19), Pillar 2a (3/3), Pillar 2b (4/4), Pillar 3a (5/5), Pillar 3b (4/4), Pillar 4 (10/10), Pillar 5 Part 1 (7/7 + 2 adversarial reviews), Pillar 5 Part 2 (7/7 + 3 adversarial review rounds + KeepAliveDetector bug fix), Pillar 6 Part 1 (7/7 + 1 adversarial review), Pillar 6 Part 2 (8/8 + 1 adversarial review round, 6 fixes)
 
 ---
 
@@ -1414,3 +1414,55 @@ no memory profiling.
 - `fvm flutter test` — **1,869 tests passing** (1,825 → 1,869, +44 across M1–M7 + VM connection + throttle)
 - `cd example && fvm flutter test` — **6 tests passing** (5 cookbook + 1 global key realization)
 - Adversarial review: 4 findings, all resolved
+
+---
+
+## Pillar 6 Part 2: Overlay UI, Diagnostics Output & Export (v0.12.1)
+
+Spec: `doc/spec_v11_pillar6_part2.md`
+
+Upgrades every consumer-facing surface a developer looks at during debugging — the trigger button, floating card, issue card, encyclopedia, and export path — so the information Sleuth already collects is visible, customizable, and shareable.
+
+### Milestones (8/8 complete)
+
+**M1: Trigger button alignment config** — `triggerButtonAlignment` (any of 4 corners) and `triggerButtonOffset` (pixel offset) on `SleuthConfig`. Wired through `SleuthOverlay` → `TriggerButton`. Debug-mode assert on non-corner alignments; release mode snaps silently.
+
+**M2: Minimize/maximize/restore card controls** — Three-state window mode (`normal`, `minimized`, `maximized`) on `FloatingIssuesCard`. Minimized collapses to a 54 px header; maximized fills screen minus safe area. Pre-transition position/size stored and restored exactly. Compact header buttons with semantic labels.
+
+**M3: Recurrence badge on IssueCard** — Surfaces `RecurrenceTrend` data as "Seen N/M · direction" badge. Direction labels: persistent (ratio ≥ 0.9 + stable), stable, flaky (intermittent), worsening, improving, new. Signal floor: `length < 2` suppresses badge to avoid flicker on new issues.
+
+**M4: Context-aware encyclopedia entries** — `IssueExplanationBuilder.substitute()` replaces `{widgetName}`, `{count}`, `{routeName}`, `{severity}`, `{title}`, `{stableId}` placeholders with values from the triggering issue. Seven high-value templates enriched. Count extracted via regex from title with `'several'` fallback.
+
+**M5: Inline confidence reasoning** — `confidenceReason` shown as italic caption text in expanded `IssueCard`, with confidence-level icon (check_circle_outline / help_outline / info_outline). Hidden when collapsed or null.
+
+**M6: Dismissible debug-mode banner** — Warning banner on `FloatingIssuesCard` when `isDebugMode` is true. Dismiss button hides for current session. `SleuthConfig.showDebugModeBanner` config option to suppress entirely.
+
+**M7: `Sleuth.exportSummary()` markdown export** — `SessionMarkdownExporter.render()` produces human-readable markdown with frame stats, top-N issues (clamped), causal chains, and version footer. Full GFM escaping (`\`, `*`, `` ` ``, `[`, `]`, `<`, `>`, `|`). Deterministic output for identical snapshots.
+
+**M8: Copy conversation button on AiChatPage** — Serializes issue context + full chat thread to markdown and writes to clipboard. GFM escaping on all user-controlled text (issue titles, confidence reasons, message bodies). Snackbar confirmation with `ScaffoldMessenger.maybeOf` guard.
+
+### Adversarial Review Findings (Pillar 6 Part 2)
+
+**Scope:** M1–M8 implementations: `trigger_button.dart`, `floating_issues_card.dart`, `issue_card.dart`, `issue_encyclopedia_page.dart`, `issue_explanation_builder.dart`, `sleuth_controller.dart`, `session_markdown_exporter.dart`, `ai_chat_page.dart`, `sleuth.dart` barrel.
+
+One review round, 6 findings:
+
+1. **Tooltip crash in overlay** (High): `_confidenceBadge` used `Tooltip` widget which requires `OverlayPortal` → `_RenderTheaterMarker` ancestor. Sleuth's bare `Overlay` (no Navigator) lacks this. **Fix:** Replaced `Tooltip` with `Semantics(label: ...)`. Confidence reason shown inline when expanded (M5).
+
+2. **Markdown escaping in copied conversation** (High): `_copyConversation` in `ai_chat_page.dart` passed raw issue titles and message text into markdown template — `*`, `` ` ``, `[`, `#`, etc. could corrupt GFM structure. **Fix:** Added `_escapeMd` static method escaping 9 GFM-significant characters, applied to all user-controlled text.
+
+3. **Markdown escaping in session export** (Medium): `SessionMarkdownExporter._escape` only handled `*` and `` ` `` — missing `\`, `[`, `]`, `<`, `>`, `|`. **Fix:** Expanded to full 8-character set matching `_escapeMd`.
+
+4. **Recurrence badge overflow** (Medium): On narrow cards, long badge text like "Seen 45/60 · persistent" could overflow horizontally. **Fix:** Added `maxLines: 1`, `overflow: TextOverflow.ellipsis` to `Text`, wrapped in `Align(alignment: Alignment.centerLeft)`.
+
+5. **Semantic labels on interactive elements** (Low): AI chat back button, copy button, and floating card window controls (minimize, maximize, restore, dismiss banner) lacked `Semantics` wrappers. **Fix:** Added `Semantics(label: ..., button: true)` to all interactive elements.
+
+6. **Cookbook TooltipUsageDetector false positives** (Bug fix): `TooltipUsageDetector` registered globally in `example/lib/main.dart` fired on standard Material framework tooltips (AppBar back button `Tooltip("Back")`) on every screen. **Fix:** Added `_frameworkMessages` static set (`Back`, `Close`, `Open navigation menu`, `Search`, `Show menu`, `More`, `Dismiss`) and early return in `inspect()`.
+
+### Verification (Pillar 6 Part 2)
+
+- `fvm flutter analyze` (sleuth) — 0 issues
+- `fvm flutter analyze` (example) — 0 issues
+- `fvm flutter test` — **1,915 tests passing** (1,869 → 1,915, +46 across M1–M8 + adversarial fixes)
+- `cd example && fvm flutter test` — **7 tests passing** (6 → 7, +1 framework tooltip filter test)
+- Adversarial review: 6 findings, all resolved

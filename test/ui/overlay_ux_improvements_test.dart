@@ -206,6 +206,7 @@ void main() {
           body: FloatingIssuesCard(
             controller: controller,
             onClose: () {},
+            isDebugMode: false,
           ),
         ),
       );

@@ -63,6 +63,7 @@ import '../network/http_monitor.dart';
 import '../ranking/issue_ranker.dart';
 import '../vm/cpu_sample_aggregator.dart';
 import '../vm/vm_service_client.dart';
+import '../utils/session_markdown_exporter.dart';
 import '../utils/type_name_cache.dart';
 import '../vm/timeline_parser.dart';
 
@@ -852,9 +853,11 @@ class SleuthController {
             e.key: e.value.presentCount,
       };
 
-  /// Exposes recurrence trends for testing historical trending.
-  @visibleForTesting
-  Map<String, RecurrenceTrend> get recurrenceTrendsForTest =>
+  /// Unmodifiable view of the current recurrence trend map, keyed by
+  /// issue `stableId`. Intended for the floating card to render "Seen X/Y"
+  /// badges. Trends update on every scan cycle; listeners should use
+  /// [issuesNotifier] as the rebuild trigger.
+  Map<String, RecurrenceTrend> get recurrenceTrends =>
       Map.unmodifiable(_recurrenceTrends);
 
   /// Current scan cycle index (for testing).
@@ -1006,7 +1009,7 @@ class SleuthController {
         worstFrameTimeUs: worstUs,
         fpsPercentiles: percentiles,
       ),
-      packageVersion: '0.5.2',
+      packageVersion: '0.12.1',
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
       recentRequests: _initialized &&
@@ -1040,6 +1043,13 @@ class SleuthController {
 
   /// Export session snapshot as a formatted JSON string.
   String exportSnapshotJson() => exportSnapshot().toJsonString();
+
+  /// Export a human-readable markdown summary suitable for pasting into
+  /// Slack, a PR description, or a bug report.
+  String exportSummary({required int topN}) {
+    final snapshot = exportSnapshot();
+    return SessionMarkdownExporter.render(snapshot, topN: topN.clamp(1, 20));
+  }
 
   /// Builds the v3 session summary with pre-computed aggregations.
   Map<String, dynamic> _buildSessionSummary(
@@ -2669,6 +2679,9 @@ class SleuthConfig {
     this.disabledCustomDetectorKeys = const {},
     this.thresholds = const DetectorThresholds(),
     this.aiChat,
+    this.showDebugModeBanner = true,
+    this.triggerButtonAlignment = Alignment.topRight,
+    this.triggerButtonOffset = const Offset(16, 64),
   })  : assert(
           fpsTarget >= 1 && fpsTarget <= 120,
           'fpsTarget must be between 1 and 120. '
@@ -3143,6 +3156,33 @@ class SleuthConfig {
   /// [AiChatAdapter.networkExcludePatterns] or add patterns to
   /// [networkExcludePatterns] manually.
   final AiChatAdapter? aiChat;
+
+  /// Whether the floating card shows a "debug mode is slower" banner when
+  /// running in debug mode. Defaults to `true`. Set to `false` if you have
+  /// a good reason to debug with the overlay (e.g. hot-restart iteration).
+  ///
+  /// Default: `true` — shows the banner whenever `kDebugMode` is true.
+  /// Raising it: N/A (boolean).
+  /// Lowering it (false): suppresses the banner entirely.
+  final bool showDebugModeBanner;
+
+  /// Initial screen corner for the trigger button. Default [Alignment.topRight]
+  /// matches the pre-Part-2 behaviour. Any standard alignment is accepted;
+  /// non-corner alignments snap to the nearest edge.
+  ///
+  /// Users can still drag the button anywhere — this controls only where it
+  /// first appears before the user has dragged it.
+  ///
+  /// Default: `Alignment.topRight`.
+  final Alignment triggerButtonAlignment;
+
+  /// Pixel offset applied after [triggerButtonAlignment]. Positive X pushes the
+  /// button inward horizontally, positive Y pushes it inward vertically. Use
+  /// this to clear an app-owned widget (e.g. a FAB at the bottom-right).
+  ///
+  /// Default: `Offset(16, 64)` — 16 px from the horizontal edge, 64 px below
+  /// the top safe area / above the bottom safe area.
+  final Offset triggerButtonOffset;
 }
 
 /// Lightweight struct for sorting allocation profile entries.

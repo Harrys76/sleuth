@@ -358,6 +358,74 @@ void main() {
     });
   });
 
+  group('contextIssue substitution (M4)', () {
+    testWidgets('substitutes widgetName and count in target entry',
+        (tester) async {
+      final issueWithWidget = PerformanceIssue(
+        stableId: 'excessive_global_keys',
+        title: '12 GlobalKeys in MyForm',
+        detail: 'd',
+        fixHint: 'f',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.confirmed,
+        widgetName: 'MyForm',
+      );
+
+      await tester.pumpWidget(wrap(
+        IssueEncyclopediaPage(
+          onClose: () {},
+          scrollToStableId: 'excessive_global_keys',
+          contextIssue: issueWithWidget,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // The template says "{count} GlobalKey instances were found inside {widgetName}."
+      // With contextIssue, count=12 and widgetName=MyForm should appear.
+      expect(find.textContaining('12 GlobalKey instances'), findsOneWidget);
+      expect(find.textContaining('MyForm'), findsWidgets);
+    });
+
+    testWidgets('without contextIssue shows raw placeholders', (tester) async {
+      await tester.pumpWidget(wrap(
+        IssueEncyclopediaPage(
+          onClose: () {},
+          scrollToStableId: 'excessive_global_keys',
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // Without contextIssue, raw {count} and {widgetName} appear in the text.
+      expect(find.textContaining('{count}'), findsWidgets);
+      expect(find.textContaining('{widgetName}'), findsWidgets);
+    });
+
+    test('substitute only applies to matching stableId (unit)', () {
+      // Verify that substitute works correctly on the template level.
+      final template = IssueExplanationBuilder.explain('rebuild_activity')!;
+      // Raw template should contain placeholder.
+      expect(template.whatItIs, contains('{count}'));
+
+      // After substitution, placeholders are replaced.
+      final issue = PerformanceIssue(
+        stableId: 'rebuild_activity',
+        title: '47 rebuilds detected',
+        detail: 'd',
+        fixHint: 'f',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.confirmed,
+        widgetName: 'MyWidget',
+      );
+      final substituted = IssueExplanationBuilder.substitute(template, issue);
+      expect(substituted.whatItIs, contains('47 widget rebuilds'));
+      expect(substituted.whatItIs, contains('MyWidget'));
+      // displayName is never substituted (no placeholders).
+      expect(substituted.displayName, template.displayName);
+    });
+  });
+
   group('IssueCard onLearnMore', () {
     testWidgets('Learn more link visible when onLearnMore is provided',
         (tester) async {

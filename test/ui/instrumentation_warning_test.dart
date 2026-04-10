@@ -36,6 +36,7 @@ void main() {
             body: FloatingIssuesCard(
               controller: controller,
               onClose: () {},
+              isDebugMode: false,
             ),
           ),
         ),
@@ -59,6 +60,7 @@ void main() {
             body: FloatingIssuesCard(
               controller: controller,
               onClose: () {},
+              isDebugMode: false,
             ),
           ),
         ),
@@ -90,6 +92,7 @@ void main() {
             body: FloatingIssuesCard(
               controller: controller,
               onClose: () {},
+              isDebugMode: false,
             ),
           ),
         ),
@@ -112,6 +115,7 @@ void main() {
             body: FloatingIssuesCard(
               controller: controller,
               onClose: () {},
+              isDebugMode: false,
             ),
           ),
         ),

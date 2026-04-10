@@ -28,6 +28,7 @@ void main() {
             body: FloatingIssuesCard(
               controller: controller,
               onClose: () {},
+              isDebugMode: false,
             ),
           ),
         ),
@@ -142,41 +143,31 @@ void main() {
       expect(box.constraints.maxHeight, 250.0);
     });
 
-    testWidgets('double-tap header maximizes width', (tester) async {
+    testWidgets('maximize button expands width', (tester) async {
       await tester.pumpWidget(buildCard());
 
-      final header = find.text('Sleuth');
-      expect(header, findsOneWidget);
-
-      // Double-tap: two taps close together
-      await tester.tap(header);
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.tap(header);
-      // Drain the double-tap countdown timer (40ms)
-      await tester.pump(const Duration(milliseconds: 300));
+      // Tap the maximize button (crop_square icon)
+      await tester.tap(find.byIcon(Icons.crop_square));
+      await tester.pump();
 
       final box = findCardConstrainedBox(tester);
-      expect(box.constraints.maxWidth, 800.0); // screen width
+      // Maximized: screenWidth - 32 = 768
+      expect(box.constraints.maxWidth, 768.0);
     });
 
-    testWidgets('double-tap again restores default width', (tester) async {
+    testWidgets('restore after maximize returns to default width',
+        (tester) async {
       await tester.pumpWidget(buildCard());
 
-      final header = find.text('Sleuth');
+      // Maximize
+      await tester.tap(find.byIcon(Icons.crop_square));
+      await tester.pump();
 
-      // First double-tap: maximize
-      await tester.tap(header);
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.tap(header);
-      await tester.pump(const Duration(milliseconds: 300));
+      expect(findCardConstrainedBox(tester).constraints.maxWidth, 768.0);
 
-      expect(findCardConstrainedBox(tester).constraints.maxWidth, 800.0);
-
-      // Second double-tap: restore
-      await tester.tap(header);
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.tap(header);
-      await tester.pump(const Duration(milliseconds: 300));
+      // Restore (filter_none icon replaces minimize/maximize)
+      await tester.tap(find.byIcon(Icons.filter_none));
+      await tester.pump();
 
       expect(findCardConstrainedBox(tester).constraints.maxWidth, 300.0);
     });

@@ -19,6 +19,8 @@ class TriggerButton extends StatefulWidget {
     required this.isDebugMode,
     required this.onTap,
     this.fpsTarget = 60,
+    this.initialAlignment = Alignment.topRight,
+    this.initialOffset = const Offset(16, 64),
   });
 
   final ValueNotifier<List<PerformanceIssue>> issuesNotifier;
@@ -27,6 +29,8 @@ class TriggerButton extends StatefulWidget {
   final bool isDebugMode;
   final VoidCallback onTap;
   final int fpsTarget;
+  final Alignment initialAlignment;
+  final Offset initialOffset;
 
   @override
   State<TriggerButton> createState() => _TriggerButtonState();
@@ -39,9 +43,17 @@ class _TriggerButtonState extends State<TriggerButton> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        _position ??= Offset(
-          (constraints.maxWidth - 72).clamp(0, constraints.maxWidth - 56),
-          (constraints.maxHeight * 0.4).clamp(0, constraints.maxHeight - 78),
+        _position ??= _computeInitialPosition(
+          constraints,
+          widget.initialAlignment,
+          widget.initialOffset,
+        );
+        // Re-clamp to current constraints (handles screen rotation).
+        final maxX = (constraints.maxWidth - 56).clamp(0.0, double.infinity);
+        final maxY = (constraints.maxHeight - 78).clamp(0.0, double.infinity);
+        final pos = Offset(
+          _position!.dx.clamp(0, maxX),
+          _position!.dy.clamp(0, maxY),
         );
         final theme = SleuthTheme.of(context);
         return GestureDetector(
@@ -56,7 +68,7 @@ class _TriggerButtonState extends State<TriggerButton> {
           },
           onTap: widget.onTap,
           child: Container(
-            margin: EdgeInsets.only(left: _position!.dx, top: _position!.dy),
+            margin: EdgeInsets.only(left: pos.dx, top: pos.dy),
             width: 56,
             height: 78,
             child: ValueListenableBuilder<List<PerformanceIssue>>(
@@ -167,5 +179,27 @@ class _TriggerButtonState extends State<TriggerButton> {
         );
       },
     );
+  }
+
+  static Offset _computeInitialPosition(
+    BoxConstraints c,
+    Alignment a,
+    Offset offset,
+  ) {
+    const buttonWidth = 56.0;
+    const buttonHeight = 78.0;
+    final maxX = (c.maxWidth - buttonWidth).clamp(0.0, double.infinity);
+    final maxY = (c.maxHeight - buttonHeight).clamp(0.0, double.infinity);
+    final anchorX = switch (a.x) {
+      < 0 => offset.dx,
+      > 0 => maxX - offset.dx,
+      _ => maxX / 2,
+    };
+    final anchorY = switch (a.y) {
+      < 0 => offset.dy,
+      > 0 => maxY - offset.dy,
+      _ => maxY / 2,
+    };
+    return Offset(anchorX.clamp(0, maxX), anchorY.clamp(0, maxY));
   }
 }

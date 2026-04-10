@@ -138,6 +138,10 @@ class _SleuthOverlayState extends State<SleuthOverlay>
                       frameStatsNotifier: widget.controller.frameStatsNotifier,
                       isDebugMode: widget.controller.isDebugMode,
                       fpsTarget: widget.controller.config.fpsTarget,
+                      initialAlignment:
+                          widget.controller.config.triggerButtonAlignment,
+                      initialOffset:
+                          widget.controller.config.triggerButtonOffset,
                       onTap: () => setState(() => _dashboardOpen = true),
                     ),
                   ),

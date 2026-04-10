@@ -1,3 +1,60 @@
+## 0.12.1
+
+Pillar 6 Part 2: Overlay UI, Diagnostics Output & Export — upgrades every
+consumer-facing surface a developer looks at during debugging. The trigger
+button, floating card, issue card, encyclopedia, and export path all gain new
+capabilities that make Sleuth's collected data visible, customizable, and
+shareable.
+
+### Added
+
+- **Trigger button alignment config** (M1): `triggerButtonAlignment` and
+  `triggerButtonOffset` on `SleuthConfig` control initial placement. Supports
+  all four corners and center alignment.
+- **Minimize/maximize/restore controls** (M2): Three-state window mode
+  (`normal`, `minimized`, `maximized`) on the floating issues card. Minimized
+  collapses to a 54px header; maximized fills the screen minus safe area.
+  Pre-transition position and size are restored exactly.
+- **Recurrence badge on IssueCard** (M3): Shows trending direction
+  (escalating/stable/improving/new) from `RecurrenceTrend` data when available.
+- **Context-aware encyclopedia entries** (M4): `IssueExplanationBuilder.substitute()`
+  replaces `{widgetName}`, `{count}`, `{routeName}`, `{severity}`, `{title}`,
+  and `{stableId}` placeholders with values from the triggering issue. Seven
+  templates enriched with contextual placeholders.
+- **Inline confidence reasoning on IssueCard** (M5): Shows
+  `confidenceReason` text in expanded card when available.
+- **Dismissible debug-mode banner** (M6): Warning banner on `FloatingIssuesCard`
+  when `isDebugMode` is true. Tap X to dismiss; `showDebugModeBanner` config
+  option to suppress entirely.
+- **`Sleuth.exportSummary()` markdown export** (M7): Human-readable markdown
+  report with frame stats, top issues, and causal chains. Sized for pasting
+  into Slack or a PR description.
+- **Copy conversation button on AiChatPage** (M8): Serializes the full AI
+  chat thread plus issue context to markdown and writes to clipboard.
+
+### Fixed
+
+- **Tooltip crash in overlay** (IssueCard): Replaced `Tooltip` widget in
+  `_confidenceBadge` with `Semantics`. Flutter 3.41.4's `Tooltip` uses
+  `OverlayPortal` which requires a `_RenderTheaterMarker` ancestor — absent
+  in Sleuth's bare `Overlay` stack. Confidence reason is now shown inline
+  when expanded (M5) and as a `Semantics` label for accessibility.
+- **Markdown escaping in copied conversation** (M8): `_copyConversation` now
+  escapes `\`, `*`, `` ` ``, `#`, `[`, `]`, `<`, `>`, `|` in issue titles,
+  confidence reasons, and message text to prevent GFM structure corruption.
+- **Markdown escaping in session export** (M7): `SessionMarkdownExporter._escape`
+  expanded from 2 to 8 characters, matching the full GFM-significant set.
+- **Recurrence badge overflow** (M3): Badge text now uses `maxLines: 1` with
+  `TextOverflow.ellipsis` and is wrapped in `Align(alignment: centerLeft)` to
+  prevent overflow on narrow cards.
+- **Semantic labels on interactive elements**: Added `Semantics` wrappers to
+  AI chat back/copy buttons and floating card window control buttons
+  (minimize, maximize, restore, dismiss debug banner).
+- **Cookbook TooltipUsageDetector false positives**: Added framework tooltip
+  message filter (`Back`, `Close`, `Open navigation menu`, etc.) so the
+  cookbook custom detector no longer flags standard Material widget tooltips
+  (e.g. AppBar back button) on every screen.
+
 ## 0.12.0
 
 Pillar 6 Part 1: Public API & Authoring Surface — reduces friction at every

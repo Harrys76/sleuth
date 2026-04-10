@@ -211,30 +211,108 @@ class _AiChatPageState extends State<AiChatPage>
       ),
       child: Row(
         children: [
-          GestureDetector(
-            onTap: widget.onClose,
-            behavior: HitTestBehavior.opaque,
-            child: SizedBox(
-              width: 36,
-              height: 36,
-              child: Center(
-                child: Icon(Icons.arrow_back,
-                    color: theme.textSecondary, size: 16),
+          Semantics(
+            label: 'Close AI chat',
+            button: true,
+            child: GestureDetector(
+              onTap: widget.onClose,
+              behavior: HitTestBehavior.opaque,
+              child: SizedBox(
+                width: 36,
+                height: 36,
+                child: Center(
+                  child: Icon(Icons.arrow_back,
+                      color: theme.textSecondary, size: 16),
+                ),
               ),
             ),
           ),
           SizedBox(width: theme.spacingSm),
           Icon(Icons.auto_awesome, color: theme.textTertiary, size: 14),
           SizedBox(width: theme.spacingXs),
-          Text(
-            'Ask AI',
-            style: TextStyle(
-              color: theme.textPrimary,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
+          Expanded(
+            child: Text(
+              'Ask AI',
+              style: TextStyle(
+                color: theme.textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Semantics(
+            label: 'Copy conversation',
+            button: true,
+            enabled: _messages.isNotEmpty,
+            child: GestureDetector(
+              onTap: _messages.isEmpty ? null : _copyConversation,
+              behavior: HitTestBehavior.opaque,
+              child: SizedBox(
+                width: 36,
+                height: 36,
+                child: Center(
+                  child: Icon(
+                    Icons.copy_all_outlined,
+                    color: _messages.isEmpty
+                        ? theme.textQuaternary
+                        : theme.textSecondary,
+                    size: 16,
+                  ),
+                ),
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Escape markdown-significant characters so user/AI text doesn't break the
+  /// copied markdown structure.
+  static String _escapeMd(String s) => s
+      .replaceAll(r'\', r'\\')
+      .replaceAll('*', r'\*')
+      .replaceAll('`', r'\`')
+      .replaceAll('#', r'\#')
+      .replaceAll('[', r'\[')
+      .replaceAll(']', r'\]')
+      .replaceAll('<', r'\<')
+      .replaceAll('>', r'\>')
+      .replaceAll('|', r'\|');
+
+  Future<void> _copyConversation() async {
+    if (_messages.isEmpty) return;
+    final issue = widget.issue;
+    final buf = StringBuffer()
+      ..writeln('# Sleuth AI Conversation')
+      ..writeln();
+    buf
+      ..writeln('**Issue:** ${_escapeMd(issue.title)}')
+      ..writeln('**Stable ID:** `${issue.stableId ?? '-'}`')
+      ..writeln('**Confidence:** ${issue.confidence.name.toUpperCase()}'
+          '${issue.confidenceReason != null ? ' — ${_escapeMd(issue.confidenceReason!)}' : ''}')
+      ..writeln()
+      ..writeln('---')
+      ..writeln();
+    for (final msg in _messages) {
+      final marker = msg.role == AiChatRole.user
+          ? '### \u{1F9D1} User'
+          : '### \u{1F916} Assistant';
+      buf
+        ..writeln(marker)
+        ..writeln(_escapeMd(msg.text.trim()))
+        ..writeln();
+    }
+    try {
+      await Clipboard.setData(ClipboardData(text: buf.toString()));
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        content: Text('Conversation copied to clipboard'),
+        duration: Duration(seconds: 2),
       ),
     );
   }

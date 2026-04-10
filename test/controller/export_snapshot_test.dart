@@ -23,7 +23,7 @@ void main() {
     test('returns valid SessionSnapshot with metadata', () {
       final snapshot = controller.exportSnapshot();
 
-      expect(snapshot.packageVersion, '0.5.2');
+      expect(snapshot.packageVersion, '0.12.1');
       expect(snapshot.schemaVersion, 3);
       expect(snapshot.capturedFrames, isEmpty);
       expect(snapshot.currentIssues, isEmpty);

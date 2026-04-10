@@ -7,7 +7,7 @@ only when you actually need the extra machinery.
 
 | File | Shape | Use when... |
 |------|-------|-------------|
-| [`01_simple_structural_detector.dart`](01_simple_structural_detector.dart) | `SimpleStructuralDetector` | You only need to inspect widgets and emit one issue per match |
+| [`01_simple_structural_detector.dart`](01_simple_structural_detector.dart) | `SimpleStructuralDetector` | You only need to inspect widgets and emit one issue per match. Includes a framework-tooltip filter to skip standard Material tooltips (Back, Close, etc.) |
 | [`02_runtime_callback_detector.dart`](02_runtime_callback_detector.dart) | `BaseDetector` with `DetectorLifecycle.runtime` | You need to observe app events (frames, routes, lifecycle) without walking the tree |
 | [`03_hybrid_vm_structural_detector.dart`](03_hybrid_vm_structural_detector.dart) | `BaseDetector` with `DetectorLifecycle.hybrid` | You're combining VM timeline data with tree scanning |
 

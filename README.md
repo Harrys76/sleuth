@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C869_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C915_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -326,7 +326,7 @@ To set clear expectations:
 
 ## Example App
 
-The `example/` directory includes 25 demo screens organized into 8 categories (Build, Paint, GPU & Rendering, Layout, Memory, Network & I/O, Keys & Identity, Combined). Every demo is wrapped in the shared `DemoScaffold`, which provides a **Before/After toggle** and a **live metrics bar** so you can flip between the anti-pattern and its fix in-place and watch Sleuth's detection appear and disappear:
+The `example/` directory includes 26 demo screens organized into 8 categories (Build, Paint, GPU & Rendering, Layout, Memory, Network & I/O, Keys & Identity, Custom Detectors, Combined). Every demo is wrapped in the shared `DemoScaffold`, which provides a **Before/After toggle** and a **live metrics bar** so you can flip between the anti-pattern and its fix in-place and watch Sleuth's detection appear and disappear:
 
 ```bash
 cd example

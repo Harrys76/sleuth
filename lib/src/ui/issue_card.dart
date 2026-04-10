@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/performance_issue.dart';
+import '../models/recurrence_trend.dart';
 import '../utils/issue_metadata_builder.dart';
 import 'sleuth_theme.dart';
 
@@ -27,11 +28,16 @@ class IssueCard extends StatefulWidget {
     this.jankCorrelated = false,
     this.jankFlash = false,
     this.downstreamIssues,
+    this.recurrenceTrend,
     this.onLearnMore,
     this.onAskAi,
   });
 
   final PerformanceIssue issue;
+
+  /// Recurrence trend for this issue, used to render "Seen X/Y" badge.
+  /// Null when the issue has no trend data (e.g. first scan).
+  final RecurrenceTrend? recurrenceTrend;
 
   /// Seed value — read once in [initState]. After that, internal state owns it.
   final bool initiallyExpanded;
@@ -209,6 +215,11 @@ class _IssueCardState extends State<IssueCard> {
                     ),
                   ),
 
+                // Recurrence badge ("Seen X/Y")
+                if (widget.recurrenceTrend != null &&
+                    widget.recurrenceTrend!.length >= 2)
+                  _recurrenceBadge(widget.recurrenceTrend!, theme),
+
                 // Expanded detail + fix hint
                 if (_expanded) ..._buildExpandedContent(issue, theme),
               ],
@@ -295,6 +306,32 @@ class _IssueCardState extends State<IssueCard> {
               fontSize: 9,
               fontStyle: FontStyle.italic,
             ),
+          ),
+        ),
+      // Confidence reasoning (promoted from tooltip to visible text)
+      if (issue.confidenceReason != null)
+        Padding(
+          padding: EdgeInsets.only(top: theme.spacingXs),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                _confidenceIcon(issue.confidence),
+                size: 12,
+                color: theme.textSecondary,
+              ),
+              SizedBox(width: theme.spacingXs),
+              Expanded(
+                child: Text(
+                  issue.confidenceReason!,
+                  style: TextStyle(
+                    color: theme.textSecondary,
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       // Downstream effects section (causal graph)
@@ -614,6 +651,50 @@ class _IssueCardState extends State<IssueCard> {
     }
   }
 
+  Widget _recurrenceBadge(RecurrenceTrend trend, SleuthThemeData theme) {
+    final present = trend.presentCount;
+    final total = trend.length;
+    final ratio = total == 0 ? 0.0 : present / total;
+    final (label, color) = switch (trend.trend) {
+      TrendDirection.worsening => ('worsening', theme.severityCritical),
+      TrendDirection.stable when ratio >= 0.9 => (
+          'persistent',
+          theme.severityWarning
+        ),
+      TrendDirection.stable => ('stable', theme.textSecondary),
+      TrendDirection.improving => ('improving', theme.severityOk),
+      TrendDirection.intermittent => ('flaky', theme.textSecondary),
+    };
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: EdgeInsets.only(top: theme.spacingXs),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: theme.spacingSm,
+              vertical: theme.spacingXxs,
+            ),
+            child: Text(
+              'Seen $present/$total \u00B7 $label',
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _effortBadge(PerformanceIssue issue, SleuthThemeData theme) {
     final (label, color) = _fixEffort(issue, theme);
     return Container(
@@ -632,6 +713,12 @@ class _IssueCardState extends State<IssueCard> {
       ),
     );
   }
+
+  IconData _confidenceIcon(IssueConfidence c) => switch (c) {
+        IssueConfidence.confirmed => Icons.check_circle_outline,
+        IssueConfidence.likely => Icons.help_outline,
+        IssueConfidence.possible => Icons.info_outline,
+      };
 
   Widget _confidenceBadge(
       IssueConfidence confidence, SleuthThemeData theme, String? reason) {
@@ -659,8 +746,11 @@ class _IssueCardState extends State<IssueCard> {
       ),
     );
 
+    // Confidence reasoning is shown inline when expanded (M5), so no Tooltip
+    // needed. Tooltip also crashes in the Sleuth overlay's bare Overlay widget
+    // (no Navigator → no _RenderTheaterMarker for OverlayPortal).
     if (reason == null) return badge;
-    return Tooltip(message: reason, child: badge);
+    return Semantics(label: '$label: $reason', child: badge);
   }
 }
 

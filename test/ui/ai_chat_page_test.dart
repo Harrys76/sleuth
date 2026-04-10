@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/ai_chat_adapter.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
@@ -493,6 +494,219 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Ask about this issue...'), findsOneWidget);
+    });
+
+    testWidgets('copy button disabled when no messages', (tester) async {
+      await tester.pumpWidget(wrap(
+        AiChatPage(
+          issue: makeIssue(),
+          allIssues: const [],
+          adapter: makeAdapter(),
+          history: const [],
+          onHistoryChanged: (_) {},
+          onClose: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // Button icon should be present but visually disabled (quaternary color).
+      expect(find.byIcon(Icons.copy_all_outlined), findsOneWidget);
+    });
+
+    testWidgets('copy button enabled after user sends message', (tester) async {
+      final controller = StreamController<String>();
+
+      await tester.pumpWidget(wrap(
+        AiChatPage(
+          issue: makeIssue(),
+          allIssues: const [],
+          adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+          history: const [],
+          onHistoryChanged: (_) {},
+          onClose: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // Send a message
+      await tester.enterText(find.byType(TextField), 'Hello');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+
+      // Now the button should be tappable (no crash = enabled).
+      await tester.tap(find.byIcon(Icons.copy_all_outlined));
+      await tester.pump();
+
+      controller.close();
+    });
+
+    testWidgets('tap copy button writes markdown to clipboard', (tester) async {
+      String? clipboardText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboardText =
+                (call.arguments as Map<String, dynamic>)['text'] as String?;
+          }
+          return null;
+        },
+      );
+
+      await tester.pumpWidget(wrap(
+        AiChatPage(
+          issue: makeIssue(
+            title: 'Excessive GlobalKeys: 25',
+            stableId: 'excessive_global_keys:0',
+            confidence: IssueConfidence.possible,
+          ),
+          allIssues: const [],
+          adapter: makeAdapter(),
+          history: const [
+            AiChatMessage(role: AiChatRole.user, text: 'Why is this bad?'),
+            AiChatMessage(
+                role: AiChatRole.assistant, text: 'GlobalKeys are expensive.'),
+          ],
+          onHistoryChanged: (_) {},
+          onClose: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.copy_all_outlined));
+      await tester.pump();
+
+      expect(clipboardText, isNotNull);
+      expect(clipboardText!, contains('# Sleuth AI Conversation'));
+      expect(clipboardText!, contains('**Issue:** Excessive GlobalKeys: 25'));
+      expect(clipboardText!, contains('`excessive_global_keys:0`'));
+      expect(clipboardText!, contains('POSSIBLE'));
+      expect(clipboardText!, contains('---'));
+      expect(clipboardText!, contains('User'));
+      expect(clipboardText!, contains('Why is this bad?'));
+      expect(clipboardText!, contains('Assistant'));
+      expect(clipboardText!, contains('GlobalKeys are expensive.'));
+
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    testWidgets('copy escapes markdown-significant characters', (tester) async {
+      String? clipboardText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboardText =
+                (call.arguments as Map<String, dynamic>)['text'] as String?;
+          }
+          return null;
+        },
+      );
+
+      await tester.pumpWidget(wrap(
+        AiChatPage(
+          issue: makeIssue(title: 'Issue *bold* `code` #heading'),
+          allIssues: const [],
+          adapter: makeAdapter(),
+          history: const [
+            AiChatMessage(
+              role: AiChatRole.user,
+              text: 'What about [links] and <html>?',
+            ),
+          ],
+          onHistoryChanged: (_) {},
+          onClose: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.copy_all_outlined));
+      await tester.pump();
+
+      expect(clipboardText, isNotNull);
+      // Title should have escaped markdown chars
+      expect(clipboardText!, contains(r'Issue \*bold\* \`code\` \#heading'));
+      // Message text should have escaped brackets and angle brackets
+      expect(clipboardText!, contains(r'What about \[links\] and \<html\>?'));
+
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    testWidgets('copy shows snackbar confirmation', (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall call) async {
+          return null;
+        },
+      );
+
+      await tester.pumpWidget(wrap(
+        AiChatPage(
+          issue: makeIssue(),
+          allIssues: const [],
+          adapter: makeAdapter(),
+          history: const [
+            AiChatMessage(role: AiChatRole.user, text: 'Q'),
+          ],
+          onHistoryChanged: (_) {},
+          onClose: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.copy_all_outlined));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Conversation copied to clipboard'), findsOneWidget);
+
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    testWidgets('handles large history without error', (tester) async {
+      String? clipboardText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboardText =
+                (call.arguments as Map<String, dynamic>)['text'] as String?;
+          }
+          return null;
+        },
+      );
+
+      final largeHistory = List.generate(
+        100,
+        (i) => AiChatMessage(
+          role: i.isEven ? AiChatRole.user : AiChatRole.assistant,
+          text: 'Message $i with some content to make it realistic.',
+        ),
+      );
+
+      await tester.pumpWidget(wrap(
+        AiChatPage(
+          issue: makeIssue(),
+          allIssues: const [],
+          adapter: makeAdapter(),
+          history: largeHistory,
+          onHistoryChanged: (_) {},
+          onClose: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // Tap copy — should not crash.
+      await tester.tap(find.byIcon(Icons.copy_all_outlined));
+      await tester.pump();
+
+      expect(clipboardText, isNotNull);
+      expect(clipboardText!, contains('Message 99'));
+
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
     });
   });
 
