@@ -241,31 +241,6 @@ Sleuth.track(
 );
 ```
 
-## Fix Verification
-
-Capture a baseline of current issues, apply a fix, and compare to see what improved:
-
-```dart
-// 1. Capture baseline before fixing
-Sleuth.captureBaseline();
-
-// 2. Apply your fix, hot-reload
-
-// 3. Compare after a few scan cycles
-final result = Sleuth.compareToBaseline();
-if (result != null) {
-  print('Resolved: ${result.resolved.length}');
-  print('Improved: ${result.improved.length}');
-  print('Worsened: ${result.worsened.length}');
-  print('New issues: ${result.newIssues.length}');
-}
-
-// 4. Clear when done
-Sleuth.clearBaseline();
-```
-
-Issues are marked "resolved" only after being absent for 5 consecutive scan cycles (cooldown). Hot-reload triggers a 3-cycle grace period to avoid false resolution reports during reload transients.
-
 ## Session Export
 
 Export captured jank data and current issues for sharing or comparison:
