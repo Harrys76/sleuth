@@ -70,7 +70,23 @@ abstract class BaseDetector {
     required this.lifecycle,
     required this.name,
     required this.description,
+    this.key,
   });
+
+  /// Stable identifier for config-driven gating of **custom** detectors.
+  ///
+  /// When a custom detector sets this to a non-null string, the controller
+  /// consults [SleuthConfig.disabledCustomDetectorKeys] during
+  /// initialization: if the key is present, the detector is constructed
+  /// but starts with `isEnabled == false`.
+  ///
+  /// Built-in detectors leave this null — their on/off state is controlled
+  /// via [SleuthConfig.enabledDetectors] (by [DetectorType]), not by key.
+  /// A null key means "I don't participate in config-driven gating."
+  ///
+  /// Keys should be unique per logical detector. If two detectors share a
+  /// key and that key is in the disabled set, both are disabled.
+  final String? key;
 
   /// The detector type identifier used for configuration.
   final DetectorType type;

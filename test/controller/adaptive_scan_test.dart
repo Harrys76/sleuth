@@ -9,7 +9,7 @@ import '../helpers/benchmark_helpers.dart';
 /// Config that only enables frameTiming — structural detectors won't fire,
 /// ensuring scans are "clean" for adaptive-interval tests.
 const _cleanConfig = SleuthConfig(
-  treeScanIntervalMs: 1000,
+  treeScanInterval: Duration(seconds: 1),
   enabledDetectors: {DetectorType.frameTiming},
 );
 
@@ -124,7 +124,7 @@ void main() {
 
       final controller = SleuthController(
         config: const SleuthConfig(
-          treeScanIntervalMs: 1000,
+          treeScanInterval: Duration(seconds: 1),
           adaptiveScanEnabled: false,
           enabledDetectors: {DetectorType.frameTiming},
         ),
@@ -149,7 +149,7 @@ void main() {
 
       final controller = SleuthController(
         config: const SleuthConfig(
-          treeScanIntervalMs: 500,
+          treeScanInterval: Duration(milliseconds: 500),
           enabledDetectors: {DetectorType.frameTiming},
         ),
       );
@@ -171,7 +171,7 @@ void main() {
 
       final controller = SleuthController(
         config: const SleuthConfig(
-          treeScanIntervalMs: 1500,
+          treeScanInterval: Duration(milliseconds: 1500),
           enabledDetectors: {DetectorType.frameTiming},
         ),
       );

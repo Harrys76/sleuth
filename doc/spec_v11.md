@@ -1,8 +1,8 @@
 ## v11 Detector Audit: Gaps, False Positives & Hot-Path Performance
 
-**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) + Pillar 3b (4 milestones) + Pillar 4 (10 milestones) + Pillar 5 Part 1 (7 milestones) + Pillar 5 Part 2 (7 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7 / v0.10.8 / v0.10.9 / v0.11.0 / v0.11.1)
+**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) + Pillar 3b (4 milestones) + Pillar 4 (10 milestones) + Pillar 5 Part 1 (7 milestones) + Pillar 5 Part 2 (7 milestones) + Pillar 6 Part 1 (7 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7 / v0.10.8 / v0.10.9 / v0.11.0 / v0.11.1 / v0.12.0)
 
-Origin: Adversarial audit (2026-04-07) of 5 detectors (ListviewDetector, NestedScrollDetector, LayoutBottleneckDetector, SetStateScopeDetector, RepaintBoundaryDetector). Found 6 gaps and false positives across detection coverage, accuracy, and enrichment. All milestones implemented, adversarial-reviewed twice (8 fix-round findings resolved), 1,561 tests passing, 0 analysis issues.
+Origin: Adversarial audit (2026-04-07) of 5 detectors (ListviewDetector, NestedScrollDetector, LayoutBottleneckDetector, SetStateScopeDetector, RepaintBoundaryDetector). Found 6 gaps and false positives across detection coverage, accuracy, and enrichment. All milestones implemented, adversarial-reviewed twice (8 fix-round findings resolved), 1,869 tests passing, 0 analysis issues.
 
 **Detectors audited:**
 - **ListviewDetector** — detection gap: non-lazy ListView/GridView/SliverList invisible
@@ -1307,3 +1307,110 @@ After Round 6, Pillar 5 Part 2 totals:
 - Round 5 (migrated demo polish): 4 findings resolved + KeepAliveDetector bug fix
 - Round 6 (demo ↔ detector alignment): 5 findings resolved
 - **Total: 18 findings + 1 detector bug fix across 3 rounds**
+
+---
+
+---
+
+## Pillar 6 Part 1: Public API & Authoring Surface (v0.12.0)
+
+**Status: 7/7 milestones shipped** ✅
+
+Full spec: [`spec_v11_pillar6_part1.md`](spec_v11_pillar6_part1.md)
+
+### Summary
+
+Reduces friction at every consumer-facing API surface in Sleuth. Adds preset
+configuration constructors, threshold documentation, debug-mode validation,
+`Duration`-typed intervals, a `SimpleStructuralDetector` helper base class,
+key-based gating for custom detectors, and a three-file custom-detector
+cookbook in the example app. **One breaking change**: `treeScanIntervalMs: int`
+is replaced by `treeScanInterval: Duration`.
+
+### Milestones
+
+| Milestone | Title | Priority |
+|-----------|-------|----------|
+| M1 | `SleuthConfig.minimal()` and `.performance()` preset constructors | P0 |
+| M2 | Inline doc comments on every `SleuthConfig` and `DetectorThresholds` threshold | P0 |
+| M3 | Debug-mode `assert()` validation for invalid configs (14 `SleuthConfig` asserts + 10 `DetectorThresholds` asserts) | P0 |
+| M4 | **Breaking**: `Duration treeScanInterval` replaces `int treeScanIntervalMs` | P0 |
+| M5 | `SimpleStructuralDetector` helper base class (`inspect` + `report` API) | P0 |
+| M6 | Custom detector enable/disable via `BaseDetector.key` + `SleuthConfig.disabledCustomDetectorKeys` | P1 |
+| M7 | Custom detector cookbook (`example/lib/custom_detectors/` + smoke test) | P1 |
+
+### Adversarial Review Findings (Pillar 6 Part 1)
+
+One round of review against the full M1–M7 surface. 8 findings across 3 severity levels; all resolved before merge.
+
+| # | Severity | Component | Finding | Resolution |
+|---|----------|-----------|---------|------------|
+| 1 | HIGH | `test/controller/adaptive_scan_test.dart` | M4 migration strays: three `SleuthConfig(treeScanIntervalMs: ...)` call sites left in the adaptive scan test suite would compile against the removed field and break the build | Migrated all three to `treeScanInterval: Duration(...)`; grep confirmed zero stragglers across `lib/`, `test/`, `example/`, `doc/`, and `README.md` |
+| 2 | HIGH | `lib/src/controller/sleuth_controller.dart` | `SleuthConfig.performance()` originally included `DetectorType.shallowRebuildRisk` in the enabled set — but `ShallowRebuildRiskDetector.lifecycle == DetectorLifecycle.hybrid` (reads VM timeline data), so the "structural-only" preset was implicitly enabling a debug-callback-paying detector | Removed `shallowRebuildRisk` from the `.performance()` set; added doc comment explaining the intentional exclusion and naming `frameTiming` as the other runtime detector excluded by design |
+| 3 | HIGH | `lib/src/controller/detector_thresholds.dart` | M3 added asserts to `SleuthConfig` but left `DetectorThresholds` with no validation. Negative `shaderJankMs`, zero `gpuPressureRatio`, or out-of-range `memoryCapacityPercent` would silently misbehave under const construction | Added 10 asserts covering every numeric field: non-negative millisecond thresholds, positive ratios, percentages in `[0.0, 1.0]`, positive sample-size minimums |
+| 4 | HIGH | `example/lib/custom_detectors/03_hybrid_vm_structural_detector.dart` | `RasterHotSpotDetector.processTimelineData` originally *summed* `data.rasterDurations`. A batch typically contains ~10 frames, so summing tripped the `rasterBudgetMs` budget at ~10× the intended threshold and produced a flood of false positives on perfectly healthy apps | Changed to peak (max) via `fold<int>(0, (peak, current) => current > peak ? current : peak)`; added comment explaining the batch-vs-frame distinction for future copyists |
+| 5 | HIGH | `test/models/simple_structural_detector_test.dart` | `SimpleStructuralDetector` inherited `BaseDetector.scanTree`'s exception safety (wraps walk in try/catch), but no test verified that a throwing `inspect()` still runs `finalizeScan` — the contract was unverified | Added `_ThrowingDetector` subclass and test asserting `scanTree` returns normally, `prepareCalled == true`, and `finalizeCalled == true` even when `inspect` always throws `StateError` |
+| 6 | MEDIUM | `example/lib/custom_detectors/02_runtime_callback_detector.dart` | Dead `_unusedImportAnchor` helper referencing `Timer` and `kDebugMode` anchored two unused imports (`dart:async`, `package:flutter/foundation.dart`). `flutter analyze` flagged the unused imports when the anchor was removed | Removed the dead function AND the two imports in the same edit; final import set: `scheduler.dart`, `widgets.dart`, `sleuth.dart` |
+| 7 | MEDIUM | `example/lib/custom_detectors/01_simple_structural_detector.dart` | `TooltipUsageDetector` used `identityHashCode(element.widget)` as its `stableId`. Flutter creates a fresh `Widget` instance on every rebuild, so the correlator received one new issue per rebuild and flooded the overlay | Keyed `stableId` on `tooltip.message` instead (user-authored, stable across rebuilds). Documented the tradeoff (two tooltips with the same message dedupe together) and pointed to source-location dedup as the production-grade approach |
+| 8 | MEDIUM | `lib/src/controller/sleuth_controller.dart` validation | `SleuthConfig.treeScanInterval > Duration.zero` can't be asserted in the const constructor because `Duration` operators are not const-evaluable, so a zero-duration scan interval would hang the scan loop without warning | Added runtime `assert(() { ... }())` in the `SleuthController` constructor body throwing `ArgumentError` with a remediation hint. Noted the const-assertion limitation inline in `SleuthConfig` so future readers understand why the validation lives in the controller |
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `lib/src/controller/sleuth_controller.dart` | `treeScanInterval: Duration` field, 14 `SleuthConfig` asserts, runtime `treeScanInterval > Duration.zero` validation, `.minimal()` + `.performance()` factories, `disabledCustomDetectorKeys` field, custom detector gating in `_initializeDetectors()`, per-field doc comments |
+| `lib/src/controller/detector_thresholds.dart` | 10 asserts covering all numeric fields, per-field doc comments |
+| `lib/src/models/base_detector.dart` | New public `String? key` field with doc contract (null = always enabled, non-null = gated by `disabledCustomDetectorKeys`) |
+| `lib/src/models/simple_structural_detector.dart` | **New** — `SimpleStructuralDetector` helper base class: `inspect(Element)` + `report(...)` API, automatic per-scan reset, issue/highlight list management, `onPrepareScan` / `onDispose` lifecycle hooks |
+| `lib/sleuth.dart` | Export `SimpleStructuralDetector` |
+| `example/lib/custom_detectors/01_simple_structural_detector.dart` | **New** — `TooltipUsageDetector` (simplest shape: `SimpleStructuralDetector` subclass) |
+| `example/lib/custom_detectors/02_runtime_callback_detector.dart` | **New** — `SlowFrameDetector` (runtime `BaseDetector` hooked to `SchedulerBinding.addTimingsCallback` with rolling window + subscription lifecycle) |
+| `example/lib/custom_detectors/03_hybrid_vm_structural_detector.dart` | **New** — `RasterHotSpotDetector` (hybrid: correlates `ParsedTimelineData` peak raster with wide-`Stack` structural walk, graceful VM-disconnect confidence downgrade) |
+| `example/lib/custom_detectors/README.md` | **New** — cookbook index describing when to use each shape |
+| `example/lib/demos/custom_detector_cookbook_demo.dart` | **New** — demo screen wiring all three cookbook detectors into `Sleuth.track` |
+| `example/test/cookbook_smoke_test.dart` | **New** — 5 smoke tests verifying the cookbook compiles against the public `package:sleuth/sleuth.dart` barrel and flags tooltips end-to-end |
+| `test/controller/config_presets_test.dart` | **New** — `.minimal()` and `.performance()` field assertions, lifecycle verification for the performance preset's detector set |
+| `test/controller/custom_detector_key_gating_test.dart` | **New** — key-gating semantics (null key always on, matching key disabled at init, non-matching key still on) |
+| `test/models/simple_structural_detector_test.dart` | **New** — `inspect` invocation, `report` emission, enabled gating, dispose cleanup, throwing-inspect exception-safety test |
+| `test/controller/adaptive_scan_test.dart` | Migrated 3 call sites from `treeScanIntervalMs: int` to `treeScanInterval: Duration` |
+| `CHANGELOG.md` | `0.12.0` entry with **Breaking** section for M4 and Added entries for M1–M7 |
+| `README.md` | Quick-start shows `SleuthConfig.minimal()` alongside full configuration; configuration snippet uses `Duration` |
+| `pubspec.yaml` | Version bump `0.11.1 → 0.12.0` |
+
+### Real-Device First-Launch VM Connection Fix
+
+**Problem:** On cold start from Android Studio / terminal via USB/WiFi to a real device,
+`Service.getInfo()` returned null URI because the VM web server hadn't bound its port yet.
+Sleuth fell to BASIC/FRAME mode permanently — no VM timeline data, no correlated verdicts,
+no memory profiling.
+
+**VmServiceClient changes** (`lib/src/vm/vm_service_client.dart`):
+- Replaced `Service.getInfo()` with `Service.controlWebServer(enable: true, silenceOutput: true)` to proactively force-bind the VM web server on cold start
+- 3 s timeout using owned `Timer` + `Completer` (NOT `Future.timeout` — avoids timer leak in test environments)
+- `_connectInFlight` concurrency guard — duplicate `connect()` calls join the existing future
+- Prefer SDK's `info.serverWebSocketUri` over hand-rolled `_toWebSocketUri()` for URI conversion
+- IPv4→localhost rewrite enables Dart's Happy Eyeballs dual-stack resolver
+- `reconnect()` checks `_connectInFlight` before cleanup to avoid racing with in-flight connect
+
+**SleuthController changes** (`lib/src/controller/sleuth_controller.dart`):
+- **Background reconnect ladder**: `_scheduleBackgroundReconnect()` runs persistent exponential-backoff retry: 500 ms, 1 s, 2 s, 4 s, 8 s, 16 s, 30 s (7 attempts). Self-cancels on success/dispose/manual reconnect.
+- **Manual reconnect**: Public `reconnect()` with `_reconnectInFlight` concurrency guard. Cancels background loop, delegates to client, re-arms background on failure.
+- **Mid-session VM death recovery**: `_onVmConnectionChanged(false)` re-arms the background ladder when internal reconnect fails.
+- **frameStatsNotifier throttle (Fix A)**: FrameTimingDetector fires at ~60 Hz; notifier emission now throttled to ~5 Hz (200 ms min). Prevents Sleuth's own overlay rebuilds from triggering false `rebuild_activity` on idle screens.
+
+### Adversarial Review (Pillar 6 Part 1 + VM Connection)
+
+**Scope:** M1–M7 + real-device VM connection changes. One review round, 4 findings:
+
+1. **Unified walk exception isolation** (Critical): One custom detector throwing in `checkElement` killed the walk for all 16 detectors. **Fix:** Per-detector try/catch wrapping each `d.checkElement(element)` and `d.afterElement(element)` in the unified walk visitor.
+2. **Post-dispose continuation guards** (Medium): `VmServiceClient._connectImpl` had no `_disposed` checks after 6 await points, risking leaked VmService + poll timer. **Fix:** Added `if (_disposed) return false;` (with `_cleanup()` where service already assigned) after every await.
+3. **Diagnostic prints removal** (Low): 36 `[sleuth-diag]` temporary prints across 4 files removed before publish.
+4. **frameStatsNotifier throttle test coverage** (Low): Throttle had zero test coverage. **Fix:** 2 new tests in `degradation_contract_test.dart` using injectable `clockOverrideForTest` (since `DateTime.now()` is not overridden by `fakeAsync`).
+
+### Verification (Pillar 6 Part 1)
+
+- `fvm flutter analyze` (sleuth) — 0 issues
+- `fvm flutter analyze` (example) — 0 issues
+- `fvm flutter test` — **1,869 tests passing** (1,825 → 1,869, +44 across M1–M7 + VM connection + throttle)
+- `cd example && fvm flutter test` — **6 tests passing** (5 cookbook + 1 global key realization)
+- Adversarial review: 4 findings, all resolved

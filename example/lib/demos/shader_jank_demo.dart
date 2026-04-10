@@ -27,30 +27,42 @@ class ShaderJankDemo extends StatelessWidget {
           'Note: Impeller (default on iOS since Flutter 3.16, Android since '
           '3.22) pre-compiles shaders offline. This demo only triggers on '
           'the Skia backend. Use --no-enable-impeller to test.',
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.blur_on, size: 64, color: Colors.grey),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const _ShaderHeavyPage()),
+      body: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: _ImpellerWarningBanner(),
+          ),
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.blur_on, size: 64, color: Colors.grey),
+                  const SizedBox(height: 24),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const _ShaderHeavyPage(),
+                      ),
+                    ),
+                    icon: const Icon(Icons.open_in_new),
+                    label: const Text('Navigate to Shader-Heavy Screen'),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Restart the app to re-trigger shader compilation.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                  ),
+                ],
               ),
-              icon: const Icon(Icons.open_in_new),
-              label: const Text('Navigate to Shader-Heavy Screen'),
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Restart the app to re-trigger shader compilation.',
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.outline,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
       fixedBody: const _ShaderJankFixedBody(),
     );

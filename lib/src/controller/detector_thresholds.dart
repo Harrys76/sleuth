@@ -1,6 +1,9 @@
 /// Detector-specific thresholds for fine-tuning performance detection.
 ///
 /// All fields have sensible defaults matching the built-in heuristics.
+/// Every field carries a "what / default / raise / lower" doc comment so
+/// you can tune with intention instead of guessing.
+///
 /// Override individual values to adjust sensitivity for your app:
 ///
 /// ```dart
@@ -24,44 +27,166 @@ class DetectorThresholds {
     this.keepAliveMax = 5,
     this.animatedBuilderMinSubtreeSize = 50,
     this.fontLoadingMaxFamilies = 3,
-  });
+  })  : assert(
+          shaderJankMs >= 0,
+          'shaderJankMs must be >= 0 (got a negative value).',
+        ),
+        assert(
+          heavyComputeGapMs >= 0,
+          'heavyComputeGapMs must be >= 0 (got a negative value).',
+        ),
+        assert(
+          gpuPressureRatio > 0,
+          'gpuPressureRatio must be > 0 (ratios must be positive).',
+        ),
+        assert(
+          memoryGrowthBytesPerSec >= 0,
+          'memoryGrowthBytesPerSec must be >= 0 (got a negative value).',
+        ),
+        assert(
+          memoryCapacityPercent >= 0.0 && memoryCapacityPercent <= 1.0,
+          'memoryCapacityPercent must be in the range 0.0..1.0.',
+        ),
+        assert(
+          shallowRebuildMaxDepth >= 1,
+          'shallowRebuildMaxDepth must be >= 1 (depth 0 is the root).',
+        ),
+        assert(
+          setStateScopeOwnershipPercent >= 0.0 &&
+              setStateScopeOwnershipPercent <= 1.0,
+          'setStateScopeOwnershipPercent must be in the range 0.0..1.0.',
+        ),
+        assert(
+          keepAliveMax >= 1,
+          'keepAliveMax must be >= 1 (zero would flag every keep-alive).',
+        ),
+        assert(
+          animatedBuilderMinSubtreeSize >= 1,
+          'animatedBuilderMinSubtreeSize must be >= 1.',
+        ),
+        assert(
+          fontLoadingMaxFamilies >= 1,
+          'fontLoadingMaxFamilies must be >= 1 (zero would flag every screen).',
+        );
 
-  /// Shader compilation duration (ms) above which the detector fires.
-  /// Critical severity at 2× this value.
+  /// Shader compilation duration in milliseconds above which
+  /// [ShaderJankDetector] fires. Critical severity at 2× this value.
+  ///
+  /// **Default:** 100 ms. Shader warmup stalls are typically multi-frame
+  /// events; 100 ms reliably filters cold-start compilations without
+  /// misattributing ordinary long builds.
+  ///
+  /// **Raise this** (e.g. 150 ms) on GPU-constrained devices where 100 ms
+  /// shader compiles are common and expected.
+  ///
+  /// **Lower this** (e.g. 50 ms) for a stricter shader-warmup audit on
+  /// Impeller-enabled iOS where shader jank should be rare.
   final int shaderJankMs;
 
-  /// UI thread gap duration (ms) indicating heavy compute.
-  /// Detection triggers at 2× this value (default 16ms).
+  /// UI-thread gap duration in milliseconds indicating heavy compute on
+  /// the main isolate. [HeavyComputeDetector] fires at 2× this value
+  /// (default fire threshold: 16 ms).
+  ///
+  /// **Default:** 8 ms (half a 16 ms frame budget). Fires at 16 ms, which
+  /// is the point where a frame is definitively lost.
+  ///
+  /// **Raise this** to quiet the detector on slower devices. **Lower
+  /// this** (e.g. 4 ms) for a stricter main-isolate budget audit.
   final int heavyComputeGapMs;
 
-  /// Raster-to-UI time ratio above which GPU pressure is flagged.
-  /// Critical severity at 2× this value.
+  /// Raster-to-UI time ratio above which [GpuPressureDetector] flags a
+  /// frame as GPU-bound. Critical severity at 2× this value.
+  ///
+  /// **Default:** 2.0. Raster time is normally a small fraction of UI
+  /// time; a ratio above 2 means the GPU is the bottleneck (excess
+  /// layers, saveLayer calls, or expensive shaders).
+  ///
+  /// **Raise this** (e.g. 3.0) for games or intentionally GPU-heavy
+  /// scenes. **Lower this** (e.g. 1.5) to catch GPU pressure earlier.
   final double gpuPressureRatio;
 
-  /// Heap growth rate (bytes/sec) above which memory pressure is flagged.
-  /// Default ~512 KB/sec.
+  /// Heap growth rate in bytes per second above which
+  /// [MemoryPressureDetector] flags sustained growth.
+  ///
+  /// **Default:** 512 KB/sec (512,000). Evaluated over a 10 s sliding
+  /// window to avoid latching on brief allocation bursts (e.g. a single
+  /// image decode).
+  ///
+  /// **Raise this** (e.g. 2 MB/sec) for apps with legitimately bursty
+  /// allocation (image-heavy feeds). **Lower this** (e.g. 128 KB/sec)
+  /// for a stricter leak hunt.
   final int memoryGrowthBytesPerSec;
 
-  /// Heap usage as fraction of capacity (0.0–1.0) above which near-capacity
-  /// warnings fire. Default 0.80 (80%).
+  /// Heap usage as a fraction of capacity (0.0–1.0) above which
+  /// [MemoryPressureDetector] fires a near-capacity warning.
+  ///
+  /// **Default:** 0.80 (80 %). Once the Dart heap exceeds 80 % of
+  /// capacity, GC frequency rises sharply and the app is one allocation
+  /// burst away from a stall.
+  ///
+  /// **Raise this** (e.g. 0.90) for memory-tight apps that intentionally
+  /// run close to the limit. **Lower this** (e.g. 0.70) for an earlier
+  /// warning.
   final double memoryCapacityPercent;
 
-  /// Maximum widget tree depth for shallow rebuild risk detection.
-  /// StatefulWidgets at or above this depth are flagged.
+  /// Maximum widget-tree depth for [ShallowRebuildRiskDetector].
+  /// StatefulWidgets at or above this depth are flagged when they
+  /// rebuild.
+  ///
+  /// **Default:** 3. Rebuilds at depth 0–3 sit near the tree root and
+  /// cascade into large subtrees — the canonical setState-too-high
+  /// anti-pattern.
+  ///
+  /// **Raise this** (e.g. 5) to be noisier, catching medium-depth
+  /// cascades. **Lower this** (e.g. 1) to only flag root-level rebuilds.
   final int shallowRebuildMaxDepth;
 
-  /// Minimum subtree ownership ratio (0.0–1.0) for setState scope detection.
-  /// Fires when a StatefulWidget's subtree exceeds this fraction of the tree.
+  /// Minimum proportion of the owning subtree that must be dirty for
+  /// [SetStateScopeDetector] to promote a rebuild hot spot into an issue.
+  /// Value is a fraction in the range 0.0–1.0.
+  ///
+  /// **Default:** 0.5 (50 %). Chosen to suppress the 5 %–20 % "normal
+  /// chatter" you see during scrolling while keeping obvious top-level
+  /// setState storms (≥60 %) detectable.
+  ///
+  /// **Raise this** (e.g. 0.80) to only flag the most egregious
+  /// scope-violations. **Lower this** (e.g. 0.30) for stricter
+  /// setState-scope hygiene — expect more false positives in legitimate
+  /// reactive UIs.
   final double setStateScopeOwnershipPercent;
 
-  /// Maximum AutomaticKeepAlive widgets before the detector fires.
-  /// Critical severity at 2× this value.
+  /// Maximum active `AutomaticKeepAlive` entries in a scrollable before
+  /// [KeepAliveDetector] fires. Critical severity at 2× this value.
+  ///
+  /// **Default:** 5. Above this, keep-alive hoarding defeats the
+  /// lazy-list memory model — every preserved item is permanently
+  /// resident in RAM.
+  ///
+  /// **Raise this** (e.g. 15) if your UI genuinely needs many keep-alive
+  /// items (a tab bar with preserved state). **Lower this** (e.g. 3)
+  /// for stricter lazy-list hygiene.
   final int keepAliveMax;
 
-  /// Minimum AnimatedBuilder subtree size (widget count) to flag missing
-  /// `child` parameter. Smaller subtrees are ignored as low-impact.
+  /// Minimum [AnimatedBuilder] subtree size (widget count) before
+  /// [AnimatedBuilderDetector] flags a missing `child` parameter.
+  /// Smaller subtrees are ignored as low-impact.
+  ///
+  /// **Default:** 50. Below 50 descendants the per-tick rebuild cost is
+  /// negligible even without the `child` optimization.
+  ///
+  /// **Raise this** (e.g. 100) to only flag the worst offenders.
+  /// **Lower this** (e.g. 20) to enforce strict child-hoisting hygiene.
   final int animatedBuilderMinSubtreeSize;
 
-  /// Maximum custom font families on a single screen before the detector fires.
+  /// Maximum distinct custom font families observed on a single screen
+  /// before [FontLoadingDetector] fires.
+  ///
+  /// **Default:** 3. Every additional family requires a glyph atlas
+  /// upload; 3 families covers a typical design system (regular / medium
+  /// / display) with no waste.
+  ///
+  /// **Raise this** (e.g. 8) for design systems with many weights or
+  /// foreign-script fallbacks. **Lower this** (e.g. 2) to enforce strict
+  /// font discipline.
   final int fontLoadingMaxFamilies;
 }

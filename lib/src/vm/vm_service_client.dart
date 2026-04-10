@@ -28,11 +28,12 @@ typedef HeapSampleCallback = void Function(HeapSample sample);
 
 /// Connects to the app's own VM Service for exact performance data.
 ///
-/// Uses [dart:developer.Service.getInfo()] to get the VM service URI
-/// and connects via WebSocket. Works reliably on desktop and iOS.
-/// On Android, the connection may fail because the reported URI uses
-/// an adb-forwarded port — in that case the controller falls back to
-/// BASIC mode (FrameTiming + structural analysis).
+/// Uses [dart:developer.Service.controlWebServer] to start/query the
+/// VM web server and connects via WebSocket. Works reliably on desktop
+/// and simulators. On real iOS devices launched via IDE (USB bridge) or
+/// Android with adb-forwarded ports, the reported URI may be unreachable
+/// from the device — in that case the controller falls back to BASIC mode
+/// (FrameTiming + structural analysis).
 class VmServiceClient {
   VmServiceClient({
     this.onTimelineData,
@@ -57,6 +58,22 @@ class VmServiceClient {
   bool _connected = false;
   bool _reconnecting = false;
 
+  /// In-flight [connect] future. While non-null, additional [connect] calls
+  /// return the same future instead of starting a second attempt in parallel
+  /// — this is the guard that prevents the controller's background reconnect
+  /// loop from racing with a user-triggered [reconnect] and leaking duplicate
+  /// poll timers / service instances.
+  Future<bool>? _connectInFlight;
+
+  /// Cancellable timeout guard for the controlWebServer() call. See
+  /// [_connectImpl] — we can't use `Future.timeout()` directly because the
+  /// native controlWebServer future may never complete in test environments
+  /// (FakeAsync doesn't drive it), which would leave `Future.timeout`'s
+  /// internal Timer pending at widget dispose and trip the test framework's
+  /// `A Timer is still pending` assertion. Owning the timer ourselves lets
+  /// [dispose] cancel it cleanly.
+  Timer? _controlWebServerTimer;
+
   /// Cached main isolate ID, resolved during [connect].
   String? _mainIsolateId;
 
@@ -78,32 +95,120 @@ class VmServiceClient {
   ///
   /// Retries [maxRetries] times with [retryDelay] between attempts.
   /// Returns `true` if connected, `false` if all retries exhausted.
+  ///
+  /// **Concurrency**: if a prior [connect] is already in flight, this call
+  /// joins it and returns the same future instead of starting a second
+  /// attempt. That prevents the background reconnect loop and user-triggered
+  /// [reconnect] from racing into duplicate poll timers / service instances.
   Future<bool> connect({
     int maxRetries = 3,
     Duration retryDelay = const Duration(milliseconds: 500),
+  }) {
+    final existing = _connectInFlight;
+    if (existing != null) return existing;
+    final future = _connectImpl(maxRetries: maxRetries, retryDelay: retryDelay);
+    _connectInFlight = future;
+    // Clear the slot when this attempt resolves, but only if it's still ours.
+    future.whenComplete(() {
+      if (identical(_connectInFlight, future)) _connectInFlight = null;
+    });
+    return future;
+  }
+
+  Future<bool> _connectImpl({
+    required int maxRetries,
+    required Duration retryDelay,
   }) async {
     if (kReleaseMode || _disposed) return false;
 
     for (var attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        final info = await developer.Service.getInfo();
+        // Use controlWebServer(enable: true) rather than getInfo() so we
+        // proactively *start* the VM web server if it's dormant. Service.getInfo()
+        // only queries state — if the server hasn't bound its port yet (common
+        // on cold start, especially Android adb-forwarded ports) it returns
+        // a null serverUri and we'd have to poll-spin until the framework got
+        // around to starting it. controlWebServer forces the bind and returns
+        // a fully-populated ServiceProtocolInfo in one shot.
+        //
+        // **Timeout**: on some cold-start scenarios (Android Studio first
+        // launch, embedder quirks) this call can block indefinitely instead
+        // of failing fast. A 3 s bailout converts that hang into a normal
+        // catch so the retry loop and, ultimately, the controller's
+        // background reconnect ladder can take over. Without it,
+        // initialize() never returns and Sleuth stays in FRAME mode forever.
+        //
+        // We can't use `Future.timeout()` here: in widget-test environments
+        // the native controlWebServer future never completes, and
+        // `Future.timeout` leaves its internal Timer pending until the fake
+        // clock advances 3 s — which tripps the `A Timer is still pending`
+        // assertion at widget dispose. Owning the timer ourselves lets
+        // [dispose] cancel it before the invariant check runs.
+        final completer = Completer<developer.ServiceProtocolInfo>();
+        _controlWebServerTimer?.cancel();
+        final timeoutTimer = Timer(const Duration(seconds: 3), () {
+          if (!completer.isCompleted) {
+            completer.completeError(
+              TimeoutException(
+                'Service.controlWebServer did not return within 3s',
+                const Duration(seconds: 3),
+              ),
+            );
+          }
+        });
+        _controlWebServerTimer = timeoutTimer;
+        developer.Service.controlWebServer(
+          enable: true,
+          silenceOutput: true,
+        ).then(
+          (i) {
+            if (!completer.isCompleted) completer.complete(i);
+          },
+          onError: (Object e, StackTrace st) {
+            if (!completer.isCompleted) completer.completeError(e, st);
+          },
+        );
+        developer.ServiceProtocolInfo info;
+        try {
+          info = await completer.future;
+        } finally {
+          timeoutTimer.cancel();
+          if (identical(_controlWebServerTimer, timeoutTimer)) {
+            _controlWebServerTimer = null;
+          }
+        }
+        if (_disposed) return false;
         final uri = info.serverUri;
 
         if (uri == null) {
           if (attempt < maxRetries) {
             await Future<void>.delayed(retryDelay);
+            if (_disposed) return false;
             continue;
           }
           return false;
         }
 
-        // Convert HTTP URI to WebSocket URI
-        final wsUri = _toWebSocketUri(uri);
+        // Prefer the SDK-provided WebSocket URI builder (handles pathSegments
+        // and scheme rewrite correctly, available since Dart 2.14). Fall back
+        // to our hand-rolled helper only if the getter returns null.
+        var wsUri = info.serverWebSocketUri ?? _toWebSocketUri(uri);
+
+        // controlWebServer reports 127.0.0.1 (IPv4-only literal). Using
+        // 'localhost' enables Dart's Happy Eyeballs dual-stack resolver so
+        // WebSocket.connect tries both IPv4 and IPv6 automatically.
+        if (wsUri.host == '127.0.0.1') {
+          wsUri = wsUri.replace(host: 'localhost');
+        }
 
         // Use a timeout to avoid hanging on unreachable addresses
         // (common on Android where the URI is host-forwarded).
         _service = await vmServiceConnectUri(wsUri.toString())
             .timeout(const Duration(seconds: 3));
+        if (_disposed) {
+          _cleanup();
+          return false;
+        }
 
         // Enable timeline streams for framework events
         await _service!.setVMTimelineFlags([
@@ -114,9 +219,17 @@ class VmServiceClient {
 
         // Resolve main isolate ID for getMemoryUsage() polling
         _mainIsolateId = await _resolveMainIsolateId();
+        if (_disposed) {
+          _cleanup();
+          return false;
+        }
 
         // Subscribe to event streams
         await _subscribeToStreams();
+        if (_disposed) {
+          _cleanup();
+          return false;
+        }
 
         // Start periodic timeline polling
         _startTimelinePolling();
@@ -127,6 +240,7 @@ class VmServiceClient {
       } catch (_) {
         if (attempt < maxRetries) {
           await Future<void>.delayed(retryDelay);
+          if (_disposed) return false;
         }
       }
     }
@@ -136,6 +250,19 @@ class VmServiceClient {
   /// Reconnect with exponential backoff (1s, 2s, 4s).
   Future<bool> reconnect() async {
     if (_reconnecting || _disposed) return false;
+
+    // If a [connect] is already in flight (e.g., kicked off by the
+    // controller's background reconnect loop), join it rather than starting
+    // a second attempt that would race [_cleanup] against its state writes.
+    // If that attempt succeeds we're done; if it fails we fall through to
+    // a full cleanup + retry cycle.
+    final existing = _connectInFlight;
+    if (existing != null) {
+      final ok = await existing;
+      if (_disposed) return false;
+      if (ok) return true;
+    }
+
     _reconnecting = true;
     _cleanup();
 
@@ -149,6 +276,10 @@ class VmServiceClient {
       for (final delay in delays) {
         if (_disposed) return false;
         await Future<void>.delayed(delay);
+        if (_disposed) return false;
+        // Another code path may have reconnected us during our delay.
+        // Don't tear down a working connection — just return success.
+        if (_connected) return true;
         if (await connect(maxRetries: 0)) return true;
       }
       return false;
@@ -267,6 +398,8 @@ class VmServiceClient {
   void _cleanup() {
     _pollTimer?.cancel();
     _pollTimer = null;
+    _controlWebServerTimer?.cancel();
+    _controlWebServerTimer = null;
     _timelineSub?.cancel();
     _timelineSub = null;
     _gcSub?.cancel();

@@ -50,6 +50,20 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
   Timer? _churnTimer;
   bool _churning = false;
 
+  /// Sustained Dart heap growth timer. Allocates ~2 MB/sec for 20 seconds,
+  /// which is how you reliably trip [MemoryPressureDetector]'s `heap_growing`
+  /// signal: the detector requires the linear-regression slope over its
+  /// 30-second sample window to stay above 512 KB/s for 10 *consecutive*
+  /// seconds. A burst of 3–4 manual taps is too spiky — the slope can dip
+  /// between taps before the sustained guard fires. A Timer.periodic
+  /// guarantees a steady slope well above threshold for long enough that the
+  /// detector always fires.
+  Timer? _sustainedGrowthTimer;
+  bool _sustainedGrowing = false;
+  int _sustainedSecondsRemaining = 0;
+  static const int _sustainedGrowthDurationSec = 20;
+  static const int _sustainedGrowthTickBytes = 2 * 1024 * 1024; // 2 MB/sec
+
   /// Side-effect sink so the optimizer can't eliminate churn allocations.
   // ignore: unused_field
   int _churnBytesSeen = 0;
@@ -128,6 +142,59 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
     }
   }
 
+  // ── Sustained Growth ──
+
+  /// Starts a periodic timer that allocates 2 MB/sec of retained Dart heap
+  /// objects for 20 seconds. This is the "guaranteed fire" path: the
+  /// sustained slope is 4× the 512 KB/s threshold and runs for 2× the 10s
+  /// sustained-growth guard, so the detector's heap_growing signal always
+  /// fires regardless of sample-window alignment.
+  void _toggleSustainedGrowth() {
+    if (_sustainedGrowing) {
+      _sustainedGrowthTimer?.cancel();
+      _sustainedGrowthTimer = null;
+      setState(() {
+        _sustainedGrowing = false;
+        _sustainedSecondsRemaining = 0;
+      });
+      return;
+    }
+    if (_isFixedMode) return;
+    setState(() {
+      _sustainedGrowing = true;
+      _sustainedSecondsRemaining = _sustainedGrowthDurationSec;
+    });
+    _sustainedGrowthTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      // Allocate ~2 MB of retained Dart heap on each tick. Each entry is a
+      // 256-byte Map; 8192 entries ≈ 2 MB (conservatively; actual heap
+      // footprint is higher due to object headers).
+      final batch = List.generate(
+        8192,
+        (i) => <String, Object>{
+          'id': i,
+          'data': List.filled(32, i),
+          'pad': 'sustained_pad_$i',
+        },
+      );
+      setState(() {
+        _dartObjects.add(batch);
+        _dartBatchKB.add(_sustainedGrowthTickBytes ~/ 1024);
+        _sustainedSecondsRemaining--;
+      });
+      if (_sustainedSecondsRemaining <= 0) {
+        timer.cancel();
+        _sustainedGrowthTimer = null;
+        if (mounted) {
+          setState(() => _sustainedGrowing = false);
+        }
+      }
+    });
+  }
+
   // ── Release ──
 
   void _releaseAll() {
@@ -173,6 +240,14 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
         _churnTimer = null;
         _churning = false;
       }
+      // Stop any in-flight sustained growth run — the point of the fixed
+      // pattern is bounded memory.
+      if (_sustainedGrowing) {
+        _sustainedGrowthTimer?.cancel();
+        _sustainedGrowthTimer = null;
+        _sustainedGrowing = false;
+        _sustainedSecondsRemaining = 0;
+      }
       _enforcePoolCap();
     }
   }
@@ -180,6 +255,7 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
   @override
   void dispose() {
     _churnTimer?.cancel();
+    _sustainedGrowthTimer?.cancel();
     // Free any remaining FFI allocations to avoid native memory leaks.
     for (final buffer in _ffiBuffers) {
       calloc.free(buffer);
@@ -197,17 +273,23 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
           'growth, native memory growth, and GC pressure.\n'
           '✅ FIX: Dispose resources, use object pools, free FFI allocations, '
           'limit concurrent loads.\n\n'
-          '▶ Tap "Dart Heap +10MB" 3–4 times over 10 seconds to trigger '
-          '`heap_growing`.\n'
-          '▶ Tap "Native +10MB" 3–4 times over 10 seconds to trigger '
+          '▶ Tap "Sustained Growth" — allocates ~2 MB/sec of retained Dart '
+          'heap for 20 seconds. This reliably trips `heap_growing` because '
+          'the detector needs the slope to stay above 512 KB/s for 10 '
+          '*consecutive* seconds. A few manual taps is usually too spiky to '
+          'sustain that window.\n'
+          '▶ Tap "Native +10MB" several times over 15 seconds to trigger '
           '`native_memory_growing` (FFI-allocated, outside the Dart heap).\n'
           '▶ Toggle "GC Churn" on for ~5 seconds to trigger `gc_pressure` '
           '(>30 GC/min). The "Retained (Dart)" counter stays at 0 during '
           'churn because the allocations are intentionally transient.\n\n'
           '▶ Flip to Fixed Pattern — retained memory is capped at '
-          '${_fixedPoolCapMB}MB and churn is replaced with a reusable pool.\n\n'
+          '${_fixedPoolCapMB}MB, sustained growth is halted, and churn is '
+          'replaced with a reusable pool.\n\n'
           'Requires VM service connection (profile mode). Heap/native trend '
-          'signals have a 3s warmup before evaluation begins.',
+          'signals have a 3s warmup before evaluation begins, and '
+          '`heap_growing` fires only after 10 sustained seconds above '
+          'threshold.',
       metricsBar: MetricsBar(
         chips: [
           MetricChip(label: 'Retained (Dart)', value: '$_dartMB', unit: ' MB'),
@@ -295,6 +377,17 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
             runSpacing: 8,
             alignment: WrapAlignment.center,
             children: [
+              FilledButton.icon(
+                // Sustained growth is the reliable path — in fixed mode it's
+                // disabled because the whole point is bounded memory.
+                onPressed: isFixed ? null : _toggleSustainedGrowth,
+                icon: Icon(_sustainedGrowing ? Icons.stop : Icons.trending_up),
+                label: Text(
+                  _sustainedGrowing
+                      ? 'Stop (${_sustainedSecondsRemaining}s)'
+                      : 'Sustained Growth (2 MB/s × 20s)',
+                ),
+              ),
               FilledButton.icon(
                 onPressed: _allocateDartHeap,
                 icon: const Icon(Icons.add_circle),

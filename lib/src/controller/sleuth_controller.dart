@@ -73,6 +73,20 @@ class SleuthController {
         _captureBuffer = JankCaptureBuffer(
           capacity: (config ?? const SleuthConfig()).captureBufferCapacity,
         ) {
+    // Runtime validation for fields that cannot be asserted in a const
+    // constructor because Duration operators are not const-evaluable.
+    // These would otherwise silently hang the scan loop with a zero-tick
+    // timer in debug mode.
+    assert(() {
+      final interval = (config ?? const SleuthConfig()).treeScanInterval;
+      if (interval <= Duration.zero) {
+        throw ArgumentError(
+          'SleuthConfig.treeScanInterval must be > Duration.zero, got $interval. '
+          'Use Duration(seconds: 1) or longer for normal operation.',
+        );
+      }
+      return true;
+    }());
     _compileSuppressions();
   }
 
@@ -88,6 +102,38 @@ class SleuthController {
 
   // VM layer
   VmServiceClient? _vmClient;
+
+  // -- First-launch / BASIC-mode recovery --
+  //
+  // On cold start, the VM web server may not be bound yet when initialize()
+  // runs. VmServiceClient.connect() has its own short retry window
+  // (~13.5 s total), but on real iOS devices in profile mode the dyld + engine
+  // + VM bind race can easily outlast that budget. If the initial connect
+  // fails, we fall to BASIC verdict mode and previously had NO way back —
+  // the poll-error reconnect path only fires once polling has started.
+  //
+  // [_scheduleBackgroundReconnect] runs a persistent exponential-backoff
+  // retry loop until connect succeeds or the controller is disposed. The
+  // ladder starts at 500 ms so the first recovery probe lands well inside
+  // the iOS cold-start bind window, then backs off to 30 s for long idle
+  // profiling sessions.
+  Timer? _backgroundReconnectTimer;
+  int _backgroundReconnectAttempt = 0;
+  bool _backgroundReconnectActive = false;
+
+  /// In-flight [reconnect] future. A second concurrent call (e.g. the user
+  /// double-tapping a "reconnect" button) joins it instead of starting a
+  /// parallel attempt and returning a stale `false`.
+  Future<bool>? _reconnectInFlight;
+  static const List<Duration> _backgroundReconnectDelays = [
+    Duration(milliseconds: 500),
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 8),
+    Duration(seconds: 16),
+    Duration(seconds: 30),
+  ];
 
   // Analyzer
   final RenderPipelineAnalyzer _analyzer = RenderPipelineAnalyzer();
@@ -139,6 +185,27 @@ class SleuthController {
   // Allocation enrichment
   DateTime? _lastAllocationEnrichmentTime;
 
+  // -- Fix A: frameStatsNotifier throttle --
+  //
+  // FrameTimingDetector fires _onFrameStats on every presented frame (~60 Hz),
+  // which used to push a fresh FrameStatsBuffer into frameStatsNotifier at the
+  // same rate. That notifier is driven by UI (TriggerButton, FloatingIssuesCard)
+  // as a text-only FPS readout — any rate above ~5 Hz is unreadable anyway, and
+  // the 60 Hz emission created a self-feedback loop where Sleuth's own overlay
+  // rebuilds dominated the VM build-event count and fired rebuild_activity on
+  // an otherwise idle screen. The detector still samples every vsync for jank
+  // analysis; only the notifier emission is throttled.
+  //
+  // Emits at: first sample, then ≥200ms since last emission, then once more
+  // on jank frames so the export snapshot's notifier-backed fallback is fresh.
+  DateTime? _lastFrameStatsNotifierEmit;
+  static const _frameStatsNotifierThrottle = Duration(milliseconds: 200);
+
+  /// Test-only clock override. Dart's [DateTime.now] is not affected by
+  /// [fakeAsync], so throttle tests inject a fake clock here.
+  @visibleForTesting
+  static DateTime Function()? clockOverrideForTest;
+
   /// SDK/framework classes excluded from allocation attribution unless
   /// they dominate > 50% of total allocations.
   static const _frameworkClassPrefixes = [
@@ -189,7 +256,7 @@ class SleuthController {
   /// before slowing down, to avoid thrashing on flicker.
   static const _cleanScanThreshold = 3;
 
-  /// Maximum back-off interval in ms regardless of [treeScanIntervalMs].
+  /// Maximum back-off interval in ms regardless of [SleuthConfig.treeScanInterval].
   static const _maxBackOffMs = 2000;
 
   // -- M5: Issue allocation reduction caches --
@@ -401,11 +468,135 @@ class SleuthController {
     );
     _vmClient = client;
 
-    final connected = await client.connect();
+    bool connected = false;
+    try {
+      connected = await client.connect();
+    } catch (_) {
+      // Connect failure is expected on real devices — the background
+      // reconnect ladder below handles recovery.
+    }
+    if (_disposed) return;
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
 
     _initialized = true;
+
+    // BASIC-mode recovery: if the cold-start connect failed, keep trying in
+    // the background with exponential backoff. Without this, a first-launch
+    // bind race leaves Sleuth permanently in BASIC mode for the session.
+    if (!connected && !_disposed) {
+      _scheduleBackgroundReconnect();
+    }
+  }
+
+  /// Schedule the next background reconnect attempt with exponential backoff.
+  ///
+  /// Idempotent: calling this while a background attempt is already pending
+  /// is a no-op. The loop self-cancels on success, on dispose, or when a
+  /// manual [reconnect] call supersedes it.
+  void _scheduleBackgroundReconnect() {
+    if (_disposed || _backgroundReconnectActive) return;
+    final client = _vmClient;
+    if (client == null || client.isDisposed) return;
+    if (client.isConnected) {
+      _backgroundReconnectAttempt = 0;
+      return;
+    }
+
+    // Cap: stop retrying after exhausting the delay ladder. On platforms
+    // where the VM web server is structurally unreachable (e.g. real iOS
+    // devices launched via IDE — the USB bridge port is host-only), there
+    // is no point retrying forever.
+    if (_backgroundReconnectAttempt >= _backgroundReconnectDelays.length) {
+      return;
+    }
+
+    _backgroundReconnectActive = true;
+    final delay = _backgroundReconnectDelays[_backgroundReconnectAttempt];
+    _backgroundReconnectTimer?.cancel();
+    _backgroundReconnectTimer = Timer(delay, () async {
+      _backgroundReconnectTimer = null;
+      // Do NOT clear _backgroundReconnectActive yet — keeping it true during
+      // the in-flight connect prevents a concurrent caller of
+      // [_scheduleBackgroundReconnect] (e.g., [_onVmConnectionChanged] firing
+      // from a different path) from stacking a second timer on top of ours.
+      // The flag is cleared in the finally block after the connect resolves.
+      var rescheduleNeeded = false;
+      try {
+        if (_disposed) return;
+        final c = _vmClient;
+        if (c == null || c.isDisposed || c.isConnected) {
+          _backgroundReconnectAttempt = 0;
+          return;
+        }
+        // maxRetries: 1 — each tick gets two inner attempts separated by
+        // the client's 500 ms retry delay. Covers the cold-start bind
+        // window more densely than a single-shot probe without compounding
+        // too much delay into a single tick (~6.5 s worst case per tick).
+        final ok = await c.connect(maxRetries: 1);
+        if (_disposed) return;
+        if (ok) {
+          _backgroundReconnectAttempt = 0;
+          vmConnectedNotifier.value = true;
+          _syncVmState(true);
+          return;
+        }
+        _backgroundReconnectAttempt++;
+        rescheduleNeeded = true;
+      } finally {
+        _backgroundReconnectActive = false;
+      }
+      if (rescheduleNeeded) {
+        _scheduleBackgroundReconnect();
+      }
+    });
+  }
+
+  /// Manually trigger a VM reconnect attempt. Safe to call before
+  /// [initialize], after [dispose], or while a background reconnect is
+  /// pending. Returns `true` on success, `false` otherwise.
+  ///
+  /// Intended as the "Tap to reconnect" hook for overlay UI when Sleuth
+  /// is stuck in BASIC mode. Cancels any in-flight background loop before
+  /// delegating so two attempts don't race each other.
+  ///
+  /// **Concurrency**: a second call while the first is still running joins
+  /// the in-flight future — a user double-tapping the UI gets one result,
+  /// not two parallel attempts.
+  Future<bool> reconnect() {
+    if (_disposed || kReleaseMode) return Future.value(false);
+    final existing = _reconnectInFlight;
+    if (existing != null) return existing;
+
+    final future = _reconnectImpl();
+    _reconnectInFlight = future;
+    future.whenComplete(() {
+      if (identical(_reconnectInFlight, future)) _reconnectInFlight = null;
+    });
+    return future;
+  }
+
+  Future<bool> _reconnectImpl() async {
+    final client = _vmClient;
+    if (client == null || client.isDisposed) return false;
+
+    // Stop the background loop; a manual attempt supersedes the scheduled one.
+    _backgroundReconnectTimer?.cancel();
+    _backgroundReconnectTimer = null;
+    _backgroundReconnectActive = false;
+
+    final ok = await client.reconnect();
+    if (_disposed) return false;
+    if (ok) {
+      _backgroundReconnectAttempt = 0;
+      vmConnectedNotifier.value = true;
+      _syncVmState(true);
+      return true;
+    }
+    // Resume background loop from the current attempt counter so the user
+    // doesn't have to keep tapping.
+    _scheduleBackgroundReconnect();
+    return false;
   }
 
   void _initializeDetectors() {
@@ -491,8 +682,17 @@ class SleuthController {
         if (enabled.contains(entry.key)) entry.value()..isEnabled = true,
       _memoryPressure,
       _networkMonitor,
-      // Custom detectors — always enabled (explicitly opted-in via config)
-      for (final d in config.customDetectors) d..isEnabled = true,
+      // Custom detectors.
+      //
+      // Default: enabled. A custom detector with a non-null [key] that
+      // matches an entry in [SleuthConfig.disabledCustomDetectorKeys] is
+      // constructed but starts disabled. Detectors with a null key are
+      // always enabled — null is the "I don't participate in config-driven
+      // gating" signal (see [BaseDetector.key] doc).
+      for (final d in config.customDetectors)
+        d
+          ..isEnabled = d.key == null ||
+              !config.disabledCustomDetectorKeys.contains(d.key),
     ];
     _detectorsReady = true;
   }
@@ -586,11 +786,61 @@ class SleuthController {
     _installDebugInstrumentation();
   }
 
+  /// Inject a (typically fake) [VmServiceClient] for tests that need to
+  /// drive the background reconnect loop without going through the real
+  /// [dart:developer.Service] path. Production code must never call this.
+  @visibleForTesting
+  void setVmClientForTest(VmServiceClient client) {
+    _vmClient = client;
+  }
+
+  /// Simulate the post-[initialize] failure handoff that schedules the
+  /// background reconnect loop. Used by tests that cannot run the real
+  /// [initialize] path because it would touch [dart:developer.Service].
+  @visibleForTesting
+  void scheduleBackgroundReconnectForTest() {
+    _initialized = true;
+    _scheduleBackgroundReconnect();
+  }
+
+  /// Directly invoke the VM-connection-changed callback, bypassing the
+  /// [simulateVmStateChangeForTest] helper's override shortcut. Used by
+  /// mid-session-disconnect tests to verify that a `false` transition
+  /// re-arms the background reconnect loop.
+  ///
+  /// **Coupling with fake clients**: in production, [VmServiceClient]
+  /// flips its internal `_connected` to `false` BEFORE invoking
+  /// [onConnectionChanged]. [_scheduleBackgroundReconnect]'s
+  /// `client.isConnected` guard depends on that ordering — if the injected
+  /// fake still reports `isConnected == true` when this hook fires, the
+  /// bg schedule call short-circuits and the test is silently a no-op.
+  /// Tests simulating a disconnect must flip the fake's state first
+  /// (e.g. `fake.markDisconnected()`).
+  @visibleForTesting
+  void onVmConnectionChangedForTest(bool connected) {
+    _onVmConnectionChanged(connected);
+  }
+
+  /// Inspect the background-reconnect attempt counter (for tests).
+  @visibleForTesting
+  int get backgroundReconnectAttemptForTest => _backgroundReconnectAttempt;
+
+  /// Whether a background reconnect timer is currently scheduled.
+  @visibleForTesting
+  bool get backgroundReconnectScheduledForTest =>
+      _backgroundReconnectTimer != null;
+
   /// Feed a synthetic frame into the controller's [FrameTimingDetector],
   /// triggering [_onFrameStats] and the fallback verdict path.
   @visibleForTesting
   // ignore: invalid_use_of_visible_for_testing_member
   void addFrameForTest(FrameStats stats) => _frameTiming.addFrameForTest(stats);
+
+  /// Mark the controller as initialized without running the full [initialize]
+  /// path (which requires dart:developer). Needed by tests that exercise
+  /// post-init code paths like the frameStatsNotifier throttle.
+  @visibleForTesting
+  void markInitializedForTest() => _initialized = true;
 
   /// Exposes recurrence counts for testing ranking integration.
   /// Only includes currently-present issues (last entry was present),
@@ -625,11 +875,12 @@ class SleuthController {
 
   /// Computed scan interval: backs off when the app is healthy.
   int get _currentScanIntervalMs {
+    final baseMs = config.treeScanInterval.inMilliseconds;
     if (!config.adaptiveScanEnabled ||
         _consecutiveCleanScans < _cleanScanThreshold) {
-      return config.treeScanIntervalMs;
+      return baseMs;
     }
-    return (config.treeScanIntervalMs * 2).clamp(0, _maxBackOffMs);
+    return (baseMs * 2).clamp(0, _maxBackOffMs);
   }
 
   @visibleForTesting
@@ -1502,11 +1753,25 @@ class SleuthController {
 
     void visitor(Element element) {
       for (final d in walkDetectors) {
-        d.checkElement(element);
+        try {
+          d.checkElement(element);
+        } catch (e, s) {
+          assert(() {
+            debugPrint('Sleuth: ${d.name} checkElement failed: $e\n$s');
+            return true;
+          }());
+        }
       }
       element.visitChildren(visitor);
       for (final d in walkDetectors) {
-        d.afterElement(element);
+        try {
+          d.afterElement(element);
+        } catch (e, s) {
+          assert(() {
+            debugPrint('Sleuth: ${d.name} afterElement failed: $e\n$s');
+            return true;
+          }());
+        }
       }
     }
 
@@ -1765,17 +2030,50 @@ class SleuthController {
     // Only copy buffer for the notifier when UI is actively listening (v9.10).
     // When !_initialized, exportSnapshot() reads from the notifier (fallback),
     // so the copy is required regardless of listener state.
+    //
+    // Throttle to ~5 Hz (see _frameStatsNotifierThrottle doc). Note: we do
+    // NOT bypass the throttle for jank frames. When initialized, the jank
+    // frame path below reads `buffer.latest` directly and uses the analyzer
+    // pipeline — the notifier is purely a UI signal. A previous iteration
+    // bypassed on jank, but that created a self-feedback loop on already-
+    // janky apps: 30+ jank frames/sec → 30+ notifier emits/sec → real UI
+    // listeners (TriggerButton/_StatusRow) rebuild at 30+ Hz → RebuildDetector
+    // fires `rebuild_activity`, a false positive caused by Sleuth's own UI.
+    // Worst case with a steady 200 ms throttle: FPS readout lags a jank spike
+    // by ≤200 ms, which is within human-perception tolerance for a debug HUD.
+    final latest = buffer.latest;
+    final isJankFrame = latest != null && latest.isJank;
     // ignore: invalid_use_of_protected_member
-    if (frameStatsNotifier.hasListeners || !_initialized) {
-      frameStatsNotifier.value = FrameStatsBuffer.from(buffer);
+    final hasListeners = frameStatsNotifier.hasListeners;
+    if (hasListeners || !_initialized) {
+      // In the !_initialized fallback path, exportSnapshot() reads directly
+      // from frameStatsNotifier.value — throttling would drop buffer updates
+      // from the export, so flush every emit. Throttling only applies when
+      // real UI listeners are attached (avoids rebuild storms).
+      if (!_initialized) {
+        frameStatsNotifier.value = FrameStatsBuffer.from(buffer);
+        _lastFrameStatsNotifierEmit =
+            clockOverrideForTest?.call() ?? DateTime.now();
+      } else {
+        final now = clockOverrideForTest?.call() ?? DateTime.now();
+        final sinceLast = _lastFrameStatsNotifierEmit == null
+            ? null
+            : now.difference(_lastFrameStatsNotifierEmit!);
+        final throttleElapsed =
+            sinceLast == null || sinceLast >= _frameStatsNotifierThrottle;
+        if (throttleElapsed) {
+          frameStatsNotifier.value = FrameStatsBuffer.from(buffer);
+          _lastFrameStatsNotifierEmit = now;
+        }
+      }
     }
 
     // FrameTimingDetector may have updated its issues — invalidate cache.
     _issueGeneration++;
 
     // Generate FRAME-mode verdict for jank frames when VM is not connected.
-    final latest = buffer.latest;
-    if (latest != null && latest.isJank && !isVmConnected) {
+    // (Explicit null check re-promotes [latest] for Dart flow analysis.)
+    if (latest != null && isJankFrame && !isVmConnected) {
       final basicVerdict = _enrichVerdictWithNetworkContext(
         _analyzer.analyzeBasicMode(
           frameStats: latest,
@@ -1823,9 +2121,21 @@ class SleuthController {
   }
 
   void _onGcEvent(Event event) {
-    // GC events are already counted via timeline data.
-    // No fake empty signal needed — MemoryPressureDetector
-    // evaluates only when real GC events arrive in timeline data.
+    // Authoritative per-cycle GC signal from EventStreams.kGC.
+    //
+    // Previously this was a no-op: we relied on `data.gcEvents.length` from
+    // the timeline poll, which TimelineParser inflates 5–15× because it
+    // counts every GC sub-phase trace event (both 'X' complete and 'B'/'E'
+    // begin/end forms) instead of distinct cycles. On an idle home screen
+    // that was enough to produce bogus ~4000+/min rates and fire
+    // `gc_pressure`. Now we hand a single-cycle signal to the detector,
+    // which owns the sliding-window rate calculation.
+    //
+    // Note: [data.gcEvents] is still consumed by [_gcEventBuffer] for the
+    // export-enrichment path (captured sub-phase spans), which is a
+    // legitimate use of the over-counted list and intentionally unchanged.
+    if (_disposed) return;
+    _memoryPressure.recordGcCycle();
   }
 
   /// Attach pending-request context to a verdict if requests are in-flight.
@@ -1991,6 +2301,16 @@ class SleuthController {
   void _onVmConnectionChanged(bool connected) {
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
+    // Mid-session VM death: VmServiceClient._pollTimeline's catch path runs
+    // its own 3-attempt reconnect loop. If that internal loop exhausts, we
+    // previously had no recovery — the controller sat in BASIC until the
+    // user manually tapped reconnect. Re-arm the background ladder so we
+    // keep probing. The schedule call is idempotent (guarded by
+    // _backgroundReconnectActive), so overlapping with the client's own
+    // reconnect attempt is harmless — _connectInFlight coalesces them.
+    if (!connected && _initialized && !_disposed) {
+      _scheduleBackgroundReconnect();
+    }
   }
 
   /// Propagate current VM connectivity to all detectors. Hybrid detectors
@@ -2277,6 +2597,9 @@ class SleuthController {
     _treeScanTimer?.cancel();
     _scrollIdleTimer?.cancel();
     _typingIdleTimer?.cancel();
+    _backgroundReconnectTimer?.cancel();
+    _backgroundReconnectTimer = null;
+    _backgroundReconnectActive = false;
     _overlayContext = null;
     _lastScanContext = null;
     _appChildContext = null;
@@ -2325,7 +2648,7 @@ class SleuthConfig {
     this.maxListChildren = 50,
     this.maxGlobalKeys = 20,
     this.platformChannelLimit = 20,
-    this.treeScanIntervalMs = 1000,
+    this.treeScanInterval = const Duration(seconds: 1),
     this.adaptiveScanEnabled = true,
     this.enabledDetectors = const {...DetectorType.values},
     this.captureBufferCapacity = 50,
@@ -2343,9 +2666,148 @@ class SleuthConfig {
     this.platformChannelDurationThresholdMs = 8,
     this.suppressedIssues = const {},
     this.customDetectors = const [],
+    this.disabledCustomDetectorKeys = const {},
     this.thresholds = const DetectorThresholds(),
     this.aiChat,
-  });
+  })  : assert(
+          fpsTarget >= 1 && fpsTarget <= 120,
+          'fpsTarget must be between 1 and 120. '
+          'Common values: 60, 90, 120.',
+        ),
+        assert(
+          rebuildThreshold >= 1,
+          'rebuildThreshold must be at least 1. To disable rebuild '
+          'detection entirely, exclude DetectorType.rebuild from '
+          'enabledDetectors instead.',
+        ),
+        assert(
+          maxListChildren >= 1,
+          'maxListChildren must be at least 1.',
+        ),
+        assert(
+          maxGlobalKeys >= 1,
+          'maxGlobalKeys must be at least 1.',
+        ),
+        assert(
+          platformChannelLimit >= 1,
+          'platformChannelLimit must be at least 1.',
+        ),
+        // Note: `treeScanInterval > Duration.zero` cannot be asserted in a
+        // const constructor (Duration operators are not const-evaluable).
+        // Runtime validation lives in the [SleuthController] constructor
+        // body and fires with the same intent.
+        assert(
+          captureBufferCapacity >= 0,
+          'captureBufferCapacity must be >= 0. Use 0 to disable the buffer.',
+        ),
+        assert(
+          maxTrackedTypes >= 1,
+          'maxTrackedTypes must be at least 1.',
+        ),
+        assert(
+          slowRequestThresholdMs >= 0,
+          'slowRequestThresholdMs must be >= 0.',
+        ),
+        assert(
+          requestFrequencyLimit >= 1,
+          'requestFrequencyLimit must be at least 1.',
+        ),
+        assert(
+          largeResponseThresholdBytes >= 0,
+          'largeResponseThresholdBytes must be >= 0.',
+        ),
+        assert(
+          memoryWarmupDurationMs >= 0,
+          'memoryWarmupDurationMs must be >= 0.',
+        ),
+        assert(
+          frameTimingWarmupFrameCount >= 0,
+          'frameTimingWarmupFrameCount must be >= 0. '
+          'Set to 0 in tests to disable warmup suppression.',
+        ),
+        assert(
+          platformChannelDurationThresholdMs >= 0,
+          'platformChannelDurationThresholdMs must be >= 0.',
+        );
+
+  /// Minimal configuration for first-time integration.
+  ///
+  /// Enables the safe structural and runtime detectors (frame timing,
+  /// rebuild, repaint, listview, image memory, global key, layout
+  /// bottleneck, opacity, animated builder, custom painter, font loading,
+  /// repaint boundary). Disables network monitoring, debug callbacks,
+  /// deep instrumentation, and AI chat — those are opt-in because they
+  /// have setup or runtime cost.
+  ///
+  /// Use this when you're trying Sleuth for the first time and don't
+  /// want to read 25 parameter docs.
+  ///
+  /// **Known limitation:** [SleuthConfig] has no `copyWith`. To override
+  /// a field (e.g. wire an `aiChat` adapter), construct a full
+  /// [SleuthConfig] from scratch instead of chaining off the preset.
+  factory SleuthConfig.minimal({SleuthThemeData? theme}) => SleuthConfig(
+        theme: theme,
+        enableNetworkMonitoring: false,
+        enableDebugCallbacks: false,
+        enableDeepDebugInstrumentation: false,
+        enabledDetectors: const {
+          DetectorType.frameTiming,
+          DetectorType.rebuild,
+          DetectorType.repaint,
+          DetectorType.listview,
+          DetectorType.imageMemory,
+          DetectorType.globalKey,
+          DetectorType.layoutBottleneck,
+          DetectorType.opacity,
+          DetectorType.animatedBuilder,
+          DetectorType.customPainter,
+          DetectorType.fontLoading,
+          DetectorType.repaintBoundary,
+        },
+      );
+
+  /// Configuration optimized for low-overhead profiling runs.
+  ///
+  /// Uses structural-lifecycle detectors only (no debug callbacks, no
+  /// VM-only detectors), backs off the scan interval to 2 s, and shrinks
+  /// the capture buffer. Suitable for CI runs or profile-mode sessions
+  /// where you want to surface anti-patterns without paying for the full
+  /// diagnostic pipeline.
+  ///
+  /// Intentionally EXCLUDED from the enabled set:
+  /// - [DetectorType.shallowRebuildRisk] — this is a
+  ///   [DetectorLifecycle.hybrid] detector (reads VM timeline data), so
+  ///   it does NOT belong in a structural-only preset despite the name.
+  /// - [DetectorType.frameTiming] — runtime lifecycle.
+  ///
+  /// **Known limitation:** [SleuthConfig] has no `copyWith`. To override
+  /// a field, construct a full [SleuthConfig] from scratch instead of
+  /// chaining off the preset.
+  factory SleuthConfig.performance({SleuthThemeData? theme}) => SleuthConfig(
+        theme: theme,
+        treeScanInterval: const Duration(seconds: 2),
+        adaptiveScanEnabled: true,
+        captureBufferCapacity: 10,
+        enableNetworkMonitoring: false,
+        enableDebugCallbacks: false,
+        enableDeepDebugInstrumentation: false,
+        enabledDetectors: const {
+          // Every structural-lifecycle detector. Verified against the
+          // lifecycle fields of each detector file.
+          DetectorType.listview,
+          DetectorType.imageMemory,
+          DetectorType.globalKey,
+          DetectorType.nestedScroll,
+          DetectorType.opacity,
+          DetectorType.animatedBuilder,
+          DetectorType.customPainter,
+          DetectorType.layoutBottleneck,
+          DetectorType.fontLoading,
+          DetectorType.repaintBoundary,
+          DetectorType.setStateScope,
+          DetectorType.keepAlive,
+        },
+      );
 
   /// Custom theme for the overlay UI.
   ///
@@ -2366,85 +2828,253 @@ class SleuthConfig {
   /// ```
   final SleuthThemeData? theme;
 
-  /// Target frames per second (60 or 120). Drives jank detection thresholds.
+  /// Target frames per second. Drives the frame-budget math that every
+  /// jank detector uses.
+  ///
+  /// **Default:** 60. Most Android and iOS devices run at 60 Hz by default;
+  /// 60 FPS maps to a 16.67 ms budget per frame, which is what the
+  /// [FrameTimingDetector] compares against.
+  ///
+  /// **Raise this** to 90 or 120 on high-refresh displays (most flagship
+  /// phones from 2020+). That tightens the frame budget to 11.1 ms (90 Hz)
+  /// or 8.33 ms (120 Hz) and will surface jank that was invisible at 60.
+  ///
+  /// **Lower this** (e.g. 30) for splash screens or idle modes where 30 FPS
+  /// is an explicit product decision — otherwise the detector will pad
+  /// every normal-speed frame as "jank."
+  ///
+  /// Valid range: 1–120 (enforced via debug-mode assert).
   final int fpsTarget;
 
-  /// Rebuild count per second above which the rebuild detector fires.
+  /// Widget rebuilds per second above which [RebuildDetector] fires.
+  ///
+  /// **Default:** 10 rebuilds/sec. A healthy reactive UI on a 60 FPS app
+  /// does not rebuild a given widget more than once every ~6 frames —
+  /// anything above that is almost always wasted work.
+  ///
+  /// **Raise this** if your app legitimately has high-frequency UI (live
+  /// charts, game HUDs, video overlays) and you're getting noisy false
+  /// positives. Try 30 first; values above 60 effectively disable the
+  /// detector for most widgets on 60 Hz devices.
+  ///
+  /// **Lower this** (e.g. 5) during a focused performance pass. Expect
+  /// more flagged widgets — `StreamBuilder`/`FutureBuilder` doing their
+  /// designed job will surface, so pair with
+  /// `suppressedIssues: {'rebuild_debug_StreamBuilder'}` if needed.
   final int rebuildThreshold;
 
-  /// Maximum children in a non-lazy list before the ListView detector fires.
+  /// Maximum children in a non-lazy list/grid before [ListviewDetector]
+  /// and [NestedScrollDetector] fire.
+  ///
+  /// **Default:** 50. This is the empirical cutoff where Flutter's lazy
+  /// builder-based widgets (`ListView.builder`, `GridView.builder`) clearly
+  /// beat their eager counterparts — below 50 the framework overhead of
+  /// lazy realisation can cost more than it saves.
+  ///
+  /// **Raise this** if you're intentionally building many small static
+  /// rows (e.g. settings screens with ~60 rows) and don't want the lint.
+  /// Values above 200 effectively disable the detector for normal UIs.
+  ///
+  /// **Lower this** (e.g. 20) to enforce strict lazy-list hygiene. Many
+  /// fixed-size "chip row" patterns will get flagged — consider whether
+  /// the false-positive rate is worth the stricter guard.
   final int maxListChildren;
 
-  /// Maximum GlobalKeys in scrollable contexts before the detector fires.
+  /// Maximum [GlobalKey]s in list/grid/page scopes before
+  /// [GlobalKeyDetector] fires the **excessive** branch.
+  ///
+  /// **Default:** 20. GlobalKey allocation in a scrollable is almost
+  /// always a smell — scrollables realise items lazily, so stable identity
+  /// across rebuilds usually belongs on the item model, not the widget.
+  ///
+  /// **Raise this** (e.g. 50) if your scrollable genuinely needs many
+  /// keyed items for animation state preservation.
+  ///
+  /// **Lower this** (e.g. 10) for stricter GlobalKey hygiene.
+  ///
+  /// This threshold governs the **excessive** branch only. The
+  /// **recreation** branch (GlobalKey churn across rebuilds) is gated on
+  /// a separate internal threshold of 5.
   final int maxGlobalKeys;
 
-  /// Maximum platform channel calls per second before the detector fires.
+  /// Maximum platform channel calls per second before
+  /// [PlatformChannelDetector] fires on call-count alone.
+  ///
+  /// **Default:** 20 calls/sec. Platform channels serialise through the
+  /// binary messenger and cross the Dart/native boundary; 20/sec is the
+  /// point where aggregated marshalling starts to dominate a frame.
+  ///
+  /// **Raise this** for apps that legitimately stream data through a
+  /// custom channel (e.g. sensor polling, video pipelines).
+  ///
+  /// **Lower this** (e.g. 10) to catch misuse earlier during development.
+  ///
+  /// The cumulative-duration gate ([platformChannelDurationThresholdMs])
+  /// fires independently of the per-second count.
   final int platformChannelLimit;
 
-  /// Interval in milliseconds between widget tree scans.
-  final int treeScanIntervalMs;
+  /// Interval between widget tree scans.
+  ///
+  /// **Default:** 1 second. A full scan on a ~5 K-element tree costs
+  /// ~2 ms, so a 1 s interval is well below 1% of frame budget.
+  ///
+  /// **Raise this** (e.g. `Duration(seconds: 5)`) for low-overhead
+  /// profiling runs. Structural detectors will be slower to react to
+  /// anti-patterns that appear and disappear, but cumulative cost drops
+  /// linearly.
+  ///
+  /// **Lower this** (e.g. `Duration(milliseconds: 500)`) only if you're
+  /// chasing a specific transient bug — the savings from adaptive backoff
+  /// usually make this unnecessary.
+  ///
+  /// Must be strictly greater than [Duration.zero] (enforced via
+  /// debug-mode assert).
+  final Duration treeScanInterval;
 
   /// Whether to back off the scan interval when no issues are detected.
   ///
-  /// When enabled (default), the controller doubles the scan interval (up to
-  /// 2 s) after 3 consecutive clean scan cycles, and returns to the normal
-  /// interval immediately when issues appear. FrameTiming and VM timeline
-  /// paths are event-driven and unaffected.
+  /// **Default:** true. When enabled, the controller doubles the scan
+  /// interval (capped at 2 s) after 3 consecutive clean scan cycles, and
+  /// returns to the normal interval immediately when issues appear.
+  /// [FrameTimingDetector] and VM timeline paths are event-driven and
+  /// unaffected.
+  ///
+  /// **Disable** only when you're measuring detector overhead itself and
+  /// need a constant scan cadence.
   final bool adaptiveScanEnabled;
 
   /// Which detectors are active. Defaults to all [DetectorType] values.
+  ///
+  /// Only detectors whose type is in this set are constructed and
+  /// scheduled. Use this to disable detectors at init time (vs. runtime
+  /// toggle via `controller.disableDetector`).
   final Set<DetectorType> enabledDetectors;
 
   /// Maximum number of jank frames to retain in the capture buffer.
+  ///
+  /// **Default:** 50. Each entry holds a frame snapshot (timings +
+  /// phase breakdown) at roughly a few KB, so 50 entries = ~250 KB.
+  ///
+  /// **Raise this** if you want a longer scrollback in the UI capture
+  /// panel. **Lower this** (or set to 0) for memory-constrained devices.
   final int captureBufferCapacity;
 
   /// Enables debug-only rebuild/repaint attribution hooks.
   ///
-  /// WARNING: Conflicts with DevTools "Track Widget Rebuilds" — only one can
-  /// be active at a time. Default false to avoid surprising DevTools users.
+  /// **Default:** false. When true, Sleuth registers widget-rebuild and
+  /// repaint callbacks via `debugOnRebuildDirtyWidget` /
+  /// `debugOnProfilePaint`.
+  ///
+  /// **WARNING:** Conflicts with DevTools "Track Widget Rebuilds" — only
+  /// one can own these hooks at a time. Default false to avoid surprising
+  /// DevTools users who leave Sleuth wired in permanently.
   final bool enableDebugCallbacks;
 
   /// Enables heavy debug flags independently of [enableDebugCallbacks].
-  /// Adds per-widget timeline events with higher overhead than callbacks alone.
+  ///
+  /// **Default:** false. Adds per-widget timeline events via
+  /// `debugProfileBuildsEnabled` and related flags. Measurable overhead
+  /// (~5–10% extra frame time on heavy scenes) — use sparingly.
   final bool enableDeepDebugInstrumentation;
 
   /// Maximum widget types to track in rebuild counters.
-  /// Prevents unbounded memory in apps with many widget types.
+  ///
+  /// **Default:** 200. Prevents unbounded memory in apps with thousands
+  /// of distinct widget types (generated code, per-item generics).
+  /// Beyond this cap, new types are dropped rather than evicting old
+  /// ones.
+  ///
+  /// **Raise this** if you have a legitimately large type universe.
+  /// **Lower this** if memory is tight and you only care about the hot
+  /// types.
   final int maxTrackedTypes;
 
   /// Advanced sub-flag configuration for debug instrumentation.
+  ///
   /// When null, equivalent to `const DebugInstrumentationConfig()` (all
-  /// defaults). Sub-flags only take effect when their parent switch is enabled.
+  /// defaults). Sub-flags only take effect when their parent switch
+  /// ([enableDebugCallbacks] or [enableDeepDebugInstrumentation]) is
+  /// enabled.
   final DebugInstrumentationConfig? advanced;
 
   /// Master switch for HTTP network monitoring.
-  /// When true and [DetectorType.networkMonitor] is in [enabledDetectors],
-  /// installs an [HttpOverrides] proxy that records request timing and size.
+  ///
+  /// **Default:** true. When true AND [DetectorType.networkMonitor] is
+  /// in [enabledDetectors], installs an [HttpOverrides] proxy that
+  /// records request timing and size.
+  ///
+  /// **Disable** when another library already owns `HttpOverrides.global`
+  /// (common in apps that use a custom HTTP proxy or mock layer).
   final bool enableNetworkMonitoring;
 
   /// Slow request detection threshold in milliseconds.
+  ///
+  /// **Default:** 2000 ms. Anything slower than 2 s feels broken to a
+  /// user and latches network jank detection.
+  ///
+  /// **Raise this** (e.g. 5000) if your app intentionally does long
+  /// uploads/downloads. **Lower this** (e.g. 500) during a latency
+  /// audit.
   final int slowRequestThresholdMs;
 
   /// Maximum HTTP requests allowed per 5-second window.
+  ///
+  /// **Default:** 30. The window is rolling — every 5 s the counter
+  /// resets. Above 30/window, the detector fires a "chatty network"
+  /// warning.
+  ///
+  /// **Raise this** for apps with legitimately heavy API usage.
+  /// **Lower this** (e.g. 10) to enforce stricter network hygiene.
   final int requestFrequencyLimit;
 
-  /// Large response detection threshold in bytes (default 1MB).
+  /// Large response detection threshold in bytes.
+  ///
+  /// **Default:** 1 MB (1,048,576). Responses larger than this incur
+  /// JSON-decode cost that typically dominates the request pipeline,
+  /// so the detector suggests paginating or streaming.
+  ///
+  /// **Raise this** (e.g. 5 MB) for apps that legitimately ship large
+  /// payloads (media manifests, offline catalogs).
   final int largeResponseThresholdBytes;
 
-  /// URL substring patterns to exclude from monitoring
+  /// URL substring patterns to exclude from network monitoring
   /// (e.g. `['/analytics', 'crashlytics']`).
+  ///
+  /// Matched as substrings against the full URI string. Use this to
+  /// prevent third-party telemetry from dominating the network panel.
   final List<String>? networkExcludePatterns;
 
-  /// Duration in milliseconds to suppress heap growth alerts after the first
-  /// heap sample. Prevents false positives from normal app startup allocation.
+  /// Duration in milliseconds to suppress heap growth alerts after the
+  /// first heap sample.
+  ///
+  /// **Default:** 3000 ms. Normal app startup allocates aggressively as
+  /// the framework, fonts, and initial screens load; without warmup
+  /// suppression almost every session would false-fire.
+  ///
+  /// **Raise this** if your cold-start allocation is unusually spiky.
+  /// **Lower this** (or 0) in tests where you want deterministic
+  /// allocation tracking from sample zero.
   final int memoryWarmupDurationMs;
 
-  /// Number of frames to suppress jank evaluation at startup (~3s at 60fps).
-  /// Set to 0 in tests to disable warmup suppression.
+  /// Number of frames to suppress frame-timing jank evaluation at
+  /// startup.
+  ///
+  /// **Default:** 180. At 60 FPS that's ~3 s — long enough to cover
+  /// splash screens, first-frame shader warmups, and initial image
+  /// decodes that would otherwise dominate a session's "jank" count.
+  ///
+  /// **Set to 0** in tests to disable warmup suppression entirely.
   final int frameTimingWarmupFrameCount;
 
-  /// Cumulative platform channel duration threshold in milliseconds per window.
-  /// Fires when total channel call time exceeds this even if call count is low.
+  /// Cumulative platform channel duration threshold in milliseconds per
+  /// window.
+  ///
+  /// **Default:** 8 ms (half a 16 ms frame budget). Fires even when the
+  /// per-second call count ([platformChannelLimit]) is low, because a
+  /// handful of slow channel calls can still blow a frame.
+  ///
+  /// **Raise this** (e.g. 16) for apps with a single legitimate
+  /// synchronous channel call per frame.
   final int platformChannelDurationThresholdMs;
 
   /// StableId patterns to suppress from the issue list.
@@ -2465,9 +3095,34 @@ class SleuthConfig {
   /// exactly like built-in detectors: structural → [scanTree],
   /// vmOnly → [processTimelineData], hybrid → both.
   ///
-  /// Custom detectors are always enabled regardless of [enabledDetectors].
+  /// Custom detectors whose [BaseDetector.key] is in
+  /// [disabledCustomDetectorKeys] are constructed but start with
+  /// `isEnabled == false`. Detectors with `key == null` are always enabled
+  /// (they cannot be gated via config — that's the opt-out signal).
   /// The controller disposes custom detectors when it is itself disposed.
   final List<BaseDetector> customDetectors;
+
+  /// Stable keys of custom detectors that should start disabled.
+  ///
+  /// **Default:** empty set. Custom detectors set their
+  /// [BaseDetector.key] to a unique string (e.g. `'tooltip_usage'`). To
+  /// disable one without removing it from [customDetectors], add its key
+  /// to this set.
+  ///
+  /// **Semantics:**
+  /// - **Null-key = opt-out.** Custom detectors with `key == null` are
+  ///   always enabled and cannot be gated via this set. Null is the
+  ///   "I don't want to participate in config-driven gating" signal.
+  /// - **Init-time-only.** The gate applies exactly once, inside
+  ///   `SleuthController._initializeDetectors()`. After init, runtime
+  ///   flips of `detector.isEnabled = true` override the config.
+  /// - **Key collision = all-affected.** If two custom detectors share a
+  ///   key and that key is in the disabled set, both detectors are
+  ///   disabled. Keys should be unique per logical detector.
+  ///
+  /// Built-in detectors are not affected by this set — use
+  /// [enabledDetectors] for those.
+  final Set<String> disabledCustomDetectorKeys;
 
   /// Detector-specific thresholds for fine-tuning performance detection.
   /// See [DetectorThresholds] for available parameters and defaults.

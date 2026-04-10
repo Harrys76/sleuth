@@ -1,3 +1,105 @@
+## 0.12.0
+
+Pillar 6 Part 1: Public API & Authoring Surface — reduces friction at every
+consumer-facing API in Sleuth. Adds preset configuration constructors, threshold
+documentation, debug-mode validation, `Duration`-typed intervals, a
+`SimpleStructuralDetector` helper base class, key-based gating for custom
+detectors, and a three-file custom-detector cookbook in the example app.
+
+### Breaking
+
+- **`SleuthConfig.treeScanInterval` now takes `Duration` instead of `int`
+  milliseconds.** The old `treeScanIntervalMs` field has been removed.
+  Rewrite:
+
+  ```dart
+  // Before
+  SleuthConfig(treeScanIntervalMs: 1000)
+
+  // After
+  SleuthConfig(treeScanInterval: Duration(seconds: 1))
+  ```
+
+  Raw millisecond parameters were the most frequent foot-gun in user reports
+  because nothing about `int ms` communicated the unit at the call site. The
+  new `Duration` API makes the unit a compile-time requirement.
+
+### Added
+
+- **`SleuthConfig.minimal()` and `SleuthConfig.performance()` presets** (M1):
+  Two named factory constructors so new adopters don't need to read 25 field
+  docs to get started. `.minimal()` enables safe structural and runtime
+  detectors and disables opt-in features (network monitoring, debug callbacks,
+  deep instrumentation, AI chat). `.performance()` is tuned for low-overhead
+  profile runs — structural detectors only, 2 s scan interval, capture buffer
+  disabled.
+- **Threshold documentation** (M2): Every threshold parameter in `SleuthConfig`
+  and `DetectorThresholds` now has a doc comment answering: what does this
+  number mean, what's the default, and what happens if you raise or lower it?
+  Copy is verified against each detector's gating code so the empirical
+  claims ("values above 60 effectively disable the detector") match reality.
+- **Debug-mode assert validation** (M3): `SleuthConfig` and
+  `DetectorThresholds` constructors now fail fast in debug mode when given
+  values that would silently misbehave (negative intervals, thresholds above
+  their detector's cut-off, frequency windows that divide to zero).
+- **`SimpleStructuralDetector` helper** (M5): New public base class that
+  reduces custom structural-detector authoring from "implement 4 lifecycle
+  methods and understand the unified walk" to "override `inspect(Element)`
+  and call `report(...)` when you find a match." Handles the issue list,
+  highlight list, enabled flag, and per-scan reset automatically. Exported
+  from `package:sleuth/sleuth.dart`.
+- **Custom detector key gating** (M6): New `BaseDetector.key` field plus
+  `SleuthConfig.disabledCustomDetectorKeys: Set<String>`. Custom detectors
+  that set a stable `key` can now be disabled through configuration without
+  being removed from the detector list — useful for conditional enabling per
+  environment. Built-in detectors are unaffected (they're gated by
+  `DetectorType` via `enabledDetectors`).
+- **Custom detector cookbook** (M7): New `example/lib/custom_detectors/`
+  directory with three documented reference implementations covering the
+  three common shapes: `TooltipUsageDetector` (`SimpleStructuralDetector`),
+  `SlowFrameDetector` (runtime `BaseDetector` hooked to
+  `SchedulerBinding.addTimingsCallback`), and `RasterHotSpotDetector` (hybrid
+  `BaseDetector` combining VM raster timings with a structural walk). Each
+  file is a complete, heavily-commented implementation. The cookbook ships
+  with a README index, a new "Custom Detector Cookbook" demo screen in the
+  example app wired into `Sleuth.track`, and an
+  `example/test/cookbook_smoke_test.dart` that validates every detector
+  compiles against the public `package:sleuth/sleuth.dart` barrel and flags
+  Tooltips end-to-end on a real widget tree.
+
+### Fixed
+
+- **Real-device first-launch VM connection**: Replaced `Service.getInfo()`
+  with `Service.controlWebServer(enable: true)` to proactively start the VM
+  web server on cold start. Previously, launching via USB/WiFi from Android
+  Studio or terminal could leave Sleuth stuck in BASIC/FRAME mode for the
+  entire session because the VM web server hadn't bound its port yet.
+  - 3 s owned-timer timeout (avoids `Future.timeout` timer leak in tests)
+  - `_connectInFlight` concurrency guard prevents duplicate connect attempts
+  - IPv4→localhost rewrite enables dual-stack Happy Eyeballs resolution
+  - Background reconnect ladder (500 ms → 30 s, 7 attempts) when initial
+    connect fails, with mid-session VM death recovery
+  - Manual `reconnect()` method for "Tap to reconnect" overlay hook
+- **frameStatsNotifier self-feedback loop**: Throttled notifier emission to
+  ~5 Hz (200 ms minimum). Previously, 60 Hz emission caused Sleuth's own
+  overlay rebuilds to dominate the VM build-event count and trigger false
+  `rebuild_activity` on idle screens.
+- **Unified walk exception isolation**: Per-detector try/catch in the tree
+  walk visitor. Previously, one custom detector throwing in `checkElement`
+  would kill the walk for all 16 detectors and skip the entire subtree.
+- **Post-dispose continuation guards**: Added `_disposed` checks after every
+  `await` in `VmServiceClient._connectImpl` to prevent leaked VmService
+  instances and poll timers when dispose races with connection setup.
+- README quick-start now shows `SleuthConfig.minimal()` alongside the full
+  configuration snippet so first-time adopters see the easy path first.
+
+### Tests
+
+- 1,869 tests passing (1,825 → 1,869, +44 across M1–M7 + VM connection +
+  throttle coverage).
+- 5 cookbook smoke tests in the `example/` package confirm the cookbook
+  compiles against the public API and flags tree content correctly.
+
 ## 0.11.1
 
 Pillar 5 Part 2: Demo Quality Enhancements & Combined Demos — Before/After toggle,

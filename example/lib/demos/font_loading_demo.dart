@@ -13,13 +13,17 @@ import '../demo_scaffold.dart';
 class FontLoadingDemo extends StatelessWidget {
   const FontLoadingDemo({super.key});
 
-  // ❌ 5 distinct custom font families — triggers threshold of >3.
+  // ❌ 7 distinct custom font families — triggers threshold of >3 with
+  // a defensive margin. If FontLoadingDetector.fontLoadingMaxFamilies ever
+  // gets raised to catch fewer false positives, this demo keeps firing.
   static const _badFonts = [
     'Lobster',
     'Pacifico',
     'DancingScript',
     'IndieFlower',
     'GreatVibes',
+    'PermanentMarker',
+    'Caveat',
   ];
 
   @override

@@ -67,6 +67,7 @@ export 'src/ui/sleuth_theme.dart' show SleuthThemeData;
 export 'src/debug/debug_instrumentation_config.dart';
 export 'src/models/base_detector.dart'
     show DetectorType, DetectorLifecycle, BaseDetector;
+export 'src/models/simple_structural_detector.dart';
 export 'src/vm/timeline_parser.dart' show ParsedTimelineData;
 export 'src/debug/debug_snapshot.dart' show DebugSnapshot;
 export 'src/models/allocation_entry.dart';

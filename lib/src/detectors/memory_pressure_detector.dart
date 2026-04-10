@@ -1,11 +1,11 @@
 import 'dart:collection';
 
+
 import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
 import '../models/heap_sample.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
-import '../vm/timeline_parser.dart';
 
 /// Detects memory pressure using VM GC events and heap growth trends.
 ///
@@ -63,6 +63,35 @@ class MemoryPressureDetector extends BaseDetector {
   DateTime? _sustainedGrowthStart;
   DateTime? _sustainedNativeGrowthStart;
 
+  // -- heap_near_capacity rolling window --
+  //
+  // Tracks whether the last [_heapCapacityWindowSize] heap samples crossed
+  // `capacityThresholdPercent`. [_evaluateHeapCapacity] only fires once at
+  // least [_heapCapacityRequiredHits] of those samples are over threshold
+  // AND `_sustainedGrowthStart != null` AND warmup has elapsed. Dart's
+  // `heapCapacity` is the currently-committed arena (grows dynamically),
+  // not a fixed ceiling, so high ratios at steady state are the VM's normal
+  // behaviour. Without these guards the detector fired on the very first
+  // sample of an idle home screen (92.7 % in the Phase 0 capture).
+  //
+  // A "K of last N" window (rather than strict-consecutive) handles the
+  // normal Dart GC sawtooth: on apps that genuinely live near the threshold
+  // the ratio oscillates 79 %→81 %→79 %→81 % as the arena packs and
+  // reclaims, which would reset a consecutive counter indefinitely and
+  // mask real pressure.
+  //
+  // The window is cleared on every sample received during warmup so the
+  // first post-warmup sample starts fresh — prevents pre-charging the
+  // counter with warmup-era allocation spikes that would otherwise let
+  // [heap_near_capacity] fire on the very first post-warmup tick with no
+  // observed grace period.
+  //
+  // Updated in [processHeapSample] (not in [_evaluateHeapCapacity]) so
+  // [recordGcCycle] → [_evaluate] does not double-count the same sample.
+  final Queue<bool> _capacityWindow = Queue<bool>();
+  static const int _heapCapacityWindowSize = 5;
+  static const int _heapCapacityRequiredHits = 4;
+
   /// Cached allocation enrichment data. Preserved across _evaluate() cycles
   /// so the top-allocator data survives issue rebuilds.
   List<AllocationEntry>? _lastTopAllocators;
@@ -76,18 +105,53 @@ class MemoryPressureDetector extends BaseDetector {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
+  /// Clear the GC sliding window on VM disconnect.
+  ///
+  /// The window tracks completed GC cycles over the last 10 s. When the VM
+  /// service disconnects, any in-flight timer or reconnection delay can let
+  /// pre-disconnect events leak across into a post-reconnect window,
+  /// inflating the rate calculation with stale samples and triggering
+  /// `gc_pressure` on a freshly reconnected app that hasn't actually done
+  /// any GC yet. Clearing on disconnect guarantees the next reconnect
+  /// starts with a clean 10 s window.
+  ///
+  /// Also re-runs `_evaluate()` so a stale `gc_pressure` issue emitted
+  /// just before the disconnect is removed from `_issues` immediately,
+  /// rather than lingering in the UI until the next GC event or heap
+  /// sample arrives (which may be never on a failed-reconnect path).
+  @override
+  set vmConnected(bool value) {
+    if (!value) {
+      _gcWindow.clear();
+      _evaluate();
+    }
+    super.vmConnected = value;
+  }
+
   /// Unmodifiable view of the rolling heap sample window for session export.
   List<HeapSample> get heapSamples => List.unmodifiable(_heapSamples);
 
-  @override
-  void processTimelineData(ParsedTimelineData data) {
+  // processTimelineData intentionally NOT overridden.
+  //
+  // Prior to Phase 1, this method read `data.gcEvents.length` as the GC count
+  // and pushed it into the sliding window. That count came from TimelineParser,
+  // which aggregates the VM's `'X'` complete GC events AND the `'B'/'E'`
+  // begin/end pair events — a single GC cycle emits 5–15 sub-phase trace
+  // events, so `data.gcEvents.length` was inflated roughly 5–15× over actual
+  // cycles and fired "high GC pressure" on idle screens.
+  //
+  // The authoritative signal is `EventStreams.kGC` (via VmService.onGCEvent),
+  // which emits exactly one event per completed GC cycle. The controller now
+  // calls [recordGcCycle] from its `_onGcEvent` handler instead.
+
+  /// Record a single completed GC cycle.
+  ///
+  /// Called by the controller's [SleuthController._onGcEvent] handler which
+  /// listens to the VM's authoritative per-cycle GC stream. Each call
+  /// contributes exactly one event to the sliding window.
+  void recordGcCycle() {
     if (!_isEnabled) return;
-
-    // Only evaluate when we have real GC events
-    if (data.gcEvents.isEmpty) return;
-
-    _gcWindow.add((ts: _clock(), count: data.gcEvents.length));
-
+    _gcWindow.add((ts: _clock(), count: 1));
     _evaluate();
   }
 
@@ -98,6 +162,26 @@ class MemoryPressureDetector extends BaseDetector {
     _firstHeapSampleTime ??= _clock();
     _heapSamples.add(sample);
     if (_heapSamples.length > _windowCapacity) _heapSamples.removeFirst();
+
+    // Update the heap-capacity rolling window BEFORE [_evaluate].
+    // Recording here (not inside [_evaluateHeapCapacity]) ensures each
+    // sample contributes exactly once, even though [_evaluate] can also
+    // be invoked from [recordGcCycle] with no fresh heap sample.
+    //
+    // During warmup we keep the window empty so post-warmup evaluation
+    // cannot inherit pre-warmup over-threshold samples.
+    final inWarmup = _firstHeapSampleTime != null &&
+        _clock().difference(_firstHeapSampleTime!).inMilliseconds <
+            warmupDurationMs;
+    if (inWarmup) {
+      _capacityWindow.clear();
+    } else if (sample.heapCapacity > 0) {
+      final ratio = sample.heapUsage / sample.heapCapacity;
+      _capacityWindow.addLast(ratio > capacityThresholdPercent);
+      while (_capacityWindow.length > _heapCapacityWindowSize) {
+        _capacityWindow.removeFirst();
+      }
+    }
 
     _evaluate();
   }
@@ -242,26 +326,59 @@ class MemoryPressureDetector extends BaseDetector {
     final latest = _heapSamples.last;
     if (latest.heapCapacity <= 0) return;
 
-    final ratio = latest.heapUsage / latest.heapCapacity;
-    if (ratio > capacityThresholdPercent) {
-      final pct = (ratio * 100).toStringAsFixed(0);
-      final (hint, effort) = FixHintBuilder.heapNearCapacity();
-      _issues.add(PerformanceIssue(
-        stableId: 'heap_near_capacity',
-        severity: IssueSeverity.critical,
-        category: IssueCategory.memory,
-        confidence: IssueConfidence.confirmed,
-        title: 'Heap Near Capacity: $pct% used',
-        detail: 'App is using ${_formatBytes(latest.heapUsage)} of '
-            '${_formatBytes(latest.heapCapacity)} available heap ($pct%). '
-            'GC may become frequent and cause jank.',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.vmTimeline,
-        detectedAt: _clock(),
-        confidenceReason: 'Measured directly from VM heap capacity sampling',
-      ));
+    // Guard 1: warmup. Matches `_evaluateHeapTrend` / `_evaluateNativeGrowth`.
+    // The first few hundred ms of the app are class loading, widget tree
+    // creation, image decodes — all legitimate allocation that pushes the
+    // ratio high on a still-small committed arena.
+    if (_firstHeapSampleTime != null) {
+      final sinceFirst = _clock().difference(_firstHeapSampleTime!);
+      if (sinceFirst.inMilliseconds < warmupDurationMs) return;
     }
+
+    // Guard 2: require at least [_heapCapacityRequiredHits] of the last
+    // [_heapCapacityWindowSize] heap polls (~2.5 s at 500 ms cadence) to
+    // have crossed the threshold. A "K of last N" window instead of a
+    // strict consecutive counter tolerates the normal Dart GC sawtooth
+    // (ratio oscillating 79 %→81 %→79 %→81 % as the arena packs and
+    // reclaims) without resetting indefinitely and masking real pressure.
+    if (_capacityWindow.length < _heapCapacityWindowSize) return;
+    final overCount = _capacityWindow.where((b) => b).length;
+    if (overCount < _heapCapacityRequiredHits) return;
+
+    // Guard 3: growth correlation. Dart's [heapCapacity] is the currently
+    // committed arena (grows dynamically), not a fixed ceiling — a sustained
+    // ratio of 0.90+ is the VM's normal steady state when the arena is
+    // tightly packed. Real pressure looks like ratio-high AND heap-growing
+    // simultaneously. Phase 0 captured 92.7 % usage on an idle home screen
+    // with flat growth; that is not a bug, just Dart being efficient, and
+    // must not fire.
+    //
+    // `_sustainedGrowthStart` is set by `_evaluateHeapTrend` when the heap
+    // regression slope exceeds `growthThresholdBytesPerSec`. Because
+    // `_evaluateHeapTrend` runs BEFORE `_evaluateHeapCapacity` inside
+    // [_evaluate], the value here reflects the current tick's trend.
+    if (_sustainedGrowthStart == null) return;
+
+    final ratio = latest.heapUsage / latest.heapCapacity;
+    final pct = (ratio * 100).toStringAsFixed(0);
+    final (hint, effort) = FixHintBuilder.heapNearCapacity();
+    _issues.add(PerformanceIssue(
+      stableId: 'heap_near_capacity',
+      severity: IssueSeverity.critical,
+      category: IssueCategory.memory,
+      confidence: IssueConfidence.confirmed,
+      title: 'Heap Near Capacity: $pct% used (and growing)',
+      detail: 'App is using ${_formatBytes(latest.heapUsage)} of '
+          '${_formatBytes(latest.heapCapacity)} available heap ($pct%) '
+          'and the heap is still growing. GC may become frequent and '
+          'cause jank.',
+      fixHint: hint,
+      fixEffort: effort,
+      observationSource: ObservationSource.vmTimeline,
+      detectedAt: _clock(),
+      confidenceReason:
+          'Sustained high heap usage + active growth (both required)',
+    ));
   }
 
   void _evaluateNativeGrowth() {
@@ -348,6 +465,7 @@ class MemoryPressureDetector extends BaseDetector {
     _sustainedNativeGrowthStart = null;
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
+    _capacityWindow.clear();
     _issues.clear();
   }
 
@@ -359,6 +477,7 @@ class MemoryPressureDetector extends BaseDetector {
     _sustainedNativeGrowthStart = null;
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
+    _capacityWindow.clear();
     _issues.clear();
   }
 }

@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C823_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C869_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -77,16 +77,36 @@ SleuthConfig(
 
 | Platform | Frame Timing | VM Full Mode | Notes |
 |----------|:---:|:---:|-------|
-| Android device | Yes | Best-effort | VM service may not connect via adb forwarding |
+| Android device | Yes | Best-effort | Background reconnect ladder retries on cold-start port bind race |
 | Android emulator | Yes | Best-effort | Same adb limitation applies |
 | iOS device | Yes | Good | Profile mode recommended |
 | Desktop | Yes | Good | Strongest VM connectivity |
 
 **Frame timing mode** is the universal cross-platform path and provides accurate build/raster timing in profile builds.
 
-**VM full mode** adds sub-phase breakdown (build vs layout vs paint vs raster) but depends on VM service connectivity, which varies by platform. The package falls back gracefully to frame timing mode when VM is unavailable.
+**VM full mode** adds sub-phase breakdown (build vs layout vs paint vs raster) but depends on VM service connectivity, which varies by platform. The package falls back gracefully to frame timing mode when VM is unavailable. On cold start, a background reconnect ladder (500 ms → 30 s, 7 attempts) automatically upgrades to full mode once the VM web server binds — no manual action needed.
 
 ## Configuration
+
+### Quick start
+
+First-time integration? Drop in a preset instead of reading 25 field docs:
+
+```dart
+// Safe defaults, structural + runtime detectors only.
+Sleuth.track(
+  child: MyApp(),
+  config: SleuthConfig.minimal(),
+);
+
+// Or optimise for low overhead in CI / profile runs.
+Sleuth.track(
+  child: MyApp(),
+  config: SleuthConfig.performance(),
+);
+```
+
+### Full configuration
 
 ```dart
 Sleuth.track(
@@ -97,7 +117,7 @@ Sleuth.track(
     maxListChildren: 20,
     maxGlobalKeys: 10,
     platformChannelLimit: 20,
-    treeScanIntervalMs: 1000,
+    treeScanInterval: Duration(seconds: 1),
     captureBufferCapacity: 50,        // max jank frames retained for export
     enableDebugCallbacks: false,       // opt-in: per-widget rebuild/repaint hooks (conflicts with DevTools)
     enableDeepDebugInstrumentation: false, // opt-in: heavy per-widget timeline events

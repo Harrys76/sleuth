@@ -262,12 +262,12 @@ class _CombinedChatDemoState extends State<CombinedChatDemo>
           '(>5 threshold). A typing-indicator poll fires a '
           'MethodChannel call every 40ms (25/sec, >20 threshold). Every '
           'message avatar is a full-resolution 200×200 Image.network '
-          'without cacheWidth. The text input at the bottom rebuilds '
-          'the whole body when the keyboard opens.\n'
+          'rendered at 56×56 without cacheWidth. The text input at the '
+          'bottom rebuilds the whole body when the keyboard opens.\n'
           '✅ FIX: Route new messages through per-tab ValueNotifiers so '
           'only the list rebuilds; keep-alive only the first 2 tabs; '
           'remove the polling timer (use an event-driven push instead); '
-          'cacheWidth: 64 on every avatar; and extract the input into '
+          'cacheWidth: 112 on every avatar; and extract the input into '
           'its own StatefulWidget.\n\n'
           '▶ Watch new messages arrive every 2s. In the bad path the '
           'whole tree rebuilds; in the fixed path only the list animates.',
@@ -602,21 +602,27 @@ class _Avatar extends StatelessWidget {
     final seed = message.isMe
         ? 'me_${message.senderTab}'
         : 'friend_${message.senderTab}_${message.id}';
+    // Render size must stay above ImageMemoryDetector._smallImageThreshold
+    // (50 logical px in both dimensions) — otherwise the detector's
+    // _isSmallImage() guard suppresses the avatar and the bad path's
+    // uncached-image claim silently no-ops. 56 logical px is a common
+    // modern chat-avatar size and keeps the pattern realistic while
+    // ensuring the detector sees every avatar.
     return ClipOval(
       child: Image.network(
         'https://picsum.photos/seed/$seed/200/200',
-        width: 32,
-        height: 32,
+        width: 56,
+        height: 56,
         fit: BoxFit.cover,
-        // ✅ Fixed path: cacheWidth at 2× display size (32×32 avatars →
-        //    64 cache for high-DPI screens). ❌ Bad path: no cacheWidth.
-        cacheWidth: cached ? 64 : null,
-        cacheHeight: cached ? 64 : null,
+        // ✅ Fixed path: cacheWidth at 2× display size (56×56 avatars →
+        //    112 cache for high-DPI screens). ❌ Bad path: no cacheWidth.
+        cacheWidth: cached ? 112 : null,
+        cacheHeight: cached ? 112 : null,
         errorBuilder: (_, _, _) => Container(
-          width: 32,
-          height: 32,
+          width: 56,
+          height: 56,
           color: Colors.grey.shade300,
-          child: const Icon(Icons.person, size: 18),
+          child: const Icon(Icons.person, size: 28),
         ),
       ),
     );

@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:sleuth/sleuth.dart';
 
+import 'custom_detectors/01_simple_structural_detector.dart';
+import 'custom_detectors/02_runtime_callback_detector.dart';
+import 'custom_detectors/03_hybrid_vm_structural_detector.dart';
 import 'demos/animated_builder_demo.dart';
 import 'demos/combined_analytics_dashboard_demo.dart';
 import 'demos/combined_chat_demo.dart';
 import 'demos/combined_ecommerce_demo.dart';
 import 'demos/combined_social_feed_demo.dart';
+import 'demos/custom_detector_cookbook_demo.dart';
 import 'demos/custom_painter_demo.dart';
 import 'demos/font_loading_demo.dart';
 import 'demos/fps_stress_test_demo.dart';
@@ -36,6 +40,14 @@ void main() => runApp(
         baseUrl: 'http://localhost:11434',
         model: 'llama3.2',
       ),
+      // Cookbook custom detectors — see example/lib/custom_detectors/.
+      // All three are attached to the overlay so the Custom Detector
+      // Cookbook demo can exercise them end-to-end.
+      customDetectors: [
+        TooltipUsageDetector(),
+        SlowFrameDetector(),
+        RasterHotSpotDetector(),
+      ],
     ),
   ),
 );
@@ -271,6 +283,21 @@ class DemoHome extends StatelessWidget {
             subtitle: 'GlobalKey detector (>10 keys)',
             color: Colors.blue,
             builder: (_) => const GlobalKeyDemo(),
+          ),
+        ],
+      ),
+
+      // ── Custom Detectors ──
+      _DemoCategory(
+        title: 'Custom Detectors',
+        icon: Icons.extension,
+        demos: [
+          _DemoRoute(
+            icon: Icons.extension_outlined,
+            title: 'Custom Detector Cookbook',
+            subtitle: 'Tooltip • Slow frame • Raster hot spot (cookbook)',
+            color: Colors.deepPurple,
+            builder: (_) => const CustomDetectorCookbookDemo(),
           ),
         ],
       ),
