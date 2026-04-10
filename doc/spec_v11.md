@@ -880,8 +880,6 @@ Comprehensive adversarial review of all 78 changed files (8,880 insertions) acro
 
 **Status: 10/10 milestones shipped** ✅
 
-Full spec: [`spec_v11_pillar4.md`](spec_v11_pillar4.md)
-
 ### Summary
 
 Comprehensive encyclopedia content for all 46 issue types with cross-references, enriched explanations, and quality guardrail tests.
@@ -925,7 +923,7 @@ Comprehensive encyclopedia content for all 46 issue types with cross-references,
 
 ## Pillar 5 Part 1: Demo Infrastructure & Missing Detector Demos (v0.11.0)
 
-Full spec: `doc/spec_v11_pillar5_part1.md`
+**Status: 7/7 milestones shipped** ✅
 
 ### Milestones
 
@@ -985,7 +983,7 @@ Self-attack on Round 2 fixes (second-order regressions checked):
 
 ## Pillar 5 Part 2: Demo Quality Enhancements & Combined Demos (v0.11.1)
 
-Full spec: `doc/spec_v11_pillar5_part2.md`
+**Status: 7/7 milestones shipped** ✅
 
 Pillar 5 Part 2 transforms the example app from a gallery of isolated anti-patterns into
 an interactive teaching tool. Every demo ships a **Before/After toggle** with a real
@@ -1316,8 +1314,6 @@ After Round 6, Pillar 5 Part 2 totals:
 
 **Status: 7/7 milestones shipped** ✅
 
-Full spec: [`spec_v11_pillar6_part1.md`](spec_v11_pillar6_part1.md)
-
 ### Summary
 
 Reduces friction at every consumer-facing API surface in Sleuth. Adds preset
@@ -1419,7 +1415,7 @@ no memory profiling.
 
 ## Pillar 6 Part 2: Overlay UI, Diagnostics Output & Export (v0.12.1)
 
-Spec: `doc/spec_v11_pillar6_part2.md`
+**Status: 8/8 milestones shipped** ✅
 
 Upgrades every consumer-facing surface a developer looks at during debugging — the trigger button, floating card, issue card, encyclopedia, and export path — so the information Sleuth already collects is visible, customizable, and shareable.
 
