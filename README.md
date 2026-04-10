@@ -141,6 +141,10 @@ Sleuth.track(
       gpuPressureRatio: 1.5,         // raster/UI time ratio for GPU pressure
     ),
     customDetectors: [MyCustomDetector()], // plug in domain-specific detectors
+    disabledCustomDetectorKeys: {'my_heavy_detector'}, // gate custom detectors by key
+    triggerButtonAlignment: Alignment.bottomRight, // initial trigger button corner
+    triggerButtonOffset: Offset(16, 16),           // pixel offset from corner
+    showDebugModeBanner: true,         // dismissible debug-mode warning banner
   ),
 );
 ```
@@ -190,6 +194,53 @@ config: SleuthConfig(
 
 Built-in adapters automatically exclude their provider URLs from network monitoring. When no adapter is configured, the "Ask AI" link is hidden.
 
+## Custom Detectors
+
+Plug in domain-specific detectors alongside the built-in 22. Three shapes are supported:
+
+**Structural** — inspect widgets during the tree walk using `SimpleStructuralDetector`:
+
+```dart
+class TooltipUsageDetector extends SimpleStructuralDetector {
+  TooltipUsageDetector()
+      : super(
+          name: 'Tooltip Usage',
+          description: 'Flags Tooltip widgets in the tree',
+          key: 'tooltip_usage',
+        );
+
+  @override
+  void inspect(Element element) {
+    if (element.widget is Tooltip) {
+      report(
+        element: element,
+        title: 'Tooltip detected',
+        detail: 'Consider Semantics instead for accessibility.',
+        category: IssueCategory.build,
+      );
+    }
+  }
+}
+```
+
+**Runtime** — observe app events (frame timings, route transitions) by extending `BaseDetector` directly with `DetectorLifecycle.runtime`.
+
+**Hybrid** — combine VM timeline data with tree inspection using `DetectorLifecycle.hybrid`.
+
+See the three-file cookbook in `example/lib/custom_detectors/` for complete examples of all three shapes.
+
+Register custom detectors and optionally gate them by key:
+
+```dart
+Sleuth.track(
+  child: MyApp(),
+  config: SleuthConfig(
+    customDetectors: [TooltipUsageDetector(), SlowFrameDetector()],
+    disabledCustomDetectorKeys: {'slow_frame_detector'}, // disable by key
+  ),
+);
+```
+
 ## Fix Verification
 
 Capture a baseline of current issues, apply a fix, and compare to see what improved:
@@ -217,17 +268,18 @@ Issues are marked "resolved" only after being absent for 5 consecutive scan cycl
 
 ## Session Export
 
-Export captured jank data and current issues as JSON for sharing or comparison:
+Export captured jank data and current issues for sharing or comparison:
 
 ```dart
-// Get a SessionSnapshot object
+// JSON snapshot (full data — frame stats, issues, causal edges, heat map)
 final snapshot = Sleuth.exportSnapshot();
-
-// Or get formatted JSON directly
 final json = Sleuth.exportSnapshotJson();
+
+// Markdown summary (human-readable — paste into Slack or a PR description)
+final markdown = Sleuth.exportSummary(topN: 5);
 ```
 
-The dashboard also includes an export button that copies the JSON snapshot to the clipboard.
+The dashboard includes an export button that copies the JSON snapshot to the clipboard, and a "Copy conversation" button on the AI chat page that serializes the full thread.
 
 Exports include recurrence trends (per-issue worsening/improving/stable/intermittent) and widget heat map (top offending widgets by cumulative ranking score).
 
