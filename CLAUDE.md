@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 22 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~1,915 tests, ~20s)
+fvm flutter test                    # Run all tests (~1,915 tests, ~18s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -14,7 +14,7 @@ fvm flutter pub publish --dry-run   # Verify publish readiness
 # Example app
 cd example && fvm flutter run --profile   # Profile mode (recommended)
 cd example && fvm flutter run             # Debug mode
-cd example && fvm flutter test            # Cookbook smoke tests (7 tests)
+cd example && fvm flutter test            # Cookbook smoke tests (9 tests)
 ```
 
 ## Architecture
@@ -54,9 +54,10 @@ test/
 
 ## Current state
 
-- **v0.12.1** (current) — Pillar 6 Part 2: Overlay UI, Diagnostics Output & Export. New: trigger button alignment config (`triggerButtonAlignment`/`triggerButtonOffset`), minimize/maximize/restore card controls (3-state window), recurrence badge on IssueCard, context-aware encyclopedia entries (`IssueExplanationBuilder.substitute()`), inline confidence reasoning, dismissible debug-mode banner, `Sleuth.exportSummary()` markdown export, "Copy conversation" button on AiChatPage. Adversarial review fixes: Tooltip→Semantics in overlay (OverlayPortal crash), GFM escaping in copy/export, recurrence badge overflow, semantic labels on interactive elements, cookbook detector false-positive filter. See `doc/spec_v11.md`.
+- **v0.12.2** (current) — Post-Codex adversarial review hardening: timeline pipeline exception isolation (`_onTimelineData` try/finally + per-detector try/catch), encyclopedia placeholder leak fix (substitute all entries with fallback sentinel), cookbook slow-frame detector staleness fix (time-based eviction via `_TimestampedFrame`). One adversarial review, 3 findings fixed. See `CHANGELOG.md`.
+- v0.12.1: Pillar 6 Part 2: Overlay UI, Diagnostics Output & Export. New: trigger button alignment config (`triggerButtonAlignment`/`triggerButtonOffset`), minimize/maximize/restore card controls (3-state window), recurrence badge on IssueCard, context-aware encyclopedia entries (`IssueExplanationBuilder.substitute()`), inline confidence reasoning, dismissible debug-mode banner, `Sleuth.exportSummary()` markdown export, "Copy conversation" button on AiChatPage. Adversarial review fixes: Tooltip→Semantics in overlay (OverlayPortal crash), GFM escaping in copy/export, recurrence badge overflow, semantic labels on interactive elements, cookbook detector false-positive filter. See `doc/spec_v11.md`.
 - v0.12.0: Pillar 6 Part 1: Public API & Authoring Surface + real-device VM connection fix. **Breaking**: `SleuthConfig.treeScanInterval` now takes `Duration` instead of `int` ms. New: `SleuthConfig.minimal()`/`.performance()` presets, threshold doc comments on every parameter, debug-mode assert validation (14 rules), `SimpleStructuralDetector` helper base class, custom detector key gating (`disabledCustomDetectorKeys`), three-file custom detector cookbook in example app. VM fix: `controlWebServer` replaces `getInfo()` for cold-start port bind, background reconnect ladder (500ms→30s), `_connectInFlight` concurrency guard, frameStatsNotifier 5Hz throttle (prevents self-feedback rebuild loop), per-detector exception isolation in unified walk, post-dispose continuation guards. One adversarial review, 4 findings fixed (exception isolation, post-dispose guards, diag print removal, throttle test coverage). Test count: 1,825 → 1,869. See `doc/spec_v11.md`.
-- Test count: 1,869 → 1,915 (root) + 7 (example).
+- Test count: 1,869 → 1,915 (root) + 7 → 9 (example).
 - v0.11.1: Pillar 5 Part 2 demo quality enhancements: Before/After toggle in `DemoScaffold`, working fixed-pattern bodies for all 23 demos, live `MetricsBar`/`MetricChip` in 7 demos, two new combined demos (E-Commerce, Chat). Three adversarial review rounds, 18 findings + KeepAliveDetector bug fix. See `doc/spec_v11.md`.
 - v0.11.0: Pillar 5 Part 1 demo infrastructure: DemoScaffold shared layout, 5 new demos (shader jank, platform channel traffic, memory pressure, GPU pressure, missing RepaintBoundary), categorized home screen (8 categories, 23 demos). Two adversarial reviews: (round 1) memory MB overcount fix, theme-aware color fix; (round 2) critical GC rate dilution fix (10s sliding window replaces lifetime-based denominator in `MemoryPressureDetector`), setState-after-dispose guards + global `debugProfilePlatformChannels` save/restore in platform channel demo, memory label clarification, RepaintBoundary description accuracy, Impeller warning banner on shader jank page. See `doc/spec_v11.md`.
 - v0.10.9: Pillar 4 issue documentation quality: 8 missing encyclopedia entries (38→46 total), readingTheData for all 46 entries, build/memory/paint/raster/network content enrichment (14 entries), relatedIssues cross-references with bidirectional links derived from causal graph, related issues UI chips with scroll-to, AI context integration, content quality guardrail tests. Adversarial review: chip scroll-to bug fix (per-entry GlobalKey map), repaint_debug bidirectional relations, content threshold enrichments. See `doc/spec_v11.md`.
@@ -86,4 +87,4 @@ test/
 - v11 Pillar 5 Part 2: 7/7 milestones shipped ✅ (M8–M14, three adversarial review rounds + KeepAliveDetector bug fix). See `doc/spec_v11.md`.
 - v11 Pillar 6 Part 1: 7/7 milestones shipped ✅ (M1–M7, one adversarial review). See `doc/spec_v11.md`.
 - v11 Pillar 6 Part 2: 8/8 milestones shipped ✅ (M1–M8, one adversarial review round + 6 fixes). See `doc/spec_v11.md`.
-- 1,915 tests, 0 analysis issues
+- 1,915 tests (root) + 9 tests (example), 0 analysis issues

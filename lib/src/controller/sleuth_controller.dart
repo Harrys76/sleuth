@@ -1873,116 +1873,136 @@ class SleuthController {
     // FrameTimingDetector uses custom method (not processTimelineData)
     _frameTiming.updateTimelineData(data);
 
-    // Guard _detectors iteration against concurrent enable/disable.
-    _isIteratingDetectors = true;
-
-    // Feed timeline data to vmOnly and hybrid detectors
-    for (final d in _detectors) {
-      if (d.isEnabled &&
-          (d.lifecycle == DetectorLifecycle.vmOnly ||
-              d.lifecycle == DetectorLifecycle.hybrid)) {
-        d.processTimelineData(data);
-      }
-    }
-
-    // Flush staged data so _getAllIssues() sees current state
-    for (final d in _detectors) {
-      if (d.isEnabled &&
-          (d.lifecycle == DetectorLifecycle.vmOnly ||
-              d.lifecycle == DetectorLifecycle.hybrid)) {
-        d.evaluateNow();
-      }
-    }
-
-    // Invalidate _getAllIssues cache — detectors have fresh issues.
-    _issueGeneration++;
-
     // Generate verdict for slow frames (full mode with VM timeline data)
     // Local variables bridge jank decision → post-aggregation capture.
     FrameStats? captureFrame;
     FrameVerdict? captureVerdict;
 
-    // Try correlated mode first: match events to specific frames by timestamp.
-    // Falls back to legacy full mode if correlation fails.
-    if (data.phaseEvents.isNotEmpty) {
-      final allFrames = _frameTiming.frameBuffer.frames;
-
-      // Compute the batch time window from phaseEvents
-      var batchStartUs = data.phaseEvents.first.timestampUs;
-      var batchEndUs = data.phaseEvents.first.endUs;
-      for (final e in data.phaseEvents) {
-        if (e.timestampUs < batchStartUs) batchStartUs = e.timestampUs;
-        if (e.endUs > batchEndUs) batchEndUs = e.endUs;
-      }
-
-      // Filter frames to those that overlap the batch window
-      final batchFrames = allFrames.where((f) {
-        if (!f.hasPhaseTimestamps) return false;
-        return f.vsyncStartUs! < batchEndUs && f.rasterFinishUs! > batchStartUs;
-      }).toList();
-
-      if (batchFrames.isNotEmpty) {
-        final correlations = _correlator.correlate(
-          recentFrames: batchFrames,
-          phaseEvents: data.phaseEvents,
-        );
-
-        // Find worst jank frame with trustworthy correlation
-        FrameStats? worstFrame;
-        CorrelatedFrameData? worstCorrelation;
-        for (final frame in batchFrames) {
-          if (!frame.isJank) continue;
-          final corr = correlations[frame.frameNumber];
-          if (corr == null || !corr.isTrustworthy) continue;
-          if (worstFrame == null ||
-              frame.effectiveTotalDuration >
-                  worstFrame.effectiveTotalDuration) {
-            worstFrame = frame;
-            worstCorrelation = corr;
+    // Guard _detectors iteration against concurrent enable/disable.
+    _isIteratingDetectors = true;
+    try {
+      // Feed timeline data to vmOnly and hybrid detectors.
+      // Per-detector try/catch mirrors the structural walk's isolation so
+      // a throwing custom detector cannot poison the entire VM pipeline.
+      for (final d in _detectors) {
+        if (d.isEnabled &&
+            (d.lifecycle == DetectorLifecycle.vmOnly ||
+                d.lifecycle == DetectorLifecycle.hybrid)) {
+          try {
+            d.processTimelineData(data);
+          } catch (e, s) {
+            assert(() {
+              debugPrint(
+                'Sleuth: ${d.name} processTimelineData failed: $e\n$s',
+              );
+              return true;
+            }());
           }
         }
+      }
 
-        if (worstFrame != null && worstCorrelation != null) {
+      // Flush staged data so _getAllIssues() sees current state
+      for (final d in _detectors) {
+        if (d.isEnabled &&
+            (d.lifecycle == DetectorLifecycle.vmOnly ||
+                d.lifecycle == DetectorLifecycle.hybrid)) {
+          try {
+            d.evaluateNow();
+          } catch (e, s) {
+            assert(() {
+              debugPrint('Sleuth: ${d.name} evaluateNow failed: $e\n$s');
+              return true;
+            }());
+          }
+        }
+      }
+
+      // Invalidate _getAllIssues cache — detectors have fresh issues.
+      _issueGeneration++;
+
+      // Try correlated mode first: match events to specific frames by
+      // timestamp. Falls back to legacy full mode if correlation fails.
+      if (data.phaseEvents.isNotEmpty) {
+        final allFrames = _frameTiming.frameBuffer.frames;
+
+        // Compute the batch time window from phaseEvents
+        var batchStartUs = data.phaseEvents.first.timestampUs;
+        var batchEndUs = data.phaseEvents.first.endUs;
+        for (final e in data.phaseEvents) {
+          if (e.timestampUs < batchStartUs) batchStartUs = e.timestampUs;
+          if (e.endUs > batchEndUs) batchEndUs = e.endUs;
+        }
+
+        // Filter frames to those that overlap the batch window
+        final batchFrames = allFrames.where((f) {
+          if (!f.hasPhaseTimestamps) return false;
+          return f.vsyncStartUs! < batchEndUs &&
+              f.rasterFinishUs! > batchStartUs;
+        }).toList();
+
+        if (batchFrames.isNotEmpty) {
+          final correlations = _correlator.correlate(
+            recentFrames: batchFrames,
+            phaseEvents: data.phaseEvents,
+          );
+
+          // Find worst jank frame with trustworthy correlation
+          FrameStats? worstFrame;
+          CorrelatedFrameData? worstCorrelation;
+          for (final frame in batchFrames) {
+            if (!frame.isJank) continue;
+            final corr = correlations[frame.frameNumber];
+            if (corr == null || !corr.isTrustworthy) continue;
+            if (worstFrame == null ||
+                frame.effectiveTotalDuration >
+                    worstFrame.effectiveTotalDuration) {
+              worstFrame = frame;
+              worstCorrelation = corr;
+            }
+          }
+
+          if (worstFrame != null && worstCorrelation != null) {
+            final allIssues = _getAllIssues();
+            var verdict = _analyzer.analyzeCorrelatedMode(
+              frameStats: worstFrame,
+              correlation: worstCorrelation,
+              relatedIssues: allIssues,
+            );
+            verdict = _enrichVerdictWithNetworkContext(verdict);
+            verdictNotifier.value = verdict;
+            _lastVerdictPhase = verdict.suspectedPhase;
+            _lastVerdictFrameNumber = verdict.frameNumber;
+            captureFrame = worstFrame;
+            captureVerdict = verdict;
+          }
+        }
+      }
+
+      // Fallback: legacy full mode (batch-attributed)
+      if (captureVerdict == null) {
+        final latest = _frameTiming.frameBuffer.latest;
+        if (latest != null && latest.isJank) {
           final allIssues = _getAllIssues();
-          var verdict = _analyzer.analyzeCorrelatedMode(
-            frameStats: worstFrame,
-            correlation: worstCorrelation,
+          var verdict = _analyzer.analyzeFullMode(
+            frameStats: latest,
+            timelineData: data,
             relatedIssues: allIssues,
           );
           verdict = _enrichVerdictWithNetworkContext(verdict);
           verdictNotifier.value = verdict;
           _lastVerdictPhase = verdict.suspectedPhase;
           _lastVerdictFrameNumber = verdict.frameNumber;
-          captureFrame = worstFrame;
+          captureFrame = latest;
           captureVerdict = verdict;
         }
       }
+
+      // frameStatsNotifier is already updated by _onFrameStats callback
+      _aggregateIssues();
+    } finally {
+      _isIteratingDetectors = false;
+      _drainPendingDetectorMutations();
     }
-
-    // Fallback: legacy full mode (batch-attributed)
-    if (captureVerdict == null) {
-      final latest = _frameTiming.frameBuffer.latest;
-      if (latest != null && latest.isJank) {
-        final allIssues = _getAllIssues();
-        var verdict = _analyzer.analyzeFullMode(
-          frameStats: latest,
-          timelineData: data,
-          relatedIssues: allIssues,
-        );
-        verdict = _enrichVerdictWithNetworkContext(verdict);
-        verdictNotifier.value = verdict;
-        _lastVerdictPhase = verdict.suspectedPhase;
-        _lastVerdictFrameNumber = verdict.frameNumber;
-        captureFrame = latest;
-        captureVerdict = verdict;
-      }
-    }
-
-    // frameStatsNotifier is already updated by _onFrameStats callback
-    _aggregateIssues();
-
-    _isIteratingDetectors = false;
-    _drainPendingDetectorMutations();
 
     // Capture AFTER aggregation so relatedIssues carry route/context tags.
     if (captureFrame != null &&

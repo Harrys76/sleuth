@@ -129,6 +129,26 @@ void main() {
       expect(detector.issues.first.detail, contains('user tooltip'));
     });
 
+    test('02 SlowFrameDetector clears window on disable', () {
+      final detector = SlowFrameDetector();
+      addTearDown(detector.dispose);
+
+      // Disabling clears the rolling window, so re-enabling produces no
+      // stale issues — this is the programmatic eviction path.
+      detector.isEnabled = false;
+      detector.isEnabled = true;
+      detector.finalizeScan();
+      expect(detector.issues, isEmpty);
+    });
+
+    test('02 SlowFrameDetector respects custom thresholds', () {
+      final detector = SlowFrameDetector(thresholdMs: 100, sampleWindow: 10);
+      addTearDown(detector.dispose);
+
+      expect(detector.thresholdMs, 100);
+      expect(detector.sampleWindow, 10);
+    });
+
     test('All three detectors co-exist in a SleuthConfig', () {
       // This is the real-world wiring snippet from the README. We just
       // want to confirm that constructing a config with all three

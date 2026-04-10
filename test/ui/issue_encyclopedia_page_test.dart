@@ -387,7 +387,8 @@ void main() {
       expect(find.textContaining('MyForm'), findsWidgets);
     });
 
-    testWidgets('without contextIssue shows raw placeholders', (tester) async {
+    testWidgets('without contextIssue uses fallback placeholders',
+        (tester) async {
       await tester.pumpWidget(wrap(
         IssueEncyclopediaPage(
           onClose: () {},
@@ -396,9 +397,10 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // Without contextIssue, raw {count} and {widgetName} appear in the text.
-      expect(find.textContaining('{count}'), findsWidgets);
-      expect(find.textContaining('{widgetName}'), findsWidgets);
+      // Without contextIssue, placeholders resolve to built-in fallbacks
+      // ('the widget', 'several') rather than rendering raw {tokens}.
+      expect(find.textContaining('{count}'), findsNothing);
+      expect(find.textContaining('{widgetName}'), findsNothing);
     });
 
     test('substitute only applies to matching stableId (unit)', () {

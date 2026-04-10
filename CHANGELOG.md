@@ -1,3 +1,26 @@
+## 0.12.2
+
+Post-Codex adversarial review hardening — three robustness fixes discovered
+via adversarial review of the v11 branch diff.
+
+### Fixed
+
+- **Timeline pipeline exception isolation** (`SleuthController._onTimelineData`):
+  Added `try/finally` around `_isIteratingDetectors` flag and per-detector
+  `try/catch` around `processTimelineData` and `evaluateNow` calls, matching the
+  structural walk's existing isolation pattern. Previously, a throwing custom
+  detector in the VM pipeline could leave `_isIteratingDetectors = true`
+  permanently, deadlocking all future detector mutations.
+- **Encyclopedia placeholder leak** (`IssueEncyclopediaPage`): Raw `{widgetName}`
+  and `{count}` tokens were visible when browsing encyclopedia entries without a
+  context issue. Now applies `IssueExplanationBuilder.substitute()` to all
+  entries with a static sentinel that triggers built-in fallbacks (`'the widget'`,
+  `'several'`).
+- **Cookbook slow-frame detector staleness** (`SlowFrameDetector`): A single slow
+  frame could keep the detector reporting indefinitely because the rolling window
+  only tracked slow frames (fast frames never evicted stale entries). Added
+  `_TimestampedFrame` wrapper and 10-second age eviction in `finalizeScan()`.
+
 ## 0.12.1
 
 Pillar 6 Part 2: Overlay UI, Diagnostics Output & Export — upgrades every

@@ -67,9 +67,13 @@ class SlowFrameDetector extends BaseDetector {
   final int sampleWindow;
 
   final List<PerformanceIssue> _issues = [];
-  final List<Duration> _recentSlowFrames = [];
+  final List<_TimestampedFrame> _recentSlowFrames = [];
   TimingsCallback? _callback;
   bool _isEnabled = true;
+
+  /// Slow frames older than this are evicted in [finalizeScan], preventing a
+  /// single slow frame from keeping the detector reporting indefinitely.
+  static const _maxAge = Duration(seconds: 10);
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -110,7 +114,9 @@ class SlowFrameDetector extends BaseDetector {
       for (final timing in timings) {
         final total = timing.totalSpan.inMilliseconds;
         if (total >= thresholdMs) {
-          _recentSlowFrames.add(timing.totalSpan);
+          _recentSlowFrames.add(
+            _TimestampedFrame(timing.totalSpan, DateTime.now()),
+          );
           if (_recentSlowFrames.length > sampleWindow) {
             _recentSlowFrames.removeAt(0);
           }
@@ -140,11 +146,18 @@ class SlowFrameDetector extends BaseDetector {
   @override
   void finalizeScan() {
     if (!_isEnabled) return;
+
+    // Evict slow frames older than _maxAge so a single stale slow frame
+    // cannot keep the detector reporting through an arbitrarily long
+    // healthy period.
+    final cutoff = DateTime.now().subtract(_maxAge);
+    _recentSlowFrames.removeWhere((f) => f.recordedAt.isBefore(cutoff));
+
     if (_recentSlowFrames.isEmpty) return;
 
     final count = _recentSlowFrames.length;
     final worstMs = _recentSlowFrames
-        .map((d) => d.inMilliseconds)
+        .map((f) => f.duration.inMilliseconds)
         .fold<int>(0, (max, current) => current > max ? current : max);
 
     // Severity escalates with burst size. One slow frame is a warning;
@@ -187,4 +200,12 @@ class SlowFrameDetector extends BaseDetector {
     _issues.clear();
     _recentSlowFrames.clear();
   }
+}
+
+/// A slow-frame sample paired with the wall-clock time it was recorded, so
+/// [SlowFrameDetector.finalizeScan] can age out stale entries.
+class _TimestampedFrame {
+  const _TimestampedFrame(this.duration, this.recordedAt);
+  final Duration duration;
+  final DateTime recordedAt;
 }

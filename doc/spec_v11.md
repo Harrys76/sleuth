@@ -1,6 +1,6 @@
 ## v11 Detector Audit: Gaps, False Positives & Hot-Path Performance
 
-**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) + Pillar 3b (4 milestones) + Pillar 4 (10 milestones) + Pillar 5 Part 1 (7 milestones) + Pillar 5 Part 2 (7 milestones) + Pillar 6 Part 1 (7 milestones) + Pillar 6 Part 2 (8 milestones) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7 / v0.10.8 / v0.10.9 / v0.11.0 / v0.11.1 / v0.12.0 / v0.12.1)
+**Status: 19/19 milestones + Pillar 2a (3 milestones) + Pillar 2b (4 milestones) + Pillar 3a (5 milestones) + Pillar 3b (4 milestones) + Pillar 4 (10 milestones) + Pillar 5 Part 1 (7 milestones) + Pillar 5 Part 2 (7 milestones) + Pillar 6 Part 1 (7 milestones) + Pillar 6 Part 2 (8 milestones) + v0.12.2 hardening (3 fixes) shipped** ✅ (v0.10.5 / v0.10.6 / v0.10.7 / v0.10.8 / v0.10.9 / v0.11.0 / v0.11.1 / v0.12.0 / v0.12.1 / v0.12.2)
 
 Origin: Adversarial audit (2026-04-07) of 5 detectors (ListviewDetector, NestedScrollDetector, LayoutBottleneckDetector, SetStateScopeDetector, RepaintBoundaryDetector). Found 6 gaps and false positives across detection coverage, accuracy, and enrichment. All milestones implemented, adversarial-reviewed twice (8 fix-round findings resolved), 1,869 tests passing, 0 analysis issues.
 
@@ -1462,3 +1462,51 @@ One review round, 6 findings:
 - `fvm flutter test` — **1,915 tests passing** (1,869 → 1,915, +46 across M1–M8 + adversarial fixes)
 - `cd example && fvm flutter test` — **7 tests passing** (6 → 7, +1 framework tooltip filter test)
 - Adversarial review: 6 findings, all resolved
+
+---
+
+## v0.12.2: Post-Codex Adversarial Review Hardening
+
+**Status: 3 fixes shipped** ✅ (v0.12.2)
+
+Origin: Codex adversarial review (2026-04-10) of the full `feat/v11_implementations` branch diff (~25k lines across Pillars 1–6). Two Codex review passes produced 4 findings; meta-adversarial review validated 3 as real bugs, dismissed 1 (GC pressure fallback) as intentionally removed behavior. Post-implementation adversarial review confirmed all fixes and surfaced one additional improvement (static const hoisting).
+
+### Fix 1: Timeline pipeline exception isolation
+
+**Problem:** `SleuthController._onTimelineData` lacked the `try/finally` around `_isIteratingDetectors` that the structural walk path (`_runStructuralScans`) already had. A throwing custom detector in `processTimelineData` or `evaluateNow` would leave `_isIteratingDetectors = true` permanently, deadlocking all future detector enable/disable mutations via `_drainPendingDetectorMutations`.
+
+**Fix:** Wrapped the entire detector iteration + verdict generation + aggregation block in `try { ... } finally { _isIteratingDetectors = false; _drainPendingDetectorMutations(); }`. Added per-detector `try/catch` around `d.processTimelineData(data)` and `d.evaluateNow()` calls, matching the structural walk's isolation pattern at lines 1766–1784.
+
+**Files modified:**
+- `lib/src/controller/sleuth_controller.dart` — `_onTimelineData` method restructured
+
+### Fix 2: Encyclopedia placeholder leak
+
+**Problem:** `IssueEncyclopediaPage._entryTile` only called `IssueExplanationBuilder.substitute()` for the scroll target entry when a `contextIssue` was provided. All other encyclopedia entries rendered raw `{widgetName}`, `{count}`, `{routeName}` placeholder tokens as literal text.
+
+**Fix:** Apply `substitute()` to all entries. When no context issue is available, use a static sentinel `PerformanceIssue` (with null `widgetName`, null `routeName`, title `'several'`) that triggers the built-in fallbacks in `_substitutePlaceholders`: `'the widget'`, `'several'`, `'the current route'`.
+
+**Files modified:**
+- `lib/src/ui/issue_encyclopedia_page.dart` — static `_fallbackIssue` constant, `_entryTile` always calls `substitute()`
+- `test/ui/issue_encyclopedia_page_test.dart` — test updated from `findsWidgets` to `findsNothing` for raw placeholders
+
+### Fix 3: Cookbook slow-frame detector staleness
+
+**Problem:** `SlowFrameDetector._recentSlowFrames` only stored slow frames. Fast frames never evicted entries, so a single slow frame could keep the detector reporting a stale issue through an arbitrarily long healthy period. The rolling window represented "recent slow frames" rather than "recent frames."
+
+**Fix:** Added `_TimestampedFrame` wrapper pairing each slow frame's `Duration` with its `DateTime.now()` recording time. `finalizeScan()` now evicts entries older than `_maxAge` (10 seconds) before checking the window, so stale slow frames age out naturally.
+
+**Files modified:**
+- `example/lib/custom_detectors/02_runtime_callback_detector.dart` — `_TimestampedFrame` class, `_maxAge` constant, age eviction in `finalizeScan()`
+- `example/test/cookbook_smoke_test.dart` — +2 tests (disable-clears-window, custom thresholds)
+
+### Post-implementation adversarial review
+
+**Finding:** `fallbackIssue` was allocated as a local variable inside `_entryTile()` — 46 unnecessary `PerformanceIssue` allocations per encyclopedia rebuild. **Fix:** Hoisted to `static const _fallbackIssue` on the State class.
+
+### Verification (v0.12.2)
+
+- `fvm flutter analyze` — 0 issues
+- `fvm flutter test` — **1,915 tests passing**
+- `cd example && fvm flutter test` — **9 tests passing** (7 → 9, +2 cookbook detector tests)
+- Adversarial reviews: 2 Codex passes + 1 meta-review + 1 post-implementation review, 3 findings fixed + 1 improvement

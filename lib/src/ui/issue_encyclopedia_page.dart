@@ -36,6 +36,18 @@ class IssueEncyclopediaPage extends StatefulWidget {
 
 class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     with SingleTickerProviderStateMixin {
+  /// Sentinel issue used for placeholder substitution when no real context
+  /// issue is available. All fields trigger built-in fallbacks in
+  /// [IssueExplanationBuilder._substitutePlaceholders].
+  static const _fallbackIssue = PerformanceIssue(
+    severity: IssueSeverity.warning,
+    category: IssueCategory.build,
+    confidence: IssueConfidence.possible,
+    title: 'several',
+    detail: '',
+    fixHint: '',
+  );
+
   late final AnimationController _entranceController;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
@@ -348,10 +360,16 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     final isExpanded = _expandedEntries.contains(stableId);
     final isScrollTarget = stableId == widget.scrollToStableId;
 
-    // Apply contextual substitution for the target entry.
-    final effectiveEntry = isScrollTarget && widget.contextIssue != null
-        ? IssueExplanationBuilder.substitute(entry, widget.contextIssue!)
-        : entry;
+    // Apply contextual substitution. When a real issue is available (the
+    // scroll target), placeholders resolve to its data. For all other entries
+    // the static sentinel triggers built-in fallbacks ('the widget',
+    // 'several', etc.) so raw `{widgetName}` tokens never render.
+    final effectiveEntry = IssueExplanationBuilder.substitute(
+      entry,
+      isScrollTarget && widget.contextIssue != null
+          ? widget.contextIssue!
+          : _fallbackIssue,
+    );
 
     return Container(
       key: _entryKeys[stableId] ??
