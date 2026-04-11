@@ -45,6 +45,8 @@ import '../models/performance_issue.dart';
 /// - **Banner pairs** (8): bg + text for debug/instrumentation/success/warning
 /// - **Causal graph** (1): `effectsBadge` for downstream effects count
 /// - **Spacing** (6): `spacingXxs` through `spacingXl`
+/// - **Typography** (9): `fontXxs` (8) through `fontDisplay` (24)
+/// - **Border radius** (7): `radiusSm` (4) through `radiusFull` (20)
 /// - **Special** (11): fix hint text, grip dots, guide accents, etc.
 ///
 /// ## Badge and banner pairs
@@ -60,8 +62,17 @@ import '../models/performance_issue.dart';
 /// comes from hue, which should be consistent across themes.
 class SleuthThemeData {
   /// Dark theme — matches every original hardcoded color exactly.
+  ///
+  /// **Palette note:** Several semantic tokens share the same default hex
+  /// value (e.g. `severityOk`, `confidenceConfirmed`, `effortQuick`, and
+  /// `sourceVmTimeline` are all `0xFF10B981` green). This is intentional —
+  /// "green = good" is a consistent semantic across contexts. Each token is
+  /// independently overridable via [copyWith], so changing one does not
+  /// affect the others.
   const SleuthThemeData({
     // ── Severity (also used for FPS) ──
+    // Note: severity palette overlaps with category/effort/confidence by
+    // design — red/amber/green carries the same meaning everywhere.
     this.severityCritical = const Color(0xFFEF4444),
     this.severityWarning = const Color(0xFFF59E0B),
     this.severityOk = const Color(0xFF10B981),
@@ -161,6 +172,26 @@ class SleuthThemeData {
     this.spacingMd = 8,
     this.spacingLg = 12,
     this.spacingXl = 16,
+
+    // ── Typography scale ──
+    this.fontXxs = 8,
+    this.fontXs = 9,
+    this.fontSm = 10,
+    this.fontMd = 11,
+    this.fontBase = 12,
+    this.fontLg = 13,
+    this.fontXl = 16,
+    this.fontXxl = 20,
+    this.fontDisplay = 24,
+
+    // ── Border radius scale ──
+    this.radiusSm = 4,
+    this.radiusMd = 6,
+    this.radiusLg = 8,
+    this.radiusXl = 10,
+    this.radiusXxl = 12,
+    this.radiusCard = 16,
+    this.radiusFull = 20,
   });
 
   /// Explicit dark theme — identical to the default constructor.
@@ -218,6 +249,7 @@ class SleuthThemeData {
           disclaimerText: const Color(0xFF92400E),
           dimOverlay: const Color(0x22000000),
           shadow: const Color(0x33000000),
+          gripDots: const Color(0xFF6B7280),
           triggerBadgeBg: const Color(0xFFE5E7EB),
         );
 
@@ -321,6 +353,26 @@ class SleuthThemeData {
   final double spacingMd;
   final double spacingLg;
   final double spacingXl;
+
+  // ── Typography scale ──
+  final double fontXxs;
+  final double fontXs;
+  final double fontSm;
+  final double fontMd;
+  final double fontBase;
+  final double fontLg;
+  final double fontXl;
+  final double fontXxl;
+  final double fontDisplay;
+
+  // ── Border radius scale ──
+  final double radiusSm;
+  final double radiusMd;
+  final double radiusLg;
+  final double radiusXl;
+  final double radiusXxl;
+  final double radiusCard;
+  final double radiusFull;
 
   // ── Lookup helpers ──
 
@@ -446,6 +498,22 @@ class SleuthThemeData {
     double? spacingMd,
     double? spacingLg,
     double? spacingXl,
+    double? fontXxs,
+    double? fontXs,
+    double? fontSm,
+    double? fontMd,
+    double? fontBase,
+    double? fontLg,
+    double? fontXl,
+    double? fontXxl,
+    double? fontDisplay,
+    double? radiusSm,
+    double? radiusMd,
+    double? radiusLg,
+    double? radiusXl,
+    double? radiusXxl,
+    double? radiusCard,
+    double? radiusFull,
   }) {
     return SleuthThemeData(
       severityCritical: severityCritical ?? this.severityCritical,
@@ -523,6 +591,22 @@ class SleuthThemeData {
       spacingMd: spacingMd ?? this.spacingMd,
       spacingLg: spacingLg ?? this.spacingLg,
       spacingXl: spacingXl ?? this.spacingXl,
+      fontXxs: fontXxs ?? this.fontXxs,
+      fontXs: fontXs ?? this.fontXs,
+      fontSm: fontSm ?? this.fontSm,
+      fontMd: fontMd ?? this.fontMd,
+      fontBase: fontBase ?? this.fontBase,
+      fontLg: fontLg ?? this.fontLg,
+      fontXl: fontXl ?? this.fontXl,
+      fontXxl: fontXxl ?? this.fontXxl,
+      fontDisplay: fontDisplay ?? this.fontDisplay,
+      radiusSm: radiusSm ?? this.radiusSm,
+      radiusMd: radiusMd ?? this.radiusMd,
+      radiusLg: radiusLg ?? this.radiusLg,
+      radiusXl: radiusXl ?? this.radiusXl,
+      radiusXxl: radiusXxl ?? this.radiusXxl,
+      radiusCard: radiusCard ?? this.radiusCard,
+      radiusFull: radiusFull ?? this.radiusFull,
     );
   }
 }

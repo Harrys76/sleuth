@@ -199,7 +199,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
                           'Issue Encyclopedia',
                           style: TextStyle(
                             color: theme.textPrimary,
-                            fontSize: 16,
+                            fontSize: theme.fontXl,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -268,7 +268,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
       return Center(
         child: Text(
           'No matching issues',
-          style: TextStyle(color: theme.textTertiary, fontSize: 12),
+          style: TextStyle(color: theme.textTertiary, fontSize: theme.fontBase),
         ),
       );
     }
@@ -317,7 +317,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
             height: 24,
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(theme.radiusMd),
             ),
             child: Icon(icon, color: color, size: 14),
           ),
@@ -326,7 +326,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
             name,
             style: TextStyle(
               color: color,
-              fontSize: 11,
+              fontSize: theme.fontMd,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.3,
             ),
@@ -336,13 +336,13 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(theme.radiusLg),
             ),
             child: Text(
               countText,
               style: TextStyle(
                 color: color,
-                fontSize: 9,
+                fontSize: theme.fontXs,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -376,7 +376,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
           (isScrollTarget ? _keyForEntry(stableId) : null),
       decoration: BoxDecoration(
         color: theme.sectionBackground,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(theme.radiusLg),
         border: Border.all(color: theme.border, width: 0.5),
       ),
       child: Column(
@@ -403,7 +403,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
                       effectiveEntry.displayName,
                       style: TextStyle(
                         color: theme.textPrimary,
-                        fontSize: 12,
+                        fontSize: theme.fontBase,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -482,7 +482,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
           'Related issues',
           style: TextStyle(
             color: theme.textPrimary,
-            fontSize: 11,
+            fontSize: theme.fontMd,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.2,
           ),
@@ -515,14 +515,14 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
                       color: theme.pageBackground,
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(theme.radiusXl),
                       border: Border.all(color: theme.border, width: 0.5),
                     ),
                     child: Text(
                       related.displayName,
                       style: TextStyle(
                         color: theme.textSecondary,
-                        fontSize: 10,
+                        fontSize: theme.fontSm,
                       ),
                     ),
                   ),
@@ -541,7 +541,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
           title,
           style: TextStyle(
             color: theme.textPrimary,
-            fontSize: 11,
+            fontSize: theme.fontMd,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.2,
           ),
@@ -551,7 +551,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
           body,
           style: TextStyle(
             color: theme.textSecondary,
-            fontSize: 11,
+            fontSize: theme.fontMd,
             height: 1.5,
           ),
         ),
@@ -564,7 +564,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
       padding: EdgeInsets.all(theme.spacingMd),
       decoration: BoxDecoration(
         color: theme.pageBackground,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(theme.radiusMd),
         border: Border.all(color: theme.border, width: 0.5),
       ),
       child: Column(
@@ -574,7 +574,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
             'Reading the data',
             style: TextStyle(
               color: theme.textPrimary,
-              fontSize: 11,
+              fontSize: theme.fontMd,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.2,
             ),
@@ -584,7 +584,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
             body,
             style: TextStyle(
               color: theme.textSecondary,
-              fontSize: 11,
+              fontSize: theme.fontMd,
               height: 1.5,
             ),
           ),
@@ -641,11 +641,12 @@ class _SearchBar extends StatelessWidget {
       child: TextField(
         controller: controller,
         focusNode: focusNode,
-        style: TextStyle(color: theme.textPrimary, fontSize: 12),
+        style: TextStyle(color: theme.textPrimary, fontSize: theme.fontBase),
         cursorColor: theme.textTertiary,
         decoration: InputDecoration(
           hintText: 'Search issues...',
-          hintStyle: TextStyle(color: theme.textQuaternary, fontSize: 12),
+          hintStyle:
+              TextStyle(color: theme.textQuaternary, fontSize: theme.fontBase),
           prefixIcon: Icon(Icons.search, color: theme.textQuaternary, size: 18),
           suffixIcon: ValueListenableBuilder<TextEditingValue>(
             valueListenable: controller,
@@ -669,15 +670,15 @@ class _SearchBar extends StatelessWidget {
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(theme.radiusLg),
             borderSide: BorderSide(color: theme.border, width: 0.5),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(theme.radiusLg),
             borderSide: BorderSide(color: theme.border, width: 0.5),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(theme.radiusLg),
             borderSide: BorderSide(color: theme.textTertiary, width: 1),
           ),
         ),

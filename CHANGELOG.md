@@ -1,7 +1,8 @@
 ## 0.13.1
 
-Dark/light mode toggle, header optimization, and false-positive fix.
-Two adversarial review rounds, one finding fixed.
+Dark/light mode toggle, design system tokens, header optimization, and
+false-positive fix. Three adversarial review rounds (general, theme
+performance + design system), all findings fixed.
 
 ### Added
 
@@ -15,6 +16,17 @@ Two adversarial review rounds, one finding fixed.
 - **System brightness reactivity**: `didChangePlatformBrightness` re-resolves
   auto-detect theme when system brightness changes mid-session (gated to
   auto-detect mode only — skips when explicit override or config theme is set).
+- **Typography scale tokens**: 9 font-size tokens on `SleuthThemeData`
+  (`fontXxs`=8 through `fontDisplay`=24). All 8 overlay UI files migrated
+  from hardcoded `fontSize` values — ~119 replacements.
+- **Border radius scale tokens**: 7 radius tokens on `SleuthThemeData`
+  (`radiusSm`=4 through `radiusFull`=20). All 8 overlay UI files migrated
+  from hardcoded `BorderRadius.circular()` values — ~50 replacements.
+- **`gripDots` light theme override**: Light theme now uses `0xFF6B7280`
+  (gray-500) for grip dots instead of inheriting the dark-theme white.
+- **Color coupling documentation**: `SleuthThemeData` constructor doc comment
+  documents intentional hex-value sharing across semantically distinct tokens,
+  with `copyWith()` independence guarantee.
 
 ### Changed
 

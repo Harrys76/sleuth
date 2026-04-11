@@ -142,7 +142,7 @@ class _HighlightPainter extends CustomPainter {
       text: label,
       style: TextStyle(
         color: theme.highlightLabelText,
-        fontSize: 10,
+        fontSize: theme.fontSm,
         fontWeight: FontWeight.bold,
         height: 1.2,
       ),

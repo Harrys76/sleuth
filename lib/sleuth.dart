@@ -47,7 +47,8 @@
 /// Sleuth.updateTheme(null); // revert to auto-detect
 /// ```
 ///
-/// See [SleuthThemeData] for all available color tokens.
+/// See [SleuthThemeData] for all available tokens (colors, spacing,
+/// typography, and border radii).
 library;
 
 import 'dart:developer' show Timeline;

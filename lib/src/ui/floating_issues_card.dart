@@ -388,7 +388,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       ),
       child: Material(
         elevation: 8,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(theme.radiusCard),
         color: theme.cardBackground,
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -486,7 +486,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                 'Sleuth',
                 style: TextStyle(
                   color: theme.textPrimary,
-                  fontSize: 12,
+                  fontSize: theme.fontBase,
                   fontWeight: FontWeight.bold,
                 ),
                 overflow: TextOverflow.ellipsis,
@@ -501,7 +501,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                     : DecoratedBox(
                         decoration: BoxDecoration(
                           color: theme.severityWarning.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(theme.radiusLg),
                         ),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
@@ -510,7 +510,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                             '${issues.length}',
                             style: TextStyle(
                               color: theme.severityWarning,
-                              fontSize: 9,
+                              fontSize: theme.fontXs,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -526,14 +526,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                       const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                   decoration: BoxDecoration(
                     color: connected ? theme.badgeVmBg : theme.badgeFrameBg,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(theme.radiusLg),
                   ),
                   child: Text(
                     connected ? 'VM+' : 'FRAME',
                     style: TextStyle(
                       color:
                           connected ? theme.badgeVmText : theme.badgeFrameText,
-                      fontSize: 8,
+                      fontSize: theme.fontXxs,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -548,13 +548,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
                   color: theme.badgeDbgBg,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(theme.radiusLg),
                 ),
                 child: Text(
                   'DBG',
                   style: TextStyle(
                     color: theme.badgeDbgText,
-                    fontSize: 8,
+                    fontSize: theme.fontXxs,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -695,7 +695,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
           return Center(
             child: Text(
               '✅ No issues detected',
-              style: TextStyle(color: theme.severityOk, fontSize: 11),
+              style: TextStyle(color: theme.severityOk, fontSize: theme.fontMd),
             ),
           );
         }
@@ -822,14 +822,15 @@ class _StatusRow extends StatelessWidget {
                     fps.toStringAsFixed(0),
                     style: TextStyle(
                       color: color,
-                      fontSize: 20,
+                      fontSize: theme.fontXxl,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   SizedBox(width: theme.spacingXxs),
                   Text(
                     'FPS',
-                    style: TextStyle(color: theme.textTertiary, fontSize: 10),
+                    style: TextStyle(
+                        color: theme.textTertiary, fontSize: theme.fontSm),
                   ),
                 ],
               );
@@ -848,7 +849,8 @@ class _StatusRow extends StatelessWidget {
                     SizedBox(width: theme.spacingXs),
                     Text(
                       '0 issues',
-                      style: TextStyle(color: theme.severityOk, fontSize: 11),
+                      style: TextStyle(
+                          color: theme.severityOk, fontSize: theme.fontMd),
                     ),
                   ],
                 );
@@ -871,7 +873,8 @@ class _StatusRow extends StatelessWidget {
                   SizedBox(width: theme.spacingXs),
                   Text(
                     '${issues.length} issue${issues.length == 1 ? '' : 's'}',
-                    style: TextStyle(color: severityColor, fontSize: 11),
+                    style:
+                        TextStyle(color: severityColor, fontSize: theme.fontMd),
                   ),
                 ],
               );
@@ -912,7 +915,7 @@ class _DebugModeBanner extends StatelessWidget {
                 'Run with flutter run --profile for accurate measurements.',
                 style: TextStyle(
                   color: theme.bannerWarningText,
-                  fontSize: 10,
+                  fontSize: theme.fontSm,
                 ),
               ),
             ),
@@ -969,17 +972,17 @@ class _WarningBanners extends StatelessWidget {
                 EdgeInsets.symmetric(horizontal: 10, vertical: theme.spacingSm),
             decoration: BoxDecoration(
               color: theme.bannerDebugBg,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(theme.radiusLg),
             ),
             child: Row(
               children: [
-                const Text('⚠️', style: TextStyle(fontSize: 12)),
+                Text('⚠️', style: TextStyle(fontSize: theme.fontBase)),
                 SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
                     'Debug mode — data inaccurate.\nRun: flutter run --profile',
-                    style:
-                        TextStyle(color: theme.bannerDebugText, fontSize: 10),
+                    style: TextStyle(
+                        color: theme.bannerDebugText, fontSize: theme.fontSm),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -994,18 +997,19 @@ class _WarningBanners extends StatelessWidget {
                 EdgeInsets.symmetric(horizontal: 10, vertical: theme.spacingSm),
             decoration: BoxDecoration(
               color: theme.bannerInstrumentationBg,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(theme.radiusLg),
             ),
             child: Row(
               children: [
-                const Text('🔬', style: TextStyle(fontSize: 12)),
+                Text('🔬', style: TextStyle(fontSize: theme.fontBase)),
                 SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
                     'Instrumentation active — rebuild/paint counts useful for '
                     'attribution. Timings not representative of real performance.',
                     style: TextStyle(
-                        color: theme.bannerInstrumentationText, fontSize: 10),
+                        color: theme.bannerInstrumentationText,
+                        fontSize: theme.fontSm),
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1019,7 +1023,7 @@ class _WarningBanners extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
               color: theme.bannerSuccessBg,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(theme.radiusLg),
             ),
             child: Row(
               children: [
@@ -1029,8 +1033,8 @@ class _WarningBanners extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'Snapshot copied to clipboard',
-                    style:
-                        TextStyle(color: theme.bannerSuccessText, fontSize: 10),
+                    style: TextStyle(
+                        color: theme.bannerSuccessText, fontSize: theme.fontSm),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1044,7 +1048,7 @@ class _WarningBanners extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
               color: theme.bannerWarningBg,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(theme.radiusLg),
             ),
             child: Row(
               children: [
@@ -1054,8 +1058,8 @@ class _WarningBanners extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'Widget not currently visible. Navigate to the screen where this issue occurs.',
-                    style:
-                        TextStyle(color: theme.bannerWarningText, fontSize: 10),
+                    style: TextStyle(
+                        color: theme.bannerWarningText, fontSize: theme.fontSm),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1157,7 +1161,7 @@ class _CardFooter extends StatelessWidget {
                   '$count suppressed',
                   style: TextStyle(
                     color: theme.textQuaternary,
-                    fontSize: 10,
+                    fontSize: theme.fontSm,
                     fontStyle: FontStyle.italic,
                   ),
                 ),
@@ -1225,7 +1229,7 @@ class _IssuesSummaryBar extends StatelessWidget {
               '$critical',
               style: TextStyle(
                 color: theme.severityCritical,
-                fontSize: 10,
+                fontSize: theme.fontSm,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -1245,7 +1249,7 @@ class _IssuesSummaryBar extends StatelessWidget {
               '$warning',
               style: TextStyle(
                 color: theme.severityWarning,
-                fontSize: 10,
+                fontSize: theme.fontSm,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -1265,7 +1269,7 @@ class _IssuesSummaryBar extends StatelessWidget {
               '$ok',
               style: TextStyle(
                 color: theme.severityOk,
-                fontSize: 10,
+                fontSize: theme.fontSm,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -1279,7 +1283,7 @@ class _IssuesSummaryBar extends StatelessWidget {
               ].join(' · '),
               style: TextStyle(
                 color: theme.textTertiary,
-                fontSize: 10,
+                fontSize: theme.fontSm,
               ),
               textAlign: TextAlign.right,
               overflow: TextOverflow.ellipsis,
@@ -1371,7 +1375,7 @@ class _StartupMetricsBanner extends StatelessWidget {
                 Expanded(
                   child: Text(
                     parts.join(' \u00B7 '),
-                    style: TextStyle(color: color, fontSize: 10),
+                    style: TextStyle(color: color, fontSize: theme.fontSm),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),

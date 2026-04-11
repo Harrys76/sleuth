@@ -339,7 +339,7 @@ Issues include a confidence level reflecting evidence quality:
 - **Actionable fix hints**: every issue includes what to change, not just what went wrong — with code snippets and debugging commands
 - **Issue Encyclopedia**: in-app educational deep-dives for all 47 issue types — searchable, with cross-references between related issues, accessible from any issue card
 - **Contextual AI Chat**: per-issue AI assistant with streaming responses, starter questions, and expandable issue context — bring your team's AI provider
-- **Customizable**: suppress known issues, tune detector thresholds, plug in custom detectors, theme the overlay (60+ color tokens, 6 spacing tokens)
+- **Customizable**: suppress known issues, tune detector thresholds, plug in custom detectors, theme the overlay (60+ color tokens, 6 spacing tokens, 9 typography tokens, 7 border radius tokens)
 - **Zero setup**: one line of code, no browser tab, no port forwarding
 
 ## What DevTools Still Does Better

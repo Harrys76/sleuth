@@ -106,11 +106,12 @@ class _IssueCardState extends State<IssueCard> {
               ? theme.cardHighlighted
               : theme.cardDefault,
       margin: EdgeInsets.only(bottom: theme.spacingSm),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(theme.radiusXl)),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: _toggle,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(theme.radiusXl),
         child: Container(
           decoration: BoxDecoration(
             border: Border(
@@ -128,7 +129,7 @@ class _IssueCardState extends State<IssueCard> {
                 // Header row
                 Row(
                   children: [
-                    _severityIcon(issue.severity),
+                    _severityIcon(issue.severity, theme),
                     SizedBox(width: theme.spacingXs),
                     _categoryBadge(issue.category, theme),
                     SizedBox(width: theme.spacingXs),
@@ -137,7 +138,7 @@ class _IssueCardState extends State<IssueCard> {
                         issue.title,
                         style: TextStyle(
                           color: theme.textPrimary,
-                          fontSize: 12,
+                          fontSize: theme.fontBase,
                           fontWeight: FontWeight.w600,
                         ),
                         maxLines: 1,
@@ -153,13 +154,13 @@ class _IssueCardState extends State<IssueCard> {
                             horizontal: theme.spacingXs, vertical: 1),
                         decoration: BoxDecoration(
                           color: theme.severityCritical.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(theme.radiusSm),
                         ),
                         child: Text(
                           'JANK',
                           style: TextStyle(
                             color: theme.severityCritical,
-                            fontSize: 8,
+                            fontSize: theme.fontXxs,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -173,13 +174,13 @@ class _IssueCardState extends State<IssueCard> {
                             horizontal: theme.spacingXs, vertical: 1),
                         decoration: BoxDecoration(
                           color: theme.effectsBadge.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(theme.radiusSm),
                         ),
                         child: Text(
                           '\u21B3 ${widget.downstreamIssues!.length}',
                           style: TextStyle(
                             color: theme.effectsBadge,
-                            fontSize: 8,
+                            fontSize: theme.fontXxs,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -209,7 +210,7 @@ class _IssueCardState extends State<IssueCard> {
                       '[DEBUG MODE — verify in profile]',
                       style: TextStyle(
                         color: theme.disclaimerText,
-                        fontSize: 9,
+                        fontSize: theme.fontXs,
                         fontStyle: FontStyle.italic,
                       ),
                     ),
@@ -238,7 +239,7 @@ class _IssueCardState extends State<IssueCard> {
         issue.detail,
         style: TextStyle(
           color: theme.textSecondary,
-          fontSize: 11,
+          fontSize: theme.fontMd,
         ),
       ),
       if (issue.routeName != null)
@@ -248,7 +249,7 @@ class _IssueCardState extends State<IssueCard> {
             'Route: ${issue.routeName}',
             style: TextStyle(
               color: theme.textTertiary,
-              fontSize: 10,
+              fontSize: theme.fontSm,
               fontStyle: FontStyle.italic,
             ),
           ),
@@ -261,7 +262,7 @@ class _IssueCardState extends State<IssueCard> {
             'During: ${issue.interactionContext!.displayName}',
             style: TextStyle(
               color: theme.textTertiary,
-              fontSize: 10,
+              fontSize: theme.fontSm,
               fontStyle: FontStyle.italic,
             ),
           ),
@@ -273,7 +274,7 @@ class _IssueCardState extends State<IssueCard> {
             'Widget: ${issue.widgetName}',
             style: TextStyle(
               color: theme.textTertiary,
-              fontSize: 10,
+              fontSize: theme.fontSm,
               fontStyle: FontStyle.italic,
             ),
             maxLines: 2,
@@ -289,7 +290,7 @@ class _IssueCardState extends State<IssueCard> {
             'Ancestors: ${issue.ancestorChain}',
             style: TextStyle(
               color: theme.textTertiary,
-              fontSize: 10,
+              fontSize: theme.fontSm,
               fontStyle: FontStyle.italic,
             ),
             maxLines: 2,
@@ -303,7 +304,7 @@ class _IssueCardState extends State<IssueCard> {
             'Source: ${issue.observationSource!.displayName}',
             style: TextStyle(
               color: theme.textQuaternary,
-              fontSize: 9,
+              fontSize: theme.fontXs,
               fontStyle: FontStyle.italic,
             ),
           ),
@@ -326,7 +327,7 @@ class _IssueCardState extends State<IssueCard> {
                   issue.confidenceReason!,
                   style: TextStyle(
                     color: theme.textSecondary,
-                    fontSize: 11,
+                    fontSize: theme.fontMd,
                     fontStyle: FontStyle.italic,
                   ),
                 ),
@@ -355,7 +356,7 @@ class _IssueCardState extends State<IssueCard> {
                 'About this detection',
                 style: TextStyle(
                   color: theme.textQuaternary,
-                  fontSize: 9,
+                  fontSize: theme.fontXs,
                 ),
               ),
             ],
@@ -368,7 +369,7 @@ class _IssueCardState extends State<IssueCard> {
           padding: EdgeInsets.all(theme.spacingMd),
           decoration: BoxDecoration(
             color: theme.aboutBackground,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(theme.radiusMd),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -383,7 +384,7 @@ class _IssueCardState extends State<IssueCard> {
                           text: '${entry.$1} ',
                           style: TextStyle(
                             color: theme.textTertiary,
-                            fontSize: 9,
+                            fontSize: theme.fontXs,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -391,7 +392,7 @@ class _IssueCardState extends State<IssueCard> {
                           text: entry.$2,
                           style: TextStyle(
                             color: theme.textTertiary,
-                            fontSize: 9,
+                            fontSize: theme.fontXs,
                           ),
                         ),
                       ],
@@ -412,13 +413,13 @@ class _IssueCardState extends State<IssueCard> {
                     horizontal: theme.spacingXs, vertical: 1),
                 decoration: BoxDecoration(
                   color: theme.bannerSuccessBg,
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(theme.radiusSm),
                 ),
                 child: Text(
                   'Attribution: high fidelity',
                   style: TextStyle(
                     color: theme.bannerSuccessText,
-                    fontSize: 9,
+                    fontSize: theme.fontXs,
                   ),
                 ),
               ),
@@ -428,13 +429,13 @@ class _IssueCardState extends State<IssueCard> {
                     horizontal: theme.spacingXs, vertical: 1),
                 decoration: BoxDecoration(
                   color: theme.bannerWarningBg,
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(theme.radiusSm),
                 ),
                 child: Text(
                   'Timing: overhead present',
                   style: TextStyle(
                     color: theme.bannerWarningText,
-                    fontSize: 9,
+                    fontSize: theme.fontXs,
                   ),
                 ),
               ),
@@ -446,7 +447,7 @@ class _IssueCardState extends State<IssueCard> {
         padding: EdgeInsets.all(theme.spacingMd),
         decoration: BoxDecoration(
           color: theme.fixHintBackground,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(theme.radiusMd),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -456,14 +457,14 @@ class _IssueCardState extends State<IssueCard> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('\u{1F4A1}', style: TextStyle(fontSize: 12)),
+                Text('\u{1F4A1}', style: TextStyle(fontSize: theme.fontBase)),
                 SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
                     issue.fixHint,
                     style: TextStyle(
                       color: theme.fixHintText,
-                      fontSize: 11,
+                      fontSize: theme.fontMd,
                     ),
                   ),
                 ),
@@ -530,7 +531,7 @@ class _IssueCardState extends State<IssueCard> {
               maxLines: 1,
               style: TextStyle(
                 color: theme.textTertiary,
-                fontSize: 9,
+                fontSize: theme.fontXs,
                 decoration: TextDecoration.underline,
                 decorationColor: theme.textTertiary,
               ),
@@ -552,7 +553,7 @@ class _IssueCardState extends State<IssueCard> {
         padding: EdgeInsets.all(theme.spacingMd),
         decoration: BoxDecoration(
           color: theme.aboutBackground,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(theme.radiusMd),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -561,7 +562,7 @@ class _IssueCardState extends State<IssueCard> {
               'Related effects (${downstream.length}):',
               style: TextStyle(
                 color: theme.effectsBadge,
-                fontSize: 10,
+                fontSize: theme.fontSm,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -571,7 +572,7 @@ class _IssueCardState extends State<IssueCard> {
                 padding: const EdgeInsets.only(bottom: 3),
                 child: Row(
                   children: [
-                    _severityIcon(downstream[i].severity),
+                    _severityIcon(downstream[i].severity, theme),
                     SizedBox(width: theme.spacingXs),
                     _categoryBadge(downstream[i].category, theme),
                     SizedBox(width: theme.spacingXs),
@@ -580,7 +581,7 @@ class _IssueCardState extends State<IssueCard> {
                         downstream[i].title,
                         style: TextStyle(
                           color: theme.textTertiary,
-                          fontSize: 10,
+                          fontSize: theme.fontSm,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -596,7 +597,7 @@ class _IssueCardState extends State<IssueCard> {
                   'and $overflow more...',
                   style: TextStyle(
                     color: theme.textQuaternary,
-                    fontSize: 9,
+                    fontSize: theme.fontXs,
                     fontStyle: FontStyle.italic,
                   ),
                 ),
@@ -628,27 +629,27 @@ class _IssueCardState extends State<IssueCard> {
       padding: EdgeInsets.symmetric(horizontal: theme.spacingXs, vertical: 1),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(theme.radiusSm),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: color,
-          fontSize: 8,
+          fontSize: theme.fontXxs,
           fontWeight: FontWeight.bold,
         ),
       ),
     );
   }
 
-  Widget _severityIcon(IssueSeverity severity) {
+  Widget _severityIcon(IssueSeverity severity, SleuthThemeData theme) {
     switch (severity) {
       case IssueSeverity.critical:
-        return const Text('\u{1F534}', style: TextStyle(fontSize: 12));
+        return Text('\u{1F534}', style: TextStyle(fontSize: theme.fontBase));
       case IssueSeverity.warning:
-        return const Text('\u{1F7E1}', style: TextStyle(fontSize: 12));
+        return Text('\u{1F7E1}', style: TextStyle(fontSize: theme.fontBase));
       case IssueSeverity.ok:
-        return const Text('\u{1F7E2}', style: TextStyle(fontSize: 12));
+        return Text('\u{1F7E2}', style: TextStyle(fontSize: theme.fontBase));
     }
   }
 
@@ -673,7 +674,7 @@ class _IssueCardState extends State<IssueCard> {
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(theme.radiusMd),
           ),
           child: Padding(
             padding: EdgeInsets.symmetric(
@@ -684,7 +685,7 @@ class _IssueCardState extends State<IssueCard> {
               'Seen $present/$total \u00B7 $label',
               style: TextStyle(
                 color: color,
-                fontSize: 10,
+                fontSize: theme.fontSm,
                 fontWeight: FontWeight.w600,
               ),
               maxLines: 1,
@@ -702,13 +703,13 @@ class _IssueCardState extends State<IssueCard> {
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(theme.radiusSm),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: color,
-          fontSize: 8,
+          fontSize: theme.fontXxs,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -735,13 +736,13 @@ class _IssueCardState extends State<IssueCard> {
           horizontal: theme.spacingSm, vertical: theme.spacingXxs),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(theme.radiusLg),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: color,
-          fontSize: 9,
+          fontSize: theme.fontXs,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -895,8 +896,8 @@ class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
                   'Ask AI about this issue',
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
-                  style:
-                      const TextStyle(fontSize: 9, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                      fontSize: theme.fontXs, fontWeight: FontWeight.w600),
                 ),
               ),
             ],

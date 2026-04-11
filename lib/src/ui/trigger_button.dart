@@ -109,7 +109,8 @@ class _TriggerButtonState extends State<TriggerButton> {
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          const Text('🐕', style: TextStyle(fontSize: 24)),
+                          Text('🐕',
+                              style: TextStyle(fontSize: theme.fontDisplay)),
                           if (issues.isNotEmpty && !widget.isDebugMode)
                             Positioned(
                               top: 2,
@@ -124,7 +125,7 @@ class _TriggerButtonState extends State<TriggerButton> {
                                   '${issues.length}',
                                   style: TextStyle(
                                     color: theme.textPrimary,
-                                    fontSize: 10,
+                                    fontSize: theme.fontSm,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
@@ -140,8 +141,8 @@ class _TriggerButtonState extends State<TriggerButton> {
                                   color: theme.severityWarning,
                                   shape: BoxShape.circle,
                                 ),
-                                child: const Text('⚠️',
-                                    style: TextStyle(fontSize: 10)),
+                                child: Text('⚠️',
+                                    style: TextStyle(fontSize: theme.fontSm)),
                               ),
                             ),
                         ],
@@ -159,7 +160,7 @@ class _TriggerButtonState extends State<TriggerButton> {
                           style: TextStyle(
                             color:
                                 theme.fpsColor(fps, target: widget.fpsTarget),
-                            fontSize: 12,
+                            fontSize: theme.fontBase,
                             fontWeight: FontWeight.bold,
                             shadows: [
                               Shadow(

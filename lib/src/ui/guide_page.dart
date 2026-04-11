@@ -99,7 +99,7 @@ class _GuidePageState extends State<GuidePage>
                         '\u{1F415} Sleuth Guide',
                         style: TextStyle(
                           color: theme.textPrimary,
-                          fontSize: 16,
+                          fontSize: theme.fontXl,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -156,8 +156,8 @@ class _GuidePageState extends State<GuidePage>
                         opacity: _staggered(4),
                         child: Text(
                           'Sleuth',
-                          style:
-                              TextStyle(color: theme.textSubtle, fontSize: 10),
+                          style: TextStyle(
+                              color: theme.textSubtle, fontSize: theme.fontSm),
                         ),
                       ),
                     ],
@@ -194,7 +194,7 @@ class _GuidePageState extends State<GuidePage>
         child: Container(
           decoration: BoxDecoration(
             color: theme.sectionBackground,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(theme.radiusXxl),
             border: Border.all(color: theme.border, width: 0.5),
           ),
           child: Column(
@@ -213,7 +213,7 @@ class _GuidePageState extends State<GuidePage>
                         height: 28,
                         decoration: BoxDecoration(
                           color: accent.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(theme.radiusLg),
                         ),
                         child: Icon(icon, color: accent, size: 16),
                       ),
@@ -223,7 +223,7 @@ class _GuidePageState extends State<GuidePage>
                           title,
                           style: TextStyle(
                             color: theme.textPrimary,
-                            fontSize: 13,
+                            fontSize: theme.fontLg,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -350,7 +350,7 @@ class _GuidePageState extends State<GuidePage>
         children: [
           SizedBox(
             width: 22,
-            child: Text(emoji, style: const TextStyle(fontSize: 13)),
+            child: Text(emoji, style: TextStyle(fontSize: theme.fontLg)),
           ),
           Expanded(
             child: Column(
@@ -360,14 +360,15 @@ class _GuidePageState extends State<GuidePage>
                   title,
                   style: TextStyle(
                     color: theme.textPrimary,
-                    fontSize: 11,
+                    fontSize: theme.fontMd,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 SizedBox(height: theme.spacingXxs),
                 Text(
                   detail,
-                  style: TextStyle(color: theme.textTertiary, fontSize: 10),
+                  style: TextStyle(
+                      color: theme.textTertiary, fontSize: theme.fontSm),
                 ),
               ],
             ),
@@ -494,7 +495,7 @@ class _GuidePageState extends State<GuidePage>
         text,
         style: TextStyle(
           color: theme.textTertiary,
-          fontSize: 11,
+          fontSize: theme.fontMd,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -506,7 +507,7 @@ class _GuidePageState extends State<GuidePage>
       padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Text(
         text,
-        style: TextStyle(color: theme.textQuaternary, fontSize: 9),
+        style: TextStyle(color: theme.textQuaternary, fontSize: theme.fontXs),
       ),
     );
   }
@@ -518,7 +519,7 @@ class _GuidePageState extends State<GuidePage>
         text,
         style: TextStyle(
           color: theme.textQuaternary,
-          fontSize: 9,
+          fontSize: theme.fontXs,
           fontStyle: FontStyle.italic,
         ),
       ),
@@ -543,13 +544,13 @@ class _GuidePageState extends State<GuidePage>
                 EdgeInsets.symmetric(horizontal: 5, vertical: theme.spacingXxs),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(theme.radiusSm),
             ),
             child: Text(
               label,
               style: TextStyle(
                 color: color,
-                fontSize: 8,
+                fontSize: theme.fontXxs,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -558,7 +559,8 @@ class _GuidePageState extends State<GuidePage>
           Expanded(
             child: Text(
               description,
-              style: TextStyle(color: theme.textTertiary, fontSize: 10),
+              style:
+                  TextStyle(color: theme.textTertiary, fontSize: theme.fontSm),
             ),
           ),
         ],
@@ -592,12 +594,14 @@ class _GuidePageState extends State<GuidePage>
               children: [
                 Text(
                   description,
-                  style: TextStyle(color: theme.textTertiary, fontSize: 10),
+                  style: TextStyle(
+                      color: theme.textTertiary, fontSize: theme.fontSm),
                 ),
                 if (detail != null)
                   Text(
                     detail,
-                    style: TextStyle(color: theme.textQuaternary, fontSize: 9),
+                    style: TextStyle(
+                        color: theme.textQuaternary, fontSize: theme.fontXs),
                   ),
               ],
             ),
@@ -607,18 +611,19 @@ class _GuidePageState extends State<GuidePage>
     );
   }
 
-  static Widget _categoryChip(String label, Color color) {
+  static Widget _categoryChip(
+      SleuthThemeData theme, String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(theme.radiusSm),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: color,
-          fontSize: 8,
+          fontSize: theme.fontXxs,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -634,13 +639,14 @@ class _GuidePageState extends State<GuidePage>
         children: [
           Padding(
             padding: const EdgeInsets.only(top: 1),
-            child: _categoryChip(label, color),
+            child: _categoryChip(theme, label, color),
           ),
           SizedBox(width: theme.spacingMd),
           Expanded(
             child: Text(
               description,
-              style: TextStyle(color: theme.textTertiary, fontSize: 10),
+              style:
+                  TextStyle(color: theme.textTertiary, fontSize: theme.fontSm),
             ),
           ),
         ],
@@ -660,7 +666,7 @@ class _GuidePageState extends State<GuidePage>
             height: 12,
             decoration: BoxDecoration(
               color: color,
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(theme.radiusSm),
               border: Border.all(
                 color: theme.textSubtle,
                 width: 0.5,
@@ -676,13 +682,14 @@ class _GuidePageState extends State<GuidePage>
                   label,
                   style: TextStyle(
                     color: theme.textSecondary,
-                    fontSize: 10,
+                    fontSize: theme.fontSm,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
                   description,
-                  style: TextStyle(color: theme.textQuaternary, fontSize: 9),
+                  style: TextStyle(
+                      color: theme.textQuaternary, fontSize: theme.fontXs),
                 ),
               ],
             ),
@@ -724,7 +731,8 @@ class _GuidePageState extends State<GuidePage>
           Expanded(
             child: Text(
               text,
-              style: TextStyle(color: theme.textTertiary, fontSize: 10),
+              style:
+                  TextStyle(color: theme.textTertiary, fontSize: theme.fontSm),
             ),
           ),
         ],
@@ -767,7 +775,7 @@ class _GuideStep extends StatelessWidget {
               step,
               style: TextStyle(
                 color: theme.textPrimary,
-                fontSize: 11,
+                fontSize: theme.fontMd,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -781,7 +789,7 @@ class _GuideStep extends StatelessWidget {
                   title,
                   style: TextStyle(
                     color: theme.textPrimary,
-                    fontSize: 11,
+                    fontSize: theme.fontMd,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -790,7 +798,7 @@ class _GuideStep extends StatelessWidget {
                   detail,
                   style: TextStyle(
                     color: theme.textTertiary,
-                    fontSize: 10,
+                    fontSize: theme.fontSm,
                   ),
                 ),
               ],
@@ -816,11 +824,11 @@ class _LegendRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 3),
       child: Row(
         children: [
-          Text(icon, style: const TextStyle(fontSize: 10)),
+          Text(icon, style: TextStyle(fontSize: theme.fontSm)),
           SizedBox(width: theme.spacingSm),
           Text(
             label,
-            style: TextStyle(color: theme.textTertiary, fontSize: 10),
+            style: TextStyle(color: theme.textTertiary, fontSize: theme.fontSm),
           ),
         ],
       ),

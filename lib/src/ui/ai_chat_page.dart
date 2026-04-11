@@ -235,7 +235,7 @@ class _AiChatPageState extends State<AiChatPage>
               'Ask AI',
               style: TextStyle(
                 color: theme.textPrimary,
-                fontSize: 13,
+                fontSize: theme.fontLg,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -373,7 +373,7 @@ class _AiChatPageState extends State<AiChatPage>
               'Suggested questions',
               style: TextStyle(
                 color: theme.textTertiary,
-                fontSize: 9,
+                fontSize: theme.fontXs,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -416,7 +416,7 @@ class _AiChatPageState extends State<AiChatPage>
                   'U',
                   style: TextStyle(
                     color: theme.aiChatUserBubbleText,
-                    fontSize: 9,
+                    fontSize: theme.fontXs,
                     fontWeight: FontWeight.w700,
                   ),
                 )
@@ -461,7 +461,7 @@ class _AiChatPageState extends State<AiChatPage>
         msg.text,
         style: TextStyle(
           color: isUser ? theme.aiChatUserBubbleText : theme.textPrimary,
-          fontSize: 10,
+          fontSize: theme.fontSm,
           height: 1.5,
         ),
       ),
@@ -495,7 +495,7 @@ class _AiChatPageState extends State<AiChatPage>
                 'You',
                 style: TextStyle(
                   color: theme.textQuaternary,
-                  fontSize: 8,
+                  fontSize: theme.fontXxs,
                 ),
               ),
             ),
@@ -528,7 +528,7 @@ class _AiChatPageState extends State<AiChatPage>
                   'AI',
                   style: TextStyle(
                     color: theme.textQuaternary,
-                    fontSize: 8,
+                    fontSize: theme.fontXxs,
                   ),
                 ),
                 SizedBox(width: theme.spacingMd),
@@ -577,7 +577,7 @@ class _AiChatPageState extends State<AiChatPage>
                 '$_streamBuffer\u258C',
                 style: TextStyle(
                   color: theme.textPrimary,
-                  fontSize: 10,
+                  fontSize: theme.fontSm,
                   height: 1.5,
                 ),
               ),
@@ -630,13 +630,13 @@ class _AiChatPageState extends State<AiChatPage>
               enabled: !_isStreaming,
               style: TextStyle(
                 color: theme.textPrimary,
-                fontSize: 11,
+                fontSize: theme.fontMd,
               ),
               decoration: InputDecoration(
                 hintText: 'Ask about this issue...',
                 hintStyle: TextStyle(
                   color: theme.textTertiary,
-                  fontSize: 11,
+                  fontSize: theme.fontMd,
                 ),
                 isDense: true,
                 contentPadding: EdgeInsets.symmetric(
@@ -644,15 +644,15 @@ class _AiChatPageState extends State<AiChatPage>
                   vertical: theme.spacingSm,
                 ),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(theme.radiusFull),
                   borderSide: BorderSide(color: theme.border, width: 0.5),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(theme.radiusFull),
                   borderSide: BorderSide(color: theme.border, width: 0.5),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(theme.radiusFull),
                   borderSide: BorderSide(color: theme.textTertiary, width: 1),
                 ),
                 filled: true,
@@ -725,14 +725,14 @@ class _StarterChipState extends State<_StarterChip> {
         ),
         decoration: BoxDecoration(
           color: _pressed ? theme.border : theme.sectionBackground,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(theme.radiusFull),
           border: Border.all(color: theme.border, width: 0.5),
         ),
         child: Text(
           widget.text,
           style: TextStyle(
             color: theme.textSecondary,
-            fontSize: 10,
+            fontSize: theme.fontSm,
           ),
         ),
       ),

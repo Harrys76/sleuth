@@ -92,7 +92,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                         'Startup Metrics',
                         style: TextStyle(
                           color: theme.textPrimary,
-                          fontSize: 16,
+                          fontSize: theme.fontXl,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -127,7 +127,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         child: Text(
           'No startup metrics available.\n'
           'Call Sleuth.init() before runApp() to capture startup data.',
-          style: TextStyle(color: theme.textTertiary, fontSize: 12),
+          style: TextStyle(color: theme.textTertiary, fontSize: theme.fontBase),
           textAlign: TextAlign.center,
         ),
       ),
@@ -224,7 +224,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
           width: double.infinity,
           decoration: BoxDecoration(
             color: theme.sectionBackground,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(theme.radiusXxl),
             border: Border.all(color: theme.border, width: 0.5),
           ),
           child: Column(
@@ -240,7 +240,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                       height: 28,
                       decoration: BoxDecoration(
                         color: accent.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(theme.radiusLg),
                       ),
                       child: Icon(icon, color: accent, size: 16),
                     ),
@@ -249,7 +249,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                       title,
                       style: TextStyle(
                         color: theme.textPrimary,
-                        fontSize: 13,
+                        fontSize: theme.fontLg,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -420,13 +420,14 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
   Widget _methodologySection(StartupMetrics m, SleuthThemeData theme) {
     final labelStyle = TextStyle(
       color: theme.textPrimary,
-      fontSize: 11,
+      fontSize: theme.fontMd,
       fontWeight: FontWeight.w600,
     );
-    final bodyStyle = TextStyle(color: theme.textTertiary, fontSize: 10);
+    final bodyStyle =
+        TextStyle(color: theme.textTertiary, fontSize: theme.fontSm);
     final dimStyle = TextStyle(
       color: theme.textQuaternary,
-      fontSize: 9,
+      fontSize: theme.fontXs,
       fontStyle: FontStyle.italic,
     );
 
@@ -505,7 +506,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
           label,
           style: TextStyle(
             color: theme.textSecondary,
-            fontSize: 10,
+            fontSize: theme.fontSm,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -518,12 +519,13 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('\u2022 ',
-                    style:
-                        TextStyle(color: theme.textQuaternary, fontSize: 10)),
+                    style: TextStyle(
+                        color: theme.textQuaternary, fontSize: theme.fontSm)),
                 Expanded(
                   child: Text(
                     item,
-                    style: TextStyle(color: theme.textTertiary, fontSize: 10),
+                    style: TextStyle(
+                        color: theme.textTertiary, fontSize: theme.fontSm),
                   ),
                 ),
               ],
@@ -553,7 +555,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                   label,
                   style: TextStyle(
                     color: theme.textSecondary,
-                    fontSize: 11,
+                    fontSize: theme.fontMd,
                   ),
                 ),
                 if (subtitle != null)
@@ -561,7 +563,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                     subtitle,
                     style: TextStyle(
                       color: theme.textQuaternary,
-                      fontSize: 9,
+                      fontSize: theme.fontXs,
                     ),
                   ),
               ],
@@ -572,7 +574,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
               value,
               style: TextStyle(
                 color: theme.textPrimary,
-                fontSize: 12,
+                fontSize: theme.fontBase,
                 fontWeight: FontWeight.w600,
               ),
               overflow: TextOverflow.ellipsis,
@@ -603,14 +605,15 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
               Expanded(
                 child: Text(
                   label,
-                  style: TextStyle(color: theme.textSecondary, fontSize: 11),
+                  style: TextStyle(
+                      color: theme.textSecondary, fontSize: theme.fontMd),
                 ),
               ),
               Text(
                 '${value.toStringAsFixed(1)} ms ($percent%)',
                 style: TextStyle(
                   color: theme.textPrimary,
-                  fontSize: 11,
+                  fontSize: theme.fontMd,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -639,13 +642,13 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
       padding: EdgeInsets.all(theme.spacingSm),
       decoration: BoxDecoration(
         color: theme.categoryStartup.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(theme.radiusLg),
       ),
       child: Text(
         text,
         style: TextStyle(
           color: theme.categoryStartup,
-          fontSize: 10,
+          fontSize: theme.fontSm,
         ),
       ),
     );
