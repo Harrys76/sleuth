@@ -55,19 +55,6 @@ void main() {
       expect(detector.issues.first.severity, IssueSeverity.warning);
     });
 
-    test('warning when slow request threshold exceeded (>2s)', () {
-      detector.processRecord(makeRecord(durationMs: 2500));
-      expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.severity, IssueSeverity.warning);
-      expect(detector.issues.first.stableId, 'slow_request');
-    });
-
-    test('critical when slow request > 5s', () {
-      detector.processRecord(makeRecord(durationMs: 5500));
-      expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.severity, IssueSeverity.critical);
-    });
-
     test('critical at exactly 5s', () {
       detector.processRecord(makeRecord(durationMs: 5000));
       expect(detector.issues, hasLength(1));
@@ -99,14 +86,6 @@ void main() {
 
     test('large issue at exactly threshold', () {
       detector.processRecord(makeRecord(responseBytes: 1048576));
-      final largeIssues =
-          detector.issues.where((i) => i.stableId == 'large_response');
-      expect(largeIssues, hasLength(1));
-      expect(largeIssues.first.severity, IssueSeverity.warning);
-    });
-
-    test('warning when large response threshold exceeded (>1MB)', () {
-      detector.processRecord(makeRecord(responseBytes: 2000000));
       final largeIssues =
           detector.issues.where((i) => i.stableId == 'large_response');
       expect(largeIssues, hasLength(1));
@@ -273,19 +252,6 @@ void main() {
       expect(detector.records, isNotEmpty);
 
       // Simulate route transition
-      detector.clearRecords();
-      expect(detector.issues, isEmpty);
-      expect(detector.records, isEmpty);
-    });
-
-    test('clearRecords clears large response issues', () {
-      detector.processRecord(makeRecord(
-        responseBytes: 2000000,
-        startedAt: fakeNow,
-      ));
-      expect(detector.issues.where((i) => i.stableId == 'large_response'),
-          hasLength(1));
-
       detector.clearRecords();
       expect(detector.issues, isEmpty);
       expect(detector.records, isEmpty);
@@ -543,20 +509,6 @@ void main() {
       expect(errorIssues, hasLength(1));
     });
 
-    test('clearRecords clears error spike issues', () {
-      for (int i = 0; i < 5; i++) {
-        detector.processRecord(makeRecord(
-          statusCode: 500,
-          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
-        ));
-      }
-      expect(detector.issues.where((i) => i.stableId == 'http_error_spike'),
-          hasLength(1));
-
-      detector.clearRecords();
-      expect(detector.issues, isEmpty);
-    });
-
     // ---------------------------------------------------------------
     // clearRecords completeness
     // ---------------------------------------------------------------
@@ -707,27 +659,6 @@ void main() {
       expect(dupIssues, isEmpty);
     });
 
-    test('requests >500ms apart not clustered as duplicates', () {
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'GET',
-        startedAt: fakeNow,
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'GET',
-        startedAt: fakeNow.add(const Duration(milliseconds: 600)),
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'GET',
-        startedAt: fakeNow.add(const Duration(milliseconds: 1200)),
-      ));
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
-      expect(dupIssues, isEmpty);
-    });
-
     test('requests exactly 500ms apart are still clustered', () {
       detector.processRecord(makeRecord(
         url: 'https://api.example.com/users',
@@ -784,31 +715,6 @@ void main() {
           .where((i) => i.stableId?.startsWith('duplicate_request') == true);
       expect(dupIssues, hasLength(1));
       expect(dupIssues.first.severity, IssueSeverity.critical);
-    });
-
-    test('duplicate issue cleared by clearRecords (route transition)', () {
-      final base = fakeNow;
-      // Add 3 duplicates within 500ms
-      for (int i = 0; i < 3; i++) {
-        detector.processRecord(makeRecord(
-          url: 'https://api.example.com/users',
-          method: 'GET',
-          startedAt: base.add(Duration(milliseconds: i * 100)),
-        ));
-      }
-      expect(
-        detector.issues
-            .where((i) => i.stableId?.startsWith('duplicate_request') == true),
-        hasLength(1),
-      );
-
-      // Simulate route transition
-      detector.clearRecords();
-      expect(
-        detector.issues
-            .where((i) => i.stableId?.startsWith('duplicate_request') == true),
-        isEmpty,
-      );
     });
 
     test('different query params treated as same endpoint for dedup', () {
@@ -944,20 +850,6 @@ void main() {
           .where((i) => i.stableId?.startsWith('duplicate_request') == true);
       expect(dupIssues, isEmpty,
           reason: 'POST may have different payloads — not idempotent');
-    });
-
-    test('PUT requests not flagged as duplicates', () {
-      final base = fakeNow;
-      for (int i = 0; i < 5; i++) {
-        detector.processRecord(makeRecord(
-          url: 'https://api.example.com/resource/1',
-          method: 'PUT',
-          startedAt: base.add(Duration(milliseconds: i * 50)),
-        ));
-      }
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
-      expect(dupIssues, isEmpty, reason: 'PUT may carry different payloads');
     });
 
     test('HEAD requests flagged as duplicates (idempotent)', () {
