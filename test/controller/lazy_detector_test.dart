@@ -29,14 +29,14 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('default config constructs all 22 detectors', (tester) async {
+    testWidgets('default config constructs all 23 detectors', (tester) async {
       await tester.pumpWidget(buildMixedTree(50));
 
       final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
-      // 3 typed + 19 factory = 22 total.
-      expect(controller.detectorCountForTest, 22);
+      // 3 typed + 20 factory = 23 total.
+      expect(controller.detectorCountForTest, 23);
 
       controller.dispose();
     });

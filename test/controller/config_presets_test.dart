@@ -27,6 +27,7 @@ void main() {
         DetectorType.customPainter,
         DetectorType.fontLoading,
         DetectorType.repaintBoundary,
+        DetectorType.startup,
       });
       // VM-only / hybrid / advanced detectors should NOT be enabled.
       expect(
@@ -142,6 +143,8 @@ DetectorLifecycle _lifecycleOf(DetectorType type) {
     case DetectorType.opacity:
     case DetectorType.fontLoading:
     case DetectorType.repaintBoundary:
+      return DetectorLifecycle.structural;
+    case DetectorType.startup:
       return DetectorLifecycle.structural;
     case DetectorType.custom:
       return DetectorLifecycle.structural;

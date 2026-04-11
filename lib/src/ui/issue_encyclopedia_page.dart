@@ -605,6 +605,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
         IssueCategory.network => 'NETWORK',
         IssueCategory.font => 'FONT',
         IssueCategory.channel => 'PLATFORM CHANNELS',
+        IssueCategory.startup => 'STARTUP',
       };
 
   static IconData _categoryIcon(IssueCategory category) => switch (category) {
@@ -616,6 +617,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
         IssueCategory.network => Icons.cloud_outlined,
         IssueCategory.font => Icons.text_fields_outlined,
         IssueCategory.channel => Icons.swap_horiz_outlined,
+        IssueCategory.startup => Icons.rocket_launch_outlined,
       };
 }
 

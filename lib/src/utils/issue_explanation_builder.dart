@@ -97,6 +97,7 @@ class IssueExplanationBuilder {
     IssueCategory.network,
     IssueCategory.font,
     IssueCategory.channel,
+    IssueCategory.startup,
   ];
 
   /// Entries grouped by category, ordered by rendering pipeline phase.
@@ -219,7 +220,8 @@ class IssueExplanationBuilder {
         'layout_bottleneck',
         'multiple_custom_fonts',
         'runtime_font_loading',
-        'shader_compilation'
+        'shader_compilation',
+        'slow_startup_ttff',
       ],
     ),
 
@@ -369,7 +371,8 @@ class IssueExplanationBuilder {
         'platform_channel_traffic',
         'rebuild_activity',
         'setstate_scope',
-        'slow_request'
+        'slow_request',
+        'slow_startup_ttff',
       ],
     ),
 
@@ -1902,6 +1905,55 @@ class IssueExplanationBuilder {
           'design tools) need runtime loading by design. The concern is '
           'unexpected runtime loading of fonts that could be bundled.',
       relatedIssues: ['jank_detected', 'sustained_jank'],
+    ),
+
+    // ── Startup ────────────────────────────────────────────────────────
+
+    'slow_startup_ttff': (
+      displayName: 'Slow Startup (TTFF)',
+      category: IssueCategory.startup,
+      whatItIs: 'The time from Dart entry point (Sleuth.init()) to the first '
+          'frame raster completion exceeds the configured threshold. This is '
+          'the cold-start Time-to-First-Frame (TTFF) — how long the user '
+          'stares at a splash screen or blank canvas before seeing content.',
+      readingTheData:
+          'Like measuring how long a restaurant takes from unlocking the '
+          'door to seating the first customer — every step from lights-on '
+          'to table-ready adds up.\n\n'
+          '• TTFF — Wall-clock duration from Sleuth.init() to the first '
+          'FrameTiming raster-end timestamp. Normal: <1500ms. Warning: '
+          '1500–3000ms. Critical: >3000ms.\n\n'
+          '• First frame breakdown — Vsync overhead, build phase, and raster '
+          'phase durations from FrameTiming. The dominant phase indicates '
+          'where optimization effort should focus.\n\n'
+          '• VM sub-phases — When VM timeline is connected, buildScope, '
+          'flushLayout, flushPaint, and raster sub-durations provide deeper '
+          'insight into the first frame pipeline.\n\n'
+          '• Source: SchedulerBinding.addTimingsCallback (one-shot).',
+      whyItMatters: 'Mobile users expect apps to launch in under 2 seconds. '
+          'A 3+ second cold start is a retention risk — studies show 25% of '
+          'users abandon apps that take more than 3 seconds to load. The '
+          'first frame is also when the system decides whether to show an '
+          'ANR dialog (Android) or terminate the app (iOS watchdog).',
+      howToFix: 'Optimize based on the dominant phase:\n\n'
+          'Build-dominant: Reduce initial widget tree complexity. Defer '
+          'below-fold content with FutureBuilder or lazy initialization. '
+          'Move expensive init logic (database setup, large JSON parsing) '
+          'to background isolates.\n\n'
+          'Raster-dominant: Reduce first-frame painting complexity. Pre-cache '
+          'large images with precacheImage() in a splash screen. Avoid '
+          'shader-heavy effects (blur, gradient) on the initial route.\n\n'
+          'Vsync-dominant: Minimize synchronous work before runApp(). Defer '
+          'non-critical plugin initialization to post-first-frame callbacks '
+          'using WidgetsBinding.instance.addPostFrameCallback.',
+      whenToIgnore: 'Debug mode cold starts are 3–10x slower than profile '
+          'mode due to JIT compilation, asserts, and debug checks. Always '
+          'measure in profile mode (flutter run --profile). Warm restarts '
+          '(hot restart) are also misleading — the VM is already initialized.',
+      relatedIssues: [
+        'jank_detected',
+        'heavy_compute',
+      ],
     ),
   };
 }

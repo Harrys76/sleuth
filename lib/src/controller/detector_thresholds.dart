@@ -27,6 +27,8 @@ class DetectorThresholds {
     this.keepAliveMax = 5,
     this.animatedBuilderMinSubtreeSize = 50,
     this.fontLoadingMaxFamilies = 3,
+    this.startupTtffWarningMs = 1500,
+    this.startupTtffCriticalMs = 3000,
   })  : assert(
           shaderJankMs >= 0,
           'shaderJankMs must be >= 0 (got a negative value).',
@@ -67,6 +69,14 @@ class DetectorThresholds {
         assert(
           fontLoadingMaxFamilies >= 1,
           'fontLoadingMaxFamilies must be >= 1 (zero would flag every screen).',
+        ),
+        assert(
+          startupTtffWarningMs >= 0,
+          'startupTtffWarningMs must be >= 0.',
+        ),
+        assert(
+          startupTtffCriticalMs >= startupTtffWarningMs,
+          'startupTtffCriticalMs must be >= startupTtffWarningMs.',
         );
 
   /// Shader compilation duration in milliseconds above which
@@ -189,4 +199,26 @@ class DetectorThresholds {
   /// foreign-script fallbacks. **Lower this** (e.g. 2) to enforce strict
   /// font discipline.
   final int fontLoadingMaxFamilies;
+
+  /// Time-to-first-frame in milliseconds above which [StartupDetector]
+  /// fires a warning-level issue.
+  ///
+  /// **Default:** 1500 ms. Cold starts under 1.5 s feel instant on most
+  /// devices; above this threshold the splash screen lingers noticeably.
+  ///
+  /// **Raise this** (e.g. 2500 ms) for complex apps with heavy
+  /// initialization. **Lower this** (e.g. 800 ms) for a stricter
+  /// cold-start budget.
+  final int startupTtffWarningMs;
+
+  /// Time-to-first-frame in milliseconds above which [StartupDetector]
+  /// escalates to critical severity.
+  ///
+  /// **Default:** 3000 ms. A 3 s cold start is a retention risk on
+  /// mobile — users may abandon before the first frame renders.
+  ///
+  /// **Raise this** (e.g. 5000 ms) for apps with known heavy init
+  /// (database migrations, large asset loads). **Lower this** (e.g.
+  /// 2000 ms) for stricter startup audits.
+  final int startupTtffCriticalMs;
 }

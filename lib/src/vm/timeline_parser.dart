@@ -281,4 +281,140 @@ class TimelineParser {
       phaseEvents: phaseEvents,
     );
   }
+
+  /// Extract engine-level startup timestamps and first-frame sub-phase
+  /// durations from the VM timeline ring buffer.
+  ///
+  /// Scans for the same events that `flutter run --trace-startup` captures:
+  /// - `FlutterEngineMainEnter` — C++ instant event before Dart code runs
+  /// - `Framework initialization` — sync duration event (binding init)
+  /// - `Rasterized first useful frame` — instant sync event
+  ///
+  /// Also captures the first complete-duration (`ph: 'X'`) event for each
+  /// rendering sub-phase (BUILD, LAYOUT, PAINT, raster) to populate the
+  /// VM sub-phase slots in [StartupMetrics].
+  ///
+  /// Returns null if no startup events are found (events evicted from the
+  /// ring buffer or VM connected too late).
+  static StartupTimelineEvents? extractStartupEvents(
+    List<TimelineEvent> events,
+  ) {
+    int? engineEnterUs;
+    int? frameworkInitDurationUs;
+    int? firstFrameRasterizedUs;
+    int? firstBuildScopeDurUs;
+    int? firstFlushLayoutDurUs;
+    int? firstFlushPaintDurUs;
+    int? firstRasterDurUs;
+
+    for (final event in events) {
+      final json = event.json;
+      if (json == null) continue;
+
+      final name = json['name'] as String? ?? '';
+      final ph = json['ph'] as String? ?? '';
+      final ts = json['ts'] as int?;
+
+      if (ts == null) continue;
+
+      // FlutterEngineMainEnter — instant event (ph: 'i' or 'I')
+      if (name == 'FlutterEngineMainEnter' && (ph == 'i' || ph == 'I')) {
+        engineEnterUs = ts;
+      }
+
+      // Framework initialization — sync duration event. Only captures
+      // 'X' (complete) events with a dur field. B/E pairs are not
+      // combined here because the direct Timeline.now measurement in
+      // Sleuth.init() is the authoritative source for this metric.
+      if (name == 'Framework initialization' && ph == 'X') {
+        final dur = json['dur'] as int?;
+        if (dur != null) frameworkInitDurationUs = dur;
+      }
+
+      // Rasterized first useful frame — instant sync event
+      if (name == 'Rasterized first useful frame' && (ph == 'i' || ph == 'I')) {
+        firstFrameRasterizedUs = ts;
+      }
+
+      // First-frame sub-phase durations — capture only the first 'X' event
+      // for each phase. The first timeline poll contains the startup frame's
+      // events; subsequent polls are handled by the runtime pipeline.
+      if (ph == 'X') {
+        final dur = json['dur'] as int?;
+        if (dur != null) {
+          if (firstBuildScopeDurUs == null && _isBuild(name)) {
+            firstBuildScopeDurUs = dur;
+          } else if (firstFlushLayoutDurUs == null && _isLayout(name)) {
+            firstFlushLayoutDurUs = dur;
+          } else if (firstFlushPaintDurUs == null && _isPaint(name)) {
+            firstFlushPaintDurUs = dur;
+          } else if (firstRasterDurUs == null && _rasterNames.contains(name)) {
+            firstRasterDurUs = dur;
+          }
+        }
+      }
+    }
+
+    // Return null if we got nothing useful.
+    if (engineEnterUs == null &&
+        firstFrameRasterizedUs == null &&
+        firstBuildScopeDurUs == null &&
+        firstFlushLayoutDurUs == null &&
+        firstFlushPaintDurUs == null &&
+        firstRasterDurUs == null) {
+      return null;
+    }
+
+    return StartupTimelineEvents(
+      engineEnterUs: engineEnterUs,
+      frameworkInitDurationUs: frameworkInitDurationUs,
+      firstFrameRasterizedUs: firstFrameRasterizedUs,
+      firstBuildScopeDurUs: firstBuildScopeDurUs,
+      firstFlushLayoutDurUs: firstFlushLayoutDurUs,
+      firstFlushPaintDurUs: firstFlushPaintDurUs,
+      firstRasterDurUs: firstRasterDurUs,
+    );
+  }
+}
+
+/// Engine-level startup timestamps and first-frame sub-phase durations
+/// extracted from the VM timeline ring buffer.
+///
+/// Mirrors the data that `flutter run --trace-startup` captures in
+/// `start_up_info.json`, plus first-frame rendering sub-phase durations.
+/// All fields are optional because ring buffer extraction is best-effort
+/// — events may have been evicted.
+class StartupTimelineEvents {
+  const StartupTimelineEvents({
+    this.engineEnterUs,
+    this.frameworkInitDurationUs,
+    this.firstFrameRasterizedUs,
+    this.firstBuildScopeDurUs,
+    this.firstFlushLayoutDurUs,
+    this.firstFlushPaintDurUs,
+    this.firstRasterDurUs,
+  });
+
+  /// Monotonic microsecond timestamp of `FlutterEngineMainEnter`.
+  /// C++ engine entry before any Dart code runs.
+  final int? engineEnterUs;
+
+  /// Duration of `Framework initialization` in microseconds.
+  /// Covers `BindingBase()` constructor (initInstances + initServiceExtensions).
+  final int? frameworkInitDurationUs;
+
+  /// Monotonic microsecond timestamp of `Rasterized first useful frame`.
+  final int? firstFrameRasterizedUs;
+
+  /// Duration of the first `buildScope` event in microseconds.
+  final int? firstBuildScopeDurUs;
+
+  /// Duration of the first `flushLayout` event in microseconds.
+  final int? firstFlushLayoutDurUs;
+
+  /// Duration of the first `flushPaint` event in microseconds.
+  final int? firstFlushPaintDurUs;
+
+  /// Duration of the first raster event in microseconds.
+  final int? firstRasterDurUs;
 }

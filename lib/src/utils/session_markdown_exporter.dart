@@ -47,6 +47,35 @@ class SessionMarkdownExporter {
         '- Jank frames: **${stats.jankFrames} / ${stats.totalFrames}**');
     buf.writeln();
 
+    // Startup metrics
+    final startup = snapshot.startupMetrics;
+    if (startup != null) {
+      buf.writeln('## Startup');
+      if (startup.ttffMs != null) {
+        buf.writeln('- Time to first frame: **${startup.ttffMs!.round()} ms**');
+      }
+      if (startup.ttiMs != null) {
+        buf.writeln('- Time to interactive: **${startup.ttiMs!.round()} ms**');
+      }
+      if (startup.dominantPhase != 'unknown') {
+        buf.writeln('- Dominant phase: **${startup.dominantPhase}** '
+            '(${startup.dominantPhasePercent.round()}%)');
+      }
+      if (startup.frameworkInitMs != null) {
+        buf.writeln('- Framework init: '
+            '**${startup.frameworkInitMs!.toStringAsFixed(1)} ms**');
+      }
+      if (startup.preDartOverheadMs != null) {
+        buf.writeln('- Pre-Dart overhead: '
+            '**${startup.preDartOverheadMs!.toStringAsFixed(1)} ms**');
+      }
+      if (startup.engineTtffMs != null) {
+        buf.writeln('- Engine TTFF: '
+            '**${startup.engineTtffMs!.toStringAsFixed(1)} ms**');
+      }
+      buf.writeln();
+    }
+
     // Top issues
     final top = snapshot.currentIssues.take(topN).toList();
     if (top.isNotEmpty) {

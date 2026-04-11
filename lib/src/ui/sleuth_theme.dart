@@ -75,6 +75,7 @@ class SleuthThemeData {
     this.categoryChannel = const Color(0xFF06B6D4),
     this.categoryFont = const Color(0xFF6B7280),
     this.categoryNetwork = const Color(0xFFF97316),
+    this.categoryStartup = const Color(0xFF0EA5E9),
 
     // ── Confidence ──
     this.confidenceConfirmed = const Color(0xFF10B981),
@@ -234,6 +235,7 @@ class SleuthThemeData {
   final Color categoryChannel;
   final Color categoryFont;
   final Color categoryNetwork;
+  final Color categoryStartup;
 
   // ── Confidence ──
   final Color confidenceConfirmed;
@@ -332,6 +334,7 @@ class SleuthThemeData {
         IssueCategory.channel => categoryChannel,
         IssueCategory.font => categoryFont,
         IssueCategory.network => categoryNetwork,
+        IssueCategory.startup => categoryStartup,
       };
 
   /// Returns the color for a given [IssueConfidence].
@@ -381,6 +384,7 @@ class SleuthThemeData {
     Color? categoryChannel,
     Color? categoryFont,
     Color? categoryNetwork,
+    Color? categoryStartup,
     Color? confidenceConfirmed,
     Color? confidenceLikely,
     Color? confidencePossible,
@@ -455,6 +459,7 @@ class SleuthThemeData {
       categoryChannel: categoryChannel ?? this.categoryChannel,
       categoryFont: categoryFont ?? this.categoryFont,
       categoryNetwork: categoryNetwork ?? this.categoryNetwork,
+      categoryStartup: categoryStartup ?? this.categoryStartup,
       confidenceConfirmed: confidenceConfirmed ?? this.confidenceConfirmed,
       confidenceLikely: confidenceLikely ?? this.confidenceLikely,
       confidencePossible: confidencePossible ?? this.confidencePossible,

@@ -1,12 +1,12 @@
 # Sleuth
 
-Runtime performance diagnostics package for Flutter mobile apps. 22 detectors across 4 lifecycle types (runtime, vmOnly, hybrid, structural).
+Runtime performance diagnostics package for Flutter mobile apps. 23 detectors across 4 lifecycle types (runtime, vmOnly, hybrid, structural).
 
 ## Commands
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~1,915 tests, ~18s)
+fvm flutter test                    # Run all tests (~1,953 tests, ~18s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -24,7 +24,7 @@ lib/
   sleuth.dart          # Public API barrel file + Sleuth entry point
   src/
     models/                     # Data classes: PerformanceIssue, FrameStats, FrameVerdict, BaseDetector
-    detectors/                  # 22 detector implementations (one file per detector)
+    detectors/                  # 23 detector implementations (one file per detector)
     network/                    # HTTP monitoring: SleuthHttpOverrides, RequestRecord
     analyzer/                   # RenderPipelineAnalyzer, FrameEventCorrelator
     controller/                 # SleuthController (orchestrates detectors, config, scan loop)
@@ -54,9 +54,10 @@ test/
 
 ## Current state
 
-- **v0.12.2** (current) — Post-Codex adversarial review hardening: timeline pipeline exception isolation (`_onTimelineData` try/finally + per-detector try/catch), encyclopedia placeholder leak fix (substitute all entries with fallback sentinel), cookbook slow-frame detector staleness fix (time-based eviction via `_TimestampedFrame`). One adversarial review, 3 findings fixed. See `CHANGELOG.md`.
+- **v0.13.0** (current) — Startup Performance Tracing: `Sleuth.init()` + `Sleuth.markInteractive()` for TTFF/TTI measurement, new `StartupDetector` (23rd detector, structural lifecycle, one-shot), two issue types (`slow_startup_ttff`, `startup_phase_dominance`), `StartupMetrics` model with per-phase FrameTiming breakdown and VM sub-phase enrichment slots, `IssueCategory.startup` across all UI/export surfaces, startup metrics banner in overlay, encyclopedia entries, markdown export section. One adversarial review: critical clock-domain mismatch fix (monotonic→wall-clock TTFF), stableId prefix mapping fix, phase dominance signal preservation with custom thresholds, const banner rebuild safety. Test count: 1,915 → 1,953.
+- v0.12.2: Post-Codex adversarial review hardening: timeline pipeline exception isolation (`_onTimelineData` try/finally + per-detector try/catch), encyclopedia placeholder leak fix (substitute all entries with fallback sentinel), cookbook slow-frame detector staleness fix (time-based eviction via `_TimestampedFrame`). One adversarial review, 3 findings fixed. See `CHANGELOG.md`.
 - v0.12.1: Pillar 6 Part 2: Overlay UI, Diagnostics Output & Export. New: trigger button alignment config (`triggerButtonAlignment`/`triggerButtonOffset`), minimize/maximize/restore card controls (3-state window), recurrence badge on IssueCard, context-aware encyclopedia entries (`IssueExplanationBuilder.substitute()`), inline confidence reasoning, dismissible debug-mode banner, `Sleuth.exportSummary()` markdown export, "Copy conversation" button on AiChatPage. Adversarial review fixes: Tooltip→Semantics in overlay (OverlayPortal crash), GFM escaping in copy/export, recurrence badge overflow, semantic labels on interactive elements, cookbook detector false-positive filter. See `doc/spec_v11.md`.
-- v0.12.0: Pillar 6 Part 1: Public API & Authoring Surface + real-device VM connection fix. **Breaking**: `SleuthConfig.treeScanInterval` now takes `Duration` instead of `int` ms. New: `SleuthConfig.minimal()`/`.performance()` presets, threshold doc comments on every parameter, debug-mode assert validation (14 rules), `SimpleStructuralDetector` helper base class, custom detector key gating (`disabledCustomDetectorKeys`), three-file custom detector cookbook in example app. VM fix: `controlWebServer` replaces `getInfo()` for cold-start port bind, background reconnect ladder (500ms→30s), `_connectInFlight` concurrency guard, frameStatsNotifier 5Hz throttle (prevents self-feedback rebuild loop), per-detector exception isolation in unified walk, post-dispose continuation guards. One adversarial review, 4 findings fixed (exception isolation, post-dispose guards, diag print removal, throttle test coverage). Test count: 1,825 → 1,869. See `doc/spec_v11.md`.
+- v0.12.0: Pillar 6 Part 1: Public API & Authoring Surface + real-device VM connection fix. **Breaking**: `SleuthConfig.treeScanInterval` now takes `Duration` instead of `int` ms. New: `SleuthConfig.minimal()`/`.performance()` presets, threshold doc comments on every parameter, debug-mode assert validation (14 rules), `SimpleStructuralDetector` helper base class, custom detector key gating (`disabledCustomDetectorKeys`), three-file custom detector cookbook in example app. VM fix: `controlWebServer` replaces `getInfo()` for cold-start port bind, background reconnect ladder (500ms→30s), `_connectInFlight` concurrency guard, frameStatsNotifier 5Hz throttle (prevents self-feedback rebuild loop), per-detector exception isolation in unified walk, post-dispose continuation guards. One adversarial review, 4 findings fixed (exception isolation, post-dispose guards, diag print removal, throttle test coverage). Test count: 1,825 → 1,869.
 - Test count: 1,869 → 1,915 (root) + 7 → 9 (example).
 - v0.11.1: Pillar 5 Part 2 demo quality enhancements: Before/After toggle in `DemoScaffold`, working fixed-pattern bodies for all 23 demos, live `MetricsBar`/`MetricChip` in 7 demos, two new combined demos (E-Commerce, Chat). Three adversarial review rounds, 18 findings + KeepAliveDetector bug fix. See `doc/spec_v11.md`.
 - v0.11.0: Pillar 5 Part 1 demo infrastructure: DemoScaffold shared layout, 5 new demos (shader jank, platform channel traffic, memory pressure, GPU pressure, missing RepaintBoundary), categorized home screen (8 categories, 23 demos). Two adversarial reviews: (round 1) memory MB overcount fix, theme-aware color fix; (round 2) critical GC rate dilution fix (10s sliding window replaces lifetime-based denominator in `MemoryPressureDetector`), setState-after-dispose guards + global `debugProfilePlatformChannels` save/restore in platform channel demo, memory label clarification, RepaintBoundary description accuracy, Impeller warning banner on shader jank page. See `doc/spec_v11.md`.
@@ -87,4 +88,4 @@ test/
 - v11 Pillar 5 Part 2: 7/7 milestones shipped ✅ (M8–M14, three adversarial review rounds + KeepAliveDetector bug fix). See `doc/spec_v11.md`.
 - v11 Pillar 6 Part 1: 7/7 milestones shipped ✅ (M1–M7, one adversarial review). See `doc/spec_v11.md`.
 - v11 Pillar 6 Part 2: 8/8 milestones shipped ✅ (M1–M8, one adversarial review round + 6 fixes). See `doc/spec_v11.md`.
-- 1,915 tests (root) + 9 tests (example), 0 analysis issues
+- 1,953 tests (root) + 9 tests (example), 0 analysis issues

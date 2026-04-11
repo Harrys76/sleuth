@@ -36,6 +36,7 @@ class IssueMetadataBuilder {
       IssueCategory.network => 'DevTools \u2192 Network',
       IssueCategory.font =>
         'DevTools \u2192 Performance \u2192 Timeline Events',
+      IssueCategory.startup => 'DevTools \u2192 Performance \u2192 App Startup',
     };
     return [
       ('Based on:', source),

@@ -31,26 +31,29 @@ import 'demos/shader_jank_demo.dart';
 import 'demos/shallow_rebuild_risk_demo.dart';
 import 'demos/uncached_image_demo.dart';
 
-void main() => runApp(
-  Sleuth.track(
-    child: const SleuthDemoApp(),
-    config: SleuthConfig(
-      aiChat: AiChatAdapter.openAi(
-        apiKey: 'ollama', // Ollama ignores this but the field is required
-        baseUrl: 'http://localhost:11434',
-        model: 'llama3.2',
+void main() {
+  Sleuth.init();
+  runApp(
+    Sleuth.track(
+      child: const SleuthDemoApp(),
+      config: SleuthConfig(
+        aiChat: AiChatAdapter.openAi(
+          apiKey: 'ollama', // Ollama ignores this but the field is required
+          baseUrl: 'http://localhost:11434',
+          model: 'llama3.2',
+        ),
+        // Cookbook custom detectors — see example/lib/custom_detectors/.
+        // All three are attached to the overlay so the Custom Detector
+        // Cookbook demo can exercise them end-to-end.
+        customDetectors: [
+          TooltipUsageDetector(),
+          SlowFrameDetector(),
+          RasterHotSpotDetector(),
+        ],
       ),
-      // Cookbook custom detectors — see example/lib/custom_detectors/.
-      // All three are attached to the overlay so the Custom Detector
-      // Cookbook demo can exercise them end-to-end.
-      customDetectors: [
-        TooltipUsageDetector(),
-        SlowFrameDetector(),
-        RasterHotSpotDetector(),
-      ],
     ),
-  ),
-);
+  );
+}
 
 class SleuthDemoApp extends StatelessWidget {
   const SleuthDemoApp({super.key});

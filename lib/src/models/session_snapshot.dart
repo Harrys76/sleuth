@@ -8,6 +8,7 @@ import 'heap_sample.dart';
 import 'performance_issue.dart';
 import 'phase_event.dart';
 import 'platform_channel_summary.dart';
+import 'startup_metrics.dart';
 import 'widget_heat_map_entry.dart';
 
 /// A point-in-time snapshot of a sleuth session for export.
@@ -31,6 +32,7 @@ class SessionSnapshot {
     this.recurrenceTrends,
     this.widgetHeatMap,
     this.sessionSummary,
+    this.startupMetrics,
   });
 
   /// Schema version for forward-compatible parsing.
@@ -104,6 +106,10 @@ class SessionSnapshot {
   /// Null for v1/v2 snapshots or when no summary data is available.
   final Map<String, dynamic>? sessionSummary;
 
+  /// Startup performance metrics captured by [Sleuth.init].
+  /// Null when [Sleuth.init] was not called or the first frame has not rendered.
+  final StartupMetrics? startupMetrics;
+
   Map<String, dynamic> toJson() => {
         'schemaVersion': schemaVersion,
         'exportedAt': exportedAt.toIso8601String(),
@@ -133,6 +139,7 @@ class SessionSnapshot {
           'recurrenceTrends': recurrenceTrends,
         if (sessionSummary != null && sessionSummary!.isNotEmpty)
           'sessionSummary': sessionSummary,
+        if (startupMetrics != null) 'startupMetrics': startupMetrics!.toJson(),
       };
 
   /// Pretty-printed JSON string for export/sharing.
@@ -188,6 +195,10 @@ class SessionSnapshot {
               )
             : null,
         sessionSummary: json['sessionSummary'] as Map<String, dynamic>?,
+        startupMetrics: json['startupMetrics'] != null
+            ? StartupMetrics.fromJson(
+                json['startupMetrics'] as Map<String, dynamic>)
+            : null,
       );
 }
 

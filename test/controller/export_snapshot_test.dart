@@ -461,6 +461,15 @@ void main() {
           fixHint: 'test',
           stableId: 'heavy_compute',
         ),
+        const PerformanceIssue(
+          severity: IssueSeverity.warning,
+          category: IssueCategory.startup,
+          confidence: IssueConfidence.confirmed,
+          title: 'slow startup',
+          detail: 'test',
+          fixHint: 'test',
+          stableId: 'slow_startup_ttff',
+        ),
       ];
 
       final snapshot = controller.exportSnapshot();
@@ -472,6 +481,8 @@ void main() {
       expect(hitRates['listview'], 2);
       // heavy_compute maps to 'heavyCompute'
       expect(hitRates['heavyCompute'], 1);
+      // slow_startup_ttff maps to 'startup'
+      expect(hitRates['startup'], 1);
     });
 
     test('topIssues returns at most 5, ordered by rankingScore', () {

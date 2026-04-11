@@ -621,6 +621,7 @@ class _IssueCardState extends State<IssueCard> {
       IssueCategory.channel => 'CHANNEL',
       IssueCategory.font => 'FONT',
       IssueCategory.network => 'NETWORK',
+      IssueCategory.startup => 'STARTUP',
     };
 
     return Container(

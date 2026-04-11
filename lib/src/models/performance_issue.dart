@@ -12,7 +12,8 @@ enum IssueCategory {
   memory,
   channel,
   font,
-  network
+  network,
+  startup,
 }
 
 /// Confidence levels reflecting the strength of evidence behind a detection.

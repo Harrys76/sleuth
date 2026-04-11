@@ -44,6 +44,8 @@ import '../detectors/opacity_detector.dart';
 import '../detectors/font_loading_detector.dart';
 import '../detectors/network_monitor_detector.dart';
 import '../detectors/repaint_boundary_detector.dart';
+import '../detectors/startup_detector.dart';
+import '../../sleuth.dart' show Sleuth;
 import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
 import '../models/gc_event_summary.dart';
@@ -368,6 +370,7 @@ class SleuthController {
       IssueCategory.channel => [],
       IssueCategory.font => [],
       IssueCategory.network => [],
+      IssueCategory.startup => ['Startup'],
     };
   }
 
@@ -466,6 +469,7 @@ class SleuthController {
       onGcEvent: _onGcEvent,
       onHeapSample: _onHeapSample,
       onConnectionChanged: _onVmConnectionChanged,
+      onStartupTimelineEvents: _onStartupTimelineEvents,
     );
     _vmClient = client;
 
@@ -671,6 +675,10 @@ class SleuthController {
             maxFamilies: config.thresholds.fontLoadingMaxFamilies,
           ),
       DetectorType.repaintBoundary: RepaintBoundaryDetector.new,
+      DetectorType.startup: () => StartupDetector(
+            ttffWarningMs: config.thresholds.startupTtffWarningMs,
+            ttffCriticalMs: config.thresholds.startupTtffCriticalMs,
+          ),
     };
 
     // Persist factory map for runtime enable/disable (enableDetector).
@@ -1038,6 +1046,7 @@ class SleuthController {
           ? buildWidgetHeatMap(rankedWithScores)
           : null,
       sessionSummary: summary.isNotEmpty ? summary : null,
+      startupMetrics: Sleuth.startupMetrics,
     );
   }
 
@@ -1189,6 +1198,8 @@ class SleuthController {
       'duplicate_request': 'networkMonitor',
       'missing_repaint_boundary': 'repaintBoundary',
       'excessive_repaint_boundary': 'repaintBoundary',
+      'slow_startup': 'startup',
+      'startup_phase': 'startup',
     };
 
     for (final entry in prefixMap.entries) {
@@ -1754,12 +1765,16 @@ class SleuthController {
 
     // Phase 2: Unified walk — O(N) instead of O(detectors × N)
     // Exempt depth/ratio-dependent detectors from scaffold-free walk.
+    // Also exclude startup detector — its checkElement/afterElement are no-ops
+    // (one-shot metrics come from FrameTiming, not the widget tree).
     final walkDetectors = _isScaffoldFreeScan
         ? unified
             .where((d) =>
-                d is! SetStateScopeDetector && d is! ShallowRebuildRiskDetector)
+                d.type != DetectorType.startup &&
+                d is! SetStateScopeDetector &&
+                d is! ShallowRebuildRiskDetector)
             .toList()
-        : unified;
+        : unified.where((d) => d.type != DetectorType.startup).toList();
 
     void visitor(Element element) {
       for (final d in walkDetectors) {
@@ -1867,6 +1882,25 @@ class SleuthController {
       }
       selectedHighlightNotifier.value = refreshed;
     }
+  }
+
+  void _onStartupTimelineEvents(StartupTimelineEvents events) {
+    Sleuth.enrichStartupWithVmData(
+      engineEnterUs: events.engineEnterUs,
+      firstFrameRasterizedUs: events.firstFrameRasterizedUs,
+      vmFirstBuildScopeMs: events.firstBuildScopeDurUs != null
+          ? events.firstBuildScopeDurUs! / 1000.0
+          : null,
+      vmFirstFlushLayoutMs: events.firstFlushLayoutDurUs != null
+          ? events.firstFlushLayoutDurUs! / 1000.0
+          : null,
+      vmFirstFlushPaintMs: events.firstFlushPaintDurUs != null
+          ? events.firstFlushPaintDurUs! / 1000.0
+          : null,
+      vmFirstRasterMs: events.firstRasterDurUs != null
+          ? events.firstRasterDurUs! / 1000.0
+          : null,
+    );
   }
 
   void _onTimelineData(ParsedTimelineData data) {
@@ -2796,6 +2830,7 @@ class SleuthConfig {
           DetectorType.customPainter,
           DetectorType.fontLoading,
           DetectorType.repaintBoundary,
+          DetectorType.startup,
         },
       );
 
@@ -2839,6 +2874,7 @@ class SleuthConfig {
           DetectorType.repaintBoundary,
           DetectorType.setStateScope,
           DetectorType.keepAlive,
+          DetectorType.startup,
         },
       );
 

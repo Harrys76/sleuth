@@ -13,7 +13,7 @@
 /// ```
 ///
 /// ## Features
-/// - 22 performance detectors (VM-powered, hybrid, structural, and runtime)
+/// - 23 performance detectors (VM-powered, hybrid, structural, and runtime)
 /// - Actionable fix hints for every issue
 /// - In-app overlay with live FPS chart and issue dashboard
 /// - Debug mode warning (run with --profile for accurate data)
@@ -45,12 +45,17 @@
 /// See [SleuthThemeData] for all available color tokens.
 library;
 
+import 'dart:developer' show Timeline;
+import 'dart:ui' show FramePhase;
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart' show FrameTiming, SchedulerBinding;
 import 'package:flutter/widgets.dart';
 
 import 'src/controller/sleuth_controller.dart';
 import 'src/models/fix_verification_result.dart';
 import 'src/models/session_snapshot.dart';
+import 'src/models/startup_metrics.dart';
 import 'src/ui/sleuth_overlay.dart';
 
 // Public API exports
@@ -83,8 +88,22 @@ export 'src/models/fix_verification_result.dart'
 export 'src/network/request_record.dart';
 export 'src/utils/fix_hint_builder.dart';
 export 'src/utils/session_markdown_exporter.dart';
+export 'src/models/startup_metrics.dart';
 
 /// Entry point for the Sleuth package.
+///
+/// ## Startup tracing (recommended)
+///
+/// For accurate time-to-first-frame measurement, call [init] before [runApp]:
+///
+/// ```dart
+/// void main() {
+///   Sleuth.init();
+///   runApp(Sleuth.track(child: MyApp()));
+/// }
+/// ```
+///
+/// ## Basic usage
 ///
 /// ```dart
 /// void main() => runApp(Sleuth.track(child: MyApp()));
@@ -94,10 +113,256 @@ class Sleuth {
 
   static SleuthController? _controller;
 
+  // ── Startup tracing state ──────────────────────────────────────────────
+
+  /// Whether [init] has been called. Prevents double-measurement.
+  /// Survives hot restart (intentional — warm VM numbers are misleading).
+  static bool _initCalled = false;
+
+  /// Dart entry timestamp captured by [init].
+  static DateTime? _dartEntryTimestamp;
+
+  /// Monotonic microsecond timestamp from `Timeline.now` at [init] entry.
+  /// Same clock domain as engine timeline events.
+  static int? _dartEntryMonotonicUs;
+
+  /// Framework init duration in microseconds (direct measurement).
+  static int? _frameworkInitDurationUs;
+
+  /// Startup metrics populated by the first-frame callback.
+  static StartupMetrics? _startupMetrics;
+
+  /// Buffered engine events that arrived before the first-frame callback.
+  /// Flushed into [_startupMetrics] when the callback fires.
+  static _PendingEngineEvents? _pendingEngineEvents;
+
+  /// Timestamp when [markInteractive] was called.
+  static DateTime? _interactiveTimestamp;
+
+  /// Initialize startup tracing before [runApp].
+  ///
+  /// Captures the Dart entry timestamp and registers a one-shot
+  /// [SchedulerBinding.addTimingsCallback] to measure the first frame.
+  /// This provides accurate time-to-first-frame (TTFF) data.
+  ///
+  /// Call this **before** [runApp] for best accuracy:
+  /// ```dart
+  /// void main() {
+  ///   Sleuth.init();
+  ///   runApp(Sleuth.track(child: MyApp()));
+  /// }
+  /// ```
+  ///
+  /// Zero-cost in release mode. Safe to call multiple times (only the
+  /// first invocation measures). Survives hot restart intentionally —
+  /// a warm VM gives misleading cold-start numbers.
+  static void init() {
+    if (kReleaseMode) return;
+    if (_initCalled) return;
+    _initCalled = true;
+    _dartEntryTimestamp = DateTime.now();
+    _dartEntryMonotonicUs = Timeline.now;
+
+    // Ensure bindings exist so SchedulerBinding is available.
+    // Wrap in Timeline.now to directly measure framework init duration
+    // (100% reliable — no VM timeline needed for this metric).
+    final fwInitStart = Timeline.now;
+    try {
+      WidgetsFlutterBinding.ensureInitialized();
+    } catch (_) {
+      // Custom binding already initialized. Timestamp is still captured;
+      // FrameTiming callback registration may fail below — that's OK,
+      // the detector will use the timestamp-only fallback.
+    }
+    _frameworkInitDurationUs = Timeline.now - fwInitStart;
+
+    try {
+      late void Function(List<FrameTiming>) callback;
+      callback = (List<FrameTiming> timings) {
+        // Unregister immediately — one-shot.
+        SchedulerBinding.instance.removeTimingsCallback(callback);
+
+        if (timings.isEmpty) return;
+        final first = timings.first;
+
+        final vsyncStart = first.timestampInMicroseconds(
+          FramePhase.vsyncStart,
+        );
+        final buildStart = first.timestampInMicroseconds(
+          FramePhase.buildStart,
+        );
+        final buildFinish = first.timestampInMicroseconds(
+          FramePhase.buildFinish,
+        );
+        final rasterStart = first.timestampInMicroseconds(
+          FramePhase.rasterStart,
+        );
+        final rasterFinish = first.timestampInMicroseconds(
+          FramePhase.rasterFinish,
+        );
+
+        final vsyncOverhead = (buildStart - vsyncStart) / 1000.0;
+        final buildMs = (buildFinish - buildStart) / 1000.0;
+        final rasterMs = (rasterFinish - rasterStart) / 1000.0;
+        final totalMs = (rasterFinish - vsyncStart) / 1000.0;
+
+        // TTFF = time from Dart entry to first frame raster complete.
+        // Use wall-clock DateTime.now() — FrameTiming timestamps are from the
+        // monotonic system clock (uptime-based), not the Unix epoch, so
+        // DateTime.fromMicrosecondsSinceEpoch(rasterFinish) would produce
+        // garbage when diffed against _dartEntryTimestamp (wall clock).
+        final firstFrameCompleteTime = DateTime.now();
+        final ttff = firstFrameCompleteTime
+                .difference(_dartEntryTimestamp!)
+                .inMicroseconds /
+            1000.0;
+
+        _startupMetrics = StartupMetrics(
+          dartEntryTimestamp: _dartEntryTimestamp!,
+          ttffMs: ttff > 0 ? ttff : null,
+          ttiMs: _interactiveTimestamp != null
+              ? _interactiveTimestamp!
+                      .difference(_dartEntryTimestamp!)
+                      .inMicroseconds /
+                  1000.0
+              : null,
+          firstFrameVsyncOverheadMs: vsyncOverhead,
+          firstFrameBuildMs: buildMs,
+          firstFrameRasterMs: rasterMs,
+          firstFrameTotalMs: totalMs,
+          dartEntryMonotonicUs: _dartEntryMonotonicUs,
+          frameworkInitDurationUs: _frameworkInitDurationUs,
+        );
+
+        // Flush any engine events that arrived before first frame.
+        if (_pendingEngineEvents != null) {
+          _startupMetrics = _startupMetrics!.copyWith(
+            engineEnterUs: _pendingEngineEvents!.engineEnterUs,
+            firstFrameRasterizedUs:
+                _pendingEngineEvents!.firstFrameRasterizedUs,
+            vmFirstBuildScopeMs:
+                _pendingEngineEvents!.vmFirstBuildScopeMs,
+            vmFirstFlushLayoutMs:
+                _pendingEngineEvents!.vmFirstFlushLayoutMs,
+            vmFirstFlushPaintMs:
+                _pendingEngineEvents!.vmFirstFlushPaintMs,
+            vmFirstRasterMs: _pendingEngineEvents!.vmFirstRasterMs,
+          );
+          _pendingEngineEvents = null;
+        }
+      };
+      SchedulerBinding.instance.addTimingsCallback(callback);
+    } catch (_) {
+      // SchedulerBinding not available (custom binding without
+      // SchedulerBinding mixin). TTFF will not be measured, but
+      // _dartEntryTimestamp is still available for TTI calculation.
+    }
+  }
+
+  /// Mark the app as interactive.
+  ///
+  /// Call this when your app's home screen is fully loaded and ready
+  /// for user interaction. TTI is measured from [init] to this call.
+  ///
+  /// ```dart
+  /// @override
+  /// void initState() {
+  ///   super.initState();
+  ///   Sleuth.markInteractive();
+  /// }
+  /// ```
+  ///
+  /// No-op in release mode or if [init] was not called.
+  static void markInteractive() {
+    if (kReleaseMode) return;
+    if (_dartEntryTimestamp == null) return;
+    _interactiveTimestamp = DateTime.now();
+
+    // Update metrics if already captured by the first-frame callback.
+    if (_startupMetrics != null) {
+      _startupMetrics = _startupMetrics!.copyWith(
+        ttiMs: _interactiveTimestamp!
+                .difference(_dartEntryTimestamp!)
+                .inMicroseconds /
+            1000.0,
+      );
+    }
+  }
+
+  /// Current startup metrics, or null if [init] was not called or the
+  /// first frame has not yet been rendered.
+  ///
+  /// Package-internal — read by [StartupDetector] and [SleuthController].
+  static StartupMetrics? get startupMetrics => _startupMetrics;
+
+  /// Enrich startup metrics with VM timeline data (package-internal).
+  ///
+  /// Called by [SleuthController] on the first timeline poll when
+  /// retroactive startup events are found in the VM ring buffer.
+  /// Accepts both VM sub-phase durations and engine-level timestamps
+  /// extracted from the timeline.
+  static void enrichStartupWithVmData({
+    double? vmFirstBuildScopeMs,
+    double? vmFirstFlushLayoutMs,
+    double? vmFirstFlushPaintMs,
+    double? vmFirstRasterMs,
+    int? engineEnterUs,
+    int? firstFrameRasterizedUs,
+  }) {
+    if (_startupMetrics == null) {
+      // First-frame callback hasn't fired yet. Buffer all VM data
+      // for deferred application when metrics become available.
+      if (engineEnterUs != null ||
+          firstFrameRasterizedUs != null ||
+          vmFirstBuildScopeMs != null ||
+          vmFirstFlushLayoutMs != null ||
+          vmFirstFlushPaintMs != null ||
+          vmFirstRasterMs != null) {
+        _pendingEngineEvents = _PendingEngineEvents(
+          engineEnterUs: engineEnterUs,
+          firstFrameRasterizedUs: firstFrameRasterizedUs,
+          vmFirstBuildScopeMs: vmFirstBuildScopeMs,
+          vmFirstFlushLayoutMs: vmFirstFlushLayoutMs,
+          vmFirstFlushPaintMs: vmFirstFlushPaintMs,
+          vmFirstRasterMs: vmFirstRasterMs,
+        );
+      }
+      return;
+    }
+    _startupMetrics = _startupMetrics!.copyWith(
+      vmFirstBuildScopeMs: vmFirstBuildScopeMs,
+      vmFirstFlushLayoutMs: vmFirstFlushLayoutMs,
+      vmFirstFlushPaintMs: vmFirstFlushPaintMs,
+      vmFirstRasterMs: vmFirstRasterMs,
+      engineEnterUs: engineEnterUs,
+      firstFrameRasterizedUs: firstFrameRasterizedUs,
+    );
+  }
+
+  /// Reset startup state for testing purposes only.
+  @visibleForTesting
+  static void resetStartupForTest() {
+    _initCalled = false;
+    _dartEntryTimestamp = null;
+    _dartEntryMonotonicUs = null;
+    _frameworkInitDurationUs = null;
+    _startupMetrics = null;
+    _pendingEngineEvents = null;
+    _interactiveTimestamp = null;
+  }
+
+  /// Inject startup metrics for testing purposes only.
+  @visibleForTesting
+  static void setStartupMetricsForTest(StartupMetrics metrics) {
+    _startupMetrics = metrics;
+  }
+
+  // ── Core API ───────────────────────────────────────────────────────────
+
   /// Wrap your app with the performance overlay.
   ///
   /// In release mode, this returns [child] unchanged (zero cost).
-  /// In debug/profile mode, adds the overlay with all 22 detectors.
+  /// In debug/profile mode, adds the overlay with all 23 detectors.
   ///
   /// Optionally pass [config] to customize thresholds, enable/disable
   /// specific detectors, or set a custom [SleuthConfig.theme].
@@ -156,4 +421,22 @@ class Sleuth {
 
   /// Clear the fix verification baseline.
   static void clearBaseline() => _controller?.clearBaseline();
+}
+
+/// Buffered engine events that arrived before the first-frame callback.
+class _PendingEngineEvents {
+  const _PendingEngineEvents({
+    this.engineEnterUs,
+    this.firstFrameRasterizedUs,
+    this.vmFirstBuildScopeMs,
+    this.vmFirstFlushLayoutMs,
+    this.vmFirstFlushPaintMs,
+    this.vmFirstRasterMs,
+  });
+  final int? engineEnterUs;
+  final int? firstFrameRasterizedUs;
+  final double? vmFirstBuildScopeMs;
+  final double? vmFirstFlushLayoutMs;
+  final double? vmFirstFlushPaintMs;
+  final double? vmFirstRasterMs;
 }

@@ -148,13 +148,13 @@ void main() {
       }
     });
 
-    test('allExplanations returns all 46 entries', () {
-      expect(IssueExplanationBuilder.allExplanations.length, 46);
+    test('allExplanations returns all 47 entries', () {
+      expect(IssueExplanationBuilder.allExplanations.length, 47);
     });
 
-    test('groupedEntries returns 8 groups', () {
+    test('groupedEntries returns 9 groups', () {
       final groups = IssueExplanationBuilder.groupedEntries;
-      expect(groups.length, 8);
+      expect(groups.length, 9);
 
       // Verify rendering pipeline order
       expect(groups[0].category, IssueCategory.build);
@@ -165,13 +165,14 @@ void main() {
       expect(groups[5].category, IssueCategory.network);
       expect(groups[6].category, IssueCategory.font);
       expect(groups[7].category, IssueCategory.channel);
+      expect(groups[8].category, IssueCategory.startup);
     });
 
     test('groupedEntries contains all entries', () {
       final groups = IssueExplanationBuilder.groupedEntries;
       final totalEntries =
           groups.fold<int>(0, (sum, g) => sum + g.entries.length);
-      expect(totalEntries, 46);
+      expect(totalEntries, 47);
     });
 
     test('readingTheData is non-null for runtime detector entries', () {
@@ -514,7 +515,7 @@ void main() {
       test('no duplicate entries (each stableId appears once)', () {
         final all = IssueExplanationBuilder.allExplanations;
         // The map itself enforces uniqueness, but verify the count
-        expect(all.length, 46);
+        expect(all.length, 47);
         // Verify no two entries share the same displayName
         final names = all.values.map((e) => e.displayName).toList();
         expect(names.toSet().length, names.length,

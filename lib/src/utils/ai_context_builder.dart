@@ -172,6 +172,12 @@ class AiContextBuilder {
           'Can I batch these channel invocations?',
           'Is this call frequency expected?',
         ];
+      case IssueCategory.startup:
+        return [
+          'Why is my app startup slow?',
+          'How do I reduce time-to-first-frame?',
+          'What should I defer to after first frame?',
+        ];
     }
   }
 }

@@ -26,6 +26,9 @@ typedef VmEventCallback = void Function(Event event);
 /// Callback type for receiving heap memory samples.
 typedef HeapSampleCallback = void Function(HeapSample sample);
 
+/// Callback type for one-shot startup timeline event extraction.
+typedef StartupTimelineCallback = void Function(StartupTimelineEvents events);
+
 /// Connects to the app's own VM Service for exact performance data.
 ///
 /// Uses [dart:developer.Service.controlWebServer] to start/query the
@@ -41,6 +44,7 @@ class VmServiceClient {
     this.onHeapSample,
     this.onExtensionEvent,
     this.onConnectionChanged,
+    this.onStartupTimelineEvents,
   });
 
   final TimelineDataCallback? onTimelineData;
@@ -49,6 +53,10 @@ class VmServiceClient {
   final VmEventCallback? onExtensionEvent;
   final void Function(bool connected)? onConnectionChanged;
 
+  /// One-shot callback for engine-level startup events extracted from the
+  /// VM timeline ring buffer on the first poll. Called at most once.
+  final StartupTimelineCallback? onStartupTimelineEvents;
+
   VmService? _service;
   StreamSubscription<Event>? _timelineSub;
   StreamSubscription<Event>? _gcSub;
@@ -56,6 +64,9 @@ class VmServiceClient {
   Timer? _pollTimer;
   bool _disposed = false;
   bool _connected = false;
+
+  /// One-shot guard — startup events are only extracted on the first poll.
+  bool _startupEventsExtracted = false;
   bool _reconnecting = false;
 
   /// In-flight [connect] future. While non-null, additional [connect] calls
@@ -329,6 +340,16 @@ class VmServiceClient {
       final timeline = await _service!.getVMTimeline();
       final events = timeline.traceEvents;
       if (events != null && events.isNotEmpty) {
+        // One-shot: extract engine startup events before clearing the buffer.
+        // Must happen before clearVMTimeline() or the events are lost.
+        if (!_startupEventsExtracted && onStartupTimelineEvents != null) {
+          _startupEventsExtracted = true;
+          final startupEvents = TimelineParser.extractStartupEvents(events);
+          if (startupEvents != null) {
+            onStartupTimelineEvents!(startupEvents);
+          }
+        }
+
         final parsed = TimelineParser.parse(events);
         if (parsed.hasData) {
           onTimelineData?.call(parsed);

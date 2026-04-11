@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/session_snapshot.dart';
+import 'package:sleuth/src/models/startup_metrics.dart';
 import 'package:sleuth/src/utils/session_markdown_exporter.dart';
 
 void main() {
@@ -215,6 +216,59 @@ void main() {
       final md = SessionMarkdownExporter.render(snapshot, topN: 5);
 
       expect(md, contains('`memory`'));
+    });
+  });
+
+  group('startup engine phases in markdown', () {
+    test('includes engine lines when startup metrics have engine data', () {
+      final snapshot = SessionSnapshot(
+        exportedAt: DateTime(2026, 4, 10),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 100,
+          jankFrames: 2,
+          averageFps: 58.5,
+          worstFrameTimeUs: 34000,
+        ),
+        startupMetrics: StartupMetrics(
+          dartEntryTimestamp: DateTime(2026, 4, 10),
+          ttffMs: 1500,
+          dartEntryMonotonicUs: 22614577000,
+          frameworkInitDurationUs: 281595,
+          engineEnterUs: 22332982085,
+          firstFrameRasterizedUs: 22334541649,
+        ),
+      );
+      final md = SessionMarkdownExporter.render(snapshot, topN: 5);
+
+      expect(md, contains('Framework init:'));
+      expect(md, contains('281.6 ms'));
+      expect(md, contains('Pre-Dart overhead:'));
+      expect(md, contains('Engine TTFF:'));
+    });
+
+    test('omits engine lines when no engine data', () {
+      final snapshot = SessionSnapshot(
+        exportedAt: DateTime(2026, 4, 10),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 100,
+          jankFrames: 2,
+          averageFps: 58.5,
+          worstFrameTimeUs: 34000,
+        ),
+        startupMetrics: StartupMetrics(
+          dartEntryTimestamp: DateTime(2026, 4, 10),
+          ttffMs: 1500,
+        ),
+      );
+      final md = SessionMarkdownExporter.render(snapshot, topN: 5);
+
+      expect(md, contains('Time to first frame:'));
+      expect(md, isNot(contains('Framework init:')));
+      expect(md, isNot(contains('Engine TTFF:')));
     });
   });
 }

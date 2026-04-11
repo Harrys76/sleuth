@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../sleuth.dart' show Sleuth;
 import '../controller/sleuth_controller.dart';
 import '../models/performance_issue.dart';
 import '../models/frame_stats.dart';
@@ -13,6 +14,7 @@ import 'issue_card.dart';
 import 'ai_chat_page.dart';
 import 'issue_encyclopedia_page.dart';
 import 'guide_page.dart';
+import 'startup_metrics_page.dart';
 import '../models/ai_chat_adapter.dart';
 import '../utils/issue_explanation_builder.dart';
 import 'sleuth_theme.dart';
@@ -59,6 +61,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   bool _debugBannerDismissed = false;
   bool _showGuide = false;
   bool _showDetail = false;
+  bool _showStartupDetail = false;
   String? _detailStableId;
   PerformanceIssue? _detailContextIssue;
   bool _showAiChat = false;
@@ -270,6 +273,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       IssueCategory.channel => false,
       IssueCategory.font => false,
       IssueCategory.network => false,
+      IssueCategory.startup => false,
     };
   }
 
@@ -304,7 +308,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
     return Stack(
       children: [
-        if (!_showGuide && !_showDetail && !_showAiChat)
+        if (!_showGuide && !_showDetail && !_showAiChat && !_showStartupDetail)
           Positioned(
             left: clamped.dx,
             top: clamped.dy,
@@ -349,6 +353,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                 _showAiChat = false;
                 _chatIssueStableId = null;
               }),
+            ),
+          ),
+        if (_showStartupDetail)
+          Positioned.fill(
+            child: StartupMetricsPage(
+              onClose: () => setState(() => _showStartupDetail = false),
             ),
           ),
       ],
@@ -398,6 +408,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                   !_debugBannerDismissed)
                 _DebugModeBanner(
                   onDismiss: () => setState(() => _debugBannerDismissed = true),
+                ),
+              if (Sleuth.startupMetrics != null)
+                _StartupMetricsBanner(
+                  onTap: () => setState(() => _showStartupDetail = true),
                 ),
               Flexible(child: RepaintBoundary(child: _buildIssuesList())),
               _CardFooter(
@@ -1265,4 +1279,66 @@ class _CornerGripPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _CornerGripPainter oldDelegate) =>
       gripColor != oldDelegate.gripColor;
+}
+
+// ─── Startup Metrics Banner ─────────────────────────────────────────────
+
+class _StartupMetricsBanner extends StatelessWidget {
+  const _StartupMetricsBanner({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final metrics = Sleuth.startupMetrics;
+    if (metrics == null) return const SizedBox.shrink();
+
+    final theme = SleuthTheme.of(context);
+    final parts = <String>[];
+    if (metrics.ttffMs != null) {
+      parts.add('TTFF: ${metrics.ttffMs!.round()} ms');
+    }
+    if (metrics.ttiMs != null) {
+      parts.add('TTI: ${metrics.ttiMs!.round()} ms');
+    }
+    if (parts.isEmpty) return const SizedBox.shrink();
+
+    final color = theme.categoryStartup;
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Semantics(
+        label: 'Startup metrics, tap for details',
+        button: true,
+        child: DecoratedBox(
+          decoration: BoxDecoration(color: color.withValues(alpha: 0.1)),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: theme.spacingSm,
+              vertical: theme.spacingXxs,
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.rocket_launch_outlined, size: 12, color: color),
+                SizedBox(width: theme.spacingXs),
+                Expanded(
+                  child: Text(
+                    parts.join(' \u00B7 '),
+                    style: TextStyle(color: color, fontSize: 10),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right,
+                  size: 14,
+                  color: color.withValues(alpha: 0.6),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

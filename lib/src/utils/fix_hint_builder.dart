@@ -784,6 +784,50 @@ class FixHintBuilder {
   }
 
   // ---------------------------------------------------------------------------
+  // StartupDetector
+  // ---------------------------------------------------------------------------
+
+  static (String, FixEffort) slowStartupTtff({
+    required double ttffMs,
+    required String dominantPhase,
+  }) {
+    final buffer = StringBuffer()
+      ..writeln(
+          'Time-to-first-frame is ${ttffMs.toStringAsFixed(0)} ms — users '
+          'perceive anything above 1.5 s as slow.')
+      ..writeln()
+      ..writeln('Fixes by dominant phase:');
+
+    if (dominantPhase == 'build') {
+      buffer
+        ..writeln('  • Defer heavy widget construction (use FutureBuilder or')
+        ..writeln('    lazy initialization for below-fold content)')
+        ..writeln('  • Reduce initial route widget tree depth')
+        ..writeln('  • Move expensive init logic to isolates');
+    } else if (dominantPhase == 'raster') {
+      buffer
+        ..writeln('  • Reduce first-frame painting complexity')
+        ..writeln('  • Pre-cache large images with precacheImage()')
+        ..writeln('  • Avoid shader-heavy effects on the splash screen');
+    } else if (dominantPhase == 'vsync') {
+      buffer
+        ..writeln('  • Minimize plugin initialization before runApp()')
+        ..writeln('  • Defer non-critical plugin init to post-first-frame')
+        ..writeln('  • Check for blocking platform channel calls in main()');
+    } else {
+      buffer
+        ..writeln('  • Profile with --profile and check DevTools timeline')
+        ..writeln('  • Move heavy initialization to isolates')
+        ..writeln('  • Defer non-visible widget construction');
+    }
+
+    return (
+      buffer.toString().trimRight(),
+      ttffMs >= 3000 ? FixEffort.involved : FixEffort.medium,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 

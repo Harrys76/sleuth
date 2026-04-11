@@ -536,4 +536,130 @@ void main() {
       expect(data.platformChannelEvents, isEmpty);
     });
   });
+
+  group('TimelineParser.extractStartupEvents', () {
+    test('extracts FlutterEngineMainEnter instant event', () {
+      final events = [
+        _makeEvent(
+            name: 'FlutterEngineMainEnter', dur: 0, ts: 22332982085, ph: 'i'),
+        _makeEvent(name: 'BUILD', dur: 3000, ts: 100000),
+      ];
+
+      final result = TimelineParser.extractStartupEvents(events);
+      expect(result, isNotNull);
+      expect(result!.engineEnterUs, 22332982085);
+      expect(result.firstFrameRasterizedUs, isNull);
+    });
+
+    test('extracts Rasterized first useful frame instant event', () {
+      final events = [
+        _makeEvent(
+            name: 'Rasterized first useful frame',
+            dur: 0,
+            ts: 22334541649,
+            ph: 'i'),
+      ];
+
+      final result = TimelineParser.extractStartupEvents(events);
+      expect(result, isNotNull);
+      expect(result!.firstFrameRasterizedUs, 22334541649);
+    });
+
+    test('extracts Framework initialization duration event', () {
+      final events = [
+        _makeEvent(
+            name: 'Framework initialization',
+            dur: 281595,
+            ts: 22333000000,
+            ph: 'X'),
+      ];
+
+      final result = TimelineParser.extractStartupEvents(events);
+      // Returns null because neither engineEnterUs nor firstFrameRasterizedUs present
+      expect(result, isNull);
+    });
+
+    test('extracts all startup events together', () {
+      final events = [
+        _makeEvent(
+            name: 'FlutterEngineMainEnter', dur: 0, ts: 22332982085, ph: 'i'),
+        _makeEvent(
+            name: 'Framework initialization',
+            dur: 281595,
+            ts: 22333000000,
+            ph: 'X'),
+        _makeEvent(name: 'BUILD', dur: 3000, ts: 22333500000),
+        _makeEvent(name: 'LAYOUT', dur: 1500, ts: 22333503000),
+        _makeEvent(name: 'PAINT', dur: 800, ts: 22333504500),
+        _makeEvent(name: 'GPURasterizer::Draw', dur: 5000, ts: 22333505300),
+        _makeEvent(
+            name: 'Rasterized first useful frame',
+            dur: 0,
+            ts: 22334541649,
+            ph: 'i'),
+      ];
+
+      final result = TimelineParser.extractStartupEvents(events);
+      expect(result, isNotNull);
+      expect(result!.engineEnterUs, 22332982085);
+      expect(result.frameworkInitDurationUs, 281595);
+      expect(result.firstFrameRasterizedUs, 22334541649);
+      expect(result.firstBuildScopeDurUs, 3000);
+      expect(result.firstFlushLayoutDurUs, 1500);
+      expect(result.firstFlushPaintDurUs, 800);
+      expect(result.firstRasterDurUs, 5000);
+    });
+
+    test('returns null when no startup-relevant events found', () {
+      final events = [
+        _makeEvent(name: 'SomeOtherEvent', dur: 3000, ts: 100000),
+        _makeEvent(name: 'AnotherEvent', dur: 1000, ts: 200000),
+      ];
+
+      final result = TimelineParser.extractStartupEvents(events);
+      expect(result, isNull);
+    });
+
+    test('extracts first-frame sub-phase durations', () {
+      final events = [
+        _makeEvent(name: 'BUILD', dur: 3000, ts: 100000),
+        _makeEvent(name: 'LAYOUT', dur: 1500, ts: 103000),
+        _makeEvent(name: 'PAINT', dur: 800, ts: 104500),
+        _makeEvent(name: 'GPURasterizer::Draw', dur: 5000, ts: 105300),
+        // Second BUILD should be ignored (only first captured)
+        _makeEvent(name: 'BUILD', dur: 2000, ts: 200000),
+      ];
+
+      final result = TimelineParser.extractStartupEvents(events);
+      expect(result, isNotNull);
+      expect(result!.firstBuildScopeDurUs, 3000);
+      expect(result.firstFlushLayoutDurUs, 1500);
+      expect(result.firstFlushPaintDurUs, 800);
+      expect(result.firstRasterDurUs, 5000);
+      // Engine-level events not present
+      expect(result.engineEnterUs, isNull);
+      expect(result.firstFrameRasterizedUs, isNull);
+    });
+
+    test('handles uppercase I phase for instant events', () {
+      final events = [
+        _makeEvent(name: 'FlutterEngineMainEnter', dur: 0, ts: 12345, ph: 'I'),
+      ];
+
+      final result = TimelineParser.extractStartupEvents(events);
+      expect(result, isNotNull);
+      expect(result!.engineEnterUs, 12345);
+    });
+
+    test('ignores startup event names with wrong phase type', () {
+      // FlutterEngineMainEnter as a duration event should be ignored
+      final events = [
+        _makeEvent(
+            name: 'FlutterEngineMainEnter', dur: 100, ts: 12345, ph: 'X'),
+      ];
+
+      final result = TimelineParser.extractStartupEvents(events);
+      expect(result, isNull);
+    });
+  });
 }
