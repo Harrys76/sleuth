@@ -61,7 +61,7 @@ class SleuthDemoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '🐕 Sleuth Demo',
+      title: 'Sleuth Demo',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorSchemeSeed: const Color(0xFF3B82F6),
@@ -344,7 +344,17 @@ class DemoHome extends StatelessWidget {
     ];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('🐕 Sleuth Demo'), centerTitle: true),
+      appBar: AppBar(
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.pets, size: 20),
+            SizedBox(width: 8),
+            Text('Sleuth Demo'),
+          ],
+        ),
+        centerTitle: true,
+      ),
       body: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: categories.fold<int>(

@@ -244,7 +244,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                       ),
                       child: Icon(icon, color: accent, size: 16),
                     ),
-                    const SizedBox(width: 10),
+                    SizedBox(width: theme.spacingSm),
                     Text(
                       title,
                       style: TextStyle(
@@ -569,16 +569,12 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
               ],
             ),
           ),
-          Flexible(
-            child: Text(
-              value,
-              style: TextStyle(
-                color: theme.textPrimary,
-                fontSize: theme.fontBase,
-                fontWeight: FontWeight.w600,
-              ),
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.end,
+          Text(
+            value,
+            style: TextStyle(
+              color: theme.textPrimary,
+              fontSize: theme.fontBase,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],

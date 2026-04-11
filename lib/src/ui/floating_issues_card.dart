@@ -479,7 +479,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             10, theme.spacingSm, theme.spacingXs, theme.spacingXs),
         child: Row(
           children: [
-            const Text('\u{1F415}', style: TextStyle(fontSize: 14)),
+            Icon(Icons.pets, size: 14, color: theme.textPrimary),
             SizedBox(width: theme.spacingXs),
             Expanded(
               child: Text(

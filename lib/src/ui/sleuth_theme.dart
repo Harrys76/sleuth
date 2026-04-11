@@ -155,6 +155,7 @@ class SleuthThemeData {
     this.guideTipIcon = const Color(0xFFF59E0B),
     this.highlightLabelText = const Color(0xFFFFFFFF),
     this.highlightDot = const Color(0xFFFFFFFF),
+    this.triggerIconColor = const Color(0xFFFFFFFF),
 
     // ── AI Chat ──
     this.aiChatUserBubbleBg = const Color(0xFF3B82F6),
@@ -336,6 +337,7 @@ class SleuthThemeData {
   final Color guideTipIcon;
   final Color highlightLabelText;
   final Color highlightDot;
+  final Color triggerIconColor;
 
   // ── AI Chat ──
   final Color aiChatUserBubbleBg;
@@ -487,6 +489,7 @@ class SleuthThemeData {
     Color? guideTipIcon,
     Color? highlightLabelText,
     Color? highlightDot,
+    Color? triggerIconColor,
     Color? aiChatUserBubbleBg,
     Color? aiChatUserBubbleText,
     Color? aiShimmerStart,
@@ -580,6 +583,7 @@ class SleuthThemeData {
       guideTipIcon: guideTipIcon ?? this.guideTipIcon,
       highlightLabelText: highlightLabelText ?? this.highlightLabelText,
       highlightDot: highlightDot ?? this.highlightDot,
+      triggerIconColor: triggerIconColor ?? this.triggerIconColor,
       aiChatUserBubbleBg: aiChatUserBubbleBg ?? this.aiChatUserBubbleBg,
       aiChatUserBubbleText: aiChatUserBubbleText ?? this.aiChatUserBubbleText,
       aiShimmerStart: aiShimmerStart ?? this.aiShimmerStart,

@@ -4,7 +4,8 @@ import '../models/frame_stats.dart';
 import '../models/performance_issue.dart';
 import 'sleuth_theme.dart';
 
-/// Draggable 🐕 trigger button with issue count badge and live FPS number.
+/// Draggable trigger button with bloodhound logo, issue count badge, and live
+/// FPS number.
 ///
 /// - Green: no issues / FPS ≥ 83% of target
 /// - Amber: warnings only / FPS 50–83% of target
@@ -109,8 +110,11 @@ class _TriggerButtonState extends State<TriggerButton> {
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          Text('🐕',
-                              style: TextStyle(fontSize: theme.fontDisplay)),
+                          Icon(
+                            Icons.pets,
+                            color: theme.triggerIconColor,
+                            size: 28,
+                          ),
                           if (issues.isNotEmpty && !widget.isDebugMode)
                             Positioned(
                               top: 2,

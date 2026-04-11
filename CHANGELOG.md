@@ -6,6 +6,9 @@ performance + design system), all findings fixed.
 
 ### Added
 
+- **`triggerIconColor` theme token**: New color token on `SleuthThemeData` for
+  the trigger button paw icon. Defaults to white (visible on severity-colored
+  backgrounds in both light and dark themes). Customizable via `copyWith`.
 - **In-overlay dark/light toggle**: Theme toggle icon in the overlay header
   switches between dark and light themes without changing system settings.
   Uses 3-tier resolution: runtime override > config theme > auto-detect.
@@ -30,6 +33,14 @@ performance + design system), all findings fixed.
 
 ### Changed
 
+- **Brand icon: `Icons.pets` (Material paw print)**: Replaced dog emoji
+  (`🐕`/`\u{1F415}`) and custom `SleuthLogoPainter` with Flutter's built-in
+  `Icons.pets` across trigger button, overlay header, guide page title, and
+  example app. Zero custom paint code, tree-shaken by Flutter 3+, theme-aware
+  via `triggerIconColor`.
+- **Startup metrics alignment**: Metric values in all sections (Headline,
+  Engine Phases, VM Sub-Phases) are now right-aligned, with labels left-aligned
+  via `Expanded` + plain `Text` pattern.
 - **Header icon optimization**: Guide icon moved from header to footer bar.
   Highlight toggle shrunk from 36px to 24px (`_compactHeaderButton`). Theme
   toggle added at 20px width. Net effect: cleaner header with fewer icons.
@@ -44,6 +55,14 @@ performance + design system), all findings fixed.
   `StartupMetricsPage`) to the `_frameworkWidgetNames` exclusion set in
   `RebuildDetector`. Previously, opening the overlay in FRAME mode inflated
   the structural density count and triggered a false positive.
+- **Hardcoded spacing values**: Replaced `SizedBox(width: 6)` in guide page
+  and `SizedBox(width: 10)` in startup metrics page with design system tokens
+  (`theme.spacingXs` and `theme.spacingSm` respectively).
+
+### Removed
+
+- **`sleuth_logo_painter.dart`**: Deleted hand-drawn `SleuthLogoPainter`
+  CustomPainter — replaced by `Icons.pets`.
 
 ## 0.13.0
 

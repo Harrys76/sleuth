@@ -9,8 +9,11 @@ void main() {
     return MaterialApp(home: Scaffold(body: child));
   }
 
+  /// Finds the paw icon — same role as the old emoji/logo finder.
+  Finder findLogo() => find.byIcon(Icons.pets);
+
   group('TriggerButton', () {
-    testWidgets('renders dog emoji', (tester) async {
+    testWidgets('renders bloodhound logo', (tester) async {
       final issues = ValueNotifier<List<PerformanceIssue>>([]);
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
@@ -25,7 +28,7 @@ void main() {
         ),
       ));
 
-      expect(find.text('\u{1F415}'), findsOneWidget);
+      expect(findLogo(), findsOneWidget);
 
       issues.dispose();
       vm.dispose();
@@ -48,7 +51,7 @@ void main() {
         ),
       ));
 
-      await tester.tap(find.text('\u{1F415}'));
+      await tester.tap(findLogo());
       expect(tapped, isTrue);
 
       issues.dispose();
@@ -191,11 +194,9 @@ void main() {
         ),
       ));
 
-      // In test viewport (800×600), the button should be near the right edge.
-      // Old hardcoded position was (16, 100) — emoji x would be ~28.
-      // Adaptive position targets (maxWidth - 72, maxHeight * 0.4).
-      final emojiPos = tester.getTopLeft(find.text('\u{1F415}'));
-      expect(emojiPos.dx, greaterThan(100),
+      // In test viewport (800x600), the button should be near the right edge.
+      final logoPos = tester.getTopLeft(findLogo());
+      expect(logoPos.dx, greaterThan(100),
           reason: 'Should be right-aligned, not at x=16');
 
       issues.dispose();
@@ -209,7 +210,7 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      // 400×800 viewport
+      // 400x800 viewport
       await tester.pumpWidget(
         MediaQuery(
           data: const MediaQueryData(size: Size(400, 800)),
@@ -233,15 +234,11 @@ void main() {
         ),
       );
 
-      // Old position was (maxWidth - 72, maxHeight * 0.4) ≈ (328, 320)
-      // New: maxX = 400-56 = 344; anchorX = 344 - 16 = 328
-      //      maxY = 800-78 = 722; anchorY = 722 is not right...
-      //      top-right means y from top: anchorY = offset.dy = 64
-      final emojiPos = tester.getTopLeft(find.text('\u{1F415}'));
+      final logoPos = tester.getTopLeft(findLogo());
       // X should be near right edge (~328)
-      expect(emojiPos.dx, greaterThan(300));
+      expect(logoPos.dx, greaterThan(300));
       // Y should be near top (~64)
-      expect(emojiPos.dy, lessThan(150));
+      expect(logoPos.dy, lessThan(150));
 
       issues.dispose();
       vm.dispose();
@@ -266,11 +263,11 @@ void main() {
         ),
       ));
 
-      final emojiPos = tester.getTopLeft(find.text('\u{1F415}'));
+      final logoPos = tester.getTopLeft(findLogo());
       // Left side: anchorX = offset.dx = 16
-      expect(emojiPos.dx, lessThan(50));
+      expect(logoPos.dx, lessThan(50));
       // Bottom: anchorY = maxY - offset.dy, should be near bottom
-      expect(emojiPos.dy, greaterThan(300));
+      expect(logoPos.dy, greaterThan(300));
 
       issues.dispose();
       vm.dispose();
@@ -295,10 +292,10 @@ void main() {
         ),
       ));
 
-      final emojiPos = tester.getTopLeft(find.text('\u{1F415}'));
+      final logoPos = tester.getTopLeft(findLogo());
       // Should be at (0, 0) — top-left corner
-      expect(emojiPos.dx, lessThan(30));
-      expect(emojiPos.dy, lessThan(100));
+      expect(logoPos.dx, lessThan(30));
+      expect(logoPos.dy, lessThan(100));
 
       issues.dispose();
       vm.dispose();
@@ -320,7 +317,7 @@ void main() {
         ),
       ));
 
-      await tester.drag(find.text('\u{1F415}'), const Offset(50, 50));
+      await tester.drag(findLogo(), const Offset(50, 50));
       await tester.pump();
       // No crash after drag = success
 

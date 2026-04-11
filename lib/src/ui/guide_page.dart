@@ -95,13 +95,21 @@ class _GuidePageState extends State<GuidePage>
                           ),
                         ),
                       ),
-                      Text(
-                        '\u{1F415} Sleuth Guide',
-                        style: TextStyle(
-                          color: theme.textPrimary,
-                          fontSize: theme.fontXl,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.pets,
+                              size: theme.fontXl, color: theme.textPrimary),
+                          SizedBox(width: theme.spacingXs),
+                          Text(
+                            'Sleuth Guide',
+                            style: TextStyle(
+                              color: theme.textPrimary,
+                              fontSize: theme.fontXl,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
