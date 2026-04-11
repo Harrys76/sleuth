@@ -16,7 +16,9 @@ import '../utils/fix_hint_builder.dart';
 ///
 /// Uses a ring buffer of records with buffer-derived issue lifecycle:
 /// issues are cleared and rebuilt from current buffer state on each
-/// new record and on each frequency timer tick.
+/// new record and on each frequency timer tick. The buffer is cleared
+/// on route transitions via [clearRecords], so issues from a previous
+/// page don't persist on the new page.
 class NetworkMonitorDetector extends BaseDetector {
   NetworkMonitorDetector({
     this.slowThresholdMs = 2000,
@@ -53,6 +55,11 @@ class NetworkMonitorDetector extends BaseDetector {
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
   Timer? _frequencyTimer;
+
+  /// Records with `startedAt` before this timestamp are from a previous page
+  /// and are silently dropped by [processRecord]. Set by [clearRecords] on
+  /// route transitions.
+  DateTime? _ignoreBeforeTimestamp;
 
   /// Active (in-flight) requests tracked by monotonic ID.
   final Map<int, DateTime> _activeRequests = {};
@@ -104,6 +111,15 @@ class NetworkMonitorDetector extends BaseDetector {
   void processRecord(RequestRecord record) {
     if (!_isEnabled) return;
 
+    // Drop records from a previous page: their startedAt precedes the last
+    // clearRecords() call, meaning the request was initiated before the user
+    // navigated away. Without this guard, slow responses arriving after
+    // navigation pollute the new page's buffer.
+    if (_ignoreBeforeTimestamp != null &&
+        !record.startedAt.isAfter(_ignoreBeforeTimestamp!)) {
+      return;
+    }
+
     // Add to ring buffer (FIFO eviction)
     _records.add(record);
     if (_records.length > _bufferCapacity) _records.removeFirst();
@@ -116,6 +132,21 @@ class NetworkMonitorDetector extends BaseDetector {
 
     // Full re-evaluation from buffer
     _evaluate();
+  }
+
+  /// Clear all buffered records and issues.
+  ///
+  /// Called by [SleuthController] on route transitions so that network
+  /// issues from a previous page don't persist on the new page.
+  void clearRecords() {
+    // Mark the cutoff so in-flight responses from the previous page are
+    // silently dropped when they arrive via processRecord().
+    _ignoreBeforeTimestamp = _clock();
+    _records.clear();
+    _issues.clear();
+    _activeRequests.clear();
+    _frequencyTimer?.cancel();
+    _frequencyTimer = null;
   }
 
   /// Clear and rebuild all issues from current buffer state.
@@ -218,13 +249,29 @@ class NetworkMonitorDetector extends BaseDetector {
   }
 
   void _evaluateFrequency() {
-    final now = _clock();
-    final windowStart =
-        now.subtract(const Duration(milliseconds: _frequencyWindowMs));
-    final recentCount =
-        _records.where((r) => r.startedAt.isAfter(windowStart)).length;
+    if (_records.length <= frequencyLimit) return;
 
-    if (recentCount <= frequencyLimit) return;
+    // Find the peak 5-second window across the entire buffer.
+    // This keeps the spike visible while evidence remains in the buffer,
+    // rather than vanishing after the 5-second detection window.
+    // Buffer is cleared on route transitions via clearRecords().
+    final recordsList = _records.toList();
+    int peakCount = 0;
+    int left = 0;
+    for (var right = 0; right < recordsList.length; right++) {
+      while (left < right &&
+          recordsList[right]
+                  .startedAt
+                  .difference(recordsList[left].startedAt)
+                  .inMilliseconds >
+              _frequencyWindowMs) {
+        left++;
+      }
+      final windowSize = right - left + 1;
+      if (windowSize > peakCount) peakCount = windowSize;
+    }
+
+    if (peakCount <= frequencyLimit) return;
 
     final (hint, effort) = FixHintBuilder.requestFrequency();
     _issues.add(PerformanceIssue(
@@ -232,9 +279,9 @@ class NetworkMonitorDetector extends BaseDetector {
       severity: IssueSeverity.warning,
       category: IssueCategory.network,
       confidence: IssueConfidence.confirmed,
-      title: 'Request Frequency Spike: $recentCount requests in 5s '
+      title: 'Request Frequency Spike: $peakCount requests in 5s '
           '(limit: $frequencyLimit)',
-      detail: '$recentCount HTTP requests in the last 5 seconds. '
+      detail: '$peakCount HTTP requests within a 5-second window. '
           'Threshold: $frequencyLimit/5s.',
       fixHint: hint,
       fixEffort: effort,
@@ -244,34 +291,57 @@ class NetworkMonitorDetector extends BaseDetector {
   }
 
   void _evaluateErrors() {
-    final now = _clock();
-    final windowStart =
-        now.subtract(const Duration(milliseconds: _frequencyWindowMs));
-    final recentErrors = _records
-        .where((r) =>
-            r.startedAt.isAfter(windowStart) &&
-            (r.statusCode >= 400 || r.statusCode == -1))
+    // Filter to error records, then find peak 5-second window.
+    final errorRecords = _records
+        .where((r) => r.statusCode >= 400 || r.statusCode == -1)
         .toList();
 
-    if (recentErrors.length < 3) return;
+    if (errorRecords.length < 3) return;
 
-    final errorCount = recentErrors.length;
+    // Find peak 5-second error window across the buffer, tracking bounds
+    // so severity and detail are scoped to the same window.
+    int peakCount = 0;
+    int peakLeft = 0;
+    int peakRight = 0;
+    int left = 0;
+    for (var right = 0; right < errorRecords.length; right++) {
+      while (left < right &&
+          errorRecords[right]
+                  .startedAt
+                  .difference(errorRecords[left].startedAt)
+                  .inMilliseconds >
+              _frequencyWindowMs) {
+        left++;
+      }
+      final windowSize = right - left + 1;
+      if (windowSize > peakCount) {
+        peakCount = windowSize;
+        peakLeft = left;
+        peakRight = right;
+      }
+    }
+
+    if (peakCount < 3) return;
+
+    // Scope breakdown counts to the peak window so severity, title, and
+    // detail all describe the same set of errors.
+    final peakRecords = errorRecords.sublist(peakLeft, peakRight + 1);
     final transportFailures =
-        recentErrors.where((r) => r.statusCode == -1).length;
-    final serverErrors = recentErrors.where((r) => r.statusCode >= 500).length;
+        peakRecords.where((r) => r.statusCode == -1).length;
+    final serverErrors = peakRecords.where((r) => r.statusCode >= 500).length;
 
-    final severity = errorCount >= 10 || serverErrors >= 5
+    final severity = peakCount >= 10 || serverErrors >= 5
         ? IssueSeverity.critical
         : IssueSeverity.warning;
 
-    final urlDetails = recentErrors
+    final urlDetails = peakRecords
         .take(5)
         .map((r) => '${r.method.toUpperCase()} ${_shortenUrl(r.url)} — '
             '${r.statusCode == -1 ? 'FAILED' : r.statusCode}')
         .join('\n');
 
     final (hint, effort) = FixHintBuilder.httpErrorSpike(
-      errorCount: errorCount,
+      errorCount: peakCount,
       transportFailures: transportFailures,
     );
 
@@ -280,8 +350,8 @@ class NetworkMonitorDetector extends BaseDetector {
       severity: severity,
       category: IssueCategory.network,
       confidence: IssueConfidence.confirmed,
-      title: 'HTTP Error Spike: $errorCount errors in 5s',
-      detail: '$errorCount HTTP errors in the last 5 seconds'
+      title: 'HTTP Error Spike: $peakCount errors in 5s',
+      detail: '$peakCount HTTP errors within a 5-second window'
           '${transportFailures > 0 ? ' ($transportFailures transport failures)' : ''}'
           '${serverErrors > 0 ? ' ($serverErrors server errors)' : ''}.\n\n'
           '$urlDetails',
@@ -293,14 +363,11 @@ class NetworkMonitorDetector extends BaseDetector {
   }
 
   void _evaluateDuplicates() {
-    // Group recent records by normalized URL (method + path, no query params).
-    // Flag when ≥3 requests to the same endpoint have startedAt within 500ms
-    // of each other — indicates missing cache or redundant fetches.
-    final now = _clock();
-    final windowStart =
-        now.subtract(const Duration(milliseconds: _frequencyWindowMs));
-    final recentRecords =
-        _records.where((r) => r.startedAt.isAfter(windowStart)).toList();
+    // Group all buffered records by normalized URL (method + path, no query
+    // params). Flag when ≥3 requests to the same endpoint cluster within 500ms
+    // — indicates missing cache or redundant fetches. Uses the full buffer
+    // so evidence persists until route transition clears records.
+    final recentRecords = _records.toList();
 
     // Group by method + normalized URL
     final groups = <String, List<RequestRecord>>{};

@@ -143,5 +143,18 @@ void main() {
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
     });
+
+    // -----------------------------------------------------------------
+    // Impeller: no false-positive notice
+    // -----------------------------------------------------------------
+
+    test('no issues after many empty polls (Impeller scenario)', () {
+      // On Impeller, shaders are pre-compiled — the detector should simply
+      // produce no issues, not emit a noisy "inactive" notice.
+      for (var i = 0; i < 20; i++) {
+        detector.processTimelineData(shaderCompileData());
+      }
+      expect(detector.issues, isEmpty);
+    });
   });
 }

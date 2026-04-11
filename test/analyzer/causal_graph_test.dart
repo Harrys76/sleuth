@@ -119,7 +119,7 @@ void main() {
       expect(result[1].rootCauseId, 'always_repaint_painter');
     });
 
-    test('non_lazy_list → layout_bottleneck', () {
+    test('non_lazy_list does NOT collapse layout_bottleneck', () {
       final issues = [
         makeIssue(
           stableId: 'non_lazy_list',
@@ -131,8 +131,9 @@ void main() {
         ),
       ];
       final result = rule.apply(issues);
-      expect(result[0].downstreamIds, ['layout_bottleneck']);
-      expect(result[1].rootCauseId, 'non_lazy_list');
+      // layout_bottleneck is independently actionable — not downstream
+      expect(result[0].downstreamIds, isNull);
+      expect(result[1].rootCauseId, isNull);
     });
   });
 
@@ -439,7 +440,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('root with multiple downstream', () {
-    test('setstate_scope → heavy_compute + layout_bottleneck', () {
+    test('setstate_scope → heavy_compute (layout_bottleneck standalone)', () {
       final issues = [
         makeIssue(stableId: 'setstate_scope'),
         makeIssue(stableId: 'heavy_compute'),
@@ -450,13 +451,11 @@ void main() {
       ];
       final result = rule.apply(issues);
 
-      expect(result[0].downstreamIds, isNotNull);
-      expect(
-        result[0].downstreamIds,
-        containsAll(['heavy_compute', 'layout_bottleneck']),
-      );
+      // layout_bottleneck is independently actionable — only heavy_compute
+      // is downstream of setstate_scope
+      expect(result[0].downstreamIds, ['heavy_compute']);
       expect(result[1].rootCauseId, 'setstate_scope');
-      expect(result[2].rootCauseId, 'setstate_scope');
+      expect(result[2].rootCauseId, isNull);
     });
   });
 
@@ -563,7 +562,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('nested scroll causal chains (v10.7)', () {
-    test('nested_scroll → layout_bottleneck', () {
+    test('nested_scroll does NOT collapse layout_bottleneck', () {
       final issues = [
         makeIssue(
           stableId: 'nested_scroll',
@@ -578,8 +577,9 @@ void main() {
       ];
       final result = rule.apply(issues);
 
-      expect(result[0].downstreamIds, ['layout_bottleneck']);
-      expect(result[1].rootCauseId, 'nested_scroll');
+      // layout_bottleneck is independently actionable — standalone
+      expect(result[0].downstreamIds, isNull);
+      expect(result[1].rootCauseId, isNull);
     });
 
     test('nested_scroll_same_axis → rebuild_activity', () {
@@ -600,7 +600,7 @@ void main() {
       expect(result[1].rootCauseId, 'nested_scroll_same_axis');
     });
 
-    test('nested_scroll_same_axis → layout_bottleneck', () {
+    test('nested_scroll_same_axis does NOT collapse layout_bottleneck', () {
       final issues = [
         makeIssue(
           stableId: 'nested_scroll_same_axis',
@@ -615,8 +615,9 @@ void main() {
       ];
       final result = rule.apply(issues);
 
-      expect(result[0].downstreamIds, ['layout_bottleneck']);
-      expect(result[1].rootCauseId, 'nested_scroll_same_axis');
+      // layout_bottleneck is independently actionable — standalone
+      expect(result[0].downstreamIds, isNull);
+      expect(result[1].rootCauseId, isNull);
     });
 
     test('nested_scroll → rebuild_activity', () {
@@ -679,7 +680,7 @@ void main() {
       expect(result[1].rootCauseId, 'non_lazy_gridview');
     });
 
-    test('non_lazy_listview → layout_bottleneck', () {
+    test('non_lazy_listview does NOT collapse layout_bottleneck', () {
       final issues = [
         makeIssue(
           stableId: 'non_lazy_listview',
@@ -694,8 +695,9 @@ void main() {
       ];
       final result = rule.apply(issues);
 
-      expect(result[0].downstreamIds, ['layout_bottleneck']);
-      expect(result[1].rootCauseId, 'non_lazy_listview');
+      // layout_bottleneck is independently actionable — standalone
+      expect(result[0].downstreamIds, isNull);
+      expect(result[1].rootCauseId, isNull);
     });
 
     test('non_lazy_gridview → rebuild_activity', () {
@@ -1165,13 +1167,13 @@ void main() {
       final issues = [
         makeIssue(stableId: 'setstate_scope'),
         makeIssue(stableId: 'heavy_compute'),
-        makeIssue(
-            stableId: 'layout_bottleneck', category: IssueCategory.layout),
+        makeIssue(stableId: 'rebuild_debug_MyWidget'),
       ];
       final edges = CausalGraphRule.activeEdges(issues);
 
       expect(hasEdge(edges, 'setstate_scope', 'heavy_compute'), isTrue);
-      expect(hasEdge(edges, 'setstate_scope', 'layout_bottleneck'), isTrue);
+      expect(
+          hasEdge(edges, 'setstate_scope', 'rebuild_debug_MyWidget'), isTrue);
     });
   });
 }

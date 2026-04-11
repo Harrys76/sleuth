@@ -98,6 +98,13 @@ class ImageMemoryDetector extends BaseDetector {
     _recordUncachedImage(element, provider, 'DecoratedBox');
   }
 
+  /// Records an uncached image for issue reporting and optional highlighting.
+  ///
+  /// **Timing note**: On the first scan after mount, the render object may not
+  /// have completed layout yet (`ro.hasSize == false`). In that case the image
+  /// is still added to [_uncachedImages] (detection is correct), but the
+  /// highlight rect may be null so no visual overlay appears until the next
+  /// scan cycle when layout has completed. This self-corrects within 1-2s.
   void _recordUncachedImage(
       Element element, ImageProvider provider, String widgetName) {
     final sourceName = extractSourceName(provider);

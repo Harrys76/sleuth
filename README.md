@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C915_%2B_9_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C993_%2B_9_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -43,7 +43,7 @@ flutter run
 
 ## Debug vs Profile Mode
 
-Both modes run the full overlay, all 22 detectors, and the AI chat. The difference is **what data each mode can access** and **how accurate the timing is**.
+Both modes run the full overlay, all 23 detectors, and the AI chat. The difference is **what data each mode can access** and **how accurate the timing is**.
 
 | Capability | Debug | Profile | Release |
 |------------|:-----:|:-------:|:-------:|
@@ -196,7 +196,7 @@ Built-in adapters automatically exclude their provider URLs from network monitor
 
 ## Custom Detectors
 
-Plug in domain-specific detectors alongside the built-in 22. Three shapes are supported:
+Plug in domain-specific detectors alongside the built-in 23. Three shapes are supported:
 
 **Structural** — inspect widgets during the tree walk using `SimpleStructuralDetector`:
 
@@ -283,7 +283,7 @@ Issues include a confidence level reflecting evidence quality:
 
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
-| Shader Jank | VM Timeline | Shader compilation occurred | Confirmed | Requires VM connection |
+| Shader Jank | VM Timeline | Shader compilation occurred | Confirmed | Requires VM connection. No-op on Impeller (shaders pre-compiled) |
 | Heavy Compute | VM Timeline | Long UI-thread event | Confirmed | Requires VM connection |
 | Platform Channel | VM Timeline | High call frequency | Confirmed | Requires VM connection and `debugProfilePlatformChannels` |
 | Memory Pressure | VM GC events + heap polling | GC frequency elevated, heap growing steadily (linear regression), heap near capacity (>80%) | Likely / Confirmed | Requires VM connection |
@@ -313,14 +313,15 @@ Issues include a confidence level reflecting evidence quality:
 | Opacity | Element tree | Opacity(0.0), AnimatedOpacity(0.0), or FadeTransition(0.0) settled | Possible | Widget still participates in hit testing and semantics. FadeTransition deduped with AnimatedOpacity |
 | Font Loading | Element tree | Non-system font in use, runtime-loaded fonts (fontFamilyFallback heuristic) | Possible | Font may already be loaded. Runtime detection is heuristic — intentional fallback chains may trigger |
 | RepaintBoundary | Element + render tree | Expensive GPU widget without RepaintBoundary ancestor, excessive boundaries in scrollables | Possible–Confirmed | Escalates with debug paint rate evidence. ColorFiltered detected via widget type |
+| Startup | `Sleuth.init()` + FrameTiming | TTFF exceeded budget, dominant phase attribution | Confirmed | One-shot; requires `Sleuth.init()` before `runApp()`. Wall-clock measurement has ~5-50ms inherent skew |
 
 ## What This Does Better Than DevTools
 
 - **Always on**: no separate tool window, no connection setup — performance data is visible as you use your app
-- **22 detectors**: structural anti-patterns (non-lazy lists, uncached images, excessive GlobalKeys, missing RepaintBoundary) that DevTools does not flag
+- **23 detectors**: structural anti-patterns (non-lazy lists, uncached images, excessive GlobalKeys, missing RepaintBoundary) that DevTools does not flag
 - **Confidence explanations**: every issue explains *why* its confidence is confirmed/likely/possible — what evidence was used and what would upgrade it
 - **Severity auto-escalation**: persistent warnings automatically escalate to critical after 30 scan cycles; structural findings upgrade to likely when corroborated by frame jank or rebuild evidence
-- **Causal issue graph**: 52 rules linking root causes to downstream effects — see why an issue matters, not just that it exists
+- **Causal issue graph**: 44 rules linking root causes to downstream effects — see why an issue matters, not just that it exists
 - **Fix verification**: capture baseline → fix → compare. Cooldown-based resolution with hot-reload grace period
 - **Historical trending**: per-issue recurrence time-series tracks worsening/improving/stable/intermittent patterns across scan cycles
 - **Widget heat map**: "top offenders" ranking aggregates issues by widget, filtering framework internals
@@ -329,7 +330,7 @@ Issues include a confidence level reflecting evidence quality:
 - **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed
 - **Source-location enrichment**: ancestor chains include file:line in debug mode, linking issues directly to source code
 - **Actionable fix hints**: every issue includes what to change, not just what went wrong — with code snippets and debugging commands
-- **Issue Encyclopedia**: in-app educational deep-dives for all 46 issue types — searchable, with cross-references between related issues, accessible from any issue card
+- **Issue Encyclopedia**: in-app educational deep-dives for all 47 issue types — searchable, with cross-references between related issues, accessible from any issue card
 - **Contextual AI Chat**: per-issue AI assistant with streaming responses, starter questions, and expandable issue context — bring your team's AI provider
 - **Customizable**: suppress known issues, tune detector thresholds, plug in custom detectors, theme the overlay (60+ color tokens, 6 spacing tokens)
 - **Zero setup**: one line of code, no browser tab, no port forwarding
@@ -345,7 +346,7 @@ Sleuth is best used for **fast in-app triage** — catch the problem, understand
 
 To set clear expectations:
 
-- This package is **not a replacement** for DevTools heap snapshots or interactive flame charts — it covers breadth (22 detectors, encyclopedia, AI chat) but not the depth of object-level introspection or zoomable timelines
+- This package is **not a replacement** for DevTools heap snapshots or interactive flame charts — it covers breadth (23 detectors, encyclopedia, AI chat) but not the depth of object-level introspection or zoomable timelines
 - **Widget attribution varies by mode** — debug mode provides exact per-widget rebuild/paint counts and source file:line locations. Profile mode provides per-widget-type attribution via VM timeline dirty lists (when VM is connected), falling back to structural heuristics when unavailable. See [Debug vs Profile Mode](#debug-vs-profile-mode) for the full matrix
 - **VM full mode availability** depends on runtime environment and is not guaranteed on all platforms
 - **Memory pressure detection** monitors GC frequency, heap growth trends (linear regression), and capacity thresholds. When growth is detected, enriches the issue with per-class allocation deltas — but does not track individual object leaks or retention paths

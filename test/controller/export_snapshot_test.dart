@@ -147,14 +147,19 @@ void main() {
     testWidgets('exported relatedIssues carry route/context tags',
         (tester) async {
       // Build a widget tree that triggers structural issues.
+      // Opacity(0.0) reliably fires the OpacityDetector regardless of
+      // framework widget filtering in other detectors.
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: SingleChildScrollView(
-              child: Column(
-                children: List.generate(
-                  25,
-                  (i) => SizedBox(key: ValueKey(i), height: 10),
+            body: Opacity(
+              opacity: 0.0,
+              child: SingleChildScrollView(
+                child: Column(
+                  children: List.generate(
+                    25,
+                    (i) => SizedBox(key: ValueKey(i), height: 10),
+                  ),
                 ),
               ),
             ),

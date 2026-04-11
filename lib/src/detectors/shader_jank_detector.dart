@@ -6,6 +6,8 @@ import '../vm/timeline_parser.dart';
 /// Detects shader compilation jank from VM Timeline events.
 ///
 /// **VM-Only Detector** — flags shader compilations >100ms.
+/// On Impeller (default since Flutter 3.16), shaders are pre-compiled at
+/// build time so this detector correctly produces no issues.
 class ShaderJankDetector extends BaseDetector {
   ShaderJankDetector({this.thresholdMs = 100})
       : super(
@@ -36,10 +38,13 @@ class ShaderJankDetector extends BaseDetector {
 
     if (data.shaderCompileDurations.isEmpty) {
       _emptyPollsSinceLastShader++;
-      if (_emptyPollsSinceLastShader > 3) _issues.clear();
+      if (_emptyPollsSinceLastShader > 3) {
+        _issues.clear();
+      }
       return;
     }
 
+    // Shader events found — reset empty counter.
     _emptyPollsSinceLastShader = 0;
     _issues.clear();
 

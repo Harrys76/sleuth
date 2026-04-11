@@ -160,8 +160,16 @@ class RebuildDetector extends BaseDetector {
     final widget = element.widget;
     final name = typeNameCache.lookup(widget);
 
-    // Track StatefulWidget rebuild indicators
-    if (element is StatefulElement) {
+    // Track StatefulWidget rebuild indicators — skip framework widgets so
+    // the structural-only fallback (stateful_density) reflects user-created
+    // widget density. Private-named widgets (starting with '_') are
+    // overwhelmingly framework internals (_ModalScope, _MediaQueryFromView,
+    // etc.) and named framework widgets (Scaffold, Navigator) are filtered
+    // by the set. This prevents stateful_density from firing on every
+    // Material page where 50+ framework StatefulWidgets are always present.
+    if (element is StatefulElement &&
+        !name.startsWith('_') &&
+        !_frameworkWidgetNames.contains(name)) {
       _widgetRebuildCounts[name] = (_widgetRebuildCounts[name] ?? 0) + 1;
     }
 
@@ -426,6 +434,46 @@ class RebuildDetector extends BaseDetector {
           'Structural scan only — connect VM for higher confidence',
     ));
   }
+
+  /// Framework StatefulWidget types that inflate the structural density count
+  /// without indicating a user performance issue. These are always present on
+  /// Material/Cupertino pages and would cause stateful_density to fire on
+  /// every page when the VM is unavailable.
+  static const _frameworkWidgetNames = {
+    'Scaffold',
+    'ScaffoldMessenger',
+    'AppBar',
+    'Material',
+    'AnimatedTheme',
+    'Navigator',
+    'Overlay',
+    'Scrollable',
+    'ScrollConfiguration',
+    'ScrollNotificationObserver',
+    'FocusScope',
+    'FocusTraversalGroup',
+    'Actions',
+    'Shortcuts',
+    'GlowingOverscrollIndicator',
+    'StretchingOverscrollIndicator',
+    'RawGestureDetector',
+    'RawScrollbar',
+    'EditableText',
+    'ModalBarrier',
+    'CupertinoPageScaffold',
+    'CupertinoTabScaffold',
+    'MaterialApp',
+    'WidgetsApp',
+    'CupertinoApp',
+    'HeroControllerScope',
+    'PrimaryScrollController',
+    'DefaultTextEditingShortcuts',
+    'DefaultSelectionStyle',
+    'DefaultTabController',
+    'TabBarView',
+    'TabBar',
+    'PageView',
+  };
 
   @override
   void dispose() {

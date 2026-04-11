@@ -256,6 +256,33 @@ void main() {
 
       expect(detector.issues, isEmpty);
     });
+
+    // -----------------------------------------------------------------
+    // Framework widget suppression (audit finding #6)
+    // -----------------------------------------------------------------
+
+    testWidgets('ScrollNotificationObserver suppressed at shallow depth',
+        (tester) async {
+      detector = ShallowRebuildRiskDetector(depthThreshold: 3);
+      detector.vmConnected = true;
+      detector.processTimelineData(highBuildActivityData(buildCount: 25));
+
+      // ScrollNotificationObserver is a StatefulWidget that appears at
+      // depth 2 in most Material pages. It should be suppressed.
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: ScrollNotificationObserver(
+            child: SizedBox(),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isEmpty,
+          reason: 'ScrollNotificationObserver should be in framework '
+              'suppression list');
+    });
   });
 }
 

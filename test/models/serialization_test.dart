@@ -1375,15 +1375,15 @@ void main() {
         detail: 'D',
         fixHint: 'F',
         stableId: 'setstate_scope',
-        downstreamIds: ['heavy_compute', 'layout_bottleneck'],
+        downstreamIds: ['heavy_compute', 'rebuild_activity'],
       );
 
       final json = root.toJson();
-      expect(json['downstreamIds'], ['heavy_compute', 'layout_bottleneck']);
+      expect(json['downstreamIds'], ['heavy_compute', 'rebuild_activity']);
       expect(json.containsKey('rootCauseId'), isFalse);
 
       final restored = PerformanceIssue.fromJson(json);
-      expect(restored.downstreamIds, ['heavy_compute', 'layout_bottleneck']);
+      expect(restored.downstreamIds, ['heavy_compute', 'rebuild_activity']);
       expect(restored.rootCauseId, isNull);
     });
 

@@ -16,7 +16,7 @@ void main() {
     detail: 'Rebuilds 12 widgets',
     fixHint: 'Narrow the setState call',
     stableId: 'setstate_scope',
-    downstreamIds: ['heavy_compute', 'layout_bottleneck'],
+    downstreamIds: ['heavy_compute', 'rebuild_activity'],
   );
 
   const downstream1 = PerformanceIssue(
@@ -32,12 +32,12 @@ void main() {
 
   const downstream2 = PerformanceIssue(
     severity: IssueSeverity.critical,
-    category: IssueCategory.layout,
+    category: IssueCategory.build,
     confidence: IssueConfidence.likely,
-    title: 'Layout bottleneck (12 passes)',
+    title: 'Excessive rebuilds: MyWidget',
     detail: 'D',
     fixHint: 'F',
-    stableId: 'layout_bottleneck',
+    stableId: 'rebuild_activity',
     rootCauseId: 'setstate_scope',
   );
 
@@ -85,7 +85,7 @@ void main() {
 
       // Downstream titles visible
       expect(find.text('Heavy compute on main thread'), findsOneWidget);
-      expect(find.text('Layout bottleneck (12 passes)'), findsOneWidget);
+      expect(find.text('Excessive rebuilds: MyWidget'), findsOneWidget);
 
       // Section header
       expect(find.text('Related effects (2):'), findsOneWidget);

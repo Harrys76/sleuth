@@ -1,3 +1,76 @@
+## 0.13.0
+
+Startup Performance Tracing — measure first-frame and time-to-interactive
+from `main()`, with per-phase breakdown and VM sub-phase enrichment.
+Three adversarial review rounds, full 23-detector accuracy audit, causal
+graph correctness fix, and ShaderJankDetector noise removal.
+
+### Added
+
+- **Startup measurement API**: `Sleuth.init()` captures app start time and
+  framework initialization cost. `Sleuth.markInteractive()` records TTI.
+  First-frame callback extracts vsync/build/raster breakdown from
+  `FrameTiming`. `enrichStartupWithVmData()` accepts VM sub-phase and
+  engine timestamp data for full pipeline coverage.
+- **StartupDetector** (23rd detector, structural lifecycle, one-shot):
+  Fires `slow_startup_ttff` when TTFF exceeds configurable thresholds
+  (default 1500ms warning, 3000ms critical). Detail includes TTFF, TTI,
+  first-frame breakdown, dominant phase, VM sub-phases, and engine phases.
+- **StartupMetrics model**: 14 stored fields, 3 computed getters
+  (`frameworkInitMs`, `preDartOverheadMs`, `engineTtffMs`), dominant phase
+  detection (50% threshold), full `copyWith`/`toJson`/`fromJson` support.
+- **StartupMetricsPage**: Full-screen detail page with staggered entrance
+  animations, 5 conditional sections (headline, first-frame breakdown with
+  progress bars, engine phases, VM sub-phases, measurement methodology).
+- **Startup metrics banner** in FloatingIssuesCard: shows "TTFF: X ms ·
+  TTI: Y ms" when startup data is available, tappable to open detail page.
+- **`IssueCategory.startup`** across all surfaces: SleuthTheme color token,
+  encyclopedia entry, FixHintBuilder, SessionMarkdownExporter section,
+  SessionSnapshot serialization.
+- **DetectorThresholds**: `startupTtffWarningMs` / `startupTtffCriticalMs`
+  with validation asserts.
+
+### Fixed
+
+- **Causal graph hid `layout_bottleneck` from UI**: 8 rules incorrectly
+  made `layout_bottleneck` a downstream effect (e.g., `setstate_scope →
+  layout_bottleneck`). When a root cause was present, the issue got a
+  `rootCauseId` and FloatingIssuesCard filtered it from the visible list.
+  Removed all 8 rules — `layout_bottleneck` is always a root cause, never
+  downstream. Rule count: 52 → 44.
+- **ShaderJankDetector Impeller noise**: Removed the `shader_impeller_inactive`
+  notice entirely. It fired on every page after ~2 seconds of VM polling,
+  producing noisy false positives. On Impeller, the detector now correctly
+  produces zero issues.
+- **`stateful_density` framework widget noise** (RebuildDetector): Added
+  32-entry `_frameworkWidgetNames` set and private-name filter so framework
+  widgets (Scaffold, Navigator, etc.) no longer inflate structural density.
+- **`shallow_rebuild_risk` framework noise**: Added `ScrollNotificationObserver`
+  to the suppressed framework widgets set.
+- **Clock-domain mismatch in TTFF**: Changed from monotonic `Timeline.now`
+  delta to wall-clock `DateTime.now()` diff, fixing ~5-50ms measurement skew.
+- **Deferred VM enrichment buffer**: `_PendingEngineEvents` now stores all
+  6 fields (4 VM sub-phases + 2 engine timestamps) so enrichment arriving
+  before the first-frame callback is not lost.
+- **Network issues persisted across routes**: Replaced time-based 30s
+  staleness eviction with route-transition clearing. Network issues (slow
+  requests, frequency spikes, large responses, error spikes, duplicates)
+  now persist on the current page until the user navigates away, then clear
+  immediately. Prevents stale issues from appearing on unrelated pages.
+- **`clearRecords()` did not clear `_activeRequests`**: In-flight request
+  tracking from the previous page persisted after route transition, causing
+  `pendingRequestSnapshot()` to report phantom pending requests.
+- **`_evaluateErrors` severity/detail domain mismatch**: `serverErrors` and
+  `transportFailures` were counted across the entire buffer but compared
+  against `peakCount` (peak 5-second window). Severity could escalate to
+  critical based on errors outside the peak window. Now all counts are
+  scoped to the peak window.
+- **In-flight responses from previous page leaked into new page**: HTTP
+  requests started on page A that completed after navigating to page B
+  were added to the buffer, causing issues to appear on unrelated pages.
+  `processRecord()` now drops records whose `startedAt` precedes the last
+  `clearRecords()` call via `_ignoreBeforeTimestamp`.
+
 ## 0.12.2
 
 Post-Codex adversarial review hardening — three robustness fixes discovered

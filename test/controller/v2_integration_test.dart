@@ -557,7 +557,7 @@ void main() {
     });
 
     test('all detector types present in default config', () {
-      // Verify all 22 detectors are enabled by default
+      // Verify all 23 detectors are enabled by default
       for (final type in DetectorType.values) {
         expect(
           controller.config.enabledDetectors.contains(type),

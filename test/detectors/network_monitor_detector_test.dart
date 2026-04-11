@@ -212,6 +212,27 @@ void main() {
       expect(issue.fixHint, contains('Batch'));
     });
 
+    test('frequency spike persists until clearRecords', () {
+      // Fire 31 requests at t=0
+      for (int i = 0; i < 31; i++) {
+        detector.processRecord(makeRecord(startedAt: fakeNow));
+      }
+      expect(detector.issues.where((i) => i.stableId == 'request_frequency'),
+          hasLength(1));
+
+      // Advance 10 seconds — well past the 5s detection window, but
+      // records still in buffer. Issue should persist.
+      fakeNow = fakeNow.add(const Duration(seconds: 10));
+      detector.processRecord(makeRecord(startedAt: fakeNow));
+      expect(detector.issues.where((i) => i.stableId == 'request_frequency'),
+          hasLength(1));
+
+      // Route transition clears records — issue disappears.
+      detector.clearRecords();
+      expect(detector.issues, isEmpty);
+      expect(detector.records, isEmpty);
+    });
+
     // ---------------------------------------------------------------
     // Buffer bounds and issue lifecycle
     // ---------------------------------------------------------------
@@ -243,6 +264,85 @@ void main() {
       }
       expect(
           detector.issues.where((i) => i.stableId == 'slow_request'), isEmpty);
+    });
+
+    test('clearRecords clears all records and issues', () {
+      detector.processRecord(makeRecord(durationMs: 3000, startedAt: fakeNow));
+      expect(detector.issues.where((i) => i.stableId == 'slow_request'),
+          hasLength(1));
+      expect(detector.records, isNotEmpty);
+
+      // Simulate route transition
+      detector.clearRecords();
+      expect(detector.issues, isEmpty);
+      expect(detector.records, isEmpty);
+    });
+
+    test('clearRecords clears large response issues', () {
+      detector.processRecord(makeRecord(
+        responseBytes: 2000000,
+        startedAt: fakeNow,
+      ));
+      expect(detector.issues.where((i) => i.stableId == 'large_response'),
+          hasLength(1));
+
+      detector.clearRecords();
+      expect(detector.issues, isEmpty);
+      expect(detector.records, isEmpty);
+    });
+
+    test('new records after clearRecords evaluated independently', () {
+      // Add a slow record, then clear (simulating route change)
+      detector.processRecord(makeRecord(durationMs: 3000, startedAt: fakeNow));
+      expect(detector.issues, isNotEmpty);
+
+      detector.clearRecords();
+      expect(detector.issues, isEmpty);
+
+      // New fast record on the new page — no issues
+      fakeNow = fakeNow.add(const Duration(seconds: 1));
+      detector.processRecord(makeRecord(durationMs: 100, startedAt: fakeNow));
+      expect(
+          detector.issues.where((i) => i.stableId == 'slow_request'), isEmpty);
+      expect(detector.records, hasLength(1));
+    });
+
+    test('in-flight responses from previous page dropped after clearRecords',
+        () {
+      // Simulate: request started at t=0 on page A
+      final requestStartedAt = fakeNow;
+
+      // Navigate at t=1s — clearRecords called
+      fakeNow = fakeNow.add(const Duration(seconds: 1));
+      detector.clearRecords();
+
+      // Response arrives at t=3s (slow request from page A)
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processRecord(makeRecord(
+        durationMs: 3000,
+        startedAt: requestStartedAt, // started before clear
+      ));
+
+      // Should be silently dropped — no issues on home page
+      expect(detector.issues, isEmpty);
+      expect(detector.records, isEmpty);
+    });
+
+    test('requests started after clearRecords are accepted', () {
+      // Navigate at t=0
+      detector.clearRecords();
+
+      // New request starts at t=1s on the new page
+      fakeNow = fakeNow.add(const Duration(seconds: 1));
+      detector.processRecord(makeRecord(
+        durationMs: 3000,
+        startedAt: fakeNow, // started after clear
+      ));
+
+      // Should be accepted — issue shows on new page
+      expect(detector.issues.where((i) => i.stableId == 'slow_request'),
+          hasLength(1));
+      expect(detector.records, hasLength(1));
     });
 
     // ---------------------------------------------------------------
@@ -309,6 +409,165 @@ void main() {
         'large_response',
         'request_frequency',
       });
+    });
+
+    // ---------------------------------------------------------------
+    // HTTP error spike detection
+    // ---------------------------------------------------------------
+
+    test('no error spike with fewer than 3 errors', () {
+      for (int i = 0; i < 2; i++) {
+        detector.processRecord(makeRecord(
+          statusCode: 500,
+          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final errorIssues =
+          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      expect(errorIssues, isEmpty);
+    });
+
+    test('error spike at 3 errors in 5s window', () {
+      for (int i = 0; i < 3; i++) {
+        detector.processRecord(makeRecord(
+          statusCode: 500,
+          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final errorIssues =
+          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      expect(errorIssues, hasLength(1));
+      expect(errorIssues.first.severity, IssueSeverity.warning);
+      expect(errorIssues.first.confidence, IssueConfidence.confirmed);
+      expect(errorIssues.first.category, IssueCategory.network);
+    });
+
+    test('error spike uses peak 5s window, not entire buffer', () {
+      // Spread 4 errors across 20 seconds — no 5s window has 3
+      for (int i = 0; i < 4; i++) {
+        detector.processRecord(makeRecord(
+          statusCode: 500,
+          startedAt: fakeNow.add(Duration(seconds: i * 6)),
+        ));
+      }
+      final errorIssues =
+          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      expect(errorIssues, isEmpty,
+          reason: 'Each 5s window has at most 1 error');
+    });
+
+    test('error spike critical at 10+ errors in 5s window', () {
+      for (int i = 0; i < 10; i++) {
+        detector.processRecord(makeRecord(
+          statusCode: 500,
+          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final errorIssues =
+          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      expect(errorIssues, hasLength(1));
+      expect(errorIssues.first.severity, IssueSeverity.critical);
+    });
+
+    test('error spike critical at 5+ server errors in peak window', () {
+      for (int i = 0; i < 5; i++) {
+        detector.processRecord(makeRecord(
+          statusCode: 502,
+          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final errorIssues =
+          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      expect(errorIssues, hasLength(1));
+      expect(errorIssues.first.severity, IssueSeverity.critical);
+    });
+
+    test('error spike severity uses peak window counts, not buffer-wide', () {
+      // 6 server errors spread over 25s — peak 5s window has only 2
+      // plus 1 transport failure in the same window = 3 total errors
+      // but only 2 server errors in peak → should be warning, not critical
+      detector.processRecord(makeRecord(
+        statusCode: 500,
+        startedAt: fakeNow,
+      ));
+      detector.processRecord(makeRecord(
+        statusCode: 500,
+        startedAt: fakeNow.add(const Duration(milliseconds: 100)),
+      ));
+      detector.processRecord(makeRecord(
+        statusCode: -1,
+        startedAt: fakeNow.add(const Duration(milliseconds: 200)),
+      ));
+      // Gap > 5s
+      detector.processRecord(makeRecord(
+        statusCode: 500,
+        startedAt: fakeNow.add(const Duration(seconds: 10)),
+      ));
+      detector.processRecord(makeRecord(
+        statusCode: 500,
+        startedAt: fakeNow.add(const Duration(seconds: 15)),
+      ));
+      detector.processRecord(makeRecord(
+        statusCode: 500,
+        startedAt: fakeNow.add(const Duration(seconds: 20)),
+      ));
+      final errorIssues =
+          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      expect(errorIssues, hasLength(1));
+      // Peak window has 3 errors (2 server + 1 transport) — warning
+      expect(errorIssues.first.severity, IssueSeverity.warning);
+    });
+
+    test('transport failures reported in error spike detail', () {
+      for (int i = 0; i < 3; i++) {
+        detector.processRecord(makeRecord(
+          statusCode: -1,
+          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'http_error_spike');
+      expect(issue.detail, contains('transport failures'));
+      expect(issue.title, contains('3 errors'));
+    });
+
+    test('4xx errors counted in error spike', () {
+      for (int i = 0; i < 3; i++) {
+        detector.processRecord(makeRecord(
+          statusCode: 404,
+          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final errorIssues =
+          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      expect(errorIssues, hasLength(1));
+    });
+
+    test('clearRecords clears error spike issues', () {
+      for (int i = 0; i < 5; i++) {
+        detector.processRecord(makeRecord(
+          statusCode: 500,
+          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      expect(detector.issues.where((i) => i.stableId == 'http_error_spike'),
+          hasLength(1));
+
+      detector.clearRecords();
+      expect(detector.issues, isEmpty);
+    });
+
+    // ---------------------------------------------------------------
+    // clearRecords completeness
+    // ---------------------------------------------------------------
+
+    test('clearRecords clears active requests', () {
+      detector.startRequest(1, fakeNow);
+      detector.startRequest(2, fakeNow);
+      expect(detector.pendingRequestSnapshot().$1, 2);
+
+      detector.clearRecords();
+      expect(detector.pendingRequestSnapshot().$1, 0);
     });
 
     // ---------------------------------------------------------------
@@ -527,7 +786,7 @@ void main() {
       expect(dupIssues.first.severity, IssueSeverity.critical);
     });
 
-    test('duplicate issue cleared when records age out of window', () {
+    test('duplicate issue cleared by clearRecords (route transition)', () {
       final base = fakeNow;
       // Add 3 duplicates within 500ms
       for (int i = 0; i < 3; i++) {
@@ -543,16 +802,13 @@ void main() {
         hasLength(1),
       );
 
-      // Advance clock past 5s window and add a non-duplicate record
-      fakeNow = base.add(const Duration(seconds: 6));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/other',
-        method: 'GET',
-        startedAt: fakeNow,
-      ));
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
-      expect(dupIssues, isEmpty);
+      // Simulate route transition
+      detector.clearRecords();
+      expect(
+        detector.issues
+            .where((i) => i.stableId?.startsWith('duplicate_request') == true),
+        isEmpty,
+      );
     });
 
     test('different query params treated as same endpoint for dedup', () {

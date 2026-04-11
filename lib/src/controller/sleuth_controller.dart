@@ -1369,6 +1369,7 @@ class SleuthController {
       for (final d in _detectors) {
         if (d is SetStateScopeDetector) d.clearSnapshots();
       }
+      _networkMonitor.clearRecords();
       return;
     }
     // Navigation complete — return to idle

@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
@@ -75,7 +75,7 @@ void main() {
         await tester.pumpWidget(
           const Directionality(
             textDirection: TextDirection.ltr,
-            child: _TestStatefulWidget(),
+            child: TestStatefulWidget(),
           ),
         );
 
@@ -90,7 +90,7 @@ void main() {
         expect(detector.issues, isNotEmpty);
         expect(
           detector.issues.first.detail,
-          contains('_TestStatefulWidget'),
+          contains('TestStatefulWidget'),
         );
         expect(detector.issues.first.widgetName, isNull,
             reason:
@@ -130,7 +130,7 @@ void main() {
         await tester.pumpWidget(
           const Directionality(
             textDirection: TextDirection.ltr,
-            child: _TestStatefulWidget(),
+            child: TestStatefulWidget(),
           ),
         );
         detector.scanTree(tester.element(find.byType(Directionality)));
@@ -179,7 +179,7 @@ void main() {
             child: Column(
               children: List.generate(
                 15,
-                (i) => _TestStatefulWidget(key: ValueKey(i)),
+                (i) => TestStatefulWidget(key: ValueKey(i)),
               ),
             ),
           ),
@@ -203,7 +203,7 @@ void main() {
             child: Column(
               children: List.generate(
                 15,
-                (i) => _TestStatefulWidget(key: ValueKey(i)),
+                (i) => TestStatefulWidget(key: ValueKey(i)),
               ),
             ),
           ),
@@ -381,7 +381,7 @@ void main() {
             child: Column(
               children: List.generate(
                 15,
-                (i) => _TestStatefulWidget(key: ValueKey(i)),
+                (i) => TestStatefulWidget(key: ValueKey(i)),
               ),
             ),
           ),
@@ -400,8 +400,8 @@ void main() {
             textDirection: TextDirection.ltr,
             child: Column(
               children: [
-                _TestStatefulWidget(),
-                _TestStatefulWidget(),
+                TestStatefulWidget(),
+                TestStatefulWidget(),
               ],
             ),
           ),
@@ -418,7 +418,7 @@ void main() {
             child: Column(
               children: List.generate(
                 15,
-                (i) => _TestStatefulWidget(key: ValueKey(i)),
+                (i) => TestStatefulWidget(key: ValueKey(i)),
               ),
             ),
           ),
@@ -429,7 +429,7 @@ void main() {
         expect(detector.issues, isNotEmpty);
         expect(
           detector.issues.first.detail,
-          contains('_TestStatefulWidget'),
+          contains('TestStatefulWidget'),
         );
         expect(detector.issues.first.widgetName, isNull,
             reason:
@@ -443,7 +443,7 @@ void main() {
             child: Column(
               children: List.generate(
                 15,
-                (i) => _TestStatefulWidget(key: ValueKey(i)),
+                (i) => TestStatefulWidget(key: ValueKey(i)),
               ),
             ),
           ),
@@ -453,6 +453,50 @@ void main() {
 
         expect(detector.issues.first.observationSource,
             ObservationSource.structural);
+      });
+
+      testWidgets('private-named widgets excluded from density count',
+          (tester) async {
+        // A tree with only private-named StatefulWidgets (starting with '_')
+        // should NOT trigger stateful_density, because these are filtered as
+        // likely framework internals.
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Column(
+              children: List.generate(
+                15,
+                (i) => _PrivateNamedWidget(key: ValueKey(i)),
+              ),
+            ),
+          ),
+        );
+
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(detector.issues, isEmpty,
+            reason: 'Private-named widgets should be filtered from '
+                'stateful_density count');
+      });
+
+      testWidgets('user widgets still counted after framework filter',
+          (tester) async {
+        // A tree with enough public-named user widgets SHOULD trigger.
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Column(
+              children: List.generate(
+                15,
+                (i) => TestStatefulWidget(key: ValueKey(i)),
+              ),
+            ),
+          ),
+        );
+
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(detector.issues, isNotEmpty,
+            reason: 'Public-named user widgets should trigger '
+                'stateful_density');
       });
     });
 
@@ -480,7 +524,7 @@ void main() {
             child: Column(
               children: List.generate(
                 15,
-                (i) => _TestStatefulWidget(key: ValueKey(i)),
+                (i) => TestStatefulWidget(key: ValueKey(i)),
               ),
             ),
           ),
@@ -518,7 +562,7 @@ void main() {
             child: Column(
               children: List.generate(
                 15,
-                (i) => _TestStatefulWidget(key: ValueKey(i)),
+                (i) => TestStatefulWidget(key: ValueKey(i)),
               ),
             ),
           ),
@@ -540,7 +584,7 @@ void main() {
             child: Column(
               children: List.generate(
                 15,
-                (i) => _TestStatefulWidget(key: ValueKey(i)),
+                (i) => TestStatefulWidget(key: ValueKey(i)),
               ),
             ),
           ),
@@ -684,19 +728,19 @@ void main() {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: _TestStatefulWidget(),
+          child: TestStatefulWidget(),
         ),
       );
 
       detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'_TestStatefulWidget': 20},
+        rebuildCounts: {'TestStatefulWidget': 20},
         totalPaintCount: 0,
         elapsed: Duration(seconds: 1),
       ));
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.highlights, isNotEmpty);
-      expect(detector.highlights.first.widgetName, '_TestStatefulWidget');
+      expect(detector.highlights.first.widgetName, 'TestStatefulWidget');
       expect(detector.highlights.first.detectorName, 'Rebuild');
       expect(detector.highlights.first.detail, contains('20 rebuilds/sec'));
     });
@@ -707,7 +751,7 @@ void main() {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: _TestStatefulWidget(),
+          child: TestStatefulWidget(),
         ),
       );
 
@@ -719,12 +763,12 @@ void main() {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: _TestStatefulWidget(),
+          child: TestStatefulWidget(),
         ),
       );
 
       detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'_TestStatefulWidget': 5},
+        rebuildCounts: {'TestStatefulWidget': 5},
         totalPaintCount: 0,
         elapsed: Duration(seconds: 1),
       ));
@@ -740,14 +784,14 @@ void main() {
           child: Column(
             children: List.generate(
               10,
-              (i) => _TestStatefulWidget(key: ValueKey(i)),
+              (i) => TestStatefulWidget(key: ValueKey(i)),
             ),
           ),
         ),
       );
 
       detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'_TestStatefulWidget': 50},
+        rebuildCounts: {'TestStatefulWidget': 50},
         totalPaintCount: 0,
         elapsed: Duration(seconds: 1),
       ));
@@ -761,12 +805,12 @@ void main() {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: _TestStatefulWidget(),
+          child: TestStatefulWidget(),
         ),
       );
 
       detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'_TestStatefulWidget': 50},
+        rebuildCounts: {'TestStatefulWidget': 50},
         totalPaintCount: 0,
         elapsed: Duration(seconds: 1),
       ));
@@ -780,13 +824,13 @@ void main() {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: _TestStatefulWidget(),
+          child: TestStatefulWidget(),
         ),
       );
 
       // Stage enriched names with enough occurrences to exceed threshold.
       // Build PhaseEvents with dirtyList containing 15 occurrences.
-      final dirtyNames = List.generate(15, (_) => '_TestStatefulWidget');
+      final dirtyNames = List.generate(15, (_) => 'TestStatefulWidget');
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(ParsedTimelineData(
         buildEventCount: 15,
@@ -803,20 +847,20 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.highlights, isNotEmpty);
-      expect(detector.highlights.first.widgetName, '_TestStatefulWidget');
+      expect(detector.highlights.first.widgetName, 'TestStatefulWidget');
     });
 
     testWidgets('critical severity at 3x threshold', (tester) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: _TestStatefulWidget(),
+          child: TestStatefulWidget(),
         ),
       );
 
       // 35/sec > 10 * 3 = 30 → critical
       detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'_TestStatefulWidget': 35},
+        rebuildCounts: {'TestStatefulWidget': 35},
         totalPaintCount: 0,
         elapsed: Duration(seconds: 1),
       ));
@@ -829,12 +873,12 @@ void main() {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: _TestStatefulWidget(),
+          child: TestStatefulWidget(),
         ),
       );
 
       detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'_TestStatefulWidget': 20},
+        rebuildCounts: {'TestStatefulWidget': 20},
         totalPaintCount: 0,
         elapsed: Duration(seconds: 1),
       ));
@@ -935,7 +979,7 @@ void main() {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: _TestStatefulWidget(),
+          child: TestStatefulWidget(),
         ),
       );
       det.scanTree(tester.element(find.byType(Directionality)));
@@ -949,14 +993,28 @@ void main() {
   });
 }
 
-class _TestStatefulWidget extends StatefulWidget {
-  const _TestStatefulWidget({super.key});
+class TestStatefulWidget extends StatefulWidget {
+  const TestStatefulWidget({super.key});
 
   @override
-  State<_TestStatefulWidget> createState() => _TestStatefulWidgetState();
+  State<TestStatefulWidget> createState() => TestStatefulWidgetState();
 }
 
-class _TestStatefulWidgetState extends State<_TestStatefulWidget> {
+class TestStatefulWidgetState extends State<TestStatefulWidget> {
+  @override
+  Widget build(BuildContext context) => const SizedBox(height: 10);
+}
+
+/// Private-named StatefulWidget for testing that the `_` prefix filter
+/// excludes these from the structural density count.
+class _PrivateNamedWidget extends StatefulWidget {
+  const _PrivateNamedWidget({super.key});
+
+  @override
+  State<_PrivateNamedWidget> createState() => _PrivateNamedWidgetState();
+}
+
+class _PrivateNamedWidgetState extends State<_PrivateNamedWidget> {
   @override
   Widget build(BuildContext context) => const SizedBox(height: 10);
 }

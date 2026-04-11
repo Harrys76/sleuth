@@ -1,5 +1,5 @@
 name: example
-description: "Sleuth Example — demonstrates all 22 performance detectors"
+description: "Sleuth Example — demonstrates all 23 performance detectors"
 publish_to: 'none'
 version: 1.0.0+1
 

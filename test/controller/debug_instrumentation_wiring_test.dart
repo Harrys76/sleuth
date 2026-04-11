@@ -76,7 +76,7 @@ void main() {
           child: Column(
             children: List.generate(
               15,
-              (i) => _TestStatefulWidget(key: ValueKey(i)),
+              (i) => TestStatefulWidget(key: ValueKey(i)),
             ),
           ),
         ),
@@ -227,14 +227,14 @@ void main() {
   });
 }
 
-class _TestStatefulWidget extends StatefulWidget {
-  const _TestStatefulWidget({super.key});
+class TestStatefulWidget extends StatefulWidget {
+  const TestStatefulWidget({super.key});
 
   @override
-  State<_TestStatefulWidget> createState() => _TestStatefulWidgetState();
+  State<TestStatefulWidget> createState() => TestStatefulWidgetState();
 }
 
-class _TestStatefulWidgetState extends State<_TestStatefulWidget> {
+class TestStatefulWidgetState extends State<TestStatefulWidget> {
   @override
   Widget build(BuildContext context) => const SizedBox(height: 10);
 }

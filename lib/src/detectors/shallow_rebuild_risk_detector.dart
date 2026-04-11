@@ -96,6 +96,7 @@ class ShallowRebuildRiskDetector extends BaseDetector {
         'Material',
         'AnimatedTheme',
         'ScrollConfiguration',
+        'ScrollNotificationObserver',
         '_ModalScope',
         'Navigator',
         'Overlay',
