@@ -440,6 +440,7 @@ class RebuildDetector extends BaseDetector {
   /// Material/Cupertino pages and would cause stateful_density to fire on
   /// every page when the VM is unavailable.
   static const _frameworkWidgetNames = {
+    // Material / Cupertino framework widgets
     'Scaffold',
     'ScaffoldMessenger',
     'AppBar',
@@ -473,6 +474,15 @@ class RebuildDetector extends BaseDetector {
     'TabBarView',
     'TabBar',
     'PageView',
+    // Sleuth overlay widgets — internal diagnostics, not user-created
+    'SleuthOverlay',
+    'FloatingIssuesCard',
+    'TriggerButton',
+    'IssueCard',
+    'IssueEncyclopediaPage',
+    'AiChatPage',
+    'GuidePage',
+    'StartupMetricsPage',
   };
 
   @override

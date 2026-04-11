@@ -37,12 +37,17 @@ class _SleuthOverlayState extends State<SleuthOverlay>
     super.initState();
     if (!kReleaseMode) {
       WidgetsBinding.instance.addObserver(this);
+      widget.controller.themeOverride.addListener(_onThemeChanged);
       widget.controller.initialize().then((_) {
         if (mounted) {
           widget.controller.startTreeScanning(context);
         }
       });
     }
+  }
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -55,6 +60,17 @@ class _SleuthOverlayState extends State<SleuthOverlay>
       widget.controller.onKeyboardVisibilityChanged(visible: false);
     }
     _lastBottomInset = bottomInset;
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    // Re-resolve auto-detect when system brightness changes.
+    // Skip when an explicit override or config theme is set — the user
+    // already chose a theme and system changes shouldn't override it.
+    if (widget.controller.config.theme == null &&
+        widget.controller.themeOverride.value == null) {
+      setState(() {});
+    }
   }
 
   @override
@@ -73,7 +89,10 @@ class _SleuthOverlayState extends State<SleuthOverlay>
     // No-op in release mode
     if (kReleaseMode) return widget.child;
 
-    final theme = widget.controller.config.theme ?? _resolveTheme(context);
+    final themeOverride = widget.controller.themeOverride.value;
+    final theme = themeOverride ??
+        widget.controller.config.theme ??
+        _resolveTheme(context);
 
     return Directionality(
       textDirection: TextDirection.ltr,
@@ -163,6 +182,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
 
   @override
   void dispose() {
+    widget.controller.themeOverride.removeListener(_onThemeChanged);
     WidgetsBinding.instance.removeObserver(this);
     Sleuth.notifyControllerDisposed(widget.controller);
     widget.controller.dispose();

@@ -421,6 +421,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                   _detailStableId = null;
                   _showDetail = true;
                 }),
+                onGuide: () => setState(() => _showGuide = true),
               ),
             ],
           ],
@@ -558,19 +559,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                   ),
                 ),
               ),
-            // Guide button (hidden when minimized)
-            if (!isMinimized)
-              _headerIconButton(
-                icon: Icons.help_outline,
-                color: theme.textTertiary,
-                onTap: () => setState(() => _showGuide = true),
-                tooltip: 'Guide',
-              ),
             // Highlight overlay toggle (hidden when minimized)
             if (!isMinimized)
               ValueListenableBuilder<bool>(
                 valueListenable: widget.controller.highlightEnabledNotifier,
-                builder: (_, enabled, __) => _headerIconButton(
+                builder: (_, enabled, __) => _compactHeaderButton(
                   icon: enabled ? Icons.layers : Icons.layers_outlined,
                   color: enabled ? theme.checkboxActive : theme.textTertiary,
                   onTap: () {
@@ -581,6 +574,37 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                     }
                   },
                   tooltip: enabled ? 'Hide overlay' : 'Show overlay',
+                ),
+              ),
+            // Theme toggle (hidden when minimized, extra-compact to fit
+            // alongside DBG badge without overflowing the header Row)
+            if (!isMinimized)
+              Semantics(
+                label: 'Toggle theme',
+                button: true,
+                child: GestureDetector(
+                  onTap: () {
+                    final isDark = theme.textPrimary == const Color(0xFFFFFFFF);
+                    widget.controller.updateTheme(
+                      isDark
+                          ? const SleuthThemeData.light()
+                          : const SleuthThemeData(),
+                    );
+                  },
+                  behavior: HitTestBehavior.opaque,
+                  child: SizedBox(
+                    width: 20,
+                    height: 44,
+                    child: Center(
+                      child: Icon(
+                        theme.textPrimary == const Color(0xFFFFFFFF)
+                            ? Icons.light_mode
+                            : Icons.dark_mode,
+                        color: theme.textTertiary,
+                        size: 12,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             // Window controls — compact 28px to save header space.
@@ -1051,11 +1075,13 @@ class _CardFooter extends StatelessWidget {
     required this.controller,
     required this.onExport,
     required this.onEncyclopedia,
+    required this.onGuide,
   });
 
   final SleuthController controller;
   final VoidCallback onExport;
   final VoidCallback onEncyclopedia;
+  final VoidCallback onGuide;
 
   @override
   Widget build(BuildContext context) {
@@ -1071,35 +1097,55 @@ class _CardFooter extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          GestureDetector(
-            onTap: onEncyclopedia,
-            behavior: HitTestBehavior.opaque,
-            child: SizedBox(
-              width: 32,
-              height: 32,
-              child: Center(
-                child: Icon(Icons.menu_book_outlined,
-                    color: theme.textTertiary, size: 16),
+          Semantics(
+            label: 'Encyclopedia',
+            button: true,
+            child: GestureDetector(
+              onTap: onEncyclopedia,
+              behavior: HitTestBehavior.opaque,
+              child: SizedBox(
+                width: 32,
+                height: 32,
+                child: Center(
+                  child: Icon(Icons.menu_book_outlined,
+                      color: theme.textTertiary, size: 16),
+                ),
               ),
             ),
           ),
           SizedBox(width: theme.spacingXs),
-          GestureDetector(
-            onTap: onExport,
-            behavior: HitTestBehavior.opaque,
-            child: SizedBox(
-              width: 32,
-              height: 32,
-              child: Center(
-                child:
-                    Icon(Icons.ios_share, color: theme.textTertiary, size: 16),
+          Semantics(
+            label: 'Export',
+            button: true,
+            child: GestureDetector(
+              onTap: onExport,
+              behavior: HitTestBehavior.opaque,
+              child: SizedBox(
+                width: 32,
+                height: 32,
+                child: Center(
+                  child: Icon(Icons.ios_share,
+                      color: theme.textTertiary, size: 16),
+                ),
               ),
             ),
           ),
           SizedBox(width: theme.spacingXs),
-          Text(
-            'Export JSON',
-            style: TextStyle(color: theme.textTertiary, fontSize: 10),
+          Semantics(
+            label: 'Guide',
+            button: true,
+            child: GestureDetector(
+              onTap: onGuide,
+              behavior: HitTestBehavior.opaque,
+              child: SizedBox(
+                width: 32,
+                height: 32,
+                child: Center(
+                  child: Icon(Icons.help_outline,
+                      color: theme.textTertiary, size: 16),
+                ),
+              ),
+            ),
           ),
           ValueListenableBuilder<int>(
             valueListenable: controller.suppressedCountNotifier,

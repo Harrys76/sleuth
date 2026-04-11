@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C985_%2B_9_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1%2C988_%2B_9_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -151,16 +151,23 @@ Sleuth.track(
 
 **Debug callbacks note:** `enableDebugCallbacks` installs `debugOnRebuildDirtyWidget` and `debugOnProfilePaint` hooks. These conflict with DevTools "Track Widget Rebuilds" — only one can be active at a time. Default `false` to avoid surprising DevTools users.
 
-**Overlay theming:** The overlay auto-detects light/dark backgrounds. Override colors and spacing with `SleuthThemeData`:
+**Overlay theming:** The overlay auto-detects light/dark backgrounds. A built-in toggle in the overlay header lets you switch themes at runtime. You can also override programmatically:
 
 ```dart
+// Static config at initialization
 Sleuth.track(
   child: MyApp(),
-  theme: SleuthThemeData.light().copyWith(
-    cardBackground: Color(0xFFF5F5F5),
-    spacingMd: 10, // adjust overlay density (default 8)
+  config: SleuthConfig(
+    theme: SleuthThemeData.light().copyWith(
+      cardBackground: Color(0xFFF5F5F5),
+      spacingMd: 10, // adjust overlay density (default 8)
+    ),
   ),
 );
+
+// Runtime toggle (from anywhere in your app)
+Sleuth.updateTheme(const SleuthThemeData.light()); // force light
+Sleuth.updateTheme(null);                          // revert to auto-detect
 ```
 
 ## AI Chat

@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 void main() {
@@ -88,6 +89,47 @@ void main() {
       expect(captured.pageBackground, const Color(0xFFABCDEF));
       // Retains dark defaults for non-overridden fields
       expect(captured.textPrimary, const Color(0xFFFFFFFF));
+    });
+  });
+
+  group('SleuthController.updateTheme', () {
+    late SleuthController controller;
+
+    setUp(() {
+      controller = SleuthController();
+    });
+
+    tearDown(() => controller.dispose());
+
+    test('updateTheme sets override value', () {
+      expect(controller.themeOverride.value, isNull);
+      controller.updateTheme(const SleuthThemeData.light());
+      expect(controller.themeOverride.value, isNotNull);
+      expect(
+        controller.themeOverride.value!.pageBackground,
+        const Color(0xFFF9FAFB),
+      );
+    });
+
+    test('updateTheme(null) reverts to auto-detection', () {
+      controller.updateTheme(const SleuthThemeData.light());
+      expect(controller.themeOverride.value, isNotNull);
+      controller.updateTheme(null);
+      expect(controller.themeOverride.value, isNull);
+    });
+
+    test('themeOverride notifier fires on update', () {
+      int callCount = 0;
+      controller.themeOverride.addListener(() => callCount++);
+
+      controller.updateTheme(const SleuthThemeData.light());
+      expect(callCount, 1);
+
+      controller.updateTheme(const SleuthThemeData());
+      expect(callCount, 2);
+
+      controller.updateTheme(null);
+      expect(callCount, 3);
     });
   });
 }

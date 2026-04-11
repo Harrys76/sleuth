@@ -302,6 +302,21 @@ class SleuthController {
   final ValueNotifier<WidgetHighlight?> selectedHighlightNotifier =
       ValueNotifier(null);
 
+  /// Runtime theme override. Takes precedence over [config.theme] and
+  /// auto-detection when non-null.
+  final ValueNotifier<SleuthThemeData?> _themeOverride =
+      ValueNotifier<SleuthThemeData?>(null);
+
+  /// Listenable for the current theme override. Null means use config or
+  /// auto-detect.
+  ValueListenable<SleuthThemeData?> get themeOverride => _themeOverride;
+
+  /// Update the overlay theme at runtime. Pass `null` to revert to
+  /// config theme or auto-detection.
+  void updateTheme(SleuthThemeData? theme) {
+    _themeOverride.value = theme;
+  }
+
   /// Number of issues hidden by the suppression list after the last aggregation.
   final ValueNotifier<int> suppressedCountNotifier = ValueNotifier(0);
 
@@ -2673,6 +2688,7 @@ class SleuthController {
     _phaseEventBuffer.clear();
     _gcEventBuffer.clear();
     _platformChannelBuffer.clear();
+    _themeOverride.dispose();
 
     // Restore HttpOverrides before disposing detector
     if (_httpOverrides != null) {

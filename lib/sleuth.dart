@@ -22,6 +22,7 @@
 /// ## Theming
 ///
 /// The overlay auto-detects dark/light mode from the system brightness.
+/// A built-in toggle in the overlay header lets you switch at runtime.
 /// To force a specific theme or customize colors:
 ///
 /// ```dart
@@ -40,6 +41,10 @@
 ///     ),
 ///   ),
 /// );
+///
+/// // Toggle at runtime (e.g. from app code)
+/// Sleuth.updateTheme(const SleuthThemeData.light());
+/// Sleuth.updateTheme(null); // revert to auto-detect
 /// ```
 ///
 /// See [SleuthThemeData] for all available color tokens.
@@ -57,6 +62,7 @@ import 'src/models/fix_verification_result.dart';
 import 'src/models/session_snapshot.dart';
 import 'src/models/startup_metrics.dart';
 import 'src/ui/sleuth_overlay.dart';
+import 'src/ui/sleuth_theme.dart';
 
 // Public API exports
 export 'src/models/ai_chat_adapter.dart';
@@ -240,12 +246,9 @@ class Sleuth {
             engineEnterUs: _pendingEngineEvents!.engineEnterUs,
             firstFrameRasterizedUs:
                 _pendingEngineEvents!.firstFrameRasterizedUs,
-            vmFirstBuildScopeMs:
-                _pendingEngineEvents!.vmFirstBuildScopeMs,
-            vmFirstFlushLayoutMs:
-                _pendingEngineEvents!.vmFirstFlushLayoutMs,
-            vmFirstFlushPaintMs:
-                _pendingEngineEvents!.vmFirstFlushPaintMs,
+            vmFirstBuildScopeMs: _pendingEngineEvents!.vmFirstBuildScopeMs,
+            vmFirstFlushLayoutMs: _pendingEngineEvents!.vmFirstFlushLayoutMs,
+            vmFirstFlushPaintMs: _pendingEngineEvents!.vmFirstFlushPaintMs,
             vmFirstRasterMs: _pendingEngineEvents!.vmFirstRasterMs,
           );
           _pendingEngineEvents = null;
@@ -405,6 +408,19 @@ class Sleuth {
   /// Pass [topN] to override the issue count (capped at 20).
   static String? exportSummary({int topN = 5}) =>
       _controller?.exportSummary(topN: topN);
+
+  /// Update the overlay theme at runtime.
+  ///
+  /// Passing a [SleuthThemeData] overrides both the config theme and
+  /// auto-detection. Passing `null` reverts to the config theme or
+  /// auto-detection.
+  ///
+  /// ```dart
+  /// Sleuth.updateTheme(const SleuthThemeData.light());
+  /// ```
+  static void updateTheme(SleuthThemeData? theme) {
+    _controller?.updateTheme(theme);
+  }
 
   /// Capture a baseline of current issues for fix verification.
   /// After applying a fix and hot-reloading, call [compareToBaseline]

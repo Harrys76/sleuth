@@ -1,3 +1,38 @@
+## 0.13.1
+
+Dark/light mode toggle, header optimization, and false-positive fix.
+Two adversarial review rounds, one finding fixed.
+
+### Added
+
+- **In-overlay dark/light toggle**: Theme toggle icon in the overlay header
+  switches between dark and light themes without changing system settings.
+  Uses 3-tier resolution: runtime override > config theme > auto-detect.
+- **`Sleuth.updateTheme()` static API**: Update the overlay theme at runtime.
+  Pass `SleuthThemeData` to override or `null` to revert to auto-detection.
+- **`SleuthController.themeOverride`**: `ValueListenable<SleuthThemeData?>`
+  notifier for the current runtime theme override.
+- **System brightness reactivity**: `didChangePlatformBrightness` re-resolves
+  auto-detect theme when system brightness changes mid-session (gated to
+  auto-detect mode only — skips when explicit override or config theme is set).
+
+### Changed
+
+- **Header icon optimization**: Guide icon moved from header to footer bar.
+  Highlight toggle shrunk from 36px to 24px (`_compactHeaderButton`). Theme
+  toggle added at 20px width. Net effect: cleaner header with fewer icons.
+- **Footer Semantics consistency**: All three footer icons (Encyclopedia,
+  Export, Guide) now have `Semantics(label: ..., button: true)` wrappers.
+
+### Fixed
+
+- **`stateful_density` false positive from Sleuth widgets**: Added 8 Sleuth
+  overlay widget names (`SleuthOverlay`, `FloatingIssuesCard`, `TriggerButton`,
+  `IssueCard`, `IssueEncyclopediaPage`, `AiChatPage`, `GuidePage`,
+  `StartupMetricsPage`) to the `_frameworkWidgetNames` exclusion set in
+  `RebuildDetector`. Previously, opening the overlay in FRAME mode inflated
+  the structural density count and triggered a false positive.
+
 ## 0.13.0
 
 Startup Performance Tracing — measure first-frame and time-to-interactive
