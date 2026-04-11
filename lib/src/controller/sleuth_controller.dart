@@ -58,6 +58,7 @@ import '../models/phase_event.dart';
 import '../models/platform_channel_summary.dart';
 import '../models/fix_verification_result.dart';
 import '../models/recurrence_trend.dart';
+import '../models/route_session.dart';
 import '../models/session_snapshot.dart';
 import '../models/widget_heat_map_entry.dart';
 import '../models/widget_highlight.dart';
@@ -316,6 +317,23 @@ class SleuthController {
   void updateTheme(SleuthThemeData? theme) {
     _themeOverride.value = theme;
   }
+
+  // -- Route session tracking --
+
+  /// Per-route session history, bounded to 20 entries (FIFO eviction).
+  final Queue<RouteSession> _routeHistory = Queue<RouteSession>();
+
+  /// The currently active route session. Null before the first scan.
+  RouteSession? _activeRouteSession;
+
+  /// Counter for synthetic names assigned to unnamed routes.
+  // ignore: prefer_final_fields
+  int _unnamedRouteCounter = 0;
+
+  /// Notifies listeners when route history changes (new session created or
+  /// old session evicted). Value is an unmodifiable snapshot.
+  final ValueNotifier<List<RouteSession>> routeHistoryNotifier =
+      ValueNotifier([]);
 
   /// Number of issues hidden by the suppression list after the last aggregation.
   final ValueNotifier<int> suppressedCountNotifier = ValueNotifier(0);
@@ -983,6 +1001,14 @@ class SleuthController {
   @visibleForTesting
   void feedHeapSampleForTest(HeapSample sample) => _onHeapSample(sample);
 
+  /// Exposes the active route session for testing.
+  @visibleForTesting
+  RouteSession? get activeRouteSessionForTest => _activeRouteSession;
+
+  /// Exposes the unnamed route counter for testing.
+  @visibleForTesting
+  int get unnamedRouteCounterForTest => _unnamedRouteCounter;
+
   /// Build a session snapshot for programmatic use.
   ///
   /// Includes schema version 2 fields: ranking scores on each issue,
@@ -998,8 +1024,17 @@ class SleuthController {
             .map((f) => f.effectiveTotalDuration.inMicroseconds)
             .reduce((a, b) => a > b ? a : b);
 
-    // Compute FPS percentiles at export time (lazy, not cached)
-    final percentiles = buffer.length >= 2 ? buffer.fpsPercentiles() : null;
+    // Compute FPS percentiles at export time (lazy, not cached).
+    // Clamp to fpsTarget so ProMotion 120Hz idle screens report ≤ target.
+    final target = config.fpsTarget.toDouble();
+    final rawPercentiles = buffer.length >= 2 ? buffer.fpsPercentiles() : null;
+    final percentiles = rawPercentiles == null
+        ? null
+        : FpsPercentiles(
+            p50: rawPercentiles.p50.clamp(0.0, target),
+            p95: rawPercentiles.p95.clamp(0.0, target),
+            p99: rawPercentiles.p99.clamp(0.0, target),
+          );
 
     // Attach ranking scores to issues (export-only, not on the hot path).
     // Before init, _frameTiming is not available — use default context.
@@ -1020,19 +1055,24 @@ class SleuthController {
       heapSamples,
     );
 
+    // Serialize route history (v4).
+    final routeSessions = _routeHistory.isNotEmpty
+        ? _routeHistory.map((s) => s.toJson()).toList()
+        : null;
+
     return SessionSnapshot(
-      schemaVersion: 3,
+      schemaVersion: 4,
       exportedAt: DateTime.now(),
       capturedFrames: _captureBuffer.entries,
       currentIssues: List.unmodifiable(rankedWithScores),
       frameStatsSummary: FrameStatsSummary(
         totalFrames: buffer.length,
         jankFrames: buffer.jankCount,
-        averageFps: buffer.averageFps,
+        averageFps: buffer.averageFps.clamp(0.0, target),
         worstFrameTimeUs: worstUs,
         fpsPercentiles: percentiles,
       ),
-      packageVersion: '0.12.1',
+      packageVersion: '0.14.0',
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
       recentRequests: _initialized &&
@@ -1062,6 +1102,7 @@ class SleuthController {
           : null,
       sessionSummary: summary.isNotEmpty ? summary : null,
       startupMetrics: Sleuth.startupMetrics,
+      routeSessions: routeSessions,
     );
   }
 
@@ -1392,6 +1433,44 @@ class SleuthController {
       _interactionState = InteractionContext.idle;
     }
     _lastScanContext = scanContext;
+
+    // -- Route session tracking --
+    // Detect route changes by comparing the current route name against the
+    // active session. Creates a new RouteSession on change and resets the
+    // adaptive scan back-off so fresh pages are scanned at base frequency.
+    //
+    // The unnamed-route counter is deferred: it only increments when we
+    // actually detect a route change to an unnamed route. This prevents
+    // creating a new session on every scan cycle when the route name is null
+    // (common with go_router path-only routes, dialog routes, etc.).
+    final currentName = _currentRouteName();
+    final routeChanged = _activeRouteSession == null ||
+        (currentName != null &&
+            _activeRouteSession!.routeName != currentName) ||
+        (currentName == null &&
+            !_activeRouteSession!.routeName.startsWith('<unnamed-'));
+    if (routeChanged) {
+      _activeRouteSession?.endedAt = DateTime.now();
+      final newRoute = currentName ?? '<unnamed-${++_unnamedRouteCounter}>';
+      // Skip session creation for ignored routes, but still reset back-off.
+      if (!_isRouteIgnored(newRoute)) {
+        _activeRouteSession = RouteSession(
+          routeName: newRoute,
+          startedAt: DateTime.now(),
+          fpsTarget: config.fpsTarget,
+        );
+        if (_routeHistory.length >= config.routeHistoryCapacity) {
+          _routeHistory.removeFirst();
+        }
+        _routeHistory.add(_activeRouteSession!);
+        routeHistoryNotifier.value =
+            List<RouteSession>.unmodifiable(_routeHistory.toList());
+      } else {
+        _activeRouteSession = null;
+      }
+      _consecutiveCleanScans = 0;
+    }
+    _activeRouteSession?.scanCycleCount++;
 
     // Guard _detectors iteration — enable/disable calls that arrive via
     // notifier listeners during scan/aggregation are deferred.
@@ -2122,6 +2201,7 @@ class SleuthController {
     // Worst case with a steady 200 ms throttle: FPS readout lags a jank spike
     // by ≤200 ms, which is within human-perception tolerance for a debug HUD.
     final latest = buffer.latest;
+    if (latest != null) _activeRouteSession?.frameStats.add(latest);
     final isJankFrame = latest != null && latest.isJank;
     // ignore: invalid_use_of_protected_member
     final hasListeners = frameStatsNotifier.hasListeners;
@@ -2408,6 +2488,22 @@ class SleuthController {
     return ModalRoute.of(ctx)?.settings.name;
   }
 
+  /// Returns true if [routeName] matches any pattern in
+  /// [SleuthConfig.routeIgnorePatterns]. Supports exact match and trailing
+  /// `*` wildcard.
+  bool _isRouteIgnored(String routeName) {
+    for (final pattern in config.routeIgnorePatterns) {
+      if (pattern.endsWith('*')) {
+        if (routeName.startsWith(pattern.substring(0, pattern.length - 1))) {
+          return true;
+        }
+      } else if (routeName == pattern) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void _aggregateIssues() {
     final all = _getAllIssues();
     final correlated = _detectorCorrelator.correlate(all);
@@ -2432,6 +2528,15 @@ class SleuthController {
       }
     }
     suppressedCountNotifier.value = suppressedCount;
+
+    // Upsert visible issues into the active route session so each route
+    // accumulates its own issue snapshot history (M3: route-scoped aggregation).
+    if (_activeRouteSession != null) {
+      for (final issue in visible) {
+        final id = issue.stableId ?? issue.title;
+        _activeRouteSession!.issueSnapshots[id] = issue;
+      }
+    }
 
     // Duration-based severity escalation: warning → critical after 30+ cycles.
     // Uses cumulative presentCount (not consecutive) to avoid oscillation.
@@ -2717,6 +2822,7 @@ class SleuthController {
     highlightEnabledNotifier.dispose();
     selectedHighlightNotifier.dispose();
     suppressedCountNotifier.dispose();
+    routeHistoryNotifier.dispose();
   }
 }
 
@@ -2753,6 +2859,8 @@ class SleuthConfig {
     this.showDebugModeBanner = true,
     this.triggerButtonAlignment = Alignment.topRight,
     this.triggerButtonOffset = const Offset(16, 64),
+    this.routeIgnorePatterns = const {},
+    this.routeHistoryCapacity = 20,
   })  : assert(
           fpsTarget >= 1 && fpsTarget <= 120,
           'fpsTarget must be between 1 and 120. '
@@ -2812,6 +2920,10 @@ class SleuthConfig {
         assert(
           platformChannelDurationThresholdMs >= 0,
           'platformChannelDurationThresholdMs must be >= 0.',
+        ),
+        assert(
+          routeHistoryCapacity >= 1,
+          'routeHistoryCapacity must be at least 1.',
         );
 
   /// Minimal configuration for first-time integration.
@@ -2826,9 +2938,6 @@ class SleuthConfig {
   /// Use this when you're trying Sleuth for the first time and don't
   /// want to read 25 parameter docs.
   ///
-  /// **Known limitation:** [SleuthConfig] has no `copyWith`. To override
-  /// a field (e.g. wire an `aiChat` adapter), construct a full
-  /// [SleuthConfig] from scratch instead of chaining off the preset.
   factory SleuthConfig.minimal({SleuthThemeData? theme}) => SleuthConfig(
         theme: theme,
         enableNetworkMonitoring: false,
@@ -2865,9 +2974,6 @@ class SleuthConfig {
   ///   it does NOT belong in a structural-only preset despite the name.
   /// - [DetectorType.frameTiming] — runtime lifecycle.
   ///
-  /// **Known limitation:** [SleuthConfig] has no `copyWith`. To override
-  /// a field, construct a full [SleuthConfig] from scratch instead of
-  /// chaining off the preset.
   factory SleuthConfig.performance({SleuthThemeData? theme}) => SleuthConfig(
         theme: theme,
         treeScanInterval: const Duration(seconds: 2),
@@ -3256,6 +3362,131 @@ class SleuthConfig {
   /// Default: `Offset(16, 64)` — 16 px from the horizontal edge, 64 px below
   /// the top safe area / above the bottom safe area.
   final Offset triggerButtonOffset;
+
+  /// Route name patterns to exclude from route session tracking.
+  ///
+  /// Supports exact match and trailing `*` wildcard (e.g. `/dialog*` matches
+  /// `/dialog`, `/dialogConfirm`, etc.). Routes matching these patterns still
+  /// trigger detector clearing (network, SetState), but no [RouteSession] is
+  /// created.
+  ///
+  /// **Default:** empty (all routes tracked).
+  final Set<String> routeIgnorePatterns;
+
+  /// Maximum number of route sessions retained in the ring buffer.
+  ///
+  /// **Default:** 20. At 20 sessions × ~60 frames × ~200 B per frame, the
+  /// memory footprint is bounded to ~240 KB for frame data alone.
+  ///
+  /// **Raise this** if your app has many short-lived routes (e.g. nested
+  /// tab navigation) and you want to keep a longer history.
+  ///
+  /// **Lower this** (minimum 1) to save memory in constrained environments.
+  ///
+  /// Valid range: >= 1 (enforced via debug-mode assert).
+  final int routeHistoryCapacity;
+
+  /// Sentinel used by [copyWith] to distinguish "not passed" from "set to null".
+  static const Object _sentinel = Object();
+
+  /// Returns a copy of this config with the given fields replaced.
+  ///
+  /// For nullable fields ([theme], [advanced], [networkExcludePatterns],
+  /// [aiChat]), pass the explicit value to override — including `null` to
+  /// clear. Fields not passed retain their current value.
+  ///
+  /// ```dart
+  /// final custom = SleuthConfig.minimal().copyWith(
+  ///   fpsTarget: 120,
+  ///   aiChat: AiChatAdapter.openAi(apiKey: 'ollama', baseUrl: '...'),
+  /// );
+  /// ```
+  SleuthConfig copyWith({
+    Object? theme = _sentinel,
+    int? fpsTarget,
+    int? rebuildThreshold,
+    int? maxListChildren,
+    int? maxGlobalKeys,
+    int? platformChannelLimit,
+    Duration? treeScanInterval,
+    bool? adaptiveScanEnabled,
+    Set<DetectorType>? enabledDetectors,
+    int? captureBufferCapacity,
+    bool? enableDebugCallbacks,
+    bool? enableDeepDebugInstrumentation,
+    int? maxTrackedTypes,
+    Object? advanced = _sentinel,
+    bool? enableNetworkMonitoring,
+    int? slowRequestThresholdMs,
+    int? requestFrequencyLimit,
+    int? largeResponseThresholdBytes,
+    Object? networkExcludePatterns = _sentinel,
+    int? memoryWarmupDurationMs,
+    int? frameTimingWarmupFrameCount,
+    int? platformChannelDurationThresholdMs,
+    Set<String>? suppressedIssues,
+    List<BaseDetector>? customDetectors,
+    Set<String>? disabledCustomDetectorKeys,
+    DetectorThresholds? thresholds,
+    Object? aiChat = _sentinel,
+    bool? showDebugModeBanner,
+    Alignment? triggerButtonAlignment,
+    Offset? triggerButtonOffset,
+    Set<String>? routeIgnorePatterns,
+    int? routeHistoryCapacity,
+  }) {
+    return SleuthConfig(
+      theme:
+          identical(theme, _sentinel) ? this.theme : theme as SleuthThemeData?,
+      fpsTarget: fpsTarget ?? this.fpsTarget,
+      rebuildThreshold: rebuildThreshold ?? this.rebuildThreshold,
+      maxListChildren: maxListChildren ?? this.maxListChildren,
+      maxGlobalKeys: maxGlobalKeys ?? this.maxGlobalKeys,
+      platformChannelLimit: platformChannelLimit ?? this.platformChannelLimit,
+      treeScanInterval: treeScanInterval ?? this.treeScanInterval,
+      adaptiveScanEnabled: adaptiveScanEnabled ?? this.adaptiveScanEnabled,
+      enabledDetectors: enabledDetectors ?? this.enabledDetectors,
+      captureBufferCapacity:
+          captureBufferCapacity ?? this.captureBufferCapacity,
+      enableDebugCallbacks: enableDebugCallbacks ?? this.enableDebugCallbacks,
+      enableDeepDebugInstrumentation:
+          enableDeepDebugInstrumentation ?? this.enableDeepDebugInstrumentation,
+      maxTrackedTypes: maxTrackedTypes ?? this.maxTrackedTypes,
+      advanced: identical(advanced, _sentinel)
+          ? this.advanced
+          : advanced as DebugInstrumentationConfig?,
+      enableNetworkMonitoring:
+          enableNetworkMonitoring ?? this.enableNetworkMonitoring,
+      slowRequestThresholdMs:
+          slowRequestThresholdMs ?? this.slowRequestThresholdMs,
+      requestFrequencyLimit:
+          requestFrequencyLimit ?? this.requestFrequencyLimit,
+      largeResponseThresholdBytes:
+          largeResponseThresholdBytes ?? this.largeResponseThresholdBytes,
+      networkExcludePatterns: identical(networkExcludePatterns, _sentinel)
+          ? this.networkExcludePatterns
+          : networkExcludePatterns as List<String>?,
+      memoryWarmupDurationMs:
+          memoryWarmupDurationMs ?? this.memoryWarmupDurationMs,
+      frameTimingWarmupFrameCount:
+          frameTimingWarmupFrameCount ?? this.frameTimingWarmupFrameCount,
+      platformChannelDurationThresholdMs: platformChannelDurationThresholdMs ??
+          this.platformChannelDurationThresholdMs,
+      suppressedIssues: suppressedIssues ?? this.suppressedIssues,
+      customDetectors: customDetectors ?? this.customDetectors,
+      disabledCustomDetectorKeys:
+          disabledCustomDetectorKeys ?? this.disabledCustomDetectorKeys,
+      thresholds: thresholds ?? this.thresholds,
+      aiChat:
+          identical(aiChat, _sentinel) ? this.aiChat : aiChat as AiChatAdapter?,
+      showDebugModeBanner: showDebugModeBanner ?? this.showDebugModeBanner,
+      triggerButtonAlignment:
+          triggerButtonAlignment ?? this.triggerButtonAlignment,
+      triggerButtonOffset: triggerButtonOffset ?? this.triggerButtonOffset,
+      routeIgnorePatterns: routeIgnorePatterns ?? this.routeIgnorePatterns,
+      routeHistoryCapacity: routeHistoryCapacity ?? this.routeHistoryCapacity,
+    );
+  }
 }
 
 /// Lightweight struct for sorting allocation profile entries.

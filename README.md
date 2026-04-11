@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1%2C988_%2B_9_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-2%2C051_%2B_9_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -145,6 +145,8 @@ Sleuth.track(
     triggerButtonAlignment: Alignment.bottomRight, // initial trigger button corner
     triggerButtonOffset: Offset(16, 16),           // pixel offset from corner
     showDebugModeBanner: true,         // dismissible debug-mode warning banner
+    routeIgnorePatterns: {'/dialog*'}, // routes to exclude from tracking (exact or trailing *)
+    routeHistoryCapacity: 20,          // max route sessions retained (FIFO)
   ),
 );
 ```
@@ -263,9 +265,28 @@ final markdown = Sleuth.exportSummary(topN: 5);
 
 The dashboard includes an export button that copies the JSON snapshot to the clipboard, and a "Copy conversation" button on the AI chat page that serializes the full thread.
 
-Exports include recurrence trends (per-issue worsening/improving/stable/intermittent) and widget heat map (top offending widgets by cumulative ranking score).
+Exports include recurrence trends (per-issue worsening/improving/stable/intermittent), widget heat map (top offending widgets by cumulative ranking score), and per-route health data (FPS, jank ratio, issue counts, health scores).
 
 Returns `null` in release mode, before `track()` is called, or after overlay disposal.
+
+## Route Scoping
+
+Sleuth passively detects route changes via the element tree — no `NavigatorObserver` needed. Each route gets its own `RouteSession` with per-route FPS, jank ratio, issue snapshots, and a composite health score (0–100).
+
+```dart
+// Access route history programmatically
+final history = Sleuth.routeHistory; // List<RouteSession>?
+final score = Sleuth.routeHealthScore('/settings'); // int?
+```
+
+Route health data is included in both JSON and markdown exports. Configure route tracking:
+
+```dart
+SleuthConfig(
+  routeIgnorePatterns: {'/dialog*', '/splash'}, // skip ephemeral routes
+  routeHistoryCapacity: 20,                      // max sessions retained
+)
+```
 
 ## Confidence Levels
 
@@ -332,6 +353,7 @@ Issues include a confidence level reflecting evidence quality:
 - **Fix verification**: capture baseline → fix → compare. Cooldown-based resolution with hot-reload grace period
 - **Historical trending**: per-issue recurrence time-series tracks worsening/improving/stable/intermittent patterns across scan cycles
 - **Widget heat map**: "top offenders" ranking aggregates issues by widget, filtering framework internals
+- **Per-route health scores**: passive route detection (no NavigatorObserver) with per-route FPS, jank ratio, issue aggregation, and composite health score — see which screens are degraded
 - **Network monitoring**: in-app detection of slow requests, request floods, oversized responses, HTTP error spikes, duplicate request clusters, and network-to-frame correlation
 - **Heap trend monitoring**: detects sustained memory growth and near-capacity conditions without heap snapshots
 - **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed

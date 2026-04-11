@@ -1199,7 +1199,7 @@ void main() {
   });
 
   group('SessionSnapshot v2 fields', () {
-    test('schemaVersion defaults to 2 for new snapshots', () {
+    test('schemaVersion defaults to 4 for new snapshots', () {
       final snapshot = SessionSnapshot(
         exportedAt: DateTime.utc(2026, 3, 30),
         capturedFrames: const [],
@@ -1212,8 +1212,8 @@ void main() {
         ),
       );
 
-      expect(snapshot.schemaVersion, 2);
-      expect(snapshot.toJson()['schemaVersion'], 2);
+      expect(snapshot.schemaVersion, 4);
+      expect(snapshot.toJson()['schemaVersion'], 4);
     });
 
     test('fromJson without schemaVersion defaults to 1', () {
@@ -1235,6 +1235,7 @@ void main() {
 
     test('roundtrip with all v2 fields', () {
       final snapshot = SessionSnapshot(
+        schemaVersion: 2,
         exportedAt: DateTime.utc(2026, 3, 30),
         capturedFrames: const [],
         currentIssues: const [],
@@ -1337,10 +1338,12 @@ void main() {
       expect(json.containsKey('gcEvents'), isFalse);
       expect(json.containsKey('platformChannelEvents'), isFalse);
       expect(json.containsKey('recentFrames'), isFalse);
+      expect(json.containsKey('routeSessions'), isFalse);
     });
 
     test('JSON string roundtrip preserves v2 schema', () {
       final snapshot = SessionSnapshot(
+        schemaVersion: 2,
         exportedAt: DateTime.utc(2026, 3, 30),
         capturedFrames: const [],
         currentIssues: const [],
@@ -1730,6 +1733,132 @@ void main() {
 
       final json = snapshot.toJson();
       expect(json.containsKey('sessionSummary'), isFalse);
+    });
+  });
+
+  group('SessionSnapshot v4 routeSessions', () {
+    test('roundtrip with routeSessions', () {
+      final routeSessions = [
+        {
+          'routeName': '/home',
+          'startedAt': '2026-04-11T10:00:00.000Z',
+          'endedAt': '2026-04-11T10:03:42.000Z',
+          'healthScore': 92,
+          'durationSeconds': 222,
+          'scanCycles': 20,
+          'frameStats': {
+            'totalFrames': 45,
+            'jankFrames': 0,
+            'averageFps': 60.0,
+          },
+          'issueCount': 0,
+          'criticalCount': 0,
+          'warningCount': 0,
+          'issues': <String>[],
+        },
+        {
+          'routeName': '/settings',
+          'startedAt': '2026-04-11T10:03:42.000Z',
+          'healthScore': 72,
+          'durationSeconds': 134,
+          'scanCycles': 14,
+          'frameStats': {
+            'totalFrames': 30,
+            'jankFrames': 2,
+            'averageFps': 57.3,
+          },
+          'issueCount': 3,
+          'criticalCount': 1,
+          'warningCount': 2,
+          'issues': [
+            'rebuild_debug_SettingsPage',
+            'opacity_zero',
+            'heavy_build'
+          ],
+        },
+      ];
+
+      final snapshot = SessionSnapshot(
+        schemaVersion: 4,
+        exportedAt: DateTime.utc(2026, 4, 11, 10, 5),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 75,
+          jankFrames: 2,
+          averageFps: 58.5,
+          worstFrameTimeUs: 34000,
+        ),
+        routeSessions: routeSessions,
+      );
+
+      final json = snapshot.toJson();
+      expect(json['schemaVersion'], 4);
+      expect(json.containsKey('routeSessions'), isTrue);
+      expect(json['routeSessions'], hasLength(2));
+
+      final restored = SessionSnapshot.fromJson(json);
+      expect(restored.schemaVersion, 4);
+      expect(restored.routeSessions, isNotNull);
+      expect(restored.routeSessions, hasLength(2));
+      expect(restored.routeSessions![0]['routeName'], '/home');
+      expect(restored.routeSessions![0]['healthScore'], 92);
+      expect(restored.routeSessions![1]['routeName'], '/settings');
+      expect(restored.routeSessions![1]['issueCount'], 3);
+      expect(restored.routeSessions![1]['criticalCount'], 1);
+    });
+
+    test('routeSessions null for v3 JSON (backward compat)', () {
+      final json = {
+        'schemaVersion': 3,
+        'exportedAt': '2026-04-11T00:00:00.000Z',
+        'capturedFrames': <dynamic>[],
+        'currentIssues': <dynamic>[],
+        'frameStatsSummary': {
+          'totalFrames': 0,
+          'jankFrames': 0,
+          'averageFps': 0.0,
+          'worstFrameTimeUs': 0,
+        },
+      };
+
+      final snapshot = SessionSnapshot.fromJson(json);
+      expect(snapshot.routeSessions, isNull);
+    });
+
+    test('toJson omits routeSessions when null', () {
+      final snapshot = SessionSnapshot(
+        exportedAt: DateTime.utc(2026, 4, 11),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 0,
+          jankFrames: 0,
+          averageFps: 0,
+          worstFrameTimeUs: 0,
+        ),
+      );
+
+      final json = snapshot.toJson();
+      expect(json.containsKey('routeSessions'), isFalse);
+    });
+
+    test('toJson omits routeSessions when empty list', () {
+      final snapshot = SessionSnapshot(
+        exportedAt: DateTime.utc(2026, 4, 11),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 0,
+          jankFrames: 0,
+          averageFps: 0,
+          worstFrameTimeUs: 0,
+        ),
+        routeSessions: const [],
+      );
+
+      final json = snapshot.toJson();
+      expect(json.containsKey('routeSessions'), isFalse);
     });
   });
 }

@@ -1,3 +1,55 @@
+## 0.14.0
+
+Route Scoping — per-route FPS, issue aggregation, health scores, and export.
+Data model and programmatic API retained; overlay UI (filter bar, summary row)
+removed after on-device review revealed UX limitations (historical issues not
+surfaceable as cards, making route filtering misleading). One adversarial review
+round, 5 findings fixed.
+
+### Added
+
+- **`RouteSession` model**: Per-route statistics accumulated while a route is the
+  active scan target. Includes `healthScore` (0–100 composite: FPS 40pts + jank
+  30pts + issues 30pts, normalised to `fpsTarget`), per-route `FrameStatsBuffer`,
+  issue snapshots, scan cycle count, and `toJson()` serialisation.
+- **Passive route detection**: Route changes detected via element tree walk during
+  the unified scan pass — no `NavigatorObserver` required. Works with any router
+  (go_router, auto_route, Beamer, etc.). Unnamed routes get synthetic
+  `<unnamed-N>` names.
+- **`Sleuth.routeHistory` static API**: Returns the list of `RouteSession` objects
+  observed since monitoring started. Null if Sleuth is not initialised.
+- **`Sleuth.routeHealthScore()` static API**: Returns the health score for a
+  specific route by name. Null if route not found or Sleuth not initialised.
+- **`SleuthConfig.routeIgnorePatterns`**: Set of route name patterns to exclude
+  from tracking. Supports exact match and trailing `*` wildcard (e.g.,
+  `/dialog*`).
+- **`SleuthConfig.routeHistoryCapacity`**: Maximum sessions retained in the route
+  history ring buffer (default 20).
+- **`SleuthConfig.copyWith()`**: Full copy-with covering all 28 config fields,
+  including the 2 new route fields. Uses `_sentinel` pattern for nullable field
+  overrides.
+- **Schema v4 export**: `SessionSnapshot.routeSessions` field with per-route
+  frame stats, issue counts, health scores, and FPS percentiles.
+- **"Route Health" markdown table**: `Sleuth.exportSummary()` includes a route
+  health section with health-dot indicators, FPS, issue counts, and duration.
+
+### Changed
+
+- **Export FPS clamped to `fpsTarget`**: Global and per-route `averageFps` and
+  FPS percentiles (p50/p95/p99) are now clamped to `fpsTarget` at every export
+  surface. Prevents ProMotion 120Hz idle screens from reporting misleading values
+  above the configured target.
+- **`packageVersion` updated**: `'0.12.1'` → `'0.14.0'` in export snapshot.
+
+### Removed
+
+- **Route filter bar and summary row**: Overlay UI for route filtering was
+  removed after on-device review. Historical issues are not surfaceable as
+  overlay cards (only live issues appear), making the filter UX misleading.
+  Data model, export, and programmatic API retained.
+- **Route chip theme tokens**: `routeChipBg`, `routeChipSelectedBg`,
+  `routeChipText`, `routeChipSelectedText` removed from `SleuthThemeData`.
+
 ## 0.13.1
 
 Dark/light mode toggle, design system tokens, Icons.pets brand icon, header

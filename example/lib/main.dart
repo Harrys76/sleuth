@@ -445,8 +445,13 @@ class _DemoTile extends StatelessWidget {
             ),
           ),
           trailing: const Icon(Icons.chevron_right),
-          onTap: () =>
-              Navigator.push(context, MaterialPageRoute(builder: demo.builder)),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              settings: RouteSettings(name: '/demo/${demo.title}'),
+              builder: demo.builder,
+            ),
+          ),
         ),
       ),
     );

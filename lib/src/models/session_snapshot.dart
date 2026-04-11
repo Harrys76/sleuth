@@ -18,7 +18,7 @@ class SessionSnapshot {
     required this.capturedFrames,
     required this.currentIssues,
     required this.frameStatsSummary,
-    this.schemaVersion = 2,
+    this.schemaVersion = 4,
     this.packageVersion = '',
     this.isVmConnected = false,
     this.isDebugMode = false,
@@ -33,6 +33,7 @@ class SessionSnapshot {
     this.widgetHeatMap,
     this.sessionSummary,
     this.startupMetrics,
+    this.routeSessions,
   });
 
   /// Schema version for forward-compatible parsing.
@@ -40,6 +41,7 @@ class SessionSnapshot {
   /// percentiles, ranking scores, and recent frames.
   /// v3: adds sessionSummary (top issues, causal edges, frame histogram,
   /// detector hit rates, memory trend summary).
+  /// v4: adds routeSessions (per-route health, FPS, issues).
   final int schemaVersion;
 
   /// Wall-clock time when this snapshot was exported.
@@ -110,6 +112,11 @@ class SessionSnapshot {
   /// Null when [Sleuth.init] was not called or the first frame has not rendered.
   final StartupMetrics? startupMetrics;
 
+  /// Per-route session data for route-scoped analysis (v4).
+  /// Each entry is a pre-serialized route session summary.
+  /// Null for v1/v2/v3 snapshots or when no route history exists.
+  final List<Map<String, dynamic>>? routeSessions;
+
   Map<String, dynamic> toJson() => {
         'schemaVersion': schemaVersion,
         'exportedAt': exportedAt.toIso8601String(),
@@ -140,6 +147,8 @@ class SessionSnapshot {
         if (sessionSummary != null && sessionSummary!.isNotEmpty)
           'sessionSummary': sessionSummary,
         if (startupMetrics != null) 'startupMetrics': startupMetrics!.toJson(),
+        if (routeSessions != null && routeSessions!.isNotEmpty)
+          'routeSessions': routeSessions,
       };
 
   /// Pretty-printed JSON string for export/sharing.
@@ -198,6 +207,11 @@ class SessionSnapshot {
         startupMetrics: json['startupMetrics'] != null
             ? StartupMetrics.fromJson(
                 json['startupMetrics'] as Map<String, dynamic>)
+            : null,
+        routeSessions: json['routeSessions'] != null
+            ? (json['routeSessions'] as List<dynamic>)
+                .map((e) => e as Map<String, dynamic>)
+                .toList()
             : null,
       );
 }

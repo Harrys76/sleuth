@@ -23,8 +23,8 @@ void main() {
     test('returns valid SessionSnapshot with metadata', () {
       final snapshot = controller.exportSnapshot();
 
-      expect(snapshot.packageVersion, '0.12.1');
-      expect(snapshot.schemaVersion, 3);
+      expect(snapshot.packageVersion, '0.14.0');
+      expect(snapshot.schemaVersion, 4);
       expect(snapshot.capturedFrames, isEmpty);
       expect(snapshot.currentIssues, isEmpty);
       expect(snapshot.frameStatsSummary.totalFrames, 0);
@@ -241,12 +241,12 @@ void main() {
       expect(controller.platformChannelBufferForTest, hasLength(2));
     });
 
-    test('export includes schemaVersion 3', () {
+    test('export includes schemaVersion 4', () {
       final snapshot = controller.exportSnapshot();
-      expect(snapshot.schemaVersion, 3);
+      expect(snapshot.schemaVersion, 4);
 
       final json = snapshot.toJson();
-      expect(json['schemaVersion'], 3);
+      expect(json['schemaVersion'], 4);
     });
 
     test('export includes phaseEvents when buffer non-empty', () {
@@ -362,7 +362,7 @@ void main() {
       final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
       final restored = SessionSnapshot.fromJson(decoded);
 
-      expect(restored.schemaVersion, 3);
+      expect(restored.schemaVersion, 4);
       expect(restored.recentFrames, hasLength(5));
       expect(restored.phaseEvents, isNotNull);
       expect(restored.gcEvents, isNotNull);

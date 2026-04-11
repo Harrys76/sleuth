@@ -76,6 +76,34 @@ class SessionMarkdownExporter {
       buf.writeln();
     }
 
+    // Route health
+    final routes = snapshot.routeSessions;
+    if (routes != null && routes.isNotEmpty) {
+      buf.writeln('## Route Health');
+      buf.writeln('| Route | Score | FPS | Issues | Time |');
+      buf.writeln('|-------|-------|-----|--------|------|');
+      for (final r in routes) {
+        final name = _escape(r['routeName'] as String? ?? '?');
+        final score = r['healthScore'] as int? ?? 0;
+        final dot = score >= 80
+            ? '\u{1F7E2}'
+            : score >= 50
+                ? '\u{1F7E1}'
+                : '\u{1F534}';
+        final fps = r['frameStats'] is Map
+            ? (r['frameStats'] as Map)['averageFps'] ?? '-'
+            : '-';
+        final issueCount = r['issueCount'] as int? ?? 0;
+        final criticalCount = r['criticalCount'] as int? ?? 0;
+        final issues =
+            criticalCount > 0 ? '$issueCount ($criticalCount!)' : '$issueCount';
+        final durationSec = r['durationSeconds'] as int? ?? 0;
+        final time = _formatDuration(durationSec);
+        buf.writeln('| $name | $score $dot | $fps | $issues | $time |');
+      }
+      buf.writeln();
+    }
+
     // Top issues
     final top = snapshot.currentIssues.take(topN).toList();
     if (top.isNotEmpty) {
@@ -113,6 +141,13 @@ class SessionMarkdownExporter {
       '${ts.hour.toString().padLeft(2, '0')}:'
       '${ts.minute.toString().padLeft(2, '0')}:'
       '${ts.second.toString().padLeft(2, '0')}';
+
+  static String _formatDuration(int totalSeconds) {
+    if (totalSeconds < 60) return '${totalSeconds}s';
+    final m = totalSeconds ~/ 60;
+    final s = totalSeconds % 60;
+    return s > 0 ? '${m}m ${s.toString().padLeft(2, '0')}s' : '${m}m';
+  }
 
   static String _escape(String s) => s
       .replaceAll(r'\', r'\\')

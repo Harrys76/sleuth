@@ -707,7 +707,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
         final allIds = {
           for (final i in issues) i.stableId ?? i.title,
         };
-        final visibleIssues = issues
+        var visibleIssues = issues
             .where(
                 (i) => i.rootCauseId == null || !allIds.contains(i.rootCauseId))
             .toList();

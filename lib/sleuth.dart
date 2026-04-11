@@ -60,6 +60,7 @@ import 'package:flutter/widgets.dart';
 
 import 'src/controller/sleuth_controller.dart';
 import 'src/models/fix_verification_result.dart';
+import 'src/models/route_session.dart';
 import 'src/models/session_snapshot.dart';
 import 'src/models/startup_metrics.dart';
 import 'src/ui/sleuth_overlay.dart';
@@ -96,6 +97,7 @@ export 'src/network/request_record.dart';
 export 'src/utils/fix_hint_builder.dart';
 export 'src/utils/session_markdown_exporter.dart';
 export 'src/models/startup_metrics.dart';
+export 'src/models/route_session.dart';
 
 /// Entry point for the Sleuth package.
 ///
@@ -409,6 +411,25 @@ class Sleuth {
   /// Pass [topN] to override the issue count (capped at 20).
   static String? exportSummary({int topN = 5}) =>
       _controller?.exportSummary(topN: topN);
+
+  /// Per-route session history. Returns null if Sleuth is not initialized.
+  ///
+  /// Each [RouteSession] contains per-route FPS, issue snapshots, and a
+  /// composite [RouteSession.healthScore]. The list is ordered chronologically
+  /// (oldest first) and capped at [SleuthConfig.routeHistoryCapacity].
+  static List<RouteSession>? get routeHistory =>
+      _controller?.routeHistoryNotifier.value;
+
+  /// Health score for a specific route. Returns null if the route has not
+  /// been visited or Sleuth is not initialized.
+  ///
+  /// The score ranges from 0 (severely degraded) to 100 (perfect).
+  static int? routeHealthScore(String routeName) {
+    return _controller?.routeHistoryNotifier.value
+        .cast<RouteSession?>()
+        .firstWhere((s) => s?.routeName == routeName, orElse: () => null)
+        ?.healthScore;
+  }
 
   /// Update the overlay theme at runtime.
   ///

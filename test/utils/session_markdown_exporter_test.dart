@@ -219,6 +219,162 @@ void main() {
     });
   });
 
+  group('Route Health table in markdown', () {
+    test('renders route health table when routeSessions present', () {
+      final snapshot = makeSnapshot();
+      final withRoutes = SessionSnapshot(
+        exportedAt: snapshot.exportedAt,
+        capturedFrames: snapshot.capturedFrames,
+        currentIssues: snapshot.currentIssues,
+        frameStatsSummary: snapshot.frameStatsSummary,
+        packageVersion: snapshot.packageVersion,
+        routeSessions: [
+          {
+            'routeName': '/home',
+            'healthScore': 92,
+            'durationSeconds': 222,
+            'frameStats': {'averageFps': 60.0},
+            'issueCount': 0,
+            'criticalCount': 0,
+          },
+          {
+            'routeName': '/settings',
+            'healthScore': 72,
+            'durationSeconds': 134,
+            'frameStats': {'averageFps': 57.3},
+            'issueCount': 3,
+            'criticalCount': 1,
+          },
+          {
+            'routeName': '/checkout',
+            'healthScore': 41,
+            'durationSeconds': 68,
+            'frameStats': {'averageFps': 38.0},
+            'issueCount': 5,
+            'criticalCount': 2,
+          },
+        ],
+      );
+
+      final md = SessionMarkdownExporter.render(withRoutes, topN: 5);
+
+      expect(md, contains('## Route Health'));
+      expect(md, contains('| Route | Score | FPS | Issues | Time |'));
+      // Green dot for score 92
+      expect(md, contains('/home'));
+      expect(md, contains('92 \u{1F7E2}'));
+      // Amber dot for score 72
+      expect(md, contains('/settings'));
+      expect(md, contains('72 \u{1F7E1}'));
+      expect(md, contains('3 (1!)'));
+      // Red dot for score 41
+      expect(md, contains('/checkout'));
+      expect(md, contains('41 \u{1F534}'));
+      expect(md, contains('5 (2!)'));
+    });
+
+    test('route health table omitted when routeSessions null', () {
+      final snapshot = makeSnapshot();
+      final md = SessionMarkdownExporter.render(snapshot, topN: 5);
+
+      expect(md, isNot(contains('## Route Health')));
+    });
+
+    test('route health table omitted when routeSessions empty', () {
+      final snapshot = SessionSnapshot(
+        exportedAt: DateTime(2026, 4, 9, 14, 23, 11),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 100,
+          jankFrames: 2,
+          averageFps: 58.3,
+          worstFrameTimeUs: 34000,
+        ),
+        packageVersion: '0.12.0',
+        routeSessions: const [],
+      );
+      final md = SessionMarkdownExporter.render(snapshot, topN: 5);
+
+      expect(md, isNot(contains('## Route Health')));
+    });
+
+    test('route health duration formatting', () {
+      final snapshot = SessionSnapshot(
+        exportedAt: DateTime(2026, 4, 9),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 0,
+          jankFrames: 0,
+          averageFps: 0,
+          worstFrameTimeUs: 0,
+        ),
+        routeSessions: [
+          {
+            'routeName': '/short',
+            'healthScore': 100,
+            'durationSeconds': 45,
+            'frameStats': {'averageFps': 60.0},
+            'issueCount': 0,
+            'criticalCount': 0,
+          },
+          {
+            'routeName': '/long',
+            'healthScore': 80,
+            'durationSeconds': 185,
+            'frameStats': {'averageFps': 59.0},
+            'issueCount': 0,
+            'criticalCount': 0,
+          },
+          {
+            'routeName': '/exact',
+            'healthScore': 90,
+            'durationSeconds': 120,
+            'frameStats': {'averageFps': 60.0},
+            'issueCount': 0,
+            'criticalCount': 0,
+          },
+        ],
+      );
+      final md = SessionMarkdownExporter.render(snapshot, topN: 5);
+
+      // 45 seconds → "45s"
+      expect(md, contains('45s'));
+      // 185 seconds → "3m 05s"
+      expect(md, contains('3m 05s'));
+      // 120 seconds → "2m" (no seconds when 0)
+      expect(md, contains('2m |'));
+    });
+
+    test('route health escapes special chars in route name', () {
+      final snapshot = SessionSnapshot(
+        exportedAt: DateTime(2026, 4, 9),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 0,
+          jankFrames: 0,
+          averageFps: 0,
+          worstFrameTimeUs: 0,
+        ),
+        routeSessions: [
+          {
+            'routeName': '/path|with<special>',
+            'healthScore': 80,
+            'durationSeconds': 60,
+            'frameStats': {'averageFps': 60.0},
+            'issueCount': 0,
+            'criticalCount': 0,
+          },
+        ],
+      );
+      final md = SessionMarkdownExporter.render(snapshot, topN: 5);
+
+      expect(md, contains(r'/path\|with\<special\>'));
+    });
+  });
+
   group('startup engine phases in markdown', () {
     test('includes engine lines when startup metrics have engine data', () {
       final snapshot = SessionSnapshot(

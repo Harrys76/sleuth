@@ -178,3 +178,6 @@ The full spec is split by roadmap era. Each file is self-contained.
 | [spec_v10.md](spec_v10.md) | 820 | **v10: performance, accuracy & enrichment (12 milestones)** | **All shipped** |
 | [spec_v11.md](spec_v11.md) | 1500+ | **v11: detector audit (19) + Pillar 2a (3) + 2b (4) + 3a (5) + 3b (4) + 4 (10) + 5.1 (7) + 5.2 (7) + 6.1 (7) + 6.2 (8)** | **All shipped** |
 | [spec_ui_features.md](spec_ui_features.md) | 180 | UI features: Issue Encyclopedia, AI Chat, IssueCard shimmer, overlay polish | All shipped |
+| — | — | **v0.13.0: Startup Performance Tracing** (Sleuth.init/markInteractive, StartupDetector, TTFF/TTI) | **All shipped** |
+| — | — | **v0.13.1: Dark/light mode toggle, design system tokens, Icons.pets brand icon** | **All shipped** |
+| — | — | **v0.14.0: Route Scoping** (RouteSession model, passive route detection, per-route FPS/health, schema v4 export, copyWith, route config) | **All shipped** |
