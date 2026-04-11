@@ -1,8 +1,9 @@
 ## 0.13.1
 
-Dark/light mode toggle, design system tokens, header optimization, and
-false-positive fix. Three adversarial review rounds (general, theme
-performance + design system), all findings fixed.
+Dark/light mode toggle, design system tokens, Icons.pets brand icon, header
+optimization, false-positive fix, and GlobalKey demo reliability fix. Five
+adversarial review rounds (general ×2, theme performance + design system,
+icon migration, GlobalKey demo), all findings fixed.
 
 ### Added
 
@@ -58,6 +59,12 @@ performance + design system), all findings fixed.
 - **Hardcoded spacing values**: Replaced `SizedBox(width: 6)` in guide page
   and `SizedBox(width: 10)` in startup metrics page with design system tokens
   (`theme.spacingXs` and `theme.spacingSm` respectively).
+- **GlobalKey demo unreliable detection**: `itemExtent` reduced from 40 to 24dp
+  and `itemCount` increased from 30 to 40 so the realized GlobalKey count
+  reliably exceeds the >20 threshold on all phone sizes. The previous 40dp
+  items left the count at 21-22 on medium phones (barely above threshold) due
+  to DemoScaffold chrome (~220-300dp) and trailing-only cache at scroll
+  position 0 not being accounted for in the original calculation.
 
 ### Removed
 

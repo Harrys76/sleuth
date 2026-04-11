@@ -18,18 +18,26 @@ class GlobalKeyDemo extends StatefulWidget {
 }
 
 class _GlobalKeyDemoState extends State<GlobalKeyDemo> {
-  // 30 items with a compact 40pt itemExtent ensures that >20 keys are
+  // 40 items with a compact 24pt itemExtent ensures that >20 keys are
   // actually *realized* by ListView.builder on every viewport — even a
-  // small phone. The detector counts only realized children of the
-  // scrollable, so item height and cacheExtent interact with the count:
-  // with default 72pt Card+ListTile items and a ~481pt phone body, only
-  // ~13 items realize (viewport + 2×250pt cacheExtent) which is below
-  // the strict >20 threshold. 40pt tall items at 30 count realize ~24
-  // items on the smallest phone — safely above threshold.
-  static const _itemCount = 30;
-  static const double _itemExtent = 40.0;
+  // small phone with the DemoScaffold banner fully expanded.
+  //
+  // The detector counts only realized children of the scrollable, so
+  // item height, cacheExtent, AND DemoScaffold chrome height all affect
+  // the count. DemoScaffold chrome (toggle + expanded banner) consumes
+  // ~220-300dp depending on description length. On the smallest phone
+  // (~481dp body after AppBar) that leaves ~180-260dp for the ListView.
+  // At scroll position 0 only trailing cache (250dp) contributes, so:
+  //   realized ≈ (viewport + 250) / itemExtent
+  //   worst case: (180 + 250) / 24 = 17.9 → 17 items (below threshold)
+  //   typical:    (260 + 250) / 24 = 21.3 → 21 items (above threshold)
+  // With 2×cache (mid-scroll): (260 + 500) / 24 = 31.7 → capped at 40.
+  // 24dp is the sweet spot: fires reliably on all phones ≥ iPhone SE
+  // with the banner expanded, and always fires with banner collapsed.
+  static const _itemCount = 40;
+  static const double _itemExtent = 24.0;
 
-  // ❌ 30 GlobalKeys allocated once in state — exceeds the >20 threshold
+  // ❌ 40 GlobalKeys allocated once in state — exceeds the >20 threshold
   // (GlobalKeyDetector default). They live on the State object (not
   // rebuilt on every build), which is already the recommended pattern
   // even when GlobalKeys *are* justified. The detector counts keys
@@ -46,7 +54,7 @@ class _GlobalKeyDemoState extends State<GlobalKeyDemo> {
     return DemoScaffold(
       title: 'GlobalKey Overuse',
       description:
-          '❌ BAD: $_itemCount GlobalKeys on list items (threshold is 20). '
+          '❌ BAD: $_itemCount GlobalKeys on list items (threshold: 20). '
           'GlobalKeys maintain an app-wide registry and make tree reparenting '
           'expensive. They also block common optimisations like list item '
           'recycling.\n'
@@ -82,8 +90,9 @@ class _GlobalKeyDemoState extends State<GlobalKeyDemo> {
   }
 }
 
-/// Compact row widget sized to a 40pt itemExtent so >20 items can be
-/// realized inside the default ListView cacheExtent window on any phone.
+/// Compact row widget sized to a 24pt itemExtent so >20 items can be
+/// realized inside the default ListView cacheExtent window on any phone,
+/// even with the DemoScaffold banner fully expanded.
 ///
 /// The class intentionally has a public (non-underscore) name because
 /// [GlobalKeyDetector] filters out widget types whose name starts with
@@ -105,23 +114,23 @@ class CompactRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(4),
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
             children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 12),
+              Icon(icon, size: 12, color: color),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   label,
                   style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 11,
                     fontWeight: FontWeight.w500,
                   ),
                   overflow: TextOverflow.ellipsis,
