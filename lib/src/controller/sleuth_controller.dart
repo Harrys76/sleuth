@@ -3,7 +3,7 @@ import 'dart:collection';
 
 import 'package:flutter/cupertino.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show Scaffold;
+import 'package:flutter/material.dart' show Scaffold, TabBarView;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
@@ -320,7 +320,8 @@ class SleuthController {
 
   // -- Route session tracking --
 
-  /// Per-route session history, bounded to 20 entries (FIFO eviction).
+  /// Per-route session history, bounded by [SleuthConfig.routeHistoryCapacity]
+  /// (default 50; FIFO eviction).
   final Queue<RouteSession> _routeHistory = Queue<RouteSession>();
 
   /// The currently active route session. Null before the first scan.
@@ -329,6 +330,23 @@ class SleuthController {
   /// Counter for synthetic names assigned to unnamed routes.
   // ignore: prefer_final_fields
   int _unnamedRouteCounter = 0;
+
+  /// Maps a scaffold hash (null for scaffold-free) to the stable unnamed-route
+  /// ordinal assigned the first time the controller saw that hash under a
+  /// null `routeName`. Without this, tab-switching between two unnamed tabs
+  /// churned the counter (`<unnamed-1>`, `<unnamed-2>`, `<unnamed-3>`, ... on
+  /// every back-and-forth). With it, each tab keeps its original unnamed id, and
+  /// returning to a previously-seen tab uses its cached label.
+  ///
+  /// Cleared on hot reload by [_reassembleInternal] — old hashes are stale
+  /// once Elements rotate.
+  final Map<int?, int> _unnamedIdByHash = <int?, int>{};
+
+  /// Debug-only hot-reload generation stamped on every [RouteSession] created
+  /// while this value is non-zero. Incremented by [_reassembleInternal] each
+  /// time Flutter's reassemble fires. `0` in profile/release mode and before
+  /// the first reload.
+  int _hotReloadGeneration = 0;
 
   /// Notifies listeners when route history changes (new session created or
   /// old session evicted). Value is an unmodifiable snapshot.
@@ -989,6 +1007,20 @@ class SleuthController {
   @visibleForTesting
   bool get isScaffoldFreeScanForTest => _isScaffoldFreeScan;
 
+  /// Exposes the internal [NetworkMonitorDetector] so tests can feed synthetic
+  /// [RequestRecord]s and assert buffer-clear behavior on tab switches / route
+  /// transitions.
+  @visibleForTesting
+  NetworkMonitorDetector get networkMonitorForTest => _networkMonitor;
+
+  /// Exposes [_lastScanContext] so tests can verify a scan went down the
+  /// happy path (non-null) vs. the navigating sentinel path (null). Without
+  /// this, a test that asserts "buffer cleared after tab switch" cannot
+  /// distinguish the Scaffold-hash clear from a sentinel-path clear caused by
+  /// a regression in the visibility filter.
+  @visibleForTesting
+  BuildContext? get lastScanContextForTest => _lastScanContext;
+
   /// Exposes navigator-found flag for testing.
   @visibleForTesting
   bool get navigatorFoundForTest => _navigatorFound;
@@ -1005,9 +1037,10 @@ class SleuthController {
   @visibleForTesting
   RouteSession? get activeRouteSessionForTest => _activeRouteSession;
 
-  /// Exposes the unnamed route counter for testing.
+  /// Read-only snapshot of the route history deque for testing.
   @visibleForTesting
-  int get unnamedRouteCounterForTest => _unnamedRouteCounter;
+  List<RouteSession> get routeHistoryForTest =>
+      List.unmodifiable(_routeHistory);
 
   /// Build a session snapshot for programmatic use.
   ///
@@ -1072,7 +1105,7 @@ class SleuthController {
         worstFrameTimeUs: worstUs,
         fpsPercentiles: percentiles,
       ),
-      packageVersion: '0.14.0',
+      packageVersion: '0.14.1',
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
       recentRequests: _initialized &&
@@ -1300,6 +1333,7 @@ class SleuthController {
       _postReassembleGraceCycles = _reassembleGraceCycles;
       _fixBaseline!.consecutiveAbsentCycles.clear();
     }
+    _reassembleInternal();
   }
 
   /// The overlay element — set by the overlay widget.
@@ -1331,6 +1365,35 @@ class SleuthController {
   /// Identity hash from the previous scan — for route-stability detection.
   /// NEVER reset by the navigating sentinel — persists across sentinel cycles.
   int _lastActiveEntryHash = 0;
+
+  /// Identity hash of the innermost visible Scaffold Element resolved on the
+  /// most recent [_findVisiblePageContext] call. `null` when the path resolved
+  /// without a Scaffold (scaffold-free scan) or when context was null
+  /// (transition sentinel) or before the first scan.
+  ///
+  /// Used to detect tab switches in `IndexedStack`-based bottom nav (including
+  /// `StatefulShellRoute.indexedStack`): every tab shares one Navigator route,
+  /// so `_currentRouteName()` is identical across tabs. Each tab does own a
+  /// distinct Scaffold Element though, so a non-null hash change between two
+  /// successful scans signals that the user-visible page swapped without a
+  /// route push. [_scanTree] uses this to flush the network-monitor buffer so
+  /// the previous tab's HTTP records don't bleed into the new tab's frequency
+  /// threshold.
+  ///
+  /// Also used as the `scaffoldHashKey` half of [RouteSession]'s compound key
+  /// so tabs under a shared `ModalRoute` get per-tab RouteSessions.
+  ///
+  /// `int?` rather than `int`: `identityHashCode` nominally never returns 0,
+  /// but relying on 0 as a sentinel overloaded three distinct states (unset,
+  /// scaffold-free, post-transition reset) and made it impossible to
+  /// distinguish them in the session-keying predicate.
+  int? _currentVisibleScaffoldHash;
+
+  /// Previous scan's value of [_currentVisibleScaffoldHash] — rolled forward
+  /// at the end of each successful scan. Reset to `null` on the null-context
+  /// sentinel so a real route transition (already handled by that path) is
+  /// not double-counted as a tab switch on the next non-null scan.
+  int? _lastVisibleScaffoldHash;
 
   /// Cached NotificationListener element wrapping widget.child — used as
   /// scan root for static scaffold-free apps (no Navigator).
@@ -1426,6 +1489,11 @@ class SleuthController {
         if (d is SetStateScopeDetector) d.clearSnapshots();
       }
       _networkMonitor.clearRecords();
+      // Real route transition just fired clearRecords; reset the tab-switch
+      // baseline so the first non-null scan after the transition doesn't
+      // redundantly re-clear against a stale hash from the pre-transition
+      // page.
+      _lastVisibleScaffoldHash = null;
       return;
     }
     // Navigation complete — return to idle
@@ -1434,28 +1502,67 @@ class SleuthController {
     }
     _lastScanContext = scanContext;
 
-    // -- Route session tracking --
-    // Detect route changes by comparing the current route name against the
-    // active session. Creates a new RouteSession on change and resets the
-    // adaptive scan back-off so fresh pages are scanned at base frequency.
+    // -- Tab-switch detection (same route, different visible Scaffold) --
     //
-    // The unnamed-route counter is deferred: it only increments when we
-    // actually detect a route change to an unnamed route. This prevents
-    // creating a new session on every scan cycle when the route name is null
-    // (common with go_router path-only routes, dialog routes, etc.).
+    // IndexedStack (and StatefulShellRoute.indexedStack) swaps children via
+    // its `index` property — no route push, no Navigator notification. Below,
+    // the route-change block compares [_currentRouteName()], which reads
+    // [ModalRoute.of] on the scan context: all tabs share one Navigator
+    // route, so that comparison cannot detect the swap. The network-monitor
+    // buffer would therefore persist across tab switches and any cumulative
+    // traffic from the previous tab counts toward the new tab's 30-req/5s
+    // frequency-spike threshold, producing misattributed issues.
+    //
+    // Each tab owns a distinct innermost Scaffold Element, so a hash change
+    // between two successful scans (both non-null) is a reliable tab-switch
+    // signal. Rebuilds of the same tab keep Element identity stable — this
+    // does not false-fire on normal setState.
+    final cur = _currentVisibleScaffoldHash;
+    final last = _lastVisibleScaffoldHash;
+    if (cur != null && last != null && cur != last) {
+      _networkMonitor.clearRecords();
+      _consecutiveCleanScans = 0;
+    }
+    _lastVisibleScaffoldHash = cur;
+
+    // -- Route session tracking --
+    // Detect session boundaries by comparing the compound key
+    // (routeName, scaffoldHashKey) against the active session. Creates a new
+    // RouteSession whenever either half of the key changes, so that:
+    //   - a real route push triggers a new session (name change), AND
+    //   - a tab swap under a shared ModalRoute — IndexedStack,
+    //     StatefulShellRoute.indexedStack, CupertinoTabScaffold — also
+    //     triggers a new session (scaffold-hash change) even though the name
+    //     is identical.
+    //
+    // The unnamed-route counter is stable per scaffold hash: the first time
+    // we see a null routeName under a given scaffold, we mint an ordinal and
+    // cache it in [_unnamedIdByHash]. Returning to the same (null-name, hash)
+    // pair reuses the cached id. Without this, tab-switching between two
+    // unnamed tabs churned the counter on every back-and-forth.
     final currentName = _currentRouteName();
-    final routeChanged = _activeRouteSession == null ||
-        (currentName != null &&
-            _activeRouteSession!.routeName != currentName) ||
-        (currentName == null &&
-            !_activeRouteSession!.routeName.startsWith('<unnamed-'));
+    final currentHashKey = _currentVisibleScaffoldHash;
+    final active = _activeRouteSession;
+
+    final bool nameChanged = active == null ||
+        (currentName != null && active.routeName != currentName) ||
+        (currentName == null && !active.routeName.startsWith('<unnamed-'));
+    final bool hashChanged =
+        active != null && active.scaffoldHashKey != currentHashKey;
+    final routeChanged = nameChanged || hashChanged;
+
     if (routeChanged) {
-      _activeRouteSession?.endedAt = DateTime.now();
-      final newRoute = currentName ?? '<unnamed-${++_unnamedRouteCounter}>';
+      active?.endedAt = DateTime.now();
+      final newRoute =
+          currentName ?? '<unnamed-${_nextUnnamedId(currentHashKey)}>';
       // Skip session creation for ignored routes, but still reset back-off.
       if (!_isRouteIgnored(newRoute)) {
+        final visitIndex = _computeTabVisitIndex(newRoute, currentHashKey);
         _activeRouteSession = RouteSession(
           routeName: newRoute,
+          scaffoldHashKey: currentHashKey,
+          tabVisitIndex: visitIndex,
+          hotReloadGeneration: _hotReloadGeneration,
           startedAt: DateTime.now(),
           fpsTarget: config.fpsTarget,
         );
@@ -1520,6 +1627,10 @@ class SleuthController {
   }
 
   BuildContext? _findVisiblePageContext(BuildContext root) {
+    // Reset per-scan: only set non-null after we commit to a single
+    // innermost visible Scaffold below. Leaving it stale would silently
+    // suppress tab-switch detection on the next scan.
+    _currentVisibleScaffoldHash = null;
     final scaffolds = <Element>[];
 
     void visitor(Element element) {
@@ -1531,10 +1642,42 @@ class SleuthController {
       // Skip ticker-disabled subtrees — background Navigator routes
       if (widget is TickerMode && !widget.enabled) return;
 
+      // Skip invisible Visibility subtrees — inactive IndexedStack children.
+      // IndexedStack wraps every child in Visibility(maintainSize: true, ...)
+      // which uses a _Visibility render proxy (NOT Offstage/TickerMode), so
+      // the Offstage/TickerMode guards above do not filter inactive tabs.
+      // Without this skip, a bottom-nav app using IndexedStack for state
+      // preservation exposes every tab's Scaffold as a sibling, tripping
+      // the multi-scaffold guard below and aborting every scan.
+      if (widget is Visibility && !widget.visible) return;
+
       // Skip our own overlay widgets (v9.9: zero-allocation is checks)
       if (widget is FloatingIssuesCard ||
           widget is TriggerButton ||
           widget is HighlightOverlay) {
+        return;
+      }
+
+      // Stop Scaffold collection at TabBarView / PageView boundaries. Both
+      // widgets keep multiple "page" children alive simultaneously (TabBarView
+      // via its internal PageController, PageView via KeepAlive), and they do
+      // NOT mark inactive pages with Offstage / TickerMode / Visibility(!visible)
+      // — so the filters above cannot skip them. Descending collects every
+      // sub-page's Scaffold as a sibling, trips the multi-scaffold guard
+      // below, and aborts every scan while the user sits on an inline-tab or
+      // swipeable-pager screen.
+      //
+      // By stopping here, the outer Scaffold becomes the innermost visible
+      // one. Sub-tab swipes / TabBar changes keep that hash stable, so they
+      // stay within the outer route's RouteSession (no spurious session
+      // churn) and the scan root — still anchored above the outer Scaffold —
+      // walks into the active sub-page as usual, so detectors run normally.
+      //
+      // Bottom-nav shells (IndexedStack / StatefulShellRoute.indexedStack
+      // Visibility gate, CupertinoTabScaffold Offstage gate) are unaffected:
+      // they mark inactive tabs explicitly and the earlier filters skip them
+      // before collection ever reaches this point.
+      if (widget is TabBarView || widget is PageView) {
         return;
       }
 
@@ -1569,9 +1712,38 @@ class SleuthController {
       return _resolveAppChildContext(root);
     }
 
-    // Multiple visible Scaffolds = route transition in progress.
-    // Return null so the caller skips scanning during transitions.
-    if (scaffolds.length > 1) return null;
+    // Multiple visible Scaffolds — distinguish nested (legitimate app
+    // structure like a bottom-nav shell Scaffold wrapping a per-tab Scaffold)
+    // from sibling (a real route transition mid-animation, or two unrelated
+    // Scaffolds co-mounted).
+    //
+    // Pre-order traversal guarantees the outermost Scaffold appears first
+    // and the innermost appears last. If every earlier Scaffold is an
+    // ancestor of the innermost one, all visible Scaffolds lie on a single
+    // ancestor chain — that is nested, not a transition. Otherwise at least
+    // two Scaffolds are siblings (or in divergent subtrees), which is the
+    // signature of a real transition or unsafe multi-Scaffold layout.
+    if (scaffolds.length > 1) {
+      final innermost = scaffolds.last;
+      final ancestorSet = <Element>{};
+      innermost.visitAncestorElements((a) {
+        ancestorSet.add(a);
+        return true;
+      });
+      final allNested =
+          scaffolds.take(scaffolds.length - 1).every(ancestorSet.contains);
+      if (!allNested) return null; // Real transition / sibling scaffolds.
+      // Nested — treat the innermost Scaffold as the visible page.
+      scaffolds
+        ..clear()
+        ..add(innermost);
+    }
+
+    // At this point [scaffolds] has exactly one entry: the innermost visible
+    // Scaffold, which is the user's active page. Capture its identity so
+    // [_scanTree] can detect tab swaps that don't register as route changes
+    // (IndexedStack / StatefulShellRoute.indexedStack).
+    _currentVisibleScaffoldHash = identityHashCode(scaffolds.first);
 
     // Walk up from Scaffold to include the user's page widget in the scan.
     // Go one level past the user widget so visitChildElements includes it.
@@ -2488,6 +2660,77 @@ class SleuthController {
     return ModalRoute.of(ctx)?.settings.name;
   }
 
+  /// Returns a stable synthetic ordinal for an unnamed route under the given
+  /// scaffold hash. First lookup mints `++_unnamedRouteCounter` and caches it;
+  /// subsequent lookups for the same hash return the cached id. This keeps
+  /// `<unnamed-N>` labels stable across tab switches that return to a
+  /// previously-seen unnamed tab.
+  int _nextUnnamedId(int? hash) =>
+      _unnamedIdByHash.putIfAbsent(hash, () => ++_unnamedRouteCounter);
+
+  /// Returns `max(tabVisitIndex) + 1` across sessions in [_routeHistory] that
+  /// match the given `(routeName, scaffoldHashKey)` pair — i.e. the next
+  /// 1-indexed visit ordinal that cannot collide with any live entry.
+  /// Called when a new [RouteSession] is about to be created.
+  ///
+  /// Must use max+1, not count+1: with FIFO eviction via
+  /// `_routeHistory.removeFirst()`, count can produce a value that duplicates
+  /// an existing live entry. Example (cap=5): visit A seven times. After the
+  /// 6th add + eviction, history holds tabVisitIndex values [2,3,4,5,6]. A
+  /// count-based 7th visit would return 6, colliding with A₆. max+1 returns
+  /// 7, preserving uniqueness.
+  ///
+  /// O(routeHistory.length). With the default cap of 50, worst case is 50
+  /// comparisons per session boundary — negligible at scan frequency.
+  int _computeTabVisitIndex(String routeName, int? hashKey) {
+    int maxIndex = 0;
+    for (final s in _routeHistory) {
+      if (s.routeName == routeName && s.scaffoldHashKey == hashKey) {
+        if (s.tabVisitIndex > maxIndex) maxIndex = s.tabVisitIndex;
+      }
+    }
+    return maxIndex + 1;
+  }
+
+  /// Test-only hook that invokes the same reassemble handling as Flutter's
+  /// hot reload. Production callers go through [reassemble] via the framework.
+  @visibleForTesting
+  void reassembleForTest() => _reassembleInternal();
+
+  /// Read-only view of the hot-reload generation counter for tests.
+  @visibleForTesting
+  int get hotReloadGenerationForTest => _hotReloadGeneration;
+
+  /// Handle a Flutter hot reload: close the active session (so post-reload
+  /// frames/issues don't blend with pre-reload ones), stamp a new generation
+  /// on future sessions, flush caches that key off Element identity (which
+  /// may rotate on reload), and force the next scan to re-baseline the
+  /// tab-switch hash.
+  ///
+  /// Closing the active session matters even for non-structural reloads where
+  /// Element identity is preserved: without it, the session-keying predicate
+  /// in [scanTree] sees unchanged `routeName` + `scaffoldHashKey` and the
+  /// pre-reload session continues into post-reload, carrying a stale
+  /// [RouteSession.hotReloadGeneration] stamp and mixing frame samples
+  /// across the reload boundary.
+  ///
+  /// Does NOT purge [_routeHistory] — prior-reload sessions remain viewable,
+  /// grouped by their [RouteSession.hotReloadGeneration] stamp.
+  void _reassembleInternal() {
+    final active = _activeRouteSession;
+    if (active != null && active.endedAt == null) {
+      active.endedAt = DateTime.now();
+      // Republish history so listeners see the newly-closed session.
+      routeHistoryNotifier.value =
+          List<RouteSession>.unmodifiable(_routeHistory.toList());
+    }
+    _activeRouteSession = null;
+    _hotReloadGeneration++;
+    _unnamedIdByHash.clear();
+    _lastVisibleScaffoldHash = null;
+    _currentVisibleScaffoldHash = null;
+  }
+
   /// Returns true if [routeName] matches any pattern in
   /// [SleuthConfig.routeIgnorePatterns]. Supports exact match and trailing
   /// `*` wildcard.
@@ -2509,6 +2752,23 @@ class SleuthController {
     final correlated = _detectorCorrelator.correlate(all);
     final route = _currentRouteName();
 
+    // Pull session-keying context from the active RouteSession so issues
+    // stamped in this aggregation inherit its compound identity. Using the
+    // session (rather than live controller fields) keeps issue stamps in
+    // sync with the session record that owns their issueSnapshots entry —
+    // even if the user navigates mid-aggregation, everything stamped here
+    // lands on the same session.
+    final activeSession = _activeRouteSession;
+    final hashKey = activeSession?.scaffoldHashKey;
+    final tabIdx = activeSession?.tabVisitIndex;
+
+    // Stamp the RAW route name on each issue (no `(tab-N)` suffix). Callers
+    // that need a human-facing label use `PerformanceIssue.routeDisplayName`,
+    // which derives the suffix from `tabVisitIndex > 1` at render time.
+    // Baking the suffix into `routeName` would poison group-by-route keys and
+    // make a route literally named `"/x (tab-2)"` indistinguishable from a
+    // disambiguated tab-2 of `"/x"`.
+    //
     // Stamp debug disclaimer, route name, and interaction context, then
     // suppress user-dismissed issues — all in a single pass to avoid
     // intermediate list allocations (v9.12).
@@ -2519,6 +2779,8 @@ class SleuthController {
         debugModeDisclaimer: kDebugMode ? true : null,
         routeName: route,
         interactionContext: _interactionState,
+        scaffoldHashKey: hashKey,
+        tabVisitIndex: tabIdx,
       );
       if (config.suppressedIssues.isNotEmpty &&
           _matchesSuppression(stamped.stableId ?? stamped.title)) {
@@ -2860,7 +3122,7 @@ class SleuthConfig {
     this.triggerButtonAlignment = Alignment.topRight,
     this.triggerButtonOffset = const Offset(16, 64),
     this.routeIgnorePatterns = const {},
-    this.routeHistoryCapacity = 20,
+    this.routeHistoryCapacity = 50,
   })  : assert(
           fpsTarget >= 1 && fpsTarget <= 120,
           'fpsTarget must be between 1 and 120. '
@@ -3375,11 +3637,17 @@ class SleuthConfig {
 
   /// Maximum number of route sessions retained in the ring buffer.
   ///
-  /// **Default:** 20. At 20 sessions × ~60 frames × ~200 B per frame, the
-  /// memory footprint is bounded to ~240 KB for frame data alone.
+  /// **Default:** 50 (raised from 20 in v0.14.1 to accommodate per-tab
+  /// session tracking — bottom-nav apps using `IndexedStack` /
+  /// `StatefulShellRoute.indexedStack` / `CupertinoTabScaffold` now produce
+  /// one session per tab visit rather than one per route name, so a 5-tab
+  /// app with moderate switching exhausts a 20-cap within a few minutes).
   ///
-  /// **Raise this** if your app has many short-lived routes (e.g. nested
-  /// tab navigation) and you want to keep a longer history.
+  /// At 50 sessions × ~60 frames × ~200 B per frame, the frame-data footprint
+  /// is bounded to ~600 KB.
+  ///
+  /// **Raise this** if your app has many short-lived routes and you want to
+  /// keep a longer history.
   ///
   /// **Lower this** (minimum 1) to save memory in constrained environments.
   ///

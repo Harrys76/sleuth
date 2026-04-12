@@ -181,3 +181,4 @@ The full spec is split by roadmap era. Each file is self-contained.
 | — | — | **v0.13.0: Startup Performance Tracing** (Sleuth.init/markInteractive, StartupDetector, TTFF/TTI) | **All shipped** |
 | — | — | **v0.13.1: Dark/light mode toggle, design system tokens, Icons.pets brand icon** | **All shipped** |
 | — | — | **v0.14.0: Route Scoping** (RouteSession model, passive route detection, per-route FPS/health, schema v4 export, copyWith, route config) | **All shipped** |
+| — | — | **v0.14.1: Per-tab RouteSession** (`scaffoldHashKey` compound key, `tabVisitIndex`, `hotReloadGeneration`, `PerformanceIssue.routeDisplayName`, TabBarView/PageView boundary filter; one plan review + one post-impl adversarial review, 4 fixes: C1 eviction collision, C2 hot-reload leak, C3 routeName overwrite, E1 type-unsafe fromJson) | **All shipped** |

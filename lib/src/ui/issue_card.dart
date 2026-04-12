@@ -242,11 +242,11 @@ class _IssueCardState extends State<IssueCard> {
           fontSize: theme.fontMd,
         ),
       ),
-      if (issue.routeName != null)
+      if (issue.routeDisplayName != null)
         Padding(
           padding: EdgeInsets.only(top: theme.spacingXs),
           child: Text(
-            'Route: ${issue.routeName}',
+            'Route: ${issue.routeDisplayName}',
             style: TextStyle(
               color: theme.textTertiary,
               fontSize: theme.fontSm,

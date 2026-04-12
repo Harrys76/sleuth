@@ -284,9 +284,11 @@ Route health data is included in both JSON and markdown exports. Configure route
 ```dart
 SleuthConfig(
   routeIgnorePatterns: {'/dialog*', '/splash'}, // skip ephemeral routes
-  routeHistoryCapacity: 20,                      // max sessions retained
+  routeHistoryCapacity: 50,                      // max sessions retained (FIFO)
 )
 ```
+
+**Per-tab sessions for tab shells.** Bottom-nav apps using `IndexedStack`, `StatefulShellRoute.indexedStack`, or `CupertinoTabScaffold` share one `ModalRoute` across all tabs but give each tab its own `Scaffold`. Sleuth keys sessions on `(routeName, scaffoldHashKey)`, so every tab produces a distinct `RouteSession` instead of conflating tabs under a single route name. Repeat visits to the same tab are disambiguated via `tabVisitIndex` (1-indexed ordinal). Inline `TabBar` / `TabBarView` / `PageView` swipes within a single route stay inside the outer session. `PerformanceIssue.routeName` is preserved raw for group-by-route filtering — use `issue.routeDisplayName` for human-facing labels (e.g. `"/home (tab-2)"` on the second visit).
 
 ## Confidence Levels
 

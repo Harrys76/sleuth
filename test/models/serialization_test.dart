@@ -1599,6 +1599,267 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // PerformanceIssue per-tab fields (v0.14.1): scaffoldHashKey, tabVisitIndex.
+  // Stamped at aggregation time so bottom-nav / tab-shell apps can group issues
+  // by the actual tab Scaffold instead of the shared ModalRoute name.
+  // ---------------------------------------------------------------------------
+
+  group('PerformanceIssue per-tab (v0.14.1) serialization', () {
+    test('scaffoldHashKey + tabVisitIndex round-trip via toJson/fromJson', () {
+      const original = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        scaffoldHashKey: 0xDEADBEEF,
+        tabVisitIndex: 3,
+      );
+
+      final json = original.toJson();
+      expect(json['scaffoldHashKey'], 0xDEADBEEF);
+      expect(json['tabVisitIndex'], 3);
+
+      final restored = PerformanceIssue.fromJson(json);
+      expect(restored.scaffoldHashKey, 0xDEADBEEF);
+      expect(restored.tabVisitIndex, 3);
+    });
+
+    test('both fields null when absent in JSON (backward compat)', () {
+      final json = {
+        'severity': 'warning',
+        'category': 'build',
+        'confidence': 'possible',
+        'title': 'T',
+        'detail': 'D',
+        'fixHint': 'F',
+        'debugModeDisclaimer': false,
+      };
+
+      final issue = PerformanceIssue.fromJson(json);
+      expect(issue.scaffoldHashKey, isNull);
+      expect(issue.tabVisitIndex, isNull);
+    });
+
+    test('toJson omits both fields when null', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+      );
+
+      final json = issue.toJson();
+      expect(json.containsKey('scaffoldHashKey'), isFalse);
+      expect(json.containsKey('tabVisitIndex'), isFalse);
+    });
+
+    test('toJson emits scaffoldHashKey when only that field is set', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        scaffoldHashKey: 42,
+      );
+
+      final json = issue.toJson();
+      expect(json['scaffoldHashKey'], 42);
+      expect(json.containsKey('tabVisitIndex'), isFalse);
+    });
+
+    test('toJson emits tabVisitIndex when only that field is set', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        tabVisitIndex: 2,
+      );
+
+      final json = issue.toJson();
+      expect(json['tabVisitIndex'], 2);
+      expect(json.containsKey('scaffoldHashKey'), isFalse);
+    });
+
+    test('copyWith preserves scaffoldHashKey + tabVisitIndex', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        scaffoldHashKey: 0xAA,
+        tabVisitIndex: 4,
+      );
+
+      final updated = issue.copyWith(title: 'Updated');
+      expect(updated.scaffoldHashKey, 0xAA);
+      expect(updated.tabVisitIndex, 4);
+      expect(updated.title, 'Updated');
+    });
+
+    test('copyWith can overwrite scaffoldHashKey + tabVisitIndex', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        scaffoldHashKey: 1,
+        tabVisitIndex: 1,
+      );
+
+      final updated = issue.copyWith(scaffoldHashKey: 99, tabVisitIndex: 7);
+      expect(updated.scaffoldHashKey, 99);
+      expect(updated.tabVisitIndex, 7);
+    });
+
+    test('JSON string round-trip via dart:convert', () {
+      // Belt-and-suspenders: verify the fields survive jsonEncode/jsonDecode
+      // (not just the in-memory toJson/fromJson path).
+      const original = PerformanceIssue(
+        severity: IssueSeverity.critical,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.confirmed,
+        title: 'Heavy build',
+        detail: 'detail',
+        fixHint: 'fix',
+        stableId: 'heavy_build',
+        scaffoldHashKey: 0x12345,
+        tabVisitIndex: 2,
+      );
+
+      final encoded = jsonEncode(original.toJson());
+      final decoded = jsonDecode(encoded) as Map<String, dynamic>;
+      final restored = PerformanceIssue.fromJson(decoded);
+
+      expect(restored.scaffoldHashKey, 0x12345);
+      expect(restored.tabVisitIndex, 2);
+      expect(restored.stableId, 'heavy_build');
+    });
+
+    // -----------------------------------------------------------------------
+    // E1 regression: fromJson must not throw on non-int values for
+    // scaffoldHashKey / tabVisitIndex. A JavaScript consumer (v0.15 MCP
+    // server) can round-trip large ints as strings due to 53-bit Number
+    // precision, and hand-rolled payloads may encode ordinals as doubles.
+    // Coerce to null rather than crashing the whole snapshot.
+    // -----------------------------------------------------------------------
+
+    test('fromJson coerces non-int scaffoldHashKey / tabVisitIndex to null',
+        () {
+      final base = {
+        'severity': 'warning',
+        'category': 'build',
+        'confidence': 'possible',
+        'title': 'T',
+        'detail': 'D',
+        'fixHint': 'F',
+        'debugModeDisclaimer': false,
+      };
+
+      // Strings (e.g. from a JS consumer that stringified a large int).
+      final fromString = PerformanceIssue.fromJson({
+        ...base,
+        'scaffoldHashKey': '123456789',
+        'tabVisitIndex': '3',
+      });
+      expect(fromString.scaffoldHashKey, isNull);
+      expect(fromString.tabVisitIndex, isNull);
+
+      // Doubles (e.g. a hand-rolled payload with `3.0`).
+      final fromDouble = PerformanceIssue.fromJson({
+        ...base,
+        'scaffoldHashKey': 3.14,
+        'tabVisitIndex': 2.0,
+      });
+      expect(fromDouble.scaffoldHashKey, isNull);
+      expect(fromDouble.tabVisitIndex, isNull);
+
+      // Boolean, object — anything non-int falls to null.
+      final fromJunk = PerformanceIssue.fromJson({
+        ...base,
+        'scaffoldHashKey': true,
+        'tabVisitIndex': {'not': 'an int'},
+      });
+      expect(fromJunk.scaffoldHashKey, isNull);
+      expect(fromJunk.tabVisitIndex, isNull);
+
+      // Valid ints still parse correctly alongside the defensive path.
+      final valid = PerformanceIssue.fromJson({
+        ...base,
+        'scaffoldHashKey': 42,
+        'tabVisitIndex': 5,
+      });
+      expect(valid.scaffoldHashKey, 42);
+      expect(valid.tabVisitIndex, 5);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // C3 regression: PerformanceIssue.routeName must stay RAW (no `(tab-N)`
+  // suffix baked in). Display surfaces derive the disambiguated label via
+  // routeDisplayName so group-by-route keys remain stable and a route
+  // literally named '"/x (tab-2)"' stays distinguishable from a disambiguated
+  // tab-2 of "/x".
+  // ---------------------------------------------------------------------------
+
+  group('PerformanceIssue.routeDisplayName (C3)', () {
+    PerformanceIssue make({String? routeName, int? tabVisitIndex}) =>
+        PerformanceIssue(
+          severity: IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.possible,
+          title: 'T',
+          detail: 'D',
+          fixHint: 'F',
+          routeName: routeName,
+          tabVisitIndex: tabVisitIndex,
+        );
+
+    test('null routeName → null display name', () {
+      expect(make().routeDisplayName, isNull);
+    });
+
+    test('tabVisitIndex null → bare routeName', () {
+      expect(make(routeName: '/home').routeDisplayName, '/home');
+    });
+
+    test('tabVisitIndex 1 → bare routeName (no suffix on first visit)', () {
+      expect(
+          make(routeName: '/home', tabVisitIndex: 1).routeDisplayName, '/home');
+    });
+
+    test('tabVisitIndex 2 → suffixed display name', () {
+      expect(make(routeName: '/home', tabVisitIndex: 2).routeDisplayName,
+          '/home (tab-2)');
+    });
+
+    test('tabVisitIndex 17 → suffixed with exact ordinal', () {
+      expect(make(routeName: '/foo', tabVisitIndex: 17).routeDisplayName,
+          '/foo (tab-17)');
+    });
+
+    test('raw routeName is NEVER overwritten — stays queryable by key', () {
+      final issue = make(routeName: '/home', tabVisitIndex: 3);
+      // Display name is disambiguated, but raw routeName stays bare so
+      // consumers filtering `issue.routeName == '/home'` match across visits.
+      expect(issue.routeDisplayName, '/home (tab-3)');
+      expect(issue.routeName, '/home');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // SessionSnapshot v3 sessionSummary serialization (3b.9)
   // ---------------------------------------------------------------------------
 

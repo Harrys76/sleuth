@@ -417,6 +417,13 @@ class Sleuth {
   /// Each [RouteSession] contains per-route FPS, issue snapshots, and a
   /// composite [RouteSession.healthScore]. The list is ordered chronologically
   /// (oldest first) and capped at [SleuthConfig.routeHistoryCapacity].
+  ///
+  /// In bottom-nav / tab-shell apps (`IndexedStack`,
+  /// `StatefulShellRoute.indexedStack`, `CupertinoTabScaffold`) multiple
+  /// sessions may share the same [RouteSession.routeName] — they are
+  /// disambiguated by [RouteSession.scaffoldHashKey] and
+  /// [RouteSession.tabVisitIndex]. Group by the compound key
+  /// `(routeName, scaffoldHashKey)` to see one entry per tab.
   static List<RouteSession>? get routeHistory =>
       _controller?.routeHistoryNotifier.value;
 
@@ -424,6 +431,11 @@ class Sleuth {
   /// been visited or Sleuth is not initialized.
   ///
   /// The score ranges from 0 (severely degraded) to 100 (perfect).
+  ///
+  /// In tab-shell apps where multiple sessions share the same [routeName],
+  /// this returns the health of the FIRST (oldest) matching session. For
+  /// per-tab health inspection, iterate [routeHistory] and match on
+  /// `(routeName, scaffoldHashKey)` directly.
   static int? routeHealthScore(String routeName) {
     return _controller?.routeHistoryNotifier.value
         .cast<RouteSession?>()

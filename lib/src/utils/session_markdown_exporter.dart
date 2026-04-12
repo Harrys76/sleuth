@@ -83,7 +83,14 @@ class SessionMarkdownExporter {
       buf.writeln('| Route | Score | FPS | Issues | Time |');
       buf.writeln('|-------|-------|-----|--------|------|');
       for (final r in routes) {
-        final name = _escape(r['routeName'] as String? ?? '?');
+        // Disambiguate multiple visits to the same (routeName, scaffoldHashKey)
+        // by suffixing the tab ordinal. Without this, every row in a
+        // bottom-nav app that returned to the same tab would render with an
+        // identical `routeName` cell and look like duplicate data.
+        final rawName = r['routeName'] as String? ?? '?';
+        final tabIdx = r['tabVisitIndex'] as int? ?? 1;
+        final displayName = tabIdx > 1 ? '$rawName (tab-$tabIdx)' : rawName;
+        final name = _escape(displayName);
         final score = r['healthScore'] as int? ?? 0;
         final dot = score >= 80
             ? '\u{1F7E2}'

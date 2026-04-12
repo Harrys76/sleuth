@@ -304,5 +304,101 @@ void main() {
         expect(frameStats.containsKey('p50'), isFalse);
       });
     });
+
+    // -----------------------------------------------------------------------
+    // v0.14.1 per-tab session fields: scaffoldHashKey, tabVisitIndex,
+    // hotReloadGeneration. Covers default construction, non-default values,
+    // and toJson inclusion/omission rules.
+    // -----------------------------------------------------------------------
+
+    group('per-tab fields (v0.14.1)', () {
+      test('defaults: scaffoldHashKey null, tabVisitIndex 1, genGen 0', () {
+        final session =
+            RouteSession(routeName: '/home', startedAt: DateTime.now());
+        expect(session.scaffoldHashKey, isNull);
+        expect(session.tabVisitIndex, 1);
+        expect(session.hotReloadGeneration, 0);
+      });
+
+      test('constructor accepts non-default values', () {
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime.now(),
+          scaffoldHashKey: 0xABCDEF,
+          tabVisitIndex: 3,
+          hotReloadGeneration: 5,
+        );
+        expect(session.scaffoldHashKey, 0xABCDEF);
+        expect(session.tabVisitIndex, 3);
+        expect(session.hotReloadGeneration, 5);
+      });
+
+      test('toJson omits scaffoldHashKey when null', () {
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime(2026, 4, 11),
+        );
+        final json = session.toJson();
+        expect(json.containsKey('scaffoldHashKey'), isFalse);
+      });
+
+      test('toJson includes scaffoldHashKey when non-null', () {
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime(2026, 4, 11),
+          scaffoldHashKey: 12345,
+        );
+        final json = session.toJson();
+        expect(json['scaffoldHashKey'], 12345);
+      });
+
+      test('toJson always includes tabVisitIndex', () {
+        final first = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime(2026, 4, 11),
+        );
+        final second = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime(2026, 4, 11),
+          tabVisitIndex: 2,
+        );
+        expect(first.toJson()['tabVisitIndex'], 1);
+        expect(second.toJson()['tabVisitIndex'], 2);
+      });
+
+      test('toJson omits hotReloadGeneration when 0', () {
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime(2026, 4, 11),
+        );
+        final json = session.toJson();
+        expect(json.containsKey('hotReloadGeneration'), isFalse);
+      });
+
+      test('toJson includes hotReloadGeneration when non-zero', () {
+        final session = RouteSession(
+          routeName: '/home',
+          startedAt: DateTime(2026, 4, 11),
+          hotReloadGeneration: 7,
+        );
+        final json = session.toJson();
+        expect(json['hotReloadGeneration'], 7);
+      });
+
+      test('toJson with all per-tab fields set emits full shape', () {
+        final session = RouteSession(
+          routeName: '/settings',
+          startedAt: DateTime(2026, 4, 11, 10, 0, 0),
+          scaffoldHashKey: 0x1234ABCD,
+          tabVisitIndex: 4,
+          hotReloadGeneration: 2,
+        );
+        final json = session.toJson();
+        expect(json['routeName'], '/settings');
+        expect(json['scaffoldHashKey'], 0x1234ABCD);
+        expect(json['tabVisitIndex'], 4);
+        expect(json['hotReloadGeneration'], 2);
+      });
+    });
   });
 }

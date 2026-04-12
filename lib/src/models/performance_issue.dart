@@ -88,6 +88,8 @@ class PerformanceIssue {
     this.downstreamIds,
     this.confidenceReason,
     this.packageName,
+    this.scaffoldHashKey,
+    this.tabVisitIndex,
   });
 
   /// How severe this issue is (ok, warning, critical).
@@ -116,7 +118,10 @@ class PerformanceIssue {
   /// Name of the widget most relevant to this issue (if attributable).
   final String? widgetName;
 
-  /// Active route name when this issue was detected.
+  /// Raw active route name when this issue was detected. Kept verbatim (no
+  /// `(tab-N)` suffix) so consumers that group/filter by route key see a
+  /// stable string across tab visits. Use [routeDisplayName] to render a
+  /// disambiguated label for tab 2+ visits.
   final String? routeName;
 
   /// Data source that produced this detection.
@@ -169,6 +174,37 @@ class PerformanceIssue {
   /// Null in profile mode or when source tracking is unavailable.
   final String? packageName;
 
+  /// `identityHashCode` of the innermost visible Scaffold Element when the
+  /// issue was observed, or `null` for scaffold-free scans. Paired with
+  /// [routeName] to disambiguate issues detected on different tabs that share
+  /// a `ModalRoute` (IndexedStack / StatefulShellRoute / CupertinoTabScaffold).
+  /// Machine-readable; consumers that want to group strictly by scaffold
+  /// identity key on this value alongside [routeName].
+  final int? scaffoldHashKey;
+
+  /// 1-indexed visit ordinal copied from the active [RouteSession] when this
+  /// issue was observed. `null` when there was no active session (e.g. on an
+  /// ignored route). Used by [routeDisplayName] and by the exporter / UI to
+  /// distinguish multiple sessions for the same `(routeName, scaffoldHashKey)`.
+  final int? tabVisitIndex;
+
+  /// Display label for the route: `routeName` for the first visit, or
+  /// `"$routeName (tab-$tabVisitIndex)"` for the 2nd+ visit to the same
+  /// `(routeName, scaffoldHashKey)` pair. Returns `null` when [routeName] is
+  /// null.
+  ///
+  /// Use this in UI cards, chat context, and any human-facing surface. Use
+  /// raw [routeName] when grouping/filtering programmatically — the display
+  /// suffix must not leak into keys, otherwise a route literally named
+  /// `"/x (tab-2)"` becomes indistinguishable from a disambiguated `"/x"`.
+  String? get routeDisplayName {
+    final name = routeName;
+    if (name == null) return null;
+    final idx = tabVisitIndex;
+    if (idx == null || idx <= 1) return name;
+    return '$name (tab-$idx)';
+  }
+
   Map<String, dynamic> toJson() => {
         'severity': severity.name,
         'category': category.name,
@@ -195,6 +231,8 @@ class PerformanceIssue {
         if (downstreamIds != null) 'downstreamIds': downstreamIds,
         if (confidenceReason != null) 'confidenceReason': confidenceReason,
         if (packageName != null) 'packageName': packageName,
+        if (scaffoldHashKey != null) 'scaffoldHashKey': scaffoldHashKey,
+        if (tabVisitIndex != null) 'tabVisitIndex': tabVisitIndex,
       };
 
   factory PerformanceIssue.fromJson(Map<String, dynamic> json) =>
@@ -239,6 +277,15 @@ class PerformanceIssue {
             (json['downstreamIds'] as List<dynamic>?)?.cast<String>(),
         confidenceReason: json['confidenceReason'] as String?,
         packageName: json['packageName'] as String?,
+        // Defensive casts: malformed JSON (e.g. scaffoldHashKey serialised as
+        // a string by a 53-bit-limited JavaScript consumer, or tabVisitIndex
+        // arriving as a double) would crash `as int?`. Coerce non-int values
+        // to null so one bad payload doesn't poison the whole snapshot.
+        scaffoldHashKey: json['scaffoldHashKey'] is int
+            ? json['scaffoldHashKey'] as int
+            : null,
+        tabVisitIndex:
+            json['tabVisitIndex'] is int ? json['tabVisitIndex'] as int : null,
       );
 
   PerformanceIssue copyWith({
@@ -264,6 +311,8 @@ class PerformanceIssue {
     List<String>? downstreamIds,
     String? confidenceReason,
     String? packageName,
+    int? scaffoldHashKey,
+    int? tabVisitIndex,
   }) {
     return PerformanceIssue(
       severity: severity ?? this.severity,
@@ -288,6 +337,8 @@ class PerformanceIssue {
       downstreamIds: downstreamIds ?? this.downstreamIds,
       confidenceReason: confidenceReason ?? this.confidenceReason,
       packageName: packageName ?? this.packageName,
+      scaffoldHashKey: scaffoldHashKey ?? this.scaffoldHashKey,
+      tabVisitIndex: tabVisitIndex ?? this.tabVisitIndex,
     );
   }
 

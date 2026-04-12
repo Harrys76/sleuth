@@ -1,3 +1,87 @@
+## 0.14.1
+
+Per-tab `RouteSession` tracking — bottom-nav / tab-shell apps that share one
+`ModalRoute` across tabs (`IndexedStack`, `StatefulShellRoute.indexedStack`,
+`CupertinoTabScaffold`) now produce a distinct `RouteSession` per tab instead of
+conflating every tab's frames and issues under a single route name. Inline
+`TabBar` / `TabBarView` / `PageView` swipes within a single route stay inside
+the outer session (no spurious churn). One adversarial plan-review round before
+implementation and one post-implementation adversarial code review; findings
+from both folded into the code (C1 eviction collision, C2 hot-reload session
+leak, C3 routeName overwrite, E1 type-unsafe deserialization).
+
+### Added
+
+- **`RouteSession.scaffoldHashKey`**: `identityHashCode` of the innermost
+  visible `Scaffold` Element when the session was created, or `null` for
+  scaffold-free scans. Paired with `routeName` to form the session's compound
+  key — bottom-nav tabs that share a `ModalRoute` now get their own sessions.
+- **`RouteSession.tabVisitIndex`**: 1-indexed ordinal for repeat visits to the
+  same `(routeName, scaffoldHashKey)` pair. Used by the UI and markdown
+  exporter to disambiguate multiple visits to the same tab (e.g. `/home` →
+  `/home (tab-2)` on the second visit).
+- **`RouteSession.hotReloadGeneration`**: Debug-only counter incremented on
+  every Flutter hot reload so consumers can group pre/post-reload sessions
+  (Element identity hashes rotate on reload and would otherwise orphan prior
+  sessions). `0` in profile/release mode.
+- **`PerformanceIssue.scaffoldHashKey`** and **`PerformanceIssue.tabVisitIndex`**:
+  Stamped at aggregation time so exported issues can be grouped by tab
+  identity. `routeName` is kept RAW (no `(tab-N)` suffix baked in) so that
+  group-by-route filters remain stable and a route literally named
+  `"/foo (tab-2)"` stays distinguishable from a disambiguated tab-2 of `/foo`.
+  Use `PerformanceIssue.routeDisplayName` for human-facing labels.
+- **`PerformanceIssue.routeDisplayName`** getter: derives the disambiguated
+  display label (`'$routeName (tab-$tabVisitIndex)'` when `tabVisitIndex > 1`,
+  raw `routeName` otherwise). UI cards, AI chat context, and issue
+  explanation placeholder substitution all route through this getter.
+- **`TabBarView` / `PageView` boundary filter** in the scan visitor: these
+  widgets keep multiple children alive simultaneously without marking inactive
+  pages `Offstage` / `TickerMode` / `Visibility(!visible)`, so they used to
+  trip the multi-Scaffold sibling guard and silently abort scans. The visitor
+  now stops Scaffold collection at `TabBarView` / `PageView` — inline sub-tab
+  swipes stay inside the outer route's session and detectors still run against
+  the active sub-page.
+
+### Changed
+
+- **`SleuthConfig.routeHistoryCapacity` default raised 20 → 50**: accommodates
+  bottom-nav apps where per-tab sessions (plus any repeat visits) exhaust the
+  old default within a few tab switches. Tests that exercise FIFO eviction now
+  configure an explicit smaller cap.
+- **Session markdown exporter renders tab suffix**: the Route Health table
+  reads `tabVisitIndex` from each JSON row and appends `(tab-N)` to the
+  display name when `> 1`, preventing duplicate-looking rows for bottom-nav
+  apps that return to the same tab.
+- **`packageVersion` updated**: `'0.14.0'` → `'0.14.1'` in export snapshot.
+
+### Fixed (post-adversarial review)
+
+- **`tabVisitIndex` collision after FIFO eviction** (C1): `_computeTabVisitIndex`
+  now returns `max(tabVisitIndex) + 1` across matching history entries instead
+  of `count + 1`. The count-based implementation could duplicate the
+  `tabVisitIndex` of a live-but-not-yet-evicted session once older matching
+  entries were dropped from the history deque — producing identical
+  `(routeName, scaffoldHashKey, tabVisitIndex)` tuples and the very duplicate
+  rows in exports that the feature was designed to prevent. Regression test
+  drives 8 A↔B switches with `routeHistoryCapacity: 3`.
+- **Hot reload did not close the active `RouteSession`** (C2): Flutter's
+  non-structural hot reload path preserves Element identity, so without an
+  explicit close the session-keying predicate saw unchanged
+  `(routeName, scaffoldHashKey)` and the pre-reload session continued into
+  post-reload frames — stamped with a stale `hotReloadGeneration = 0`.
+  `_reassembleInternal()` now closes `_activeRouteSession`, republishes the
+  history notifier, and nulls the pointer before incrementing the generation.
+- **`PerformanceIssue.routeName` overwrite loses raw name** (C3): previously
+  `_aggregateIssues` stamped `"$rawName (tab-N)"` into `issue.routeName` when
+  `tabVisitIndex > 1`, destroying the raw name consumers need for group-by
+  filtering. Raw name is now preserved; display surfaces use the new
+  `routeDisplayName` getter.
+- **`fromJson` type-unsafe for per-tab fields** (E1): `PerformanceIssue.fromJson`
+  now uses `is int` guards on `scaffoldHashKey` and `tabVisitIndex` and coerces
+  non-int values to null. Previously a malformed payload (e.g. a JavaScript
+  consumer stringifying a large int due to 53-bit `Number` precision) would
+  crash `as int?` and break the whole snapshot parse.
+
 ## 0.14.0
 
 Route Scoping — per-route FPS, issue aggregation, health scores, and export.

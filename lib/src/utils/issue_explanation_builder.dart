@@ -36,7 +36,8 @@ class IssueExplanationBuilder {
   /// replaced with a sensible fallback so templates never break):
   ///
   /// - `{widgetName}`   → `issue.widgetName` or `'the widget'`
-  /// - `{routeName}`    → `issue.routeName` or `'the current route'`
+  /// - `{routeName}`    → `issue.routeDisplayName` (includes `(tab-N)` suffix
+  ///                       for tab 2+ visits) or `'the current route'`
   /// - `{severity}`     → `'critical' | 'warning'`
   /// - `{count}`        → the first integer parsed from `issue.title`, or
   ///                       `'several'`. Best-effort — only use in templates
@@ -70,7 +71,7 @@ class IssueExplanationBuilder {
 
   static String _substitutePlaceholders(String text, PerformanceIssue issue) {
     final widgetName = issue.widgetName ?? 'the widget';
-    final routeName = issue.routeName ?? 'the current route';
+    final routeName = issue.routeDisplayName ?? 'the current route';
     final severity =
         issue.severity == IssueSeverity.critical ? 'critical' : 'warning';
     final countMatch = _countExtractor.firstMatch(issue.title);

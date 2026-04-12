@@ -41,8 +41,8 @@ class AiContextBuilder {
     if (issue.widgetName != null) {
       buf.writeln('Widget: ${issue.widgetName}');
     }
-    if (issue.routeName != null) {
-      buf.writeln('Route: ${issue.routeName}');
+    if (issue.routeDisplayName != null) {
+      buf.writeln('Route: ${issue.routeDisplayName}');
     }
     if (issue.ancestorChain != null) {
       buf.writeln('Ancestor chain: ${issue.ancestorChain}');

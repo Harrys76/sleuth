@@ -231,27 +231,42 @@ void main() {
       expect(controller.activeRouteSessionForTest!.frameStats.length, 5);
     });
 
-    testWidgets('route history capped at 20 (FIFO eviction)', (tester) async {
+    testWidgets(
+        'route history honors SleuthConfig.routeHistoryCapacity '
+        '(FIFO eviction when cap is exceeded)', (tester) async {
+      // Use a small explicit cap so the test stays fast and the eviction
+      // contract is exercised independently of the package default (which
+      // was raised from 20 → 50 in v0.14.1 to accommodate bottom-nav apps
+      // that create many per-tab sessions).
+      final ctrl = SleuthController(
+        config: const SleuthConfig(
+          treeScanInterval: Duration(seconds: 1),
+          enabledDetectors: {DetectorType.frameTiming},
+          routeHistoryCapacity: 5,
+        ),
+      );
+      ctrl.initializeDetectorsForTest();
+      addTearDown(ctrl.dispose);
+
       await tester.pumpWidget(_multiRouteApp());
       await tester.pumpAndSettle();
 
-      // First scan.
-      controller.scanTreeFullPathForTest(_rootContext(tester));
-      expect(controller.routeHistoryNotifier.value.length, 1);
+      // First scan — captures /home.
+      ctrl.scanTreeFullPathForTest(_rootContext(tester));
+      expect(ctrl.routeHistoryNotifier.value.length, 1);
 
-      // Push 20 more routes (total 21 → cap triggers, evicts first).
-      for (var i = 1; i <= 20; i++) {
+      // Push 5 more routes (total 6 → cap triggers, evicts oldest /home).
+      for (var i = 1; i <= 5; i++) {
         tester.state<NavigatorState>(find.byType(Navigator)).pushNamed('/r$i');
         await tester.pumpAndSettle();
-        controller.scanTreeFullPathForTest(_rootContext(tester));
+        ctrl.scanTreeFullPathForTest(_rootContext(tester));
       }
 
-      // Capped at 20.
-      expect(controller.routeHistoryNotifier.value.length, 20);
-
-      // The first route (/home) was evicted.
-      expect(controller.routeHistoryNotifier.value.first.routeName, '/r1');
-      expect(controller.routeHistoryNotifier.value.last.routeName, '/r20');
+      expect(ctrl.routeHistoryNotifier.value.length, 5,
+          reason: 'Cap is configured to 5.');
+      expect(ctrl.routeHistoryNotifier.value.first.routeName, '/r1',
+          reason: 'Oldest (/home) must be evicted FIFO when cap is hit.');
+      expect(ctrl.routeHistoryNotifier.value.last.routeName, '/r5');
     });
 
     testWidgets('routeHistoryNotifier value is unmodifiable', (tester) async {

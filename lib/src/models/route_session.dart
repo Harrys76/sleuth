@@ -14,12 +14,46 @@ class RouteSession {
     required this.routeName,
     required this.startedAt,
     this.fpsTarget = 60,
+    this.scaffoldHashKey,
+    this.tabVisitIndex = 1,
+    this.hotReloadGeneration = 0,
   });
 
   /// Route name from `ModalRoute.of(context)?.settings.name`, or a synthetic
   /// `<unnamed-N>` when the route has no name (common with go_router shell
   /// routes, dialog routes, etc.).
   final String routeName;
+
+  /// `identityHashCode` of the innermost visible [Scaffold] Element when this
+  /// session was created, or `null` for a scaffold-free scan (overlay path).
+  ///
+  /// Paired with [routeName] to form the session's compound key. Under shared
+  /// `ModalRoute` shells (e.g. `IndexedStack`, `StatefulShellRoute.indexedStack`,
+  /// `CupertinoTabScaffold`) every tab owns a distinct Scaffold Element — so
+  /// keying by `(routeName, scaffoldHashKey)` gives each tab its own session
+  /// even though they all report the same route name.
+  final int? scaffoldHashKey;
+
+  /// 1-indexed ordinal of this visit to the same `(routeName, scaffoldHashKey)`
+  /// pair within the controller's current route history window.
+  ///
+  /// Computed by the controller at session creation time. A value of `1` means
+  /// this is the first recorded visit to the tab; `3` means the user has
+  /// landed on this tab three times during the current debug session.
+  ///
+  /// Note: eviction from `_routeHistory` (governed by
+  /// [SleuthConfig.routeHistoryCapacity]) can cause the index to reset to `1`
+  /// once all prior sessions for the same pair have been evicted. The index is
+  /// monotonic only while history retains at least one matching predecessor.
+  final int tabVisitIndex;
+
+  /// Debug-only hot-reload generation stamped at session creation. `0` in
+  /// release/profile mode (no hot reload) and for the initial session before
+  /// any reload has occurred. Incremented by the controller's `reassemble`
+  /// hook on every Flutter hot reload so consumers can group pre/post-reload
+  /// sessions — Element identity hashes rotate on reload and would otherwise
+  /// orphan the prior sessions.
+  final int hotReloadGeneration;
 
   /// The FPS target from [SleuthConfig.fpsTarget] at session creation time.
   /// Used by [healthScore] to normalise the FPS component.
@@ -106,6 +140,9 @@ class RouteSession {
 
     return {
       'routeName': routeName,
+      if (scaffoldHashKey != null) 'scaffoldHashKey': scaffoldHashKey,
+      'tabVisitIndex': tabVisitIndex,
+      if (hotReloadGeneration > 0) 'hotReloadGeneration': hotReloadGeneration,
       'startedAt': startedAt.toIso8601String(),
       if (endedAt != null) 'endedAt': endedAt!.toIso8601String(),
       'healthScore': healthScore,
