@@ -335,14 +335,6 @@ class _GuidePageState extends State<GuidePage>
                 'on screen with a blue border.'),
         _infoTile(
             theme,
-            '\u{1F501}',
-            'Recurrence Badge',
-            'The "Seen X/Y" badge shows how many of the last Y scan cycles '
-                'fired this issue. The label reads worsening / persistent / '
-                'stable / improving / flaky — persistent means the issue '
-                'fires in \u2265 90% of cycles.'),
-        _infoTile(
-            theme,
             '\u{2194}\u{FE0F}',
             'Resize',
             'Drag the bottom-right corner to resize width and height. '
@@ -427,6 +419,22 @@ class _GuidePageState extends State<GuidePage>
             'Runtime + structural evidence \u2014 two independent signals'),
         _badgeLegendRow(theme, 'POSSIBLE', theme.confidencePossible,
             'Structural pattern only \u2014 code analysis, no runtime confirmation'),
+
+        // ── Recurrence Badges ─────────────────────────────────────────
+        _legendDivider(theme),
+        _legendHeading(theme, 'Recurrence Badges'),
+        _legendSubtext(theme,
+            'Shown under each issue as "Seen X/Y \u00B7 label" where X is the number of recent scan cycles that fired this issue and Y is the total observed (ring buffer, capacity 60).'),
+        _badgeLegendRow(theme, 'worsening', theme.severityCritical,
+            'Severity rising \u2014 average cost increasing across recent cycles'),
+        _badgeLegendRow(theme, 'persistent', theme.severityWarning,
+            'Sticky \u2014 issue fires in \u2265 90% of recent scan cycles'),
+        _badgeLegendRow(theme, 'stable', theme.textSecondary,
+            'Present at consistent severity \u2014 not trending up or down'),
+        _badgeLegendRow(theme, 'improving', theme.severityOk,
+            'Severity falling \u2014 getting better across recent cycles'),
+        _badgeLegendRow(theme, 'flaky', theme.textSecondary,
+            'Toggles present/absent irregularly (\u2265 3 transitions in window)'),
 
         // ── Source Accent ─────────────────────────────────────────────
         _legendDivider(theme),
