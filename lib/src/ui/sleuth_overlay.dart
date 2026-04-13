@@ -119,7 +119,20 @@ class _SleuthOverlayState extends State<SleuthOverlay>
               ),
             ),
 
-            // Overlay — isolated to prevent app repaints
+            // Overlay — isolated to prevent app repaints.
+            //
+            // [DefaultTextEditingShortcuts] is required because Sleuth mounts
+            // its overlay outside any [WidgetsApp]/[MaterialApp], so the
+            // default key→intent bindings (backspace → DeleteCharacterIntent,
+            // arrow keys, Ctrl+A/C/V/X, Home/End, etc.) would otherwise be
+            // absent from the ancestor chain. Without it, any [TextField] in
+            // the dashboard (encyclopedia search, AI chat input) silently
+            // ignores hardware-keyboard control keys — typing still works
+            // because printable characters are inserted by EditableText
+            // directly, but backspace and friends do nothing. This is the
+            // root cause behind the Android-emulator "can't delete with
+            // backspace" bug. See
+            // packages/flutter/lib/src/widgets/default_text_editing_shortcuts.dart.
             if (_dashboardOpen)
               RepaintBoundary(
                 child: Localizations(
@@ -128,15 +141,18 @@ class _SleuthOverlayState extends State<SleuthOverlay>
                     DefaultMaterialLocalizations.delegate,
                     DefaultWidgetsLocalizations.delegate,
                   ],
-                  child: Overlay(
-                    initialEntries: [
-                      OverlayEntry(
-                        builder: (_) => FloatingIssuesCard(
-                          controller: widget.controller,
-                          onClose: () => setState(() => _dashboardOpen = false),
+                  child: DefaultTextEditingShortcuts(
+                    child: Overlay(
+                      initialEntries: [
+                        OverlayEntry(
+                          builder: (_) => FloatingIssuesCard(
+                            controller: widget.controller,
+                            onClose: () =>
+                                setState(() => _dashboardOpen = false),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               )
