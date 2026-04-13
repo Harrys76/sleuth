@@ -300,6 +300,29 @@ Issues include a confidence level reflecting evidence quality:
 | **Likely** | Runtime signal + structural evidence | Raster-dominant frame + deep opacity subtree |
 | **Possible** | Structural heuristic only | Non-lazy list with 50 children found |
 
+## Recurrence Badge
+
+Each issue card shows a `Seen X/Y · {label}` badge once Sleuth has observed the issue across at least two scan cycles. It tells you how sticky the issue is and whether it is getting better or worse.
+
+- **X** — scan cycles where the issue fired (`presentCount`).
+- **Y** — total scan cycles in the ring buffer (capacity `60`, oldest evicted).
+
+The label summarises the trend over the most recent window (default `10` entries):
+
+| Label | Color | When it appears |
+|-------|-------|-----------------|
+| **worsening** | red | Average severity in the second half of the window exceeds the first half by more than `0.3`. |
+| **persistent** | amber | Trend is `stable` **and** `X / Y ≥ 0.9` — the issue fires in almost every cycle. |
+| **stable** | neutral | Issue is consistently present but severity is not trending. |
+| **improving** | green | Average severity in the second half of the window falls below the first half by more than `0.3`. |
+| **flaky** | neutral | Issue toggles present/absent `≥ 3` times in the window (`intermittent` internally). |
+
+Two vocabulary notes:
+- **`flaky`** is the display label for the `intermittent` enum value — JSON exports still use `intermittent`.
+- **`persistent`** is synthesised in the UI from a `stable` trend plus the `≥ 90%` presence ratio. The JSON export reports the underlying enum (`stable`) and a separate `totalOccurrences / totalObserved` pair, so you can recompute it downstream.
+
+Severity for warnings auto-escalates to critical after 30 consecutive scan cycles — a `Seen 30/30 · persistent` warning will flip red on the next cycle. See [`RecurrenceTrend`](lib/src/models/recurrence_trend.dart) for the underlying thresholds.
+
 ## Detector Matrix
 
 ### Runtime Detectors (always available)

@@ -335,6 +335,14 @@ class _GuidePageState extends State<GuidePage>
                 'on screen with a blue border.'),
         _infoTile(
             theme,
+            '\u{1F501}',
+            'Recurrence Badge',
+            'The "Seen X/Y" badge shows how many of the last Y scan cycles '
+                'fired this issue. The label reads worsening / persistent / '
+                'stable / improving / flaky — persistent means the issue '
+                'fires in \u2265 90% of cycles.'),
+        _infoTile(
+            theme,
             '\u{2194}\u{FE0F}',
             'Resize',
             'Drag the bottom-right corner to resize width and height. '

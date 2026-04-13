@@ -1,15 +1,45 @@
 /// Trend direction for an issue's recurrence over time.
+///
+/// Rendered on the issue card as a "Seen X/Y · {label}" badge, where:
+/// - **X** = [RecurrenceTrend.presentCount] (cycles where the issue fired)
+/// - **Y** = [RecurrenceTrend.length] (total cycles observed in the ring buffer)
+///
+/// The badge label shown to users is **not** a 1:1 mapping of this enum —
+/// see the mapping in `lib/src/ui/issue_card.dart` `_recurrenceBadge`:
+///
+/// | Enum value          | UI label     | Rule                                            |
+/// |---------------------|--------------|-------------------------------------------------|
+/// | [worsening]         | `worsening`  | Severity rising across the recent window        |
+/// | [stable]            | `persistent` | `presentCount / length >= 0.9` (sticky issue)   |
+/// | [stable]            | `stable`     | Anything else classified as stable              |
+/// | [improving]         | `improving`  | Severity falling across the recent window       |
+/// | [intermittent]      | `flaky`      | Issue toggles present/absent >= 3 times         |
+///
+/// See [RecurrenceTrend.computeTrend] for the windowing / delta thresholds.
 enum TrendDirection {
   /// Issue severity/frequency is increasing.
+  ///
+  /// UI label: **worsening**. Triggered when the average severity of the
+  /// second half of the window exceeds the first half by `> 0.3`.
   worsening,
 
   /// Issue is consistently present with stable severity.
+  ///
+  /// UI label: **stable**, or **persistent** when the issue was present in
+  /// `>= 90%` of observed cycles (the `persistent` synthesis is applied in
+  /// the UI layer, not here — the enum value is still [stable]).
   stable,
 
   /// Issue severity/frequency is decreasing.
+  ///
+  /// UI label: **improving**. Triggered when the average severity of the
+  /// second half of the window falls below the first half by `> 0.3`.
   improving,
 
   /// Issue appears and disappears irregularly.
+  ///
+  /// UI label: **flaky**. Triggered when the issue toggles between
+  /// present and absent `>= 3` times inside the recent window.
   intermittent,
 }
 

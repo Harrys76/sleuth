@@ -653,10 +653,39 @@ class _IssueCardState extends State<IssueCard> {
     }
   }
 
+  /// Renders the "Seen X/Y · {label}" recurrence badge.
+  ///
+  /// The badge shows how often an issue has fired across Sleuth's scan cycles
+  /// and qualitatively describes the trend. Shown once the trend ring buffer
+  /// has at least 2 entries (see the call site's `trend.length >= 2` guard).
+  ///
+  /// **`Seen X/Y` semantics**
+  /// - **X** is [RecurrenceTrend.presentCount] — scan cycles where this
+  ///   issue was observed.
+  /// - **Y** is [RecurrenceTrend.length] — total scan cycles the ring buffer
+  ///   has data for (capacity defaults to 60, oldest evicted).
+  ///
+  /// **Label mapping** (`TrendDirection` → user-facing label):
+  /// - `worsening` → **worsening** (red) — severity is rising over the
+  ///   recent window.
+  /// - `stable` with `presentCount / length >= 0.9` → **persistent** (amber)
+  ///   — sticky issue that fires almost every cycle. Synthesised here, not
+  ///   in the enum.
+  /// - `stable` otherwise → **stable** (neutral).
+  /// - `improving` → **improving** (green) — severity is falling.
+  /// - `intermittent` → **flaky** (neutral) — issue toggles present/absent
+  ///   `>= 3` times inside the recent window. The enum value says
+  ///   `intermittent`; the badge says `flaky` because it reads better.
+  ///
+  /// See [RecurrenceTrend.computeTrend] for the underlying window (default
+  /// 10 entries) and the `± 0.3` severity-delta thresholds.
   Widget _recurrenceBadge(RecurrenceTrend trend, SleuthThemeData theme) {
     final present = trend.presentCount;
     final total = trend.length;
     final ratio = total == 0 ? 0.0 : present / total;
+    // NOTE: The UI labels here are the documented surface — if you rename
+    // a label, update the table in `RecurrenceTrend`'s enum dartdoc and the
+    // "Recurrence Badge" section of README.md to match.
     final (label, color) = switch (trend.trend) {
       TrendDirection.worsening => ('worsening', theme.severityCritical),
       TrendDirection.stable when ratio >= 0.9 => (
