@@ -162,6 +162,34 @@ class Sleuth {
   /// }
   /// ```
   ///
+  /// **Measurement window.** [StartupMetrics.ttffMs] is measured from this
+  /// call (Dart entry) to the first [FrameTiming] raster-finish. It
+  /// deliberately excludes the native pre-Dart phase, which differs by
+  /// platform:
+  ///
+  /// - **iOS**: `dyld`, Obj-C `+load`, `UIApplicationMain`, `AppDelegate`
+  ///   init, `FlutterEngine` creation, Dart VM bootstrap, AOT snapshot
+  ///   load — typically 400–1200ms on iPhone 12-class cold starts.
+  /// - **Android**: Zygote fork, `Application.onCreate`, ContentProvider
+  ///   auto-init (Firebase, WorkManager, etc.), `FlutterActivity.onCreate`,
+  ///   `FlutterEngine` creation, Dart VM bootstrap, AOT snapshot load —
+  ///   typically 300–900ms on mid-range devices, often >1500ms on budget
+  ///   / Android Go hardware.
+  ///
+  /// That portion is outside Dart's control, so `ttffMs` isolates the
+  /// part your Dart code can actually move. This is **not** the same
+  /// window as `flutter run --trace-startup`, which measures from engine
+  /// C++ entry — expect its numbers to be larger by the pre-Dart
+  /// overhead on either platform.
+  ///
+  /// For the `--trace-startup`-equivalent number, read
+  /// [StartupMetrics.engineTtffMs] (engine C++ entry → first frame
+  /// rasterized). For the native-phase gap alone, read
+  /// [StartupMetrics.preDartOverheadMs]. Both are populated retroactively
+  /// when VM timeline enrichment lands before the ring buffer evicts the
+  /// `FlutterEngineMainEnter` event — reliable in debug/profile mode,
+  /// unavailable in release.
+  ///
   /// Zero-cost in release mode. Safe to call multiple times (only the
   /// first invocation measures). Survives hot restart intentionally —
   /// a warm VM gives misleading cold-start numbers.

@@ -28,7 +28,20 @@ class StartupDetector extends BaseDetector {
           description: 'Detects slow app startup and phase bottlenecks',
         );
 
+  /// Warning threshold in ms. Applied to [StartupMetrics.ttffMs], which is
+  /// measured from [Sleuth.init] (Dart entry) to first-frame raster-finish.
+  /// The native pre-Dart phase — iOS (`dyld`, `UIApplicationMain`,
+  /// `AppDelegate`, `FlutterEngine` creation) or Android (Zygote fork,
+  /// `Application.onCreate`, ContentProvider init, `FlutterActivity`,
+  /// `FlutterEngine` creation), then Dart VM bootstrap + AOT snapshot
+  /// load on both — is excluded by design. These thresholds are
+  /// calibrated for the portion Dart code can actually move. See
+  /// [StartupMetrics.engineTtffMs] for the `flutter run --trace-startup`
+  /// -equivalent engine-level number.
   final int ttffWarningMs;
+
+  /// Critical threshold in ms. Applied to [StartupMetrics.ttffMs]. See
+  /// [ttffWarningMs] for the measurement-window rationale.
   final int ttffCriticalMs;
 
   final List<PerformanceIssue> _issues = [];

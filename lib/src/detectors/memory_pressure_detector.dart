@@ -1,6 +1,5 @@
 import 'dart:collection';
 
-
 import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
 import '../models/heap_sample.dart';

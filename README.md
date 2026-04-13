@@ -323,6 +323,54 @@ Two vocabulary notes:
 
 Severity for warnings auto-escalates to critical after 30 consecutive scan cycles — a `Seen 30/30 · persistent` warning will flip red on the next cycle. See [`RecurrenceTrend`](lib/src/models/recurrence_trend.dart) for the underlying thresholds.
 
+## Startup Tracing
+
+Sleuth measures cold-start performance via `Sleuth.init()` + `Sleuth.markInteractive()`. Call `Sleuth.init()` as the first line of `main()`:
+
+```dart
+void main() {
+  Sleuth.init();          // Dart-entry clock starts here
+  runApp(Sleuth.track(child: const MyApp()));
+}
+```
+
+### What `ttffMs` measures (and what it excludes)
+
+`StartupMetrics.ttffMs` is a wall-clock duration from the `Sleuth.init()` call to the first `FrameTiming` raster-finish. It **deliberately excludes** the native pre-Dart phase, which differs by platform:
+
+- **iOS cold start** — `dyld`, Objective-C `+load`, `UIApplicationMain`, `AppDelegate` init, `FlutterEngine` creation, Dart VM bootstrap, AOT snapshot load, core-library init. Typically **400–1200 ms** on iPhone 12-class hardware.
+- **Android cold start** — Zygote fork, `Application.onCreate()`, ContentProvider auto-init (Firebase, WorkManager, etc.), `FlutterActivity.onCreate()`, `FlutterEngine` creation, Dart VM bootstrap, AOT snapshot load, core-library init. Typically **300–900 ms** on mid-range devices; often exceeds **1500 ms** on budget / Android Go hardware, where Zygote preload is less effective and AOT snapshot load is disk-bound.
+
+That portion is outside Dart's control — it depends on device class, OS version, how many pods/gradle plugins you ship, and how many ContentProviders auto-initialize. `ttffMs` isolates the part your Dart code can actually move.
+
+The default detector thresholds (`1500 ms` warning, `3000 ms` critical) apply to `ttffMs` and are calibrated for this narrower window. They are the same on both platforms because `ttffMs` is measuring Dart code, which runs on the same VM across iOS and Android.
+
+### `ttffMs` vs `flutter run --trace-startup`
+
+`flutter run --trace-startup` writes `build/start_up_info.json` with `timeToFirstFrameRasterizedMicros`, which measures from **engine C++ entry** to first frame rasterized. That's a wider window than `ttffMs` — it includes the native pre-Dart phase. **Expect `--trace-startup` to report a larger number than `ttffMs` by the pre-Dart overhead.** Both numbers are correct; they just answer different questions.
+
+Sleuth exposes the `--trace-startup`-equivalent value as `StartupMetrics.engineTtffMs`, and the native-phase gap as `StartupMetrics.preDartOverheadMs`. Both are populated retroactively by scraping `FlutterEngineMainEnter` and `Rasterized first useful frame` events from the Dart VM timeline ring buffer. They require:
+
+- A VM connection (debug or profile mode — release has no VM service).
+- The VM to poll the timeline before the ring buffer evicts those early events (usually fine, but possible to lose on high-traffic startups — in which case the fields are `null`).
+
+When present, both numbers render in the in-app Startup Metrics page and in the `slow_startup_ttff` issue detail under "Engine startup phases". Read them programmatically via `Sleuth.exportSummary()`.
+
+| Metric | Window | Matches `--trace-startup`? | Source |
+|--------|--------|----------------------------|--------|
+| `ttffMs` | Dart entry → first frame raster-finish | No (narrower, excludes native phase) | `FrameTiming` callback |
+| `engineTtffMs` | Engine C++ entry → first frame rasterized | **Yes** | VM timeline |
+| `preDartOverheadMs` | Engine C++ entry → Dart entry | — | VM timeline |
+| `frameworkInitMs` | `WidgetsFlutterBinding.ensureInitialized()` duration | — | Direct `Timeline.now` delta |
+
+### When to use which
+
+- **Track Dart-land regressions** (heavy synchronous work in `main()` / first `build()` / initial route) → use `ttffMs`. It moves when your code moves.
+- **Track full cold-start time** for product dashboards → use `engineTtffMs`, or `flutter run --trace-startup` as the ground-truth reference.
+- **Split the bill between native and Dart** → `preDartOverheadMs` (native, outside Dart's control) vs `ttffMs` (Dart, yours to optimize).
+
+The in-app Startup Metrics page also includes a full "Measurement Methodology" section that enumerates both capture layers (direct `FrameTiming` + VM timeline extraction) if you need the exact capture mechanics.
+
 ## Detector Matrix
 
 ### Runtime Detectors (always available)
