@@ -978,10 +978,10 @@ void main() {
       expect(result[1].rootCauseId, 'platform_channel_traffic');
     });
 
-    test('duplicate_request:* → rebuild_activity', () {
+    test('high_frequency_same_path:* → rebuild_activity', () {
       final issues = [
         makeIssue(
-          stableId: 'duplicate_request:0',
+          stableId: 'high_frequency_same_path:0',
           category: IssueCategory.network,
           confidence: IssueConfidence.confirmed,
         ),
@@ -993,13 +993,13 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['rebuild_activity']);
-      expect(result[1].rootCauseId, 'duplicate_request:0');
+      expect(result[1].rootCauseId, 'high_frequency_same_path:0');
     });
 
-    test('duplicate_request:* → rebuild_debug_*', () {
+    test('high_frequency_same_path:* → rebuild_debug_*', () {
       final issues = [
         makeIssue(
-          stableId: 'duplicate_request:0',
+          stableId: 'high_frequency_same_path:0',
           category: IssueCategory.network,
           confidence: IssueConfidence.confirmed,
         ),
@@ -1011,7 +1011,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['rebuild_debug_MyWidget']);
-      expect(result[1].rootCauseId, 'duplicate_request:0');
+      expect(result[1].rootCauseId, 'high_frequency_same_path:0');
     });
 
     test('no false chain when only one side present', () {

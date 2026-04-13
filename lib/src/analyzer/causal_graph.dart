@@ -119,9 +119,9 @@ class CausalGraphRule extends CorrelationRule {
     // Platform channel traffic → compute pressure
     CausalRule('platform_channel_traffic', 'heavy_compute'),
 
-    // Duplicate requests → rebuilds
-    CausalRule('duplicate_request:*', 'rebuild_activity'),
-    CausalRule('duplicate_request:*', 'rebuild_debug_*'),
+    // High-frequency same-path traffic → rebuilds
+    CausalRule('high_frequency_same_path:*', 'rebuild_activity'),
+    CausalRule('high_frequency_same_path:*', 'rebuild_debug_*'),
   ];
 
   @override

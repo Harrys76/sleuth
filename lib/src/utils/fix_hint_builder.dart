@@ -536,13 +536,15 @@ class FixHintBuilder {
     );
   }
 
-  static (String, FixEffort) duplicateRequest({
+  static (String, FixEffort) highFrequencySamePath({
     required String url,
     required int count,
   }) {
     return (
-      '$count requests to the same endpoint in <500ms.\n'
+      '$count requests to the same endpoint (query strings ignored) in '
+          '<500ms.\n'
           'Fixes:\n'
+          '  • Debounce user-driven fetches (typeahead search, pagination)\n'
           '  • Cache responses — subsequent callers get the cached result\n'
           '  • Share a single Future across widgets (e.g. FutureProvider)\n'
           '  • Deduplicate at the repository layer with an in-flight map\n'

@@ -1284,7 +1284,7 @@ class SleuthController {
       'large_response': 'networkMonitor',
       'request_frequency': 'networkMonitor',
       'http_error_spike': 'networkMonitor',
-      'duplicate_request': 'networkMonitor',
+      'high_frequency_same_path': 'networkMonitor',
       'missing_repaint_boundary': 'repaintBoundary',
       'excessive_repaint_boundary': 'repaintBoundary',
       'slow_startup': 'startup',

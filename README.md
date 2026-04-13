@@ -378,7 +378,7 @@ The in-app Startup Metrics page also includes a full "Measurement Methodology" s
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
 | Frame Timing | FrameTiming API | Frame exceeded budget, thread attribution (UI-bound/raster-bound/pipeline stall) | Confirmed | Cannot attribute to specific widget |
-| Network Monitor | HttpOverrides | Slow, excessive, oversized, error-spiking, or duplicate HTTP requests | Confirmed | Only intercepts dart:io HttpClient (not package:http directly) |
+| Network Monitor | HttpOverrides | Slow, excessive, oversized, error-spiking, or high-frequency same-path HTTP requests | Confirmed | Only intercepts dart:io HttpClient (not package:http directly) |
 
 ### VM-Only Detectors (require VM connection)
 
@@ -427,7 +427,7 @@ The in-app Startup Metrics page also includes a full "Measurement Methodology" s
 - **Historical trending**: per-issue recurrence time-series tracks worsening/improving/stable/intermittent patterns across scan cycles
 - **Widget heat map**: "top offenders" ranking aggregates issues by widget, filtering framework internals
 - **Per-route health scores**: passive route detection (no NavigatorObserver) with per-route FPS, jank ratio, issue aggregation, and composite health score — see which screens are degraded
-- **Network monitoring**: in-app detection of slow requests, request floods, oversized responses, HTTP error spikes, duplicate request clusters, and network-to-frame correlation
+- **Network monitoring**: in-app detection of slow requests, request floods, oversized responses, HTTP error spikes, high-frequency same-path bursts (≥3 GET/HEAD/OPTIONS to one endpoint within 500 ms, query strings ignored), and network-to-frame correlation
 - **Heap trend monitoring**: detects sustained memory growth and near-capacity conditions without heap snapshots
 - **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed
 - **Source-location enrichment**: ancestor chains include file:line in debug mode, linking issues directly to source code

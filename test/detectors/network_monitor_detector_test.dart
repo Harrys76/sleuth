@@ -603,7 +603,7 @@ void main() {
     });
 
     // ---------------------------------------------------------------
-    // Duplicate request detection (v11.15)
+    // High-frequency same-path detection (v11.15, renamed v0.14.2)
     // ---------------------------------------------------------------
 
     test('3 identical GET requests within 500ms flagged as duplicate', () {
@@ -615,8 +615,8 @@ void main() {
           startedAt: base.add(Duration(milliseconds: i * 100)),
         ));
       }
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      final dupIssues = detector.issues.where(
+          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
       expect(dupIssues, hasLength(1));
       expect(dupIssues.first.severity, IssueSeverity.warning);
       expect(dupIssues.first.confidence, IssueConfidence.likely);
@@ -632,8 +632,8 @@ void main() {
           startedAt: base.add(Duration(milliseconds: i * 100)),
         ));
       }
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      final dupIssues = detector.issues.where(
+          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
       expect(dupIssues, isEmpty);
     });
 
@@ -654,8 +654,8 @@ void main() {
         method: 'PUT',
         startedAt: base.add(const Duration(milliseconds: 200)),
       ));
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      final dupIssues = detector.issues.where(
+          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
       expect(dupIssues, isEmpty);
     });
 
@@ -675,8 +675,8 @@ void main() {
         method: 'GET',
         startedAt: fakeNow.add(const Duration(milliseconds: 500)),
       ));
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      final dupIssues = detector.issues.where(
+          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
       expect(dupIssues, hasLength(1),
           reason: '500ms span (0→500) should be within window (<=500ms)');
     });
@@ -697,8 +697,8 @@ void main() {
         method: 'GET',
         startedAt: fakeNow.add(const Duration(milliseconds: 501)),
       ));
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      final dupIssues = detector.issues.where(
+          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
       expect(dupIssues, isEmpty, reason: '501ms span exceeds 500ms window');
     });
 
@@ -711,8 +711,8 @@ void main() {
           startedAt: base.add(Duration(milliseconds: i * 40)),
         ));
       }
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      final dupIssues = detector.issues.where(
+          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
       expect(dupIssues, hasLength(1));
       expect(dupIssues.first.severity, IssueSeverity.critical);
     });
@@ -734,8 +734,8 @@ void main() {
         method: 'GET',
         startedAt: base.add(const Duration(milliseconds: 200)),
       ));
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      final dupIssues = detector.issues.where(
+          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
       expect(dupIssues, hasLength(1));
     });
 
@@ -769,8 +769,8 @@ void main() {
         method: 'GET',
         startedAt: base.add(const Duration(milliseconds: 800)),
       ));
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      final dupIssues = detector.issues.where(
+          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
       expect(dupIssues, hasLength(1),
           reason: 'First cluster of 3 should exceed threshold');
     });
@@ -785,7 +785,7 @@ void main() {
         ));
       }
       final issue = detector.issues.firstWhere(
-          (i) => i.stableId?.startsWith('duplicate_request') == true);
+          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
       expect(issue.fixHint, contains('Cache'));
       expect(issue.fixHint, contains('Deduplicate'));
     });
@@ -807,7 +807,8 @@ void main() {
       }
 
       final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true)
+          .where(
+              (i) => i.stableId?.startsWith('high_frequency_same_path') == true)
           .toList();
       expect(dupIssues, hasLength(2));
 
@@ -831,7 +832,8 @@ void main() {
         ));
       }
       final ids2 = detector2.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true)
+          .where(
+              (i) => i.stableId?.startsWith('high_frequency_same_path') == true)
           .map((i) => i.stableId)
           .toSet();
       expect(ids2, ids, reason: 'Same endpoints should produce same stableIds');
@@ -846,8 +848,8 @@ void main() {
           startedAt: base.add(Duration(milliseconds: i * 50)),
         ));
       }
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      final dupIssues = detector.issues.where(
+          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
       expect(dupIssues, isEmpty,
           reason: 'POST may have different payloads — not idempotent');
     });
@@ -861,8 +863,8 @@ void main() {
           startedAt: base.add(Duration(milliseconds: i * 100)),
         ));
       }
-      final dupIssues = detector.issues
-          .where((i) => i.stableId?.startsWith('duplicate_request') == true);
+      final dupIssues = detector.issues.where(
+          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
       expect(dupIssues, hasLength(1),
           reason: 'HEAD is idempotent — duplicates should be flagged');
     });

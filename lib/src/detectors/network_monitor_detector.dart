@@ -161,7 +161,7 @@ class NetworkMonitorDetector extends BaseDetector {
     _evaluateLargeResponses();
     _evaluateFrequency();
     _evaluateErrors();
-    _evaluateDuplicates();
+    _evaluateHighFrequencySamePath();
 
     // Cancel timer when buffer is empty — no point ticking on stale state.
     // Timer restarts on next processRecord().
@@ -362,11 +362,15 @@ class NetworkMonitorDetector extends BaseDetector {
     ));
   }
 
-  void _evaluateDuplicates() {
+  void _evaluateHighFrequencySamePath() {
     // Group all buffered records by normalized URL (method + path, no query
-    // params). Flag when ≥3 requests to the same endpoint cluster within 500ms
-    // — indicates missing cache or redundant fetches. Uses the full buffer
-    // so evidence persists until route transition clears records.
+    // params). Flag when ≥3 requests to the same endpoint cluster within
+    // 500ms — this is high-frequency traffic to one path that strongly
+    // indicates missing cache, un-debounced input, or redundant fetches
+    // from multiple widgets. Query strings are intentionally stripped so
+    // that pagination / search params still count as the same endpoint
+    // for burst detection. Uses the full buffer so evidence persists
+    // until route transition clears records.
     final recentRecords = _records.toList();
 
     // Group by method + normalized URL
@@ -409,7 +413,7 @@ class NetworkMonitorDetector extends BaseDetector {
           ? IssueSeverity.critical
           : IssueSeverity.warning;
 
-      final (hint, effort) = FixHintBuilder.duplicateRequest(
+      final (hint, effort) = FixHintBuilder.highFrequencySamePath(
         url: records.first.url,
         count: maxCluster,
       );
@@ -418,21 +422,23 @@ class NetworkMonitorDetector extends BaseDetector {
       // Index-based IDs jitter when records age in/out of the buffer.
       final fingerprint = entry.key.hashCode.abs().toRadixString(16);
       _issues.add(PerformanceIssue(
-        stableId: 'duplicate_request:$fingerprint',
+        stableId: 'high_frequency_same_path:$fingerprint',
         severity: severity,
         category: IssueCategory.network,
         confidence: IssueConfidence.likely,
-        title: 'Duplicate Requests: ${entry.key.split(' ').first} '
+        title: 'High-Frequency Requests: ${entry.key.split(' ').first} '
             '${_shortenUrl(records.first.url)} ×$maxCluster in '
             '${_duplicateWindowMs}ms',
-        detail: '$maxCluster identical requests to '
-            '${_shortenUrl(records.first.url)} within ${_duplicateWindowMs}ms. '
-            'This often indicates missing caching, redundant fetches from '
-            'multiple widgets, or a rebuild triggering repeated API calls.',
+        detail: '$maxCluster requests to '
+            '${_shortenUrl(records.first.url)} within ${_duplicateWindowMs}ms '
+            '(query strings ignored). This often indicates missing caching, '
+            'un-debounced input, redundant fetches from multiple widgets, or '
+            'a rebuild triggering repeated API calls.',
         fixHint: hint,
         fixEffort: effort,
         detectedAt: _clock(),
-        confidenceReason: 'Request timing correlation + URL pattern matching',
+        confidenceReason:
+            'Request timing correlation + same-path clustering (query stripped)',
       ));
     }
   }

@@ -244,6 +244,36 @@ void main() {
         expect(detector.issues.first.observationSource,
             ObservationSource.debugCallbackAndStructural);
       });
+
+      testWidgets(
+          'hot paint rate on an unrelated expensive type does not '
+          'escalate confidence for a cold unprotected widget', (tester) async {
+        // A hot Opacity elsewhere (35 paints/sec) must NOT lift the
+        // confidence of an unprotected CustomPaint that is itself cold.
+        // This is the Finding 4 per-type confidence guarantee: the paint
+        // rate lookup is keyed by the types actually in `_found`, not the
+        // full `_expensiveTypeNames` universe.
+        detector.updateDebugSnapshot(const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 35,
+          paintCounts: {'Opacity': 35},
+          elapsed: Duration(seconds: 1),
+        ));
+
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: CustomPaint(
+              painter: _StubPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.confidence, IssueConfidence.possible);
+      });
     });
 
     testWidgets('dispose clears issues, highlights, and debug snapshot',

@@ -586,8 +586,8 @@ class IssueExplanationBuilder {
           'rebuilds during user interactions like typing or scrolling.',
       relatedIssues: [
         'animated_builder_no_child',
-        'duplicate_request',
         'heavy_compute',
+        'high_frequency_same_path',
         'layout_bottleneck',
         'nested_scroll',
         'nested_scroll_same_axis',
@@ -1635,38 +1635,51 @@ class IssueExplanationBuilder {
 
     // ── v11.20: Missing entries ──────────────────────────────────────────
 
-    'duplicate_request': (
-      displayName: 'Duplicate Request',
+    'high_frequency_same_path': (
+      displayName: 'High-Frequency Same-Path Requests',
       category: IssueCategory.network,
       whatItIs:
-          'The same HTTP request was made multiple times within a short window. '
-          'Sleuth fingerprints requests by method, URL, and body hash — when '
-          'two or more in-flight requests share the same fingerprint, this '
-          'issue is emitted.',
+          'Three or more requests were issued to the same endpoint within '
+          '500 ms. Sleuth groups records by HTTP method and normalized URL '
+          '(query strings stripped) so that search-typeahead traffic and '
+          'pagination bursts cluster under a single finding. Only idempotent '
+          'methods (GET, HEAD, OPTIONS) are considered — POST/PUT/PATCH '
+          'bursts are intentionally ignored because they frequently carry '
+          'different payloads to the same URL.',
       readingTheData:
-          'Like ordering the same meal twice because you forgot you already '
-          'ordered — the kitchen does double the work and you get food you '
-          'don\'t need.\n\n'
-          '• Duplicate count — Number of identical in-flight requests. '
-          'Normal: 1 (unique). Alert: ≥2 concurrent duplicates.\n\n'
-          '• Fingerprint — The method + URL hash identifying the duplicate '
-          'group. All requests in the group share this fingerprint.\n\n'
-          '• Source: HTTP client instrumentation.',
+          'Like hitting a doorbell three times in a second because the bell '
+          'didn\'t ring quickly enough — the server side did the same work '
+          'three times, and the network paid for it.\n\n'
+          '• Count — Number of requests that clustered within the 500 ms '
+          'window. Normal: 1–2. Alert: ≥3. Critical: ≥5.\n\n'
+          '• Fingerprint — Method + normalized URL hash identifying the '
+          'cluster. All requests in the cluster share this fingerprint, so '
+          'the issue is stable across scans.\n\n'
+          '• Source: HTTP client instrumentation (startedAt timestamps).',
       whyItMatters:
-          'Duplicate requests waste bandwidth, battery, and server resources. '
-          'They also cause redundant state updates — if both responses trigger '
-          'setState, the widget rebuilds twice with identical data. On metered '
-          'connections this directly costs the user money.',
+          'High-frequency same-path traffic wastes bandwidth, battery, and '
+          'server resources. It also amplifies rebuilds — if each response '
+          'triggers setState, the widget rebuilds N times with nearly '
+          'identical data. On metered connections this directly costs the '
+          'user money. Common root causes are un-debounced typeahead / '
+          'search input, rebuild-triggered fetches in build() or '
+          'didChangeDependencies() without a guard, double-tap pull-to-'
+          'refresh, and pagination that re-requests the same page during '
+          'fast scroll.',
       howToFix:
-          'Add request deduplication: maintain a Map of in-flight request '
-          'fingerprints to their Future, and return the existing Future for '
-          'duplicates instead of making a new request. Common causes: rebuild-'
-          'triggered fetches in build() or didChangeDependencies() without '
-          'a guard, pull-to-refresh double-tap, and paginated lists that '
-          'request the same page twice during fast scroll.',
+          'Pick the fix that matches the root cause: debounce user-driven '
+          'input (300 ms Timer or rxdart throttleTime), cache responses so '
+          'subsequent callers get the cached result, share a single Future '
+          'across widgets (FutureProvider / AsyncNotifier), or deduplicate '
+          'at the repository layer with an in-flight request map keyed by '
+          'fingerprint.',
       whenToIgnore:
-          'POST requests with intentional side effects (e.g., analytics '
-          'events, idempotent writes) may legitimately fire multiple times.',
+          'Legitimate bursts exist — analytics beacons, poll loops intended '
+          'to run at high frequency, or a streaming replacement that falls '
+          'back to short-interval polling. In those cases suppress the issue '
+          'via `SleuthConfig.ignoredStableIds`. The detector already '
+          'excludes POST/PUT/PATCH so non-idempotent writes are never '
+          'flagged.',
       relatedIssues: ['rebuild_activity'],
     ),
 

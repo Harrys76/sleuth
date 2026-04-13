@@ -34,11 +34,11 @@ void main() {
       expect(result!.whatItIs, contains('GlobalKey'));
     });
 
-    test('strips colon suffix for duplicate_request', () {
+    test('strips colon suffix for high_frequency_same_path', () {
       final result =
-          IssueExplanationBuilder.explain('duplicate_request:abcdef');
+          IssueExplanationBuilder.explain('high_frequency_same_path:abcdef');
       expect(result, isNotNull);
-      expect(result!.whatItIs, contains('fingerprint'));
+      expect(result!.whatItIs, contains('same endpoint'));
     });
 
     test('strips dynamic suffix for rebuild_debug', () {
@@ -94,7 +94,7 @@ void main() {
         'http_error_spike',
         'platform_channel_traffic',
         // v11.20: 8 new entries
-        'duplicate_request:testfp',
+        'high_frequency_same_path:testfp',
         'wrap_layout_bottleneck',
         'sliver_to_box_adapter_large',
         'sliver_fill_remaining_scrollable',
@@ -199,7 +199,7 @@ void main() {
         'request_frequency',
         'http_error_spike',
         'platform_channel_traffic',
-        'duplicate_request:testfp',
+        'high_frequency_same_path:testfp',
       ];
 
       for (final id in runtimeIds) {
@@ -306,7 +306,7 @@ void main() {
         'animated_builder_no_child',
         'non_lazy_list',
         'layout_bottleneck',
-        'duplicate_request',
+        'high_frequency_same_path',
         'rebuild_activity',
         'heavy_compute',
         'gc_pressure',
@@ -496,7 +496,7 @@ void main() {
           'request_frequency',
           'http_error_spike',
           'platform_channel_traffic',
-          'duplicate_request',
+          'high_frequency_same_path',
           'wrap_layout_bottleneck',
           'sliver_to_box_adapter_large',
           'sliver_fill_remaining_scrollable',

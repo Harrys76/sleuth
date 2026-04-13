@@ -60,16 +60,6 @@ class RepaintBoundaryDetector extends BaseDetector {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
-  /// Widget type names used for paint rate lookup in [DebugSnapshot].
-  static const _expensiveTypeNames = [
-    'Opacity',
-    'ClipPath',
-    'BackdropFilter',
-    'ShaderMask',
-    'CustomPaint',
-    'ColorFiltered',
-  ];
-
   @override
   void prepareScan(BuildContext context) {
     _issues.clear();
@@ -159,13 +149,18 @@ class RepaintBoundaryDetector extends BaseDetector {
     if (_found.isNotEmpty) {
       final locations = _found.take(5).map((chain) => '  • $chain').join('\n');
 
-      // Check debug snapshot for paint activity across expensive types.
+      // Check debug snapshot for paint activity on the specific widget
+      // types we found unprotected. Iterating `_typeNames.toSet()` (not
+      // `_expensiveTypeNames`) prevents a cross-type confidence lift: a hot
+      // Opacity elsewhere in the tree must not escalate confidence for a
+      // cold unprotected CustomPaint. Only types actually present in
+      // `_found` contribute.
       IssueConfidence confidence = IssueConfidence.possible;
       ObservationSource? source;
       final ds = _lastDebugSnapshot;
       if (ds != null && ds.paintCounts.isNotEmpty) {
         double maxRate = 0;
-        for (final typeName in _expensiveTypeNames) {
+        for (final typeName in _typeNames.toSet()) {
           final rate = ds.paintsPerSecondForType(typeName);
           if (rate > maxRate) maxRate = rate;
         }
@@ -208,9 +203,11 @@ class RepaintBoundaryDetector extends BaseDetector {
           fixEffort: effort,
           observationSource: source,
           confidenceReason: confidence == IssueConfidence.confirmed
-              ? 'Debug callback paint rate confirms excessive repaints'
+              ? 'Debug callback paint rate for the unprotected widget types '
+                  'confirms excessive repaints'
               : confidence == IssueConfidence.likely
-                  ? 'Debug callback paint rate + structural GPU node scan'
+                  ? 'Debug callback paint rate for the unprotected widget '
+                      'types + structural GPU node scan'
                   : 'Structural scan only — enable debug callbacks for paint evidence',
           detectedAt: DateTime.now(),
         ),
