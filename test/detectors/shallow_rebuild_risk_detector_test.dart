@@ -4,6 +4,7 @@ import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/shallow_rebuild_risk_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
+import '../helpers/rebuild_capture_helpers.dart';
 import '../helpers/timeline_test_helpers.dart';
 
 void main() {
@@ -282,6 +283,54 @@ void main() {
       expect(detector.issues, isEmpty,
           reason: 'ScrollNotificationObserver should be in framework '
               'suppression list');
+    });
+
+    // -----------------------------------------------------------------
+    // M11: Anti-tautology — drive rebuilds through the real
+    // DebugInstrumentationCoordinator pipeline and feed the resulting
+    // snapshot to the detector.
+    // -----------------------------------------------------------------
+
+    group('real widget tree (anti-tautology)', () {
+      testWidgets(
+          'structural fallback upgrades confidence with real rebuild snapshot',
+          (tester) async {
+        // VM disconnected path: shallow StatefulWidget detected structurally,
+        // real debug snapshot upgrades confidence to `likely`.
+        detector.vmConnected = false;
+
+        final key = GlobalKey<TestCounterWidgetState>();
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: TestCounterWidget(key: key),
+          ),
+        );
+
+        // 3 real setState rebuilds drive TestCounterWidget through the
+        // rebuild-dirty-widget callback.
+        final snapshot = await captureDebugCallbackCounts(
+          tester: tester,
+          key: key,
+          count: 3,
+        );
+
+        expect(snapshot.source, RebuildCountSource.debugCallback);
+        expect(snapshot.rebuildCounts['TestCounterWidget'], greaterThan(0),
+            reason: 'real coordinator pipeline must count TestCounterWidget '
+                'rebuilds');
+
+        detector.updateDebugSnapshot(snapshot);
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isNotEmpty);
+        final issue = detector.issues.first;
+        expect(issue.title, contains('TestCounterWidget'));
+        expect(issue.confidence, IssueConfidence.likely);
+        expect(issue.observationSource,
+            ObservationSource.debugCallbackAndStructural);
+        expect(issue.detail, contains('rebuilding at'));
+      });
     });
   });
 }

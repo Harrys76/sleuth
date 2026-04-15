@@ -25,6 +25,7 @@ import 'demos/network_stress_demo.dart';
 import 'demos/non_lazy_list_demo.dart';
 import 'demos/opacity_zero_demo.dart';
 import 'demos/platform_channel_demo.dart';
+import 'demos/rebuild_hotspot_demo.dart';
 import 'demos/repaint_boundary_demo.dart';
 import 'demos/repaint_stress_demo.dart';
 import 'demos/shader_jank_demo.dart';
@@ -42,6 +43,30 @@ void main() {
           baseUrl: 'http://localhost:11434',
           model: 'llama3.2',
         ),
+        // Rebuild-detector data sources (off by default to keep the
+        // minimal install cheap). Both are needed for the Rebuild
+        // Hotspot demo — and for every other rebuild-related issue:
+        //
+        //   • `enableDebugCallbacks: true` wires `debugOnRebuildDirtyWidget`
+        //     so the detector can attribute per-type rebuild counts in
+        //     DEBUG mode (produces `rebuild_debug_*` issue cards).
+        //
+        //   • `enableDeepDebugInstrumentation: true` flips
+        //     `debugProfileBuildsEnabledUserWidgets` + installs the
+        //     `FlutterTimeline.debugCollect()` drain, so PROFILE mode
+        //     populates `RouteSession.rebuildCountsByType`. That powers
+        //     the always-on `_RebuildStatsBanner` panel on the floating
+        //     issues card and the `RebuildStatsPage` drilldown (the
+        //     v0.15.0 `rebuild_hotspot_summary` rollup IssueCard was
+        //     replaced by this inline panel in v0.15.2). The
+        //     VM-timeline `rebuild_activity` path also lights up with
+        //     per-widget build events.
+        //
+        // Without either flag the detector has no data to evaluate,
+        // so no rebuild issue of any kind will ever surface — including
+        // the Rebuild Hotspot (Dashboard) demo.
+        enableDebugCallbacks: true,
+        enableDeepDebugInstrumentation: true,
         // Cookbook custom detectors — see example/lib/custom_detectors/.
         // All three are attached to the overlay so the Custom Detector
         // Cookbook demo can exercise them end-to-end.
@@ -98,6 +123,13 @@ class DemoHome extends StatelessWidget {
             subtitle: 'Rebuild • SetStateScope detectors',
             color: Colors.red,
             builder: (_) => const HighLevelSetStateDemo(),
+          ),
+          _DemoRoute(
+            icon: Icons.insights,
+            title: 'Rebuild Hotspot (Dashboard)',
+            subtitle: 'Rebuild Stats rollup + drilldown (profile)',
+            color: Colors.pink,
+            builder: (_) => const RebuildHotspotDemo(),
           ),
           _DemoRoute(
             icon: Icons.list,

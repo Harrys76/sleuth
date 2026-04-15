@@ -6,6 +6,7 @@ import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/phase_event.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
 
+import '../helpers/rebuild_capture_helpers.dart';
 import '../helpers/timeline_test_helpers.dart';
 
 void main() {
@@ -989,6 +990,70 @@ void main() {
       expect(streamHighlights, isEmpty,
           reason:
               'StreamBuilder below 3x threshold should not produce highlights');
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // M11: real widget tree (anti-tautology)
+  //
+  // The other groups in this file feed hand-coded `const DebugSnapshot`
+  // literals into the detector. That validates the *reaction* but NOT
+  // that the debug-callback pipeline actually produces snapshots with
+  // that shape — a regression at the coordinator boundary would pass
+  // every existing test while silently dropping real data.
+  //
+  // This group pumps a real `TestCounterWidget`, captures a snapshot
+  // through the real `DebugInstrumentationCoordinator`, and feeds the
+  // result to `RebuildDetector` exactly the way the controller does in
+  // production. If the coordinator ever emits a different shape the
+  // detector doesn't understand, this test fails.
+  // ---------------------------------------------------------------------
+  group('real widget tree (anti-tautology)', () {
+    testWidgets('captured debug snapshot drives real per-type issue emission',
+        (tester) async {
+      final key = GlobalKey<TestCounterWidgetState>();
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: TestCounterWidget(key: key),
+        ),
+      );
+
+      // 15 real setState rebuilds — above the default 10/sec threshold.
+      // The helper primes existing elements on install so the very first
+      // rebuild after install is counted instead of being consumed by the
+      // Expando first-observation guard.
+      final snapshot = await captureDebugCallbackCounts(
+        tester: tester,
+        key: key,
+        count: 15,
+      );
+
+      // Sanity: coordinator captured a real count for the public-named
+      // test widget through the full debug-callback pipeline. A regression
+      // in the coordinator that silently drops rebuilds (like the
+      // framework `builtOnce` bug that motivated this test) would fail
+      // this assertion, independent of any hand-coded fixture.
+      expect(snapshot.source, RebuildCountSource.debugCallback);
+      expect(
+          snapshot.rebuildCounts['TestCounterWidget'], greaterThanOrEqualTo(15),
+          reason: 'Coordinator must count every real setState rebuild');
+
+      final detector = RebuildDetector();
+      detector.vmConnected = false; // Force debug-path priority
+      detector.updateDebugSnapshot(snapshot);
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(detector.issues, isNotEmpty,
+          reason:
+              'Detector must emit an issue from real-captured rebuild counts');
+      final issue = detector.issues.firstWhere(
+        (i) => i.widgetName == 'TestCounterWidget',
+        orElse: () => fail(
+            'Expected a rebuild_debug_TestCounterWidget issue in $detector.issues'),
+      );
+      expect(issue.confidence, IssueConfidence.confirmed);
+      expect(issue.observationSource, ObservationSource.debugCallback);
     });
   });
 }

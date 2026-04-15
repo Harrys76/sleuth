@@ -1,3 +1,17 @@
+/// Origin of the [DebugSnapshot.rebuildCounts] data.
+///
+/// Sleuth populates rebuild counts from exactly one source per mode
+/// (see spec v15 KDD-1 "mutual exclusivity by mode"):
+///
+/// - [debugCallback]: debug-mode `debugOnRebuildDirtyWidget` callback.
+///   Counts actual rebuilds only (initial builds excluded).
+/// - [flutterTimeline]: profile-mode `FlutterTimeline.debugCollect()` drain.
+///   Counts include initial widget inflations as well as rebuilds (KDD-5),
+///   so route entry shows transient elevated values.
+/// - [none]: no source is active; `rebuildCounts` is empty. Also the
+///   default used by fixture/test snapshots that don't care about source.
+enum RebuildCountSource { none, debugCallback, flutterTimeline }
+
 /// A snapshot of debug callback data accumulated over a time window.
 ///
 /// Produced by [DebugInstrumentationCoordinator.snapshot()] and consumed
@@ -9,6 +23,7 @@ class DebugSnapshot {
     required this.elapsed,
     this.paintCounts = const {},
     this.ancestorChains = const {},
+    this.source = RebuildCountSource.none,
   });
 
   /// Per-widget-type rebuild counts (key = widget runtimeType name).
@@ -38,6 +53,15 @@ class DebugSnapshot {
   /// per-second rates using this before applying thresholds, since
   /// the snapshot interval is not guaranteed to be 1 second.
   final Duration elapsed;
+
+  /// Origin of [rebuildCounts]. See [RebuildCountSource] for semantics.
+  ///
+  /// Defaults to [RebuildCountSource.none] so existing const-literal
+  /// fixture snapshots compile unchanged. Code that cares about the
+  /// profile-mode path (e.g. the controller merge into
+  /// `RouteSession.rebuildCountsByType`) should gate on
+  /// `source == RebuildCountSource.flutterTimeline`.
+  final RebuildCountSource source;
 
   /// Total rebuilds across all widget types.
   int get totalRebuilds => rebuildCounts.values.fold(0, (a, b) => a + b);

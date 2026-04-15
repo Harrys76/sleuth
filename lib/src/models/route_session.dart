@@ -76,6 +76,29 @@ class RouteSession {
   /// Number of scan cycles completed while this route was active.
   int scanCycleCount = 0;
 
+  /// Per-widget-type rebuild counts accumulated during this session
+  /// (spec v15, M6). Populated only in profile mode when
+  /// [SleuthConfig.enableDeepDebugInstrumentation] is `true` — otherwise
+  /// stays empty. The controller additively merges
+  /// [DebugSnapshot.rebuildCounts] into this map on every scan where
+  /// `DebugSnapshot.source == RebuildCountSource.flutterTimeline` (M7).
+  ///
+  /// KDD-5 divergence note: counts include initial widget inflations as
+  /// well as actual rebuilds, because the framework emits the same
+  /// `FlutterTimeline.startSync('${runtimeType}')` from `_tryRebuild`,
+  /// `updateChild`, and `inflateWidget`. Route entry therefore shows a
+  /// transient spike that decays as the tree stabilises. The inline
+  /// `_RebuildStatsBanner` panel and the `RebuildStatsPage` drilldown
+  /// disclose this caveat.
+  final Map<String, int> rebuildCountsByType = {};
+
+  /// Total profile-mode rebuilds observed during this session, summed
+  /// across every widget type in [rebuildCountsByType]. Surfaced by the
+  /// always-on `_RebuildStatsBanner` panel header on the floating
+  /// issues card.
+  int get totalRebuilds =>
+      rebuildCountsByType.values.fold<int>(0, (a, b) => a + b);
+
   /// Whether this route is still the active scan target.
   bool get isActive => endedAt == null;
 
@@ -171,6 +194,12 @@ class RouteSession {
       'criticalCount': criticalCount,
       'warningCount': warningCount,
       'issues': issueSnapshots.keys.toList(),
+      // M6 / KDD-7: purely additive optional field. Emitted only when
+      // non-empty so debug-mode exports (which never populate this map)
+      // stay byte-identical to v0.14.1 and the schema stays at v4.
+      if (rebuildCountsByType.isNotEmpty)
+        'rebuildCountsByType': Map<String, int>.of(rebuildCountsByType),
+      if (rebuildCountsByType.isNotEmpty) 'totalRebuilds': totalRebuilds,
     };
   }
 }

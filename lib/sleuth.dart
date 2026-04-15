@@ -82,7 +82,7 @@ export 'src/models/base_detector.dart'
     show DetectorType, DetectorLifecycle, BaseDetector;
 export 'src/models/simple_structural_detector.dart';
 export 'src/vm/timeline_parser.dart' show ParsedTimelineData;
-export 'src/debug/debug_snapshot.dart' show DebugSnapshot;
+export 'src/debug/debug_snapshot.dart' show DebugSnapshot, RebuildCountSource;
 export 'src/models/allocation_entry.dart';
 export 'src/models/cpu_attribution.dart';
 export 'src/models/gc_event_summary.dart';

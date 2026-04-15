@@ -278,9 +278,23 @@ class RebuildDetector extends BaseDetector {
     _stagedEnrichedNames = null;
 
     if (hasFreshDebug) {
-      if (debugSnapshot.totalRebuilds > 0) {
+      // M14/C1: `_evaluateDebugData` must NOT run on profile-mode
+      // (`flutterTimeline`) snapshots. Those counts include initial widget
+      // inflations per KDD-5 — feeding them to the per-type "Excessive
+      // Rebuilds" path produced critical false positives on route entry
+      // (e.g. `ProductCard × 50` list-entry inflations interpreted as
+      // rebuilds). Profile mode surfaces a single session-level rollup
+      // instead; debug mode keeps the per-type attribution unchanged
+      // because `debugOnRebuildDirtyWidget` only fires on actual
+      // `setState`-driven rebuilds. The gate is "not flutterTimeline"
+      // rather than "equals debugCallback" so existing tests that
+      // construct `DebugSnapshot` with the default `source:
+      // RebuildCountSource.none` (no explicit source tag) keep exercising
+      // the per-type path — backwards compatibility for pre-v15 fixtures.
+      if (debugSnapshot.source != RebuildCountSource.flutterTimeline &&
+          debugSnapshot.totalRebuilds > 0) {
         _evaluateDebugData(debugSnapshot);
-      } else if (hasFreshVm) {
+      } else if (debugSnapshot.totalRebuilds == 0 && hasFreshVm) {
         // Debug callbacks active but returned zero counts — fall back to VM.
         if (vmWindowCount > 0) {
           _evaluateVmData(vmWindowCount, enrichedNames);
@@ -483,6 +497,7 @@ class RebuildDetector extends BaseDetector {
     'AiChatPage',
     'GuidePage',
     'StartupMetricsPage',
+    'RebuildStatsPage',
   };
 
   @override

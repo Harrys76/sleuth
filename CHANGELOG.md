@@ -1,3 +1,427 @@
+## 0.15.2
+
+UX refactor of the rebuild-stats surface, prompted by another real-device
+profile review. The v0.15.1 design surfaced rebuild attribution two ways: a
+`rebuild_hotspot_summary` IssueCard in the warning stream (gated on
+≥20 builds/sec) and a small always-on chip above the issue list that
+linked into the drilldown. The IssueCard collided with the issue ranker,
+fired only on hot routes, and KDD-5 inflations turned route entry into
+a noisy warning storm. The chip was discoverable but offered no signal
+about *what* was rebuilding. v0.15.2 collapses both surfaces into a single
+always-on inline expandable panel.
+
+### Changed
+
+- **`_RebuildStatsBanner` is now an expandable inline panel** (replaces
+  the v0.15.1 chip). Two states:
+  * **Collapsed (default)** — single row with `Rebuilds: N across M
+    widgets` + chevron. Tap to expand.
+  * **Expanded** — collapsed header + the **top-3** widget rows with
+    rank, name, live-tweened count, and a normalised bar fill. A
+    Pause/Resume toggle freezes the rendered counts so the user can read
+    a stable snapshot while attribution continues to accumulate. A
+    `See all N →` link pushes the full `RebuildStatsPage` drilldown via
+    the same snapshot-and-push path the rollup IssueCard used to use.
+    An `incl. inflations` footnote keeps the KDD-5 disclosure inline.
+- **Reactivity** is via `Listenable.merge([issuesNotifier,
+  routeHistoryNotifier])` — the panel rebuilds on every scan tick and
+  on every route push/pop. **Pause auto-clears on route change** so the
+  user is never looking at stale data from a previous route.
+
+### Removed
+
+- **`rebuild_hotspot_summary` rollup IssueCard** and all of its
+  supporting machinery:
+  * `RebuildDetector._maybeEmitRollupIssue`, `_sessionElapsed`,
+    `_formatElapsed`, `_activeRouteSession` field, and the rate/duration
+    constants (`_rollupRateThreshold`, `_rollupCriticalRateThreshold`,
+    `_rollupMinDuration`, `_rollupMinTotalForRate`).
+  * `BaseDetector.updateActiveRouteSession` hook (no remaining
+    overrides) and the matching controller call site in
+    `_scanTreeInner`.
+  * `IssueCard.onSeeAllRebuilds` parameter, `_buildSeeAllRebuildsLink`
+    helper, and the conditional render block in the expanded card body.
+  * `FixHintBuilder.rebuildHotspotSummary`.
+  * Encyclopedia entry for `rebuild_hotspot_summary` and its
+    `relatedIssues` cross-references from `rebuild_activity`,
+    `rebuild_debug`, `setstate_scope`, and `animated_builder_no_child`.
+  * `'rebuild_hotspot_summary'` from the controller's stableId prefix
+    map.
+  The drilldown page (`RebuildStatsPage`) is unchanged — only the entry
+  point moved.
+
+### Added
+
+- **`TweenAnimationBuilder` is now in `_frameworkWidgetDenyList`** —
+  the new panel uses it for the live count tween, so the KDD-10
+  audit test caught it as a missing entry. Without this addition,
+  Sleuth would re-introduce a self-measurement leak on its own panel.
+- **5 new banner tests** in `floating_issues_card_test.dart`:
+  collapsed-by-default, expand reveals top-3 + footer + correct
+  chevron, the 4th widget is NOT inlined (top-3 contract pin),
+  expand → tap "See all N →" → drilldown push, pause freezes
+  rendered counts across subsequent live merges.
+- **`incl. inflations` footnote** inside the expanded panel mirrors
+  the longer KDD-5 caveat the drilldown page renders in full.
+
+### Fixed
+
+- **Profile-mode KDD-5 inflations no longer pollute the warning
+  stream.** Because the rollup IssueCard is gone, route entry no
+  longer surfaces a critical-severity card for transient inflations
+  that decay as the tree stabilises. The data is still visible in
+  the panel — but as data, not as a warning.
+
+### Post-implementation hardening (12 findings from adversarial review)
+
+A post-impl `/adversarial-review` pass against the v0.15.2 panel
+surfaced 12 findings (3 critical, 4 high, 4 medium, 1 test-fixture
+contract gap). All shipped in the same v0.15.2 release.
+
+**Critical**
+
+- **C1 — Paused-snapshot drift.** The "See all N →" link reached
+  back to `controller.activeRouteSession.rebuildCountsByType` at
+  open time, so a user who paused the panel to read a stable
+  top-3 then drilled in was looking at *live* counts from a
+  different moment. `_RebuildStatsBanner.onTap` is now
+  `void Function(Map<String, int>? overrideCounts)` and the
+  footer GestureDetector passes `_paused ? _frozenCounts : null`,
+  so the drilldown opens with whatever was on screen.
+- **C2 — Redundant "See all N" on small routes.** Two-widget
+  routes rendered a "See all 2 →" link below the same two rows
+  the panel already showed. Footer link is now gated on
+  `widgetCount > _topN` (3) — small routes show their rows and
+  stop there.
+- **C3 — Stale test docstrings.** Group docstring and several
+  test comments in `floating_issues_card_test.dart` still
+  referenced the removed `_rollupMinTotalForRate = 30` rate gate
+  and "rollup IssueCard" surfacing path. Rewritten for the
+  v0.15.2 panel-only contract.
+
+**High**
+
+- **H1 — Tap targets below 28dp.** Pause toggle and "See all"
+  link were free-floating Text/Icon hit areas at ~12–14dp. They
+  are now wrapped in a 28×28 SizedBox (pause) and a 24-tall
+  SizedBox (see-all), each using `HitTestBehavior.opaque` and
+  `Center(widthFactor: 1)` so the inner GestureDetector wins
+  hit testing against the outer header. Both fall short of
+  Material's 48dp ideal — documented compromise vs the
+  inline-overlay vertical budget (~330dp in tests, ~446dp on a
+  typical phone). Per-row vertical padding tightened in tandem
+  to keep the panel from overflowing the test card.
+- **H2 — Silent auto-resume on route change.** Pause auto-clears
+  on route push/pop (correct), but the user got no feedback —
+  the bar charts just started moving again. Banner state now
+  fires an `onPauseDiscarded` callback on the pause-clear path;
+  the parent shows a 2 s "Pause cleared — route changed"
+  snackbar via the same dismissal pattern as the other in-card
+  toasts.
+- **H3 — KDD-5 disclosure regression in collapsed state.**
+  Initial fix added a small `Icons.info_outline` glyph next to
+  the count to signal that profile-mode totals include
+  inflations. Reverted on user feedback: the icon was
+  non-interactive and visually competed with the existing
+  `Icons.repeat` glyph that already marks the row as
+  rebuild-related. The KDD-5 caveat now lives only in the
+  expanded panel's `incl. inflations` footnote and on the
+  `RebuildStatsPage` drilldown — accepted as a tradeoff against
+  visual noise on the always-visible collapsed header.
+- **H4 — Empty-state debuggability.** The "session is gone"
+  snackbar already covered the empty drilldown path; verified
+  it still fires through the C1 callback signature change.
+
+**Medium**
+
+- **F1 — Collapsed-state pause indicator.** Paused panel showed
+  no glyph in the collapsed state, so a user could collapse a
+  paused panel and forget it was frozen. Collapsed header now
+  renders a small `Icons.pause` (10dp, alpha 0.5) next to the
+  count when `_paused` is true.
+- **F2 — `TweenAnimationBuilder<int>` correctness audit.** The
+  live count tween uses `IntTween(begin: 0, end: count)`. The
+  smell flagged in review was "begin: 0 looks wrong on
+  rebuild". Audit confirmed canonical: `TweenAnimationBuilder`
+  substitutes the *current animated value* as the new `begin`
+  on rebuild, so `begin: 0` is correct as the seed-only value.
+  No code change.
+- **F3 / P3 — `Listenable.merge` allocation in build().** The
+  panel allocated a fresh merged listenable on every rebuild,
+  which is cheap but unnecessary churn. Hoisted into a
+  `late final _mergedListenable` field initialised once in
+  `initState`.
+- **TF2 — Drilldown contract not asserted in tests.** The pause
+  test asserted that the *panel* froze its rendered counts but
+  did not assert the drilldown opened with frozen data. Test
+  extended: pause → mutate live counts → tap "See all 4 →" →
+  assert drilldown shows the frozen 15/×8 values, NOT the live
+  20/×13. Uses `find.descendant(of: RebuildStatsPage, ...)` to
+  disambiguate panel vs drilldown text matches when both are
+  mounted.
+
+Test count after hardening: 2,153 → **2,146** (the 5 banner
+tests added in the original v0.15.2 entry were rebalanced —
+several merged into the extended pause/contract test, others
+stayed independent).
+
+## 0.15.1
+
+Hotfix for two v0.15.0 defects caught by a real-device profile run. On a home
+screen where DevTools reported ~50–100 rebuilds, Sleuth's Build Hotspot rollup
+claimed **21,352** rebuilds and the drilldown was dominated by
+`FloatingIssuesCard`, `IssueCard`, `TriggerButton`, `Container`, `Padding`,
+`ValueListenableBuilder`, and `FadeTransition` — Sleuth's own overlay and the
+framework widgets it builds with. The v0.15.0 pipeline was measuring itself.
+
+A follow-up audit against the Flutter 3.41.4 SDK source caught three more
+identifier-shaped frame-phase scopes (`POST_FRAME`, `COMPOSITING`, `SEMANTICS`)
+that were also leaking into the drilldown — they fire once per frame from
+`scheduler/binding.dart`, `rendering/view.dart`, and `rendering/object.dart`
+respectively, so on a 60 Hz route they accumulate ~3,600 spurious "rebuilds"
+per minute. They are now part of the same denylist, with a regression test
+that pins every identifier-shaped `FlutterTimeline.startSync(...)` scope in
+the SDK to `null`.
+
+### Fixed
+
+- **KDD-10 — Framework widget contamination (self-measurement).** The Flutter
+  framework emission gate at `framework.dart:3503` uses
+  `debugIsWidgetLocalCreation`, whose `_isLocalCreationLocationImpl` fallback at
+  `widget_inspector.dart:1801-1816` returns
+  `!file.contains('packages/flutter/')` when `_pubRootDirectories == null` (the
+  default when DevTools is not attached). Anything NOT under `packages/flutter/`
+  — including `package:sleuth/...` — is therefore classified as "user widget"
+  and dumped through `FlutterTimeline.startSync`. Sleuth's own overlay widgets
+  and the framework widgets they instantiate (`Container`, `Padding`,
+  `ValueListenableBuilder`, …) were feeding the drain on every scan, producing
+  200–1000× inflated counts vs. DevTools. `WidgetInspectorService
+  .addPubRootDirectories` is `@protected` and additive-only, so exclusion at
+  the framework layer is not available.
+
+  Fix: a denylist in `DebugInstrumentationCoordinator.canonicalizeTypeName`.
+  `_frameworkWidgetDenyList` holds every Flutter framework widget actually
+  constructed inside `lib/src/ui/` (48 entries) plus every Sleuth overlay
+  widget class (25 entries). Any event whose canonical name is in the set is
+  dropped from the drain. The denylist is checked **after** generic stripping
+  so `ValueListenableBuilder<int>` collapses to `ValueListenableBuilder` before
+  the lookup — the filter is now five layers:
+  `_denyList → isRenderObjectName → identifierRegex → genericStrip →
+  frameworkWidgetDenyList`.
+
+- **KDD-9 — Absolute-total rollup threshold was time-blind.** The v0.15.0
+  rollup gate was `> 100 session rebuilds` (warning) / `> 300` (critical),
+  which trips on any long-lived route regardless of whether the baseline rate
+  is actually concerning. Replaced with a **sustained-rate** gate:
+  `≥ 20 builds/sec` (warning), `≥ 50 builds/sec` (critical), gated by a
+  30-build / 1.5-second noise floor. Rate is computed against the detector's
+  own injected clock so tests are deterministic. Title and detail now render
+  the sustained rate, absolute total, unique-type count, and window together:
+  `"Build Hotspot: 22.0 builds/sec (110 across 4 widgets in 5.0s)"`.
+
+### Added
+
+- **`test/debug/overlay_denylist_audit_test.dart`** — CI gate that walks
+  `lib/src/ui/**/*.dart` and enforces three invariants on the denylist:
+  (1) every class extending `Stateless/Stateful/InheritedWidget` must be in
+  the denylist; (2) every framework widget from a curated candidate set that
+  is actually used under `lib/src/ui/` must be in the denylist; (3) no stale
+  framework entries may remain for widgets no longer used in the overlay.
+  This test is the only thing preventing a future overlay addition from
+  silently re-introducing self-measurement, so the failure message on each
+  invariant points the maintainer directly at the denylist to update.
+- **`DebugInstrumentationCoordinator.debugFrameworkWidgetDenyList`** —
+  `@visibleForTesting` accessor exposing the denylist to the audit test
+  without widening the public API.
+- **Parameterized denylist unit tests** in
+  `debug_instrumentation_coordinator_profile_test.dart` under a new
+  `framework widget denylist (KDD-10)` group: every denylist entry →
+  `canonicalizeTypeName` returns `null`; generics collapse before the lookup;
+  look-alike user widgets (`ContainerPro`, `MyText`, `PaddedCard`,
+  `_MyPrivateCard`) still pass through.
+- **Rate-based threshold tests** in `rebuild_detector_test.dart` using a
+  test-controlled clock (`late DateTime now; clock() => now;
+  advance(Duration)`): 22/sec fires, 10/sec doesn't, 62/sec is critical,
+  40/sec is warning, noise-floor and minimum-duration gates honored.
+- **Disclaimer copy update** in three places (`rebuild_detector.dart` rollup
+  `detail`, `issue_explanation_builder.dart` encyclopedia entry,
+  `rebuild_stats_page.dart` inline banner) — now explicitly states that
+  Sleuth overlay widgets are excluded from the drain, so users don't wonder
+  why they never see their own tool's widgets in the leaderboard.
+
+### Changed
+
+- **`RebuildDetector` rollup thresholds**: `_rollupThreshold` (absolute total)
+  and `_rollupCriticalThreshold` replaced with `_rollupRateThreshold = 20.0`,
+  `_rollupCriticalRateThreshold = 50.0`, `_rollupMinDuration =
+  Duration(milliseconds: 1500)`, `_rollupMinTotalForRate = 30`. The rate
+  threshold survives in `FixHintBuilder.rebuildHotspotSummary`'s doc comment
+  and in the encyclopedia entry for `rebuild_hotspot_summary`, so consumers of
+  the fix-hint output see the same numbers that fired the issue.
+- **`RebuildDetector` constructor** takes an optional `DateTime Function()
+  clock` for test-controlled elapsed, defaulting to `DateTime.now`.
+- **`canonicalizeTypeName` docstring** updated from "four-layer" to
+  "five-layer filter" and includes the KDD-10 rationale inline.
+- **Framework widgets are now filtered from profile-mode rebuild
+  drilldowns.** As a consequence of the KDD-10 denylist, 48 common
+  Flutter framework widgets — `Container`, `Row`, `Column`, `Padding`,
+  `SizedBox`, `Text`, `Stack`, `Material`, `ColoredBox`, `DecoratedBox`,
+  `ValueListenableBuilder`, `FadeTransition`, `Align`, `Center`, and
+  friends — no longer appear as entries in the rollup or drilldown
+  leaderboard. This is the correct behavior (the overlay itself was the
+  dominant producer of those names in v0.15.0), but it means a genuine
+  user-space `Row` or `Container` hotspot becomes invisible at the
+  rollup level if the user has wrapped it under one of these names.
+  Mitigation: wrap the hotspot in a named subclass (`class ProductRow
+  extends StatelessWidget`) so it shows up under its user-space
+  identifier. The disclaimer on the rollup `detail`, the encyclopedia
+  entry, and the drilldown banner all surface this tradeoff so users
+  know to look for their own named widgets, not framework primitives.
+
+### Migration
+
+No API break and no schema bump. A v0.15.0 app that already reports a Build
+Hotspot issue on a slow route will continue to see one in v0.15.1 — the title
+will now lead with a builds-per-second rate and the drilldown will no longer
+show Sleuth's own overlay widgets at the top. Apps that were seeing a noisy
+rollup on a long-lived route where nothing was actually wrong should stop
+seeing it, because the rate-based threshold ignores low-frequency baseline
+chatter regardless of how long the route has been mounted.
+
+## 0.15.0
+
+Profile-mode per-widget rebuild counting. When `enableDeepDebugInstrumentation`
+is true in a profile build, Sleuth now drains `FlutterTimeline.debugCollect()`
+each scan cycle, canonicalizes every `BUILD` scope name, and attributes the
+result to the active `RouteSession`. The counts surface as a new
+`rebuild_hotspot_summary` rollup issue (fires when a session's total crosses
+100 rebuilds) with a "See all rebuilds" drilldown page listing every widget
+type sorted descending. Detectors that previously only had a structural signal
+(`RebuildDetector`, `ShallowRebuildRiskDetector`, `AnimatedBuilderDetector`,
+`SetStateScopeDetector`) now receive real profile-mode counts and upgrade
+their confidence when the counts agree. One adversarial plan-review round
+before implementation plus one post-implementation adversarial code review.
+
+### Added
+
+- **`DebugSnapshot.source`** (`RebuildCountSource` enum: `none` /
+  `debugCallback` / `flutterTimeline`). Tags every snapshot so consumers can
+  tell whether counts came from the debug-mode `debugOnRebuildDirtyWidget`
+  slot or the profile-mode `FlutterTimeline` drain. Mutually exclusive with
+  detector rollup merging — only `flutterTimeline`-tagged snapshots flow into
+  `RouteSession.rebuildCountsByType`; `debugCallback` snapshots remain
+  per-detector inputs (KDD-1).
+- **`DebugInstrumentationCoordinator.installProfileMode()` /
+  `uninstallProfileMode()`**: flips `FlutterTimeline.debugCollectionEnabled`
+  with install-time refusal if the flag is already `true` (prevents conflict
+  with DevTools or a second Sleuth instance). Hot-restart-tolerant via
+  idempotent double-install. `snapshot()` drains `FlutterTimeline.debugCollect()`
+  through `canonicalizeTypeName` (three-layer filter: emission gate,
+  generics-strip, deny-list + identifier regex).
+- **`DebugInstrumentationCoordinator.canonicalizeTypeName`**: static helper
+  that strips generic parameters (`Provider<Foo>` → `Provider`), rejects
+  denylisted framework frame scopes (`BUILD`, `LAYOUT`, `PAINT`, `FINALIZE
+  TREE`, `Preparing Hot Reload (widgets)`), and rejects non-identifier shapes
+  via regex (`^[A-Z][A-Za-z0-9_]*$`). Private-prefixed names drop by design.
+- **`RouteSession.rebuildCountsByType`** (`Map<String, int>`) +
+  **`RouteSession.totalRebuilds`**: accumulates per-widget rebuild counts
+  attributed to the session. Additive merge across scans. Emitted in JSON
+  exports (schema v4 — no bump; the field is optional and older consumers
+  ignore it gracefully).
+- **`rebuild_hotspot_summary` rollup issue**: `RebuildDetector` now emits a
+  second, rollup-shaped issue when `source == flutterTimeline` AND
+  `session != null` AND `session.totalRebuilds > 100`. Per-type issues still
+  fire alongside — the rollup is a summary card, not a replacement. StableId
+  prefix registered in the issue ranker's prefix map.
+- **`RebuildStatsPage`**: drilldown page reachable via "See all rebuilds" link
+  on the rollup issue. Lists every widget type sorted descending by count
+  with rank / type name / count / bar-fraction. Empty state for zero-count
+  sessions. **Snapshot-at-open semantics (M10):** the counts map is copied
+  at construction time and never live-updates — mutations to the underlying
+  session after open do not reorder rows or change totals, so users reading
+  the drilldown aren't surprised by rows reflowing underneath them.
+- **`IssueCard.onSeeAllRebuilds`** callback: renders a "See all rebuilds →"
+  link in the expanded card body when non-null. Caller-gated (the floating
+  issues card wires it only for `rebuild_hotspot_summary` issues).
+- **`DebugInstrumentationCoordinator.primeExistingElements()`**: seeds the
+  element-seen Expando with every element in an already-mounted subtree, so
+  the coordinator counts the very first rebuild after install instead of
+  consuming it as a first-observation placeholder. Used by the new
+  `captureDebugCallbackCounts` / `captureRebuildsViaTrigger` test helpers.
+- **Encyclopedia entry for `rebuild_hotspot_summary`** in the issue
+  explanation registry — `readingTheData`, `whyItMatters`, `commonCauses`,
+  `howToFix`, `relatedIssues` (bidirectional: `excessive_rebuilds`,
+  `setstate_scope`, `animated_builder_unscoped`).
+
+### Changed
+
+- **Assert-wrapper restructure (M3, 4 sites)**: `_installDebugInstrumentation`,
+  `_scanTree`'s drain site, `dispose()`, and `_installHeavyFlags` no longer
+  wrap their bodies in `assert(() {})` blocks. Profile builds strip asserts,
+  so the previous layout silently made the entire rebuild-attribution pipeline
+  a no-op in profile mode — `debugProfileBuildsEnabledUserWidgets` was never
+  actually set, `debugOnRebuildDirtyWidget` was never installed, and any
+  profile-mode consumer of the coordinator got zero data. Sites now use an
+  explicit `if (kDebugMode) { ... } else if (!kReleaseMode && ...) { ... }`
+  mode split and preserve debug-path behavior bit-for-bit.
+- **Drain → attribute → route-switch ordering (M7)**: the `_scanTreeInner`
+  pipeline now always drains the coordinator BEFORE detecting a route change.
+  Previously a route change mid-scan could trigger a second `snapshot()` call
+  that reset `_lastSnapshotTime` and corrupted elapsed-based rates, and could
+  race the drain so counts mis-attributed to the fresh session instead of the
+  session that actually accumulated them. Drained counts now always land on
+  the pre-route-change session.
+- **`_scanInProgress` re-entry guard**: `_scanTree` now early-returns silently
+  if a prior synchronous `_scanTree` call is still on the stack. Without the
+  guard a re-entrant call would double-drain the coordinator, reset
+  `_lastSnapshotTime`, and corrupt per-second rate math.
+- **Coordinator construction gate widened (KDD-8)**: the coordinator is now
+  instantiated when EITHER `enableDebugCallbacks == true` OR
+  `enableDeepDebugInstrumentation == true`. Previously it was gated only on
+  `enableDebugCallbacks`, so profile-mode users who only set the deep-instr
+  flag ended up with no coordinator at all.
+- **`SleuthConfig.enableDeepDebugInstrumentation` doc comment updated** to
+  document the new profile-mode rebuild-counting behavior, the
+  inflation-vs-rebuild semantic gap, and the rollup issue it produces.
+
+### Fixed
+
+- **Profile-mode rebuild attribution was a silent no-op in every prior
+  release** (v1 review C1/C4). The four assert-wrapped sites listed above meant
+  that the entire `enableDeepDebugInstrumentation` code path stripped to empty
+  in profile builds. Shipping this release is the first time this feature
+  actually collects data in profile mode.
+- **`FlutterTimeline.debugCollectionEnabled` conflict path** (R20): install
+  now refuses if the flag is already `true` — previously two concurrent
+  consumers (e.g. Sleuth + DevTools) could both assume ownership and drain
+  each other's events.
+- **Test pollution via static `FlutterTimeline._buffer`** (v1 review C6):
+  every test file that touches the profile path now captures and restores
+  `debugCollectionEnabled` in `setUp`/`tearDown` and drains any leftover
+  events before the next test runs.
+
+### Migration
+
+- **If you already set `enableDeepDebugInstrumentation: true`**: expect a new
+  `rebuild_hotspot_summary` issue to appear in your stream for sessions that
+  accumulate more than 100 rebuilds. This is additive — existing per-type
+  issues (`excessive_rebuilds`, etc.) continue to fire alongside. Confidence
+  on `RebuildDetector`, `ShallowRebuildRiskDetector`, `AnimatedBuilderDetector`,
+  and `SetStateScopeDetector` may upgrade from `possible` → `likely` /
+  `confirmed` when profile-mode counts corroborate the structural signal.
+- **Profile-mode counts include inflations** (KDD-5): the Flutter framework
+  emits the same `BUILD` timeline scope for `Element.inflate` and for
+  `setState`-driven rebuilds, so route entry shows transient elevated counts
+  that decay as the tree stabilises. The rollup issue detail text and the
+  drilldown page both surface an inflation disclaimer so users cannot miss
+  it. Debug mode (via `debugOnRebuildDirtyWidget`) does not have this gap.
+- **Widget tests cannot exercise the profile path** (R3): widget tests run
+  under `kDebugMode == true`, so the M12 controller and coordinator tests
+  inject a fake coordinator tagged `RebuildCountSource.flutterTimeline` to
+  exercise the merge pipeline end-to-end without profile-mode compilation.
+  Full validation is the M1 probe under `fvm flutter run --profile` against
+  a physical device.
+
 ## 0.14.1
 
 Per-tab `RouteSession` tracking — bottom-nav / tab-shell apps that share one

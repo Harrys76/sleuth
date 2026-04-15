@@ -116,11 +116,16 @@ void main() {
     });
 
     test('debugProfileLayoutsEnabled saved and restored on dispose', () {
+      // `layoutProfiling` is `false` by default (see
+      // `DebugInstrumentationConfig` — no Sleuth detector reads layout
+      // timeline scopes). Opt in explicitly so this test exercises the
+      // flag flip + save/restore path.
       assert(() {
         final before = debugProfileLayoutsEnabled;
         final controller = SleuthController(
           config: const SleuthConfig(
             enableDeepDebugInstrumentation: true,
+            advanced: DebugInstrumentationConfig(layoutProfiling: true),
           ),
         );
         controller.initializeDetectorsForTest();
@@ -181,11 +186,20 @@ void main() {
     test(
         'initializeDetectorsForTest exercises same setup as initialize '
         '(heavy flags enabled)', () {
+      // `layoutProfiling` and `paintProfiling` are `false` by default
+      // (see `DebugInstrumentationConfig`). This test explicitly opts
+      // into both to verify that `initializeDetectorsForTest` flips all
+      // three heavy flags on when requested, matching the behavior
+      // `initialize()` would have in a real environment.
       assert(() {
         final controller = SleuthController(
           config: const SleuthConfig(
             enableDebugCallbacks: true,
             enableDeepDebugInstrumentation: true,
+            advanced: DebugInstrumentationConfig(
+              layoutProfiling: true,
+              paintProfiling: true,
+            ),
           ),
         );
         controller.initializeDetectorsForTest();

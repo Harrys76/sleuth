@@ -335,6 +335,16 @@ class _GuidePageState extends State<GuidePage>
                 'on screen with a blue border.'),
         _infoTile(
             theme,
+            '\u{1F501}',
+            'Rebuild Stats Panel',
+            'Always-on row above the issue list (profile mode with '
+                'enableDeepDebugInstrumentation). Shows total rebuilds and '
+                'unique widget count. Tap to expand the top-3 widgets with '
+                'live counts and bar fills. Pause/Resume freezes the snapshot; '
+                'See all N → opens the full drilldown. Counts include initial '
+                'widget inflations.'),
+        _infoTile(
+            theme,
             '\u{2194}\u{FE0F}',
             'Resize',
             'Drag the bottom-right corner to resize width and height. '

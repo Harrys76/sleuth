@@ -246,6 +246,14 @@ class SleuthController {
   bool _disposed = false;
   Timer? _treeScanTimer;
 
+  /// M5 / KDD re-entry guard. If a scan is already in progress and something
+  /// (a frame callback, a notifier listener, a detector side-effect) triggers
+  /// `_scanTree` again synchronously, we must not enter twice — the second
+  /// call would drain `_debugCoordinator?.snapshot()` a second time, resetting
+  /// `_lastSnapshotTime` and corrupting elapsed/per-second rate math for both
+  /// drains. Guarded top-of-body early-return + try/finally release.
+  bool _scanInProgress = false;
+
   /// Incremented on each [startTreeScanning] call to invalidate stale
   /// post-frame callbacks from a previous timer chain. Prevents parallel
   /// timer chains when startTreeScanning is called rapidly (e.g. widget
@@ -1033,6 +1041,13 @@ class SleuthController {
   @visibleForTesting
   void feedHeapSampleForTest(HeapSample sample) => _onHeapSample(sample);
 
+  /// The currently-active [RouteSession], or `null` when the current route
+  /// is in [SleuthConfig.routeIgnorePatterns] / no session has been created
+  /// yet. Exposed so overlay surfaces (e.g. the rebuild stats drilldown
+  /// page) can snapshot per-session state at tap time without reaching
+  /// into controller internals.
+  RouteSession? get activeRouteSession => _activeRouteSession;
+
   /// Exposes the active route session for testing.
   @visibleForTesting
   RouteSession? get activeRouteSessionForTest => _activeRouteSession;
@@ -1041,6 +1056,27 @@ class SleuthController {
   @visibleForTesting
   List<RouteSession> get routeHistoryForTest =>
       List.unmodifiable(_routeHistory);
+
+  /// Injects a (typically fake) [DebugInstrumentationCoordinator] so M12
+  /// controller tests can observe `snapshot()` invocations and feed
+  /// synthetic `flutterTimeline`-source [DebugSnapshot] values through the
+  /// real `_scanTreeInner` drain→merge→route-switch path without needing
+  /// profile-mode compilation (see spec v15 R3).
+  ///
+  /// The previous coordinator is NOT disposed — tests own the lifecycle.
+  @visibleForTesting
+  set debugCoordinatorForTest(DebugInstrumentationCoordinator? c) =>
+      _debugCoordinator = c;
+
+  /// Exposes [_scanInProgress] for M12 re-entry regression tests. A second
+  /// synchronous `_scanTree` call while this is `true` must be a silent
+  /// no-op — the guard prevents double-draining the coordinator (which
+  /// would reset `_lastSnapshotTime` and corrupt per-second rate math).
+  @visibleForTesting
+  bool get scanInProgressForTest => _scanInProgress;
+
+  @visibleForTesting
+  set scanInProgressForTest(bool value) => _scanInProgress = value;
 
   /// Build a session snapshot for programmatic use.
   ///
@@ -1105,7 +1141,7 @@ class SleuthController {
         worstFrameTimeUs: worstUs,
         fpsPercentiles: percentiles,
       ),
-      packageVersion: '0.14.1',
+      packageVersion: '0.15.1',
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
       recentRequests: _initialized &&
@@ -1455,17 +1491,70 @@ class SleuthController {
 
   void _scanTree(BuildContext context) {
     if (!_initialized || kReleaseMode) return;
+    // M5 re-entry guard (KDD spec v15). A second synchronous `_scanTree` call
+    // would drain `_debugCoordinator?.snapshot()` twice and corrupt the
+    // `_lastSnapshotTime` window used for per-second rate math. Try/finally
+    // ensures the flag is released even if the inner body throws.
+    if (_scanInProgress) return;
+    _scanInProgress = true;
+    try {
+      _scanTreeInner(context);
+    } finally {
+      _scanInProgress = false;
+    }
+  }
 
+  void _scanTreeInner(BuildContext context) {
     // Clear scaffold-free state — each scan path sets these independently.
     _isScaffoldFreeScan = false;
     _scaffoldFreeRouteName = null;
 
-    // Always drain debug counts so they don't carry over across page transitions
+    // Always drain debug counts so they don't carry over across page
+    // transitions. KDD-2 / M3: the historical assert wrapper is stripped in
+    // profile, so profile-mode drains never happened. Top-level mode split
+    // preserves debug path bit-for-bit and lets M4's `installProfileMode()`
+    // feed a snapshot into the same `debugSnapshot` variable in profile.
     DebugSnapshot? debugSnapshot;
-    assert(() {
+    if (kDebugMode) {
+      assert(() {
+        debugSnapshot = _debugCoordinator?.snapshot();
+        return true;
+      }());
+    } else if (!kReleaseMode && config.enableDeepDebugInstrumentation) {
+      // PROFILE BRANCH — M4/M5. In profile mode the coordinator is wired
+      // via `installProfileMode()`, so `snapshot()` internally dispatches
+      // to `_drainProfileBuffer()` which drains
+      // `FlutterTimeline.debugCollect()` and returns a snapshot tagged
+      // `RebuildCountSource.flutterTimeline`.
       debugSnapshot = _debugCoordinator?.snapshot();
-      return true;
-    }());
+    }
+
+    // M7 / KDD-4: additively merge profile-mode rebuild counts into the
+    // currently-active route session BEFORE the route-change block below
+    // replaces `_activeRouteSession`. Any counts drained while the session
+    // was active stay attributed to it; sessions born from the subsequent
+    // route-change block start with an empty `rebuildCountsByType`.
+    //
+    // The `_activeRouteSession == null` path drops counts silently — this
+    // happens when the current route is in `routeIgnorePatterns`, or when
+    // we're scanning before the first session has been created. Dropping
+    // is intentional: attributing to an unknown session is worse than
+    // losing the window.
+    //
+    // Debug-mode snapshots (source == debugCallback) are NOT merged here
+    // — existing detectors already consume them via
+    // `updateDebugSnapshot()`, and mixing the two sources on the same map
+    // would violate KDD-1 mutual exclusivity.
+    if (debugSnapshot != null &&
+        debugSnapshot!.source == RebuildCountSource.flutterTimeline) {
+      final session = _activeRouteSession;
+      if (session != null) {
+        final target = session.rebuildCountsByType;
+        debugSnapshot!.rebuildCounts.forEach((type, count) {
+          target[type] = (target[type] ?? 0) + count;
+        });
+      }
+    }
 
     // Find the current visible page's context by skipping Offstage routes.
     // Returns null during route transitions (multiple Scaffolds visible).
@@ -1474,9 +1563,14 @@ class SleuthController {
       _lastScanContext = null;
       // Route transition in progress — clear highlights, stale state,
       // and set interaction state to navigating.
-      // debugSnapshot is drained and discarded — counts from transition
-      // period are lost (intentionally: attributing them to an unknown
-      // page is worse than losing them).
+      //
+      // Note: profile-mode rebuild counts for this scan have ALREADY
+      // been merged into `_activeRouteSession` by the M7 merge block
+      // above, which runs before this transition check. The counts
+      // therefore land on the pre-transition session (still the active
+      // one at drain time) and are not lost — `debugSnapshot` itself
+      // simply falls out of scope here. Only the downstream
+      // FrameVerdict / detector pipeline is skipped for this tick.
       _scrollIdleTimer?.cancel();
       _interactionState = InteractionContext.navigating;
       if (highlightsNotifier.value.items.isNotEmpty) {
@@ -2969,22 +3063,139 @@ class SleuthController {
   // -- Debug instrumentation helpers --
 
   void _installDebugInstrumentation() {
-    assert(() {
-      if (config.enableDebugCallbacks) {
-        final adv = config.advanced ?? const DebugInstrumentationConfig();
-        _debugCoordinator = DebugInstrumentationCoordinator(
-          maxTrackedTypes: config.maxTrackedTypes,
-          installRebuild: adv.rebuildAttribution,
-          installPaint: adv.paintAttribution,
-        );
-        _debugCoordinator!.install();
-      }
-      // Independent from enableDebugCallbacks.
-      if (config.enableDeepDebugInstrumentation) {
-        _installHeavyFlags();
-      }
-      return true;
-    }());
+    // KDD-2 (spec v15): the original `assert(() { ... return true; }())`
+    // wrapper is stripped by the compiler in profile mode. Profile-relevant
+    // code (heavy-flag install, coordinator install) MUST live outside the
+    // assert — otherwise it silently becomes a no-op in profile and the
+    // rebuild-stats feature never emits data. The top-level `if (kDebugMode)`
+    // split below preserves debug behavior bit-for-bit while letting M5 wire
+    // a sibling profile branch.
+    if (kDebugMode) {
+      assert(() {
+        if (config.enableDebugCallbacks) {
+          final adv = config.advanced ?? const DebugInstrumentationConfig();
+          _debugCoordinator = DebugInstrumentationCoordinator(
+            maxTrackedTypes: config.maxTrackedTypes,
+            installRebuild: adv.rebuildAttribution,
+            installPaint: adv.paintAttribution,
+          );
+          _debugCoordinator!.install();
+        }
+        // Independent from enableDebugCallbacks.
+        if (config.enableDeepDebugInstrumentation) {
+          _installHeavyFlags();
+        }
+        return true;
+      }());
+    } else if (!kReleaseMode && config.enableDeepDebugInstrumentation) {
+      // PROFILE BRANCH — M5 (spec v15, KDD-8 widened gate).
+      //
+      // 1. Construct the coordinator even when `enableDebugCallbacks == false`.
+      //    The debug-callback slots (`debugOnRebuildDirtyWidget`,
+      //    `debugOnProfilePaint`) are never invoked by the framework in
+      //    profile mode, so we disable both install slots — but we still need
+      //    the coordinator instance to hold the profile-mode drain state
+      //    (`_installedMode`, `_prevDebugCollectionEnabled`) and provide the
+      //    unified `snapshot()` dispatcher.
+      // 2. `_installHeavyFlags()` is MANDATORY before `installProfileMode()`:
+      //    it flips `debugProfileBuildsEnabledUserWidgets = true`, which is
+      //    what causes the framework to emit per-widget
+      //    `FlutterTimeline.startSync('${runtimeType}')` events. Without it
+      //    the profile-mode drain would return zero user-widget events.
+      // 3. `installProfileMode()` saves `FlutterTimeline.debugCollectionEnabled`
+      //    and flips it to `true`; refuses if another consumer (DevTools or
+      //    another Sleuth instance) already owns the buffer — see R20/B1 in
+      //    the spec.
+      _debugCoordinator = DebugInstrumentationCoordinator(
+        maxTrackedTypes: config.maxTrackedTypes,
+        installRebuild: false,
+        installPaint: false,
+      );
+      // KDD-9 (spec v15): defer the FlutterTimeline flag flip so it lands
+      // at scheduler-idle, outside ANY active FlutterTimeline start/finish
+      // pair. Direct call and `addPostFrameCallback` both crash — see below.
+      //
+      // Problem: `initialize()` is called from `SleuthOverlay.initState()`,
+      // which runs inside the first `RootWidget.attach` → buildScope of the
+      // warm-up frame. Multiple frame phases wrap their work in
+      // `FlutterTimeline.startSync(...)` / `finishSync()` gated ONLY on
+      // `!kReleaseMode`, NOT on `_collectionEnabled`:
+      //
+      //   • `BuildOwner.buildScope`      → `'BUILD'`       scope
+      //     (`flutter/src/widgets/framework.dart:3074/3115`)
+      //   • `SchedulerBinding.handleDrawFrame` → `'POST_FRAME'` scope
+      //     (`flutter/src/scheduler/binding.dart:1353/1361`)
+      //
+      // `FlutterTimeline`'s internal `_BlockBuffer` is gated on a SEPARATE
+      // `_collectionEnabled` flag (timeline.dart:68/78). The static
+      // `_BlockBuffer._stackPointer` is shared across buffer instances —
+      // `debugReset()` allocates a new buffer but does NOT reset the pointer.
+      //
+      // Flipping the flag between a skipped `startSync` and its paired
+      // `finishSync` crashes: the finishSync tries to pop a stack entry that
+      // was never pushed, reading `_startStack[_stackPointer - 1]` =
+      // `_startStack[-1]` → `RangeError (length): Invalid value: Not in
+      // inclusive range 0..999: -1`.
+      //
+      // Naive fix attempt #1 (direct call from initState): crashes in
+      // `buildScope`'s `finishSync` because BUILD was started with the flag
+      // off and finished with it on.
+      //
+      // Naive fix attempt #2 (`addPostFrameCallback`): crashes in
+      // `handleDrawFrame`'s `finishSync` (binding.dart:1361) because post-
+      // frame callbacks run INSIDE the `POST_FRAME` scope, which was
+      // started with the flag off and finished with it on.
+      //
+      // Correct fix: use `Timer.run` to schedule the install as a SEPARATE
+      // event-loop task. Timer callbacks run strictly between frame tasks —
+      // there is no enclosing `FlutterTimeline` scope when they fire. Gate
+      // on `SchedulerPhase.idle` as a paranoia belt (re-schedules if a new
+      // frame started racing the timer), and keep `_disposed` /
+      // `_debugCoordinator == null` short-circuits so dispose-before-fire
+      // cleanly unwinds via `_restoreHeavyFlags()`'s null-safe behavior.
+      //
+      // Per-widget `_tryRebuild` timeline scopes (framework.dart:2738, 4026,
+      // 4557) capture `isTimelineTracked` as a local `final bool`, so
+      // flipping `debugProfileBuildsEnabledUserWidgets` mid-buildScope is
+      // locally safe — but we defer it alongside the collection flip so the
+      // heavy-flag install + collection install remain a single atomic unit.
+      //
+      // Cost: the very first few frames after Sleuth mount have no profile-
+      // mode rebuild data. Acceptable — the KDD-5 disclaimer already warns
+      // that route-entry counts are transient, and no real use case
+      // inspects rebuild hotspots from the mount frame.
+      Timer.run(_deferredInstallProfileMode);
+    }
+  }
+
+  /// KDD-9 (spec v15): install the profile-mode `FlutterTimeline` drain once
+  /// the scheduler is back at [SchedulerPhase.idle] — i.e. when NO frame is
+  /// in progress and therefore no `FlutterTimeline` start/finish pair is
+  /// open. See the long comment in [_installDebugInstrumentation] for the
+  /// full crash analysis and rationale.
+  ///
+  /// Self-reschedules via `Timer.run` if called during a non-idle phase
+  /// (can happen if a new vsync raced the pending timer). Bails out cleanly
+  /// on dispose or on DevTools/second-instance conflict (StateError).
+  void _deferredInstallProfileMode() {
+    if (_disposed || _debugCoordinator == null) return;
+    if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
+      // A frame is in progress. Re-queue and retry once this task yields —
+      // by then the frame's outer `POST_FRAME`/`BUILD` scopes have closed.
+      Timer.run(_deferredInstallProfileMode);
+      return;
+    }
+    _installHeavyFlags();
+    try {
+      _debugCoordinator!.installProfileMode();
+    } on StateError catch (e) {
+      // Another consumer owns the buffer. Abandon the coordinator so the
+      // scan loop's `_debugCoordinator?.snapshot()` short-circuits and we
+      // stay in KDD-1 `RebuildCountSource.none` mode — no stomping.
+      debugPrint('Sleuth: $e');
+      _debugCoordinator = null;
+      _restoreHeavyFlags();
+    }
   }
 
   void _installHeavyFlags() {
@@ -3063,12 +3274,33 @@ class SleuthController {
       _httpOverrides = null;
     }
 
-    assert(() {
+    // KDD-2 / M3: mirror the install-side restructure. The historical
+    // assert wrapper stripped coordinator disposal AND heavy-flag restore
+    // in profile, leaking `debugProfileBuildsEnabledUserWidgets = true`
+    // across hot-restart. The top-level mode split fixes both halves.
+    if (kDebugMode) {
+      assert(() {
+        _debugCoordinator?.dispose();
+        _debugCoordinator = null;
+        _restoreHeavyFlags();
+        return true;
+      }());
+    } else if (!kReleaseMode && config.enableDeepDebugInstrumentation) {
+      // PROFILE BRANCH — M5 (spec v15).
+      //
+      // Dispose order matters: `uninstallProfileMode()` restores
+      // `FlutterTimeline.debugCollectionEnabled` BEFORE `_restoreHeavyFlags()`
+      // restores `debugProfileBuildsEnabledUserWidgets`. `dispose()` on the
+      // coordinator is internally safe — it calls `uninstall()` (a no-op
+      // since debug slots were never installed in profile mode) and clears
+      // its maps. `_debugCoordinator` may already be null if
+      // `installProfileMode()` threw during install — the null-safe calls
+      // handle that path.
+      _debugCoordinator?.uninstallProfileMode();
       _debugCoordinator?.dispose();
       _debugCoordinator = null;
       _restoreHeavyFlags();
-      return true;
-    }());
+    }
 
     _vmClient?.dispose();
     if (_detectorsReady) {
@@ -3429,6 +3661,20 @@ class SleuthConfig {
   /// **Default:** false. Adds per-widget timeline events via
   /// `debugProfileBuildsEnabled` and related flags. Measurable overhead
   /// (~5–10% extra frame time on heavy scenes) — use sparingly.
+  ///
+  /// **Profile-mode behavior (spec v15):** when true in a profile build,
+  /// Sleuth installs a `FlutterTimeline.debugCollect()` drain that records
+  /// per-widget rebuild counts and attributes them to the active
+  /// `RouteSession`'s `rebuildCountsByType` map. These counts power the
+  /// always-on `_RebuildStatsBanner` panel on the floating issues card
+  /// and the "See all N →" drilldown page (`RebuildStatsPage`).
+  /// **Note:** profile-mode counts include initial widget inflations as
+  /// well as `setState`-driven rebuilds (the Flutter framework emits the
+  /// same `BUILD` timeline scope for both), so route entry shows
+  /// transient elevated counts that decay as the tree stabilises. Debug
+  /// mode uses `debugOnRebuildDirtyWidget` instead, which only fires on
+  /// genuine rebuilds — the semantic gap is documented inline on the
+  /// banner footer and the drilldown page.
   final bool enableDeepDebugInstrumentation;
 
   /// Maximum widget types to track in rebuild counters.

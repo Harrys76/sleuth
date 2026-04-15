@@ -143,19 +143,17 @@ void main() {
       assert(() {
         coord.install();
 
-        // Simulate rebuild callbacks.
+        // Simulate rebuild callbacks. First observation of each element is
+        // the initial build (skipped by the Expando guard), every subsequent
+        // observation is a real rebuild.
+        final myWidget = _FakeElement('MyWidget');
+        debugOnRebuildDirtyWidget?.call(myWidget, false); // initial — skipped
+        debugOnRebuildDirtyWidget?.call(myWidget, true); // rebuild — counted
+        debugOnRebuildDirtyWidget?.call(myWidget, true); // rebuild — counted
+
+        final otherWidget = _FakeElement('OtherWidget');
         debugOnRebuildDirtyWidget?.call(
-          _FakeElement('MyWidget'),
-          true,
-        );
-        debugOnRebuildDirtyWidget?.call(
-          _FakeElement('MyWidget'),
-          true,
-        );
-        debugOnRebuildDirtyWidget?.call(
-          _FakeElement('OtherWidget'),
-          false,
-        );
+            otherWidget, false); // initial — skipped
 
         // Simulate paint callback.
         debugOnProfilePaint?.call(_FakeRenderObject());
@@ -166,7 +164,7 @@ void main() {
 
         final snap = coord.snapshot();
 
-        // OtherWidget was called with builtOnce=false, so it's filtered out.
+        // OtherWidget is still on its first observation — initial build.
         expect(snap.rebuildCounts, {'MyWidget': 2});
         expect(snap.totalPaintCount, 2);
         expect(snap.elapsed, const Duration(milliseconds: 500));
@@ -177,21 +175,28 @@ void main() {
       }());
     });
 
-    test('initial builds (builtOnce=false) are not counted', () {
+    test('first observation of each element is treated as initial build', () {
+      // The Expando-based guard replaces the unreliable framework `builtOnce`
+      // parameter — see DebugInstrumentationCoordinator._elementSeen for why.
+      // This test asserts the guard's semantics directly: only the 2nd+
+      // observation of a given element counts as a rebuild.
       assert(() {
         coordinator.install();
 
-        // All initial builds — should be filtered.
+        // Three brand-new elements: all first-observation, all filtered out
+        // regardless of what framework passes as `builtOnce`.
         debugOnRebuildDirtyWidget?.call(_FakeElement('Alpha'), false);
-        debugOnRebuildDirtyWidget?.call(_FakeElement('Beta'), false);
+        debugOnRebuildDirtyWidget?.call(_FakeElement('Beta'), true);
         debugOnRebuildDirtyWidget?.call(_FakeElement('Gamma'), false);
 
         final snap1 = coordinator.snapshot();
         expect(snap1.rebuildCounts, isEmpty);
         expect(snap1.totalRebuilds, 0);
 
-        // Now a real rebuild — should be counted.
-        debugOnRebuildDirtyWidget?.call(_FakeElement('Alpha'), true);
+        // A real rebuild: prime + rebuild on the same element.
+        final alpha = _FakeElement('Alpha');
+        debugOnRebuildDirtyWidget?.call(alpha, true); // initial — skipped
+        debugOnRebuildDirtyWidget?.call(alpha, true); // rebuild — counted
 
         final snap2 = coordinator.snapshot();
         expect(snap2.rebuildCounts, {'Alpha': 1});
@@ -206,7 +211,9 @@ void main() {
       assert(() {
         coordinator.install();
 
-        debugOnRebuildDirtyWidget?.call(_FakeElement('W'), true);
+        final w = _FakeElement('W');
+        debugOnRebuildDirtyWidget?.call(w, true); // initial — skipped
+        debugOnRebuildDirtyWidget?.call(w, true); // rebuild — counted
         debugOnProfilePaint?.call(_FakeRenderObject());
 
         final snap1 = coordinator.snapshot();
@@ -227,12 +234,21 @@ void main() {
       assert(() {
         coord.install();
 
-        debugOnRebuildDirtyWidget?.call(_FakeElement('TypeA'), true);
-        debugOnRebuildDirtyWidget?.call(_FakeElement('TypeB'), true);
-        // Third type should be ignored (cap = 2).
-        debugOnRebuildDirtyWidget?.call(_FakeElement('TypeC'), true);
+        // Prime each element so the Expando guard lets subsequent calls count.
+        final a = _FakeElement('TypeA');
+        final b = _FakeElement('TypeB');
+        final c = _FakeElement('TypeC');
+        debugOnRebuildDirtyWidget?.call(a, true); // prime
+        debugOnRebuildDirtyWidget?.call(b, true); // prime
+        debugOnRebuildDirtyWidget?.call(c, true); // prime
+
+        // Real rebuilds.
+        debugOnRebuildDirtyWidget?.call(a, true); // TypeA counted
+        debugOnRebuildDirtyWidget?.call(b, true); // TypeB counted
+        // Third TYPE would push the map past the cap — must be ignored.
+        debugOnRebuildDirtyWidget?.call(c, true);
         // But existing types can still increment.
-        debugOnRebuildDirtyWidget?.call(_FakeElement('TypeA'), true);
+        debugOnRebuildDirtyWidget?.call(a, true); // TypeA counted again
 
         final snap = coord.snapshot();
         expect(snap.rebuildCounts, {'TypeA': 2, 'TypeB': 1});
@@ -433,13 +449,19 @@ void main() {
       assert(() {
         coord.install();
 
-        // Fire 100 rebuild callbacks with 3 unique types.
+        // Fire 100 rebuild callbacks on 3 reused elements (prime + rebuilds).
+        // Using long-lived elements means the Expando guard skips only the
+        // first observation per element — subsequent calls all count.
+        final a = _FakeElement('WidgetA');
+        final b = _FakeElement('WidgetB');
+        final c = _FakeElement('WidgetC');
+        // Prime.
+        debugOnRebuildDirtyWidget?.call(a, true);
+        debugOnRebuildDirtyWidget?.call(b, true);
+        debugOnRebuildDirtyWidget?.call(c, true);
+        final elements = [a, b, c];
         for (int i = 0; i < 100; i++) {
-          final types = ['WidgetA', 'WidgetB', 'WidgetC'];
-          debugOnRebuildDirtyWidget?.call(
-            _FakeElement(types[i % 3]),
-            true,
-          );
+          debugOnRebuildDirtyWidget?.call(elements[i % 3], true);
         }
 
         // Fire paint callbacks with 2 unique types.
@@ -479,17 +501,21 @@ void main() {
       assert(() {
         coord.install();
 
-        // Window 1: introduce types.
-        debugOnRebuildDirtyWidget?.call(_FakeElement('Foo'), true);
-        debugOnRebuildDirtyWidget?.call(_FakeElement('Bar'), true);
+        // Window 1: prime + one rebuild per type.
+        final foo = _FakeElement('Foo');
+        final bar = _FakeElement('Bar');
+        debugOnRebuildDirtyWidget?.call(foo, true); // prime
+        debugOnRebuildDirtyWidget?.call(bar, true); // prime
+        debugOnRebuildDirtyWidget?.call(foo, true); // Foo counted
+        debugOnRebuildDirtyWidget?.call(bar, true); // Bar counted
         clockTime = clockTime.add(const Duration(seconds: 1));
         final snap1 = coord.snapshot();
         expect(snap1.rebuildCounts, {'Foo': 1, 'Bar': 1});
 
-        // Window 2: same types reused (cache hit — no new toString() calls).
-        debugOnRebuildDirtyWidget?.call(_FakeElement('Foo'), true);
-        debugOnRebuildDirtyWidget?.call(_FakeElement('Bar'), true);
-        debugOnRebuildDirtyWidget?.call(_FakeElement('Foo'), true);
+        // Window 2: same elements — no re-priming needed.
+        debugOnRebuildDirtyWidget?.call(foo, true); // Foo counted
+        debugOnRebuildDirtyWidget?.call(bar, true); // Bar counted
+        debugOnRebuildDirtyWidget?.call(foo, true); // Foo counted
         clockTime = clockTime.add(const Duration(seconds: 1));
         final snap2 = coord.snapshot();
         expect(snap2.rebuildCounts, {'Foo': 2, 'Bar': 1});

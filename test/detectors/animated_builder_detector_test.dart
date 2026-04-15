@@ -4,6 +4,8 @@ import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/animated_builder_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
+import '../helpers/rebuild_capture_helpers.dart';
+
 void main() {
   group('AnimatedBuilderDetector', () {
     late AnimatedBuilderDetector detector;
@@ -219,6 +221,49 @@ void main() {
         detector.scanTree(tester.element(find.byType(TinyTweenBuilder)));
 
         expect(detector.issues, isEmpty);
+      });
+    });
+
+    // -----------------------------------------------------------------
+    // M11: Anti-tautology — drive rebuilds through the real
+    // DebugInstrumentationCoordinator pipeline and feed the resulting
+    // snapshot to the detector. Catches any divergence between the
+    // hand-rolled fixtures above and what production actually emits.
+    // -----------------------------------------------------------------
+
+    group('real widget tree (anti-tautology)', () {
+      testWidgets(
+          'real debug snapshot upgrades AnimatedBuilder confidence to likely',
+          (tester) async {
+        final key = GlobalKey<ManualAnimatedWidgetState>();
+        await tester.pumpWidget(ManualAnimatedWidget(key: key, childCount: 60));
+
+        // 40 real notifier ticks — each one fires a rebuild-dirty-widget
+        // callback for AnimatedBuilder's StatefulElement.
+        final snapshot = await captureRebuildsViaTrigger(
+          tester: tester,
+          trigger: () async => key.currentState!.tick(),
+          scanRoot: find.byType(ManualAnimatedWidget),
+          iterations: 40,
+        );
+
+        expect(snapshot.source, RebuildCountSource.debugCallback);
+        expect(snapshot.rebuildCounts['AnimatedBuilder'], greaterThan(0),
+            reason: 'coordinator pipeline must record AnimatedBuilder '
+                'rebuilds from the real setState path');
+        expect(snapshot.rebuildsPerSecond('AnimatedBuilder'), greaterThan(30),
+            reason: 'detector requires >30/sec to upgrade confidence');
+
+        detector.updateDebugSnapshot(snapshot);
+        detector.scanTree(tester.element(find.byType(ManualAnimatedWidget)));
+
+        expect(detector.issues, isNotEmpty);
+        final issue = detector.issues.first;
+        expect(issue.title, contains('AnimatedBuilder'));
+        expect(issue.confidence, IssueConfidence.likely);
+        expect(issue.observationSource,
+            ObservationSource.debugCallbackAndStructural);
+        expect(issue.detail, contains('rebuilding at'));
       });
     });
   });
@@ -463,6 +508,57 @@ class TweenBuilderInsideFrameworkWidget extends StatelessWidget {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+/// M11: Manually-driven AnimatedBuilder — a ValueNotifier replaces the
+/// auto-ticking AnimationController so the anti-tautology test can drive a
+/// known number of real rebuilds through the framework's rebuild-dirty-widget
+/// callback instead of relying on a ticker that doesn't advance the same way
+/// under `flutter_test`.
+///
+/// Public name + public state class so [AnimatedBuilderDetector.isFrameworkOwned]
+/// classifies it as user code and the `_frameworkWidgetNames` filter in
+/// [RebuildDetector] doesn't drop its rebuilds.
+class ManualAnimatedWidget extends StatefulWidget {
+  const ManualAnimatedWidget({super.key, required this.childCount});
+
+  /// Size of the leaf subtree under the AnimatedBuilder. Must exceed
+  /// [AnimatedBuilderDetector.minSubtreeSize] (default 50) for the detector
+  /// to flag the no-child usage.
+  final int childCount;
+
+  @override
+  State<ManualAnimatedWidget> createState() => ManualAnimatedWidgetState();
+}
+
+class ManualAnimatedWidgetState extends State<ManualAnimatedWidget> {
+  final ValueNotifier<int> _tick = ValueNotifier<int>(0);
+
+  /// Bump the notifier — AnimatedBuilder listens to it and rebuilds on the
+  /// next frame. Called from the test via `GlobalKey.currentState!.tick()`.
+  void tick() => _tick.value++;
+
+  @override
+  void dispose() {
+    _tick.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: AnimatedBuilder(
+        animation: _tick,
+        builder: (context, _) => Column(
+          children: List.generate(
+            widget.childCount,
+            (i) => SizedBox(key: ValueKey(i), height: 1),
+          ),
         ),
       ),
     );

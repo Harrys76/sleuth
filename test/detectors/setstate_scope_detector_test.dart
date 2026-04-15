@@ -4,6 +4,8 @@ import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
+import '../helpers/rebuild_capture_helpers.dart';
+
 void main() {
   group('SetStateScopeDetector', () {
     late SetStateScopeDetector detector;
@@ -414,6 +416,75 @@ void main() {
 
         // SmallStateful is below minSubtreeSize → no issues.
         expect(detector.issues, isEmpty);
+      });
+    });
+
+    // -----------------------------------------------------------------
+    // M11: Anti-tautology — drive a real setState rebuild through the
+    // real DebugInstrumentationCoordinator pipeline and feed the
+    // resulting DebugSnapshot to the detector. Verifies that the
+    // between-scan child-identity rebuild detection AND the debug
+    // correlation upgrade both hold under the real pipeline shape, not
+    // just against hand-written fixtures.
+    // -----------------------------------------------------------------
+
+    group('real widget tree (anti-tautology)', () {
+      testWidgets(
+          'real debug snapshot upgrades SetStateScope confidence to confirmed',
+          (tester) async {
+        detector = SetStateScopeDetector(
+          dirtyRatioThreshold: 0.3,
+          minSubtreeSize: 50,
+          rebuildEvidenceThreshold: 1,
+        );
+
+        // childCount: 55 gives 56 SizedBoxes × 10px = 560px, fitting the
+        // 600px default test viewport. Subtree size is
+        // 1 (Column) + 56 (SizedBoxes) = 57 → exceeds minSubtreeSize: 50.
+        final key = GlobalKey<TestCounterWidgetState>();
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: TestCounterWidget(key: key, childCount: 55),
+          ),
+        );
+
+        // Scan 1 — establishes the child-identity baseline for the
+        // between-scan rebuild check. On a first scan _childSnapshots
+        // is empty, so no evidence is staged here.
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        // Drive one real setState rebuild through a real coordinator.
+        // The returned snapshot's shape is exactly what production
+        // detectors receive — not a hand-written fixture.
+        final snapshot = await captureDebugCallbackCounts(
+          tester: tester,
+          key: key,
+          count: 1,
+        );
+
+        expect(snapshot.source, RebuildCountSource.debugCallback);
+        expect(snapshot.rebuildCounts['TestCounterWidget'], greaterThan(0),
+            reason: 'real coordinator pipeline must count TestCounterWidget '
+                'rebuilds');
+
+        // Scan 2 — TestCounterWidget's child identity has changed
+        // (setState bumped the counter → new Column instance), so the
+        // between-scan rebuild check stages evidence; the real snapshot
+        // then upgrades confidence to `confirmed` because the scanned
+        // tree holds exactly one TestCounterWidget instance.
+        detector.updateDebugSnapshot(snapshot);
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.hasRebuildEvidenceFor('TestCounterWidget'), isTrue,
+            reason: 'real setState must produce child-identity change '
+                'that flows into _pendingEvidence');
+        expect(detector.issues, isNotEmpty);
+        final issue = detector.issues.first;
+        expect(issue.widgetName, 'TestCounterWidget');
+        expect(issue.confidence, IssueConfidence.confirmed);
+        expect(issue.observationSource,
+            ObservationSource.debugCallbackAndStructural);
       });
     });
   });

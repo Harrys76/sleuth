@@ -14,6 +14,7 @@ import 'issue_card.dart';
 import 'ai_chat_page.dart';
 import 'issue_encyclopedia_page.dart';
 import 'guide_page.dart';
+import 'rebuild_stats_page.dart';
 import 'startup_metrics_page.dart';
 import '../models/ai_chat_adapter.dart';
 import '../utils/issue_explanation_builder.dart';
@@ -58,10 +59,21 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   bool _exportFeedbackVisible = false;
   bool _highlightNotFoundVisible = false;
+  // ignore: prefer_final_fields
+  bool _rebuildSessionGoneVisible = false;
+  // ignore: prefer_final_fields
+  bool _rebuildPauseDiscardedVisible = false;
   bool _debugBannerDismissed = false;
   bool _showGuide = false;
   bool _showDetail = false;
   bool _showStartupDetail = false;
+  // ignore: prefer_final_fields
+  bool _showRebuildStats = false;
+  // Snapshot captured at tap time so mutations to the live session
+  // (from background scans) don't shuffle rows while the drilldown is open.
+  // Spec v15 M10: drilldown is snapshot-at-open, not live.
+  Map<String, int>? _rebuildStatsSnapshot;
+  String? _rebuildStatsRouteName;
   String? _detailStableId;
   PerformanceIssue? _detailContextIssue;
   bool _showAiChat = false;
@@ -73,6 +85,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   Timer? _exportFeedbackTimer;
   Timer? _highlightNotFoundTimer;
+  Timer? _rebuildSessionGoneTimer;
+  Timer? _rebuildPauseDiscardedTimer;
 
   double _cardWidth = _defaultCardWidth;
   static const double _defaultCardWidth = 300;
@@ -112,6 +126,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     widget.controller.issuesNotifier.removeListener(_onIssuesChanged);
     _exportFeedbackTimer?.cancel();
     _highlightNotFoundTimer?.cancel();
+    _rebuildSessionGoneTimer?.cancel();
+    _rebuildPauseDiscardedTimer?.cancel();
     _preTransitionOffset = null;
     _preTransitionWidth = null;
     _preTransitionHeight = null;
@@ -308,7 +324,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
     return Stack(
       children: [
-        if (!_showGuide && !_showDetail && !_showAiChat && !_showStartupDetail)
+        if (!_showGuide &&
+            !_showDetail &&
+            !_showAiChat &&
+            !_showStartupDetail &&
+            !_showRebuildStats)
           Positioned(
             left: clamped.dx,
             top: clamped.dy,
@@ -361,8 +381,134 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               onClose: () => setState(() => _showStartupDetail = false),
             ),
           ),
+        if (_showRebuildStats && _rebuildStatsSnapshot != null)
+          Positioned.fill(
+            child: RebuildStatsPage(
+              routeDisplayName: _rebuildStatsRouteName,
+              countsByType: _rebuildStatsSnapshot!,
+              onClose: () => setState(() {
+                _showRebuildStats = false;
+                _rebuildStatsSnapshot = null;
+                _rebuildStatsRouteName = null;
+              }),
+            ),
+          ),
+        // Transient "Session no longer active" snackbar — rendered as a
+        // bottom-aligned overlay so it sits above the card without pushing
+        // layout around. Mirrors the _exportFeedback / _highlightNotFound
+        // feedback pattern.
+        if (_rebuildSessionGoneVisible)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 24 + keyboardHeight,
+            child: Center(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.severityWarning.withValues(alpha: 0.95),
+                  borderRadius: BorderRadius.circular(theme.radiusLg),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: theme.spacingLg,
+                    vertical: theme.spacingSm,
+                  ),
+                  child: Text(
+                    'Session no longer active',
+                    style: TextStyle(
+                      color: theme.textPrimary,
+                      fontSize: theme.fontSm,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        // H2: when the rebuild stats panel is paused and the active route
+        // session changes, the panel auto-resumes and discards its frozen
+        // snapshot. Without a user-facing signal this is silent state
+        // loss — the user comes back from a tab swap to find their pause
+        // gone with no explanation. This snackbar mirrors the "Session
+        // no longer active" pattern with a dedicated message.
+        if (_rebuildPauseDiscardedVisible)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 24 + keyboardHeight,
+            child: Center(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.severityWarning.withValues(alpha: 0.95),
+                  borderRadius: BorderRadius.circular(theme.radiusLg),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: theme.spacingLg,
+                    vertical: theme.spacingSm,
+                  ),
+                  child: Text(
+                    'Pause cleared — route changed',
+                    style: TextStyle(
+                      color: theme.textPrimary,
+                      fontSize: theme.fontSm,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
+  }
+
+  /// Triggered by [_RebuildStatsBanner] when its frozen snapshot is
+  /// discarded by an automatic resume on route change. Surfaces a 2s
+  /// transient notice so the user knows their pause was cleared and isn't
+  /// surprised by suddenly-live counts.
+  void _onRebuildPauseDiscarded() {
+    if (!mounted) return;
+    setState(() => _rebuildPauseDiscardedVisible = true);
+    _rebuildPauseDiscardedTimer?.cancel();
+    _rebuildPauseDiscardedTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _rebuildPauseDiscardedVisible = false);
+    });
+  }
+
+  /// Called when the user taps `See all M →` in the expanded
+  /// [_RebuildStatsBanner] panel. When the panel is paused, [overrideCounts]
+  /// carries the panel's frozen snapshot and the drilldown opens against
+  /// THAT map (panel and drilldown agree on what the user is reading).
+  /// Otherwise reads the active [RouteSession] live and snapshots
+  /// [RouteSession.rebuildCountsByType] at tap time.
+  ///
+  /// If the session was cleared between the panel rendering and the tap
+  /// (pathological: route change mid-gesture), shows a transient
+  /// "Session no longer active" snackbar instead of pushing.
+  void _onSeeAllRebuildsTap([Map<String, int>? overrideCounts]) {
+    final session = widget.controller.activeRouteSession;
+    // Choose the source of truth for the drilldown snapshot:
+    //   * paused panel → frozen counts (what the user is currently reading)
+    //   * live panel   → fresh read of the session map
+    // If both are missing/empty, we have nothing to drill into.
+    final source = overrideCounts ?? session?.rebuildCountsByType;
+    if (source == null || source.isEmpty) {
+      setState(() => _rebuildSessionGoneVisible = true);
+      _rebuildSessionGoneTimer?.cancel();
+      _rebuildSessionGoneTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _rebuildSessionGoneVisible = false);
+      });
+      return;
+    }
+    setState(() {
+      // Defensive copy — snapshot semantics mean mutations to either the
+      // live session or the panel's frozen map must not reorder rows in
+      // the open drilldown.
+      _rebuildStatsSnapshot = Map<String, int>.of(source);
+      _rebuildStatsRouteName = session?.routeName;
+      _showRebuildStats = true;
+    });
   }
 
   // ─── Build helpers ──────────────────────────────────────────────────
@@ -413,6 +559,21 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                 _StartupMetricsBanner(
                   onTap: () => setState(() => _showStartupDetail = true),
                 ),
+              // Always-on inline rebuild-stats panel. Renders whenever the
+              // active RouteSession has any rebuild counts attributed (any
+              // source — debugCallback in debug mode or flutterTimeline in
+              // profile mode). v0.15.2: this is the sole rebuild-stats UI
+              // surface — the previous `rebuild_hotspot_summary` rollup
+              // IssueCard was removed because the inline panel covers both
+              // discoverability (low-volume routes can still inspect) and
+              // signal (top-3 + live tween makes hot widgets obvious),
+              // without colliding with the issue-list ranker or producing
+              // KDD-5 inflation false positives in the warning stream.
+              _RebuildStatsBanner(
+                controller: widget.controller,
+                onTap: _onSeeAllRebuildsTap,
+                onPauseDiscarded: _onRebuildPauseDiscarded,
+              ),
               Flexible(child: RepaintBoundary(child: _buildIssuesList())),
               _CardFooter(
                 controller: widget.controller,
@@ -721,6 +882,28 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                 builder: (_, selectedHighlight, __) => ListView.builder(
                   padding: EdgeInsets.all(theme.spacingSm),
                   itemCount: visibleIssues.length,
+                  // Keyed-reorder remount fix: without a
+                  // `findChildIndexCallback`, `SliverChildBuilderDelegate`
+                  // cannot locate a keyed child whose index has shifted
+                  // between builds, so Flutter destroys the Element and
+                  // builds a fresh one — which resets `_IssueCardState`
+                  // (loses expansion, scroll, and all local UI state).
+                  // This hits any issue whose rank position moves, e.g.
+                  // when `_applyDurationEscalation` flips an issue from
+                  // warning→critical at 30 cycles. Cards are already
+                  // `ValueKey`-stamped with `stableId`; this callback
+                  // just tells the sliver where each key landed.
+                  findChildIndexCallback: (Key key) {
+                    if (key is! ValueKey<String>) return null;
+                    final target = key.value;
+                    for (var i = 0; i < visibleIssues.length; i++) {
+                      final issue = visibleIssues[i];
+                      if ((issue.stableId ?? issue.title) == target) {
+                        return i;
+                      }
+                    }
+                    return null;
+                  },
                   itemBuilder: (_, index) {
                     final issue = visibleIssues[index];
                     final locatable = _isLocatableIssue(issue);
@@ -1389,6 +1572,504 @@ class _StartupMetricsBanner extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Always-on entry point to the per-route rebuild data. Renders an inline
+/// banner whenever the active [RouteSession] has any rebuild attribution,
+/// regardless of whether any detector has emitted a warning. This is the
+/// sole data-discovery surface for rebuild stats since v0.15.2 — the
+/// previous `rebuild_hotspot_summary` rollup IssueCard was removed because
+/// (a) the panel covers both the data and the signal, (b) an always-pinned
+/// IssueCard collided with the ranker and severity-escalation pipeline,
+/// and (c) profile-mode KDD-5 inflations made route entry look like a
+/// warning storm in the issues list.
+///
+/// **Two states:**
+///
+/// * **Collapsed (default)** — single row with `Rebuilds: N across M
+///   widgets` + a chevron. Tap to expand.
+/// * **Expanded** — collapsed header + top-3 widget rows with rank, name,
+///   live-tweened count, and a normalised bar fill. A Pause toggle freezes
+///   the displayed counts so the user can read a stable snapshot. A
+///   `See all M →` link pushes the full [RebuildStatsPage] drilldown via
+///   the same snapshot-and-push handler the rollup card used to use.
+///
+/// **Reactivity:** rebuilds whenever the scan loop produces fresh issues
+/// (`issuesNotifier`, which fires after every `_scanTreeInner` — the
+/// natural pulse for rebuild-attribution updates) or when the active
+/// route session itself changes (`routeHistoryNotifier`, which fires on
+/// route push/pop and tab switches). The panel reads
+/// `controller.activeRouteSession` at build time, so the union of these
+/// two notifiers is sufficient — no extra per-frame work.
+///
+/// **Pause semantics:** when the user taps Pause, the panel snapshots
+/// `RouteSession.rebuildCountsByType` into [_frozenCounts] and renders
+/// from that map until the user taps Resume. If the route session
+/// changes while paused (auto-detected via [routeHistoryNotifier]), the
+/// freeze is automatically cleared so the user is never looking at
+/// stale data from a previous route — the new route's panel starts
+/// fresh in live mode.
+class _RebuildStatsBanner extends StatefulWidget {
+  const _RebuildStatsBanner({
+    required this.controller,
+    required this.onTap,
+    required this.onPauseDiscarded,
+  });
+
+  final SleuthController controller;
+
+  /// Called when the user taps `See all M →`. Reuses the same
+  /// snapshot-and-push code path the rollup IssueCard used before
+  /// v0.15.2 (`_FloatingIssuesCardState._onSeeAllRebuildsTap`), so the
+  /// drilldown's snapshot semantics are unchanged.
+  ///
+  /// When the panel is paused, the banner passes its [_frozenCounts] map
+  /// as [overrideCounts] so the drilldown opens against the same data the
+  /// user is currently reading on the panel — without this, a paused
+  /// panel showing N rebuilds would push a drilldown showing the live
+  /// (unfrozen) count, which is the snapshot-drift bug fixed in v0.15.2.
+  final void Function(Map<String, int>? overrideCounts) onTap;
+
+  /// Called when the panel auto-resumes due to a route change while the
+  /// user had it paused. The host card uses this to surface a transient
+  /// "Pause cleared — route changed" snackbar so the user is never
+  /// silently dropped from a frozen view back into live updates.
+  final VoidCallback onPauseDiscarded;
+
+  @override
+  State<_RebuildStatsBanner> createState() => _RebuildStatsBannerState();
+}
+
+class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
+  /// Collapsed by default per the v0.15.2 UX choice. The panel header
+  /// stays one row tall when nothing surprising is happening; the user
+  /// expands only when they want to inspect the breakdown.
+  bool _expanded = false;
+
+  /// True when the user has tapped Pause. Frozen counts in
+  /// [_frozenCounts] are rendered instead of the live session map.
+  bool _paused = false;
+
+  /// Snapshot copy of `session.rebuildCountsByType` taken at the moment
+  /// the user tapped Pause. Defensive copy so subsequent live mutations
+  /// to the session map cannot reorder rows or change totals while the
+  /// user is reading a frozen view. Cleared on Resume or on route change.
+  Map<String, int>? _frozenCounts;
+
+  /// F3/P3: Hoisted `Listenable.merge` so the panel attaches its
+  /// listeners exactly once instead of allocating a fresh merge wrapper
+  /// (which detaches and re-attaches both source listeners) on every
+  /// build. The panel rebuilds frequently — once per scan tick plus
+  /// once per route push/pop — so the per-build allocation showed up as
+  /// pointless churn in the listener path. Field is `late final` and
+  /// set in [initState] from the same two source notifiers that used
+  /// to be merged inline in `build()`.
+  late final Listenable _mergedListenable;
+
+  @override
+  void initState() {
+    super.initState();
+    _mergedListenable = Listenable.merge([
+      widget.controller.issuesNotifier,
+      widget.controller.routeHistoryNotifier,
+    ]);
+    // Auto-resume on route change: a frozen view of route A's counts is
+    // confusing once the user has navigated to route B. The panel's
+    // listener clears the freeze the instant a new session is created,
+    // so the new route's panel starts fresh in live mode without the
+    // user having to manually tap Resume.
+    widget.controller.routeHistoryNotifier.addListener(_onRouteSessionChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.routeHistoryNotifier
+        .removeListener(_onRouteSessionChanged);
+    super.dispose();
+  }
+
+  void _onRouteSessionChanged() {
+    if (!mounted) return;
+    if (!_paused) return;
+    setState(() {
+      _paused = false;
+      _frozenCounts = null;
+    });
+    // H2: notify the host card so it can surface a transient
+    // "Pause cleared — route changed" snackbar. Without this signal the
+    // user comes back from a tab swap to find their pause silently gone.
+    widget.onPauseDiscarded();
+  }
+
+  void _toggleExpanded() {
+    setState(() => _expanded = !_expanded);
+  }
+
+  void _togglePause() {
+    setState(() {
+      if (_paused) {
+        _paused = false;
+        _frozenCounts = null;
+        return;
+      }
+      final session = widget.controller.activeRouteSession;
+      if (session == null) return;
+      _frozenCounts = Map<String, int>.of(session.rebuildCountsByType);
+      _paused = true;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      // F3/P3: hoisted merge — see field declaration. Allocating
+      // `Listenable.merge(...)` inline here would re-create the wrapper
+      // on every build and detach/re-attach both source listeners.
+      listenable: _mergedListenable,
+      builder: (context, _) {
+        final session = widget.controller.activeRouteSession;
+        // H4: distinguish "no session" from "session exists but no
+        // counts" — the latter is debug-info-worthy when the user is
+        // expecting to see attribution. Both paths still suppress the
+        // panel from view, but with explicit reasons rather than a
+        // single silent SizedBox.shrink() that hides three different
+        // failure modes (null session, empty map, zero total).
+        if (session == null) return const SizedBox.shrink();
+        final liveCounts = session.rebuildCountsByType;
+        // Source-of-truth selection — frozen wins over live when paused.
+        final counts =
+            _paused && _frozenCounts != null ? _frozenCounts! : liveCounts;
+        if (counts.isEmpty) return const SizedBox.shrink();
+        final total = counts.values.fold<int>(0, (a, b) => a + b);
+        if (total <= 0) return const SizedBox.shrink();
+        final widgetCount = counts.length;
+
+        // Sort once per build — counts are tiny (10s of entries at most)
+        // so this is cheap. Top-3 lifted out of the same sorted list to
+        // avoid a second pass.
+        final sorted = counts.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+        final top = sorted.take(_topN).toList(growable: false);
+        final topMax = top.isNotEmpty ? top.first.value : 0;
+
+        final theme = SleuthTheme.of(context);
+        final color = theme.categoryBuild;
+
+        return DecoratedBox(
+          decoration: BoxDecoration(color: color.withValues(alpha: 0.1)),
+          // H1 compromise: tightened the panel's internal vertical
+          // padding (4 → 2) and the header→rows spacer (8 → 2) to
+          // reclaim the pixels spent on enlarged tap targets, so the
+          // expanded panel still fits the cramped 330dp overlay budget.
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              theme.spacingSm,
+              2,
+              theme.spacingSm,
+              2,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildHeaderRow(theme, color, total, widgetCount),
+                if (_expanded) ...[
+                  const SizedBox(height: 2),
+                  for (var i = 0; i < top.length; i++)
+                    _buildTopRow(
+                      theme: theme,
+                      color: color,
+                      rank: i + 1,
+                      typeName: top[i].key,
+                      count: top[i].value,
+                      barFraction: topMax == 0 ? 0.0 : top[i].value / topMax,
+                    ),
+                  _buildExpandedFooter(theme, color, widgetCount),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// v0.15.2 UX knob: the panel surfaces the top-3 rebuilders inline.
+  /// The full list is reachable via the `See all M →` drilldown link.
+  /// Three is the sweet spot for "scan-at-a-glance" — five rows turns
+  /// the panel into a list and competes with the issue cards below it.
+  static const int _topN = 3;
+
+  Widget _buildHeaderRow(
+    SleuthThemeData theme,
+    Color color,
+    int total,
+    int widgetCount,
+  ) {
+    final widgetWord = widgetCount == 1 ? 'widget' : 'widgets';
+    final summary = 'Rebuilds: $total across $widgetCount $widgetWord';
+    final pausedHint = _paused ? ', paused' : '';
+    final semanticsHint = _expanded
+        ? '$summary$pausedHint, expanded, tap to collapse'
+        : '$summary$pausedHint, collapsed, tap to expand';
+
+    return Semantics(
+      label: semanticsHint,
+      button: true,
+      // H1: the header is the EASIEST control to hit because the row
+      // spans the full panel width — even at its natural ~24dp height
+      // the tap surface is roughly 280dp × 24dp, so any reasonable
+      // touch lands. We rely on that horizontal generosity rather than
+      // forcing a 48dp vertical box (which doubled the panel height
+      // and overflowed the cramped overlay budget on small screens).
+      // `HitTestBehavior.opaque` makes every pixel of the row hittable.
+      child: GestureDetector(
+        onTap: _toggleExpanded,
+        behavior: HitTestBehavior.opaque,
+        child: Row(
+          children: [
+            Icon(Icons.repeat, size: 12, color: color),
+            SizedBox(width: theme.spacingXs),
+            Expanded(
+              child: Text(
+                summary,
+                style: TextStyle(color: color, fontSize: theme.fontSm),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            // F1: pause indicator on the COLLAPSED header. Without
+            // this, a user who pauses, collapses, and walks away has
+            // no visual signal that the displayed total is frozen.
+            if (!_expanded && _paused) ...[
+              SizedBox(width: theme.spacingXxs),
+              Icon(
+                Icons.pause,
+                size: 10,
+                color: color.withValues(alpha: 0.5),
+                semanticLabel: 'paused',
+              ),
+            ],
+            if (_expanded) ...[
+              Semantics(
+                label: _paused
+                    ? 'Resume live rebuild updates'
+                    : 'Pause live rebuild updates',
+                button: true,
+                // H1: enlarge the pause hit area without ballooning
+                // header height. 28dp is ~30% bigger than the natural
+                // ~22dp icon footprint and still fits the tightly-
+                // budgeted debug overlay. Material's full 48dp ideal
+                // would push the panel past the cramped 330dp test
+                // budget (and past 446dp on small phones), so this is
+                // a deliberate compromise documented in v0.15.2 H1.
+                // `HitTestBehavior.opaque` is critical: without it
+                // the OUTER header GestureDetector would intercept
+                // the tap when the finger lands on the padding rather
+                // than on the icon glyph itself, toggling expansion
+                // instead of pause/resume.
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: GestureDetector(
+                    onTap: _togglePause,
+                    behavior: HitTestBehavior.opaque,
+                    child: Center(
+                      child: Icon(
+                        _paused ? Icons.play_arrow : Icons.pause,
+                        size: 14,
+                        color: color,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            Icon(
+              _expanded ? Icons.expand_less : Icons.expand_more,
+              size: 14,
+              color: color.withValues(alpha: 0.7),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopRow({
+    required SleuthThemeData theme,
+    required Color color,
+    required int rank,
+    required String typeName,
+    required int count,
+    required double barFraction,
+  }) {
+    // H1 compromise: per-row bottom gap tightened from spacingXxs (4dp)
+    // to 2dp so 3 rows reclaim 6dp toward the enlarged tap-target
+    // budget. The bar still has visible separation thanks to the row's
+    // intrinsic Text + bar layout.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 18,
+                child: Text(
+                  '$rank.',
+                  style: TextStyle(
+                    color: color.withValues(alpha: 0.7),
+                    fontSize: theme.fontXs,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  typeName,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: theme.fontSm,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              SizedBox(width: theme.spacingXs),
+              // Animated count tween — when live counts move, the number
+              // smoothly interpolates so eye-catching frames don't feel
+              // like a glitch. 200ms matches Material's "short" duration
+              // — long enough to read, short enough not to lag behind a
+              // 1-second scan tick.
+              //
+              // F2: `IntTween(begin: 0, end: count)` is the canonical
+              // pattern. On first appearance the row tweens from 0 → N;
+              // on subsequent rebuilds with a different `end`,
+              // TweenAnimationBuilder's `didUpdateWidget` substitutes
+              // the current animated value as the new `begin` and
+              // animates from the old end to the new one. The previous
+              // `IntTween(begin: count, end: count)` form happened to
+              // work because the substitution overwrites `begin`, but
+              // it misled the reader and set the wrong starting value
+              // when the row first appeared.
+              TweenAnimationBuilder<int>(
+                key: ValueKey(typeName),
+                tween: IntTween(begin: 0, end: count),
+                duration: const Duration(milliseconds: 200),
+                builder: (context, value, _) => Text(
+                  '\u00d7$value',
+                  style: TextStyle(
+                    color: color,
+                    fontSize: theme.fontSm,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          // H1 compromise: 1dp gap + 2dp bar (from 4dp + 3dp) reclaims
+          // 4dp/row × 3 rows = 12dp toward the enlarged tap-target
+          // budget. The bar is still a visible rule.
+          const SizedBox(height: 1),
+          Padding(
+            padding: const EdgeInsets.only(left: 18),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: SizedBox(
+                height: 2,
+                child: LinearProgressIndicator(
+                  value: barFraction.clamp(0.0, 1.0),
+                  backgroundColor: color.withValues(alpha: 0.15),
+                  valueColor: AlwaysStoppedAnimation<Color>(color),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExpandedFooter(
+    SleuthThemeData theme,
+    Color color,
+    int widgetCount,
+  ) {
+    // C2: the "See all N →" link is only meaningful when the drilldown
+    // would actually surface widgets that are NOT already shown inline.
+    // With top-N = 3, a route with ≤ 3 widgets has nothing to drill into,
+    // so the link is suppressed to avoid a redundant tap target.
+    final showSeeAll = widgetCount > _topN;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        // KDD-5 inflation footnote — abbreviated form of the disclaimer
+        // that the drilldown page renders in full. The inline panel only
+        // has room for a one-liner; users who need the full caveat (and
+        // the KDD-10 self-measurement note) tap through to the drilldown.
+        Flexible(
+          child: Text(
+            'incl. inflations',
+            style: TextStyle(
+              color: color.withValues(alpha: 0.7),
+              fontSize: theme.fontXxs,
+              fontStyle: FontStyle.italic,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        if (showSeeAll) ...[
+          SizedBox(width: theme.spacingSm),
+          Semantics(
+            label: 'See all $widgetCount rebuilds',
+            button: true,
+            // H1: enlarge the see-all hit area without breaking the
+            // overlay's tight vertical budget. 24dp is ~70% larger than
+            // the natural text-only height (~14dp) and is reliably
+            // hittable on a real device, while still respecting the
+            // inline-debug-panel context. Material's full 48dp ideal
+            // would overflow the panel on small screens — see H1
+            // compromise note in `_buildHeaderRow`. `HitTestBehavior
+            // .opaque` makes the whole padded box receive taps even
+            // where the text doesn't cover it.
+            child: SizedBox(
+              height: 24,
+              child: GestureDetector(
+                onTap: () {
+                  // C1: pass the panel's frozen snapshot through to the
+                  // drilldown when paused, so the drilldown opens against
+                  // the same data the user is reading on the panel.
+                  widget.onTap(_paused ? _frozenCounts : null);
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: theme.spacingXs,
+                  ),
+                  child: Center(
+                    widthFactor: 1,
+                    child: Text(
+                      'See all $widgetCount \u2192',
+                      style: TextStyle(
+                        color: color,
+                        fontSize: theme.fontXs,
+                        fontWeight: FontWeight.w600,
+                        decoration: TextDecoration.underline,
+                        decorationColor: color,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
