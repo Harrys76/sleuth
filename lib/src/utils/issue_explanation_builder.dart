@@ -699,7 +699,25 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Active animations and scroll-driven content are expected to '
           'repaint frequently. Focus on unexpected repaints during idle or '
-          'static screens.',
+          'static screens.\n\n'
+          'Sleuth v0.15.3+ automatically attributes each paint event to a '
+          'known frame-rate animation owner — at paint-callback time it '
+          'inspects the live element via three checks: (1) the cached '
+          'ancestor chain, (2) a typed ancestor walk up to depth 16, and '
+          '(3) a typed descendant walk up to depth 4. The recognised owner '
+          'set covers 21 widgets: progress indicators '
+          '(CircularProgressIndicator, LinearProgressIndicator, '
+          'RefreshProgressIndicator, RefreshIndicator, '
+          'CupertinoActivityIndicator), generic builders '
+          '(AnimatedBuilder, ValueListenableBuilder, TweenAnimationBuilder), '
+          'every Animated* implicit-animation widget '
+          '(AnimatedContainer, AnimatedOpacity, AnimatedSwitcher, etc.), '
+          'and Hero. Owned paints are subtracted from the aggregate before '
+          'the threshold check, so a spinning indicator or active implicit '
+          'animation in your app bar will not fire this issue. If you see '
+          'this fire near a busy animation that is not in that set, '
+          'consider wrapping the animation in a RepaintBoundary to '
+          'isolate it.',
       relatedIssues: [
         'always_repaint_painter',
         'animated_builder_no_child',
@@ -733,7 +751,19 @@ class IssueExplanationBuilder {
           'an animation, ensure only the animating subtree repaints.',
       whenToIgnore:
           'Widgets inside active animations are expected to repaint every '
-          'frame.',
+          'frame. Sleuth v0.15.3+ skips per-widget repaint reporting when '
+          'a per-paint walk attributes the painted element to one of 21 '
+          'known animation owners — progress indicators '
+          '(CircularProgressIndicator and family), generic builders '
+          '(AnimatedBuilder, ValueListenableBuilder, TweenAnimationBuilder), '
+          'every Animated* implicit-animation widget, RefreshIndicator, '
+          'and Hero. The walk runs against the live element with three '
+          'legs (chain regex, typed ancestor walk to depth 16, typed '
+          'descendant walk to depth 4), so it catches owners that sit '
+          'either above or below the painted leaf in the element tree. '
+          'If this issue still fires next to an animation, the owning '
+          'widget is probably custom — wrap it in an AnimatedBuilder or '
+          'a RepaintBoundary to make the animation explicit.',
       relatedIssues: [
         'excessive_repaint',
         'excessive_repaint_debug',
@@ -765,7 +795,13 @@ class IssueExplanationBuilder {
           'cards, toolbar) to contain repaint propagation.',
       whenToIgnore:
           'During full-screen transitions or scroll, high repaint rate is '
-          'expected.',
+          'expected.\n\n'
+          'Sleuth v0.15.3+ subtracts known animation-owned paints from '
+          'the aggregate before checking the threshold. If this issue '
+          'fires alongside an active animation, the issue detail will '
+          'show "Excludes N animation-owned paints" — the residual is '
+          'genuinely above threshold even after accounting for the '
+          'animation. Look for non-animation paint sources first.',
       relatedIssues: [
         'always_repaint_painter',
         'animated_builder_no_child',

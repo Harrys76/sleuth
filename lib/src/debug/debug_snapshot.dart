@@ -23,6 +23,8 @@ class DebugSnapshot {
     required this.elapsed,
     this.paintCounts = const {},
     this.ancestorChains = const {},
+    this.animationOwnedPaintCounts = const {},
+    this.totalAnimationOwnedPaintCount = 0,
     this.source = RebuildCountSource.none,
   });
 
@@ -44,6 +46,32 @@ class DebugSnapshot {
   /// Captured on first occurrence of each type in the debug callbacks.
   /// Provides widget tree hierarchy for source-location enrichment.
   final Map<String, String> ancestorChains;
+
+  /// Per-widget-type **animation-owned** paint counts (key = widget
+  /// runtimeType name). A subset of [paintCounts]: every entry here was
+  /// also counted in [paintCounts], so detectors that want a "non-owned
+  /// residual" must subtract.
+  ///
+  /// Populated by [DebugInstrumentationCoordinator._handleProfilePaint]
+  /// using [isAnimationOwnedPaint] (chain-containment OR bounded
+  /// descendant walk). Per-paint attribution sidesteps the
+  /// `paintCounts` polymorphic-key collision (spec_v0_15_3 KDD-6 / C1):
+  /// two distinct widgets that both report `'CustomPaint'` as their
+  /// type can have completely different per-paint owned outcomes —
+  /// e.g. a `CircularProgressIndicator`'s internal `CustomPaint` is
+  /// fully owned, while a chart's bare `CustomPaint` is not.
+  ///
+  /// Defaults to `const {}` so existing fixture snapshots compile
+  /// unchanged.
+  final Map<String, int> animationOwnedPaintCounts;
+
+  /// Aggregate count of paints attributed to an animation owner (across
+  /// every widget type, regardless of whether the type made it into
+  /// [paintCounts]). Used by the aggregate-residual gate
+  /// (`residual = totalPaintCount - totalAnimationOwnedPaintCount`).
+  ///
+  /// Defaults to `0` so existing fixture snapshots compile unchanged.
+  final int totalAnimationOwnedPaintCount;
 
   /// Aggregate paint call count (includes paints where widget attribution
   /// was not possible).

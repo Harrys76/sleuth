@@ -1,3 +1,237 @@
+## 0.15.3
+
+Single-milestone patch from `doc/detector_threshold_audit.md` §7 M1: an
+animation-aware filter on `RepaintDetector`. Closes the asymmetry where
+`RebuildDetector` already exempts builder widgets via a 3× threshold
+multiplier but `RepaintDetector` had **zero** filter — any widget at
+≥30 paints/sec fired `excessive_repaint`. A `CircularProgressIndicator`
+spinning at 60 Hz in an app's top bar tripped the detector on every
+session, on every page that mounted it.
+
+### Added
+
+- **`RepaintDetector.animationOwnerNames`** — a 7-entry const Set of
+  widget type names that drive intentional, frame-rate animations.
+  Four Material/Cupertino indicators (`CircularProgressIndicator`,
+  `LinearProgressIndicator`, `RefreshProgressIndicator`,
+  `CupertinoActivityIndicator`) plus three generic builder patterns
+  (`AnimatedBuilder`, `ValueListenableBuilder`, `TweenAnimationBuilder`).
+  Marked `@visibleForTesting` so consumers can introspect / extend.
+- **`_animationOwnerRegex`** — word-boundary regex `\b(…)\b` over the
+  union, computed once. Boundaries protect against substring matches
+  like `'CustomAnimatedBuilderUtility'` falsely matching
+  `'AnimatedBuilder'`.
+- **Three internal helpers** consumed by the three repaint gates:
+  * `_isAnimationOwned(snapshot, typeName)` — true when the cached
+    ancestor chain for `typeName` contains an animation-owner name.
+    Default-fire (returns false) when the chain is missing — never
+    silently mask a real bug.
+  * `_allPaintsAnimationOwned(snapshot)` — true iff every non-zero
+    entry in `paintCounts` is animation-owned. Used by Gate B.
+  * `_animationOwnedCount(snapshot)` — sum of paint counts whose
+    typeName has an animation-owned chain. Used by Gate C.
+- **Real-widget anti-tautology test** —
+  `test/detectors/repaint_animation_filter_real_widget_test.dart` pumps
+  an actual `CircularProgressIndicator` through a real
+  `DebugInstrumentationCoordinator`, captures a real `DebugSnapshot`,
+  asserts the captured ancestor chains contain `'CircularProgressIndicator'`
+  (proving the filter's signal exists in real data), then re-pins
+  `elapsed: 100ms` to push per-widget rates to ~100/sec — comfortably
+  above the 30/sec threshold so Gate A's skip-on-match logic must run
+  on every owned chain. The test exists specifically because
+  hand-rolled fixtures encode whatever chain format the test author
+  *thinks* the coordinator produces, so they cannot catch a bug where
+  the filter relies on a chain key/string format the coordinator never
+  emits in practice (adversarial-investigation Tactic 9).
+
+### Changed
+
+- **Gate A — per-widget debug
+  (`RepaintDetector._evaluateDebugDataPerWidget`):** after the
+  `paintFrequencyThreshold` rate check, skip via `_isAnimationOwned`
+  before emitting `repaint_debug_$typeName`.
+- **Gate B — VM aggregate fallback (`_evaluate` wrapper around
+  `_evaluateVmData`):** when the per-widget pass produced no issues
+  AND fresh VM data is present, suppress the VM gate entirely if
+  `_allPaintsAnimationOwned(debugSnapshot)` is true. Empty
+  `paintCounts` = no signal, so the gate fires normally — never silently
+  mask a real bug.
+- **Gate C — debug aggregate (`_evaluateDebugData`):** rewritten to
+  use residual subtraction. Compute `residualCount = totalPaintCount -
+  ownedCount`, recompute `residualRate` over `elapsed`, suppress when
+  residual falls below threshold. When residual still fires, the issue
+  detail surfaces a `Excludes N animation-owned paints` suffix so
+  developers see the math.
+- **`confidenceReason` on Gate C** updated to
+  `'Aggregate debug callback count + structural scan (animation-owned paints excluded)'`.
+
+### Why this design (KDDs)
+
+- **KDD-2 (chain-containment, not Ticker introspection):** the
+  alternative was an ancestor-walk filter that asks "does this widget's
+  State own a Ticker?" That's more correct in principle but requires
+  reflection on private framework state. Chain-containment over the
+  cached ancestor chain is cheaper, deterministic, and matches the
+  shape of the data the coordinator already produces. **Limitation:**
+  widgets that *wrap* an animation owner without a `RepaintBoundary`
+  between them still fire because their chain doesn't contain the
+  owner. Descendant inspection is out of scope for v0.15.3.
+- **KDD-3 (residual subtraction over full suppression at Gate C):** at
+  the aggregate path we know `totalPaintCount` but lack per-widget
+  attribution for everything that isn't in `paintCounts`. Residual
+  subtraction lets us still fire `excessive_repaint_debug` if a
+  surrounding scene is genuinely doing too much paint work, while
+  cleanly accounting for the animation owners we *can* see.
+- **KDD-4 (asymmetric design vs `RebuildDetector` is deliberate):**
+  full exemption (Repaint) vs 3× multiplier (Rebuild). A
+  `CircularProgressIndicator` is *supposed* to paint at the device
+  refresh rate — there is no rate that's "too high" for it; the right
+  answer is "don't fire at all." A high *rebuild* rate on the same
+  widget is more ambiguous (could be a parent re-mounting it 60×/sec
+  by mistake), so a multiplier rather than full exemption.
+- **KDD-6 (polymorphic-key collision is accepted):** the coordinator
+  caches the chain on first occurrence per `typeName` key
+  (`debug_instrumentation_coordinator.dart:584,607`). If two distinct
+  `CustomPaint` widgets in the same window share the key, the cached
+  chain reflects whichever was seen first. Documented; chain-recapture
+  is a follow-up.
+- **Set is exactly 7 entries (KDD-2):**
+  `widget_location.dart:_frameworkNames` strips most candidate filter
+  widgets (transitions, `Builder`, `ListenableBuilder`) from the
+  captured chain entirely, so adding them would be dead code. What
+  remains is the set that survives the strip and reliably indicates a
+  frame-rate animation owner.
+
+### Fixed
+
+- `excessive_repaint`, `excessive_repaint_debug`, and
+  `repaint_debug_CircularProgressIndicator` no longer fire for spinning
+  Material progress indicators — the most common false positive
+  surfaced in `doc/detector_threshold_audit.md` §7 M1.
+
+### Post-impl hardening pass (5 findings from `/adversarial-review`)
+
+After the original v0.15.3 ship, an adversarial code review surfaced
+five critical findings (C1–C5) — most of them rooted in the same
+architectural root cause: ownership decisions were made by inspecting a
+cached chain-string keyed on `runtimeType`, but the chain string is
+purpose-built for *human source-location display* and is too shallow,
+too lossy, and too key-collision-prone for a robust ownership filter.
+The fix moves ownership detection off the chain string entirely and
+onto a per-paint, typed walk that runs at paint-callback time against
+the live `Element`.
+
+**C1 (polymorphic-key collision):** the coordinator caches the chain
+on first occurrence per `typeName` key, so two distinct `CustomPaint`
+widgets in the same window — one inside an `AnimatedBuilder`, one
+driven by external `setState` — share whichever chain was seen first.
+Pre-fix, the detector either fully suppressed both or fully fired on
+both. **Fix:** added per-paint owned attribution at the coordinator
+(`_handleProfilePaint`) that calls a new
+`isAnimationOwnedPaint(element, chain)` against the live `Element`,
+not against the cached chain. The result is exposed via two new
+`DebugSnapshot` fields, `animationOwnedPaintCounts` (Map<String, int>)
+and `totalAnimationOwnedPaintCount` (int), which the detector now
+reads instead of re-deriving ownership from the chain string. Mixed
+ownership for the same `typeName` key is now represented honestly.
+
+**C2 (insufficient owner set):** the original 7-entry set covered
+indeterminate progress indicators and three explicit builders but
+missed the entire `Animated*` family (12 widgets:
+`AnimatedContainer`, `AnimatedRotation`, `AnimatedScale`,
+`AnimatedSize`, `AnimatedOpacity`, `AnimatedAlign`, `AnimatedPadding`,
+`AnimatedPositioned`, `AnimatedPositionedDirectional`, `AnimatedSlide`,
+`AnimatedSwitcher`, `AnimatedCrossFade`, `AnimatedFractionallySizedBox`)
+plus `Hero` and `RefreshIndicator`. Each runs an internal
+`AnimationController` to tween between old and new property values;
+without these entries every implicit animation in user code triggers
+a false `repaint_debug_*`. **Fix:** expanded `animationOwnerNames` to
+21 entries (5 indicators + 3 generic builders + 12 implicit Animated
+widgets + Hero) and moved the canonical Set out of `RepaintDetector`
+into a shared module (`lib/src/utils/animation_owner_names.dart`) so
+the coordinator and the detector reference the same source of truth.
+
+**C3 (chain-walks-up gap):** when a `CircularProgressIndicator` is
+mounted *without* a wrapping `RepaintBoundary`, the dirty mark
+propagates UP to the nearest layer-owning ancestor (commonly `Center`
+or `Stack`). The framework calls `_handleProfilePaint` with that
+ancestor as the leaf, so the captured ancestor chain walks UP from
+the ancestor — `CircularProgressIndicator` is a *descendant* of the
+leaf, not an ancestor, and chain-containment misses it entirely.
+**Fix:** `isAnimationOwnedPaint` now combines a chain check with a
+**bounded-depth descendant walk** (`hasAnimationOwnerDescendant`,
+`maxVisits=32`, `maxDepth=4`) that visits children of the leaf
+`Element` and matches against `animationOwnerNames` via the typed
+`runtimeType` lookup. Cost at 60 Hz is ~1,920 element visits/sec —
+negligible.
+
+**C4 (chain capture exception safety):** during widget deactivation,
+`element.visitAncestorElements` can throw "Looking up a deactivated
+widget's ancestor is unsafe" if the element is mid-tear-down at the
+moment a paint completes. Pre-fix, the exception unwound through
+`_handleProfilePaint` and crashed the entire instrumentation pipeline.
+**Fix:** wrapped the chain capture in try/catch in
+`debug_instrumentation_coordinator.dart` and log a one-line
+`Sleuth: paint ancestor chain failed: ...` warning instead of
+propagating. Detected paint counting continues; only the chain
+enrichment is skipped for that single event.
+
+**C5 (test fixture tautology):** the original v0.15.3 real-widget
+test only exercised `CircularProgressIndicator`. Every other owner
+(LinearProgressIndicator, RefreshProgressIndicator,
+TweenAnimationBuilder, AnimatedBuilder, ValueListenableBuilder,
+AnimatedContainer, the C1 mixed-ownership scene, the C3 bare-CPI
+scene) was covered only by hand-rolled fixtures that mirrored the
+filter's own assumptions about what the coordinator emits. **Fix:**
+new `test/detectors/repaint_animation_owners_real_widget_test.dart`
+adds 8 real-widget tests, each pumping the actual owner widget
+through `DebugInstrumentationCoordinator`, capturing a real
+`DebugSnapshot`, asserting `animationOwnedPaintCounts` is non-empty
+(proving per-paint attribution actually fired), and re-pinning
+`elapsed: 100ms` to push per-widget rates into Gate A's
+30-paints/sec range so the residual-subtraction and skip logic
+must actually run on each owner. The TweenAnimationBuilder and
+ValueListenableBuilder tests immediately caught a real bug —
+`hasAnimationOwnerDescendant` was looking up
+`'TweenAnimationBuilder<double>'` against a Set containing
+`'TweenAnimationBuilder'`, a generic-stripping miss the
+hand-rolled tests could never have caught.
+
+**Architectural follow-ups discovered during C5:**
+
+- **Generic-stripping fix in `hasAnimationOwnerDescendant`:** the
+  walk now strips `Foo<X>` to `Foo` via a single `indexOf('<')`
+  before the Set membership test. Non-generic types pass through
+  unchanged with zero allocation.
+- **New `hasAnimationOwnerAncestor` walk:** `RefreshProgressIndicator`
+  exposed a third gap. Its painted leaf (`CustomPaint`) sits ~13
+  ancestors below the wrapping `AnimatedBuilder` owner because of
+  Material's internal `_buildMaterialIndicator` decoration stack
+  (`Padding > SizedBox > _SemanticsWrapper > NotificationListener >
+  Material > Padding > Opacity > Transform > CustomPaint`). The
+  chain-string check fails because `buildAncestorChain`'s
+  `maxDepth: 6` is too shallow to reach the owner — but that depth
+  is deliberate, the chain string is for human-readable
+  source-location display. The descendant walk also fails because
+  the owner is *upstream* of the leaf, not downstream. **Fix:**
+  `isAnimationOwnedPaint` now has three legs, checked
+  cheapest-first: (1) chain-string regex, (2) typed ancestor walk
+  (`maxDepth=16`, independent of the chain budget),
+  (3) typed descendant walk (`maxVisits=32`, `maxDepth=4`).
+
+### Test count
+
+2,146 → 2,166. Original v0.15.3 ship: +10 hand-rolled gate-algebra
+tests in `test/detectors/repaint_detector_test.dart` + 1 real-widget
+CPI anti-tautology test in
+`test/detectors/repaint_animation_filter_real_widget_test.dart`.
+Post-impl C1–C5 hardening: +8 real-widget owner-coverage tests in
+`test/detectors/repaint_animation_owners_real_widget_test.dart`
+(LinearProgressIndicator, RefreshProgressIndicator, TweenAnimationBuilder,
+AnimatedBuilder, ValueListenableBuilder, AnimatedContainer, C1 mixed-
+ownership scene, C3 bare-CPI-without-RepaintBoundary scene) + 1
+gate-algebra test extension covering the new owned-counts contract.
+
 ## 0.15.2
 
 UX refactor of the rebuild-stats surface, prompted by another real-device

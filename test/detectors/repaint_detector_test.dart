@@ -609,6 +609,278 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
   });
+
+  // ---------------------------------------------------------------
+  // spec_v0_15_3 M1 — animation-owned paint filter (Gates A/B/C)
+  //
+  // Hand-rolled fixture coverage of the helper logic. The companion
+  // real-widget falsification test lives in
+  //   test/detectors/repaint_animation_filter_real_widget_test.dart
+  // and pumps an actual `CircularProgressIndicator` through the real
+  // `DebugInstrumentationCoordinator` paint pipeline. The two suites
+  // together address the Tactic 9 fixture-tautology risk: this group
+  // pins the gate algebra against synthetic chains, the real-widget
+  // suite proves the chains we depend on actually exist at runtime.
+  // ---------------------------------------------------------------
+  // Rewritten in spec_v0_15_3 hardening pass (post-impl review C5):
+  // the v0.15.3 M1 fixtures populated `ancestorChains` with synthetic
+  // strings that mirrored whatever shape the test author *thought* the
+  // coordinator emitted. With the C1+C3 fix, the detector no longer
+  // looks at chains for ownership at all — it reads
+  // `animationOwnedPaintCounts` and `totalAnimationOwnedPaintCount`,
+  // which the coordinator populates per-paint via `isAnimationOwnedPaint`
+  // (chain + bounded descendant walk) on the live element. So these
+  // tests now poke the new contract directly: given a snapshot with
+  // these owned-counts, what does each gate emit? Coordinator-side
+  // attribution correctness is exercised by the real-widget suite.
+  group('animation-owned paint filter (spec_v0_15_3 M1)', () {
+    late RepaintDetector detector;
+    late DateTime fakeNow;
+
+    setUp(() {
+      fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
+      detector = RepaintDetector(clock: () => fakeNow);
+      // VM disconnected: keep the filter logic isolated from the VM
+      // gate's own threshold checks. Specific Gate B tests below
+      // re-enable VM where needed.
+      detector.vmConnected = false;
+    });
+
+    // T1 — Gate A: every paint of `CustomPaint` is owned (residual=0)
+    // → no issue emitted even at 60 paints/sec.
+    test('Gate A skips per-widget when fully owned (residual=0)', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 60,
+        paintCounts: {'CustomPaint': 60},
+        animationOwnedPaintCounts: {'CustomPaint': 60},
+        totalAnimationOwnedPaintCount: 60,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+      expect(detector.issues, isEmpty,
+          reason: 'CustomPaint with residual=0 must NOT fire even at '
+              '60 paints/sec.');
+    });
+
+    // T2 — Gate A default-fire: no owned-counts entry → ownedCount
+    // defaults to 0, residual = total → fires. Preserves the
+    // "never silently mask a real bug" invariant.
+    test('Gate A fires when no owned attribution recorded (default-fire)', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 60,
+        paintCounts: {'CustomPaint': 60},
+        // animationOwnedPaintCounts intentionally omitted (defaults to
+        // const {}). Coordinator never marked any of these as owned.
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+      expect(detector.issues, hasLength(1),
+          reason: 'No owned attribution means no evidence to suppress on; '
+              'the detector MUST NOT silently mask a real bug.');
+      expect(detector.issues.first.stableId, 'repaint_debug_CustomPaint');
+    });
+
+    // T3 — Gate A explicit zero-owned: explicit `{'CustomPaint': 0}`
+    // is the same as missing key → fires. (Defends against a future
+    // change that decides to write zeros instead of omitting keys.)
+    test('Gate A fires when explicit owned count is zero', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 60,
+        paintCounts: {'CustomPaint': 60},
+        animationOwnedPaintCounts: {'CustomPaint': 0},
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.stableId, 'repaint_debug_CustomPaint');
+    });
+
+    // T4 — C1 polymorphic-collision case (the bug the C1+C3 fix exists
+    // to solve). Two distinct widgets share `CustomPaint` as their
+    // typeName key: half the paints are owned by a CPI's internal
+    // CustomPaint, the other half are a chart's bare CustomPaint.
+    // Pre-fix, the chain-containment check would either fully fire
+    // (cached chain didn't have the owner) or fully suppress (cached
+    // chain did) — both wrong. Post-fix, the residual is exactly the
+    // unowned half and the issue fires with the residual rate.
+    test('Gate A fires with residual rate on partial ownership (C1)', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 60,
+        paintCounts: {'CustomPaint': 60},
+        animationOwnedPaintCounts: {'CustomPaint': 30},
+        totalAnimationOwnedPaintCount: 30,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+      expect(detector.issues, hasLength(1),
+          reason: 'Residual=30/sec is at threshold and must fire even '
+              'though the other half of paints are owned.');
+      final issue = detector.issues.first;
+      expect(issue.stableId, 'repaint_debug_CustomPaint');
+      // Title reports the residual rate (30), not the raw 60.
+      expect(issue.title, contains('30'));
+      expect(issue.title, isNot(contains('60/sec')));
+      // Detail discloses the exclusion accounting.
+      expect(issue.detail, contains('30 repaints'));
+      expect(issue.detail, contains('Excludes 30 animation-owned paint'));
+    });
+
+    // T5 — Gate A residual below threshold: 60 total - 35 owned = 25
+    // residual which is BELOW the 30/sec threshold → suppressed even
+    // though the unowned subset exists.
+    test('Gate A suppresses when residual rate is below threshold', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 60,
+        paintCounts: {'CustomPaint': 60},
+        animationOwnedPaintCounts: {'CustomPaint': 35},
+        totalAnimationOwnedPaintCount: 35,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+      expect(detector.issues, isEmpty);
+    });
+
+    // T6 — Gate B: VM aggregate fallback suppressed when *every*
+    // per-widget paint is fully owned. The per-widget rate is
+    // sub-threshold (skipping Gate A's residual check), but the VM
+    // window says >30/sec — without Gate B that VM gate would fire
+    // `excessive_repaint`.
+    testWidgets('Gate B suppresses VM fallback when all per-widget owned',
+        (tester) async {
+      detector.vmConnected = true;
+      // VM window: 50 paints/sec, will close on next processTimelineData.
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highPaintActivityData(paintCount: 50));
+      // Per-widget data: 10 paints/sec, fully owned (residual=0).
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 10,
+        paintCounts: {'CustomPaint': 10},
+        animationOwnedPaintCounts: {'CustomPaint': 10},
+        totalAnimationOwnedPaintCount: 10,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+      expect(detector.issues, isEmpty,
+          reason: 'All known per-widget activity is animation-owned, so '
+              'the VM aggregate fallback must be suppressed.');
+    });
+
+    // T7 — Gate B does NOT suppress when paintCounts is empty (no
+    // per-widget evidence) — VM gate must still fire.
+    testWidgets('Gate B fires VM fallback when paintCounts empty',
+        (tester) async {
+      detector.vmConnected = true;
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highPaintActivityData(paintCount: 50));
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 0,
+        paintCounts: {},
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+      // paintCounts.isEmpty → falls into the `else if (hasFreshVm)`
+      // branch which has no Gate B guard.
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.stableId, 'excessive_repaint');
+    });
+
+    // T8 — Gate B does NOT suppress when at least one per-widget paint
+    // is NOT animation-owned (mixed scene). One typeName fully owned,
+    // the other has zero ownership → all-owned check fails → VM fires.
+    testWidgets('Gate B fires VM fallback in mixed-owner scene',
+        (tester) async {
+      detector.vmConnected = true;
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highPaintActivityData(paintCount: 50));
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 20,
+        paintCounts: {
+          'CustomPaint': 10,
+          'MyChartWidget': 10,
+        },
+        animationOwnedPaintCounts: {
+          'CustomPaint': 10,
+          // MyChartWidget intentionally absent (residual=10 > 0).
+        },
+        totalAnimationOwnedPaintCount: 10,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+      // Per-widget rates are sub-threshold so Gate A loop emits
+      // nothing; Gate B is checked → MyChartWidget breaks the
+      // all-owned condition → VM gate fires.
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.stableId, 'excessive_repaint');
+    });
+
+    // T9 — Gate C residual fires from the aggregate path: total=200,
+    // totalOwned=120, residual=80/sec → emits `excessive_repaint_debug`
+    // with the residual rate in title and the exclusion suffix in detail.
+    //
+    // To reach Gate C through the `else if (hasFreshDebug)` branch we
+    // need an empty `paintCounts` (so the per-widget branch isn't
+    // taken) but a non-zero `totalPaintCount` (so the aggregate branch
+    // runs). This represents the runtime case where the coordinator
+    // counted paints but `_paintCounts` was empty (e.g. all paints
+    // missed the `DebugCreator` cast or were dropped by the 200-type
+    // cap), while still attributing some of them to animation owners.
+    test('Gate C fires with residual rate when residual > threshold', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 200,
+        paintCounts: {},
+        totalAnimationOwnedPaintCount: 120,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+      expect(detector.issues, hasLength(1));
+      final issue = detector.issues.first;
+      expect(issue.stableId, 'excessive_repaint_debug');
+      // Title carries residual rate (80), not raw aggregate (200).
+      expect(issue.title, contains('80'));
+      expect(issue.title, isNot(contains('200')));
+      // Detail records both residual count and exclusion accounting.
+      expect(issue.detail, contains('80 paint calls'));
+      expect(issue.detail, contains('Excludes 120 animation-owned paints'));
+    });
+
+    // T10 — Gate C short-circuit when residualCount <= 0 (every paint
+    // attributed). Belt-and-braces for arithmetic edge cases where
+    // `totalAnimationOwnedPaintCount == totalPaintCount`.
+    test('Gate C short-circuits when residualCount is zero', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 200,
+        paintCounts: {},
+        totalAnimationOwnedPaintCount: 200,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+      expect(detector.issues, isEmpty);
+    });
+
+    // T11 — Gate C residual subtraction: total=200, totalOwned=180,
+    // residual=20/sec which is BELOW the 30/sec threshold → suppressed.
+    test('Gate C suppresses when residual rate is below threshold', () {
+      detector.updateDebugSnapshot(const DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 200,
+        paintCounts: {},
+        totalAnimationOwnedPaintCount: 180,
+        elapsed: Duration(seconds: 1),
+      ));
+      detector.evaluateNow();
+      expect(detector.issues, isEmpty);
+    });
+  });
 }
 
 class _TestPaintWidget extends StatelessWidget {

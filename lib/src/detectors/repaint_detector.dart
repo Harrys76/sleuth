@@ -40,6 +40,33 @@ class RepaintDetector extends BaseDetector {
   static const int _maxHighlightsPerType = 3;
   bool _isEnabled = true;
 
+  /// Returns the per-widget animation-owned paint count for [typeName],
+  /// as attributed by the coordinator's per-paint walk. Defaults to 0
+  /// when the type has no owned paints in this snapshot.
+  static int _ownedPaintsFor(DebugSnapshot snapshot, String typeName) =>
+      snapshot.animationOwnedPaintCounts[typeName] ?? 0;
+
+  /// Returns true iff every non-zero entry in [snapshot.paintCounts] has
+  /// been fully attributed to an animation owner. Used by Gate B to
+  /// suppress the VM aggregate fallback when all per-widget activity
+  /// belongs to known animation drivers.
+  ///
+  /// Returns false when there's no per-widget data — without per-paint
+  /// attribution we MUST NOT silently mask a real bug, so we let the
+  /// VM gate fire normally.
+  bool _allPaintsAnimationOwned(DebugSnapshot snapshot) {
+    if (snapshot.paintCounts.isEmpty) return false;
+    for (final entry in snapshot.paintCounts.entries) {
+      if (entry.value <= 0) continue;
+      final owned = _ownedPaintsFor(snapshot, entry.key);
+      // Per-paint attribution: every individual paint of this typeName
+      // was owned by an animation driver. (Subset relation: owned <=
+      // total is an invariant maintained by the coordinator.)
+      if (owned < entry.value) return false;
+    }
+    return true;
+  }
+
   int _paintEventCount = 0;
   DateTime _windowStart;
 
@@ -129,18 +156,29 @@ class RepaintDetector extends BaseDetector {
     _highlights.clear();
     _hotCounts.clear();
 
-    // Compute hot types from per-widget debug paint data
+    // Compute hot types from per-widget debug paint data, using the
+    // residual (total - animation-owned) so the overlay doesn't draw a
+    // red box around a `CircularProgressIndicator` whose paints are
+    // fully owned. Mirrors the per-widget gate in
+    // `_evaluateDebugDataPerWidget` so highlights and issues stay in
+    // sync.
     _hotTypes = const {};
     final snapshot = _pendingDebugSnapshot;
     if (snapshot != null && snapshot.paintCounts.isNotEmpty) {
-      final types = <String, double>{};
-      for (final entry in snapshot.paintCounts.entries) {
-        final rate = snapshot.paintsPerSecondForType(entry.key);
-        if (rate >= paintFrequencyThreshold) {
-          types[entry.key] = rate;
+      final us = snapshot.elapsed.inMicroseconds;
+      if (us > 0) {
+        final types = <String, double>{};
+        for (final entry in snapshot.paintCounts.entries) {
+          final ownedCount = _ownedPaintsFor(snapshot, entry.key);
+          final residualCount = entry.value - ownedCount;
+          if (residualCount <= 0) continue;
+          final rate = residualCount / (us / Duration.microsecondsPerSecond);
+          if (rate >= paintFrequencyThreshold) {
+            types[entry.key] = rate;
+          }
         }
+        if (types.isNotEmpty) _hotTypes = types;
       }
-      if (types.isNotEmpty) _hotTypes = types;
     }
   }
 
@@ -215,7 +253,15 @@ class RepaintDetector extends BaseDetector {
       // If no individual type crosses the threshold, fall through.
       _evaluateDebugDataPerWidget(debugSnapshot);
       if (_issues.isEmpty && hasFreshVm && vmWindowCount > 0) {
-        _evaluateVmData(vmWindowCount, enrichedDirtyTotal);
+        // Gate B — suppress VM aggregate fallback when *every* per-widget
+        // paint is animation-owned. Without this guard, an animation that
+        // doesn't trip Gate A (sub-threshold per-widget rate but high
+        // aggregate) would still light up `excessive_repaint`.
+        if (_allPaintsAnimationOwned(debugSnapshot)) {
+          // Suppressed — all known activity is intentional animation work.
+        } else {
+          _evaluateVmData(vmWindowCount, enrichedDirtyTotal);
+        }
       } else if (_issues.isEmpty && debugSnapshot.totalPaintCount > 0) {
         _evaluateDebugData(debugSnapshot);
       }
@@ -263,71 +309,128 @@ class RepaintDetector extends BaseDetector {
   }
 
   /// Debug callback path — per-widget paint attribution.
+  ///
+  /// **Gate A — per-widget residual subtraction (spec_v0_15_3 C1 fix).**
+  /// Earlier (v0.15.3 M1) this gate did `if (_isAnimationOwned(...))
+  /// continue;` — a binary skip-or-fire on the cached ancestor chain.
+  /// That behaved correctly for monomorphic typeNames, but for
+  /// polymorphic keys like `'CustomPaint'` (where one widget's paints
+  /// are 100% owned by `CircularProgressIndicator` and another's are
+  /// not owned at all), the chain belonged to whoever was seen first
+  /// and the gate either fully suppressed the chart's bug or fully
+  /// fired on the indicator's spinner.
+  ///
+  /// The fix: the coordinator now does per-paint attribution and the
+  /// snapshot carries a per-widget owned-count subset. Each paint is
+  /// judged on its live element; the totals come back here as
+  /// `paintCounts[typeName] = total` and
+  /// `animationOwnedPaintCounts[typeName] = owned`. We compute the
+  /// residual (`total - owned`), recompute the rate from the residual,
+  /// and compare *that* against the threshold. Mixed-ownership widgets
+  /// fire on their unowned subset and surface the owned subset as a
+  /// disclosure suffix in the detail line.
   void _evaluateDebugDataPerWidget(DebugSnapshot snapshot) {
+    final us = snapshot.elapsed.inMicroseconds;
+    if (us == 0) return;
+
     for (final entry in snapshot.paintCounts.entries) {
       final typeName = entry.key;
-      final count = entry.value;
-      final rate = snapshot.paintsPerSecondForType(typeName);
+      final totalCount = entry.value;
+      final ownedCount = _ownedPaintsFor(snapshot, typeName);
+      final residualCount = totalCount - ownedCount;
+      if (residualCount <= 0) continue;
 
-      if (rate < paintFrequencyThreshold) continue;
+      final residualRate =
+          residualCount / (us / Duration.microsecondsPerSecond);
+      if (residualRate < paintFrequencyThreshold) continue;
 
-      final elapsedSec =
-          snapshot.elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+      final elapsedSec = us / Duration.microsecondsPerSecond;
 
       final (hint, effort) = FixHintBuilder.repaintDebugType(
         typeName: typeName,
-        rate: rate.round(),
+        rate: residualRate.round(),
         ancestorChain: snapshot.ancestorChains[typeName],
       );
 
+      final ownedSuffix = ownedCount > 0
+          ? ' Excludes $ownedCount animation-owned paint'
+              '${ownedCount == 1 ? '' : 's'}.'
+          : '';
+
       _issues.add(PerformanceIssue(
         stableId: 'repaint_debug_$typeName',
-        severity: rate > paintFrequencyThreshold * 2
+        severity: residualRate > paintFrequencyThreshold * 2
             ? IssueSeverity.critical
             : IssueSeverity.warning,
         category: IssueCategory.paint,
         confidence: IssueConfidence.confirmed,
-        title: 'Excessive Repainting: $typeName (${rate.round()}/sec)',
-        detail: '$typeName: $count repaints in '
+        title: 'Excessive Repainting: $typeName '
+            '(${residualRate.round()}/sec)',
+        detail: '$typeName: $residualCount repaints in '
             '${elapsedSec.toStringAsFixed(1)}s '
-            '(${rate.round()}/sec).',
+            '(${residualRate.round()}/sec).$ownedSuffix',
         fixHint: hint,
         fixEffort: effort,
         widgetName: typeName,
         ancestorChain: snapshot.ancestorChains[typeName],
         observationSource: ObservationSource.debugCallback,
         detectedAt: DateTime.now(),
-        confidenceReason: 'Measured directly from debug callback paint counter',
+        confidenceReason: ownedCount > 0
+            ? 'Measured directly from debug callback paint counter '
+                '(animation-owned paints excluded)'
+            : 'Measured directly from debug callback paint counter',
       ));
     }
   }
 
   /// Debug callback path — aggregate paint count (no per-widget attribution).
+  ///
+  /// Gate C — subtract animation-owned paints from the aggregate before
+  /// computing the rate (spec_v0_15_3 KDD-3). When the residual rate falls
+  /// below threshold, the issue is suppressed: the aggregate "noise" was
+  /// fully accounted for by intentional animations.
+  ///
+  /// Reads [DebugSnapshot.totalAnimationOwnedPaintCount] which the
+  /// coordinator increments per-paint via [isAnimationOwnedPaint]
+  /// (chain + bounded descendant walk). Note that paints dropped by
+  /// the coordinator's 200-type cap or those without a `DebugCreator`
+  /// still increment `totalPaintCount` but are NOT counted as owned —
+  /// they fall into the residual, which is the conservative direction
+  /// (we'd rather over-fire on the aggregate than silently mask).
   void _evaluateDebugData(DebugSnapshot snapshot) {
-    final rate = snapshot.paintsPerSecond;
-    if (rate < paintFrequencyThreshold) return;
+    final ownedCount = snapshot.totalAnimationOwnedPaintCount;
+    final residualCount = snapshot.totalPaintCount - ownedCount;
+    if (residualCount <= 0) return;
 
-    final elapsedSec =
-        snapshot.elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    final us = snapshot.elapsed.inMicroseconds;
+    if (us == 0) return;
+    final residualRate = residualCount / (us / Duration.microsecondsPerSecond);
+    if (residualRate < paintFrequencyThreshold) return;
 
+    final elapsedSec = us / Duration.microsecondsPerSecond;
     final (hint, effort) = FixHintBuilder.excessiveRepaintDebug();
+
+    final ownedSuffix =
+        ownedCount > 0 ? ' Excludes $ownedCount animation-owned paints.' : '';
 
     _issues.add(PerformanceIssue(
       stableId: 'excessive_repaint_debug',
-      severity: rate > paintFrequencyThreshold * 2
+      severity: residualRate > paintFrequencyThreshold * 2
           ? IssueSeverity.critical
           : IssueSeverity.warning,
       category: IssueCategory.paint,
       confidence: IssueConfidence.likely,
-      title: 'Excessive Repainting: ~${rate.round()} paints/sec',
-      detail: '${snapshot.totalPaintCount} paint calls in '
+      title: 'Excessive Repainting: ~${residualRate.round()} paints/sec',
+      detail: '$residualCount paint calls in '
           '${elapsedSec.toStringAsFixed(1)}s '
-          '(~${rate.round()}/sec, aggregate debug callback count).',
+          '(~${residualRate.round()}/sec, aggregate debug callback count).'
+          '$ownedSuffix',
       fixHint: hint,
       fixEffort: effort,
       observationSource: ObservationSource.debugCallback,
       detectedAt: DateTime.now(),
-      confidenceReason: 'Aggregate debug callback count + structural scan',
+      confidenceReason: 'Aggregate debug callback count + structural scan '
+          '(animation-owned paints excluded)',
     ));
   }
 

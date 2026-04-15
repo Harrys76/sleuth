@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
+import '../utils/animation_owner_names.dart';
 import '../utils/widget_location.dart';
 import 'debug_snapshot.dart';
 
@@ -59,6 +60,21 @@ class DebugInstrumentationCoordinator {
   final Map<String, int> _paintCounts = {};
   final Map<String, String> _ancestorChains = {};
   int _paintCount = 0;
+
+  /// Per-widget-type **animation-owned** paint counts. A subset of
+  /// [_paintCounts]: every increment here was also counted there.
+  ///
+  /// Computed per-paint via [isAnimationOwnedPaint] so that polymorphic-key
+  /// collisions on [_paintCounts] (two `CustomPaint` widgets with different
+  /// owners — spec_v0_15_3 KDD-6 / C1) get correct attribution: each paint
+  /// event is judged on its live element, not on a cached chain that may
+  /// belong to a different widget instance.
+  final Map<String, int> _animationOwnedPaintCounts = {};
+
+  /// Aggregate count of paints attributed to an animation owner. Drives the
+  /// aggregate-residual gate in `RepaintDetector` (Gate C):
+  /// `residual = totalPaintCount - totalAnimationOwnedPaintCount`.
+  int _totalAnimationOwnedPaintCount = 0;
 
   /// Tracks which `Element`s we've already observed through the rebuild
   /// callback at least once. The first observation of an element is its
@@ -287,6 +303,9 @@ class DebugInstrumentationCoordinator {
       totalPaintCount: _paintCount,
       elapsed: elapsed,
       ancestorChains: Map<String, String>.of(_ancestorChains),
+      animationOwnedPaintCounts:
+          Map<String, int>.of(_animationOwnedPaintCounts),
+      totalAnimationOwnedPaintCount: _totalAnimationOwnedPaintCount,
       source: _installedMode == _InstalledMode.debug
           ? RebuildCountSource.debugCallback
           : RebuildCountSource.none,
@@ -294,7 +313,9 @@ class DebugInstrumentationCoordinator {
     _rebuildCounts.clear();
     _paintCounts.clear();
     _ancestorChains.clear();
+    _animationOwnedPaintCounts.clear();
     _paintCount = 0;
+    _totalAnimationOwnedPaintCount = 0;
     return result;
   }
 
@@ -345,8 +366,10 @@ class DebugInstrumentationCoordinator {
     _rebuildCounts.clear();
     _paintCounts.clear();
     _ancestorChains.clear();
+    _animationOwnedPaintCounts.clear();
     _typeNames.clear();
     _paintCount = 0;
+    _totalAnimationOwnedPaintCount = 0;
   }
 
   /// KDD-3 / KDD-10 / M8: five-layer filter applied to raw `TimedBlock.name`
@@ -597,24 +620,62 @@ class DebugInstrumentationCoordinator {
   void _handleProfilePaint(RenderObject renderObject) {
     _paintCount++;
     final creator = renderObject.debugCreator;
-    if (creator is DebugCreator) {
-      final typeName = _typeName(creator.element.widget.runtimeType);
-      if (_paintCounts.length >= _maxTrackedTypes &&
-          !_paintCounts.containsKey(typeName)) {
-        return; // Cap reached, ignore new types
-      }
-      _paintCounts[typeName] = (_paintCounts[typeName] ?? 0) + 1;
-      if (!_ancestorChains.containsKey(typeName)) {
-        try {
-          _ancestorChains[typeName] = buildAncestorChain(creator.element);
-        } catch (e, s) {
-          // Element may be deactivated — skip chain capture.
-          assert(() {
-            debugPrint('Sleuth: paint ancestor chain failed: $e\n$s');
-            return true;
-          }());
-        }
-      }
+    if (creator is! DebugCreator) return;
+
+    final element = creator.element;
+    final typeName = _typeName(element.widget.runtimeType);
+    if (_paintCounts.length >= _maxTrackedTypes &&
+        !_paintCounts.containsKey(typeName)) {
+      return; // Cap reached, ignore new types
+    }
+    _paintCounts[typeName] = (_paintCounts[typeName] ?? 0) + 1;
+
+    // Build a fresh chain for THIS paint event. We must not reuse a
+    // chain cached by typeName for the ownership decision: two distinct
+    // widgets sharing the same `runtimeType.toString()` (spec_v0_15_3
+    // KDD-6 / C1) — e.g. CircularProgressIndicator's internal
+    // `CustomPaint` and a chart's bare `CustomPaint` — can have totally
+    // different owners. Per-paint attribution is the only correct path.
+    //
+    // The chain cache (`_ancestorChains`) is still populated on first
+    // occurrence per typeName for the source-location enrichment use
+    // case, where the polymorphic collision is already accepted.
+    String? freshChain;
+    try {
+      freshChain = buildAncestorChain(element);
+    } catch (e, s) {
+      // Element may be deactivated mid-paint (rare but observed in
+      // teardown races). Continue with `freshChain == null`; the
+      // ownership check still has the descendant walk to fall back on.
+      assert(() {
+        debugPrint('Sleuth: paint ancestor chain failed: $e\n$s');
+        return true;
+      }());
+    }
+
+    if (freshChain != null && !_ancestorChains.containsKey(typeName)) {
+      _ancestorChains[typeName] = freshChain;
+    }
+
+    // Per-paint animation-owned attribution. Wrapped because the
+    // descendant walk inside `isAnimationOwnedPaint` calls
+    // `Element.visitChildren` which can throw on deactivated elements
+    // during teardown — we never want a paint-callback exception to
+    // crash the host app.
+    var owned = false;
+    try {
+      owned = isAnimationOwnedPaint(element, freshChain);
+    } catch (e, s) {
+      assert(() {
+        debugPrint('Sleuth: animation-owned check failed: $e\n$s');
+        return true;
+      }());
+    }
+
+    if (owned) {
+      _animationOwnedPaintCounts[typeName] =
+          (_animationOwnedPaintCounts[typeName] ?? 0) + 1;
+      _totalAnimationOwnedPaintCount++;
     }
   }
 }
