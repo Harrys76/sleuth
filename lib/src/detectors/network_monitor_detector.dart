@@ -21,11 +21,21 @@ import '../utils/fix_hint_builder.dart';
 /// page don't persist on the new page.
 class NetworkMonitorDetector extends BaseDetector {
   NetworkMonitorDetector({
-    this.slowThresholdMs = 2000,
+    this.slowThresholdMs = 1000,
+    this.criticalSlowThresholdMs = 3000,
     this.frequencyLimit = 30,
     this.largeResponseBytes = 1048576,
     DateTime Function()? clock,
-  })  : _clock = clock ?? DateTime.now,
+  })  : assert(
+          slowThresholdMs >= 0,
+          'slowThresholdMs must be >= 0.',
+        ),
+        assert(
+          criticalSlowThresholdMs > slowThresholdMs,
+          'criticalSlowThresholdMs must be strictly greater than '
+          'slowThresholdMs so the critical tier is reachable.',
+        ),
+        _clock = clock ?? DateTime.now,
         super(
           type: DetectorType.networkMonitor,
           lifecycle: DetectorLifecycle.runtime,
@@ -33,8 +43,21 @@ class NetworkMonitorDetector extends BaseDetector {
           description: 'Detects slow, excessive, or large HTTP requests',
         );
 
-  /// Slow request threshold in milliseconds. Default 2000ms.
+  /// Slow request warning threshold in milliseconds. Default 1000 ms.
+  ///
+  /// Aligned with 2025–2026 mobile-API guidance: ideal 100–300 ms,
+  /// acceptable 500–800 ms, "slow" at ~1 s. Anything past this gate
+  /// emits a `slow_request` warning. Set higher (e.g. 2000) if your
+  /// app intentionally does long uploads/downloads.
   final int slowThresholdMs;
+
+  /// Slow request critical threshold in milliseconds. Default 3000 ms.
+  ///
+  /// Requests slower than this are classified as critical rather than
+  /// warning. Must be strictly greater than [slowThresholdMs] (enforced
+  /// by an assert in the constructor) so the critical tier is always
+  /// reachable from the warning tier.
+  final int criticalSlowThresholdMs;
 
   /// Maximum requests per 5-second window. Default 30.
   final int frequencyLimit;
@@ -46,7 +69,6 @@ class NetworkMonitorDetector extends BaseDetector {
 
   static const int _bufferCapacity = 200;
   static const int _frequencyWindowMs = 5000;
-  static const int _criticalSlowThresholdMs = 5000;
   static const int _duplicateWindowMs = 500;
   static const int _duplicateThreshold = 3;
   static const int _criticalDuplicateThreshold = 10;
@@ -138,6 +160,15 @@ class NetworkMonitorDetector extends BaseDetector {
   ///
   /// Called by [SleuthController] on route transitions so that network
   /// issues from a previous page don't persist on the new page.
+  ///
+  /// **Test authors beware:** this stamps [_ignoreBeforeTimestamp] at the
+  /// current clock reading, and [processRecord] drops any subsequent record
+  /// whose `startedAt` is `<=` that timestamp (not strictly before). Under a
+  /// fake/frozen clock, the very next record — whose `startedAt` defaults to
+  /// `_clock()` — will share the cutoff timestamp and be silently dropped.
+  /// When writing boundary tests that need to reset state between probes,
+  /// prefer constructing a fresh [NetworkMonitorDetector] instance over
+  /// calling [clearRecords] followed by a default-timestamped record.
   void clearRecords() {
     // Mark the cutoff so in-flight responses from the previous page are
     // silently dropped when they arrive via processRecord().
@@ -178,7 +209,7 @@ class NetworkMonitorDetector extends BaseDetector {
 
     final worstMs =
         slowRecords.map((r) => r.durationMs).reduce((a, b) => a > b ? a : b);
-    final severity = worstMs >= _criticalSlowThresholdMs
+    final severity = worstMs >= criticalSlowThresholdMs
         ? IssueSeverity.critical
         : IssueSeverity.warning;
 

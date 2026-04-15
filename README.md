@@ -123,7 +123,8 @@ Sleuth.track(
     enableDeepDebugInstrumentation: false, // opt-in: heavy per-widget timeline events
     maxTrackedTypes: 200,              // cap on tracked widget types in debug callbacks
     enableNetworkMonitoring: true,     // HTTP interception via HttpOverrides
-    slowRequestThresholdMs: 2000,      // flag requests slower than this
+    slowRequestThresholdMs: 1000,         // warn on requests slower than this (default 1000 ms)
+    criticalSlowRequestThresholdMs: 3000, // escalate to critical at this duration (must be > slow; default 3000 ms)
     requestFrequencyLimit: 30,         // max requests per 5s window
     largeResponseThresholdBytes: 1048576, // flag responses larger than 1MB
     adaptiveScanEnabled: true,         // back off scan interval when app is healthy (default true)

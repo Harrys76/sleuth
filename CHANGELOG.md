@@ -1,3 +1,90 @@
+## 0.15.4
+
+Single-milestone patch from `doc/detector_threshold_audit.md` §7 M3:
+tune `NetworkMonitorDetector` slow-request thresholds to align with
+2025–2026 mobile-API guidance, and close a latent asymmetry where the
+warning threshold was constructor-configurable but the critical
+threshold was hardcoded.
+
+### Changed
+
+- **`NetworkMonitorDetector.slowThresholdMs` default** lowered from
+  2000 ms → 1000 ms. Aligned with industry guidance: ideal 100–300 ms,
+  acceptable 500–800 ms, "slow" at ~1 s. The previous 2 s value was
+  2–10× more lenient than any cited 2025–2026 mobile-API source and
+  under-fired on exactly the kind of latency regression the detector
+  exists to catch.
+- **`NetworkMonitorDetector` critical severity threshold** lowered
+  from 5000 ms → 3000 ms (new default). 3 s is the clear "very slow"
+  boundary in every cited source and keeps a meaningful gap above
+  the 1 s warning tier.
+- **`SleuthConfig.slowRequestThresholdMs` default** lowered from
+  2000 ms → 1000 ms (matches the detector default).
+
+### Added
+
+- **`NetworkMonitorDetector.criticalSlowThresholdMs`** — new
+  constructor parameter (default 3000 ms) that was previously a
+  hardcoded `static const int _criticalSlowThresholdMs = 5000`. Users
+  who considered v0.15.3's 5 s value a "this is VERY clearly a bug"
+  alarm can restore it by passing `criticalSlowThresholdMs: 5000`. A
+  debug-mode assert in the constructor enforces
+  `criticalSlowThresholdMs > slowThresholdMs` so the critical tier is
+  always reachable from the warning tier.
+- **`SleuthConfig.criticalSlowRequestThresholdMs`** — new top-level
+  config field (default 3000 ms) threaded through to the detector at
+  `sleuth_controller.dart:684`. Covered by the same strictly-greater
+  assert in the `SleuthConfig` constructor, the assert also fires from
+  `copyWith` so `SleuthConfig().copyWith(slowRequestThresholdMs: 5000)`
+  without also raising critical now throws instead of silently
+  producing an unreachable critical tier. The field is a non-breaking
+  additive API (optional parameter with default) — existing callers
+  continue to compile with no changes.
+
+### Tests
+
+- 5 net new tests. `test/detectors/network_monitor_detector_test.dart`
+  gains: `warning just below critical (2999 ms)`, `critical at exactly
+  3000 ms`, `custom criticalSlowThresholdMs controls severity
+  boundary`, and `assert fires when criticalSlowThresholdMs <=
+  slowThresholdMs` (covers both equal and less-than cases). Pre-existing
+  tests hardcoded to the old thresholds (`duration=1999` below,
+  `2000` at, `5000` critical) rewritten against the new defaults. The
+  `custom slow threshold works` test grows a `criticalSlowThresholdMs:
+  1500` override to match the new assert contract.
+- `test/controller/config_copy_with_test.dart` gains a
+  `criticalSlowRequestThresholdMs must be strictly greater than slow`
+  test that verifies (a) raising slow above the default critical without
+  also raising critical throws, (b) setting them equal throws, and
+  (c) raising both in order succeeds.
+- `test/controller/v2_integration_test.dart` network-config
+  pass-through test extended to assert the new field is threaded
+  through; `slowRequestThresholdMs: 5000` override now carries a
+  matching `criticalSlowRequestThresholdMs: 10000` so the assert stays
+  satisfied.
+- Test count: 2,166 → 2,170 (+2 detector severity tiers, +1 custom
+  critical, +1 assert-validation, +1 copyWith assert coverage; −1 test
+  rename does not change count).
+
+### Migration
+
+Existing code keeps compiling — the new constructor parameter and the
+new config field both carry defaults that match the behavior the
+audit recommends. The only user-visible change is that previously
+"acceptable" 1.0–1.9 s requests now surface as `slow_request`
+warnings, and previously "warning" 3.0–4.9 s requests now surface as
+critical. If you considered the v0.15.3 thresholds intentional, you
+can restore them with a single config line:
+
+```dart
+SleuthConfig(
+  slowRequestThresholdMs: 2000,
+  criticalSlowRequestThresholdMs: 5000,
+)
+```
+
+---
+
 ## 0.15.3
 
 Single-milestone patch from `doc/detector_threshold_audit.md` §7 M1: an

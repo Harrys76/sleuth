@@ -44,19 +44,25 @@ void main() {
     // ---------------------------------------------------------------
 
     test('no slow issue when duration below threshold', () {
-      detector.processRecord(makeRecord(durationMs: 1999));
+      detector.processRecord(makeRecord(durationMs: 999));
       expect(detector.issues, isEmpty);
     });
 
-    test('slow issue at exactly threshold', () {
-      detector.processRecord(makeRecord(durationMs: 2000));
+    test('slow issue at exactly warning threshold (1000 ms)', () {
+      detector.processRecord(makeRecord(durationMs: 1000));
       expect(detector.issues.where((i) => i.stableId == 'slow_request'),
           hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.warning);
     });
 
-    test('critical at exactly 5s', () {
-      detector.processRecord(makeRecord(durationMs: 5000));
+    test('warning just below critical (2999 ms)', () {
+      detector.processRecord(makeRecord(durationMs: 2999));
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+    });
+
+    test('critical at exactly 3000 ms', () {
+      detector.processRecord(makeRecord(durationMs: 3000));
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
     });
@@ -318,11 +324,64 @@ void main() {
     test('custom slow threshold works', () {
       detector = NetworkMonitorDetector(
         slowThresholdMs: 500,
+        criticalSlowThresholdMs: 1500,
         clock: () => fakeNow,
       );
       detector.processRecord(makeRecord(durationMs: 600));
       expect(detector.issues.where((i) => i.stableId == 'slow_request'),
           hasLength(1));
+    });
+
+    test('custom criticalSlowThresholdMs controls severity boundary', () {
+      // First scenario: 3000 ms below custom critical (5000) → warning.
+      detector = NetworkMonitorDetector(
+        slowThresholdMs: 500,
+        criticalSlowThresholdMs: 5000,
+        clock: () => fakeNow,
+      );
+      detector.processRecord(makeRecord(durationMs: 3000));
+      expect(
+        detector.issues
+            .firstWhere((i) => i.stableId == 'slow_request')
+            .severity,
+        IssueSeverity.warning,
+        reason: '3000ms is below the custom criticalSlowThresholdMs of 5000ms',
+      );
+
+      // Second scenario: fresh detector, 5000 ms at custom critical → critical.
+      // (Use a separate instance rather than clearRecords() — the latter
+      // stamps _ignoreBeforeTimestamp at the current fakeNow, which would
+      // drop the next record since its default startedAt equals fakeNow.)
+      final detector2 = NetworkMonitorDetector(
+        slowThresholdMs: 500,
+        criticalSlowThresholdMs: 5000,
+        clock: () => fakeNow,
+      );
+      detector2.processRecord(makeRecord(durationMs: 5000));
+      expect(
+        detector2.issues
+            .firstWhere((i) => i.stableId == 'slow_request')
+            .severity,
+        IssueSeverity.critical,
+      );
+      detector2.dispose();
+    });
+
+    test('assert fires when criticalSlowThresholdMs <= slowThresholdMs', () {
+      expect(
+        () => NetworkMonitorDetector(
+          slowThresholdMs: 2000,
+          criticalSlowThresholdMs: 2000, // equal — must fail
+        ),
+        throwsA(isA<AssertionError>()),
+      );
+      expect(
+        () => NetworkMonitorDetector(
+          slowThresholdMs: 3000,
+          criticalSlowThresholdMs: 1000, // less than — must fail
+        ),
+        throwsA(isA<AssertionError>()),
+      );
     });
 
     test('custom frequency limit works', () {

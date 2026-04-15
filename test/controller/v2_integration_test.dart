@@ -76,6 +76,7 @@ void main() {
       controller = SleuthController(
         config: const SleuthConfig(
           slowRequestThresholdMs: 5000,
+          criticalSlowRequestThresholdMs: 10000,
           requestFrequencyLimit: 50,
           largeResponseThresholdBytes: 2097152,
         ),
@@ -83,6 +84,7 @@ void main() {
       controller.initializeDetectorsForTest();
 
       expect(controller.config.slowRequestThresholdMs, 5000);
+      expect(controller.config.criticalSlowRequestThresholdMs, 10000);
       expect(controller.config.requestFrequencyLimit, 50);
       expect(controller.config.largeResponseThresholdBytes, 2097152);
     });

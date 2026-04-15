@@ -683,6 +683,7 @@ class SleuthController {
 
     _networkMonitor = NetworkMonitorDetector(
       slowThresholdMs: config.slowRequestThresholdMs,
+      criticalSlowThresholdMs: config.criticalSlowRequestThresholdMs,
       frequencyLimit: config.requestFrequencyLimit,
       largeResponseBytes: config.largeResponseThresholdBytes,
     )..isEnabled = enabled.contains(DetectorType.networkMonitor);
@@ -3338,7 +3339,8 @@ class SleuthConfig {
     this.maxTrackedTypes = 200,
     this.advanced,
     this.enableNetworkMonitoring = true,
-    this.slowRequestThresholdMs = 2000,
+    this.slowRequestThresholdMs = 1000,
+    this.criticalSlowRequestThresholdMs = 3000,
     this.requestFrequencyLimit = 30,
     this.largeResponseThresholdBytes = 1048576,
     this.networkExcludePatterns,
@@ -3393,6 +3395,11 @@ class SleuthConfig {
         assert(
           slowRequestThresholdMs >= 0,
           'slowRequestThresholdMs must be >= 0.',
+        ),
+        assert(
+          criticalSlowRequestThresholdMs > slowRequestThresholdMs,
+          'criticalSlowRequestThresholdMs must be strictly greater than '
+          'slowRequestThresholdMs so the critical tier is reachable.',
         ),
         assert(
           requestFrequencyLimit >= 1,
@@ -3707,15 +3714,33 @@ class SleuthConfig {
   /// (common in apps that use a custom HTTP proxy or mock layer).
   final bool enableNetworkMonitoring;
 
-  /// Slow request detection threshold in milliseconds.
+  /// Slow request warning threshold in milliseconds.
   ///
-  /// **Default:** 2000 ms. Anything slower than 2 s feels broken to a
-  /// user and latches network jank detection.
+  /// **Default:** 1000 ms. Aligned with 2025–2026 mobile-API guidance:
+  /// ideal 100–300 ms, acceptable 500–800 ms, "slow" at ~1 s. Anything
+  /// past this gate emits a `slow_request` warning.
   ///
-  /// **Raise this** (e.g. 5000) if your app intentionally does long
+  /// **Raise this** (e.g. 2000) if your app intentionally does long
   /// uploads/downloads. **Lower this** (e.g. 500) during a latency
   /// audit.
+  ///
+  /// Must be less than [criticalSlowRequestThresholdMs] (enforced by a
+  /// debug-mode assert in the [SleuthConfig] constructor).
   final int slowRequestThresholdMs;
+
+  /// Slow request critical threshold in milliseconds.
+  ///
+  /// **Default:** 3000 ms. Requests slower than this are classified
+  /// as critical rather than warning severity. Must be strictly
+  /// greater than [slowRequestThresholdMs] so the critical tier is
+  /// always reachable from the warning tier.
+  ///
+  /// **Raise this** (e.g. 5000) to restore v0.15.3-era severity
+  /// thresholds if you consider Sleuth a "this is VERY clearly a bug"
+  /// alarm rather than a "this could be faster" hint. **Lower this**
+  /// during a latency audit when every 3+ s call is genuinely
+  /// unacceptable.
+  final int criticalSlowRequestThresholdMs;
 
   /// Maximum HTTP requests allowed per 5-second window.
   ///
@@ -3932,6 +3957,7 @@ class SleuthConfig {
     Object? advanced = _sentinel,
     bool? enableNetworkMonitoring,
     int? slowRequestThresholdMs,
+    int? criticalSlowRequestThresholdMs,
     int? requestFrequencyLimit,
     int? largeResponseThresholdBytes,
     Object? networkExcludePatterns = _sentinel,
@@ -3973,6 +3999,8 @@ class SleuthConfig {
           enableNetworkMonitoring ?? this.enableNetworkMonitoring,
       slowRequestThresholdMs:
           slowRequestThresholdMs ?? this.slowRequestThresholdMs,
+      criticalSlowRequestThresholdMs:
+          criticalSlowRequestThresholdMs ?? this.criticalSlowRequestThresholdMs,
       requestFrequencyLimit:
           requestFrequencyLimit ?? this.requestFrequencyLimit,
       largeResponseThresholdBytes:
