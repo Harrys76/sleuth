@@ -87,6 +87,15 @@ class _IssueCardState extends State<IssueCard> {
     _expanded = widget.initiallyExpanded;
   }
 
+  /// Toggle expansion and notify the host.
+  ///
+  /// **Invariant:** every mutation of [_expanded] must route through this
+  /// method. The freeze-above-on-expand contract in [FloatingIssuesCard]
+  /// relies on [onExpandedChanged] firing on every state flip — a future
+  /// "collapse all" or per-card auto-collapse that sets `_expanded =
+  /// false` directly without calling the callback would leak entries in
+  /// the host's `_expandedIndices` map. If you add such a feature, route
+  /// it through `_toggle` or a sibling that fires the callback.
   void _toggle() {
     setState(() {
       _expanded = !_expanded;
@@ -186,6 +195,38 @@ class _IssueCardState extends State<IssueCard> {
                         ),
                       ),
                     ],
+                    // Freeze-above pin indicator (v0.15.5). The
+                    // icon only renders when the card is expanded, but
+                    // the Semantics node is unconditional so TalkBack /
+                    // VoiceOver traversal order and focus don't shift
+                    // when the user toggles expansion. When collapsed,
+                    // `excludeSemantics: true` silences the empty-label
+                    // branch so the node has no audible text.
+                    //
+                    // Positioned at the "last chip" slot (after the ↳N
+                    // downstream badge, before Checkbox) per the v0.15.5
+                    // user-facing decision — the pin is a state hint,
+                    // not a header-priority signal, so it sits at the
+                    // end of the chip run. Pre-existing RenderFlex
+                    // overflow at 300dp with the combinatorial header
+                    // (title + confidence + JANK + ↳N + Checkbox) is a
+                    // known non-regression; the pin sits in that
+                    // Checkbox-tail region at max density and may clip.
+                    Semantics(
+                      label: _expanded ? 'Pinned while expanded' : '',
+                      excludeSemantics: !_expanded,
+                      child: _expanded
+                          ? Padding(
+                              padding: EdgeInsets.only(left: theme.spacingXs),
+                              child: Icon(
+                                Icons.push_pin,
+                                size: 14,
+                                color:
+                                    theme.textSecondary.withValues(alpha: 0.55),
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
                     if (widget.locatable) ...[
                       SizedBox(width: theme.spacingXs),
                       Checkbox(

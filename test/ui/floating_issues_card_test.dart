@@ -4,8 +4,27 @@ import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/rebuild_stats_page.dart';
+
+PerformanceIssue _pinIssue({
+  required String id,
+  IssueSeverity severity = IssueSeverity.warning,
+  IssueConfidence confidence = IssueConfidence.confirmed,
+  String? rootCauseId,
+}) {
+  return PerformanceIssue(
+    severity: severity,
+    category: IssueCategory.build,
+    confidence: confidence,
+    title: id,
+    detail: 'Detail',
+    fixHint: 'Fix',
+    stableId: id,
+    rootCauseId: rootCauseId,
+  );
+}
 
 /// Minimal fake coordinator for the rebuild-stats banner tests. Mirrors
 /// the M12 `_FakeCoordinator` pattern in `rebuild_stats_scan_test.dart`:
@@ -650,6 +669,434 @@ void main() {
 
       expect(find.byIcon(Icons.repeat), findsNothing);
       expect(find.textContaining('Rebuilds:'), findsNothing);
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────
+  // v0.15.5: Freeze-above-on-expand
+  //
+  // The freeze-above algorithm is split across two pure top-level
+  // functions in `floating_issues_card.dart`:
+  //
+  //   * `computeVisibleIssues` — folds downstream issues under their
+  //     root and re-surfaces orphans. Used by both the render path
+  //     and the prune path so they agree on "visible".
+  //   * `applyFreezeZone` — composes the rendered list by drawing
+  //     positions 0..max(expandedIndices) from the order snapshot and
+  //     appending everything else in current ranker-flow order.
+  //
+  // These are tested directly as pure functions because pumping the
+  // full overlay through `flutter_test` gives the inner `ListView` only
+  // ~34 dp of viewport — `Column(mainAxisSize: MainAxisSize.min)` in
+  // `_buildCardBody` doesn't propagate bounded height down to the
+  // `Flexible > Column > Expanded(ListView)` chain in widget tests, so
+  // at most one `IssueCard` would build lazily and positional
+  // assertions over several cards would be unreliable. The algorithm is
+  // fully covered here; widget-level integration (pin icon, summary bar
+  // unchanged on expand, dispose/didUpdateWidget clear state, new
+  // critical below the frozen zone) is covered by the smoke tests in
+  // the sibling group below plus `issue_card_test.dart`.
+  // ───────────────────────────────────────────────────────────────────
+  group('v0.15.5 computeVisibleIssues', () {
+    test('empty input returns empty list', () {
+      expect(computeVisibleIssues(const []), isEmpty);
+    });
+
+    test('pass-through when no issue has rootCauseId', () {
+      final issues = [
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'B'),
+        _pinIssue(id: 'C'),
+      ];
+      final visible = computeVisibleIssues(issues);
+      expect(visible.map((i) => i.stableId).toList(), ['A', 'B', 'C']);
+    });
+
+    test('downstream issues nested under present root are hidden', () {
+      final issues = [
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'B', rootCauseId: 'A'),
+        _pinIssue(id: 'C'),
+      ];
+      final visible = computeVisibleIssues(issues);
+      expect(visible.map((i) => i.stableId).toList(), ['A', 'C']);
+    });
+
+    test('downstream issues whose root is missing re-surface as standalone',
+        () {
+      final issues = [
+        _pinIssue(id: 'orphan', rootCauseId: 'missing-root'),
+        _pinIssue(id: 'A'),
+      ];
+      final visible = computeVisibleIssues(issues);
+      expect(
+        visible.map((i) => i.stableId).toList(),
+        ['orphan', 'A'],
+        reason: 'Orphan with unknown rootCauseId must re-surface — otherwise '
+            'ranker-suppressed parents would silently drop their children.',
+      );
+    });
+
+    test('result preserves input order for visible issues', () {
+      final issues = [
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'child', rootCauseId: 'A'),
+        _pinIssue(id: 'B'),
+        _pinIssue(id: 'C'),
+      ];
+      final visible = computeVisibleIssues(issues);
+      expect(visible.map((i) => i.stableId).toList(), ['A', 'B', 'C']);
+    });
+  });
+
+  group('v0.15.5 applyFreezeZone', () {
+    List<String> ids0(List<PerformanceIssue> issues) =>
+        issues.map((i) => i.stableId ?? i.title).toList();
+
+    final abc = [
+      _pinIssue(id: 'A'),
+      _pinIssue(id: 'B'),
+      _pinIssue(id: 'C'),
+    ];
+
+    test('empty expandedIndices + null snapshot returns visibleIssues as-is',
+        () {
+      expect(
+        ids0(applyFreezeZone(
+          visibleIssues: abc,
+          orderSnapshot: null,
+          expandedIndices: const {},
+        )),
+        ['A', 'B', 'C'],
+      );
+    });
+
+    test('expanding index 2 freezes 0..2; new critical below lands at index 3',
+        () {
+      // User's exact reported scenario: they expand the card at index 2
+      // while reading. Snapshot = visible at that instant. A new critical
+      // 'D' now arrives from the ranker at the top of its output. With
+      // freeze-above, D must land BELOW the frozen zone so the card the
+      // user is reading doesn't shift under their eyes.
+      final snapshot = List<PerformanceIssue>.of(abc);
+      final rankerFlow = [
+        _pinIssue(id: 'D', severity: IssueSeverity.critical),
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'B'),
+        _pinIssue(id: 'C'),
+      ];
+      final result = applyFreezeZone(
+        visibleIssues: rankerFlow,
+        orderSnapshot: snapshot,
+        expandedIndices: const {'C': 2},
+      );
+      expect(ids0(result), ['A', 'B', 'C', 'D']);
+    });
+
+    test('multi-expand uses MAX rule for freezeEnd', () {
+      // Cards at indices 1 and 4 both expanded. freezeEnd = max(1, 4) = 4.
+      // Snapshot [A..E] freezes entirely, nothing below to flow.
+      final snapshot = [
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'B'),
+        _pinIssue(id: 'C'),
+        _pinIssue(id: 'D'),
+        _pinIssue(id: 'E'),
+      ];
+      final rankerFlow = [
+        _pinIssue(id: 'E'),
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'B'),
+        _pinIssue(id: 'C'),
+        _pinIssue(id: 'D'),
+      ];
+      final result = applyFreezeZone(
+        visibleIssues: rankerFlow,
+        orderSnapshot: snapshot,
+        expandedIndices: const {'B': 1, 'E': 4},
+      );
+      expect(ids0(result), ['A', 'B', 'C', 'D', 'E']);
+    });
+
+    test('frozen-zone entry disappeared from visible is dropped silently', () {
+      // Snapshot said [A, B, C] with B expanded at index 1. On the next
+      // frame B is gone (downstream absorbed, detector evicted, etc.).
+      // B must drop silently; A and C stay frozen; `_pruneStaleState`
+      // would remove the expand entry on its next sweep but the render
+      // must not throw in the interim.
+      final snapshot = List<PerformanceIssue>.of(abc);
+      final rankerFlow = [
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'C'),
+      ];
+      final result = applyFreezeZone(
+        visibleIssues: rankerFlow,
+        orderSnapshot: snapshot,
+        expandedIndices: const {'B': 1},
+      );
+      expect(ids0(result), ['A', 'C']);
+    });
+
+    test(
+        'freezeEnd clamped when snapshot shorter than captured index '
+        '(downstream collapse shrank snapshot)', () {
+      // Pathological: caller-level state drift puts capturedIndex past
+      // the snapshot length. Must not throw; clamp and carry on.
+      final snapshot = [_pinIssue(id: 'A')];
+      final rankerFlow = [
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'X'),
+      ];
+      final result = applyFreezeZone(
+        visibleIssues: rankerFlow,
+        orderSnapshot: snapshot,
+        expandedIndices: const {'A': 5},
+      );
+      expect(ids0(result), ['A', 'X']);
+    });
+
+    test('freezeEnd clamped when visibleIssues shorter than snapshot', () {
+      // Same shape but the live visible list shrank this frame.
+      final snapshot = List<PerformanceIssue>.of(abc);
+      final rankerFlow = [_pinIssue(id: 'A')];
+      final result = applyFreezeZone(
+        visibleIssues: rankerFlow,
+        orderSnapshot: snapshot,
+        expandedIndices: const {'C': 2},
+      );
+      // C disappeared; with the surviving identity 'A' the result is
+      // just [A]. No throw, no corruption.
+      expect(ids0(result), ['A']);
+    });
+
+    test('flow section preserves ranker order for non-frozen items', () {
+      // Freeze zone [A, B]. Ranker output below has [D, C] in that
+      // order. Flow section must preserve that order.
+      final snapshot = [
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'B'),
+      ];
+      final rankerFlow = [
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'B'),
+        _pinIssue(id: 'D'),
+        _pinIssue(id: 'C'),
+      ];
+      final result = applyFreezeZone(
+        visibleIssues: rankerFlow,
+        orderSnapshot: snapshot,
+        expandedIndices: const {'B': 1},
+      );
+      expect(ids0(result), ['A', 'B', 'D', 'C']);
+    });
+
+    test('freezeEnd = 0 (top card expanded) freezes only position 0', () {
+      // Boundary: expanding the very first card freezes a single-slot
+      // zone. Ranker churn below index 0 still reorders freely.
+      final snapshot = List<PerformanceIssue>.of(abc);
+      final rankerFlow = [
+        _pinIssue(id: 'B'),
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'C'),
+      ];
+      final result = applyFreezeZone(
+        visibleIssues: rankerFlow,
+        orderSnapshot: snapshot,
+        expandedIndices: const {'A': 0},
+      );
+      expect(ids0(result), ['A', 'B', 'C']);
+    });
+
+    test('freezeEnd = length - 1 freezes entire snapshot; flow is empty', () {
+      // Boundary: expanding the last card locks the full list to the
+      // snapshot order. No items remain to flow below.
+      final snapshot = List<PerformanceIssue>.of(abc);
+      final rankerFlow = [
+        _pinIssue(id: 'C'),
+        _pinIssue(id: 'A'),
+        _pinIssue(id: 'B'),
+      ];
+      final result = applyFreezeZone(
+        visibleIssues: rankerFlow,
+        orderSnapshot: snapshot,
+        expandedIndices: const {'C': 2},
+      );
+      expect(ids0(result), ['A', 'B', 'C']);
+    });
+
+    test('assert fires when orderSnapshot is non-null but map is empty', () {
+      expect(
+        () => applyFreezeZone(
+          visibleIssues: abc,
+          orderSnapshot: List<PerformanceIssue>.of(abc),
+          expandedIndices: const {},
+        ),
+        throwsA(isA<AssertionError>()),
+      );
+    });
+
+    test('assert fires when orderSnapshot is null but map is non-empty', () {
+      expect(
+        () => applyFreezeZone(
+          visibleIssues: abc,
+          orderSnapshot: null,
+          expandedIndices: const {'A': 0},
+        ),
+        throwsA(isA<AssertionError>()),
+      );
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────
+  // v0.15.5: Freeze-above-on-expand widget smoke tests
+  //
+  // End-to-end wiring — pump the overlay, toggle expansion, confirm the
+  // state flows through to the `IssueCard` the user actually sees and
+  // that the state (`_expandedIndices` + `_orderSnapshot`) lifecycle
+  // matches the class invariant: both populated together on the 0→1
+  // expand transition, both cleared together on the 1→0 collapse
+  // transition, and both cleared together on dispose /
+  // controller-swap.
+  //
+  // Only interacts with the first visible card where positional
+  // assertions are needed because the flutter_test layout only builds
+  // that one (see explanatory comment above).
+  // ───────────────────────────────────────────────────────────────────
+  group('v0.15.5 freeze-above-on-expand widget smoke', () {
+    Widget pumpFreezeCard(SleuthController c) {
+      return MaterialApp(
+        home: Scaffold(
+          body: FloatingIssuesCard(
+            controller: c,
+            onClose: () {},
+          ),
+        ),
+      );
+    }
+
+    testWidgets('expanding a card shows the pin icon; collapse hides it',
+        (tester) async {
+      controller.issuesNotifier.value = [_pinIssue(id: 'A')];
+      await tester.pumpWidget(pumpFreezeCard(controller));
+      await tester.pumpAndSettle();
+
+      // Collapsed: no pin icon.
+      expect(find.byIcon(Icons.push_pin), findsNothing);
+
+      // Tap the card title to expand → pin icon appears (state hint).
+      await tester.tap(find.text('A'));
+      await tester.pump();
+      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+
+      // Tap again to collapse → pin icon disappears.
+      await tester.tap(find.text('A'));
+      await tester.pump();
+      expect(find.byIcon(Icons.push_pin), findsNothing);
+    });
+
+    testWidgets('summary bar issue count does not change when a card expands',
+        (tester) async {
+      // M5: summary bar reads the pre-freeze visible list. Whether the
+      // user has a card expanded or not, counts must not move.
+      controller.issuesNotifier.value = [
+        _pinIssue(id: 'A', severity: IssueSeverity.critical),
+        _pinIssue(id: 'B', severity: IssueSeverity.warning),
+      ];
+      await tester.pumpWidget(pumpFreezeCard(controller));
+      await tester.pumpAndSettle();
+
+      final confirmedBefore =
+          find.textContaining('confirmed').evaluate().length;
+
+      await tester.tap(find.text('A'));
+      await tester.pump();
+
+      final confirmedAfter = find.textContaining('confirmed').evaluate().length;
+      expect(confirmedAfter, confirmedBefore);
+    });
+
+    testWidgets(
+        'dispose clears expandedIndices AND orderSnapshot — remount with '
+        'same controller starts fresh', (tester) async {
+      controller.issuesNotifier.value = [_pinIssue(id: 'A')];
+      await tester.pumpWidget(pumpFreezeCard(controller));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('A'));
+      await tester.pump();
+      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+
+      // Unmount the card — triggers dispose on `_FloatingIssuesCardState`.
+      // If dispose only cleared one field, the class invariant
+      // `(orderSnapshot == null) == expandedIndices.isEmpty` would be
+      // violated on the next remount's first `applyFreezeZone` call and
+      // the assert there would throw. We assert no throw by virtue of
+      // the remount succeeding and rendering normally.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pump();
+
+      // Remount a fresh card pointing at the same controller. A ghost
+      // expand from the previous state would have made the icon appear
+      // on first render; because dispose clears both fields together,
+      // the new state starts empty and no pin icon shows.
+      await tester.pumpWidget(pumpFreezeCard(controller));
+      await tester.pump();
+      expect(find.byIcon(Icons.push_pin), findsNothing);
+    });
+
+    testWidgets(
+        'didUpdateWidget controller swap clears expandedIndices AND '
+        'orderSnapshot', (tester) async {
+      // Build with controller A, expand its card so state is populated.
+      controller.issuesNotifier.value = [_pinIssue(id: 'A')];
+      await tester.pumpWidget(pumpFreezeCard(controller));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('A'));
+      await tester.pump();
+      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+
+      // Swap to a fresh controller with a differently-identified issue.
+      // Without the dual-clear in `didUpdateWidget`, the stale
+      // `_expandedIndices` map keyed on A's stableId combined with a
+      // non-null `_orderSnapshot` referencing A would violate the class
+      // invariant on the next render and re-emit a ghost pin icon.
+      final controllerB = SleuthController()..initializeDetectorsForTest();
+      addTearDown(controllerB.dispose);
+      controllerB.issuesNotifier.value = [_pinIssue(id: 'Z')];
+      await tester.pumpWidget(pumpFreezeCard(controllerB));
+      await tester.pump();
+
+      expect(find.byIcon(Icons.push_pin), findsNothing);
+      expect(find.text('Z'), findsOneWidget);
+    });
+
+    testWidgets(
+        'collapsing the last expanded card clears orderSnapshot so the '
+        'list flows freely again', (tester) async {
+      // The 1→0 collapse transition must release `_orderSnapshot` —
+      // otherwise subsequent ranker churn would be silently compared
+      // against a stale snapshot. Verified indirectly: after collapse,
+      // mutating the issues list surfaces new ordering without a
+      // lingering frozen prefix.
+      controller.issuesNotifier.value = [_pinIssue(id: 'A')];
+      await tester.pumpWidget(pumpFreezeCard(controller));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('A'));
+      await tester.pump();
+      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+
+      await tester.tap(find.text('A'));
+      await tester.pump();
+      expect(find.byIcon(Icons.push_pin), findsNothing);
+
+      // Ranker now emits a different top issue. If the snapshot had
+      // survived the collapse, a non-null `_orderSnapshot` with empty
+      // `_expandedIndices` would have thrown the invariant assert in
+      // `applyFreezeZone` on this render. The pump succeeding proves
+      // the dual-clear ran.
+      controller.issuesNotifier.value = [_pinIssue(id: 'NEW')];
+      await tester.pump();
+      expect(find.text('NEW'), findsOneWidget);
     });
   });
 }

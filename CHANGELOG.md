@@ -1,3 +1,147 @@
+## 0.15.5
+
+Single-milestone UX patch that replaces the live-reordering "card jumps
+while I read it" bug in the overlay issues list with a
+**freeze-above-on-expand** contract. While any card is expanded, the
+order of every card at and above the deepest expanded index is frozen
+against what the user last saw; only the flow section beneath that
+boundary keeps reordering per the ranker. Collapsing the last expanded
+card releases the freeze. The user's explicit ask was "while I expand
+an issue card, reordering issue incoming / exist will be happen below
+index issue that im expanded" — v0.15.5 delivers that contract
+literally.
+
+This supersedes the unshipped v0.15.5 "single-card pin-on-expand"
+iteration. Pin-on-expand held the expanded card at its index but let
+every other card flow freely, including above it — so a newly critical
+issue could still re-rank over the card the user was reading. Freeze-
+above keeps "above the expanded card" stable by construction.
+
+### Changed
+
+- **`FloatingIssuesCard` issues-list state model** now uses two coupled
+  fields instead of a single map:
+  - `Map<String, int> _expandedIndices` — `issueKey → captured-index-in-snapshot`.
+  - `List<PerformanceIssue>? _orderSnapshot` — the visible-issues list at
+    the instant the user expanded the first card.
+  Class invariant:
+  `(orderSnapshot == null) == expandedIndices.isEmpty`, asserted inside
+  `applyFreezeZone`. Both fields are set together on the 0→1 expand
+  transition, cleared together on the 1→0 collapse transition, cleared
+  together on `dispose`, cleared together when `didUpdateWidget` sees a
+  controller swap, and cleared together by `_pruneStaleState` when
+  eviction empties `_expandedIndices`. Every mutation site updates both
+  in the same `setState` so a frame never renders against half-set
+  state.
+- **Snapshot captured from what the user saw, not the live notifier
+  (C1).** The `onExpandedChanged` closure binds a local
+  `capturedVisibleIssues` copy of the `visibleIssues` list the
+  `itemBuilder` was built from on this pump. If the closure read
+  `widget.controller.issuesNotifier.value` at tap time, a ranker tick
+  between build and tap would seed the snapshot with a list the user
+  never saw, and the frozen zone would reference positions the user
+  has no memory of.
+- **`_pruneStaleState` keys freeze eviction against
+  `computeVisibleIssues(issues)`** (same convention as the prior
+  pin-on-expand iteration — downstream children churn under an
+  expanded parent's downstream list without the root card disappearing,
+  so raw-key pruning leaks entries). Selection/chat stale-state checks
+  stay on raw-key because those surfaces reach ALL issues, not just
+  the visible set.
+- **Pin icon repositioned** — `Icons.push_pin` moves from position 4
+  (between the confidence badge and JANK chip) to the last chip slot
+  (after the `↳N` downstream badge, before the Checkbox). The pin is a
+  "this row is held" state marker, not severity-adjacent chrome; the
+  tail slot reads more naturally. Size/alpha/Semantics contract
+  unchanged: 14dp, `theme.textSecondary` at 55% alpha, unconditional
+  `Semantics` wrap with empty label + `excludeSemantics: true` when
+  collapsed so the a11y node identity stays stable across toggles.
+
+### Added
+
+- **`applyFreezeZone` (top-level, `@visibleForTesting`)** — the render-
+  time transform that composes the displayed list. Takes the live
+  `visibleIssues`, the captured `orderSnapshot`, and `expandedIndices`;
+  returns a list whose first `freezeEnd + 1` entries follow
+  `orderSnapshot` (drawn using the live `PerformanceIssue` instance so
+  severity/confidence updates still render) and whose remainder is the
+  ranker-flow order with frozen keys filtered out.
+  - **MAX rule:** `freezeEnd = max(expandedIndices.values)`. Multi-
+    expand freezes the full range `[0..max]` inclusive — cards between
+    two expanded cards are also held. This is the simplest rule that
+    satisfies the "nothing above anything I'm reading moves" contract.
+  - **Silent-drop on vanished frozen entry:** if a frozen issue is
+    absent from `visibleIssues` this frame, it's dropped from the
+    rendered frozen zone; `_pruneStaleState` evicts the expand entry on
+    its next sweep. No throw.
+  - **Clamp on out-of-range:** `freezeEnd` is clamped to
+    `min(snapshotLength − 1, visibleLength − 1)` so downstream
+    collapses (shortening either list) render rather than throw.
+  - **Entry assert** enforces the class invariant
+    `(orderSnapshot == null) == expandedIndices.isEmpty` so any
+    mutation path that forgets to update both fields fails loudly in
+    debug builds.
+
+### Fixed
+
+- **Reading-an-expanded-card reorder bug (primary symptom).** When the
+  user expanded a card to read it, the ranker would periodically rescore
+  and reorder the list (e.g. `_applyDurationEscalation` flipping
+  warning→critical at 30 cycles, or a new critical arriving and
+  reranking to the top), visibly shuffling everything above the
+  expanded card out from under the cursor. v0.15.5 freezes the entire
+  zone from index 0 through the deepest expanded card, so reorder
+  activity is strictly beneath the user's reading line.
+- **New-critical arrival can no longer appear above a card being read.**
+  If a CRITICAL-severity issue arrives from the ranker while the user
+  has any card expanded, it now enters the flow section (below the
+  frozen zone) rather than re-ranking to index 0. This is an accepted
+  tradeoff the user explicitly asked for; without it the freeze
+  contract is meaningless.
+- **Snapshot coupling bugs** — dispose, `didUpdateWidget` controller
+  swap, 1→0 collapse, and `_pruneStaleState`-emptied-map all now clear
+  `_orderSnapshot` alongside `_expandedIndices`. A stale snapshot with
+  an empty map would violate the class invariant and throw inside
+  `applyFreezeZone` on the next render.
+
+### Notes
+
+- Multiple cards can be expanded simultaneously. The frozen zone is
+  always `[0..max(expandedIndices.values)]`. Cards strictly between
+  two expanded cards are also held — by design, because the contract
+  is about what the user sees, not which specific cards are open.
+- The push-pin icon is intentionally subtle (55% alpha) — it's a state
+  hint, not a call to action. Freezing is implicit on expand.
+- `_selectedIssueId`, `_chatIssueStableId`, and `_chatHistories`
+  stale-state eviction is intentionally NOT narrowed to the visible
+  set. Those surfaces reach ALL issues (including downstream ones
+  exposed through an expanded parent's downstream list), and narrowing
+  them here would silently hide entries the user can still interact
+  with.
+- Known pre-existing tradeoff (out of scope, not a v0.15.5 regression):
+  at 300dp overlay width with `title + confidence + JANK + ↳N + pin +
+  Checkbox` all present, the header `Row` overflows horizontally by
+  ~40dp in the Checkbox tail. The pin stays within card bounds; the
+  existing F5 regression test asserts this. Tightening Checkbox
+  density is tracked as a follow-up.
+
+Plan: `doc/spec_v0_15_5_freeze_above_on_expand.md`. Test count: 2,170
+→ 2,194 (+24 tests: 11 pure-function `applyFreezeZone` tests — 9 core
+plus 2 post-impl `freezeEnd=0` / `freezeEnd=length-1` boundary cases —
++ 5 widget smoke tests in `floating_issues_card_test.dart`; existing
+pin-indicator tests in `issue_card_test.dart` preserved under renamed
+group `v0.15.5 freeze-above-on-expand pin indicator`). Post-impl
+adversarial review produced 4 findings, all applied: SF1 renamed 4
+stale `_pinnedIndices` / "pin-on-expand" references in source comments
+to the new `_expandedIndices` / freeze-above vocabulary; SF2 added the
+boundary tests; SF3 enriched the `applyFreezeZone` invariant assert to
+include the `expandedIndices` keys for post-mortem debuggability; SF4
+documented the adjacency-eviction gap (mid-read eviction of a frozen
+non-expanded neighbour compacts the zone and shifts the expanded card
+by one slot — low-frequency, self-heals on the next
+`_pruneStaleState` sweep) in the spec's Remaining Notes as an accepted
+v0.15.5 tradeoff.
+
 ## 0.15.4
 
 Single-milestone patch from `doc/detector_threshold_audit.md` §7 M3:
