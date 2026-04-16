@@ -97,4 +97,4 @@ test/
 - v11 Pillar 5 Part 2: 7/7 milestones shipped ✅ (M8–M14, three adversarial review rounds + KeepAliveDetector bug fix). See `doc/spec_v11.md`.
 - v11 Pillar 6 Part 1: 7/7 milestones shipped ✅ (M1–M7, one adversarial review). See `doc/spec_v11.md`.
 - v11 Pillar 6 Part 2: 8/8 milestones shipped ✅ (M1–M8, one adversarial review round + 6 fixes). See `doc/spec_v11.md`.
-- 2,170 tests (root) + 9 tests (example), 0 analysis issues
+- 2,194 tests (root) + 9 tests (example), 0 analysis issues
