@@ -1,2042 +1,1397 @@
 ## 0.15.5
 
-Single-milestone UX patch that replaces the live-reordering "card jumps
-while I read it" bug in the overlay issues list with a
-**freeze-above-on-expand** contract. While any card is expanded, the
-order of every card at and above the deepest expanded index is frozen
-against what the user last saw; only the flow section beneath that
-boundary keeps reordering per the ranker. Collapsing the last expanded
-card releases the freeze. The user's explicit ask was "while I expand
-an issue card, reordering issue incoming / exist will be happen below
-index issue that im expanded" — v0.15.5 delivers that contract
-literally.
-
-This supersedes the unshipped v0.15.5 "single-card pin-on-expand"
-iteration. Pin-on-expand held the expanded card at its index but let
-every other card flow freely, including above it — so a newly critical
-issue could still re-rank over the card the user was reading. Freeze-
-above keeps "above the expanded card" stable by construction.
+Single-milestone UX patch that replaces the overlay's live-reordering
+"card jumps while I read it" bug with a **freeze-above-on-expand**
+contract. While any card is expanded, every row at and above the
+deepest expanded index is frozen against what the user last saw; only
+the flow section beneath keeps reordering. Collapsing the last
+expanded card releases the freeze. Delivers the user's literal ask:
+"while I expand an issue card, reordering issue incoming / exist will
+be happen below index issue that im expanded." Supersedes the
+unshipped "single-card pin-on-expand" iteration, which held only the
+expanded card's slot and still let newly-critical issues re-rank
+above it.
 
 ### Changed
 
-- **`FloatingIssuesCard` issues-list state model** now uses two coupled
-  fields instead of a single map:
-  - `Map<String, int> _expandedIndices` — `issueKey → captured-index-in-snapshot`.
-  - `List<PerformanceIssue>? _orderSnapshot` — the visible-issues list at
-    the instant the user expanded the first card.
-  Class invariant:
-  `(orderSnapshot == null) == expandedIndices.isEmpty`, asserted inside
-  `applyFreezeZone`. Both fields are set together on the 0→1 expand
-  transition, cleared together on the 1→0 collapse transition, cleared
-  together on `dispose`, cleared together when `didUpdateWidget` sees a
-  controller swap, and cleared together by `_pruneStaleState` when
-  eviction empties `_expandedIndices`. Every mutation site updates both
-  in the same `setState` so a frame never renders against half-set
-  state.
-- **Snapshot captured from what the user saw, not the live notifier
-  (C1).** The `onExpandedChanged` closure binds a local
-  `capturedVisibleIssues` copy of the `visibleIssues` list the
-  `itemBuilder` was built from on this pump. If the closure read
-  `widget.controller.issuesNotifier.value` at tap time, a ranker tick
-  between build and tap would seed the snapshot with a list the user
-  never saw, and the frozen zone would reference positions the user
-  has no memory of.
+- **`FloatingIssuesCard` state model** replaces the prior single-map
+  with two coupled fields: `Map<String, int> _expandedIndices`
+  (issueKey → captured-snapshot-index) and
+  `List<PerformanceIssue>? _orderSnapshot` (the visible list at the
+  first 0→1 expand). Class invariant
+  `(orderSnapshot == null) == expandedIndices.isEmpty` is asserted at
+  the entry of `applyFreezeZone`. All five mutation sites update both
+  fields in the same `setState` so a frame never renders against
+  half-set state: 0→1 expand, 1→0 collapse, `dispose`, `didUpdateWidget`
+  controller swap, and `_pruneStaleState` when eviction empties the map.
+- **Snapshot sourced from what the user saw (C1).** The
+  `onExpandedChanged` closure binds a local `capturedVisibleIssues`
+  copy of the `visibleIssues` list the `itemBuilder` was built from on
+  this pump — not `widget.controller.issuesNotifier.value` at tap
+  time. Prevents a ranker tick between build and tap from seeding the
+  frozen zone with a list the user never saw.
 - **`_pruneStaleState` keys freeze eviction against
-  `computeVisibleIssues(issues)`** (same convention as the prior
-  pin-on-expand iteration — downstream children churn under an
-  expanded parent's downstream list without the root card disappearing,
-  so raw-key pruning leaks entries). Selection/chat stale-state checks
-  stay on raw-key because those surfaces reach ALL issues, not just
-  the visible set.
-- **Pin icon repositioned** — `Icons.push_pin` moves from position 4
-  (between the confidence badge and JANK chip) to the last chip slot
-  (after the `↳N` downstream badge, before the Checkbox). The pin is a
-  "this row is held" state marker, not severity-adjacent chrome; the
-  tail slot reads more naturally. Size/alpha/Semantics contract
-  unchanged: 14dp, `theme.textSecondary` at 55% alpha, unconditional
-  `Semantics` wrap with empty label + `excludeSemantics: true` when
-  collapsed so the a11y node identity stays stable across toggles.
+  `computeVisibleIssues(issues)`** so downstream children churning
+  under an expanded parent don't leak the parent's entry. Selection
+  and chat stale-state checks stay on raw keys because those surfaces
+  reach ALL issues (including downstream ones surfaced via expansion).
+- **Pin icon (`Icons.push_pin`, 14dp, `textSecondary` @ 55%)
+  repositioned** from slot 4 (between confidence and JANK) to the last
+  chip slot (after `↳N`, before Checkbox) — reads as a "this row is
+  held" state marker, not severity chrome. Unconditional `Semantics`
+  wrap preserved (empty label + `excludeSemantics: true` when
+  collapsed) so a11y node identity stays stable across toggles.
 
 ### Added
 
-- **`applyFreezeZone` (top-level, `@visibleForTesting`)** — the render-
-  time transform that composes the displayed list. Takes the live
-  `visibleIssues`, the captured `orderSnapshot`, and `expandedIndices`;
-  returns a list whose first `freezeEnd + 1` entries follow
-  `orderSnapshot` (drawn using the live `PerformanceIssue` instance so
-  severity/confidence updates still render) and whose remainder is the
-  ranker-flow order with frozen keys filtered out.
+- **`applyFreezeZone` top-level `@visibleForTesting` helper** — the
+  render-time transform. Takes `(visibleIssues, orderSnapshot,
+  expandedIndices)`; returns a list whose first `freezeEnd + 1` entries
+  follow `orderSnapshot` (resolved against live `PerformanceIssue`
+  instances so severity/confidence updates still render) and whose
+  remainder is the ranker flow with frozen keys filtered out.
   - **MAX rule:** `freezeEnd = max(expandedIndices.values)`. Multi-
-    expand freezes the full range `[0..max]` inclusive — cards between
-    two expanded cards are also held. This is the simplest rule that
-    satisfies the "nothing above anything I'm reading moves" contract.
-  - **Silent-drop on vanished frozen entry:** if a frozen issue is
-    absent from `visibleIssues` this frame, it's dropped from the
-    rendered frozen zone; `_pruneStaleState` evicts the expand entry on
-    its next sweep. No throw.
+    expand freezes `[0..max]` inclusive — cards between two expanded
+    cards are held by design. MIN would still let rows above the
+    second expanded card shift; MAX is the simplest rule that
+    satisfies "nothing above anything I'm reading moves."
+  - **Silent-drop on vanished frozen entry** (no throw;
+    `_pruneStaleState` evicts the expand entry on its next sweep).
   - **Clamp on out-of-range:** `freezeEnd` is clamped to
-    `min(snapshotLength − 1, visibleLength − 1)` so downstream
-    collapses (shortening either list) render rather than throw.
-  - **Entry assert** enforces the class invariant
-    `(orderSnapshot == null) == expandedIndices.isEmpty` so any
-    mutation path that forgets to update both fields fails loudly in
-    debug builds.
+    `min(snapshotLen − 1, visibleLen − 1)` so downstream collapses
+    render rather than throw.
+  - **Entry assert** enforces the class invariant and (post-impl SF3)
+    includes `expandedIndices.keys` in the failure message so a
+    tripped assert distinguishes a zombie key from a snapshot-only
+    half-state during post-mortems.
 
 ### Fixed
 
-- **Reading-an-expanded-card reorder bug (primary symptom).** When the
-  user expanded a card to read it, the ranker would periodically rescore
-  and reorder the list (e.g. `_applyDurationEscalation` flipping
-  warning→critical at 30 cycles, or a new critical arriving and
-  reranking to the top), visibly shuffling everything above the
-  expanded card out from under the cursor. v0.15.5 freezes the entire
-  zone from index 0 through the deepest expanded card, so reorder
-  activity is strictly beneath the user's reading line.
-- **New-critical arrival can no longer appear above a card being read.**
-  If a CRITICAL-severity issue arrives from the ranker while the user
-  has any card expanded, it now enters the flow section (below the
-  frozen zone) rather than re-ranking to index 0. This is an accepted
-  tradeoff the user explicitly asked for; without it the freeze
-  contract is meaningless.
-- **Snapshot coupling bugs** — dispose, `didUpdateWidget` controller
-  swap, 1→0 collapse, and `_pruneStaleState`-emptied-map all now clear
-  `_orderSnapshot` alongside `_expandedIndices`. A stale snapshot with
-  an empty map would violate the class invariant and throw inside
-  `applyFreezeZone` on the next render.
+- **Reading-an-expanded-card reorder bug** (primary symptom):
+  `_applyDurationEscalation` flipping warning→critical at 30 cycles, a
+  new CRITICAL arriving mid-read, or any other ranker churn no longer
+  shuffles rows above the expanded card out from under the cursor.
+- **New-critical arrival cannot appear above a card being read** — it
+  enters the flow section beneath the frozen zone until the user
+  collapses. Accepted tradeoff the user explicitly asked for; without
+  it the freeze contract is meaningless.
+- **Snapshot coupling bugs** — every mutation site now clears both
+  fields together, so a stale `_orderSnapshot` paired with an empty
+  `_expandedIndices` can't survive to the next frame and trip the
+  invariant assert.
 
 ### Notes
 
-- Multiple cards can be expanded simultaneously. The frozen zone is
-  always `[0..max(expandedIndices.values)]`. Cards strictly between
-  two expanded cards are also held — by design, because the contract
-  is about what the user sees, not which specific cards are open.
-- The push-pin icon is intentionally subtle (55% alpha) — it's a state
-  hint, not a call to action. Freezing is implicit on expand.
-- `_selectedIssueId`, `_chatIssueStableId`, and `_chatHistories`
-  stale-state eviction is intentionally NOT narrowed to the visible
-  set. Those surfaces reach ALL issues (including downstream ones
-  exposed through an expanded parent's downstream list), and narrowing
-  them here would silently hide entries the user can still interact
-  with.
 - Known pre-existing tradeoff (out of scope, not a v0.15.5 regression):
   at 300dp overlay width with `title + confidence + JANK + ↳N + pin +
-  Checkbox` all present, the header `Row` overflows horizontally by
-  ~40dp in the Checkbox tail. The pin stays within card bounds; the
-  existing F5 regression test asserts this. Tightening Checkbox
-  density is tracked as a follow-up.
+  Checkbox` all present, the header `Row` overflows ~40dp in the
+  Checkbox tail. The pin itself stays within card bounds — F5
+  regression test asserts this. Checkbox density is a v0.15.6+
+  follow-up.
+- **Known gap (SF4, accepted):** if a frozen *non-expanded* neighbour
+  is evicted mid-read (detector staleness, `computeVisibleIssues`
+  absorbing a standalone under a new root, downstream collapse), the
+  frozen zone compacts and visibly shifts the expanded card up by one
+  slot. Low-frequency (requires multi-scan eviction while actively
+  reading); self-heals on the next `_pruneStaleState` sweep. A
+  placeholder-row approach would close it at the cost of visible
+  "ghost" rows; deferred.
 
-Plan: `doc/spec_v0_15_5_freeze_above_on_expand.md`. Test count: 2,170
-→ 2,194 (+24 tests: 11 pure-function `applyFreezeZone` tests — 9 core
-plus 2 post-impl `freezeEnd=0` / `freezeEnd=length-1` boundary cases —
-+ 5 widget smoke tests in `floating_issues_card_test.dart`; existing
-pin-indicator tests in `issue_card_test.dart` preserved under renamed
-group `v0.15.5 freeze-above-on-expand pin indicator`). Post-impl
-adversarial review produced 4 findings, all applied: SF1 renamed 4
-stale `_pinnedIndices` / "pin-on-expand" references in source comments
-to the new `_expandedIndices` / freeze-above vocabulary; SF2 added the
-boundary tests; SF3 enriched the `applyFreezeZone` invariant assert to
-include the `expandedIndices` keys for post-mortem debuggability; SF4
-documented the adjacency-eviction gap (mid-read eviction of a frozen
-non-expanded neighbour compacts the zone and shifts the expanded card
-by one slot — low-frequency, self-heals on the next
-`_pruneStaleState` sweep) in the spec's Remaining Notes as an accepted
-v0.15.5 tradeoff.
+### Tests
+
+- +24 tests. `test/ui/floating_issues_card_test.dart` adds 11 pure-
+  function `applyFreezeZone` cases — user's-exact-symptom at index 2,
+  multi-expand MAX, disappeared frozen entry, snapshot-shorter and
+  visible-shorter clamps, flow-order preservation, two invariant
+  assert cases, plus post-impl SF2 `freezeEnd=0` and
+  `freezeEnd=length-1` boundary cases — and 5 widget smoke tests
+  (pin-icon visibility on expand, summary-bar count invariance,
+  `dispose` dual-clear, `didUpdateWidget` controller-swap dual-clear,
+  collapse releases snapshot). `test/ui/issue_card_test.dart`
+  pin-indicator tests preserved under the renamed group
+  `v0.15.5 freeze-above-on-expand pin indicator`, including the F5
+  regression that pins the icon within card bounds at 300dp.
+
+Plan: `doc/spec_v0_15_5_freeze_above_on_expand.md`. Post-impl
+adversarial review produced 4 findings, all applied (SF1 renamed
+stale `_pinnedIndices` / "pin-on-expand" doc-comment references in
+`floating_issues_card.dart` and `issue_card.dart` to the new
+vocabulary; SF2/SF3/SF4 per above). Test count: 2,170 → 2,194.
 
 ## 0.15.4
 
 Single-milestone patch from `doc/detector_threshold_audit.md` §7 M3:
-tune `NetworkMonitorDetector` slow-request thresholds to align with
-2025–2026 mobile-API guidance, and close a latent asymmetry where the
-warning threshold was constructor-configurable but the critical
-threshold was hardcoded.
+align `NetworkMonitorDetector` slow-request thresholds with 2025–2026
+mobile-API guidance and close the asymmetry where the warning tier was
+constructor-configurable but critical was hardcoded.
 
 ### Changed
 
-- **`NetworkMonitorDetector.slowThresholdMs` default** lowered from
-  2000 ms → 1000 ms. Aligned with industry guidance: ideal 100–300 ms,
-  acceptable 500–800 ms, "slow" at ~1 s. The previous 2 s value was
-  2–10× more lenient than any cited 2025–2026 mobile-API source and
-  under-fired on exactly the kind of latency regression the detector
-  exists to catch.
-- **`NetworkMonitorDetector` critical severity threshold** lowered
-  from 5000 ms → 3000 ms (new default). 3 s is the clear "very slow"
-  boundary in every cited source and keeps a meaningful gap above
-  the 1 s warning tier.
-- **`SleuthConfig.slowRequestThresholdMs` default** lowered from
-  2000 ms → 1000 ms (matches the detector default).
+- **Defaults lowered in lockstep** (industry guidance: ideal 100–300 ms,
+  "slow" ~1 s, "very slow" ~3 s):
+  `NetworkMonitorDetector.slowThresholdMs` 2000 → 1000,
+  critical boundary 5000 → 3000,
+  `SleuthConfig.slowRequestThresholdMs` 2000 → 1000.
 
 ### Added
 
-- **`NetworkMonitorDetector.criticalSlowThresholdMs`** — new
-  constructor parameter (default 3000 ms) that was previously a
-  hardcoded `static const int _criticalSlowThresholdMs = 5000`. Users
-  who considered v0.15.3's 5 s value a "this is VERY clearly a bug"
-  alarm can restore it by passing `criticalSlowThresholdMs: 5000`. A
-  debug-mode assert in the constructor enforces
-  `criticalSlowThresholdMs > slowThresholdMs` so the critical tier is
-  always reachable from the warning tier.
-- **`SleuthConfig.criticalSlowRequestThresholdMs`** — new top-level
-  config field (default 3000 ms) threaded through to the detector at
-  `sleuth_controller.dart:684`. Covered by the same strictly-greater
-  assert in the `SleuthConfig` constructor, the assert also fires from
-  `copyWith` so `SleuthConfig().copyWith(slowRequestThresholdMs: 5000)`
-  without also raising critical now throws instead of silently
-  producing an unreachable critical tier. The field is a non-breaking
-  additive API (optional parameter with default) — existing callers
-  continue to compile with no changes.
+- **`NetworkMonitorDetector.criticalSlowThresholdMs`** (default 3000) —
+  promotes the previously hardcoded `_criticalSlowThresholdMs` constant
+  to a constructor parameter.
+- **`SleuthConfig.criticalSlowRequestThresholdMs`** (default 3000) —
+  threaded through at `sleuth_controller.dart:684`.
+- Debug-mode assert on both: `critical > slow` (also fires from
+  `copyWith`, so `SleuthConfig().copyWith(slowRequestThresholdMs: 5000)`
+  without also raising critical now throws instead of silently producing
+  an unreachable critical tier). Both additions are non-breaking
+  (optional params with defaults).
 
 ### Tests
 
-- 5 net new tests. `test/detectors/network_monitor_detector_test.dart`
-  gains: `warning just below critical (2999 ms)`, `critical at exactly
-  3000 ms`, `custom criticalSlowThresholdMs controls severity
-  boundary`, and `assert fires when criticalSlowThresholdMs <=
-  slowThresholdMs` (covers both equal and less-than cases). Pre-existing
-  tests hardcoded to the old thresholds (`duration=1999` below,
-  `2000` at, `5000` critical) rewritten against the new defaults. The
-  `custom slow threshold works` test grows a `criticalSlowThresholdMs:
-  1500` override to match the new assert contract.
-- `test/controller/config_copy_with_test.dart` gains a
-  `criticalSlowRequestThresholdMs must be strictly greater than slow`
-  test that verifies (a) raising slow above the default critical without
-  also raising critical throws, (b) setting them equal throws, and
-  (c) raising both in order succeeds.
-- `test/controller/v2_integration_test.dart` network-config
-  pass-through test extended to assert the new field is threaded
-  through; `slowRequestThresholdMs: 5000` override now carries a
-  matching `criticalSlowRequestThresholdMs: 10000` so the assert stays
-  satisfied.
-- Test count: 2,166 → 2,170 (+2 detector severity tiers, +1 custom
-  critical, +1 assert-validation, +1 copyWith assert coverage; −1 test
-  rename does not change count).
++5 net. `network_monitor_detector_test.dart` gains boundary tests
+(`2999 ms warning`, `3000 ms critical`), custom-threshold test, and
+assert-fires test (equal + less-than). Pre-existing tests hardcoded to
+2000/5000 rewritten to new defaults. `config_copy_with_test.dart` gains
+assert-coverage test. `v2_integration_test.dart` pass-through extended.
+2,166 → 2,170.
 
 ### Migration
 
-Existing code keeps compiling — the new constructor parameter and the
-new config field both carry defaults that match the behavior the
-audit recommends. The only user-visible change is that previously
-"acceptable" 1.0–1.9 s requests now surface as `slow_request`
-warnings, and previously "warning" 3.0–4.9 s requests now surface as
-critical. If you considered the v0.15.3 thresholds intentional, you
-can restore them with a single config line:
-
-```dart
-SleuthConfig(
-  slowRequestThresholdMs: 2000,
-  criticalSlowRequestThresholdMs: 5000,
-)
-```
+To restore v0.15.3 behavior: `SleuthConfig(slowRequestThresholdMs: 2000,
+criticalSlowRequestThresholdMs: 5000)`.
 
 ---
 
 ## 0.15.3
 
-Single-milestone patch from `doc/detector_threshold_audit.md` §7 M1: an
+Single-milestone patch from `doc/detector_threshold_audit.md` §7 M1:
 animation-aware filter on `RepaintDetector`. Closes the asymmetry where
-`RebuildDetector` already exempts builder widgets via a 3× threshold
-multiplier but `RepaintDetector` had **zero** filter — any widget at
-≥30 paints/sec fired `excessive_repaint`. A `CircularProgressIndicator`
-spinning at 60 Hz in an app's top bar tripped the detector on every
-session, on every page that mounted it.
+`RebuildDetector` already exempts builder widgets via a 3× multiplier
+but `RepaintDetector` had **zero** filter — any widget at ≥30 paints/sec
+fired `excessive_repaint`, so a `CircularProgressIndicator` in a top bar
+tripped the detector on every session.
 
 ### Added
 
-- **`RepaintDetector.animationOwnerNames`** — a 7-entry const Set of
-  widget type names that drive intentional, frame-rate animations.
-  Four Material/Cupertino indicators (`CircularProgressIndicator`,
+- **`lib/src/utils/animation_owner_names.dart`** — canonical
+  `@visibleForTesting` Set of 21 widget types that drive intentional
+  frame-rate animations: 5 indicators (`CircularProgressIndicator`,
   `LinearProgressIndicator`, `RefreshProgressIndicator`,
-  `CupertinoActivityIndicator`) plus three generic builder patterns
-  (`AnimatedBuilder`, `ValueListenableBuilder`, `TweenAnimationBuilder`).
-  Marked `@visibleForTesting` so consumers can introspect / extend.
-- **`_animationOwnerRegex`** — word-boundary regex `\b(…)\b` over the
-  union, computed once. Boundaries protect against substring matches
-  like `'CustomAnimatedBuilderUtility'` falsely matching
-  `'AnimatedBuilder'`.
-- **Three internal helpers** consumed by the three repaint gates:
-  * `_isAnimationOwned(snapshot, typeName)` — true when the cached
-    ancestor chain for `typeName` contains an animation-owner name.
-    Default-fire (returns false) when the chain is missing — never
-    silently mask a real bug.
-  * `_allPaintsAnimationOwned(snapshot)` — true iff every non-zero
-    entry in `paintCounts` is animation-owned. Used by Gate B.
-  * `_animationOwnedCount(snapshot)` — sum of paint counts whose
-    typeName has an animation-owned chain. Used by Gate C.
-- **Real-widget anti-tautology test** —
-  `test/detectors/repaint_animation_filter_real_widget_test.dart` pumps
-  an actual `CircularProgressIndicator` through a real
-  `DebugInstrumentationCoordinator`, captures a real `DebugSnapshot`,
-  asserts the captured ancestor chains contain `'CircularProgressIndicator'`
-  (proving the filter's signal exists in real data), then re-pins
-  `elapsed: 100ms` to push per-widget rates to ~100/sec — comfortably
-  above the 30/sec threshold so Gate A's skip-on-match logic must run
-  on every owned chain. The test exists specifically because
-  hand-rolled fixtures encode whatever chain format the test author
-  *thinks* the coordinator produces, so they cannot catch a bug where
-  the filter relies on a chain key/string format the coordinator never
-  emits in practice (adversarial-investigation Tactic 9).
+  `CupertinoActivityIndicator`, `RefreshIndicator`), 3 generic builders
+  (`AnimatedBuilder`, `ValueListenableBuilder`, `TweenAnimationBuilder`),
+  12 implicit `Animated*` widgets (`AnimatedContainer`, `…Rotation`,
+  `…Scale`, `…Size`, `…Opacity`, `…Align`, `…Padding`, `…Positioned`,
+  `…PositionedDirectional`, `…Slide`, `…Switcher`, `…CrossFade`,
+  `…FractionallySizedBox`), and `Hero`. Shared by detector + coordinator.
+- **Per-paint owned attribution** at `_handleProfilePaint` — calls
+  `isAnimationOwnedPaint(element, chain)` against the live `Element`
+  and exposes results via `DebugSnapshot.animationOwnedPaintCounts`
+  (Map) + `totalAnimationOwnedPaintCount` (int). Three cheapest-first
+  legs: (1) chain-string regex, (2) typed ancestor walk (`maxDepth=16`),
+  (3) typed descendant walk (`maxVisits=32`, `maxDepth=4`).
 
 ### Changed
 
-- **Gate A — per-widget debug
-  (`RepaintDetector._evaluateDebugDataPerWidget`):** after the
-  `paintFrequencyThreshold` rate check, skip via `_isAnimationOwned`
-  before emitting `repaint_debug_$typeName`.
-- **Gate B — VM aggregate fallback (`_evaluate` wrapper around
-  `_evaluateVmData`):** when the per-widget pass produced no issues
-  AND fresh VM data is present, suppress the VM gate entirely if
-  `_allPaintsAnimationOwned(debugSnapshot)` is true. Empty
-  `paintCounts` = no signal, so the gate fires normally — never silently
-  mask a real bug.
-- **Gate C — debug aggregate (`_evaluateDebugData`):** rewritten to
-  use residual subtraction. Compute `residualCount = totalPaintCount -
-  ownedCount`, recompute `residualRate` over `elapsed`, suppress when
-  residual falls below threshold. When residual still fires, the issue
-  detail surfaces a `Excludes N animation-owned paints` suffix so
-  developers see the math.
-- **`confidenceReason` on Gate C** updated to
-  `'Aggregate debug callback count + structural scan (animation-owned paints excluded)'`.
+Three-gate filter in `RepaintDetector`:
+- **Gate A (per-widget debug):** skip `repaint_debug_$typeName` when
+  the typed walk proves ownership.
+- **Gate B (VM aggregate fallback):** suppress the VM gate when every
+  non-zero `paintCounts` entry is owned. Empty map = no signal = fire
+  normally (never silently mask a real bug).
+- **Gate C (debug aggregate):** residual subtraction —
+  `residualCount = totalPaintCount − ownedCount`, recompute
+  `residualRate`, suppress when below threshold; otherwise surface
+  `Excludes N animation-owned paints` suffix in detail.
 
 ### Why this design (KDDs)
 
-- **KDD-2 (chain-containment, not Ticker introspection):** the
-  alternative was an ancestor-walk filter that asks "does this widget's
-  State own a Ticker?" That's more correct in principle but requires
-  reflection on private framework state. Chain-containment over the
-  cached ancestor chain is cheaper, deterministic, and matches the
-  shape of the data the coordinator already produces. **Limitation:**
-  widgets that *wrap* an animation owner without a `RepaintBoundary`
-  between them still fire because their chain doesn't contain the
-  owner. Descendant inspection is out of scope for v0.15.3.
-- **KDD-3 (residual subtraction over full suppression at Gate C):** at
-  the aggregate path we know `totalPaintCount` but lack per-widget
-  attribution for everything that isn't in `paintCounts`. Residual
-  subtraction lets us still fire `excessive_repaint_debug` if a
-  surrounding scene is genuinely doing too much paint work, while
-  cleanly accounting for the animation owners we *can* see.
-- **KDD-4 (asymmetric design vs `RebuildDetector` is deliberate):**
-  full exemption (Repaint) vs 3× multiplier (Rebuild). A
-  `CircularProgressIndicator` is *supposed* to paint at the device
-  refresh rate — there is no rate that's "too high" for it; the right
-  answer is "don't fire at all." A high *rebuild* rate on the same
-  widget is more ambiguous (could be a parent re-mounting it 60×/sec
-  by mistake), so a multiplier rather than full exemption.
-- **KDD-6 (polymorphic-key collision is accepted):** the coordinator
-  caches the chain on first occurrence per `typeName` key
-  (`debug_instrumentation_coordinator.dart:584,607`). If two distinct
-  `CustomPaint` widgets in the same window share the key, the cached
-  chain reflects whichever was seen first. Documented; chain-recapture
-  is a follow-up.
-- **Set is exactly 7 entries (KDD-2):**
-  `widget_location.dart:_frameworkNames` strips most candidate filter
-  widgets (transitions, `Builder`, `ListenableBuilder`) from the
-  captured chain entirely, so adding them would be dead code. What
-  remains is the set that survives the strip and reliably indicates a
-  frame-rate animation owner.
+- **KDD-2** chain-containment (not Ticker reflection) is cheaper,
+  deterministic, and matches coordinator output; generic-stripping via
+  `indexOf('<')` before Set lookup handles `TweenAnimationBuilder<T>`.
+- **KDD-3** residual subtraction at Gate C preserves `excessive_repaint`
+  signal when surrounding scene over-paints but owners are accounted for.
+- **KDD-4** full exemption (repaint) vs 3× multiplier (rebuild) is
+  deliberate — a `CircularProgressIndicator` *must* paint at refresh
+  rate; rebuild rate on the same widget is more ambiguous.
 
-### Fixed
+### Post-impl hardening (5 findings from `/adversarial-review`, C1–C5)
 
-- `excessive_repaint`, `excessive_repaint_debug`, and
-  `repaint_debug_CircularProgressIndicator` no longer fire for spinning
-  Material progress indicators — the most common false positive
-  surfaced in `doc/detector_threshold_audit.md` §7 M1.
+Root cause of all five: ownership was inferred from a chain-string keyed
+on `runtimeType` — a human-readable debug aid, not a robust ownership
+signal. Fix moves detection to per-paint typed walks against the live
+`Element`.
 
-### Post-impl hardening pass (5 findings from `/adversarial-review`)
+- **C1 polymorphic-key collision:** two `CustomPaint` widgets sharing a
+  `typeName` (one inside `AnimatedBuilder`, one driven by external
+  `setState`) shared one cached chain; both got fully suppressed or
+  fully fired. Fixed via per-paint attribution (above).
+- **C2 insufficient owner set:** original 7 entries missed the entire
+  `Animated*` family + `Hero` + `RefreshIndicator`. Expanded to 21.
+- **C3 chain-walks-up gap:** a bare `CircularProgressIndicator` (no
+  wrapping `RepaintBoundary`) propagates the dirty mark UP to the
+  nearest layer-owning ancestor, so the chain walks UP from that
+  ancestor and CPI becomes a *descendant*, not an ancestor. Fixed via
+  bounded descendant walk.
+- **C4 chain capture exception safety:** `visitAncestorElements` can
+  throw "deactivated widget's ancestor is unsafe" mid-tear-down — the
+  exception used to unwind through `_handleProfilePaint` and kill the
+  whole pipeline. Wrapped in try/catch at
+  `debug_instrumentation_coordinator.dart`; chain enrichment is skipped
+  for that event, counting continues.
+- **C5 test fixture tautology:** only CPI had a real-widget test;
+  everything else was hand-rolled fixtures mirroring the filter's own
+  assumptions. New `test/detectors/repaint_animation_owners_real_widget_test.dart`
+  adds 8 real-widget tests — each pumps the owner through
+  `DebugInstrumentationCoordinator`, asserts non-empty
+  `animationOwnedPaintCounts`, re-pins `elapsed: 100ms` to force Gate A
+  logic. Immediately caught the `TweenAnimationBuilder<double>` vs
+  `TweenAnimationBuilder` generic-stripping miss that hand-rolled tests
+  could never have caught (adversarial-investigation Tactic 9).
 
-After the original v0.15.3 ship, an adversarial code review surfaced
-five critical findings (C1–C5) — most of them rooted in the same
-architectural root cause: ownership decisions were made by inspecting a
-cached chain-string keyed on `runtimeType`, but the chain string is
-purpose-built for *human source-location display* and is too shallow,
-too lossy, and too key-collision-prone for a robust ownership filter.
-The fix moves ownership detection off the chain string entirely and
-onto a per-paint, typed walk that runs at paint-callback time against
-the live `Element`.
-
-**C1 (polymorphic-key collision):** the coordinator caches the chain
-on first occurrence per `typeName` key, so two distinct `CustomPaint`
-widgets in the same window — one inside an `AnimatedBuilder`, one
-driven by external `setState` — share whichever chain was seen first.
-Pre-fix, the detector either fully suppressed both or fully fired on
-both. **Fix:** added per-paint owned attribution at the coordinator
-(`_handleProfilePaint`) that calls a new
-`isAnimationOwnedPaint(element, chain)` against the live `Element`,
-not against the cached chain. The result is exposed via two new
-`DebugSnapshot` fields, `animationOwnedPaintCounts` (Map<String, int>)
-and `totalAnimationOwnedPaintCount` (int), which the detector now
-reads instead of re-deriving ownership from the chain string. Mixed
-ownership for the same `typeName` key is now represented honestly.
-
-**C2 (insufficient owner set):** the original 7-entry set covered
-indeterminate progress indicators and three explicit builders but
-missed the entire `Animated*` family (12 widgets:
-`AnimatedContainer`, `AnimatedRotation`, `AnimatedScale`,
-`AnimatedSize`, `AnimatedOpacity`, `AnimatedAlign`, `AnimatedPadding`,
-`AnimatedPositioned`, `AnimatedPositionedDirectional`, `AnimatedSlide`,
-`AnimatedSwitcher`, `AnimatedCrossFade`, `AnimatedFractionallySizedBox`)
-plus `Hero` and `RefreshIndicator`. Each runs an internal
-`AnimationController` to tween between old and new property values;
-without these entries every implicit animation in user code triggers
-a false `repaint_debug_*`. **Fix:** expanded `animationOwnerNames` to
-21 entries (5 indicators + 3 generic builders + 12 implicit Animated
-widgets + Hero) and moved the canonical Set out of `RepaintDetector`
-into a shared module (`lib/src/utils/animation_owner_names.dart`) so
-the coordinator and the detector reference the same source of truth.
-
-**C3 (chain-walks-up gap):** when a `CircularProgressIndicator` is
-mounted *without* a wrapping `RepaintBoundary`, the dirty mark
-propagates UP to the nearest layer-owning ancestor (commonly `Center`
-or `Stack`). The framework calls `_handleProfilePaint` with that
-ancestor as the leaf, so the captured ancestor chain walks UP from
-the ancestor — `CircularProgressIndicator` is a *descendant* of the
-leaf, not an ancestor, and chain-containment misses it entirely.
-**Fix:** `isAnimationOwnedPaint` now combines a chain check with a
-**bounded-depth descendant walk** (`hasAnimationOwnerDescendant`,
-`maxVisits=32`, `maxDepth=4`) that visits children of the leaf
-`Element` and matches against `animationOwnerNames` via the typed
-`runtimeType` lookup. Cost at 60 Hz is ~1,920 element visits/sec —
-negligible.
-
-**C4 (chain capture exception safety):** during widget deactivation,
-`element.visitAncestorElements` can throw "Looking up a deactivated
-widget's ancestor is unsafe" if the element is mid-tear-down at the
-moment a paint completes. Pre-fix, the exception unwound through
-`_handleProfilePaint` and crashed the entire instrumentation pipeline.
-**Fix:** wrapped the chain capture in try/catch in
-`debug_instrumentation_coordinator.dart` and log a one-line
-`Sleuth: paint ancestor chain failed: ...` warning instead of
-propagating. Detected paint counting continues; only the chain
-enrichment is skipped for that single event.
-
-**C5 (test fixture tautology):** the original v0.15.3 real-widget
-test only exercised `CircularProgressIndicator`. Every other owner
-(LinearProgressIndicator, RefreshProgressIndicator,
-TweenAnimationBuilder, AnimatedBuilder, ValueListenableBuilder,
-AnimatedContainer, the C1 mixed-ownership scene, the C3 bare-CPI
-scene) was covered only by hand-rolled fixtures that mirrored the
-filter's own assumptions about what the coordinator emits. **Fix:**
-new `test/detectors/repaint_animation_owners_real_widget_test.dart`
-adds 8 real-widget tests, each pumping the actual owner widget
-through `DebugInstrumentationCoordinator`, capturing a real
-`DebugSnapshot`, asserting `animationOwnedPaintCounts` is non-empty
-(proving per-paint attribution actually fired), and re-pinning
-`elapsed: 100ms` to push per-widget rates into Gate A's
-30-paints/sec range so the residual-subtraction and skip logic
-must actually run on each owner. The TweenAnimationBuilder and
-ValueListenableBuilder tests immediately caught a real bug —
-`hasAnimationOwnerDescendant` was looking up
-`'TweenAnimationBuilder<double>'` against a Set containing
-`'TweenAnimationBuilder'`, a generic-stripping miss the
-hand-rolled tests could never have caught.
-
-**Architectural follow-ups discovered during C5:**
-
-- **Generic-stripping fix in `hasAnimationOwnerDescendant`:** the
-  walk now strips `Foo<X>` to `Foo` via a single `indexOf('<')`
-  before the Set membership test. Non-generic types pass through
-  unchanged with zero allocation.
-- **New `hasAnimationOwnerAncestor` walk:** `RefreshProgressIndicator`
-  exposed a third gap. Its painted leaf (`CustomPaint`) sits ~13
-  ancestors below the wrapping `AnimatedBuilder` owner because of
-  Material's internal `_buildMaterialIndicator` decoration stack
-  (`Padding > SizedBox > _SemanticsWrapper > NotificationListener >
-  Material > Padding > Opacity > Transform > CustomPaint`). The
-  chain-string check fails because `buildAncestorChain`'s
-  `maxDepth: 6` is too shallow to reach the owner — but that depth
-  is deliberate, the chain string is for human-readable
-  source-location display. The descendant walk also fails because
-  the owner is *upstream* of the leaf, not downstream. **Fix:**
-  `isAnimationOwnedPaint` now has three legs, checked
-  cheapest-first: (1) chain-string regex, (2) typed ancestor walk
-  (`maxDepth=16`, independent of the chain budget),
-  (3) typed descendant walk (`maxVisits=32`, `maxDepth=4`).
+Additional discovery during C5: `RefreshProgressIndicator`'s painted
+`CustomPaint` leaf sits ~13 ancestors below its `AnimatedBuilder` owner
+(Material's `_buildMaterialIndicator` decoration stack). Both the
+chain-string check and descendant walk missed it, which is why
+`isAnimationOwnedPaint` needs the typed *ancestor* walk as a third leg.
 
 ### Test count
 
-2,146 → 2,166. Original v0.15.3 ship: +10 hand-rolled gate-algebra
-tests in `test/detectors/repaint_detector_test.dart` + 1 real-widget
-CPI anti-tautology test in
-`test/detectors/repaint_animation_filter_real_widget_test.dart`.
-Post-impl C1–C5 hardening: +8 real-widget owner-coverage tests in
-`test/detectors/repaint_animation_owners_real_widget_test.dart`
-(LinearProgressIndicator, RefreshProgressIndicator, TweenAnimationBuilder,
-AnimatedBuilder, ValueListenableBuilder, AnimatedContainer, C1 mixed-
-ownership scene, C3 bare-CPI-without-RepaintBoundary scene) + 1
-gate-algebra test extension covering the new owned-counts contract.
+2,146 → 2,166. +10 gate-algebra tests + 1 real-widget CPI anti-tautology
+test (ship); +8 real-widget owner-coverage tests + 1 owned-counts
+contract extension (post-impl).
 
 ## 0.15.2
 
-UX refactor of the rebuild-stats surface, prompted by another real-device
-profile review. The v0.15.1 design surfaced rebuild attribution two ways: a
-`rebuild_hotspot_summary` IssueCard in the warning stream (gated on
-≥20 builds/sec) and a small always-on chip above the issue list that
-linked into the drilldown. The IssueCard collided with the issue ranker,
-fired only on hot routes, and KDD-5 inflations turned route entry into
-a noisy warning storm. The chip was discoverable but offered no signal
-about *what* was rebuilding. v0.15.2 collapses both surfaces into a single
-always-on inline expandable panel.
+UX refactor of the rebuild-stats surface after a real-device profile review.
+v0.15.1 surfaced rebuild attribution through both a `rebuild_hotspot_summary`
+IssueCard (warning stream) AND an always-on chip; the IssueCard collided with
+the ranker and KDD-5 inflations turned route entry into a warning storm.
+v0.15.2 collapses both into a single always-on **expandable inline panel**.
 
 ### Changed
 
-- **`_RebuildStatsBanner` is now an expandable inline panel** (replaces
-  the v0.15.1 chip). Two states:
-  * **Collapsed (default)** — single row with `Rebuilds: N across M
-    widgets` + chevron. Tap to expand.
-  * **Expanded** — collapsed header + the **top-3** widget rows with
-    rank, name, live-tweened count, and a normalised bar fill. A
-    Pause/Resume toggle freezes the rendered counts so the user can read
-    a stable snapshot while attribution continues to accumulate. A
-    `See all N →` link pushes the full `RebuildStatsPage` drilldown via
-    the same snapshot-and-push path the rollup IssueCard used to use.
-    An `incl. inflations` footnote keeps the KDD-5 disclosure inline.
-- **Reactivity** is via `Listenable.merge([issuesNotifier,
-  routeHistoryNotifier])` — the panel rebuilds on every scan tick and
-  on every route push/pop. **Pause auto-clears on route change** so the
-  user is never looking at stale data from a previous route.
+- **`_RebuildStatsBanner`** is now an expandable panel. Collapsed:
+  `Rebuilds: N across M widgets` + chevron. Expanded: top-3 widget rows
+  (rank, name, live-tweened count, normalised bar), Pause/Resume toggle
+  that freezes rendered counts, `See all N →` link pushing
+  `RebuildStatsPage` drilldown with the snapshot that was on screen, and
+  `incl. inflations` footnote (inline KDD-5 disclosure). Reactivity via
+  `Listenable.merge([issuesNotifier, routeHistoryNotifier])` — rebuilds
+  on every scan tick + route push/pop. **Pause auto-clears on route
+  change** so the user never reads stale data.
 
 ### Removed
 
-- **`rebuild_hotspot_summary` rollup IssueCard** and all of its
-  supporting machinery:
-  * `RebuildDetector._maybeEmitRollupIssue`, `_sessionElapsed`,
-    `_formatElapsed`, `_activeRouteSession` field, and the rate/duration
-    constants (`_rollupRateThreshold`, `_rollupCriticalRateThreshold`,
-    `_rollupMinDuration`, `_rollupMinTotalForRate`).
-  * `BaseDetector.updateActiveRouteSession` hook (no remaining
-    overrides) and the matching controller call site in
-    `_scanTreeInner`.
-  * `IssueCard.onSeeAllRebuilds` parameter, `_buildSeeAllRebuildsLink`
-    helper, and the conditional render block in the expanded card body.
-  * `FixHintBuilder.rebuildHotspotSummary`.
-  * Encyclopedia entry for `rebuild_hotspot_summary` and its
-    `relatedIssues` cross-references from `rebuild_activity`,
-    `rebuild_debug`, `setstate_scope`, and `animated_builder_no_child`.
-  * `'rebuild_hotspot_summary'` from the controller's stableId prefix
-    map.
-  The drilldown page (`RebuildStatsPage`) is unchanged — only the entry
-  point moved.
+- **`rebuild_hotspot_summary` rollup IssueCard** and all supporting
+  machinery: `RebuildDetector._maybeEmitRollupIssue`, `_sessionElapsed`,
+  `_formatElapsed`, `_activeRouteSession`, all four rate/duration
+  constants, `BaseDetector.updateActiveRouteSession` hook,
+  `IssueCard.onSeeAllRebuilds` parameter, `FixHintBuilder.rebuildHotspotSummary`,
+  encyclopedia entry + 4 `relatedIssues` cross-references, and the
+  `'rebuild_hotspot_summary'` stableId prefix mapping. `RebuildStatsPage`
+  drilldown is unchanged — only the entry point moved.
 
 ### Added
 
-- **`TweenAnimationBuilder` is now in `_frameworkWidgetDenyList`** —
-  the new panel uses it for the live count tween, so the KDD-10
-  audit test caught it as a missing entry. Without this addition,
-  Sleuth would re-introduce a self-measurement leak on its own panel.
-- **5 new banner tests** in `floating_issues_card_test.dart`:
-  collapsed-by-default, expand reveals top-3 + footer + correct
-  chevron, the 4th widget is NOT inlined (top-3 contract pin),
-  expand → tap "See all N →" → drilldown push, pause freezes
-  rendered counts across subsequent live merges.
-- **`incl. inflations` footnote** inside the expanded panel mirrors
-  the longer KDD-5 caveat the drilldown page renders in full.
+- **`TweenAnimationBuilder` in `_frameworkWidgetDenyList`** — the panel
+  uses it for the live count tween; the KDD-10 audit test caught it as
+  missing. Without this addition, Sleuth would re-introduce a
+  self-measurement leak on its own panel.
+- 5 banner tests in `floating_issues_card_test.dart`: collapsed-by-default,
+  expand reveals top-3 + footer, 4th widget NOT inlined (top-3 contract
+  pin), tap "See all" pushes drilldown, pause freezes counts across live
+  merges.
 
 ### Fixed
 
-- **Profile-mode KDD-5 inflations no longer pollute the warning
-  stream.** Because the rollup IssueCard is gone, route entry no
-  longer surfaces a critical-severity card for transient inflations
-  that decay as the tree stabilises. The data is still visible in
-  the panel — but as data, not as a warning.
+- **Profile-mode KDD-5 inflations no longer pollute the warning stream** —
+  route entry no longer surfaces a critical-severity card for transient
+  inflations that decay as the tree stabilises. Data still visible in the
+  panel but as data, not a warning.
 
-### Post-implementation hardening (12 findings from adversarial review)
+### Post-implementation hardening (12 findings from `/adversarial-review`)
 
-A post-impl `/adversarial-review` pass against the v0.15.2 panel
-surfaced 12 findings (3 critical, 4 high, 4 medium, 1 test-fixture
-contract gap). All shipped in the same v0.15.2 release.
+**Critical:** **C1** paused-snapshot drift — `onTap` now takes
+`overrideCounts`; footer passes `_paused ? _frozenCounts : null` so
+drilldown opens with what was on screen, not live-drift. **C2** redundant
+"See all N" on small routes — footer link gated on `widgetCount > _topN`.
+**C3** stale test docstrings rewritten for the panel-only contract.
+**High:** **H1** tap targets — pause wrapped in 28×28 SizedBox, "See all"
+in 24-tall SizedBox, `HitTestBehavior.opaque + Center(widthFactor: 1)`
+so inner GestureDetector wins against outer header (compromise vs
+Material's 48dp, documented — ~330dp test budget vs ~446dp phone).
+**H2** silent auto-resume — `onPauseDiscarded` callback fires on route
+change; parent shows 2s "Pause cleared — route changed" snackbar.
+**H3** KDD-5 collapsed-state glyph added then reverted on user feedback
+(visual competition with `Icons.repeat`); caveat stays in expanded
+footnote + drilldown only. **H4** empty-state snackbar verified through
+C1 callback signature change. **Medium:** **F1** collapsed pause indicator
+(`Icons.pause` 10dp @ 0.5 alpha) when `_paused`. **F2** `TweenAnimationBuilder<int>`
+smell audited — `begin: 0` is the seed-only value, framework substitutes
+current value as new begin on rebuild (canonical, no change). **F3/P3**
+hoisted `Listenable.merge` into `late final _mergedListenable` in
+`initState` to eliminate per-rebuild allocation churn. **TF2** drilldown
+contract test extended — pause → mutate counts → tap "See all" → assert
+drilldown shows frozen values via `find.descendant(of: RebuildStatsPage)`.
 
-**Critical**
-
-- **C1 — Paused-snapshot drift.** The "See all N →" link reached
-  back to `controller.activeRouteSession.rebuildCountsByType` at
-  open time, so a user who paused the panel to read a stable
-  top-3 then drilled in was looking at *live* counts from a
-  different moment. `_RebuildStatsBanner.onTap` is now
-  `void Function(Map<String, int>? overrideCounts)` and the
-  footer GestureDetector passes `_paused ? _frozenCounts : null`,
-  so the drilldown opens with whatever was on screen.
-- **C2 — Redundant "See all N" on small routes.** Two-widget
-  routes rendered a "See all 2 →" link below the same two rows
-  the panel already showed. Footer link is now gated on
-  `widgetCount > _topN` (3) — small routes show their rows and
-  stop there.
-- **C3 — Stale test docstrings.** Group docstring and several
-  test comments in `floating_issues_card_test.dart` still
-  referenced the removed `_rollupMinTotalForRate = 30` rate gate
-  and "rollup IssueCard" surfacing path. Rewritten for the
-  v0.15.2 panel-only contract.
-
-**High**
-
-- **H1 — Tap targets below 28dp.** Pause toggle and "See all"
-  link were free-floating Text/Icon hit areas at ~12–14dp. They
-  are now wrapped in a 28×28 SizedBox (pause) and a 24-tall
-  SizedBox (see-all), each using `HitTestBehavior.opaque` and
-  `Center(widthFactor: 1)` so the inner GestureDetector wins
-  hit testing against the outer header. Both fall short of
-  Material's 48dp ideal — documented compromise vs the
-  inline-overlay vertical budget (~330dp in tests, ~446dp on a
-  typical phone). Per-row vertical padding tightened in tandem
-  to keep the panel from overflowing the test card.
-- **H2 — Silent auto-resume on route change.** Pause auto-clears
-  on route push/pop (correct), but the user got no feedback —
-  the bar charts just started moving again. Banner state now
-  fires an `onPauseDiscarded` callback on the pause-clear path;
-  the parent shows a 2 s "Pause cleared — route changed"
-  snackbar via the same dismissal pattern as the other in-card
-  toasts.
-- **H3 — KDD-5 disclosure regression in collapsed state.**
-  Initial fix added a small `Icons.info_outline` glyph next to
-  the count to signal that profile-mode totals include
-  inflations. Reverted on user feedback: the icon was
-  non-interactive and visually competed with the existing
-  `Icons.repeat` glyph that already marks the row as
-  rebuild-related. The KDD-5 caveat now lives only in the
-  expanded panel's `incl. inflations` footnote and on the
-  `RebuildStatsPage` drilldown — accepted as a tradeoff against
-  visual noise on the always-visible collapsed header.
-- **H4 — Empty-state debuggability.** The "session is gone"
-  snackbar already covered the empty drilldown path; verified
-  it still fires through the C1 callback signature change.
-
-**Medium**
-
-- **F1 — Collapsed-state pause indicator.** Paused panel showed
-  no glyph in the collapsed state, so a user could collapse a
-  paused panel and forget it was frozen. Collapsed header now
-  renders a small `Icons.pause` (10dp, alpha 0.5) next to the
-  count when `_paused` is true.
-- **F2 — `TweenAnimationBuilder<int>` correctness audit.** The
-  live count tween uses `IntTween(begin: 0, end: count)`. The
-  smell flagged in review was "begin: 0 looks wrong on
-  rebuild". Audit confirmed canonical: `TweenAnimationBuilder`
-  substitutes the *current animated value* as the new `begin`
-  on rebuild, so `begin: 0` is correct as the seed-only value.
-  No code change.
-- **F3 / P3 — `Listenable.merge` allocation in build().** The
-  panel allocated a fresh merged listenable on every rebuild,
-  which is cheap but unnecessary churn. Hoisted into a
-  `late final _mergedListenable` field initialised once in
-  `initState`.
-- **TF2 — Drilldown contract not asserted in tests.** The pause
-  test asserted that the *panel* froze its rendered counts but
-  did not assert the drilldown opened with frozen data. Test
-  extended: pause → mutate live counts → tap "See all 4 →" →
-  assert drilldown shows the frozen 15/×8 values, NOT the live
-  20/×13. Uses `find.descendant(of: RebuildStatsPage, ...)` to
-  disambiguate panel vs drilldown text matches when both are
-  mounted.
-
-Test count after hardening: 2,153 → **2,146** (the 5 banner
-tests added in the original v0.15.2 entry were rebalanced —
-several merged into the extended pause/contract test, others
-stayed independent).
+Test count after hardening: 2,153 → 2,146 (banner tests rebalanced).
 
 ## 0.15.1
 
-Hotfix for two v0.15.0 defects caught by a real-device profile run. On a home
-screen where DevTools reported ~50–100 rebuilds, Sleuth's Build Hotspot rollup
-claimed **21,352** rebuilds and the drilldown was dominated by
-`FloatingIssuesCard`, `IssueCard`, `TriggerButton`, `Container`, `Padding`,
-`ValueListenableBuilder`, and `FadeTransition` — Sleuth's own overlay and the
-framework widgets it builds with. The v0.15.0 pipeline was measuring itself.
-
-A follow-up audit against the Flutter 3.41.4 SDK source caught three more
-identifier-shaped frame-phase scopes (`POST_FRAME`, `COMPOSITING`, `SEMANTICS`)
-that were also leaking into the drilldown — they fire once per frame from
-`scheduler/binding.dart`, `rendering/view.dart`, and `rendering/object.dart`
-respectively, so on a 60 Hz route they accumulate ~3,600 spurious "rebuilds"
-per minute. They are now part of the same denylist, with a regression test
-that pins every identifier-shaped `FlutterTimeline.startSync(...)` scope in
-the SDK to `null`.
+Hotfix for two v0.15.0 defects caught by a real-device profile run. DevTools
+reported ~50–100 rebuilds while Sleuth's Build Hotspot claimed **21,352** —
+the drilldown was dominated by `FloatingIssuesCard`, `IssueCard`,
+`TriggerButton`, `Container`, `Padding`, `ValueListenableBuilder`,
+`FadeTransition`. The v0.15.0 pipeline was measuring itself.
 
 ### Fixed
 
-- **KDD-10 — Framework widget contamination (self-measurement).** The Flutter
+- **KDD-10 — Framework widget contamination (self-measurement).** The
   framework emission gate at `framework.dart:3503` uses
-  `debugIsWidgetLocalCreation`, whose `_isLocalCreationLocationImpl` fallback at
-  `widget_inspector.dart:1801-1816` returns
-  `!file.contains('packages/flutter/')` when `_pubRootDirectories == null` (the
-  default when DevTools is not attached). Anything NOT under `packages/flutter/`
-  — including `package:sleuth/...` — is therefore classified as "user widget"
-  and dumped through `FlutterTimeline.startSync`. Sleuth's own overlay widgets
-  and the framework widgets they instantiate (`Container`, `Padding`,
-  `ValueListenableBuilder`, …) were feeding the drain on every scan, producing
-  200–1000× inflated counts vs. DevTools. `WidgetInspectorService
-  .addPubRootDirectories` is `@protected` and additive-only, so exclusion at
-  the framework layer is not available.
-
-  Fix: a denylist in `DebugInstrumentationCoordinator.canonicalizeTypeName`.
-  `_frameworkWidgetDenyList` holds every Flutter framework widget actually
-  constructed inside `lib/src/ui/` (48 entries) plus every Sleuth overlay
-  widget class (25 entries). Any event whose canonical name is in the set is
-  dropped from the drain. The denylist is checked **after** generic stripping
-  so `ValueListenableBuilder<int>` collapses to `ValueListenableBuilder` before
-  the lookup — the filter is now five layers:
-  `_denyList → isRenderObjectName → identifierRegex → genericStrip →
-  frameworkWidgetDenyList`.
-
-- **KDD-9 — Absolute-total rollup threshold was time-blind.** The v0.15.0
-  rollup gate was `> 100 session rebuilds` (warning) / `> 300` (critical),
-  which trips on any long-lived route regardless of whether the baseline rate
-  is actually concerning. Replaced with a **sustained-rate** gate:
-  `≥ 20 builds/sec` (warning), `≥ 50 builds/sec` (critical), gated by a
-  30-build / 1.5-second noise floor. Rate is computed against the detector's
-  own injected clock so tests are deterministic. Title and detail now render
-  the sustained rate, absolute total, unique-type count, and window together:
-  `"Build Hotspot: 22.0 builds/sec (110 across 4 widgets in 5.0s)"`.
+  `debugIsWidgetLocalCreation`, whose `_isLocalCreationLocationImpl` fallback
+  at `widget_inspector.dart:1801-1816` returns
+  `!file.contains('packages/flutter/')` when `_pubRootDirectories == null`
+  (default without DevTools). So `package:sleuth/...` classifies as "user
+  widget" and is emitted through `FlutterTimeline.startSync`.
+  `addPubRootDirectories` is `@protected` and additive-only, so framework-
+  layer exclusion is unavailable. **Fix:** `_frameworkWidgetDenyList` in
+  `DebugInstrumentationCoordinator.canonicalizeTypeName` — 48 framework
+  widgets used under `lib/src/ui/` + 25 Sleuth overlay widget classes.
+  Checked AFTER generic stripping so `ValueListenableBuilder<int>` collapses
+  first. Filter is now five layers:
+  `_denyList → isRenderObjectName → identifierRegex → genericStrip → frameworkWidgetDenyList`.
+  Followup audit against Flutter 3.41.4 SDK source added 3 more identifier-
+  shaped frame-phase scopes (`POST_FRAME`, `COMPOSITING`, `SEMANTICS`) that
+  fire ~60/sec per frame.
+- **KDD-9 — Absolute-total rollup threshold was time-blind.** v0.15.0's
+  `> 100 / > 300` absolute gate tripped on any long-lived route regardless
+  of baseline rate. Replaced with sustained-rate: `≥ 20 builds/sec` warning,
+  `≥ 50 builds/sec` critical, gated by 30-build + 1.5s noise floor. Rate
+  computed via injected `DateTime Function() clock` for deterministic tests.
+  Title format: `"Build Hotspot: 22.0 builds/sec (110 across 4 widgets in 5.0s)"`.
 
 ### Added
 
-- **`test/debug/overlay_denylist_audit_test.dart`** — CI gate that walks
-  `lib/src/ui/**/*.dart` and enforces three invariants on the denylist:
-  (1) every class extending `Stateless/Stateful/InheritedWidget` must be in
-  the denylist; (2) every framework widget from a curated candidate set that
-  is actually used under `lib/src/ui/` must be in the denylist; (3) no stale
-  framework entries may remain for widgets no longer used in the overlay.
-  This test is the only thing preventing a future overlay addition from
-  silently re-introducing self-measurement, so the failure message on each
-  invariant points the maintainer directly at the denylist to update.
+- **`test/debug/overlay_denylist_audit_test.dart`** — CI gate walking
+  `lib/src/ui/**/*.dart` enforcing three invariants: every
+  `Stateless/Stateful/InheritedWidget` subclass is in the denylist; every
+  framework widget from a curated candidate set actually used in overlay
+  code is in the denylist; no stale framework entries remain.
 - **`DebugInstrumentationCoordinator.debugFrameworkWidgetDenyList`** —
-  `@visibleForTesting` accessor exposing the denylist to the audit test
-  without widening the public API.
-- **Parameterized denylist unit tests** in
-  `debug_instrumentation_coordinator_profile_test.dart` under a new
-  `framework widget denylist (KDD-10)` group: every denylist entry →
-  `canonicalizeTypeName` returns `null`; generics collapse before the lookup;
-  look-alike user widgets (`ContainerPro`, `MyText`, `PaddedCard`,
-  `_MyPrivateCard`) still pass through.
-- **Rate-based threshold tests** in `rebuild_detector_test.dart` using a
-  test-controlled clock (`late DateTime now; clock() => now;
-  advance(Duration)`): 22/sec fires, 10/sec doesn't, 62/sec is critical,
-  40/sec is warning, noise-floor and minimum-duration gates honored.
-- **Disclaimer copy update** in three places (`rebuild_detector.dart` rollup
-  `detail`, `issue_explanation_builder.dart` encyclopedia entry,
-  `rebuild_stats_page.dart` inline banner) — now explicitly states that
-  Sleuth overlay widgets are excluded from the drain, so users don't wonder
-  why they never see their own tool's widgets in the leaderboard.
+  `@visibleForTesting` accessor.
+- Parameterized denylist tests + rate-based threshold tests using
+  test-controlled clock. Disclaimer copy updated in 3 places
+  (`rebuild_detector.dart` detail, encyclopedia entry,
+  `rebuild_stats_page.dart` banner) so users know overlay widgets are
+  excluded from the drain.
 
 ### Changed
 
-- **`RebuildDetector` rollup thresholds**: `_rollupThreshold` (absolute total)
-  and `_rollupCriticalThreshold` replaced with `_rollupRateThreshold = 20.0`,
-  `_rollupCriticalRateThreshold = 50.0`, `_rollupMinDuration =
-  Duration(milliseconds: 1500)`, `_rollupMinTotalForRate = 30`. The rate
-  threshold survives in `FixHintBuilder.rebuildHotspotSummary`'s doc comment
-  and in the encyclopedia entry for `rebuild_hotspot_summary`, so consumers of
-  the fix-hint output see the same numbers that fired the issue.
-- **`RebuildDetector` constructor** takes an optional `DateTime Function()
-  clock` for test-controlled elapsed, defaulting to `DateTime.now`.
-- **`canonicalizeTypeName` docstring** updated from "four-layer" to
-  "five-layer filter" and includes the KDD-10 rationale inline.
-- **Framework widgets are now filtered from profile-mode rebuild
-  drilldowns.** As a consequence of the KDD-10 denylist, 48 common
-  Flutter framework widgets — `Container`, `Row`, `Column`, `Padding`,
-  `SizedBox`, `Text`, `Stack`, `Material`, `ColoredBox`, `DecoratedBox`,
-  `ValueListenableBuilder`, `FadeTransition`, `Align`, `Center`, and
-  friends — no longer appear as entries in the rollup or drilldown
-  leaderboard. This is the correct behavior (the overlay itself was the
-  dominant producer of those names in v0.15.0), but it means a genuine
-  user-space `Row` or `Container` hotspot becomes invisible at the
-  rollup level if the user has wrapped it under one of these names.
-  Mitigation: wrap the hotspot in a named subclass (`class ProductRow
-  extends StatelessWidget`) so it shows up under its user-space
-  identifier. The disclaimer on the rollup `detail`, the encyclopedia
-  entry, and the drilldown banner all surface this tradeoff so users
-  know to look for their own named widgets, not framework primitives.
+- `RebuildDetector` constructor takes optional `DateTime Function() clock`
+  (defaults to `DateTime.now`).
+- `canonicalizeTypeName` docstring updated to "five-layer filter" with
+  inline KDD-10 rationale.
+- Framework widgets now filtered from profile-mode drilldowns — users with
+  a genuine user-space `Container` hotspot must wrap in a named subclass
+  (e.g. `class ProductRow extends StatelessWidget`) to surface it.
+  Disclaimer text covers this tradeoff.
 
-### Migration
-
-No API break and no schema bump. A v0.15.0 app that already reports a Build
-Hotspot issue on a slow route will continue to see one in v0.15.1 — the title
-will now lead with a builds-per-second rate and the drilldown will no longer
-show Sleuth's own overlay widgets at the top. Apps that were seeing a noisy
-rollup on a long-lived route where nothing was actually wrong should stop
-seeing it, because the rate-based threshold ignores low-frequency baseline
-chatter regardless of how long the route has been mounted.
+Test count: 2,140 → 2,153.
 
 ## 0.15.0
 
-Profile-mode per-widget rebuild counting. When `enableDeepDebugInstrumentation`
-is true in a profile build, Sleuth now drains `FlutterTimeline.debugCollect()`
-each scan cycle, canonicalizes every `BUILD` scope name, and attributes the
-result to the active `RouteSession`. The counts surface as a new
-`rebuild_hotspot_summary` rollup issue (fires when a session's total crosses
-100 rebuilds) with a "See all rebuilds" drilldown page listing every widget
-type sorted descending. Detectors that previously only had a structural signal
-(`RebuildDetector`, `ShallowRebuildRiskDetector`, `AnimatedBuilderDetector`,
-`SetStateScopeDetector`) now receive real profile-mode counts and upgrade
-their confidence when the counts agree. One adversarial plan-review round
-before implementation plus one post-implementation adversarial code review.
+Profile-mode per-widget rebuild counting via `FlutterTimeline.debugCollect()`
+attributed to the active `RouteSession`. When `enableDeepDebugInstrumentation`
+is true in profile, each scan cycle drains the timeline, canonicalizes every
+`BUILD` scope name, and merges into `RouteSession.rebuildCountsByType`. Surfaces
+as a `rebuild_hotspot_summary` rollup issue (fires at >100 session rebuilds)
+with a "See all rebuilds" drilldown page. Detectors that had only structural
+signal (`RebuildDetector`, `ShallowRebuildRiskDetector`, `AnimatedBuilderDetector`,
+`SetStateScopeDetector`) now upgrade confidence when counts agree.
 
 ### Added
 
-- **`DebugSnapshot.source`** (`RebuildCountSource` enum: `none` /
-  `debugCallback` / `flutterTimeline`). Tags every snapshot so consumers can
-  tell whether counts came from the debug-mode `debugOnRebuildDirtyWidget`
-  slot or the profile-mode `FlutterTimeline` drain. Mutually exclusive with
-  detector rollup merging — only `flutterTimeline`-tagged snapshots flow into
-  `RouteSession.rebuildCountsByType`; `debugCallback` snapshots remain
-  per-detector inputs (KDD-1).
-- **`DebugInstrumentationCoordinator.installProfileMode()` /
-  `uninstallProfileMode()`**: flips `FlutterTimeline.debugCollectionEnabled`
-  with install-time refusal if the flag is already `true` (prevents conflict
-  with DevTools or a second Sleuth instance). Hot-restart-tolerant via
-  idempotent double-install. `snapshot()` drains `FlutterTimeline.debugCollect()`
-  through `canonicalizeTypeName` (three-layer filter: emission gate,
-  generics-strip, deny-list + identifier regex).
-- **`DebugInstrumentationCoordinator.canonicalizeTypeName`**: static helper
-  that strips generic parameters (`Provider<Foo>` → `Provider`), rejects
-  denylisted framework frame scopes (`BUILD`, `LAYOUT`, `PAINT`, `FINALIZE
-  TREE`, `Preparing Hot Reload (widgets)`), and rejects non-identifier shapes
-  via regex (`^[A-Z][A-Za-z0-9_]*$`). Private-prefixed names drop by design.
-- **`RouteSession.rebuildCountsByType`** (`Map<String, int>`) +
-  **`RouteSession.totalRebuilds`**: accumulates per-widget rebuild counts
-  attributed to the session. Additive merge across scans. Emitted in JSON
-  exports (schema v4 — no bump; the field is optional and older consumers
-  ignore it gracefully).
-- **`rebuild_hotspot_summary` rollup issue**: `RebuildDetector` now emits a
-  second, rollup-shaped issue when `source == flutterTimeline` AND
-  `session != null` AND `session.totalRebuilds > 100`. Per-type issues still
-  fire alongside — the rollup is a summary card, not a replacement. StableId
-  prefix registered in the issue ranker's prefix map.
-- **`RebuildStatsPage`**: drilldown page reachable via "See all rebuilds" link
-  on the rollup issue. Lists every widget type sorted descending by count
-  with rank / type name / count / bar-fraction. Empty state for zero-count
-  sessions. **Snapshot-at-open semantics (M10):** the counts map is copied
-  at construction time and never live-updates — mutations to the underlying
-  session after open do not reorder rows or change totals, so users reading
-  the drilldown aren't surprised by rows reflowing underneath them.
-- **`IssueCard.onSeeAllRebuilds`** callback: renders a "See all rebuilds →"
-  link in the expanded card body when non-null. Caller-gated (the floating
-  issues card wires it only for `rebuild_hotspot_summary` issues).
-- **`DebugInstrumentationCoordinator.primeExistingElements()`**: seeds the
-  element-seen Expando with every element in an already-mounted subtree, so
-  the coordinator counts the very first rebuild after install instead of
-  consuming it as a first-observation placeholder. Used by the new
-  `captureDebugCallbackCounts` / `captureRebuildsViaTrigger` test helpers.
-- **Encyclopedia entry for `rebuild_hotspot_summary`** in the issue
-  explanation registry — `readingTheData`, `whyItMatters`, `commonCauses`,
-  `howToFix`, `relatedIssues` (bidirectional: `excessive_rebuilds`,
-  `setstate_scope`, `animated_builder_unscoped`).
+- **`DebugSnapshot.source`** (`RebuildCountSource`: `none`/`debugCallback`/
+  `flutterTimeline`). Only `flutterTimeline` snapshots flow into the rollup;
+  `debugCallback` stays per-detector (KDD-1).
+- **`DebugInstrumentationCoordinator.installProfileMode()/uninstallProfileMode()`** —
+  flips `FlutterTimeline.debugCollectionEnabled` with install-time refusal if
+  flag is already true (DevTools conflict, KDD-1 + R20). Hot-restart-tolerant.
+- **`canonicalizeTypeName`** three-layer filter: drops framework frame scopes
+  (`BUILD`/`LAYOUT`/`PAINT`/`FINALIZE TREE`), strips generics
+  (`Provider<Foo>` → `Provider`), rejects non-identifier shapes via
+  `^[A-Z][A-Za-z0-9_]*$`.
+- **`RouteSession.rebuildCountsByType`** (Map) + **`totalRebuilds`** with
+  additive per-scan merge + JSON round-trip.
+- **`rebuild_hotspot_summary` rollup issue** (emitted when
+  `source==flutterTimeline && session!=null && session.totalRebuilds > 100`;
+  per-type issues still fire alongside).
+- **`RebuildStatsPage` drilldown** reachable via `IssueCard.onSeeAllRebuilds`
+  callback (caller-gated). **Snapshot-at-open semantics (M10)** — counts
+  copied at construction, never live-updates.
+- **`primeExistingElements()`** coordinator helper — seeds element-seen
+  Expando so the very first rebuild is counted instead of consumed as a
+  first-observation placeholder.
+- Encyclopedia entry for `rebuild_hotspot_summary` with bidirectional
+  `relatedIssues` links.
 
 ### Changed
 
-- **Assert-wrapper restructure (M3, 4 sites)**: `_installDebugInstrumentation`,
-  `_scanTree`'s drain site, `dispose()`, and `_installHeavyFlags` no longer
-  wrap their bodies in `assert(() {})` blocks. Profile builds strip asserts,
-  so the previous layout silently made the entire rebuild-attribution pipeline
-  a no-op in profile mode — `debugProfileBuildsEnabledUserWidgets` was never
-  actually set, `debugOnRebuildDirtyWidget` was never installed, and any
-  profile-mode consumer of the coordinator got zero data. Sites now use an
-  explicit `if (kDebugMode) { ... } else if (!kReleaseMode && ...) { ... }`
-  mode split and preserve debug-path behavior bit-for-bit.
-- **Drain → attribute → route-switch ordering (M7)**: the `_scanTreeInner`
-  pipeline now always drains the coordinator BEFORE detecting a route change.
-  Previously a route change mid-scan could trigger a second `snapshot()` call
-  that reset `_lastSnapshotTime` and corrupted elapsed-based rates, and could
-  race the drain so counts mis-attributed to the fresh session instead of the
-  session that actually accumulated them. Drained counts now always land on
+- **Assert-wrapper restructure (M3, 4 sites):** `_installDebugInstrumentation`,
+  `_scanTree` drain, `dispose()`, `_installHeavyFlags` now use explicit
+  `if (kDebugMode) {} else if (!kReleaseMode && ...) {}` mode splits.
+  Previously the entire rebuild-attribution pipeline was a silent no-op in
+  profile mode because `assert(() {})` stripped.
+- **Drain → attribute → route-switch ordering (M7):** counts always land on
   the pre-route-change session.
-- **`_scanInProgress` re-entry guard**: `_scanTree` now early-returns silently
-  if a prior synchronous `_scanTree` call is still on the stack. Without the
-  guard a re-entrant call would double-drain the coordinator, reset
-  `_lastSnapshotTime`, and corrupt per-second rate math.
-- **Coordinator construction gate widened (KDD-8)**: the coordinator is now
-  instantiated when EITHER `enableDebugCallbacks == true` OR
-  `enableDeepDebugInstrumentation == true`. Previously it was gated only on
-  `enableDebugCallbacks`, so profile-mode users who only set the deep-instr
-  flag ended up with no coordinator at all.
-- **`SleuthConfig.enableDeepDebugInstrumentation` doc comment updated** to
-  document the new profile-mode rebuild-counting behavior, the
-  inflation-vs-rebuild semantic gap, and the rollup issue it produces.
+- **`_scanInProgress` re-entry guard (M5)** prevents double-drain + rate
+  math corruption.
+- **Coordinator construction gate widened (KDD-8):** instantiated when
+  `enableDebugCallbacks || enableDeepDebugInstrumentation`.
 
 ### Fixed
 
 - **Profile-mode rebuild attribution was a silent no-op in every prior
-  release** (v1 review C1/C4). The four assert-wrapped sites listed above meant
-  that the entire `enableDeepDebugInstrumentation` code path stripped to empty
-  in profile builds. Shipping this release is the first time this feature
-  actually collects data in profile mode.
-- **`FlutterTimeline.debugCollectionEnabled` conflict path** (R20): install
-  now refuses if the flag is already `true` — previously two concurrent
-  consumers (e.g. Sleuth + DevTools) could both assume ownership and drain
-  each other's events.
-- **Test pollution via static `FlutterTimeline._buffer`** (v1 review C6):
-  every test file that touches the profile path now captures and restores
-  `debugCollectionEnabled` in `setUp`/`tearDown` and drains any leftover
-  events before the next test runs.
+  release** (v1 review C1/C4) — first release that actually collects data.
+- **`FlutterTimeline.debugCollectionEnabled` conflict path (R20)** — install
+  refuses when flag is already true.
+- **Test pollution via static `FlutterTimeline._buffer`** (C6) — every
+  profile test saves/restores flag in `setUp`/`tearDown`.
 
-### Migration
+### Notes
 
-- **If you already set `enableDeepDebugInstrumentation: true`**: expect a new
-  `rebuild_hotspot_summary` issue to appear in your stream for sessions that
-  accumulate more than 100 rebuilds. This is additive — existing per-type
-  issues (`excessive_rebuilds`, etc.) continue to fire alongside. Confidence
-  on `RebuildDetector`, `ShallowRebuildRiskDetector`, `AnimatedBuilderDetector`,
-  and `SetStateScopeDetector` may upgrade from `possible` → `likely` /
-  `confirmed` when profile-mode counts corroborate the structural signal.
-- **Profile-mode counts include inflations** (KDD-5): the Flutter framework
-  emits the same `BUILD` timeline scope for `Element.inflate` and for
-  `setState`-driven rebuilds, so route entry shows transient elevated counts
-  that decay as the tree stabilises. The rollup issue detail text and the
-  drilldown page both surface an inflation disclaimer so users cannot miss
-  it. Debug mode (via `debugOnRebuildDirtyWidget`) does not have this gap.
-- **Widget tests cannot exercise the profile path** (R3): widget tests run
-  under `kDebugMode == true`, so the M12 controller and coordinator tests
-  inject a fake coordinator tagged `RebuildCountSource.flutterTimeline` to
-  exercise the merge pipeline end-to-end without profile-mode compilation.
-  Full validation is the M1 probe under `fvm flutter run --profile` against
-  a physical device.
+- **KDD-5 semantic gap:** profile-mode counts include widget inflations
+  (same `BUILD` scope covers both inflations and setState rebuilds), so route
+  entry shows transient elevated counts that decay. Disclaimer surfaces
+  inline on rollup detail + drilldown page.
+- **R3 test limitation:** widget tests run under `kDebugMode == true`, so
+  M12 controller/coordinator tests inject a fake coordinator tagged
+  `RebuildCountSource.flutterTimeline` to exercise the merge pipeline
+  without profile-mode compilation. Full validation is the M1 probe under
+  `fvm flutter run --profile` on a physical device.
+
+Test count: 2,092 → 2,140.
 
 ## 0.14.1
 
-Per-tab `RouteSession` tracking — bottom-nav / tab-shell apps that share one
-`ModalRoute` across tabs (`IndexedStack`, `StatefulShellRoute.indexedStack`,
-`CupertinoTabScaffold`) now produce a distinct `RouteSession` per tab instead of
-conflating every tab's frames and issues under a single route name. Inline
-`TabBar` / `TabBarView` / `PageView` swipes within a single route stay inside
-the outer session (no spurious churn). One adversarial plan-review round before
-implementation and one post-implementation adversarial code review; findings
-from both folded into the code (C1 eviction collision, C2 hot-reload session
-leak, C3 routeName overwrite, E1 type-unsafe deserialization).
+Per-tab `RouteSession` tracking for tab-shell apps (`IndexedStack`,
+`StatefulShellRoute.indexedStack`, `CupertinoTabScaffold`) that share one
+`ModalRoute` across tabs — each tab now gets a distinct session instead of
+being conflated. Inline `TabBar` / `TabBarView` / `PageView` swipes stay inside
+the outer session. One pre-impl adversarial plan review + one post-impl code
+review; both folded into the code.
 
 ### Added
 
 - **`RouteSession.scaffoldHashKey`**: `identityHashCode` of the innermost
-  visible `Scaffold` Element when the session was created, or `null` for
-  scaffold-free scans. Paired with `routeName` to form the session's compound
-  key — bottom-nav tabs that share a `ModalRoute` now get their own sessions.
+  visible `Scaffold` Element, or `null` for scaffold-free scans. Paired with
+  `routeName` to form the session's compound key.
 - **`RouteSession.tabVisitIndex`**: 1-indexed ordinal for repeat visits to the
-  same `(routeName, scaffoldHashKey)` pair. Used by the UI and markdown
-  exporter to disambiguate multiple visits to the same tab (e.g. `/home` →
-  `/home (tab-2)` on the second visit).
+  same `(routeName, scaffoldHashKey)` pair. Used by UI + markdown exporter to
+  disambiguate (e.g. `/home` → `/home (tab-2)`).
 - **`RouteSession.hotReloadGeneration`**: Debug-only counter incremented on
-  every Flutter hot reload so consumers can group pre/post-reload sessions
-  (Element identity hashes rotate on reload and would otherwise orphan prior
-  sessions). `0` in profile/release mode.
-- **`PerformanceIssue.scaffoldHashKey`** and **`PerformanceIssue.tabVisitIndex`**:
-  Stamped at aggregation time so exported issues can be grouped by tab
-  identity. `routeName` is kept RAW (no `(tab-N)` suffix baked in) so that
-  group-by-route filters remain stable and a route literally named
-  `"/foo (tab-2)"` stays distinguishable from a disambiguated tab-2 of `/foo`.
-  Use `PerformanceIssue.routeDisplayName` for human-facing labels.
-- **`PerformanceIssue.routeDisplayName`** getter: derives the disambiguated
-  display label (`'$routeName (tab-$tabVisitIndex)'` when `tabVisitIndex > 1`,
-  raw `routeName` otherwise). UI cards, AI chat context, and issue
-  explanation placeholder substitution all route through this getter.
+  Flutter hot reload so consumers can group pre/post-reload sessions. `0` in
+  profile/release.
+- **`PerformanceIssue.scaffoldHashKey` + `tabVisitIndex`**: Stamped at
+  aggregation. `routeName` kept RAW (no `(tab-N)` suffix baked in) so group-by
+  filters stay stable; use **`PerformanceIssue.routeDisplayName`** getter
+  (`'$routeName (tab-$tabVisitIndex)'` when `> 1`) for human-facing labels.
+  UI cards, AI chat, and issue-explanation substitution all route through it.
 - **`TabBarView` / `PageView` boundary filter** in the scan visitor: these
-  widgets keep multiple children alive simultaneously without marking inactive
-  pages `Offstage` / `TickerMode` / `Visibility(!visible)`, so they used to
-  trip the multi-Scaffold sibling guard and silently abort scans. The visitor
-  now stops Scaffold collection at `TabBarView` / `PageView` — inline sub-tab
-  swipes stay inside the outer route's session and detectors still run against
-  the active sub-page.
+  widgets keep multiple children alive simultaneously (no `Offstage`/
+  `TickerMode`/`Visibility(!visible)` marker) and used to trip the
+  multi-Scaffold sibling guard, silently aborting scans. Scaffold collection
+  now stops at these widgets — inline sub-tab swipes stay inside the outer
+  session and detectors still run against the active sub-page.
 
 ### Changed
 
-- **`SleuthConfig.routeHistoryCapacity` default raised 20 → 50**: accommodates
-  bottom-nav apps where per-tab sessions (plus any repeat visits) exhaust the
-  old default within a few tab switches. Tests that exercise FIFO eviction now
+- **`SleuthConfig.routeHistoryCapacity` default 20 → 50**: per-tab sessions
+  exhaust the old default within a few tab switches. FIFO-eviction tests now
   configure an explicit smaller cap.
-- **Session markdown exporter renders tab suffix**: the Route Health table
-  reads `tabVisitIndex` from each JSON row and appends `(tab-N)` to the
-  display name when `> 1`, preventing duplicate-looking rows for bottom-nav
-  apps that return to the same tab.
-- **`packageVersion` updated**: `'0.14.0'` → `'0.14.1'` in export snapshot.
+- **Session markdown exporter renders tab suffix** from `tabVisitIndex`.
+- `packageVersion` `'0.14.0'` → `'0.14.1'`.
 
 ### Fixed (post-adversarial review)
 
-- **`tabVisitIndex` collision after FIFO eviction** (C1): `_computeTabVisitIndex`
+- **C1 `tabVisitIndex` collision after FIFO eviction**: `_computeTabVisitIndex`
   now returns `max(tabVisitIndex) + 1` across matching history entries instead
-  of `count + 1`. The count-based implementation could duplicate the
-  `tabVisitIndex` of a live-but-not-yet-evicted session once older matching
-  entries were dropped from the history deque — producing identical
-  `(routeName, scaffoldHashKey, tabVisitIndex)` tuples and the very duplicate
-  rows in exports that the feature was designed to prevent. Regression test
-  drives 8 A↔B switches with `routeHistoryCapacity: 3`.
-- **Hot reload did not close the active `RouteSession`** (C2): Flutter's
-  non-structural hot reload path preserves Element identity, so without an
-  explicit close the session-keying predicate saw unchanged
-  `(routeName, scaffoldHashKey)` and the pre-reload session continued into
-  post-reload frames — stamped with a stale `hotReloadGeneration = 0`.
+  of `count + 1`. The count-based impl could duplicate a live session's index
+  once older matching entries were dropped from the deque — producing identical
+  `(routeName, scaffoldHashKey, tabVisitIndex)` tuples (the exact duplicate
+  rows the feature was designed to prevent). Regression test drives 8 A↔B
+  switches with `routeHistoryCapacity: 3`.
+- **C2 hot reload did not close active `RouteSession`**: non-structural hot
+  reload preserves Element identity, so the session-keying predicate saw
+  unchanged `(routeName, scaffoldHashKey)` and the pre-reload session bled
+  into post-reload frames with a stale `hotReloadGeneration = 0`.
   `_reassembleInternal()` now closes `_activeRouteSession`, republishes the
   history notifier, and nulls the pointer before incrementing the generation.
-- **`PerformanceIssue.routeName` overwrite loses raw name** (C3): previously
-  `_aggregateIssues` stamped `"$rawName (tab-N)"` into `issue.routeName` when
-  `tabVisitIndex > 1`, destroying the raw name consumers need for group-by
-  filtering. Raw name is now preserved; display surfaces use the new
-  `routeDisplayName` getter.
-- **`fromJson` type-unsafe for per-tab fields** (E1): `PerformanceIssue.fromJson`
-  now uses `is int` guards on `scaffoldHashKey` and `tabVisitIndex` and coerces
-  non-int values to null. Previously a malformed payload (e.g. a JavaScript
-  consumer stringifying a large int due to 53-bit `Number` precision) would
-  crash `as int?` and break the whole snapshot parse.
+- **C3 `routeName` overwrite lost raw name**: `_aggregateIssues` used to stamp
+  `"$rawName (tab-N)"` into `issue.routeName`, destroying the raw name needed
+  for group-by filtering. Raw preserved; display surfaces use `routeDisplayName`.
+- **E1 type-unsafe `fromJson`**: per-tab field deserialization now uses `is int`
+  guards and coerces non-int to null. A JS consumer stringifying large ints
+  (53-bit `Number` precision) used to crash `as int?` and break the snapshot.
 
 ## 0.14.0
 
 Route Scoping — per-route FPS, issue aggregation, health scores, and export.
-Data model and programmatic API retained; overlay UI (filter bar, summary row)
-removed after on-device review revealed UX limitations (historical issues not
-surfaceable as cards, making route filtering misleading). One adversarial review
-round, 5 findings fixed.
+Data model + programmatic API retained; overlay UI (filter bar, summary row)
+removed after on-device review (historical issues not surfaceable as cards
+made the filter misleading). One adversarial review, 5 findings fixed.
 
 ### Added
 
-- **`RouteSession` model**: Per-route statistics accumulated while a route is the
-  active scan target. Includes `healthScore` (0–100 composite: FPS 40pts + jank
-  30pts + issues 30pts, normalised to `fpsTarget`), per-route `FrameStatsBuffer`,
-  issue snapshots, scan cycle count, and `toJson()` serialisation.
-- **Passive route detection**: Route changes detected via element tree walk during
-  the unified scan pass — no `NavigatorObserver` required. Works with any router
-  (go_router, auto_route, Beamer, etc.). Unnamed routes get synthetic
-  `<unnamed-N>` names.
-- **`Sleuth.routeHistory` static API**: Returns the list of `RouteSession` objects
-  observed since monitoring started. Null if Sleuth is not initialised.
-- **`Sleuth.routeHealthScore()` static API**: Returns the health score for a
-  specific route by name. Null if route not found or Sleuth not initialised.
-- **`SleuthConfig.routeIgnorePatterns`**: Set of route name patterns to exclude
-  from tracking. Supports exact match and trailing `*` wildcard (e.g.,
-  `/dialog*`).
-- **`SleuthConfig.routeHistoryCapacity`**: Maximum sessions retained in the route
-  history ring buffer (default 20).
-- **`SleuthConfig.copyWith()`**: Full copy-with covering all 28 config fields,
-  including the 2 new route fields. Uses `_sentinel` pattern for nullable field
-  overrides.
+- **`RouteSession`**: per-route stats accumulated while a route is the active
+  scan target — `healthScore` (0–100 composite: FPS 40pts + jank 30pts +
+  issues 30pts, normalised to `fpsTarget`), `FrameStatsBuffer`, issue
+  snapshots, scan cycle count, `toJson()`.
+- **Passive route detection** via element tree walk during the unified scan
+  — no `NavigatorObserver` required. Works with any router (go_router,
+  auto_route, Beamer). Unnamed routes get synthetic `<unnamed-N>` names.
+- **`Sleuth.routeHistory`**, **`Sleuth.routeHealthScore(name)`** static APIs.
+- **`SleuthConfig.routeIgnorePatterns`** (exact + trailing `*` wildcard e.g.
+  `/dialog*`) and **`routeHistoryCapacity`** (default 20, ring buffer).
+- **`SleuthConfig.copyWith()`**: covers all 28 fields including 2 new route
+  fields. Uses `_sentinel` pattern for nullable overrides.
 - **Schema v4 export**: `SessionSnapshot.routeSessions` field with per-route
-  frame stats, issue counts, health scores, and FPS percentiles.
-- **"Route Health" markdown table**: `Sleuth.exportSummary()` includes a route
-  health section with health-dot indicators, FPS, issue counts, and duration.
+  frame stats, issue counts, health scores, FPS percentiles.
+- **"Route Health" markdown table** in `Sleuth.exportSummary()` with health
+  dots, FPS, issue counts, duration.
 
 ### Changed
 
-- **Export FPS clamped to `fpsTarget`**: Global and per-route `averageFps` and
-  FPS percentiles (p50/p95/p99) are now clamped to `fpsTarget` at every export
-  surface. Prevents ProMotion 120Hz idle screens from reporting misleading values
-  above the configured target.
-- **`packageVersion` updated**: `'0.12.1'` → `'0.14.0'` in export snapshot.
+- **Export FPS clamped to `fpsTarget`** globally + per-route (average + p50/
+  p95/p99). Prevents ProMotion 120Hz idle screens from reporting values above
+  the configured target.
+- `packageVersion` `'0.12.1'` → `'0.14.0'`.
 
 ### Removed
 
-- **Route filter bar and summary row**: Overlay UI for route filtering was
-  removed after on-device review. Historical issues are not surfaceable as
-  overlay cards (only live issues appear), making the filter UX misleading.
+- **Route filter bar + summary row from overlay**: historical issues aren't
+  surfaceable as cards (only live issues appear), making the UX misleading.
   Data model, export, and programmatic API retained.
 - **Route chip theme tokens**: `routeChipBg`, `routeChipSelectedBg`,
-  `routeChipText`, `routeChipSelectedText` removed from `SleuthThemeData`.
+  `routeChipText`, `routeChipSelectedText`.
 
 ## 0.13.1
 
-Dark/light mode toggle, design system tokens, Icons.pets brand icon, header
-optimization, false-positive fix, and GlobalKey demo reliability fix. Five
-adversarial review rounds (general ×2, theme performance + design system,
-icon migration, GlobalKey demo), all findings fixed.
+Dark/light mode toggle, design system tokens, `Icons.pets` brand icon, header
+optimization, false-positive fix, GlobalKey demo reliability. Five adversarial
+review rounds (general ×2, theme perf + design system, icon migration,
+GlobalKey demo), all findings fixed.
 
 ### Added
 
-- **`triggerIconColor` theme token**: New color token on `SleuthThemeData` for
-  the trigger button paw icon. Defaults to white (visible on severity-colored
-  backgrounds in both light and dark themes). Customizable via `copyWith`.
-- **In-overlay dark/light toggle**: Theme toggle icon in the overlay header
-  switches between dark and light themes without changing system settings.
-  Uses 3-tier resolution: runtime override > config theme > auto-detect.
-- **`Sleuth.updateTheme()` static API**: Update the overlay theme at runtime.
-  Pass `SleuthThemeData` to override or `null` to revert to auto-detection.
-- **`SleuthController.themeOverride`**: `ValueListenable<SleuthThemeData?>`
-  notifier for the current runtime theme override.
-- **System brightness reactivity**: `didChangePlatformBrightness` re-resolves
-  auto-detect theme when system brightness changes mid-session (gated to
-  auto-detect mode only — skips when explicit override or config theme is set).
-- **Typography scale tokens**: 9 font-size tokens on `SleuthThemeData`
-  (`fontXxs`=8 through `fontDisplay`=24). All 8 overlay UI files migrated
-  from hardcoded `fontSize` values — ~119 replacements.
-- **Border radius scale tokens**: 7 radius tokens on `SleuthThemeData`
-  (`radiusSm`=4 through `radiusFull`=20). All 8 overlay UI files migrated
-  from hardcoded `BorderRadius.circular()` values — ~50 replacements.
-- **`gripDots` light theme override**: Light theme now uses `0xFF6B7280`
-  (gray-500) for grip dots instead of inheriting the dark-theme white.
-- **Color coupling documentation**: `SleuthThemeData` constructor doc comment
-  documents intentional hex-value sharing across semantically distinct tokens,
-  with `copyWith()` independence guarantee.
+- **`triggerIconColor` theme token** (default white — visible on severity-
+  colored backgrounds in both themes).
+- **In-overlay dark/light toggle** with 3-tier resolution: runtime override >
+  config theme > auto-detect.
+- **`Sleuth.updateTheme()`** runtime API (pass `null` to revert to auto).
+- **`SleuthController.themeOverride`** `ValueListenable<SleuthThemeData?>`.
+- **System brightness reactivity** via `didChangePlatformBrightness`, gated
+  to auto-detect mode only.
+- **Typography scale tokens** — 9 font sizes (`fontXxs`=8 → `fontDisplay`=24)
+  on `SleuthThemeData`. All 8 overlay UI files migrated (~119 replacements).
+- **Border radius scale tokens** — 7 radii (`radiusSm`=4 → `radiusFull`=20).
+  All 8 overlay UI files migrated (~50 replacements).
+- **`gripDots` light theme override** (`0xFF6B7280` gray-500 instead of the
+  dark-theme white).
+- **Color coupling doc** on `SleuthThemeData` constructor: intentional hex
+  sharing across semantically distinct tokens + `copyWith()` independence.
 
 ### Changed
 
-- **Brand icon: `Icons.pets` (Material paw print)**: Replaced dog emoji
-  (`🐕`/`\u{1F415}`) and custom `SleuthLogoPainter` with Flutter's built-in
-  `Icons.pets` across trigger button, overlay header, guide page title, and
-  example app. Zero custom paint code, tree-shaken by Flutter 3+, theme-aware
-  via `triggerIconColor`.
-- **Startup metrics alignment**: Metric values in all sections (Headline,
-  Engine Phases, VM Sub-Phases) are now right-aligned, with labels left-aligned
-  via `Expanded` + plain `Text` pattern.
-- **Header icon optimization**: Guide icon moved from header to footer bar.
-  Highlight toggle shrunk from 36px to 24px (`_compactHeaderButton`). Theme
-  toggle added at 20px width. Net effect: cleaner header with fewer icons.
-- **Footer Semantics consistency**: All three footer icons (Encyclopedia,
-  Export, Guide) now have `Semantics(label: ..., button: true)` wrappers.
+- **Brand icon: `Icons.pets`** (Material paw print) replaces dog emoji
+  (`🐕`/`\u{1F415}`) and custom `SleuthLogoPainter` across trigger button,
+  overlay header, guide page, example app. Tree-shaken, theme-aware.
+- **Startup metrics page**: metric values right-aligned across all sections
+  via `Expanded` + plain `Text`.
+- **Header icon optimization**: guide icon moved to footer; highlight toggle
+  36 → 24px (`_compactHeaderButton`); theme toggle added at 20px.
+- **Footer Semantics consistency**: Encyclopedia/Export/Guide all wrapped in
+  `Semantics(label: ..., button: true)`.
 
 ### Fixed
 
-- **`stateful_density` false positive from Sleuth widgets**: Added 8 Sleuth
-  overlay widget names (`SleuthOverlay`, `FloatingIssuesCard`, `TriggerButton`,
+- **`stateful_density` false positive from Sleuth widgets**: added 8 overlay
+  widget names (`SleuthOverlay`, `FloatingIssuesCard`, `TriggerButton`,
   `IssueCard`, `IssueEncyclopediaPage`, `AiChatPage`, `GuidePage`,
-  `StartupMetricsPage`) to the `_frameworkWidgetNames` exclusion set in
-  `RebuildDetector`. Previously, opening the overlay in FRAME mode inflated
-  the structural density count and triggered a false positive.
-- **Hardcoded spacing values**: Replaced `SizedBox(width: 6)` in guide page
-  and `SizedBox(width: 10)` in startup metrics page with design system tokens
-  (`theme.spacingXs` and `theme.spacingSm` respectively).
-- **GlobalKey demo unreliable detection**: `itemExtent` reduced from 40 to 24dp
-  and `itemCount` increased from 30 to 40 so the realized GlobalKey count
-  reliably exceeds the >20 threshold on all phone sizes. The previous 40dp
-  items left the count at 21-22 on medium phones (barely above threshold) due
-  to DemoScaffold chrome (~220-300dp) and trailing-only cache at scroll
-  position 0 not being accounted for in the original calculation.
+  `StartupMetricsPage`) to `RebuildDetector._frameworkWidgetNames`. FRAME
+  mode no longer inflates structural density against itself.
+- **Hardcoded spacing**: `SizedBox(width: 6)` (guide) + `SizedBox(width: 10)`
+  (startup metrics) replaced with `theme.spacingXs`/`spacingSm`.
+- **GlobalKey demo unreliable detection**: `itemExtent` 40 → 24dp, `itemCount`
+  30 → 40 so realized GlobalKey count reliably exceeds the >20 threshold on
+  all phone sizes. Old 40dp items + DemoScaffold chrome (~220-300dp) +
+  trailing-only cache at scroll 0 left the count at 21-22 on medium phones
+  (barely above threshold).
 
 ### Removed
 
-- **`sleuth_logo_painter.dart`**: Deleted hand-drawn `SleuthLogoPainter`
-  CustomPainter — replaced by `Icons.pets`.
+- **`sleuth_logo_painter.dart`** — replaced by `Icons.pets`.
 
 ## 0.13.0
 
 Startup Performance Tracing — measure first-frame and time-to-interactive
-from `main()`, with per-phase breakdown and VM sub-phase enrichment.
-Three adversarial review rounds, full 23-detector accuracy audit, causal
-graph correctness fix, and ShaderJankDetector noise removal.
+from `main()`, with per-phase breakdown and VM sub-phase enrichment. Three
+adversarial review rounds, full 23-detector accuracy audit, causal-graph
+correctness fix, and ShaderJankDetector noise removal.
 
 ### Added
 
-- **Startup measurement API**: `Sleuth.init()` captures app start time and
-  framework initialization cost. `Sleuth.markInteractive()` records TTI.
-  First-frame callback extracts vsync/build/raster breakdown from
-  `FrameTiming`. `enrichStartupWithVmData()` accepts VM sub-phase and
-  engine timestamp data for full pipeline coverage.
-- **StartupDetector** (23rd detector, structural lifecycle, one-shot):
-  Fires `slow_startup_ttff` when TTFF exceeds configurable thresholds
-  (default 1500ms warning, 3000ms critical). Detail includes TTFF, TTI,
-  first-frame breakdown, dominant phase, VM sub-phases, and engine phases.
-- **StartupMetrics model**: 14 stored fields, 3 computed getters
-  (`frameworkInitMs`, `preDartOverheadMs`, `engineTtffMs`), dominant phase
-  detection (50% threshold), full `copyWith`/`toJson`/`fromJson` support.
-- **StartupMetricsPage**: Full-screen detail page with staggered entrance
+- **Startup measurement API**: `Sleuth.init()` captures app start + framework
+  init cost; `Sleuth.markInteractive()` records TTI; first-frame callback
+  extracts vsync/build/raster breakdown from `FrameTiming`;
+  `enrichStartupWithVmData()` accepts VM sub-phase + engine timestamp data.
+- **`StartupDetector`** (23rd detector, structural lifecycle, one-shot): fires
+  `slow_startup_ttff` when TTFF exceeds thresholds (default 1500ms warning,
+  3000ms critical). Detail includes TTFF/TTI, first-frame breakdown,
+  dominant phase, VM sub-phases, engine phases.
+- **`StartupMetrics`**: 14 stored fields, 3 computed getters
+  (`frameworkInitMs`, `preDartOverheadMs`, `engineTtffMs`), dominant-phase
+  detection (50% threshold), full `copyWith`/`toJson`/`fromJson`.
+- **`StartupMetricsPage`**: full-screen detail with staggered entrance
   animations, 5 conditional sections (headline, first-frame breakdown with
-  progress bars, engine phases, VM sub-phases, measurement methodology).
-- **Startup metrics banner** in FloatingIssuesCard: shows "TTFF: X ms ·
-  TTI: Y ms" when startup data is available, tappable to open detail page.
-- **`IssueCategory.startup`** across all surfaces: SleuthTheme color token,
-  encyclopedia entry, FixHintBuilder, SessionMarkdownExporter section,
-  SessionSnapshot serialization.
-- **DetectorThresholds**: `startupTtffWarningMs` / `startupTtffCriticalMs`
-  with validation asserts.
+  progress bars, engine phases, VM sub-phases, methodology).
+- **Startup metrics banner** in FloatingIssuesCard: tappable "TTFF: X ms ·
+  TTI: Y ms" when data available.
+- **`IssueCategory.startup`** across SleuthTheme, encyclopedia, FixHintBuilder,
+  SessionMarkdownExporter, SessionSnapshot serialization.
+- **`DetectorThresholds.startupTtffWarningMs`/`CriticalMs`** with validation
+  asserts.
 
 ### Fixed
 
-- **Causal graph hid `layout_bottleneck` from UI**: 8 rules incorrectly
-  made `layout_bottleneck` a downstream effect (e.g., `setstate_scope →
-  layout_bottleneck`). When a root cause was present, the issue got a
-  `rootCauseId` and FloatingIssuesCard filtered it from the visible list.
-  Removed all 8 rules — `layout_bottleneck` is always a root cause, never
-  downstream. Rule count: 52 → 44.
-- **ShaderJankDetector Impeller noise**: Removed the `shader_impeller_inactive`
-  notice entirely. It fired on every page after ~2 seconds of VM polling,
-  producing noisy false positives. On Impeller, the detector now correctly
-  produces zero issues.
-- **`stateful_density` framework widget noise** (RebuildDetector): Added
-  32-entry `_frameworkWidgetNames` set and private-name filter so framework
-  widgets (Scaffold, Navigator, etc.) no longer inflate structural density.
-- **`shallow_rebuild_risk` framework noise**: Added `ScrollNotificationObserver`
-  to the suppressed framework widgets set.
-- **Clock-domain mismatch in TTFF**: Changed from monotonic `Timeline.now`
-  delta to wall-clock `DateTime.now()` diff, fixing ~5-50ms measurement skew.
-- **Deferred VM enrichment buffer**: `_PendingEngineEvents` now stores all
-  6 fields (4 VM sub-phases + 2 engine timestamps) so enrichment arriving
-  before the first-frame callback is not lost.
-- **Network issues persisted across routes**: Replaced time-based 30s
-  staleness eviction with route-transition clearing. Network issues (slow
-  requests, frequency spikes, large responses, error spikes, duplicates)
-  now persist on the current page until the user navigates away, then clear
-  immediately. Prevents stale issues from appearing on unrelated pages.
-- **`clearRecords()` did not clear `_activeRequests`**: In-flight request
-  tracking from the previous page persisted after route transition, causing
-  `pendingRequestSnapshot()` to report phantom pending requests.
-- **`_evaluateErrors` severity/detail domain mismatch**: `serverErrors` and
-  `transportFailures` were counted across the entire buffer but compared
-  against `peakCount` (peak 5-second window). Severity could escalate to
-  critical based on errors outside the peak window. Now all counts are
-  scoped to the peak window.
-- **In-flight responses from previous page leaked into new page**: HTTP
-  requests started on page A that completed after navigating to page B
-  were added to the buffer, causing issues to appear on unrelated pages.
-  `processRecord()` now drops records whose `startedAt` precedes the last
-  `clearRecords()` call via `_ignoreBeforeTimestamp`.
+- **Causal graph hid `layout_bottleneck` from UI**: 8 rules made it a
+  downstream effect (e.g. `setstate_scope → layout_bottleneck`). A downstream
+  issue gets a `rootCauseId` and FloatingIssuesCard filters it from the
+  visible list. Removed all 8 rules — `layout_bottleneck` is always a root
+  cause. Rule count: 52 → 44.
+- **`ShaderJankDetector` Impeller noise**: removed `shader_impeller_inactive`
+  notice (fired on every page after ~2s of VM polling). On Impeller the
+  detector now correctly produces zero issues.
+- **`stateful_density` framework widget noise**: 32-entry
+  `_frameworkWidgetNames` set + private-name filter in RebuildDetector.
+- **`shallow_rebuild_risk` framework noise**: `ScrollNotificationObserver`
+  added to suppressed set.
+- **Clock-domain mismatch in TTFF**: monotonic `Timeline.now` delta → wall-
+  clock `DateTime.now()` diff, fixes ~5-50ms skew.
+- **Deferred VM enrichment buffer**: `_PendingEngineEvents` now stores all 6
+  fields (4 VM sub-phases + 2 engine timestamps) — enrichment arriving before
+  first-frame callback no longer lost.
+- **Network issues persisted across routes**: time-based 30s staleness
+  eviction replaced with route-transition clearing. Issues persist on the
+  current page and clear on navigation.
+- **`clearRecords()` did not clear `_activeRequests`**: in-flight tracking
+  leaked across transitions, causing phantom pending-request reports.
+- **`_evaluateErrors` severity/detail domain mismatch**: `serverErrors` +
+  `transportFailures` were counted across the full buffer but compared
+  against the 5-second peak window. All counts now scoped to the peak window.
+- **In-flight responses from previous page leaked into new page**: requests
+  started on page A completing after navigating to B were added to the
+  buffer. `processRecord()` now drops records whose `startedAt` precedes
+  the last `clearRecords()` via `_ignoreBeforeTimestamp`.
 
 ## 0.12.2
 
-Post-Codex adversarial review hardening — three robustness fixes discovered
-via adversarial review of the v11 branch diff.
+Post-Codex adversarial review hardening — three robustness fixes on the v11 branch.
 
 ### Fixed
 
 - **Timeline pipeline exception isolation** (`SleuthController._onTimelineData`):
-  Added `try/finally` around `_isIteratingDetectors` flag and per-detector
-  `try/catch` around `processTimelineData` and `evaluateNow` calls, matching the
-  structural walk's existing isolation pattern. Previously, a throwing custom
-  detector in the VM pipeline could leave `_isIteratingDetectors = true`
-  permanently, deadlocking all future detector mutations.
-- **Encyclopedia placeholder leak** (`IssueEncyclopediaPage`): Raw `{widgetName}`
-  and `{count}` tokens were visible when browsing encyclopedia entries without a
+  `try/finally` around `_isIteratingDetectors` flag + per-detector `try/catch`
+  around `processTimelineData` and `evaluateNow`. Matches the structural walk's
+  isolation. A throwing custom detector in the VM pipeline used to leave
+  `_isIteratingDetectors = true` permanently, deadlocking detector mutations.
+- **Encyclopedia placeholder leak** (`IssueEncyclopediaPage`): raw
+  `{widgetName}` / `{count}` tokens were visible when browsing without a
   context issue. Now applies `IssueExplanationBuilder.substitute()` to all
-  entries with a static sentinel that triggers built-in fallbacks (`'the widget'`,
+  entries with a static sentinel triggering built-in fallbacks (`'the widget'`,
   `'several'`).
-- **Cookbook slow-frame detector staleness** (`SlowFrameDetector`): A single slow
-  frame could keep the detector reporting indefinitely because the rolling window
-  only tracked slow frames (fast frames never evicted stale entries). Added
-  `_TimestampedFrame` wrapper and 10-second age eviction in `finalizeScan()`.
+- **Cookbook `SlowFrameDetector` staleness**: one slow frame could keep the
+  detector reporting indefinitely because the rolling window only tracked
+  slow frames (fast frames never evicted). Added `_TimestampedFrame` wrapper
+  + 10s age eviction in `finalizeScan()`.
 
 ## 0.12.1
 
 Pillar 6 Part 2: Overlay UI, Diagnostics Output & Export — upgrades every
-consumer-facing surface a developer looks at during debugging. The trigger
-button, floating card, issue card, encyclopedia, and export path all gain new
-capabilities that make Sleuth's collected data visible, customizable, and
-shareable.
+consumer-facing surface (trigger button, floating card, issue card,
+encyclopedia, export path).
 
 ### Added
 
-- **Trigger button alignment config** (M1): `triggerButtonAlignment` and
-  `triggerButtonOffset` on `SleuthConfig` control initial placement. Supports
-  all four corners and center alignment.
-- **Minimize/maximize/restore controls** (M2): Three-state window mode
-  (`normal`, `minimized`, `maximized`) on the floating issues card. Minimized
-  collapses to a 54px header; maximized fills the screen minus safe area.
-  Pre-transition position and size are restored exactly.
-- **Recurrence badge on IssueCard** (M3): Shows trending direction
-  (escalating/stable/improving/new) from `RecurrenceTrend` data when available.
-- **Context-aware encyclopedia entries** (M4): `IssueExplanationBuilder.substitute()`
+- **M1 trigger button alignment**: `triggerButtonAlignment` +
+  `triggerButtonOffset` on `SleuthConfig`. Four corners + center.
+- **M2 minimize/maximize/restore**: 3-state window mode (`normal`/`minimized`/
+  `maximized`) on the floating issues card. Minimized collapses to 54px
+  header; maximized fills screen minus safe area; pre-transition geometry
+  restored exactly.
+- **M3 recurrence badge on IssueCard**: trending direction (escalating/stable/
+  improving/new) from `RecurrenceTrend`.
+- **M4 context-aware encyclopedia**: `IssueExplanationBuilder.substitute()`
   replaces `{widgetName}`, `{count}`, `{routeName}`, `{severity}`, `{title}`,
-  and `{stableId}` placeholders with values from the triggering issue. Seven
-  templates enriched with contextual placeholders.
-- **Inline confidence reasoning on IssueCard** (M5): Shows
-  `confidenceReason` text in expanded card when available.
-- **Dismissible debug-mode banner** (M6): Warning banner on `FloatingIssuesCard`
-  when `isDebugMode` is true. Tap X to dismiss; `showDebugModeBanner` config
-  option to suppress entirely.
-- **`Sleuth.exportSummary()` markdown export** (M7): Human-readable markdown
-  report with frame stats, top issues, and causal chains. Sized for pasting
-  into Slack or a PR description.
-- **Copy conversation button on AiChatPage** (M8): Serializes the full AI
-  chat thread plus issue context to markdown and writes to clipboard.
+  `{stableId}` with triggering issue values. 7 templates enriched.
+- **M5 inline confidence reasoning** on expanded IssueCard.
+- **M6 dismissible debug-mode banner** on `FloatingIssuesCard` when
+  `isDebugMode` is true. `showDebugModeBanner` config opt-out.
+- **M7 `Sleuth.exportSummary()`** markdown export — frame stats, top issues,
+  causal chains. Sized for Slack/PR paste.
+- **M8 copy-conversation button** on AiChatPage — full AI thread + issue
+  context to markdown on clipboard.
 
 ### Fixed
 
-- **Tooltip crash in overlay** (IssueCard): Replaced `Tooltip` widget in
-  `_confidenceBadge` with `Semantics`. Flutter 3.41.4's `Tooltip` uses
-  `OverlayPortal` which requires a `_RenderTheaterMarker` ancestor — absent
-  in Sleuth's bare `Overlay` stack. Confidence reason is now shown inline
-  when expanded (M5) and as a `Semantics` label for accessibility.
-- **Markdown escaping in copied conversation** (M8): `_copyConversation` now
-  escapes `\`, `*`, `` ` ``, `#`, `[`, `]`, `<`, `>`, `|` in issue titles,
-  confidence reasons, and message text to prevent GFM structure corruption.
-- **Markdown escaping in session export** (M7): `SessionMarkdownExporter._escape`
-  expanded from 2 to 8 characters, matching the full GFM-significant set.
-- **Recurrence badge overflow** (M3): Badge text now uses `maxLines: 1` with
-  `TextOverflow.ellipsis` and is wrapped in `Align(alignment: centerLeft)` to
-  prevent overflow on narrow cards.
-- **Semantic labels on interactive elements**: Added `Semantics` wrappers to
-  AI chat back/copy buttons and floating card window control buttons
-  (minimize, maximize, restore, dismiss debug banner).
-- **Cookbook TooltipUsageDetector false positives**: Added framework tooltip
-  message filter (`Back`, `Close`, `Open navigation menu`, etc.) so the
-  cookbook custom detector no longer flags standard Material widget tooltips
-  (e.g. AppBar back button) on every screen.
+- **Tooltip crash in overlay** (IssueCard): `Tooltip` in `_confidenceBadge`
+  → `Semantics`. Flutter 3.41.4's `Tooltip` uses `OverlayPortal` requiring
+  `_RenderTheaterMarker` ancestor — absent in Sleuth's bare `Overlay` stack.
+  Confidence reason now shown inline when expanded (M5) + as a11y label.
+- **M7/M8 GFM escaping**: `_copyConversation` + `SessionMarkdownExporter._escape`
+  now cover all 8 GFM-significant chars (`\`, `*`, `` ` ``, `#`, `[`, `]`,
+  `<`, `>`, `|`) vs previous 2. Prevents structure corruption in issue titles,
+  confidence reasons, message text.
+- **M3 recurrence badge overflow**: `maxLines: 1` + `TextOverflow.ellipsis` +
+  `Align(centerLeft)` to avoid overflow on narrow cards.
+- **Semantic labels** on AI chat back/copy and floating card window controls
+  (minimize/maximize/restore/dismiss-banner).
+- **Cookbook `TooltipUsageDetector` false positives**: framework tooltip
+  message filter (`Back`, `Close`, `Open navigation menu`, etc.) so AppBar
+  back button etc. no longer flagged on every screen.
 
 ## 0.12.0
 
-Pillar 6 Part 1: Public API & Authoring Surface — reduces friction at every
-consumer-facing API in Sleuth. Adds preset configuration constructors, threshold
-documentation, debug-mode validation, `Duration`-typed intervals, a
-`SimpleStructuralDetector` helper base class, key-based gating for custom
-detectors, and a three-file custom-detector cookbook in the example app.
+Pillar 6 Part 1: Public API & Authoring Surface — presets, threshold
+documentation, debug-mode validation, `Duration`-typed intervals,
+`SimpleStructuralDetector` base, key-based gating for custom detectors,
+three-file custom-detector cookbook.
 
 ### Breaking
 
-- **`SleuthConfig.treeScanInterval` now takes `Duration` instead of `int`
-  milliseconds.** The old `treeScanIntervalMs` field has been removed.
-  Rewrite:
+- **`SleuthConfig.treeScanInterval` now takes `Duration` instead of `int` ms.**
+  Old `treeScanIntervalMs` removed. `int ms` was the most frequent foot-gun
+  in user reports because nothing about the call site communicated the unit.
 
   ```dart
-  // Before
-  SleuthConfig(treeScanIntervalMs: 1000)
-
-  // After
-  SleuthConfig(treeScanInterval: Duration(seconds: 1))
+  // Before:  SleuthConfig(treeScanIntervalMs: 1000)
+  // After:   SleuthConfig(treeScanInterval: Duration(seconds: 1))
   ```
-
-  Raw millisecond parameters were the most frequent foot-gun in user reports
-  because nothing about `int ms` communicated the unit at the call site. The
-  new `Duration` API makes the unit a compile-time requirement.
 
 ### Added
 
-- **`SleuthConfig.minimal()` and `SleuthConfig.performance()` presets** (M1):
-  Two named factory constructors so new adopters don't need to read 25 field
-  docs to get started. `.minimal()` enables safe structural and runtime
-  detectors and disables opt-in features (network monitoring, debug callbacks,
-  deep instrumentation, AI chat). `.performance()` is tuned for low-overhead
-  profile runs — structural detectors only, 2 s scan interval, capture buffer
-  disabled.
-- **Threshold documentation** (M2): Every threshold parameter in `SleuthConfig`
-  and `DetectorThresholds` now has a doc comment answering: what does this
-  number mean, what's the default, and what happens if you raise or lower it?
-  Copy is verified against each detector's gating code so the empirical
-  claims ("values above 60 effectively disable the detector") match reality.
-- **Debug-mode assert validation** (M3): `SleuthConfig` and
-  `DetectorThresholds` constructors now fail fast in debug mode when given
-  values that would silently misbehave (negative intervals, thresholds above
-  their detector's cut-off, frequency windows that divide to zero).
-- **`SimpleStructuralDetector` helper** (M5): New public base class that
-  reduces custom structural-detector authoring from "implement 4 lifecycle
-  methods and understand the unified walk" to "override `inspect(Element)`
-  and call `report(...)` when you find a match." Handles the issue list,
-  highlight list, enabled flag, and per-scan reset automatically. Exported
-  from `package:sleuth/sleuth.dart`.
-- **Custom detector key gating** (M6): New `BaseDetector.key` field plus
-  `SleuthConfig.disabledCustomDetectorKeys: Set<String>`. Custom detectors
-  that set a stable `key` can now be disabled through configuration without
-  being removed from the detector list — useful for conditional enabling per
-  environment. Built-in detectors are unaffected (they're gated by
-  `DetectorType` via `enabledDetectors`).
-- **Custom detector cookbook** (M7): New `example/lib/custom_detectors/`
-  directory with three documented reference implementations covering the
-  three common shapes: `TooltipUsageDetector` (`SimpleStructuralDetector`),
-  `SlowFrameDetector` (runtime `BaseDetector` hooked to
-  `SchedulerBinding.addTimingsCallback`), and `RasterHotSpotDetector` (hybrid
-  `BaseDetector` combining VM raster timings with a structural walk). Each
-  file is a complete, heavily-commented implementation. The cookbook ships
-  with a README index, a new "Custom Detector Cookbook" demo screen in the
-  example app wired into `Sleuth.track`, and an
-  `example/test/cookbook_smoke_test.dart` that validates every detector
-  compiles against the public `package:sleuth/sleuth.dart` barrel and flags
-  Tooltips end-to-end on a real widget tree.
+- **M1 `SleuthConfig.minimal()` / `.performance()` presets**. `.minimal()`
+  enables safe structural + runtime detectors and disables opt-ins (network,
+  debug callbacks, deep instrumentation, AI chat). `.performance()` is tuned
+  for low-overhead profile runs (structural only, 2s scan interval, capture
+  buffer off).
+- **M2 threshold documentation**: every `SleuthConfig` + `DetectorThresholds`
+  threshold has a doc comment (meaning, default, tuning effect). Copy
+  verified against each detector's gating code.
+- **M3 debug-mode assert validation**: `SleuthConfig` + `DetectorThresholds`
+  constructors fail fast in debug for misbehaving values (negative intervals,
+  thresholds above detector cut-offs, frequency windows dividing to zero).
+- **M5 `SimpleStructuralDetector`** helper base class — override `inspect(Element)`
+  + call `report(...)` instead of implementing 4 lifecycle methods. Handles
+  issue list, highlight list, enabled flag, per-scan reset. Exported from
+  `package:sleuth/sleuth.dart`.
+- **M6 custom detector key gating**: `BaseDetector.key` +
+  `SleuthConfig.disabledCustomDetectorKeys: Set<String>`. Stable-keyed
+  customs can be disabled via config without being removed from the list.
+  Built-ins are gated by `DetectorType` via `enabledDetectors`.
+- **M7 custom detector cookbook** — `example/lib/custom_detectors/`:
+  `TooltipUsageDetector` (`SimpleStructuralDetector`), `SlowFrameDetector`
+  (runtime + `SchedulerBinding.addTimingsCallback`), `RasterHotSpotDetector`
+  (hybrid: VM raster timings + structural walk). README index, cookbook demo
+  screen wired into `Sleuth.track`, `example/test/cookbook_smoke_test.dart`
+  validates each against the public `package:sleuth/sleuth.dart` barrel.
 
 ### Fixed
 
-- **Real-device first-launch VM connection**: Replaced `Service.getInfo()`
-  with `Service.controlWebServer(enable: true)` to proactively start the VM
-  web server on cold start. Previously, launching via USB/WiFi from Android
-  Studio or terminal could leave Sleuth stuck in BASIC/FRAME mode for the
-  entire session because the VM web server hadn't bound its port yet.
-  - 3 s owned-timer timeout (avoids `Future.timeout` timer leak in tests)
-  - `_connectInFlight` concurrency guard prevents duplicate connect attempts
-  - IPv4→localhost rewrite enables dual-stack Happy Eyeballs resolution
-  - Background reconnect ladder (500 ms → 30 s, 7 attempts) when initial
-    connect fails, with mid-session VM death recovery
+- **Real-device first-launch VM connection**: `Service.getInfo()` →
+  `Service.controlWebServer(enable: true)` to proactively start the VM web
+  server on cold start. USB/WiFi launches from Android Studio used to leave
+  Sleuth stuck in BASIC/FRAME mode the entire session because the web server
+  hadn't bound its port.
+  - 3s owned-timer timeout (no `Future.timeout` leak in tests)
+  - `_connectInFlight` concurrency guard
+  - IPv4→localhost rewrite for dual-stack Happy Eyeballs
+  - Background reconnect ladder (500ms → 30s, 7 attempts) with mid-session
+    VM-death recovery
   - Manual `reconnect()` method for "Tap to reconnect" overlay hook
-- **frameStatsNotifier self-feedback loop**: Throttled notifier emission to
-  ~5 Hz (200 ms minimum). Previously, 60 Hz emission caused Sleuth's own
-  overlay rebuilds to dominate the VM build-event count and trigger false
-  `rebuild_activity` on idle screens.
-- **Unified walk exception isolation**: Per-detector try/catch in the tree
-  walk visitor. Previously, one custom detector throwing in `checkElement`
-  would kill the walk for all 16 detectors and skip the entire subtree.
-- **Post-dispose continuation guards**: Added `_disposed` checks after every
-  `await` in `VmServiceClient._connectImpl` to prevent leaked VmService
-  instances and poll timers when dispose races with connection setup.
-- README quick-start now shows `SleuthConfig.minimal()` alongside the full
-  configuration snippet so first-time adopters see the easy path first.
+- **`frameStatsNotifier` self-feedback loop**: notifier throttled to ~5 Hz
+  (200ms min). 60 Hz emission made Sleuth's own overlay rebuilds dominate
+  VM build-event counts and trip false `rebuild_activity` on idle screens.
+- **Unified walk exception isolation**: per-detector try/catch in the visitor.
+  One throwing custom detector in `checkElement` used to kill the walk for
+  all 16 detectors and skip the entire subtree.
+- **Post-dispose guards**: `_disposed` checks after every `await` in
+  `VmServiceClient._connectImpl` to prevent leaked VmService instances +
+  poll timers when dispose races with connect setup.
+- README quick-start shows `SleuthConfig.minimal()` alongside the full config.
 
 ### Tests
 
-- 1,869 tests passing (1,825 → 1,869, +44 across M1–M7 + VM connection +
-  throttle coverage).
-- 5 cookbook smoke tests in the `example/` package confirm the cookbook
-  compiles against the public API and flags tree content correctly.
+- 1,825 → 1,869 (+44 across M1–M7, VM connection, throttle coverage).
+- 5 cookbook smoke tests in `example/` confirm public-API compilation +
+  live tree flagging.
 
 ## 0.11.1
 
 Pillar 5 Part 2: Demo Quality Enhancements & Combined Demos — Before/After toggle,
-live metrics bars, reproduction instructions, and two realistic multi-detector
-scenarios (E-Commerce and Chat). Three adversarial review rounds, 18 findings resolved
-(9 Pillar 5 Part 2 + 4 demo polish + 5 demo↔detector alignment) plus a
-`KeepAliveDetector` false-positive bug fix discovered during the chat demo migration.
+live metrics bars, reproduction instructions, and two multi-detector scenarios
+(E-Commerce + Chat). Three adversarial review rounds, 18 findings resolved (9
+P5P2 + 4 polish + 5 demo↔detector alignment) plus a `KeepAliveDetector`
+false-positive fix uncovered during chat demo migration.
 
-### Demo Quality Enhancements (Pillar 5, Part 2)
+### Added (M8–M14)
 
-- **Before/After toggle in DemoScaffold** (M8): Upgraded `DemoScaffold` from `StatelessWidget`
-  to `StatefulWidget`. When a demo supplies a `fixedBody`, a Material 3 `SegmentedButton`
-  appears just below the AppBar letting developers switch between the anti-pattern and its
-  corrected version in-place. The ternary swap in the build tree fully unmounts the hidden
-  side, so timers, animations, and controllers in the non-visible subtree stop automatically.
-  An optional `onToggle` callback lets demos reset counters or pause global callbacks when
-  the user flips the switch.
-- **Fixed-pattern implementations for all 23 demos** (M9): Every existing demo now ships a
-  real, working "Fixed Pattern" body — not a text description. Each fix matches what the
-  detector is meant to catch: `ValueNotifier` + `ValueListenableBuilder` for setState scope,
-  `ListView.builder` + `itemExtent` for non-lazy lists, `cacheWidth`/`cacheHeight` for
-  image memory, `GlobalKey` stored as `final` fields, extracted `AnimatedBuilder.child`,
-  `Isolate.run()` for heavy compute, and so on.
-- **Live metrics bar** (M10): New `MetricsBar` + `MetricChip` widgets render a compact row
-  of live counters between the description and the body. Wired into `high_level_setstate`
-  (Bad/Fixed rebuilds), `non_lazy_list` (built widgets), `heavy_compute` (compute time ms),
-  `fps_stress_test` (live FPS via `SchedulerBinding.addTimingsCallback`), `repaint_stress`
-  (paints/sec sliding window), `network_stress` (request count), and `memory_pressure`
-  (retained MB). Counters reset on toggle so the Before/After comparison is honest.
-- **Reproduction instructions on every demo** (M11): Every `description` string now follows
-  the `❌ BAD / ✅ FIX / ▶ <action>` format with an explicit imperative action telling the
-  developer what to tap, scroll, or watch to see Sleuth flag the issue.
-- **Combined E-Commerce Page demo** (M12): New `combined_ecommerce_demo.dart` — a realistic
-  product detail page that stacks 5 anti-patterns: 6-hero carousel with full-resolution
-  images (ImageMemory), rotating price `AnimatedBuilder` with no extracted child, size chip
-  row wrapped in `IntrinsicHeight` (LayoutBottleneck), 200-review non-lazy `ListView`, and
-  4 `GlobalKey()` instances created fresh on every build. The fixed body applies every
-  corresponding fix including a `Visibility` swap for the previously `Opacity(0.0)` loading
-  banner.
-- **Combined Chat App demo** (M13): New `combined_chat_demo.dart` — a tabbed messaging
-  interface with 5 conversations, all using `AutomaticKeepAliveClientMixin` (KeepAlive),
-  uncached circular avatars (ImageMemory), a 40ms simulated-platform-channel "typing"
-  poll (PlatformChannelTraffic at 25 calls/sec — above the 20/sec threshold), and
-  top-level `setState` on every incoming message (SetStateScope + Rebuild). The fixed
-  body debounces the typing poll, caps keep-alive to 2 tabs, isolates the message list
-  in a `ValueNotifier`, and extracts the text input into its own `StatefulWidget`.
-  `debugProfilePlatformChannels` is saved/restored on dispose and never clobbers a
-  developer's global setting.
-- **Home screen wiring** (M14): Added E-Commerce and Chat entries to the "Combined" category
-  in `main.dart`. Demo count: 23 → 25.
+- **M8 Before/After toggle in DemoScaffold**: upgraded to `StatefulWidget`.
+  When a demo supplies `fixedBody`, a `SegmentedButton` swaps the anti-pattern
+  for its fix in-place. The ternary fully unmounts the hidden side so timers/
+  animations/controllers stop automatically. Optional `onToggle` callback.
+- **M9 Fixed-pattern implementations for all 23 demos** — real working fix
+  bodies, not text: `ValueNotifier` + `ValueListenableBuilder` for setState
+  scope, `ListView.builder` + `itemExtent`, `cacheWidth/Height`, `GlobalKey`
+  as final fields, extracted `AnimatedBuilder.child`, `Isolate.run()`, etc.
+- **M10 Live metrics bar** — `MetricsBar` + `MetricChip`. Wired into
+  `high_level_setstate` (Bad/Fixed rebuilds), `non_lazy_list` (built count),
+  `heavy_compute` (ms), `fps_stress_test` (FPS via
+  `SchedulerBinding.addTimingsCallback`), `repaint_stress` (paints/sec
+  sliding window), `network_stress` (request count), `memory_pressure`
+  (retained MB). Resets on toggle.
+- **M11 `❌ BAD / ✅ FIX / ▶ <action>` format** on every demo description.
+- **M12 Combined E-Commerce demo** — 5 anti-patterns: 6-hero carousel
+  full-res (ImageMemory), rotating price `AnimatedBuilder` no child, size
+  chip row in `IntrinsicHeight` (LayoutBottleneck), 200-review non-lazy
+  `ListView`, 4 `GlobalKey()` per build. Fixed body: all fixes + `Visibility`
+  swap for previously `Opacity(0.0)` banner.
+- **M13 Combined Chat demo** — tabbed 5-conversation UI using
+  `AutomaticKeepAliveClientMixin` (KeepAlive), uncached circular avatars
+  (ImageMemory), 40ms simulated-channel typing poll (PlatformChannelTraffic
+  at 25 calls/sec > 20/sec threshold), top-level `setState` per message
+  (SetStateScope + Rebuild). Fixed body debounces the poll, caps keep-alive
+  to 2 tabs, isolates message list in `ValueNotifier`, extracts text input
+  into own `StatefulWidget`. `debugProfilePlatformChannels` saved/restored
+  on dispose.
+- **M14 Home screen wiring**: E-Commerce + Chat in "Combined" category. Demo
+  count 23 → 25.
 
-### Adversarial Review Findings (Pillar 5 Part 2)
+### Adversarial Review (P5P2, 9 findings)
 
-Two rounds of review focused on (a) whether the "fix" in each demo actually eliminates the
-detector rather than merely masking it, and (b) whether the new `StatefulWidget` demos
-leak timers, controllers, or client handles on dispose or navigation-away. 9 real findings
-across 3 demos, all resolved.
+Focused on: (a) does each demo's "fix" actually eliminate the detector vs
+merely mask it; (b) do new StatefulWidget demos leak timers/controllers/
+client handles.
 
-- **FAB double-action neutralizes the fix** (CRITICAL, three demos): In
-  `combined_analytics_dashboard_demo.dart`, `combined_social_feed_demo.dart`, and
-  `high_level_setstate_demo.dart`, the FAB handler called both `_counter++ +
-  fixedCounter.value++` AND `setState(() {})` unconditionally. Even when the user had
-  switched to the fixed body, the outer `State`'s top-level `setState` rebuilt the entire
-  subtree — burying the `ValueListenableBuilder`'s isolated update and hiding the fix the
-  demo was meant to demonstrate. Most severe in `high_level_setstate_demo` because
-  `_FixedBody`/`_FixedGrid` are not `const`, so the top-level rebuild hit every tile.
-  **Fix:** Added an `_isFixed` field synced via `onToggle`; the FAB only calls `setState`
-  when `!_isFixed`, so the fixed path's isolated rebuild is actually isolated.
-- **E-Commerce hero carousel never reached ImageMemoryDetector threshold** (CRITICAL):
-  `ImageMemoryDetector` flags at `count > 5`, but the demo's horizontal
-  `ListView.builder` only realized 2–4 hero items due to the default 250px cacheExtent on
-  phones — the 6-hero carousel never actually placed >5 `Image.network` widgets in the
-  tree simultaneously, so the detector silently never fired. **Fix:** Converted both bad
-  and fixed hero carousels to `SingleChildScrollView` + `Row`, forcing all 6 heroes into
-  the element tree. The fixed version still shows the `cacheWidth: 520` improvement.
-- **E-Commerce "fixed" reviews ListView wasn't actually paginated** (HIGH): The fixed body
-  used `ListView.builder(shrinkWrap: true, physics: NeverScrollableScrollPhysics)` inside
-  a `SingleChildScrollView`. Under infinite main-axis constraints, `shrinkWrap` still
-  realizes every one of the 200 items — the "pagination" fix didn't paginate anything.
-  **Fix:** Wrapped the inner `ListView.builder` in `SizedBox(height: 480)` to give it a
-  bounded viewport; only the visible window is realized.
-- **HttpClient leak on mid-request dispose** (HIGH, `network_stress_demo.dart`):
-  `_triggerFrequencySpike` awaited `Future.wait([40 gets])` and then early-returned on
-  `!mounted` before closing the `HttpClient`. Navigating away mid-flight leaked the client
-  until GC. **Fix:** Moved `client.close(force: true)` into a `finally` block so cleanup
-  runs on every exit path.
-- **Unbounded log growth** (MEDIUM, `network_stress_demo.dart`): `_log` grew by every
-  toggle and tap; long demo sessions janked the `ListView` rendering it. **Fix:** Added
-  `_maxLogLines = 200` with trim-on-append in `_addLog`.
-- **Unbounded message list growth** (MEDIUM, `combined_chat_demo.dart`): The 40ms message
-  arrival timer did `[...notifier.value, msg]` on every tick. Long sessions would blow
-  past 1,000 messages per tab. **Fix:** Added `_maxMessagesPerTab = 100` via an
-  `_appendCapped` helper that drops the oldest entry when full.
-- **Narrow exception handling in typing poll** (LOW, `combined_chat_demo.dart`):
-  `_startBadTypingPoll` only caught `MissingPluginException` and `PlatformException` —
-  any other throw tore down the demo. **Fix:** Added a defensive `catch (_)` fallback
-  plus a `mounted` guard so the poll keeps running if the platform side misbehaves.
+- **CRITICAL FAB double-action neutralized fix** (3 demos:
+  `combined_analytics_dashboard`, `combined_social_feed`, `high_level_setstate`):
+  FAB called both counter++ AND unconditional `setState(() {})`. Even with
+  fixed body switched on, outer State's top-level setState rebuilt the whole
+  subtree, burying `ValueListenableBuilder`'s isolated update. Worst in
+  `high_level_setstate` because `_FixedBody`/`_FixedGrid` aren't const —
+  top-level rebuild hit every tile. Fix: `_isFixed` field synced via
+  `onToggle`; FAB only setStates when `!_isFixed`.
+- **CRITICAL E-Commerce hero carousel never reached ImageMemoryDetector
+  threshold**: detector fires at `count > 5`, but horizontal `ListView.builder`
+  only realized 2–4 hero items due to 250px default `cacheExtent`. Fix:
+  `SingleChildScrollView` + `Row` forces all 6 heroes into the tree; fixed
+  version keeps `cacheWidth: 520`.
+- **HIGH "fixed" reviews ListView wasn't paginated**:
+  `ListView.builder(shrinkWrap: true, physics: NeverScrollable)` inside
+  `SingleChildScrollView` under infinite main-axis constraints realizes every
+  one of 200 items. Fix: `SizedBox(height: 480)` bounds the inner viewport;
+  ~8 items realized.
+- **HIGH HttpClient leak on mid-request dispose** (`network_stress_demo`):
+  `_triggerFrequencySpike` awaited `Future.wait([40 gets])` then early-
+  returned on `!mounted` before `client.close`. Fix: moved close into
+  `finally`.
+- **MEDIUM unbounded log growth** (`network_stress_demo`): `_maxLogLines = 200`
+  with trim-on-append.
+- **MEDIUM unbounded message list growth** (`combined_chat_demo`): 40ms timer
+  did `[...notifier.value, msg]` per tick. `_maxMessagesPerTab = 100` via
+  `_appendCapped` helper dropping oldest when full.
+- **LOW narrow exception handling in typing poll**
+  (`combined_chat_demo._startBadTypingPoll`): only caught
+  `MissingPluginException` + `PlatformException`. Added `catch (_)` fallback
+  + `mounted` guard.
 
-Self-attacks on the fixes (second-order regressions checked): the `_isFixed` gate uses a
-single boolean synced synchronously from `onToggle`; there's no path where the FAB fires
-before the toggle completes, because `setState` in `DemoScaffold._handleToggle` runs before
-`widget.onToggle?.call`. The `try/finally` in `_triggerFrequencySpike` runs even on
-throw-during-await, so `client.close` is guaranteed. The 480px review viewport is large
-enough to show a page of reviews on phones but small enough that the `ListView.builder`
-only realizes ~8 items at a time.
+Second-order checks: `_isFixed` gate is synchronous from `onToggle` (setState
+in `_handleToggle` runs before `widget.onToggle?.call`); `try/finally` in
+`_triggerFrequencySpike` runs on throw-during-await; 480px review viewport
+shows a page but only realizes ~8 items.
 
-### KeepAliveDetector False-Positive Bug Fix (uncovered during chat demo migration)
+### KeepAliveDetector False-Positive Fix
 
-Symptom: the chat demo's fixed mode (only 2 of 6 tabs opting in) still reported "excessive
-keep-alive" — same as the bad mode. Investigation revealed two layered bugs in
-`KeepAliveDetector`:
+Symptom: chat fixed mode (2 of 6 tabs opting in) reported the same "excessive
+keep-alive" as bad mode. Two layered bugs:
 
-1. The detector matched `KeepAlive` widgets by type name, but Flutter's
-   `AutomaticKeepAlive.build()` ALWAYS wraps its child in `KeepAlive(keepAlive: ...)` —
-   so a string match counts every page regardless of opt-in.
-2. Falling back to `element.widget.keepAlive` is also wrong: `AutomaticKeepAlive` updates
-   the child render object's parent data via `ParentDataElement.applyWidgetOutOfTurn()`,
-   which mutates the render object but does NOT replace `element.widget`. So
-   `widget.keepAlive` stays at the stale `false` from the very first build, even after
-   the keep-alive flips to `true`.
+1. Detector matched `KeepAlive` widgets by type name, but Flutter's
+   `AutomaticKeepAlive.build()` ALWAYS wraps its child in
+   `KeepAlive(keepAlive: ...)` — string match counts every page regardless.
+2. Fallback to `element.widget.keepAlive` is also wrong: `AutomaticKeepAlive`
+   updates the child render object's parent data via
+   `ParentDataElement.applyWidgetOutOfTurn()` — it mutates the render object
+   but does NOT replace `element.widget`, so `widget.keepAlive` stays stale
+   at the initial `false`.
 
-**Fix:** Read `element.renderObject.parentData` and cast to `KeepAliveParentDataMixin`.
-That's the authoritative signal that the framework itself uses for retention decisions.
-Added `_isActiveKeepAlive()` helper in `lib/src/detectors/keep_alive_detector.dart`.
+Fix: read `element.renderObject.parentData` and cast to
+`KeepAliveParentDataMixin` — the authoritative framework signal. New
+`_isActiveKeepAlive()` helper in `keep_alive_detector.dart`. 2 regression
+tests (`_OptOutKeepAlivePage`, `_ConfigurableKeepAlivePage`). Test count:
+1,823 → 1,825.
 
-Added 2 regression tests in `test/detectors/keep_alive_detector_test.dart`:
-`_OptOutKeepAlivePage` (all `wantKeepAlive=false`, must NOT fire) and
-`_ConfigurableKeepAlivePage` (mixed wantKeepAlive, mirrors the chat demo fixed pattern).
-Test count: 1,823 → 1,825.
+### Review Round 5 — Migrated Demo Polish (4 findings)
 
-### Adversarial Review Round 5 — Migrated Demo Polish (4 findings)
+1. **CRITICAL `non_lazy_list_demo`**: `builtCount.value = 0` at build start.
+   On rebuild, `notifyListeners` marked ancestor `ValueListenableBuilder` in
+   MetricsBar dirty during build phase, risking "setState during build"
+   assert. Fix: reset moved to `_handleToggle`.
+2. **TEXT `combined_chat_demo`**: description said "cacheWidth: 48" vs code's
+   `64`; comment said "48px for 24×24" vs 32×32 display. Aligned to 64 and
+   32×32.
+3. **TEXT `combined_ecommerce_demo`**: description "cacheWidth: 400" vs code
+   `520`. Aligned.
+4. **CONVENTION `fps_stress_test_demo`**: missing `▶ action` marker.
 
-A dedicated review pass over the demos migrated to `DemoScaffold` in M9:
+### Review Round 6 — Demo ↔ Detector Alignment (5 findings)
 
-1. **CRITICAL `non_lazy_list_demo.dart`**: `_BadBody.build()` and `_FixedBody.build()` both
-   contained `builtCount.value = 0;` at the start of build. On rebuild (after the post-frame
-   callback had set the counter non-zero), this called `notifyListeners` which marked the
-   ancestor `ValueListenableBuilder` in MetricsBar dirty during the build phase, risking
-   "setState or markNeedsBuild called during build" assertion. **Fix:** removed in-build
-   reset; reset moved to `_handleToggle` (outside build phase). Kept `var running = 0;` +
-   post-frame publish pattern.
-2. **TEXT `combined_chat_demo.dart`**: description said "cacheWidth: 48" but code uses `64`;
-   code comment said "48px for 24×24 avatars" but avatars display 32×32. Aligned to 64 and
-   32×32 for high-DPI.
-3. **TEXT `combined_ecommerce_demo.dart`**: description said "cacheWidth: 400" but code uses
-   `520`. Aligned to 520.
-4. **CONVENTION `fps_stress_test_demo.dart`**: missing `▶ action` marker. Added.
+Tightened detectors (Pillars 2a/2b/3a/3b + v11 audit) had silently drifted
+demos below trigger threshold.
 
-### Adversarial Review Round 6 — Demo ↔ Detector Alignment (5 findings)
+| # | Demo | Cause | Fix |
+|---|------|-------|-----|
+| 1 | `global_key_demo` | 15 keys but `threshold = 20`; description mis-stated as 10 | `_itemCount` → 25; corrected description |
+| 2 | `non_lazy_list_demo` | 40 children but `childThreshold = 50` (fires on `> 50`) | `_itemCount` → 60 |
+| 3 | `animated_builder_demo` | 6 bars built ~14-widget subtree, below `minSubtreeSize = 50` | `_barCount = 12`; richer `Row(SizedBox(label) + Expanded(LinearProgressIndicator) + SizedBox(%))` → ~135 widgets. `_StaticBarColumn` mirrors |
+| 4 | `combined_analytics_dashboard_demo` | 25 tiles below ListView threshold; 25 GlobalKeys in `SingleChildScrollView+Column` (wrong scope — excessive branch gated by `_isInListLikeScrollable`); recreation never fired because keys were stable final `_tileKeys` | `_tileCount` → 60; removed `_tileKeys`; in-build `final tileKeys = List.generate(...)`; wrapped `_BadDashboard` in outer `AnimatedBuilder(animation: _controller)` for per-tick rebuilds. Nets: ListviewDetector (60>50) AND GlobalKey **recreation** (`churnCount = 60 ≥ 5`). Mirrors `combined_ecommerce_demo`'s pattern |
+| 5 | `nested_scroll_demo` | ONE `SingleChildScrollView` with 30 children — no nesting AND below threshold. `NestedScrollDetector` needs `parentAxis != null && scrollAxis == parentAxis` + `childCount > 50` | `_itemCount` → 60; wrapped in outer `SingleChildScrollView > Column > SizedBox(height: 480) > SingleChildScrollView`. Bounded 480px viewport keeps inner scrollable from crashing on unbounded height |
 
-A focused pass that asked: **does each demo actually fire the detector it claims to
-demonstrate, given today's tightened thresholds?** Detectors have been narrowed across
-multiple pillars (Pillar 2a hot-path, Pillar 2b lazy init, Pillar 3a/3b enrichment, the
-v11 detector audit) and several demos had silently drifted below their trigger threshold —
-they showed pretty UI but produced zero issue cards.
+**Key insight:** `GlobalKeyDetector` has **two modes with different scoping**.
+Excessive branch (`global_key_detector.dart:131`) is gated by
+`_isInListLikeScrollable` (only counts inside LV/GV/PV). Recreation branch
+(`global_key_detector.dart:113-116`) collects `identityHashCode(key)`
+**globally** in `checkElement`, NOT gated by scrollable scope. Trigger
+recreation by allocating new keys inside any repeatedly-built widget.
 
-| # | Demo | Root cause | Resolution |
-|---|------|-----------|-----------|
-| 1 | `global_key_demo.dart` | 15 keys but `GlobalKeyDetector.threshold = 20`; description mis-stated threshold as 10 | Bumped `_itemCount` to 25; corrected description |
-| 2 | `non_lazy_list_demo.dart` | 40 children but `ListviewDetector.childThreshold = 50` (fires on `> 50`) | Bumped `_itemCount` to 60 |
-| 3 | `animated_builder_demo.dart` | 6 progress bars built a ~14-widget subtree, well below `AnimatedBuilderDetector.minSubtreeSize = 50` | Added `_barCount = 12`; enriched each row to `Row(SizedBox(label) + Expanded(LinearProgressIndicator) + SizedBox(percentage))`. Total subtree ≈ 135 widgets. `_StaticBarColumn` mirrors the structure for the fixed path |
-| 4 | `combined_analytics_dashboard_demo.dart` | 25 tiles below ListView threshold; 25 GlobalKeys lived in `SingleChildScrollView+Column` (wrong scope — excessive branch only counts inside LV/GV/PV); recreation branch never fired because keys were a stable `final List<GlobalKey> _tileKeys` State field | Bumped `_tileCount` to 60; removed `_tileKeys` field; moved key allocation INSIDE `_BadDashboard.build()` as `final tileKeys = List.generate(...)`; wrapped `_BadDashboard` in an outer `AnimatedBuilder(animation: _controller)` so every tick rebuilds the bad subtree. Net effect: ListviewDetector fires (60 > 50) AND GlobalKey **recreation** fires (`churnCount = 60 ≥ recreationThreshold = 5`). Mirrors the same outer-AnimatedBuilder pattern used in `combined_ecommerce_demo.dart` |
-| 5 | `nested_scroll_demo.dart` | Original demo had ONE `SingleChildScrollView` with 30 children — no actual nesting AND below threshold. `NestedScrollDetector` requires `parentAxis != null && scrollAxis == parentAxis` AND `childCount > 50` | Bumped `_itemCount` to 60; wrapped inner SCSV in `SingleChildScrollView > Column > SizedBox(height: 480) > SingleChildScrollView`. The bounded 480px viewport keeps the inner scrollable from crashing on unbounded height while preserving the same-axis nesting |
-
-**Key insight uncovered:** `GlobalKeyDetector` has **two modes with different scoping**.
-The **excessive** branch (`global_key_detector.dart:131`) is gated by
-`_isInListLikeScrollable` and only counts keys inside `ListView/GridView/PageView`. The
-**recreation** branch (`global_key_detector.dart:113-116`) collects
-`identityHashCode(key)` **globally** in `checkElement`, NOT gated by scrollable scope. So
-you can trigger recreation by allocating new `GlobalKey` instances inside any widget's
-`build()` — as long as the build runs repeatedly. The combined_analytics fix exploits this
-exactly.
-
-**Demos audited and dismissed (no fix needed):** `custom_painter_demo`,
-`font_loading_demo`, `gpu_pressure_demo`, `heavy_compute_demo`, `high_level_setstate_demo`,
-`intrinsic_height_demo`, `network_stress_demo`, `opacity_zero_demo`,
-`platform_channel_demo`, `repaint_boundary_demo`, `repaint_stress_demo`, `shader_jank_demo`,
-`shallow_rebuild_risk_demo`, `uncached_image_demo`, `combined_chat_demo`,
-`combined_ecommerce_demo`, `combined_social_feed_demo`. Each was traced through its
-detector's `checkElement` path with current thresholds and confirmed to still fire.
-
-### Files Changed (Pillar 5 Part 2)
-
-| File | Change |
-|------|--------|
-| `example/lib/demo_scaffold.dart` | Upgraded to `StatefulWidget`; added `fixedBody`, `onToggle`, `metricsBar`; added `MetricsBar` + `MetricChip` helpers |
-| `example/lib/demos/combined_chat_demo.dart` | New — tabbed chat with 5 anti-patterns, bounded message list, save/restore of `debugProfilePlatformChannels`, broad exception handling |
-| `example/lib/demos/combined_ecommerce_demo.dart` | New — product detail page with 5 anti-patterns, bounded-height reviews list, hero carousel via `Row` (not `ListView.builder`) |
-| `example/lib/demos/combined_analytics_dashboard_demo.dart` | Migrated to `DemoScaffold` with `fixedBody`; added `_isFixed` FAB gate |
-| `example/lib/demos/combined_social_feed_demo.dart` | Migrated to `DemoScaffold` with `fixedBody`; added `_isFixed` FAB gate |
-| `example/lib/demos/high_level_setstate_demo.dart` | Added `fixedBody` + `_isFixed` FAB gate; dual rebuild counters |
-| `example/lib/demos/network_stress_demo.dart` | `HttpClient` try/finally leak fix; `_log` capped at 200 lines; added `_triggerCached` and `_triggerPaginated` fixed-body actions |
-| `example/lib/demos/heavy_compute_demo.dart` | Added `Isolate.run` fixed body with compute-time metric chip |
-| `example/lib/demos/fps_stress_test_demo.dart` | Added debounced/cached fixed body with live FPS metric chip |
-| `example/lib/demos/non_lazy_list_demo.dart` | Added `ListView.builder` fixed body with built-widgets metric chip |
-| `example/lib/demos/repaint_stress_demo.dart` | Added `RepaintBoundary`-wrapped fixed body with paints/sec metric chip |
-| `example/lib/demos/memory_pressure_demo.dart` | Added bounded-pool fixed body |
-| `example/lib/demos/intrinsic_height_demo.dart`, `opacity_zero_demo.dart`, `custom_painter_demo.dart`, `font_loading_demo.dart`, `uncached_image_demo.dart`, `shallow_rebuild_risk_demo.dart`, `keepalive_demo.dart`, `shader_jank_demo.dart`, `platform_channel_demo.dart`, `gpu_pressure_demo.dart`, `repaint_boundary_demo.dart` | Migrated to `DemoScaffold.fixedBody` with real corrected implementations |
-| `example/lib/main.dart` | Added E-Commerce and Chat route entries in the Combined category |
-| `lib/src/detectors/keep_alive_detector.dart` | Bug fix: read `KeepAliveParentDataMixin` from render-object parent data instead of stale `widget.keepAlive` (added `_isActiveKeepAlive` helper) |
-| `test/detectors/keep_alive_detector_test.dart` | Added 2 regression tests: `_OptOutKeepAlivePage`, `_ConfigurableKeepAlivePage` |
-| `example/lib/demos/global_key_demo.dart` | Round 6: 15 → 25 keys (above `threshold=20`); corrected description |
-| `example/lib/demos/non_lazy_list_demo.dart` | Round 6: 40 → 60 children (above `childThreshold=50`); Round 5: removed in-build counter reset (race) |
-| `example/lib/demos/animated_builder_demo.dart` | Round 6: 6 → 12 progress bars + richer Row structure (~135 widgets > `minSubtreeSize=50`); `_StaticBarColumn` mirrors |
-| `example/lib/demos/combined_analytics_dashboard_demo.dart` | Round 6: 25 → 60 tiles; in-build `GlobalKey` allocation; outer `AnimatedBuilder` wrap forces per-tick rebuilds → ListView (60>50) AND GlobalKey recreation (churnCount=60≥5) both fire |
-| `example/lib/demos/nested_scroll_demo.dart` | Round 6: 30 → 60 children; added outer `SingleChildScrollView > Column > SizedBox(480)` wrapper (original demo had no nesting at all) |
+**Demos dismissed (already fire):** `custom_painter`, `font_loading`,
+`gpu_pressure`, `heavy_compute`, `high_level_setstate`, `intrinsic_height`,
+`network_stress`, `opacity_zero`, `platform_channel`, `repaint_boundary`,
+`repaint_stress`, `shader_jank`, `shallow_rebuild_risk`, `uncached_image`,
+`combined_chat`, `combined_ecommerce`, `combined_social_feed`. Each traced
+through `checkElement` against current thresholds.
 
 ## 0.11.0
 
-Pillar 5 Part 1: Demo Infrastructure & Missing Detector Demos — DemoScaffold shared
-layout, 5 new demos, and categorized home screen navigation.
+Pillar 5 Part 1: Demo Infrastructure & Missing Detector Demos — DemoScaffold +
+5 new demos + categorized home screen. Two adversarial review rounds.
 
-### Demo Infrastructure (Pillar 5, Part 1)
+### Added (M1–M7)
 
-- **DemoScaffold** (M1): Shared scaffold with collapsible description banner, AppBar, and
-  Expanded body slot. All 23 demos use consistent layout with `BAD:`/`FIX:` annotations.
-- **Shader Jank demo** (M2): Navigates to a page with BackdropFilter(σ=20), ShaderMask,
-  ColorFiltered, and combined effects. Includes Impeller caveat (pre-compiled shaders).
-- **Platform Channel Traffic demo** (M3): Rapid fire (50 concurrent calls), sustained load
-  (50 calls/sec via Timer.periodic), and single call modes with scrollable log. Timer
-  properly cancelled in `dispose()`.
-- **Memory Pressure demo** (M4): Separate Dart heap (+10MB Maps) and native (+10MB Uint8List)
-  allocation buttons, GC churn mode (100 batches, retain first only), visual bar chart.
-  Per-batch KB tracking for accurate MB display.
-- **GPU Pressure demo** (M5): 10 cards each stacking ClipPath(antiAliasWithSaveLayer) →
-  Opacity(0.85) → BackdropFilter(σ=15) → ColorFiltered, with >5 descendants per node.
-- **RepaintBoundary demo** (M6): Uses SingleChildScrollView+Column (not ListView.builder
-  which auto-wraps in RepaintBoundary). 14 Opacity(0.7) cards + 1 animated CustomPaint
-  card. AnimationController disposed properly.
-- **Home screen categorization** (M7): 8 categories (Build, Paint, GPU & Rendering, Layout,
-  Memory, Network & I/O, Keys & Identity, Combined) with all 23 demos navigable.
+- **M1 DemoScaffold**: shared layout with collapsible description banner,
+  AppBar, Expanded body slot. `BAD:`/`FIX:` annotations.
+- **M2 Shader Jank demo**: `BackdropFilter(σ=20)` + `ShaderMask` +
+  `ColorFiltered` + combined effects. Impeller caveat (pre-compiled shaders).
+- **M3 Platform Channel Traffic demo**: rapid fire (50 concurrent), sustained
+  (50/sec via `Timer.periodic`), single-call modes + scrollable log. Timer
+  cancelled in `dispose`.
+- **M4 Memory Pressure demo**: Dart-heap (+10MB Maps) vs native (+10MB
+  `Uint8List`) buttons, GC churn mode (100 batches retain first only), bar
+  chart. Per-batch KB tracking.
+- **M5 GPU Pressure demo**: 10 cards each stacking
+  `ClipPath(antiAliasWithSaveLayer)` → `Opacity(0.85)` →
+  `BackdropFilter(σ=15)` → `ColorFiltered`, >5 descendants per node.
+- **M6 RepaintBoundary demo**: uses `SingleChildScrollView+Column` (not
+  `ListView.builder` which auto-wraps in RepaintBoundary). 14
+  `Opacity(0.7)` cards + 1 animated `CustomPaint`. Controller disposed.
+- **M7 Home screen categorization**: 8 categories (Build, Paint, GPU &
+  Rendering, Layout, Memory, Network & I/O, Keys & Identity, Combined).
 
-### Adversarial Review Findings (Pillar 5 Part 1, Round 1)
+### Review Round 1
 
-- **Memory MB overcount**: `_dartMB` getter multiplied `_dartObjects.length * 10` assuming
-  every batch was ~10MB, but `GC Churn` retained only a tiny sentinel batch that was then
-  counted as a full 10MB. Fixed with per-batch KB tracking (`_dartBatchKB` list) so each
-  batch reports its actual size.
-- **Hardcoded light-theme color**: The memory visualization card used a literal
-  `Colors.grey.shade100` that was unreadable in dark mode. Replaced with
-  `Theme.of(context).colorScheme.surfaceContainerLow`.
+- **Memory MB overcount**: `_dartMB` multiplied `_dartObjects.length * 10`,
+  but GC Churn retained a sentinel batch counted as full 10MB. Fixed with
+  per-batch KB tracking (`_dartBatchKB` list).
+- **Hardcoded light-theme color**: `Colors.grey.shade100` unreadable in dark
+  mode. → `Theme.of(context).colorScheme.surfaceContainerLow`.
 
-### Adversarial Review Findings (Pillar 5 Part 1, Round 2)
+### Review Round 2
 
-- **GC rate dilution** (CRITICAL): `MemoryPressureDetector._evaluateGcPressure` computed
-  `gcPerMinute = _gcEventCount / (now - _trackingStart).inSeconds * 60`, so the denominator
-  grew unbounded across a session. A user who explored other demos for 60s then hit GC
-  Churn would see `(N events / 60s+ elapsed) * 60` fall below the 30/min threshold even
-  though N events in the last 5s clearly indicated pressure. Replaced with a 10-second
-  sliding window (`Queue<({DateTime ts, int count})> _gcWindow`) with timestamp-based
-  eviction, yielding a stable "events per 10s × 6" rate that responds to real bursts.
-  All 55 memory pressure detector tests still pass.
-- **setState-after-dispose in platform channel demo** (HIGH): `_triggerRapidFire` and
-  `_triggerSingle` awaited `Future.wait` / `invokeMethod` without a `mounted` guard before
-  calling `setState`, causing a crash if the user navigated away mid-call. Fixed by adding
-  `if (!mounted) return;` after each await and guarding `_addLog` internally.
-- **Global `debugProfilePlatformChannels` clobber** (HIGH): The demo hardcoded
-  `debugProfilePlatformChannels = false` on dispose, silently stomping a developer's global
-  setting if they had enabled it in `main.dart`. Fixed by capturing the prior value in
-  `initState` and restoring it in `dispose`.
-- **Memory "Dart Heap" label misleading** (MEDIUM): The stats card labeled the counter
-  "Dart Heap" but the value only tracked *retained* allocations, which stayed at 0 during
-  GC Churn mode. Users reasonably concluded the demo was broken. Renamed to
-  "Retained (Dart)" and updated the demo description to explain that churn allocations are
-  intentionally transient.
-- **RepaintBoundary demo description inaccurate** (MEDIUM): Description claimed the detector
-  flagged "Opacity(0.7) with 6+ descendants", but the real check is for non-trivial opacity
-  values (between 0.0 and 1.0 exclusive) without a `RepaintBoundary` ancestor within 5
-  levels. Rewrote to match actual detector logic, enumerating the 6 widget classes
-  flagged (Opacity, ClipPath, BackdropFilter, ShaderMask, CustomPaint, ColorFiltered).
-- **Impeller silent failure in shader jank demo** (MEDIUM): `ShaderCompilation` timeline
-  events only fire on the Skia backend. Impeller (default iOS 3.16+, Android 3.22+)
-  pre-compiles shaders offline, so the demo silently produced zero detector hits on
-  modern devices and users reasonably concluded the detector was broken. There is no
-  public Flutter API to detect the active graphics backend from Dart, so added a
-  prominent `_ImpellerWarningBanner` at the top of the shader-heavy page explaining the
-  incompatibility and instructing users to relaunch with `--no-enable-impeller`.
+- **CRITICAL GC rate dilution**: `MemoryPressureDetector._evaluateGcPressure`
+  used `gcPerMinute = _gcEventCount / elapsedSec * 60` — denominator grew
+  unbounded across a session, so 60s of unrelated demos diluted the count
+  below the 30/min threshold even when the last 5s clearly showed pressure.
+  Fix: 10s sliding window (`Queue<({DateTime ts, int count})> _gcWindow`)
+  with timestamp-based eviction — stable "events per 10s × 6" rate
+  responsive to real bursts. 55 tests still pass.
+- **HIGH setState-after-dispose in platform channel demo**:
+  `_triggerRapidFire` / `_triggerSingle` awaited without `mounted` guard
+  before setState. Added `if (!mounted) return;` after each await +
+  internal `_addLog` guard.
+- **HIGH global `debugProfilePlatformChannels` clobber**: demo hardcoded
+  `= false` on dispose, stomping developer's global setting. Now captures
+  prior value in `initState`, restores in `dispose`.
+- **MEDIUM "Dart Heap" label misleading**: counter tracked only *retained*
+  allocations, stayed at 0 during GC Churn. Renamed "Retained (Dart)";
+  description explains transient churn.
+- **MEDIUM RepaintBoundary demo description inaccurate**: detector checks
+  non-trivial opacity values (0.0 < x < 1.0) without RepaintBoundary
+  ancestor within 5 levels, not "Opacity(0.7) with 6+ descendants". Rewrote
+  to enumerate the 6 flagged classes (Opacity, ClipPath, BackdropFilter,
+  ShaderMask, CustomPaint, ColorFiltered).
+- **MEDIUM Impeller silent failure in shader jank demo**:
+  `ShaderCompilation` timeline events only fire on Skia; Impeller (iOS
+  3.16+, Android 3.22+) pre-compiles offline. No public Dart API for
+  backend detection — added `_ImpellerWarningBanner` instructing
+  `--no-enable-impeller` relaunch.
 
 ## 0.10.9
 
-Pillar 4: Issue Documentation Quality — comprehensive encyclopedia content for all 46
-issue types with cross-references, enriched explanations, and quality guardrail tests.
+Pillar 4: Issue Documentation Quality — encyclopedia content for all 46 issue
+types, cross-references, enriched explanations, and quality guardrail tests.
 
-### Issue Documentation Quality (Pillar 4)
+### Added
 
-- **8 missing encyclopedia entries** (v11.20): Added entries for `duplicate_request`,
-  `wrap_layout_bottleneck`, `sliver_to_box_adapter_large`, `sliver_fill_remaining_scrollable`,
-  `sliver_to_box_adapter_shrinkwrap`, `global_key_recreation`, `excessive_repaint_boundary`,
-  and `runtime_font_loading`. Total entries: 38→46. Every detector stableId now resolves
-  to a non-null explanation.
-- **Stale count fix** (v11.21): Removed hard-coded "37 issue types" from encyclopedia doc
-  comment. Added missing `http_error_spike` to test coverage.
-- **readingTheData for all entries** (v11.22): All 46 entries now include "Reading the data"
-  with real-world analogies, threshold interpretation, and normal-vs-abnormal guidance.
-  Structural entries that previously had `null` readingTheData now explain element counts,
-  thresholds, and what the numbers mean.
-- **Build-phase enrichment** (v11.23): `heavy_compute` howToFix adds `Isolate.run()` vs
-  `compute()` code examples. `setstate_scope` adds `ValueListenableBuilder` extraction
-  pattern. `animated_builder_no_child` explains why `child` is reused.
-- **Memory/image enrichment** (v11.24): `gc_pressure` adds micro-stutter description + const
-  constructor example. `heap_growing` adds DevTools Memory tab walkthrough (retained vs
-  shallow size). `uncached_images` adds `ResizeImage` pattern.
-- **Paint/layout enrichment** (v11.25): `excessive_repaint` adds RepaintBoundary "island"
-  concept. `missing_repaint_boundary` adds when-NOT-to-add guidance. `layout_bottleneck`
-  adds `CrossAxisAlignment.stretch` alternative. `opacity_zero` adds Visibility flag
-  explanations (`maintainSize`, `maintainState`, `maintainAnimation`).
-- **Raster/network/scroll enrichment** (v11.26): `shader_compilation` adds Impeller context.
-  `platform_channel_traffic` adds Pigeon code-gen + EventChannel patterns. `non_lazy_list`
-  adds `ListView.builder` code + `itemExtent` tip. `nested_scroll_same_axis` adds
-  `CustomScrollView` migration snippet.
-- **Related issues cross-references** (v11.27): New `relatedIssues` field on
-  `IssueExplanation` typedef. All 46 entries populated with bidirectional cross-references
-  derived from the causal graph (52 rules). If A lists B, B lists A.
-- **Related issues UI rendering** (v11.28): Encyclopedia entries show "Related issues"
-  section with tappable chips. Tapping a chip expands and scrolls to the target entry.
-  AI context builder includes related issues in system prompts. Search matches related
-  issue display names.
-- **Content quality guardrail tests** (v11.29): Automated regression tests enforce minimum
-  word counts (whatItIs ≥ 20, whyItMatters ≥ 20, howToFix ≥ 30), metric thresholds in
-  readingTheData (≥ 25/46 entries), analogy patterns, code examples (≥ 10 entries), DevTools
-  references (≥ 5 entries), and comprehensive stableId completeness.
+- **v11.20 8 missing encyclopedia entries**: `duplicate_request`,
+  `wrap_layout_bottleneck`, `sliver_to_box_adapter_large`,
+  `sliver_fill_remaining_scrollable`, `sliver_to_box_adapter_shrinkwrap`,
+  `global_key_recreation`, `excessive_repaint_boundary`, `runtime_font_loading`.
+  Total 38 → 46. Every detector stableId now resolves.
+- **v11.21 stale count fix**: removed hard-coded "37 issue types" doc comment;
+  added missing `http_error_spike` to test coverage.
+- **v11.22 readingTheData on all 46 entries** with real-world analogies,
+  threshold interpretation, normal-vs-abnormal guidance.
+- **v11.23 Build-phase enrichment**: `heavy_compute` howToFix adds
+  `Isolate.run()` vs `compute()`; `setstate_scope` adds
+  `ValueListenableBuilder` extraction; `animated_builder_no_child` explains
+  `child` reuse.
+- **v11.24 Memory/image**: `gc_pressure` adds micro-stutter + const ctor;
+  `heap_growing` adds DevTools Memory walkthrough (retained vs shallow);
+  `uncached_images` adds `ResizeImage`.
+- **v11.25 Paint/layout**: `excessive_repaint` adds RepaintBoundary "island"
+  concept; `missing_repaint_boundary` adds when-NOT-to-add; `layout_bottleneck`
+  adds `CrossAxisAlignment.stretch`; `opacity_zero` adds `Visibility` flags
+  (`maintainSize`/`State`/`Animation`).
+- **v11.26 Raster/network/scroll**: `shader_compilation` adds Impeller context;
+  `platform_channel_traffic` adds Pigeon + EventChannel patterns;
+  `non_lazy_list` adds `ListView.builder` + `itemExtent`; `nested_scroll_same_axis`
+  adds `CustomScrollView` migration.
+- **v11.27 `relatedIssues`** field on `IssueExplanation`: all 46 entries
+  populated with bidirectional cross-references from the causal graph (52
+  rules). If A lists B, B lists A.
+- **v11.28 Related issues UI**: "Related issues" section with tappable chips
+  that expand and scroll to the target entry. AI context includes related
+  issues in system prompts. Search matches related-issue display names.
+- **v11.29 Guardrail tests**: word counts (whatItIs ≥ 20, whyItMatters ≥ 20,
+  howToFix ≥ 30), metric thresholds in readingTheData (≥ 25/46), analogy
+  patterns, code examples (≥ 10), DevTools refs (≥ 5), stableId completeness.
 
-### Adversarial Review Findings (Pillar 4)
+### Adversarial Review
 
-- **Chip scroll-to bug** (CRITICAL): Related issue chip tap in encyclopedia used a single
-  `_scrollTargetKey` that only pointed to the initial `scrollToStableId`, not the tapped
-  chip's entry. Tapping any chip would scroll to the wrong target or nowhere. Fixed by
-  replacing single GlobalKey with per-entry key map (`Map<String, GlobalKey> _entryKeys`).
-- **Missing bidirectional relatedIssues** (LOW): `repaint_debug` was the only runtime entry
-  without relatedIssues. Added cross-references to `excessive_repaint`,
-  `excessive_repaint_debug`, and `missing_repaint_boundary` (and reverse entries).
-- **Content below quality thresholds** (LOW): Several entries had readingTheData without
-  metric patterns matching the guardrail regex. Enriched `raster_cache_growing`,
-  `gc_pressure`, `heavy_compute`, `expensive_gpu_nodes`, and `excessive_repaint_debug`
+- **CRITICAL chip scroll-to bug**: related-chip tap used a single
+  `_scrollTargetKey` pointing to the initial `scrollToStableId` only, not the
+  tapped chip's entry. Fix: per-entry `Map<String, GlobalKey> _entryKeys`.
+- **LOW missing bidirectional relatedIssues**: `repaint_debug` was the only
+  runtime entry without cross-refs. Added links to `excessive_repaint`,
+  `excessive_repaint_debug`, `missing_repaint_boundary` (+ reverse).
+- **LOW content below quality thresholds**: enriched `raster_cache_growing`,
+  `gc_pressure`, `heavy_compute`, `expensive_gpu_nodes`, `excessive_repaint_debug`
   with specific numeric thresholds.
 
 ## 0.10.8
 
-Pillar 3b: Enrichment — output & presentation improvements that make diagnostics more
-actionable without adding new detection capabilities.
+Pillar 3b: Enrichment — output & presentation.
 
-### Enrichment — Output & Presentation (Pillar 3b)
+### Added
 
-- **Confidence explanations** (`confidenceReason`): Every issue now explains *why* its
-  confidence is confirmed/likely/possible — what evidence was used, what would upgrade it.
-  Confirmed: "Measured directly from {source}". Likely: "{evidence1} + {evidence2}".
-  Possible: "Structural scan only — {upgrade hint}". Correlator appends escalation context
-  when upgrading confidence. Displayed as tooltip on the confidence badge in IssueCard.
-- **Severity auto-escalation**: Warning-severity issues that persist for 30+ scan cycles
-  (cumulative, not consecutive) automatically escalate to critical. Prevents alert fatigue
-  from persistent warnings that never resolve. Uses existing `RecurrenceTrend.presentCount`
-  — no separate state map needed.
-- **Structural + runtime correlation** (2 new correlator rules):
-  - `EscalateStructuralWithJankRule`: structural issues (non_lazy_list, layout_bottleneck,
-    nested_scroll, etc.) upgrade possible→likely when sustained_jank/jank_detected co-occurs.
-  - `EscalateStructuralWithRebuildRule`: animated_builder_no_child/setstate_scope upgrade
-    possible→likely when rebuild_activity co-occurs.
-- **Code location precision**: `buildAncestorChain()` now appends source location
-  (`file:line`) for each non-framework ancestor, not just the leaf element. Added
-  `lookupStructured()` returning structured data with package name extraction. New
-  `packageName` field on `PerformanceIssue` from leaf element source location.
-- **Session summary export** (`sessionSummary`): Pre-computed summary in SessionSnapshot
-  with 5 fields: `topIssues` (top 5 by ranking score), `causalEdges` (active cause→effect
-  pairs), `frameHistogram` (duration bins: <16ms/16-33ms/33-50ms/50-100ms/>100ms),
-  `detectorHitRates` (issue count per detector), `memoryTrendSummary` (heap growth stats).
-  Schema version bumped to v3. Backward compatible with v2 exports.
+- **`confidenceReason` on every issue**: explains *why* confidence is
+  confirmed/likely/possible and what would upgrade it. Confirmed: "Measured
+  directly from {source}". Likely: "{evidence1} + {evidence2}". Possible:
+  "Structural scan only — {upgrade hint}". Correlator appends escalation
+  context. Shown as tooltip on the IssueCard confidence badge.
+- **Severity auto-escalation**: warning issues persisting 30+ cumulative scan
+  cycles auto-escalate to critical. Uses existing `RecurrenceTrend.presentCount`
+  — no separate state map.
+- **Two new correlator rules**:
+  - `EscalateStructuralWithJankRule`: `non_lazy_list`, `layout_bottleneck`,
+    `nested_scroll`, etc. possible → likely when `sustained_jank`/
+    `jank_detected` co-occurs.
+  - `EscalateStructuralWithRebuildRule`: `animated_builder_no_child`,
+    `setstate_scope` possible → likely when `rebuild_activity` co-occurs.
+- **Code location precision**: `buildAncestorChain()` appends `file:line` for
+  every non-framework ancestor (not just leaf). New `lookupStructured()` with
+  package-name extraction; new `packageName` field on `PerformanceIssue`.
+- **`sessionSummary` export**: pre-computed 5 fields in `SessionSnapshot` —
+  `topIssues` (top 5 by rank), `causalEdges`, `frameHistogram` (<16/16–33/
+  33–50/50–100/>100ms), `detectorHitRates`, `memoryTrendSummary`. Schema v3,
+  backward compatible with v2.
 
-### Adversarial Review Findings (Pillar 3b)
+### Review (Pillar 3b)
 
-- **Missing stableId prefix mappings**: `_detectorNameFromStableId()` was missing entries
-  for `shader_compilation` (shaderJank), `repaint_debug_` (repaint), and `stateful_density`
-  (rebuild) — these fell through to 'custom' in detector hit rates. Fixed by adding 3 entries
-  to the prefix map.
+- **Missing stableId prefix mappings**: `_detectorNameFromStableId()` missed
+  `shader_compilation` (shaderJank), `repaint_debug_` (repaint),
+  `stateful_density` (rebuild) — fell through to 'custom' in hit rates. Added.
 
-### Full Branch Adversarial Review (Pillars 1-3)
+### Full Branch Review (Pillars 1–3)
 
-- **Scan chain exception safety** (HIGH): Adaptive self-rescheduling scan loop could die
-  permanently if any detector threw during `_runStructuralScans()` or `_aggregateIssues()`,
-  leaving `_isIteratingDetectors` stuck true and preventing future scans. Fixed with
-  `try/finally` in `_scanTree` (always clears iteration guard and drains mutations) and
-  `try/catch` in `_scheduleNextScan` callback (always reschedules).
-- **Unstable duplicate-request stableIds** (HIGH): `duplicate_request:$dupIndex` used a
-  per-scan loop index that jittered as records aged in/out of the buffer, breaking recurrence
-  tracking and duration escalation. Fixed by deriving stableId from a stable method+URL
-  hash fingerprint.
-- **POST requests falsely flagged as duplicates** (MEDIUM): Duplicate detection grouped by
-  method+URL without considering request body, flagging POSTs with different payloads as
-  duplicates. Fixed by limiting duplicate detection to idempotent methods (GET/HEAD/OPTIONS).
-- **GlobalKey recreation false positive on route change** (MEDIUM): Cross-scan key identity
-  comparison was not scoped to a stable route, so page transitions with similar GlobalKey
-  counts triggered false recreation warnings. Fixed by tracking scan root identity and
-  resetting previous key set on route change.
-- **Missing sliver stableIds in correlator** (MEDIUM): `EscalateStructuralWithJankRule` only
-  covered legacy list IDs, missing 5 new sliver anti-pattern IDs added in Pillar 1. These
-  stayed at `possible` even with jank evidence. Fixed by adding all sliver IDs to `_structuralIds`.
+- **HIGH scan chain exception safety**: adaptive self-rescheduling scan loop
+  could die permanently if a detector threw during `_runStructuralScans()` /
+  `_aggregateIssues()`, leaving `_isIteratingDetectors` stuck true. Fix:
+  `try/finally` in `_scanTree` + `try/catch` in `_scheduleNextScan` callback
+  (always reschedules).
+- **HIGH unstable duplicate-request stableIds**: `duplicate_request:$dupIndex`
+  used a per-scan loop index that jittered as records aged in/out, breaking
+  recurrence + duration escalation. Fix: derive stableId from stable
+  method+URL hash fingerprint.
+- **MEDIUM POST false duplicates**: grouped by method+URL ignoring body. Fix:
+  limit duplicate detection to idempotent methods (GET/HEAD/OPTIONS).
+- **MEDIUM GlobalKey recreation false positive on route change**: cross-scan
+  key identity not scoped to stable route. Fix: track scan root identity and
+  reset previous key set on route change.
+- **MEDIUM missing sliver stableIds in correlator**:
+  `EscalateStructuralWithJankRule` covered only legacy list IDs, missing 5
+  Pillar 1 sliver IDs. Added to `_structuralIds`.
 
 ## 0.10.7
 
-Pillar 3a: Enrichment — analysis & tracking features that deepen diagnostic intelligence
-beyond per-frame detection.
+Pillar 3a: Enrichment — analysis & tracking.
 
-### Enrichment — Analysis & Tracking (Pillar 3a)
+### Added
 
-- **Expanded causal chain rules**: 15 new `CausalRule` entries (8 logical patterns) linking
-  setState→rebuild, uncached images→GC pressure, animated builder→repaint, layout bottleneck→jank,
-  font loading→jank, platform channel→heavy compute, and duplicate requests→rebuilds. Total rules:
-  37→52.
-- **Historical trending time-series** (`RecurrenceTrend`): Ring-buffered (capacity 60) per-issue
-  presence/absence tracker with `TrendDirection` computation (worsening/improving/stable/intermittent).
-  Replaces flat `_recurrenceCounts` map. Stale eviction after 120 absent cycles. Exported in
-  session snapshots as summary-only (trend + counts, not raw ring buffer).
-- **Interaction context enrichment**: Added `typing` and `appLifecycle` to `InteractionContext`.
-  Keyboard detection via `WidgetsBindingObserver.didChangeMetrics()` with debounced transitions.
-  App lifecycle forwarding via `didChangeAppLifecycleState()`. Priority ordering:
-  navigating > typing > scrolling > idle > appLifecycle. `appLifecycle` deprioritized in ranking
-  alongside `scrolling`.
-- **Widget heat map aggregation** (`WidgetHeatMapEntry`): Lazy per-widget issue aggregation for
-  "top offenders" ranking. Filters ~50 framework widget names (layout primitives, scrollables,
-  scaffold/chrome, builders, buttons). Sorted by cumulative ranking score. Exported in session
-  snapshots.
-- **Fix verification** (`FixBaseline`, `FixVerificationResult`): Manual baseline capture with
-  5-cycle cooldown before declaring issues resolved. 3-cycle hot-reload grace period (resets
-  absence counters on reassemble). Per-issue status: resolved/improved/unchanged/worsened/newIssue.
-  Public API: `Sleuth.captureBaseline()`, `Sleuth.compareToBaseline()`, `Sleuth.hasBaseline`,
-  `Sleuth.clearBaseline()`.
+- **Causal rules expanded 37 → 52**: 15 new entries (8 patterns) — setState →
+  rebuild, uncached images → GC pressure, animated builder → repaint, layout
+  bottleneck → jank, font loading → jank, platform channel → heavy compute,
+  duplicate requests → rebuilds.
+- **`RecurrenceTrend`**: ring-buffered (cap 60) per-issue presence tracker
+  with `TrendDirection` (worsening/improving/stable/intermittent). Replaces
+  flat `_recurrenceCounts`. Stale eviction after 120 absent cycles. Exported
+  as summary (trend + counts, not raw ring buffer).
+- **Interaction context** gains `typing` and `appLifecycle`. Keyboard via
+  `WidgetsBindingObserver.didChangeMetrics()` (debounced); lifecycle via
+  `didChangeAppLifecycleState()`. Priority: navigating > typing > scrolling
+  > idle > appLifecycle (deprioritized alongside scrolling in ranking).
+- **`WidgetHeatMapEntry`**: per-widget issue aggregation for "top offenders",
+  filters ~50 framework widget names (layout primitives, scrollables,
+  scaffold/chrome, builders, buttons). Sorted by cumulative ranking score.
+  Exported.
+- **Fix verification**: `FixBaseline` + `FixVerificationResult`, 5-cycle
+  cooldown before declaring resolved, 3-cycle hot-reload grace period (resets
+  absence counters on reassemble). Status:
+  resolved/improved/unchanged/worsened/newIssue. API: `Sleuth.captureBaseline()`,
+  `compareToBaseline()`, `hasBaseline`, `clearBaseline()`.
 
-### Adversarial Review Findings (Pillar 3a)
+### Review
 
-- **Incomplete framework widget filter**: `_frameworkPrefixes` was missing common widgets
-  (ListView, GridView, Scaffold, AppBar, buttons, etc.) — heat map could surface framework
-  widgets as "top offenders". Fixed by adding 18 additional framework widget names across
-  scrollables, scaffold/chrome, and button categories.
-- **Grace period not resetting baseline counters**: `notifyReassemble()` set the grace period
-  but did not clear `consecutiveAbsentCycles` — hot reload after 4 absent cycles + 1 more
-  could falsely report an issue as resolved. Fixed by clearing absence counters on reassemble.
+- **Incomplete framework-widget filter**: `_frameworkPrefixes` missed ListView,
+  GridView, Scaffold, AppBar, buttons etc. Heat map surfaced framework widgets
+  as top offenders. Added 18 names across scrollables, scaffold/chrome, buttons.
+- **Grace period did not reset baseline counters**: `notifyReassemble()` set
+  the grace period but not `consecutiveAbsentCycles` — hot reload after 4
+  absent + 1 more falsely reported resolved. Now clears on reassemble.
 
 ## 0.10.6
 
-Pillar 2b: Resource management — reduce CPU, memory, and GC pressure from Sleuth's own
-runtime overhead when the app is healthy.
+Pillar 2b: Resource management — reduce Sleuth's own CPU/memory/GC overhead
+when the app is healthy.
 
-### Performance — Resource Management (Pillar 2b)
+### Added
 
-- **Adaptive scan frequency** (M4): Replaced fixed `Timer.periodic(1s)` with self-rescheduling
-  `Timer`. After 3 consecutive clean (zero-issue) scan cycles, the interval doubles (capped
-  at 2s). Returns to normal immediately when issues appear. `FrameTiming` and VM timeline
-  paths remain event-driven and unaffected. Opt out via `SleuthConfig(adaptiveScanEnabled: false)`.
-- **Issue allocation reduction** (M5): `_getAllIssues()` generation-counter cache prevents
-  redundant list allocations. The method is called 4+ times per timeline event — now returns
-  a cached list when no detector has produced fresh issues. Generation increments on structural
-  scan, timeline evaluateNow, and frame stats updates.
-- **Detector lazy initialization** (M6): Factory-map pattern for non-typed detectors. Only
-  detectors present in `SleuthConfig.enabledDetectors` are constructed at startup.
-  `enableDetector()`/`disableDetector()` for runtime toggling. 3 typed detectors (frameTiming,
-  memoryPressure, networkMonitor) always constructed (special access patterns). Custom detectors
-  always present. Default config still constructs all 22 detectors.
-- **Debug callback TypeNameCache** (M7): Private `Map<Type, String>` in
-  `DebugInstrumentationCoordinator` replaces per-callback `runtimeType.toString()` (~1,000
-  string allocations/sec). Separate from the global `typeNameCache` (not cleared per scan).
-  Bounded naturally by unique widget types (~50–200).
+- **M4 adaptive scan frequency**: `Timer.periodic(1s)` → self-rescheduling
+  `Timer`. After 3 clean cycles interval doubles (capped 2s); returns to
+  normal on next issue. FrameTiming + VM timeline paths remain event-driven.
+  Opt out via `SleuthConfig(adaptiveScanEnabled: false)`.
+- **M5 `_getAllIssues()` generation-counter cache**: method is called 4+
+  times per timeline event — cached list returned when no detector produced
+  fresh issues. Generation increments on structural scan, timeline evaluateNow,
+  frame stats update.
+- **M6 Detector lazy initialization**: factory-map pattern; only detectors
+  in `enabledDetectors` constructed. `enableDetector()`/`disableDetector()`
+  for runtime toggling. 3 typed (frameTiming/memoryPressure/networkMonitor)
+  always constructed (special access patterns). Custom always present.
+- **M7 Debug callback `TypeNameCache`** (private Map<Type, String> in
+  `DebugInstrumentationCoordinator`): replaces per-callback
+  `runtimeType.toString()` (~1,000 string allocs/sec). Separate from the
+  global cache (not cleared per scan). Bounded naturally (~50–200).
 
-### Adversarial Review Findings (Pillar 2b)
+### Review
 
-- **Timer leak after dispose** (M4): `_scheduleNextScan()` could create an infinite orphan timer
-  chain if `dispose()` ran while the timer callback was mid-flight. Fixed by adding `_disposed`
-  guards at method entry, timer callback entry, and post-frame callback entry.
-- **Parallel timer chains** (M4): Rapid `startTreeScanning()` calls (e.g. widget remount during
-  hot reload) could create duplicate timer chains. Fixed by adding `_scanTimerGeneration` counter
-  — stale callbacks bail out when the generation no longer matches.
-- **Concurrent detector modification** (M6): `enableDetector()`/`disableDetector()` could mutate
-  the `_detectors` list during active iteration in scan or timeline paths. Fixed by adding
-  `_isIteratingDetectors` guard — mutations are deferred to `_pendingDetectorMutations` and
-  drained after the iteration completes. Typed detector flag-flips remain immediate (no list
-  mutation).
+- **M4 timer leak after dispose**: `_scheduleNextScan()` could create an
+  orphan timer chain if `dispose()` ran mid-callback. Fix: `_disposed` guards
+  at method entry, timer callback entry, post-frame callback entry.
+- **M4 parallel timer chains**: rapid `startTreeScanning()` (e.g. hot reload
+  remount) could create duplicate chains. Fix: `_scanTimerGeneration` counter
+  — stale callbacks bail out.
+- **M6 concurrent detector modification**: enable/disable could mutate
+  `_detectors` during iteration. Fix: `_isIteratingDetectors` guard; mutations
+  deferred to `_pendingDetectorMutations`, drained after iteration. Typed
+  flag-flips remain immediate.
 
 ## 0.10.5
 
-Pillar 2a: Hot-path performance optimizations — reduce Sleuth's own runtime overhead.
+Pillar 2a: Hot-path optimizations.
 
-### Performance — Hot Path (Pillar 2a)
+### Added
 
-- **Widget type name cache** (M1): Shared `TypeNameCache` (`Map<Type, String>`) eliminates
-  redundant `runtimeType.toString()` string allocations during the unified tree walk.
-  On a 5K-element tree with ~50 unique widget types, reduces ~15,000+ duplicate allocations
-  per scan to ~50. Applied across 11 detectors and `buildAncestorChain`.
-- **Highlight generation dirty-check** (M2): `_collectHighlights()` now skips the list
-  spread, generation increment, and notifier update when no highlights exist before or
-  after the scan. Eliminates unnecessary `CustomPainter` repaint every scan cycle during
-  normal operation (no issues detected). Includes defensive selected-highlight clearing.
-- **Timeline parser case-matching** (M3): Replaced `toLowerCase()` per-event string
-  allocation with direct multi-case matching for all known Flutter timeline event name
-  variants (BUILD/build/Build, LAYOUT/layout/Layout, etc.). Eliminates 2 string
-  allocations per timeline event.
+- **M1 `TypeNameCache`**: shared `Map<Type, String>` eliminates redundant
+  `runtimeType.toString()` during the unified walk. On a 5K-element tree with
+  ~50 unique types: ~15,000 → ~50 allocations per scan. Applied across 11
+  detectors + `buildAncestorChain`.
+- **M2 Highlight dirty-check**: `_collectHighlights()` skips list spread +
+  generation increment + notifier update when no highlights exist before or
+  after the scan. Eliminates CustomPainter repaint every scan cycle during
+  normal operation. Defensive selected-highlight clearing.
+- **M3 Timeline parser case-matching**: `toLowerCase()` per-event → direct
+  multi-case matching for all known Flutter variants (BUILD/build/Build,
+  LAYOUT/layout/Layout, etc.). Eliminates 2 string allocs/event.
 
-### Adversarial Review Findings (Pillar 2a)
+### Review
 
-- **Stale selected highlight** (M2): Traced all code paths — zero→zero fast path cannot
-  leave `selectedHighlightNotifier` stale in practice (non-empty→empty transition always
-  triggers full collection). Added defensive null-clear as belt-and-suspenders.
-- **Custom detector cache reuse** (M1): Verified that custom detectors calling `scanTree()`
-  after the unified walk correctly reuse cache entries from the same scan cycle.
-- **Timeline case coverage** (M3): Verified all known Flutter timeline event name variants
-  across v2.x and v3+ are covered. `_isChannelEvent` handles actual
-  `debugProfilePlatformChannels` format (`'Platform Channel send ...'`).
+- **M2 stale selected highlight**: traced all paths; zero→zero cannot leave
+  `selectedHighlightNotifier` stale (non-empty→empty always triggers full
+  collection). Added defensive null-clear.
+- **M1 custom detector cache reuse**: verified customs calling `scanTree()`
+  after the walk reuse cache entries from the same cycle.
+- **M3 timeline case coverage**: verified all v2.x + v3+ variants covered;
+  `_isChannelEvent` handles `'Platform Channel send ...'`.
 
 ## 0.10.4
 
-v11 detector audit Part 4 (v11.19): Sliver anti-pattern detection in ListviewDetector.
+v11.19 — Sliver anti-patterns in `ListviewDetector`.
 
-### v11 Detector Audit — Part 4 (v11.19)
+### Added
 
-- **Sliver anti-pattern detection** (v11.19): `ListviewDetector` extended with 3 new
-  checks for common CustomScrollView misuse patterns:
-  - **Check A**: SliverToBoxAdapter wrapping Column/Row with >50 children — defeats
-    lazy loading. Warning at >50, critical at >150 children.
-  - **Check B**: SliverFillRemaining(hasScrollBody: false) containing a scrollable
-    child (ListView, GridView, CustomScrollView, SingleChildScrollView) — forces
-    shrinkWrap and eager building.
-  - **Check C**: SliverToBoxAdapter wrapping shrinkWrap ListView/GridView — forces
-    eager measurement of all children instead of lazy loading.
-  - Dedup logic prevents double-reporting when non-lazy and shrinkWrap checks overlap.
-  - 3 new `FixHintBuilder` methods with actionable replacement patterns.
+- **3 new `ListviewDetector` checks** for CustomScrollView misuse:
+  - **A** `SliverToBoxAdapter` wrapping `Column`/`Row` with > 50 children
+    (warning > 50, critical > 150) — defeats lazy loading.
+  - **B** `SliverFillRemaining(hasScrollBody: false)` containing a scrollable
+    child (ListView/GridView/CustomScrollView/SingleChildScrollView) — forces
+    shrinkWrap + eager building.
+  - **C** `SliverToBoxAdapter` wrapping shrinkWrap `ListView`/`GridView` —
+    forces eager measurement.
+- Dedup prevents double-reporting when non-lazy + shrinkWrap checks overlap.
+- 3 new `FixHintBuilder` methods with replacement patterns.
 
-### Adversarial Review Findings (v11.19)
+### Review
 
-- **Check B false negative** (ListviewDetector): SingleChildScrollView inside
-  SliverFillRemaining(hasScrollBody: false) was caught by the SingleChildScrollView
-  branch before the Check B branch could record it. Fixed by recording the finding
-  before running the non-lazy list check. Removed dead code from the later branch.
-- **Missing test coverage** (ListviewDetector): No tests for Check B with
-  SingleChildScrollView or CustomScrollView descendants. Added 2 tests.
+- **Check B false negative**: SingleChildScrollView inside
+  `SliverFillRemaining(hasScrollBody: false)` was caught by the SCSV branch
+  first. Fix: record finding before running non-lazy list check; removed dead
+  code from later branch.
+- **Missing test coverage**: added 2 tests for Check B with SCSV and
+  CustomScrollView descendants.
 
 ## 0.10.3
 
-v11 detector audit Part 3 (v11.13–v11.18): 6 milestones covering duplicate request
-detection, GlobalKey recreation tracking, subtree cost enrichment, and thread-attributed
-jank classification.
+v11 detector audit Part 3 (v11.13–v11.18).
 
-### v11 Detector Audit — Part 3 (v11.13–v11.18)
+### Added
 
-- **Builder widget suppression** (v11.13): `FrameTimingDetector` now applies a 3x
-  threshold multiplier for builder-pattern widgets (e.g., `StreamBuilder`,
-  `FutureBuilder`, `ValueListenableBuilder`) that are designed to rebuild frequently.
-  Reduces false positive jank warnings during normal reactive updates.
-- **Warmup frame suppression** (v11.14): `FrameTimingDetector` suppresses jank
-  detection during the first 180 frames (~3s at 60fps). Configurable via
-  `SleuthConfig.frameTimingWarmupFrameCount`. Prevents startup initialization from
-  triggering spurious jank issues.
-- **Duplicate request detection** (v11.15): `NetworkMonitorDetector` detects ≥3
-  identical requests (same method + normalized URL) clustered within 500ms. Indicates
-  missing caching, redundant fetches, or rebuild-triggered API calls. Indexed stableIds
-  (`duplicate_request:0`, `duplicate_request:1`) for per-endpoint tracking. Critical
-  severity at ≥10 duplicates.
-- **GlobalKey recreation detection** (v11.16): `GlobalKeyDetector` tracks key
-  identity across scans via `identityHashCode`. Detects symmetric churn (new keys ≈
-  gone keys) indicating keys recreated in `build()` instead of stored in `State`.
-  Asymmetric changes (navigation) are filtered out. Configurable threshold (default 5).
-- **KeepAlive subtree cost enrichment** (v11.17): `KeepAliveDetector` now tracks
-  total elements per scrollable and reports average subtree size in issue detail.
-  Provides concrete cost data beyond simple page counts.
-- **Thread-attributed jank classification** (v11.18): `FrameTimingDetector` classifies
-  jank frames as UI-bound, raster-bound, pipeline stall, or mixed based on phase
-  timestamps. Title includes bottleneck label; detail includes thread timing summary.
+- **v11.13 builder-widget suppression**: `FrameTimingDetector` 3× threshold
+  multiplier for `StreamBuilder`/`FutureBuilder`/`ValueListenableBuilder`
+  (designed to rebuild often).
+- **v11.14 warmup frame suppression**: `FrameTimingDetector` suppresses jank
+  during the first 180 frames (~3s @ 60fps). Configurable via
+  `SleuthConfig.frameTimingWarmupFrameCount`.
+- **v11.15 duplicate request detection**: `NetworkMonitorDetector` flags ≥ 3
+  identical requests (method + normalized URL) clustered within 500ms.
+  Indexed stableIds (`duplicate_request:0`, `:1`). Critical at ≥ 10.
+- **v11.16 GlobalKey recreation**: `GlobalKeyDetector` tracks
+  `identityHashCode` across scans; symmetric churn (new ≈ gone) indicates
+  keys recreated in `build()` vs stored in `State`. Asymmetric (navigation)
+  filtered. Threshold default 5.
+- **v11.17 KeepAlive subtree cost**: `KeepAliveDetector` reports avg subtree
+  size per scrollable in issue detail (concrete cost beyond page counts).
+- **v11.18 thread-attributed jank**: `FrameTimingDetector` classifies jank as
+  UI-bound/raster-bound/pipeline stall/mixed from phase timestamps. Title
+  includes bottleneck label; detail includes thread timing.
 
-### Adversarial Review Findings (v11.13–v11.18)
+### Review
 
-- **maxCluster overwrite bug** (NetworkMonitor): Sliding window cluster count
-  overwrote previous larger values. Fixed with `if (clusterSize > maxCluster)` guard.
-- **Non-indexed stableId** (NetworkMonitor): `duplicate_request` shared across
-  multiple endpoint groups. Fixed to `duplicate_request:$dupIndex`.
-- **3 boundary tests added**: Duplicate cluster at exactly 500ms window, cluster at
-  501ms (split), and maxCluster regression test.
+- **NetworkMonitor maxCluster overwrite**: sliding window count overwrote
+  previous larger values. Fix: `if (clusterSize > maxCluster)`.
+- **NetworkMonitor non-indexed stableId**: `duplicate_request` shared across
+  endpoints → `duplicate_request:$dupIndex`.
+- **3 boundary tests**: duplicate cluster at exactly 500ms window, cluster at
+  501ms (split), maxCluster regression.
 
 ## 0.10.2
 
 v10 roadmap (12 milestones) + v11 detector audit (12 milestones).
 
-### v11 Detector Audit
+### v11 Audit Part 1 — Accuracy & Detection (v11.1–v11.6)
 
-Two-part adversarial audit across 11 detectors. 12 milestones covering detection
-gaps, false positive suppression, and enrichment.
-
-**Part 1 — Accuracy & Detection Gaps (v11.1–v11.6):**
-
-- **SliverChildListDelegate detection** (v11.1): `ListviewDetector` now catches
+- **v11.1 `SliverChildListDelegate` detection**: `ListviewDetector` catches
   `ListView(children: [...])`, `GridView(children: [...])`, and
-  `CustomScrollView > SliverList(delegate: SliverChildListDelegate([...]))` —
-  the non-builder constructors that build all children eagerly.
-- **NeverScrollableScrollPhysics suppression** (v11.2): `NestedScrollDetector`
-  no longer flags same-axis nesting when the inner scrollable uses
-  `NeverScrollableScrollPhysics` or is inside a `NestedScrollView`.
-- **Framework IntrinsicWidth suppression** (v11.3): `LayoutBottleneckDetector`
-  no longer flags `IntrinsicWidth`/`IntrinsicHeight` inside framework widgets
-  (`DropdownButton`, `AlertDialog`, `ExpansionTile`, etc.).
-- **Wrap excessive children** (v11.4): `LayoutBottleneckDetector` now detects
-  `Wrap` with >30 children — non-virtualized layout that measures every child.
-- **Const subtree discounting** (v11.5): `SetStateScopeDetector` tracks element
-  identity across scans. When rebuild evidence exists, discounts const subtrees
-  from the rebuild scope count.
-- **Excessive RepaintBoundary** (v11.6): `RepaintBoundaryDetector` detects >20
-  user-added `RepaintBoundary` widgets inside a scrollable — excessive compositing
-  layers waste GPU memory.
+  `CustomScrollView > SliverList(delegate: SliverChildListDelegate([...]))`
+  — non-builder constructors that build eagerly.
+- **v11.2 `NeverScrollableScrollPhysics` suppression** in `NestedScrollDetector`
+  when inner uses `NeverScrollableScrollPhysics` or is in `NestedScrollView`.
+- **v11.3 Framework `IntrinsicWidth` suppression**: no flag inside
+  `DropdownButton`/`AlertDialog`/`ExpansionTile`.
+- **v11.4 `Wrap` excessive children**: `LayoutBottleneckDetector` flags
+  `Wrap` with > 30 children.
+- **v11.5 Const subtree discounting**: `SetStateScopeDetector` tracks
+  element identity across scans; discounts const subtrees from rebuild scope
+  count when rebuild evidence exists.
+- **v11.6 Excessive `RepaintBoundary`**: `RepaintBoundaryDetector` flags > 20
+  user-added boundaries in a scrollable (wasted compositing layers).
 
-**Part 2 — Accuracy & Enrichment (v11.7–v11.12):**
+### v11 Audit Part 2 — Accuracy & Enrichment (v11.7–v11.12)
 
-- **FadeTransition detection** (v11.7): `OpacityDetector` now catches standalone
-  `FadeTransition` settled at opacity 0.0, with deduplication to avoid
-  double-counting `AnimatedOpacity`'s internal `FadeTransition`.
-- **ColorFiltered GPU detection** (v11.8): `GpuPressureDetector` and
-  `RepaintBoundaryDetector` now detect `ColorFiltered` widgets with deep subtrees.
-  Uses widget-level check (private `_ColorFilterRenderObject` not accessible via `is`).
-- **Small image suppression** (v11.9): `ImageMemoryDetector` no longer flags
-  images ≤50×50 logical pixels — `cacheWidth`/`cacheHeight` savings are negligible
-  for icons and small avatars.
-- **TweenAnimationBuilder child** (v11.10): `AnimatedBuilderDetector` now catches
-  `TweenAnimationBuilder` without `child` parameter. Skips `isFrameworkOwned` check
-  since `TweenAnimationBuilder` is always user-placed.
-- **Runtime font loading** (v11.11): `FontLoadingDetector` detects fonts likely
-  loaded at runtime (e.g., `google_fonts`) via `fontFamilyFallback` heuristic.
-  New stableId `runtime_font_loading` with severity escalation at 3+ families.
-- **BackdropFilter sigma severity** (v11.12): `GpuPressureDetector` now extracts
-  blur sigma from `BackdropFilter`. Low sigma (≤2.0) suppressed entirely; high
-  sigma (>10.0) escalated to critical. Detail includes `σ=X.X`.
+- **v11.7 `FadeTransition` at opacity 0.0**: `OpacityDetector` catches it
+  with dedup vs `AnimatedOpacity`'s internal `FadeTransition`.
+- **v11.8 `ColorFiltered` GPU detection** in `GpuPressureDetector` +
+  `RepaintBoundaryDetector` with deep subtrees. Widget-level check (private
+  `_ColorFilterRenderObject` not `is`-accessible).
+- **v11.9 Small image suppression**: `ImageMemoryDetector` skips ≤ 50×50
+  logical (cacheWidth/Height savings negligible).
+- **v11.10 `TweenAnimationBuilder` child**: `AnimatedBuilderDetector` catches
+  it without `child`; skips `isFrameworkOwned` check (always user-placed).
+- **v11.11 Runtime font loading**: `FontLoadingDetector` uses
+  `fontFamilyFallback` heuristic for google_fonts etc.; new
+  `runtime_font_loading` stableId, escalates at ≥ 3 families.
+- **v11.12 `BackdropFilter` sigma severity**: `GpuPressureDetector` extracts
+  blur sigma. σ ≤ 2.0 suppressed; σ > 10.0 critical. Detail shows `σ=X.X`.
 
-### Accuracy (v10)
+### v10 Accuracy
 
-- **ListView/GridView SliverChildListDelegate detection** (v10.1):
-  `ListviewDetector` now catches `ListView(children: [...])` and
-  `GridView(children: [...])` — the non-builder constructors that use
-  `SliverChildListDelegate` internally and build all children eagerly.
-  New stableIds `non_lazy_listview` / `non_lazy_gridview` with matching
-  causal graph rules.
-- **NeverScrollableScrollPhysics suppression** (v10.2):
-  `NestedScrollDetector` no longer flags same-axis nesting when the inner
-  scrollable uses `NeverScrollableScrollPhysics` — this is a standard
-  Flutter pattern where the inner widget intentionally delegates scrolling
-  to the parent.
-- **DecorationImage detection** (v10.3): `ImageMemoryDetector` now catches
-  images loaded through `DecorationImage` in `BoxDecoration` (via
-  `DecoratedBox`). Previously only `Image` widgets were checked.
-- **GpuPressureDetector is-checks** (v10.4): Replaced
-  `runtimeType.toString()` + `contains()` type matching with direct `is`
-  checks for `RenderOpacity`, `RenderClipPath`, `RenderBackdropFilter`,
-  `RenderShaderMask`. Eliminates string allocation per element AND fixes
-  a false positive on `RenderAnimatedOpacity` (which extends
-  `RenderProxyBox`, not `RenderOpacity`).
-- **LayoutBottleneckDetector widget-level checks** (v10.5): Replaced
-  render-object `runtimeType.toString()` matching with widget-level
-  `is IntrinsicHeight` / `is IntrinsicWidth` checks. Eliminates two
-  `toString()` allocations per element (in both `checkElement` and
-  `afterElement`).
+- **v10.1 ListView/GridView `SliverChildListDelegate`**: new stableIds
+  `non_lazy_listview` / `non_lazy_gridview` + causal rules.
+- **v10.2 `NeverScrollableScrollPhysics`** suppression in `NestedScrollDetector`.
+- **v10.3 `DecorationImage`**: `ImageMemoryDetector` now catches images in
+  `BoxDecoration` via `DecoratedBox`.
+- **v10.4 `GpuPressureDetector` is-checks**: `runtimeType.toString()` +
+  `contains()` → `is` for `RenderOpacity`, `RenderClipPath`,
+  `RenderBackdropFilter`, `RenderShaderMask`. Eliminates allocations AND
+  fixes false positive on `RenderAnimatedOpacity` (extends `RenderProxyBox`,
+  not `RenderOpacity`).
+- **v10.5 `LayoutBottleneckDetector` widget-level checks**: render-object
+  toString → `is IntrinsicHeight`/`IntrinsicWidth`. 2 toString allocs/element
+  eliminated (`checkElement` + `afterElement`).
 
-### Enrichment
+### v10 Enrichment
 
-- **KeepAlive + MemoryPressure escalation** (v10.6): New
-  `EscalateKeepAliveMemoryRule` correlator rule escalates
-  `excessive_keep_alive:*` confidence from `possible` to `likely` when
-  heap pressure (`heap_growing` / `heap_near_capacity`) co-occurs. New
-  causal graph rules connect keep-alive → heap chains.
-- **NestedScroll + LayoutBottleneck causal rules** (v10.7): New causal
-  graph rules connecting `nested_scroll` / `nested_scroll_same_axis` to
-  `layout_bottleneck` and `rebuild_activity`.
-- **HTTP error spike detection** (v10.8): `NetworkMonitorDetector` now
-  detects bursts of HTTP errors (3+ failures with status >= 400 or
-  transport failures in a 5-second window). New stableId
-  `http_error_spike` with `FixHintBuilder.httpErrorSpike()`, encyclopedia
-  entry, and causal rule linking to `request_frequency`.
-- **Rebuild + RepaintBoundary enrichment** (v10.9): New
-  `EnrichRebuildRepaintBoundaryRule` correlator rule annotates rebuild
-  issues (`rebuild_activity`, `rebuild_debug_*`) when
-  `missing_repaint_boundary` co-occurs. Informational only — no
-  confidence change.
+- **v10.6 KeepAlive + MemoryPressure**: `EscalateKeepAliveMemoryRule`
+  upgrades `excessive_keep_alive:*` possible → likely when
+  `heap_growing`/`heap_near_capacity` co-occurs. New causal rules.
+- **v10.7 NestedScroll + LayoutBottleneck** causal rules connecting
+  `nested_scroll[_same_axis]` to `layout_bottleneck`, `rebuild_activity`.
+- **v10.8 HTTP error spike**: `NetworkMonitorDetector` flags ≥ 3 failures
+  (status ≥ 400 or transport failure) in 5s. New `http_error_spike`,
+  `FixHintBuilder.httpErrorSpike()`, encyclopedia entry, causal rule to
+  `request_frequency`.
+- **v10.9 Rebuild + RepaintBoundary enrichment**:
+  `EnrichRebuildRepaintBoundaryRule` annotates `rebuild_activity`/
+  `rebuild_debug_*` when `missing_repaint_boundary` co-occurs
+  (informational, no confidence change).
 
-### Performance
+### v10 Performance
 
-- **CustomPainterDetector toString** (v10.10): Replaced
-  `element.widget.runtimeType.toString()` with `'CustomPaint'` literal
-  in highlight creation — the widget type is already known from the
-  enclosing `is CustomPaint` guard.
-- **RepaintDetector map allocation** (v10.11): `_hotCounts.clear()`
-  instead of `_hotCounts = {}` in `prepareScan` — reuses the existing
-  map's backing store instead of allocating a new one every scan cycle.
-- **NestedScrollDetector stack allocation** (v10.12):
-  `_scrollAxisStack.clear()` + `.add(null)` instead of list re-creation
-  in `prepareScan` — reuses the existing list's capacity from previous
-  scans.
+- **v10.10 `CustomPainterDetector`**: `runtimeType.toString()` →
+  `'CustomPaint'` literal in highlight creation.
+- **v10.11 `RepaintDetector` map**: `_hotCounts.clear()` vs `= {}` — reuses
+  backing store.
+- **v10.12 `NestedScrollDetector` stack**: `_scrollAxisStack.clear()` +
+  `.add(null)` vs list re-creation.
 
 ## 0.10.1
 
@@ -2044,614 +1399,270 @@ Rebrand: `widget_watchdog` → `sleuth`. All classes, imports, docs, and tests u
 
 ## 0.10.0
 
+v9 roadmap complete (v9.1–v9.17): Issue Encyclopedia, contextual AI Chat, and performance/correctness hardening across detectors and overlay.
+
 ### Performance
 
-- **`runtimeType.toString()` elimination** (v9.9): Replaced 3 of 7
-  `runtimeType.toString()` call sites in scan-root resolution with zero-allocation
-  `is` type checks. Covers `_findVisiblePageContext` visitor (runs on every
-  element), `_findActiveRouteScanRoot`, and `_containsNestedNavigator`. The 4
-  remaining sites involve private framework types (`_OverlayEntryWidget`,
-  `_ModalScope`, `_ModalScopeStatus`) that cannot use `is` checks.
-- **FrameStatsBuffer hot-path allocations** (v9.10): Cached `frames` getter
-  (eliminates per-call `Queue.toList()`), single-pass jank counting in
-  `_evaluateJank()` (replaces 2x `.where().length` + conditional `.reduce()`),
-  listener-gated `FrameStatsBuffer.from()` copy (skips O(N) buffer copy when
-  overlay is hidden), and lazy dirty-flag `fpsPercentiles()` caching.
-- **Single-loop `_aggregateIssues()`** (v9.12): Replaced `.map().toList()` +
-  `.where().toList()` chain with a single for-loop that stamps, filters, and
-  collects in one pass. Eliminates 2 intermediate list allocations per
-  `_aggregateIssues()` call (called from 7 locations). Behavior identical —
-  the ranker receives the same visible issues in the same order.
-- **Highlight overlay self-overhead** (v9.14): Replaced `saveLayer` +
-  `BlendMode.clear` dim overlay with `Path.combine(PathOperation.difference)`
-  — eliminates offscreen GPU buffer allocation per frame. Added generation-
-  counter `shouldRepaint` via record-typed `highlightsNotifier` (single int
-  comparison replaces list identity check). Selected highlight rebinds to
-  fresh rect after scroll/rescan (fixes stale position tracking).
-- **Inner subtree walk elimination** (v9.11): Converted 4 detectors
-  (AnimatedBuilderDetector, GpuPressureDetector, GlobalKeyDetector,
-  KeepAliveDetector) from inner recursive subtree walks to `afterElement`
-  stack-based accumulation. Eliminates O(N*M) hot spots in the unified tree
-  walk, restoring true O(N) complexity for all 16 tree-scanning detectors.
-  GpuPressureDetector now reports accurate descendant counts (previously
-  capped at 20).
-- **FIFO eviction O(N) → O(1)** (v9.13): `NetworkMonitorDetector._records`
-  and `MemoryPressureDetector._heapSamples` switched from `List` to `Queue`.
-  `removeAt(0)` (which shifts all elements) replaced with `removeFirst()`
-  (O(1)). Public getters unchanged — `List.unmodifiable()` accepts any
-  `Iterable`. Capacities: 200 records (was 199 element shifts per eviction),
-  60 heap samples (was 59 shifts).
+- **v9.9 — `runtimeType.toString()` elimination**: 3 of 7 call sites in scan-root resolution switched to `is` type checks (`_findVisiblePageContext`, `_findActiveRouteScanRoot`, `_containsNestedNavigator`). 4 remain on private framework types (`_OverlayEntryWidget`, `_ModalScope`, `_ModalScopeStatus`).
+- **v9.10 — FrameStatsBuffer hot-path**: cached `frames` getter (no per-call `Queue.toList()`), single-pass jank counting, listener-gated `FrameStatsBuffer.from()` copy, lazy dirty-flag `fpsPercentiles()` cache.
+- **v9.11 — Inner subtree walk elimination**: AnimatedBuilderDetector, GpuPressureDetector, GlobalKeyDetector, KeepAliveDetector converted from inner recursion to `afterElement` stack accumulation. Restores O(N) for all 16 tree-scanning detectors; GpuPressureDetector now reports accurate descendant counts (was capped at 20).
+- **v9.12 — Single-loop `_aggregateIssues()`**: replaces `.map().toList()` + `.where().toList()` chain with one for-loop; eliminates 2 intermediate list allocations per call (7 callers).
+- **v9.13 — FIFO eviction O(N) → O(1)**: `NetworkMonitorDetector._records` and `MemoryPressureDetector._heapSamples` switched `List` → `Queue` (`removeAt(0)` → `removeFirst()`). Capacities: 200 records, 60 heap samples.
+- **v9.14 — Highlight overlay self-overhead**: `saveLayer` + `BlendMode.clear` dim replaced with `Path.combine(PathOperation.difference)` (no offscreen GPU buffer per frame). Generation-counter `shouldRepaint` via record-typed `highlightsNotifier`. Selected highlight rebinds to fresh rect after scroll/rescan.
 
 ### Fixed
 
-- **Silent exception swallowing** (v9.15): All 8 silent `catch (_) {}` blocks
-  across the codebase now log via `debugPrint` inside `assert(() { ... }())` —
-  visible in debug mode, compiled out entirely in profile/release (zero
-  overhead). Affected files: `sleuth_controller.dart` (2),
-  `base_detector.dart`, `custom_painter_detector.dart`,
-  `debug_instrumentation_coordinator.dart` (2), `widget_location.dart`,
-  `source_location_cache.dart`.
-- **Mounted check for ModalRoute.of** (v9.16): `_currentRouteName()` now guards
-  `ModalRoute.of(_lastScanContext)` with a mounted check. The retained
-  `_lastScanContext` can become detached between scans and async callbacks (VM
-  timeline, heap, scroll idle). Without the guard, `ModalRoute.of()` walks an
-  invalid ancestor chain on a detached element.
-- **Source location cache docstring** (v9.17): No code change — the spec claimed
-  the docstring said "bounded LRU cache" but git history confirms it has always
-  correctly described the first-N bounded behavior since v2.4.0.
-- **Timeline parser event name validation** (v9.8): Fixed silent data loss bug
-  where `LAYOUT (root)` and `PAINT (root)` events (emitted by Flutter 3.13+ for
-  the root PipelineOwner) were silently dropped. The parser used set `.contains()`
-  which requires exact match — `'layout (root)'` failed against the set entry
-  `'layout'`. Root PipelineOwner events carry the primary rendering pipeline's
-  durations, so `flushLayoutDurations` and `flushPaintDurations` were missing
-  their most important entries. Also removed 6 phantom name entries
-  (`buildscope`, `build_scope`, `flushlayout`, `flush_layout`, `flushpaint`,
-  `flush_paint`) that were never emitted by any Flutter version — verified
-  against Flutter framework source history back to v2.x.
-- **Opacity value semantics** (v9.1): `GpuPressureDetector` and
-  `RepaintBoundaryDetector` now skip `Opacity` widgets at 1.0 (passthrough) and
-  0.0 (short-circuit) — these don't trigger `saveLayer` and were false positives.
-  `OpacityDetector` was already correct.
-- **Layout bottleneck overclaim** (v9.4): `LayoutBottleneckDetector` now
-  distinguishes nested intrinsics (critical — exponential layout passes) from
-  non-nested intrinsics (warning — O(N²)). Tracks nesting depth via
-  `afterElement` with abort-safe `prepareScan` reset.
-- **Per-scrollable accumulation** (v9.6): `GlobalKeyDetector` and
-  `KeepAliveDetector` now count per-scrollable instead of globally across all
-  scrollables. Each scrollable above threshold emits its own issue with indexed
-  stableIds (`'excessive_global_keys:0'`, `'excessive_keep_alive:0'`). Previously,
-  keys/keep-alives from unrelated scrollables were summed together, inflating
-  counts and producing false positives. **Note:** exact suppression of the old
-  `'excessive_global_keys'`/`'excessive_keep_alive'` stableIds should be updated
-  to prefix suppression.
+- **v9.1 — Opacity value semantics**: `GpuPressureDetector` and `RepaintBoundaryDetector` skip `Opacity` at 1.0 (passthrough) and 0.0 (short-circuit); these don't trigger `saveLayer`. `OpacityDetector` was already correct.
+- **v9.4 — Layout bottleneck overclaim**: `LayoutBottleneckDetector` distinguishes nested intrinsics (critical — exponential) vs non-nested (warning — O(N²)). Tracks nesting depth via `afterElement` with abort-safe `prepareScan` reset.
+- **v9.6 — Per-scrollable accumulation**: `GlobalKeyDetector` and `KeepAliveDetector` count per-scrollable, not globally. Each emits its own issue with indexed stableIds (`excessive_global_keys:0`, `excessive_keep_alive:0`). Suppression should switch to prefix match for the old unindexed IDs.
+- **v9.8 — Timeline parser event name validation**: silent data loss fix — `LAYOUT (root)` / `PAINT (root)` (Flutter 3.13+) were dropped because `.contains()` required exact match (`'layout (root)'` vs set entry `'layout'`). Root PipelineOwner events carry the primary pipeline's durations, so `flushLayoutDurations`/`flushPaintDurations` were missing their most important entries. Also removed 6 phantom entries (`buildscope`, `build_scope`, `flushlayout`/`flush_layout`, `flushpaint`/`flush_paint`) verified absent in Flutter source back to v2.x.
+- **v9.15 — Silent exception swallowing**: all 8 `catch (_) {}` blocks now log via `debugPrint` inside `assert(() {}())` (zero profile/release overhead). Files: `sleuth_controller.dart` (2), `base_detector.dart`, `custom_painter_detector.dart`, `debug_instrumentation_coordinator.dart` (2), `widget_location.dart`, `source_location_cache.dart`.
+- **v9.16 — Mounted check for ModalRoute.of**: `_currentRouteName()` guards `ModalRoute.of(_lastScanContext)` with a mounted check. The retained context can detach between scans and async callbacks (VM timeline, heap, scroll idle).
+- **v9.17 — Source location cache docstring**: no code change — git history confirmed the docstring has always correctly described first-N bounded behavior.
 
 ### Added
 
-- **Issue Encyclopedia** with educational "Learn more" deep-dive content for
-  every detector type. Searchable, accessible from IssueCard "Learn more" link.
-- **Contextual AI Chat** (`AiChatPage`): per-issue AI chat with streaming
-  responses, starter questions, thinking indicator, and expandable issue context
-  card. Adapter-based backend for team-provided AI providers.
-- **Actionable fix hints** (`FixHintBuilder`): code snippets and debugging
-  commands in fix hints for all detectors.
+- **Issue Encyclopedia**: educational "Learn more" deep-dive for every detector type, searchable, reachable from IssueCard.
+- **Contextual AI Chat** (`AiChatPage`): per-issue streaming chat with starter questions, thinking indicator, expandable issue context card. Adapter-based backend.
+- **Actionable fix hints** (`FixHintBuilder`): code snippets and debugging commands for every detector.
 
 ### Changed
 
-- **UI: Shimmer "Ask AI" link** in IssueCard — animated purple-blue-pink
-  gradient via `ShaderMask`, performance-isolated with `RepaintBoundary` and
-  `AnimatedBuilder` static child pattern.
-- **UI: Responsive action links** — "Learn more" and "Ask AI" share one row
-  when space allows (right-aligned Ask AI), stack vertically with right-aligned
-  Ask AI when overlay is narrow (<240px), via `LayoutBuilder`.
-- **UI: MediaQuery granular accessors** — all UI files (`AiChatPage`,
-  `FloatingIssuesCard`, `IssueEncyclopediaPage`) switched from
-  `MediaQuery.of(context)` to `sizeOf`/`paddingOf`/`viewInsetsOf` to avoid
-  unnecessary rebuilds.
-- **UI: Status bar overlap fix** — AI chat header respects device safe area
-  via `MediaQuery.paddingOf(context).top`.
-- **UI: Expandable IssueCard in AI chat** — replaced minimal issue summary
-  with real `IssueCard` component (capped at 40% screen height with scroll).
-- **SleuthThemeData**: added `aiShimmerStart`, `aiShimmerMid`,
-  `aiShimmerEnd` tokens for animated gradient styling.
-- 1,490 tests total (up from 1,343), 0 analysis issues.
+- **UI**: shimmer "Ask AI" link in IssueCard (animated purple-blue-pink `ShaderMask`, isolated via `RepaintBoundary` + `AnimatedBuilder` static-child pattern); responsive action links (side-by-side when wide, stacked <240px via `LayoutBuilder`); MediaQuery granular accessors (`sizeOf`/`paddingOf`/`viewInsetsOf`) across `AiChatPage`/`FloatingIssuesCard`/`IssueEncyclopediaPage`; AI chat header respects `MediaQuery.paddingOf(context).top`; expandable real `IssueCard` in AI chat (capped 40% screen height).
+- `SleuthThemeData`: added `aiShimmerStart`/`aiShimmerMid`/`aiShimmerEnd` tokens.
+- 1,490 tests (up from 1,343), 0 analysis issues.
 
 ## 0.9.1
 
+v8 roadmap complete (v8.1–v8.5).
+
 ### Fixed
 
-- **SetState subtree counting O(N^2) → O(N)** (v8.1): `SetStateScopeDetector`
-  replaced recursive `_computeSubtreeSize` with stack-based post-order
-  accumulation in `afterElement`. Abort-safety hardened with
-  `notifyWalkCompleted` gate — rebuild evidence and child snapshots only
-  committed on successful walks. Transactional `_pendingEvidence` staging
-  prevents partial data from aborted scans.
-- **HTTP monitor openUrl leak** (v8.3): `_MonitoringHttpClient.openUrl()` now
-  wraps `_inner.openUrl()` in try/catch. On transport failure (DNS, TLS,
-  connection refused), emits `RequestRecord(statusCode: -1)`, calls
-  `onRequestEnded`, and rethrows the original exception. Callback isolation
-  ensures `onRequestEnded` and `onRecord` each run in separate try/catch
-  blocks — a throwing callback cannot suppress the other or mask the transport
-  exception. Same isolation applied to `_MonitoringRequest.close()` failure
-  path and `_MonitoringResponse._emitRecord()` success path. Survived 4
-  Codex adversarial reviews.
-- **Platform channel false positives** (v8.4): `TimelineParser` classifier
-  replaced `cat.contains('embedder')` fallback with prefix matching for real
-  `debugProfilePlatformChannels` events (`'Platform Channel send
-  [channel]#[method]'`). The embedder fallback incorrectly captured vsync,
-  compositor, and input events as platform channel traffic. Legacy exact-match
-  names (`platformchannel`, `methodchannel`) preserved as defensive fallback.
-- **Scaffold scan-root fallback** (v8.2): `_findVisiblePageContext` now supports
-  three-tier scan-root resolution: (1) Scaffold path — Material `Scaffold` and
-  `CupertinoPageScaffold`, (2) scaffold-free Navigator path — walks Navigator's
-  overlay to find topmost route-owned onstage entry via `_ModalScope` detection,
-  identity-hash route stability gate, and TickerMode-based onstage filtering,
-  (3) static app fallback — `NotificationListener` element for apps without
-  Navigator. `ShallowRebuildRiskDetector` and `SetStateScopeDetector` exempted
-  from scaffold-free walk (depth/ratio semantics break with overlay-entry roots).
-  Nested Navigator guard prevents cross-tab false positives. `refreshHighlights()`
-  uses `_lastScanContext` to avoid route-stability side effects. Previously,
-  Cupertino and scaffold-free apps got zero structural detection.
+- **v8.1 — SetState subtree counting O(N²) → O(N)**: `SetStateScopeDetector` replaced recursive `_computeSubtreeSize` with stack-based post-order accumulation in `afterElement`. Abort-safety via `notifyWalkCompleted` gate — evidence and child snapshots commit only on success. Transactional `_pendingEvidence` staging prevents partial data from aborted scans.
+- **v8.2 — Scaffold scan-root fallback**: `_findVisiblePageContext` three-tier resolution — (1) Material `Scaffold` / `CupertinoPageScaffold`, (2) scaffold-free Navigator path (walks overlay for topmost route-owned onstage entry via `_ModalScope`, identity-hash route-stability gate, TickerMode onstage filter), (3) static app fallback (`NotificationListener`). `ShallowRebuildRiskDetector` + `SetStateScopeDetector` exempted from scaffold-free walk (depth/ratio semantics break). Nested-Navigator guard prevents cross-tab false positives. `refreshHighlights()` uses `_lastScanContext` to avoid route-stability side effects. Previously Cupertino and scaffold-free apps got zero structural detection.
+- **v8.3 — HTTP monitor openUrl leak**: `_MonitoringHttpClient.openUrl()` wraps `_inner.openUrl()` in try/catch. On transport failure (DNS/TLS/connection-refused), emits `RequestRecord(statusCode: -1)`, calls `onRequestEnded`, rethrows. Callback isolation — `onRequestEnded` and `onRecord` run in separate try/catches so a throwing callback can't suppress the other or mask the transport exception. Same isolation on `_MonitoringRequest.close()` and `_MonitoringResponse._emitRecord()`. Survived 4 Codex adversarial reviews.
+- **v8.4 — Platform channel false positives**: `TimelineParser` classifier replaced `cat.contains('embedder')` fallback with prefix match for real `debugProfilePlatformChannels` events (`Platform Channel send [channel]#[method]`). The embedder fallback incorrectly captured vsync/compositor/input events. Legacy exact names (`platformchannel`, `methodchannel`) preserved as defensive fallback.
 
 ### Changed
 
-- **SetState detector wording accuracy** (v8.5): user-facing detail text no
-  longer claims "setState() was detected" — replaced with "Rebuild activity
-  was detected" since the evidence signal (child widget identity churn) proves
-  the element rebuilt, not the specific trigger. Fix hints generalized from
-  "Move setState() calls" to "Scope rebuild triggers." Internal variable
-  `hasEvidence` renamed to `hasRebuildEvidence`. Class docstring updated to
-  describe two-tier confidence system.
+- **v8.5 — SetState detector wording accuracy**: user detail no longer claims `setState() was detected` (the evidence — child-identity churn — proves rebuild, not the trigger). Now says "Rebuild activity was detected"; fix hints generalized from "Move setState() calls" to "Scope rebuild triggers". Internal `hasEvidence` → `hasRebuildEvidence`. Docstring describes two-tier confidence.
 
 ### Added
 
-- 1,343 tests total (up from 1,313), 0 analysis issues.
+- 1,343 tests (up from 1,313), 0 analysis issues.
 
 ## 0.9.0
 
 ### Changed
 
-- **Unified structural tree walk** (v7.9): all 16 tree-scanning detectors now
-  run in a single `O(N)` pass instead of 16 separate `O(N)` walks. Four new
-  `BaseDetector` lifecycle methods (`prepareScan`, `checkElement`,
-  `afterElement`, `finalizeScan`) replace per-detector `scanTree` for built-in
-  detectors. Custom detectors continue using `scanTree` via legacy path.
-  Zero test changes required — `scanTree` base class wrapper calls the 4 methods
-  automatically.
+- **v7.9 — Unified structural tree walk**: all 16 tree-scanning detectors run in a single `O(N)` pass (was 16 separate walks). Four new `BaseDetector` lifecycle methods (`prepareScan`, `checkElement`, `afterElement`, `finalizeScan`) replace per-detector `scanTree` for built-ins. Custom detectors keep `scanTree` via legacy path. Zero test changes — base-class `scanTree` wrapper calls the 4 methods.
 
 ## 0.8.2
 
 ### Improved
 
-- **Ring buffer for frame history** (v7.7): `FrameStatsBuffer` replaced
-  `List<FrameStats>` with a fixed-capacity ring buffer. Eliminates GC pressure
-  from growing lists during long sessions. `O(1)` insert, bounded memory.
-- **Correlator sort cache** (v7.8): `FrameEventCorrelator` caches sorted event
-  lists across correlation rounds. Avoids re-sorting unchanged data on every
-  frame. ~40% reduction in correlator CPU time under sustained load.
-- **VM reconnect polling fix** (v7.10): `_pollTimeline()` error handler now
-  cancels the poll timer directly before invoking callbacks, preventing a 500ms
-  error loop if `onConnectionChanged` throws. Timer cancel is idempotent —
-  no impact on `reconnect()` cleanup path.
+- **v7.7 — Ring buffer for frame history**: `FrameStatsBuffer` replaced `List<FrameStats>` with fixed-capacity ring buffer. O(1) insert, bounded memory, no GC pressure during long sessions.
+- **v7.8 — Correlator sort cache**: `FrameEventCorrelator` caches sorted event lists across rounds; ~40% correlator CPU reduction under sustained load.
+- **v7.10 — VM reconnect polling fix**: `_pollTimeline()` error handler cancels the poll timer *before* invoking callbacks, preventing a 500ms error loop if `onConnectionChanged` throws. Timer cancel idempotent vs `reconnect()` cleanup.
 
 ## 0.8.1
 
 ### Improved
 
-- **HeavyCompute two-tier severity** (v7.1): events 100–500ms report as
-  `medium` severity, >500ms as `high`. Previously all heavy compute events
-  were `high` regardless of duration.
-- **NetworkMonitor threshold fix** (v7.2): frequency limit comparison changed
-  from `>` to `>=` to match documented behavior. 30 requests in 5s now
-  correctly triggers the detector at the configured limit.
-- **Threshold tuning pass** (v7.3): 6 detector thresholds adjusted based on
-  real-app profiling data. Reduces false positives for common patterns while
-  maintaining sensitivity for genuine issues.
-- **Correlator coverage expansion** (v7.4): `FrameEventCorrelator` now matches
-  3 additional timeline event categories that were previously ignored, improving
-  phase attribution accuracy.
-- **Rebuild VM fallback** (v7.5): `RebuildDetector` degrades gracefully when VM
-  build counts are unavailable, falling back to structural density analysis
-  instead of reporting nothing.
-- **MemoryPressure warmup guard** (v7.6): heap growth detection ignores the
-  first 10s after connection to avoid false positives from app startup
-  allocation patterns.
+- **v7.1 — HeavyCompute two-tier severity**: 100–500ms → `medium`, >500ms → `high` (was all `high`).
+- **v7.2 — NetworkMonitor threshold fix**: frequency comparison `>` → `>=` to match documented behavior; 30 requests in 5s now fires at the configured limit.
+- **v7.3 — Threshold tuning pass**: 6 detector thresholds adjusted from real-app profiling data; fewer false positives, same sensitivity for genuine issues.
+- **v7.4 — Correlator coverage expansion**: `FrameEventCorrelator` matches 3 additional timeline categories previously ignored; better phase attribution.
+- **v7.5 — Rebuild VM fallback**: `RebuildDetector` falls back to structural density analysis when VM build counts are unavailable (was reporting nothing).
+- **v7.6 — MemoryPressure warmup guard**: heap-growth detection ignores first 10s after connection to avoid startup-allocation false positives.
 
 ## 0.8.0
 
+v6 roadmap complete (22 milestones).
+
 ### Improved
 
-- **Controller async safety** (v6.1): VM service calls wrapped with 10 s
-  timeouts and disposed-state guards. `dispose()` cancels in-flight futures
-  and timeline subscriptions. Prevents `setState after dispose` and hung
-  controller on lost VM connections.
-- **Enrichment error logging** (v6.14): enrichment chain failures now log
-  structured messages via `debugPrint` instead of silently swallowing errors.
-- **AnimatedOpacity detection** (v6.2): `OpacityDetector` now detects
-  `AnimatedOpacity` widgets at opacity 0 in addition to static `Opacity`.
-- **ShaderMask render detection** (v6.3): `GpuPressureDetector` includes
-  `RenderShaderMask` in the expensive render-tree check.
-- **Nested scroll highlights** (v6.4): `NestedScrollDetector` provides
-  widget highlight overlays marking the inner and outer scroll regions.
-- **ListView threshold tuning** (v6.19): non-lazy `ListView` child-count
-  threshold adjusted for more accurate detection with fewer false positives.
-- **TriggerButton adaptive position** (v6.20): initial button position adapts
-  to screen size, placing it in the visible area on all device sizes.
-- **Model equality** (v6.13): `PerformanceIssue` implements `==` and
-  `hashCode` based on `stableId`, enabling correct deduplication and
-  `Set`/`Map` usage.
-- **Suppression precompilation** (v6.15): suppression patterns compiled to
-  `RegExp` once at config time instead of per-issue per-scan.
-- **UI tap targets** (v6.5): header icon buttons increased to minimum 44 px
-  touch target.
-- **UI drag safety** (v6.6): `onPanUpdate` clamps card position within
-  screen bounds on every frame.
-- **UI keyboard awareness** (v6.7): floating card repositions when the
-  software keyboard opens to prevent occlusion.
-- **UI listener dedup** (v6.8): `ValueListenableBuilder` listeners
-  deduplicated to prevent redundant rebuilds.
-- **UI text overflow protection** (v6.9): long text in issue cards and
-  banners protected with `maxLines` and `TextOverflow.ellipsis`.
-- **GuidePage back navigation** (v6.12): hardware/system back button returns
-  from GuidePage to the floating card.
-- **Spacing theme tokens** (v6.21): 6 spacing tokens (`spacingXxs` through
-  `spacingXl`) on `SleuthThemeData`. ~67 hardcoded spacing values replaced
-  across 4 UI files. Consumers can customize overlay density via theme.
-- **Benchmark robustness** (v6.22): timing budgets use `budgetMultiplier`
-  that reads `CI` environment variable, preventing flaky tests on loaded
-  runners.
+- **v6.1 — Controller async safety**: VM calls wrapped with 10s timeouts and disposed-state guards. `dispose()` cancels in-flight futures and timeline subscriptions. Prevents `setState after dispose` and hangs on lost VM connections.
+- **v6.2 — AnimatedOpacity detection**: `OpacityDetector` now detects `AnimatedOpacity` at opacity 0 (in addition to static `Opacity`).
+- **v6.3 — ShaderMask render detection**: `GpuPressureDetector` includes `RenderShaderMask` in the expensive render-tree check.
+- **v6.4 — Nested scroll highlights**: `NestedScrollDetector` provides widget highlight overlays for inner and outer scroll regions.
+- **v6.5/v6.6/v6.7/v6.8/v6.9 — UI polish**: 44px min tap target on header icons; `onPanUpdate` clamps card inside screen bounds every frame; floating card repositions when soft keyboard opens; `ValueListenableBuilder` listeners deduplicated; long text protected with `maxLines` + `TextOverflow.ellipsis`.
+- **v6.12 — GuidePage back navigation**: hardware/system back returns from GuidePage to the floating card.
+- **v6.13 — Model equality**: `PerformanceIssue` implements `==` / `hashCode` on `stableId` for correct Set/Map/dedup.
+- **v6.14 — Enrichment error logging**: enrichment-chain failures log structured messages via `debugPrint` (no more silent swallowing).
+- **v6.15 — Suppression precompilation**: suppression patterns compiled to `RegExp` once at config time (was per-issue per-scan).
+- **v6.19 — ListView threshold tuning**: non-lazy `ListView` child-count threshold adjusted for accuracy.
+- **v6.20 — TriggerButton adaptive position**: initial button position adapts to screen size (visible on all device sizes).
+- **v6.21 — Spacing theme tokens**: 6 tokens (`spacingXxs`–`spacingXl`) on `SleuthThemeData`; ~67 hardcoded spacing values replaced across 4 UI files; consumers can customize overlay density via theme.
+- **v6.22 — Benchmark robustness**: timing budgets use `budgetMultiplier` reading `CI` env var (no more flaky loaded-runner tests).
 
 ### Changed
 
-- **FloatingIssuesCard refactored** (v6.10): large build methods extracted
-  into focused builder functions. Zero behavior change.
-- **IssueCard refactored** (v6.11): build method extraction matching
-  FloatingIssuesCard pattern. Zero behavior change.
-- **Platform declarations** (v6.16): `pubspec.yaml` now declares `android`
-  and `ios` platform support explicitly for pub.dev scoring.
+- **v6.10 / v6.11 — Refactors**: `FloatingIssuesCard` and `IssueCard` build methods extracted into focused builders. Zero behavior change.
+- **v6.16 — Platform declarations**: `pubspec.yaml` declares `android` + `ios` explicitly for pub.dev scoring.
 
 ### Added
 
-- Controller lifecycle tests (v6.17): 20+ tests for dispose guards, timeout
-  behavior, and error resilience.
-- UI widget tests (v6.18): widget tests for FloatingIssuesCard, IssueCard,
-  TriggerButton, and GuidePage interactions.
-- 1,294 tests total, 0 analysis issues.
+- **v6.17 — Controller lifecycle tests**: 20+ tests for dispose guards, timeouts, error resilience.
+- **v6.18 — UI widget tests**: widget tests for `FloatingIssuesCard`, `IssueCard`, `TriggerButton`, `GuidePage`.
+- 1,294 tests, 0 analysis issues.
 
 ## 0.7.0
 
+v4 + v5 roadmap complete.
+
 ### Added
 
-- **Issue suppression** (v4.1): `SleuthConfig.suppressedIssues` filters issues
-  by `stableId` pattern (exact match or trailing `*` wildcard). Applied
-  post-correlate, pre-rank. `suppressedCountNotifier` for UI display.
-  `SessionSnapshot.suppressedCount` for export.
-- **Custom detector plugin API** (v4.2): `SleuthConfig.customDetectors` accepts
-  `List<BaseDetector>` for domain-specific detectors. Custom detectors integrate
-  into all 7 controller lifecycle points (init, debug snapshot, structural scans,
-  highlights, timeline data, issue aggregation, dispose). Always enabled
-  regardless of `enabledDetectors`. Barrel file exports `BaseDetector`,
-  `ParsedTimelineData`, `DebugSnapshot`.
-- **Overlay theming** (v5.1): `SleuthThemeData` with 60 color tokens extracted
-  from 6 UI files. Dark defaults match original values exactly.
-  `SleuthThemeData.light()` for light-background apps. Auto-brightness
-  detection via `MediaQuery.platformBrightness`. `copyWith()` for custom
-  overrides. `SleuthTheme` InheritedWidget with dark fallback.
-- **Export enrichment** (v5.2): `SessionSnapshot` schema v2 with `PhaseEvent`
-  toJson/fromJson + rolling buffer, `GcEventSummary` + `PlatformChannelSummary`
-  serializable wrappers, `FpsPercentiles` (p50/p95/p99), `rankingScore` /
-  `rankingBreakdown` on `PerformanceIssue`, `recentFrames` (last 60),
-  `schemaVersion` field. All new fields nullable for backward compat.
-- **Causal issue graph** (v5.3): 23 cause-effect rules build a directed graph,
-  identifying root causes and annotating issues with `rootCauseId` /
-  `downstreamIds`. Confidence suppression hides `possible` downstream when root
-  is `confirmed` / `likely`. UI: FloatingIssuesCard filters downstream from main
-  list, IssueCard shows `↳ N` badge + "Related effects" section. 1 new theme
-  token (`effectsBadge`).
-- **Configurable detector thresholds** (v5.4): `DetectorThresholds` nested config
-  class on `SleuthConfig` with 10 tunable parameters. All defaults match
-  pre-change hardcoded values. Secondary severity thresholds scale with primary
-  (`* 2`). Barrel exports `DetectorThresholds`.
-- **Network-to-frame correlation** (v5.6): `NetworkMonitorDetector` gains active
-  request tracking via `startRequest()` / `endRequest()`. `FrameVerdict` gains
-  `pendingRequestCount` and `slowestPendingMs` fields. `SleuthHttpOverrides`
-  gains `onRequestStarted` / `onRequestEnded` callbacks. Controller enriches all
-  3 verdict paths. 2 new causal graph rules. Zero overhead when network
-  monitoring disabled.
-- **RepaintBoundary coverage detector** (v5.8): 22nd detector
-  (`DetectorType.repaintBoundary`, structural). Walks element tree for 5
-  expensive GPU widget types (`Opacity`, `ClipPath`, `BackdropFilter`,
-  `ShaderMask`, `CustomPaint`), checks render tree for `RenderRepaintBoundary`
-  within 3 ancestor levels. Three-tier confidence: `possible` → `likely`
-  (>10/sec) → `confirmed` (>30/sec). 3 new causal graph rules.
+- **v4.1 — Issue suppression**: `SleuthConfig.suppressedIssues` filters by `stableId` pattern (exact or trailing `*` wildcard), applied post-correlate / pre-rank. `suppressedCountNotifier` + `SessionSnapshot.suppressedCount`.
+- **v4.2 — Custom detector plugin API**: `SleuthConfig.customDetectors: List<BaseDetector>`. Integrates into all 7 controller lifecycle points (init, debug snapshot, structural scans, highlights, timeline data, aggregation, dispose). Always enabled regardless of `enabledDetectors`. Barrel exports `BaseDetector`, `ParsedTimelineData`, `DebugSnapshot`.
+- **v5.1 — Overlay theming**: `SleuthThemeData` with 60 color tokens extracted from 6 UI files. `SleuthThemeData.light()`, auto-brightness via `MediaQuery.platformBrightness`, `copyWith()`, `SleuthTheme` InheritedWidget with dark fallback.
+- **v5.2 — Export enrichment**: `SessionSnapshot` schema v2 — `PhaseEvent` toJson/fromJson + rolling buffer, `GcEventSummary` + `PlatformChannelSummary` serializable wrappers, `FpsPercentiles` (p50/p95/p99), `rankingScore`/`rankingBreakdown` on `PerformanceIssue`, `recentFrames` (last 60), `schemaVersion`. All new fields nullable.
+- **v5.3 — Causal issue graph**: 23 cause-effect rules build a directed graph; issues annotated with `rootCauseId`/`downstreamIds`. Confidence suppression hides `possible` downstream when root is `confirmed`/`likely`. UI: `FloatingIssuesCard` filters downstream; `IssueCard` shows `↳ N` badge + "Related effects" section. New theme token `effectsBadge`.
+- **v5.4 — Configurable detector thresholds**: `DetectorThresholds` nested config on `SleuthConfig`, 10 tunable parameters. Defaults match pre-change hardcoded values; secondary severity thresholds scale as `* 2`. Barrel exports `DetectorThresholds`.
+- **v5.6 — Network-to-frame correlation**: `NetworkMonitorDetector` adds `startRequest()`/`endRequest()`. `FrameVerdict` gains `pendingRequestCount` + `slowestPendingMs`. `SleuthHttpOverrides` gains `onRequestStarted`/`onRequestEnded`. All 3 verdict paths enriched; 2 new causal rules. Zero overhead when network monitoring disabled.
+- **v5.8 — RepaintBoundary coverage detector** (22nd detector, `DetectorType.repaintBoundary`, structural): walks for 5 expensive GPU widget types (`Opacity`, `ClipPath`, `BackdropFilter`, `ShaderMask`, `CustomPaint`), checks for `RenderRepaintBoundary` within 3 ancestor levels. Three-tier confidence: `possible` → `likely` (>10/sec) → `confirmed` (>30/sec). 3 new causal rules.
 
 ### Changed
 
-- **Detector registry** (v5.5): replaced 21 individual detector fields in
-  `SleuthController` with unified `List<BaseDetector>` registry. 7 dispatch
-  methods use lifecycle-filtered loops. Adding a new detector now requires 1 new
-  file, 1 enum value, 1 line in the registry. ~-90 net lines in controller.
-- **Example app modularized** (v4.5): extracted 18 demo screens from
-  `example/lib/main.dart` (1,807 lines) into individual files under
-  `example/lib/demos/`. `main.dart` reduced to 239 lines.
-- **FloatingIssuesCard sub-widgets extracted** (v4.4): `_StatusRow`,
-  `_CardFooter`, `_WarningBanners` extracted — state class reduced from 659 to
-  433 lines. Zero behavior change.
+- **v4.4 — `FloatingIssuesCard` sub-widgets extracted**: `_StatusRow`, `_CardFooter`, `_WarningBanners`. State class 659 → 433 lines, zero behavior change.
+- **v4.5 — Example app modularized**: 18 demo screens extracted from `example/lib/main.dart` (1,807 → 239 lines) into `example/lib/demos/`.
+- **v5.5 — Detector registry**: 21 individual detector fields on `SleuthController` → unified `List<BaseDetector>` registry. 7 dispatch methods use lifecycle-filtered loops. Adding a detector = 1 new file + 1 enum + 1 registry line. ~-90 net lines in controller.
 
 ## 0.6.1
 
 ### Fixed
 
-- **FPS counter precision**: `averageFps` now uses microsecond-precision
-  arithmetic instead of milliseconds, eliminating ~8% inflation from truncation
-  artifacts (e.g., 6.5ms truncated to 6ms gave 167 FPS instead of 154).
-- **FPS counter startup**: `_frameTiming.start()` moved before
-  `await client.connect()` so the FPS counter captures frames during the
-  potentially slow VM connection (1.5–10.5s), instead of showing 0.
-- **FPS display capped at target**: UI now clamps displayed FPS at `fpsTarget`
-  (default 60) so an idle screen in profile mode shows 60 instead of raw
-  throughput values like 120+.
-- **`fpsColor` target-aware**: color thresholds are now relative to `fpsTarget`
-  (green >= 83%, amber >= 50%) instead of hardcoded to 50/30 FPS.
-- **`exportSnapshot` reads live buffer**: uses `_frameTiming.frameBuffer`
-  directly when initialized, avoiding potential staleness from the notifier.
+- **FPS counter precision**: `averageFps` uses microsecond-precision arithmetic (was ms); eliminates ~8% truncation inflation (6.5ms truncated to 6ms gave 167 FPS instead of 154).
+- **FPS counter startup**: `_frameTiming.start()` moved before `await client.connect()` so counter captures frames during slow VM connection (1.5–10.5s) instead of showing 0.
+- **FPS display capped at target**: UI clamps displayed FPS at `fpsTarget` (default 60); idle profile-mode screens show 60 instead of 120+.
+- **`fpsColor` target-aware**: thresholds relative to `fpsTarget` (green ≥ 83%, amber ≥ 50%); was hardcoded 50/30 FPS.
+- **`exportSnapshot` reads live buffer**: uses `_frameTiming.frameBuffer` directly when initialized.
 
 ### Added
 
-- `TriggerButton.fpsTarget` parameter — wired from `SleuthConfig.fpsTarget`.
-- FPS throughput unit tests (9 tests in `frame_stats_buffer_fps_test.dart`).
-- FPS Stress Test demo screen in example app.
+- `TriggerButton.fpsTarget` wired from `SleuthConfig.fpsTarget`; 9 FPS throughput tests in `frame_stats_buffer_fps_test.dart`; FPS Stress Test demo screen.
 
 ## 0.6.0
 
 ### Changed
 
-- **Replaced DashboardSheet with FloatingIssuesCard**: the bottom sheet
-  (1,241 lines) is replaced by a draggable floating card (~830 lines). Removed
-  `FrameChart`, tabs, and filter chips. FPS is now shown directly on the
-  `TriggerButton`.
-- **Guide redesigned**: the Guide tab is now a full-screen `GuidePage` with
-  staggered entrance animations and 4 expandable sections (Quick Start,
-  Understanding the Card, Color Legend, Tips & Tricks).
-- **Resizable card**: width and height adjustable via corner grip handle.
-  Double-tap header to maximize/restore.
+- **Replaced `DashboardSheet` with `FloatingIssuesCard`**: bottom sheet (1,241 lines) → draggable floating card (~830 lines). Removed `FrameChart`, tabs, filter chips. FPS shown on `TriggerButton`.
+- **Guide redesigned**: full-screen `GuidePage` with staggered entrance animations + 4 expandable sections (Quick Start, Understanding the Card, Color Legend, Tips & Tricks).
+- **Resizable card**: width/height via corner grip handle; double-tap header to maximize/restore.
 
 ### Added
 
-- `FloatingIssuesCard` — draggable, resizable floating panel for issue display.
-- `_CornerGripPainter` — 6-dot grip handle inside the card's corner radius.
-- `GuidePage` — full-screen guide with staggered fade+slide animations.
-- 9 card resize tests (`card_resize_test.dart`).
+- `FloatingIssuesCard`, `_CornerGripPainter` (6-dot grip inside corner radius), `GuidePage` with fade+slide animations, 9 card-resize tests.
 
 ### Removed
 
-- `DashboardSheet`, `FrameChart` widget, `TabBarView` with keep-alive, filter
-  chips, `AnimationController` for chart.
+- `DashboardSheet`, `FrameChart`, `TabBarView` with keep-alive, filter chips, chart `AnimationController`.
 
 ## 0.5.0
 
 ### Added
 
-- **Context-aware fix hints** (v3.2): centralized `FixHintBuilder` generates
-  widget-specific, location-aware fix suggestions instead of generic textbook
-  advice. Hints reference the detected widget name, ancestor chain, and
-  interaction context when available. `FixEffort` enum (`quick`, `medium`,
-  `involved`) classifies every hint by estimated developer effort.
-  - New `FixHintBuilder` utility with 28 static methods (one per issue type).
-  - `fixEffort` field on `PerformanceIssue` — nullable for backward compat.
-  - UI effort badge now reads from model field; keyword fallback for legacy JSON.
-- **Issue-to-verdict linking** (v3.3): jank verdicts in the Live tab now connect
-  to related issues in the Issues tab.
-  - Amber "Jank detected" banner on Live tab when a verdict has related issues.
-  - "JANK" badge on issue cards correlated with the current jank verdict.
-  - Tap the jank banner to flash correlated issue cards in the Issues tab.
-- **Overlay UX improvements** (v3.8): six targeted UI enhancements for the
-  diagnostic workflow.
-  - Widget name shown before ancestor chain in expanded issue cards.
-  - "Widget not currently visible" feedback when highlight target not found.
-  - Interaction context filter chips on the Issues tab (All / Idle / Scrolling).
-  - "About this detection" collapsible section with source, confidence, and
-    verification guidance.
-  - Effort indicators (QUICK / MEDIUM / INVOLVED) on fix hint boxes.
-  - Color legend in the Guide tab explaining severity and source colors.
+- **v3.2 — Context-aware fix hints**: centralized `FixHintBuilder` with 28 static methods (one per issue type). Widget-specific, location-aware hints (reference detected widget name, ancestor chain, interaction context). `FixEffort` enum (`quick`/`medium`/`involved`); `fixEffort` nullable on `PerformanceIssue` for backward compat. UI effort badge reads from model field with keyword fallback for legacy JSON.
+- **v3.3 — Issue-to-verdict linking**: amber "Jank detected" banner on Live tab when a verdict has related issues; `JANK` badge on issue cards correlated with current jank verdict; tap banner to flash correlated cards in Issues tab.
+- **v3.8 — Overlay UX improvements**: widget name before ancestor chain in expanded cards; "Widget not currently visible" feedback for missing highlight targets; interaction-context filter chips on Issues tab (All/Idle/Scrolling); "About this detection" collapsible (source, confidence, verification); effort indicators (QUICK/MEDIUM/INVOLVED) on fix hint boxes; color legend in Guide tab.
 
 ### Changed
 
-- All 21 detectors now use `FixHintBuilder` instead of hardcoded fix hint
-  strings. No detector logic changes — only hint generation centralized.
-- `PerformanceIssue` model gains `fixEffort` field (nullable, backward
-  compatible). JSON without the field deserializes to null.
-- Barrel file exports `FixHintBuilder` for consumers who want to generate
-  custom hints.
+- All 21 detectors use `FixHintBuilder` instead of hardcoded strings (detector logic unchanged).
+- `PerformanceIssue.fixEffort` nullable, backward compatible.
+- Barrel exports `FixHintBuilder`.
 
 ## 0.4.0
 
 ### Improved
 
-- **AnimatedBuilder threshold raised** (v3.1.1): subtree size threshold increased
-  from 5 to 20, reducing false positives on normal animations. Confidence defaults
-  to `possible` and upgrades to `likely` only when DebugSnapshot confirms rebuild
-  rate > 30/sec.
-- **CustomPainter secondary heuristic** (v3.1.2): added `frequent_repaint_painter`
-  detection — when no always-true painters are found but CustomPaint paint rate
-  exceeds 30/sec, a warning is emitted to prompt `shouldRepaint` review.
-- **MemoryPressure warmup exclusion** (v3.1.3): heap trend alerts are suppressed
-  during the first 5 seconds after the initial heap sample, preventing false
-  positives from normal app startup allocation. GC pressure and heap capacity
-  alerts are unaffected. Configurable via `SleuthConfig.memoryWarmupDurationMs`.
-- **NestedScroll cross-axis suppression** (v3.1.4): horizontal ListView inside
-  vertical ScrollView (and other cross-axis combinations) no longer produces
-  false positives. Only same-axis nesting is flagged.
-- **Opacity near-zero detection** (v3.1.5): threshold widened from exact `0.0`
-  to `< 0.01`, catching visually invisible widgets that still pay layout and
-  hit-testing costs. Detail text includes the actual opacity value.
-- **GpuPressure structural issue preservation** (v3.1.6): when VM disconnects,
-  structural issues (expensive render nodes) are preserved at `possible`
-  confidence instead of being cleared entirely. Only the VM-backed raster
-  dominance issue is removed.
-- **PlatformChannel duration tracking** (v3.1.7): tracks cumulative per-call
-  duration alongside frequency. Fires when either frequency exceeds threshold
-  OR cumulative duration exceeds 8ms (configurable via
-  `SleuthConfig.platformChannelDurationThresholdMs`). Detail includes top
-  method names.
-- **FrameEventCorrelator binary search** (v3.9): O(E×F) linear scan replaced
-  with O(E log F) binary search using pre-sorted frame lists. Behavioral
-  equivalence maintained for all existing tests.
+- **v3.1.1 — AnimatedBuilder threshold**: subtree size 5 → 20 (fewer false positives on normal animations). Confidence `possible` by default, `likely` only when `DebugSnapshot` confirms rebuild rate > 30/sec.
+- **v3.1.2 — CustomPainter secondary heuristic**: `frequent_repaint_painter` — when no always-true painters exist but `CustomPaint` paint rate > 30/sec, warn to review `shouldRepaint`.
+- **v3.1.3 — MemoryPressure warmup exclusion**: heap-trend alerts suppressed first 5s after initial sample (prevents startup-allocation false positives). GC pressure and capacity alerts unaffected. Configurable via `SleuthConfig.memoryWarmupDurationMs`.
+- **v3.1.4 — NestedScroll cross-axis suppression**: horizontal ListView inside vertical ScrollView (and other cross-axis combos) no longer fires. Only same-axis nesting is flagged.
+- **v3.1.5 — Opacity near-zero detection**: threshold widened from `== 0.0` to `< 0.01`. Detail text includes actual opacity value.
+- **v3.1.6 — GpuPressure structural-issue preservation**: on VM disconnect, structural issues (expensive render nodes) preserved at `possible` confidence (was cleared entirely). Only VM-backed raster dominance issue removed.
+- **v3.1.7 — PlatformChannel duration tracking**: fires when either frequency exceeds threshold OR cumulative duration > 8ms (`SleuthConfig.platformChannelDurationThresholdMs`). Detail includes top method names.
+- **v3.9 — FrameEventCorrelator binary search**: O(E×F) linear → O(E log F) binary using pre-sorted frame lists. Behaviorally identical.
 
 ### Added
 
-- `SleuthConfig.memoryWarmupDurationMs` — warmup period for heap trend alerts
-  (default 5000ms).
-- `SleuthConfig.platformChannelDurationThresholdMs` — cumulative duration
-  threshold for platform channel detection (default 8ms).
+- `SleuthConfig.memoryWarmupDurationMs` (default 5000ms).
+- `SleuthConfig.platformChannelDurationThresholdMs` (default 8ms).
 
 ## 0.3.0
 
 ### Added
 
-- **Heap trend monitoring** (v2.2): `MemoryPressureDetector` now polls
-  `getMemoryUsage()` alongside the existing VM timeline poll. Tracks a rolling
-  window of 60 heap samples (30 seconds) and applies linear regression to detect
-  sustained growth. Two new issue types:
-  - *Heap Growing* — positive slope > 500 KB/sec for 10+ consecutive seconds
-    (severity: warning, confidence: likely).
-  - *Heap Near Capacity* — heap usage > 80% of heap capacity (severity:
-    critical, confidence: confirmed).
-  - `HeapSample` data class exported for session snapshot consumers.
-- **Jank CPU attribution** (v2.3): when a jank frame is detected and VM is
-  connected, `getCpuSamples()` is queried for that frame's time window.
-  `CpuSampleAggregator` ranks functions by exclusive ticks and surfaces the
-  top 5 in `FrameVerdict.topFunctions`. Two-phase verdict emission: the verdict
-  is emitted immediately, then updated with CPU attribution when samples arrive
-  (or after 500 ms timeout).
-  - `CpuAttribution` data class exported for snapshot consumers.
-  - Dashboard shows "Top: ClassName.method (N%)" on jank verdicts.
-- **Source file:line in ancestor chains** (v2.4): `buildAncestorChain()` appends
-  `(lib/path/file.dart:line)` to the leaf widget when `--track-widget-creation`
-  is active (debug mode default). Uses `InspectorSerializationDelegate` to
-  access creation location data. Results cached per widget runtime type
-  (bounded at 200 entries). Zero behavior change in profile mode.
-  - `SourceLocationCache` utility with `abbreviatePath()` for `lib/`-relative
-    path display.
+- **v2.2 — Heap trend monitoring**: `MemoryPressureDetector` polls `getMemoryUsage()` alongside VM timeline; tracks 60-sample (30s) rolling window with linear regression. New issues: *Heap Growing* (slope > 500 KB/sec for ≥10s, warning/likely), *Heap Near Capacity* (heap usage > 80% capacity, critical/confirmed). `HeapSample` exported.
+- **v2.3 — Jank CPU attribution**: on jank + VM connected, `getCpuSamples()` queried for the frame window. `CpuSampleAggregator` ranks by exclusive ticks, surfaces top 5 in `FrameVerdict.topFunctions`. Two-phase emission: verdict fires immediately, then updates with CPU attribution when samples arrive (or 500ms timeout). `CpuAttribution` exported; dashboard shows "Top: ClassName.method (N%)" on jank.
+- **v2.4 — Source file:line in ancestor chains**: `buildAncestorChain()` appends `(lib/path/file.dart:line)` to leaf when `--track-widget-creation` is active (debug default). Uses `InspectorSerializationDelegate`. Cached per widget runtime type (bounded 200 entries). Zero profile-mode overhead. `SourceLocationCache.abbreviatePath()` for `lib/`-relative display.
 
 ### Changed
 
-- `MemoryPressureDetector` enhanced: `processHeapSample()` replaces the old
-  `updateHeapStats()` method. Rolling window with linear regression replaces
-  percentage-based growth detection.
-- `FrameVerdict` gains `topFunctions: List<CpuAttribution>?` field and
-  `withTopFunctions()` copy method for two-phase enrichment.
-- Session export (`exportSnapshot()`) now includes `heapSamples` array and
-  CPU attribution data when available.
-- Barrel file exports `CpuAttribution`, `HeapSample`, and updated
-  `FrameVerdict`.
-- Ancestor chain framework filter expanded: 17 additional framework widgets
-  (transitions, builders, pointer/render infrastructure) are now excluded
-  from ancestor chains, producing shorter and more user-relevant paths.
-- Issue card no longer shows redundant "Widget:" line when the detail text
-  already contains the ancestor chain.
-- README "What DevTools Still Does Better" narrowed from 5 items to 2
-  (heap snapshots & full flame chart). Network inspection, memory trends,
-  CPU profiling, and widget-exact attribution are no longer DevTools-only.
+- `MemoryPressureDetector`: `processHeapSample()` replaces `updateHeapStats()`. Rolling-window regression replaces percentage-based growth detection.
+- `FrameVerdict` gains `topFunctions: List<CpuAttribution>?` + `withTopFunctions()` copy method.
+- `exportSnapshot()` includes `heapSamples` array + CPU attribution when available.
+- Barrel exports `CpuAttribution`, `HeapSample`, updated `FrameVerdict`.
+- Ancestor-chain framework filter: 17 additional framework widgets excluded (transitions, builders, pointer/render infra).
+- IssueCard no longer shows redundant "Widget:" line when detail text already contains ancestor chain.
+- README "What DevTools Still Does Better" narrowed to 2 (heap snapshots, full flame chart) — network / memory trends / CPU profiling / widget-exact attribution no longer DevTools-only.
 
 ## 0.2.0
 
 ### Breaking Changes
 
-- **`DetectorType.memoryLeak`** renamed to **`DetectorType.memoryPressure`**.
-  If you pass a custom `enabledDetectors` set, update the enum value.
-- **`DetectorType.mediaQueryRebuild`** renamed to **`DetectorType.shallowRebuildRisk`**.
-  Same migration: update any custom `enabledDetectors` references.
-- **`DetectorLifecycle.runtime`** added to the `DetectorLifecycle` enum.
-  Exhaustive switches over `DetectorLifecycle` need a new case.
+- `DetectorType.memoryLeak` → `DetectorType.memoryPressure` (update `enabledDetectors`).
+- `DetectorType.mediaQueryRebuild` → `DetectorType.shallowRebuildRisk` (update `enabledDetectors`).
+- `DetectorLifecycle.runtime` added — exhaustive switches need a new case.
 
 ### Added
 
-- **Per-frame event correlation**: VM timeline events matched to specific frames
-  by monotonic timestamp overlap, replacing batch attribution.
-- **Three-tier verdict degradation**: Correlated > Full > Basic mode. Falls back
-  automatically based on VM connectivity and correlation quality.
-- **FrameTiming upgrades**: `totalSpan` (vsyncStart to rasterFinish) as primary
-  jank indicator, pipeline stall detection, scheduler delay detection,
-  build-to-raster gap measurement.
-- **Debug attribution hooks** (`enableDebugCallbacks` config): opt-in per-widget
-  rebuild/repaint tracking via `debugOnRebuildDirtyWidget` and
-  `debugOnProfilePaint`. Default false to avoid conflicting with DevTools.
-- **Heavy debug instrumentation** (`enableDeepDebugInstrumentation` config):
-  per-widget timeline events using 6 Flutter debug globals with save/restore
-  lifecycle. UI shows purple warning banner when active.
-- **Two-tier config model**: simple top-level switches + expert `advanced` block
-  (`DebugInstrumentationConfig`) for fine-grained control over attribution and
-  profiling sub-flags.
-- **Issue ranking**: weighted composite score (severity, frame impact, confidence,
-  recurrence) determines issue ordering in the dashboard.
-- **Route tagging**: automatic `routeName` stamping on issues via
-  `ModalRoute.of()`. Displayed in expanded issue cards.
-- **Interaction context**: `idle`, `scrolling`, `navigating` states tracked and
-  stamped on issues. Shows "During: scrolling" in issue cards.
-- **Rolling jank capture buffer**: worst-N frame retention (default capacity 50,
-  configurable via `captureBufferCapacity`). Evicts mildest frames when full.
-- **JSON session export**: `Sleuth.exportSnapshot()` and
-  `exportSnapshotJson()` static methods. Dashboard export button copies JSON to
-  clipboard.
-- **Source-location enrichment**: ancestor chain attribution on structural and
-  debug-backed issues. Displayed as "Widget: Outer > Middle > Inner" in expanded
-  issue cards.
-- **Timeline enrichment**: dirty widget names and counts extracted from enriched
-  VM timeline args (build scope, layout, paint phases).
-- **Rebuild/repaint widget highlights**: visual overlay rects highlighting hot
-  widgets during scan, correlated from debug snapshot and enriched VM names.
-- **`stableId`** field on `PerformanceIssue` for UI state persistence across
-  scan cycles.
-- **`ancestorChain`** field on `PerformanceIssue` for source-location guidance.
-- **`ObservationSource`** enum distinguishing VM timeline, debug callback,
-  structural, and combined sources. UI shows left-border accent (green/purple/gray).
-- **Confidence badges** in dashboard: Confirmed, Likely, Possible with
-  color-coded chips.
-- **20th detector**: Repaint detector added as hybrid (VM + debug callback).
-- **Self-overhead benchmark suite** (29 tests): per-detector scan overhead, full
-  scan scaling, timeline processing, buffer bounds, issue/highlight count limits.
-- **Validation matrix** (`doc/validation_matrix.md`): structured release-readiness
-  checklist with per-platform grids, degradation verification, and detector
-  coverage checklist.
-- **Degradation contract integration tests** (9 tests): VM disconnect/reconnect,
-  verdict path switching, detector group isolation.
-- **5 new example app demo screens**: Opacity Zero, AnimatedBuilder No Child,
-  Shallow Rebuild Risk, Font Loading Stress, Repaint Stress.
+- **Per-frame event correlation**: VM timeline events matched to frames by monotonic timestamp overlap (replaces batch attribution).
+- **Three-tier verdict degradation**: Correlated > Full > Basic, falls back automatically based on VM connectivity and correlation quality.
+- **FrameTiming upgrades**: `totalSpan` (vsyncStart→rasterFinish) as primary jank indicator; pipeline stall detection; scheduler delay detection; build-to-raster gap measurement.
+- **Debug attribution hooks** (`enableDebugCallbacks`): opt-in per-widget rebuild/repaint via `debugOnRebuildDirtyWidget` + `debugOnProfilePaint`. Default false to avoid DevTools conflict.
+- **Heavy debug instrumentation** (`enableDeepDebugInstrumentation`): per-widget timeline events via 6 Flutter debug globals with save/restore lifecycle. UI shows purple warning banner when active.
+- **Two-tier config model**: simple top-level switches + expert `advanced` block (`DebugInstrumentationConfig`).
+- **Issue ranking**: weighted composite score (severity + frame impact + confidence + recurrence) drives dashboard order.
+- **Route tagging**: automatic `routeName` stamping via `ModalRoute.of()`; shown in expanded cards.
+- **Interaction context**: `idle`/`scrolling`/`navigating` stamped on issues ("During: scrolling").
+- **Rolling jank capture buffer**: worst-N frame retention (default 50, `captureBufferCapacity`). Evicts mildest frames when full.
+- **JSON session export**: `Sleuth.exportSnapshot()` + `exportSnapshotJson()`. Dashboard export button copies to clipboard.
+- **Source-location enrichment**: ancestor chain attribution on structural + debug-backed issues ("Widget: Outer > Middle > Inner").
+- **Timeline enrichment**: dirty widget names/counts extracted from enriched VM timeline args (build scope, layout, paint phases).
+- **Rebuild/repaint widget highlights**: visual overlay rects correlated from `DebugSnapshot` + enriched VM names.
+- `stableId` on `PerformanceIssue` (UI state persistence across scans); `ancestorChain` for source-location guidance.
+- `ObservationSource` enum (VM timeline / debug callback / structural / combined); UI shows left-border accent (green/purple/gray).
+- Confidence badges: Confirmed / Likely / Possible with color-coded chips.
+- **20th detector**: Repaint detector (hybrid: VM + debug callback).
+- **Self-overhead benchmark suite** (29 tests): per-detector scan overhead, full-scan scaling, timeline processing, buffer bounds, issue/highlight count limits.
+- **Validation matrix** (`doc/validation_matrix.md`): per-platform release-readiness grid, degradation verification, detector coverage checklist.
+- **Degradation contract integration tests** (9): VM disconnect/reconnect, verdict path switching, detector group isolation.
+- **5 new example demos**: Opacity Zero, AnimatedBuilder No Child, Shallow Rebuild Risk, Font Loading Stress, Repaint Stress.
 
 ### Changed
 
-- `MemoryLeakDetector` renamed to `MemoryPressureDetector` — honest framing;
-  this detector monitors GC frequency and heap growth, not individual object leaks.
-- `MediaQueryRebuildDetector` renamed to `ShallowRebuildRiskDetector` — the
-  detector finds shallow StatefulWidgets during high build activity, it does not
-  observe actual `MediaQuery.of()` usage.
-- `RebuildDetector` now labels widget names as screen context, not proven
-  rebuild attribution. Title changed to "High Rebuild Activity".
-- `GpuPressureDetector` confidence corrected: `confirmed` for observed raster
-  dominance, `likely` when expensive render nodes also found (was reversed).
-- `OpacityDetector` no longer claims GPU waste for `Opacity(0.0)`. Repurposed
-  as a correctness hint (widget still participates in hit testing, layout, and
-  semantics). Confidence downgraded to `possible`, category changed to `layout`.
+- `MemoryLeakDetector` → `MemoryPressureDetector` (honest framing — monitors GC frequency + heap growth, not individual object leaks).
+- `MediaQueryRebuildDetector` → `ShallowRebuildRiskDetector` (finds shallow StatefulWidgets during high build activity; does not observe actual `MediaQuery.of()` usage).
+- `RebuildDetector` labels widget names as screen context, not proven attribution. Title → "High Rebuild Activity".
+- `GpuPressureDetector` confidence corrected (was reversed): `confirmed` for observed raster dominance, `likely` when expensive render nodes also found.
+- `OpacityDetector`: no longer claims GPU waste for `Opacity(0.0)` — repurposed as correctness hint (widget still participates in hit testing, layout, semantics). Confidence → `possible`, category → `layout`.
 - Removed dead `analyzeBasicMode()` from `RenderPipelineAnalyzer`.
-- `fpsTarget` config now drives jank detection thresholds (was hardcoded to
-  16ms/33ms regardless of target FPS).
-- `IssueConfidence` doc comments updated to describe evidence tiers accurately.
-- README, barrel file, and CHANGELOG updated to match actual package behavior.
+- `fpsTarget` now drives jank thresholds (was hardcoded 16/33ms regardless of target).
+- `IssueConfidence` doc comments describe evidence tiers accurately.
 
 ### Fixed
 
-- Erroneous `* 1024 * 1024` multiplier on `pictureCacheBytes` in
-  `FrameTimingDetector` — `FrameTiming.pictureCacheBytes` already returns bytes.
-- Chart budget line and color thresholds now use per-frame `frameBudgetMs`
-  instead of hardcoded 16ms/33ms, correctly supporting 120fps mode.
+- Erroneous `* 1024 * 1024` on `pictureCacheBytes` in `FrameTimingDetector` — `FrameTiming.pictureCacheBytes` already returns bytes.
+- Chart budget line + color thresholds use per-frame `frameBudgetMs` (was hardcoded 16/33ms) — correctly supports 120fps mode.
 
 ## 0.1.0
 
-- Initial release
-- 19 performance detectors (VM-only, hybrid, structural)
-- Dual-mode analysis (Full VM Timeline + Basic SchedulerBinding)
-- In-app overlay with live FPS chart, issue dashboard, and guide
-- Debug mode warning banner
-- Configurable thresholds and detector selection
-- Zero release overhead (kReleaseMode guard)
+- Initial release.
+- 19 performance detectors (VM-only, hybrid, structural).
+- Dual-mode analysis (Full VM Timeline + Basic SchedulerBinding).
+- In-app overlay with live FPS chart, issue dashboard, guide.
+- Debug-mode warning banner.
+- Configurable thresholds and detector selection.
+- Zero release overhead (`kReleaseMode` guard).
