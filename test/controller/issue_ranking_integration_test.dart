@@ -10,7 +10,10 @@ void main() {
 
     setUp(() {
       controller = SleuthController(
-        config: const SleuthConfig(frameTimingWarmupFrameCount: 0),
+        config: const SleuthConfig(
+          frameTimingWarmupFrameCount: 0,
+          frameTimingWarmupDuration: Duration.zero,
+        ),
       );
       controller.initializeDetectorsForTest();
     });

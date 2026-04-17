@@ -235,46 +235,84 @@ class PerformanceIssue {
         if (tabVisitIndex != null) 'tabVisitIndex': tabVisitIndex,
       };
 
+  /// Deserializes a [PerformanceIssue] from a JSON map.
+  ///
+  /// **v0.16.0 scope note — imported snapshots are lossy.** Schema drift in
+  /// required enum fields (`severity`, `category`, `confidence`) falls back
+  /// to neutral defaults (`warning` / `build` / `possible`) rather than
+  /// throwing. Drifted values in required string fields (`title`, `detail`,
+  /// `fixHint`) currently pass through raw `as String` casts and will throw
+  /// on type mismatch. This path exists for test round-trips and debug
+  /// tooling; it is **not a first-class consumer surface** in v0.16.0.
+  ///
+  /// A drifted `severity` silently imported as `warning` cascades into
+  /// consumer surfaces (issue ranker 100× weight, health-score 30-point
+  /// critical penalty, trigger-button red/green badge, duration escalation).
+  /// Do not feed untrusted or cross-version snapshots into `fromJson` in
+  /// production.
+  ///
+  /// First-class import with explicit drift semantics (skip-on-drift or
+  /// throw-on-drift with caller control) ships in v0.17 alongside the MCP
+  /// server milestone.
   factory PerformanceIssue.fromJson(Map<String, dynamic> json) =>
       PerformanceIssue(
-        severity: IssueSeverity.values.byName(json['severity'] as String),
-        category: IssueCategory.values.byName(json['category'] as String),
-        confidence: IssueConfidence.values.byName(json['confidence'] as String),
+        // Required enums fall back to neutral defaults on schema drift
+        // (renamed value, numeric coercion, missing key) instead of
+        // throwing and poisoning the whole snapshot. Matches the
+        // per-entry defensive-cast policy applied to `topAllocators`
+        // (Codex post-impl review finding C3, v0.16.0).
+        severity: _tryParseEnum(IssueSeverity.values, json['severity']) ??
+            IssueSeverity.warning,
+        category: _tryParseEnum(IssueCategory.values, json['category']) ??
+            IssueCategory.build,
+        confidence: _tryParseEnum(IssueConfidence.values, json['confidence']) ??
+            IssueConfidence.possible,
         title: json['title'] as String,
         detail: json['detail'] as String,
         fixHint: json['fixHint'] as String,
         stableId: json['stableId'] as String?,
         widgetName: json['widgetName'] as String?,
         routeName: json['routeName'] as String?,
-        observationSource: json['observationSource'] != null
-            ? ObservationSource.values
-                .byName(json['observationSource'] as String)
-            : null,
-        interactionContext: json['interactionContext'] != null
-            ? InteractionContext.values
-                .byName(json['interactionContext'] as String)
-            : null,
+        observationSource:
+            _tryParseEnum(ObservationSource.values, json['observationSource']),
+        interactionContext: _tryParseEnum(
+            InteractionContext.values, json['interactionContext']),
         debugModeDisclaimer: json['debugModeDisclaimer'] as bool? ?? false,
-        detectedAt: json['detectedAt'] != null
-            ? DateTime.parse(json['detectedAt'] as String)
+        // Guard against FormatException on malformed ISO strings (e.g. a
+        // JS consumer stamping a non-ISO date, an IDE MCP re-exporter
+        // truncating to date-only, or any hand-crafted payload). Same
+        // schema-drift tolerance as Meta-C3 applied to the enum fields —
+        // drops to null instead of poisoning the whole snapshot
+        // (advanced-adversarial-review Round 3, v0.16.0).
+        detectedAt: json['detectedAt'] is String
+            ? DateTime.tryParse(json['detectedAt'] as String)
             : null,
         ancestorChain: json['ancestorChain'] as String?,
-        fixEffort: json['fixEffort'] != null
-            ? FixEffort.values.byName(json['fixEffort'] as String)
+        fixEffort: _tryParseEnum(FixEffort.values, json['fixEffort']),
+        // Defensive per-entry parsing: `AllocationEntry.fromJson` uses
+        // strict `as` casts on every required field, so a single malformed
+        // entry (e.g. `{'className': 42}` from a JS consumer that coerced
+        // a stringified class name, or a schema drift that renamed a key)
+        // would throw and poison the entire deserialization. Wrap each
+        // entry in a try/catch and drop offenders instead of failing the
+        // whole snapshot (Codex post-impl review finding 2, v0.16.0).
+        topAllocators: json['topAllocators'] is List
+            ? _tryParseAllocationEntries(json['topAllocators'] as List)
             : null,
-        topAllocators: json['topAllocators'] != null
-            ? (json['topAllocators'] as List)
-                .map((a) => AllocationEntry.fromJson(a as Map<String, dynamic>))
-                .toList()
-            : null,
-        rankingScore: json['rankingScore'] as int?,
-        rankingBreakdown: json['rankingBreakdown'] != null
-            ? (json['rankingBreakdown'] as Map<String, dynamic>)
-                .map((k, v) => MapEntry(k, v as int))
+        rankingScore:
+            json['rankingScore'] is int ? json['rankingScore'] as int : null,
+        rankingBreakdown: json['rankingBreakdown'] is Map<String, dynamic>
+            ? {
+                for (final entry
+                    in (json['rankingBreakdown'] as Map<String, dynamic>)
+                        .entries)
+                  if (entry.value is int) entry.key: entry.value as int,
+              }
             : null,
         rootCauseId: json['rootCauseId'] as String?,
-        downstreamIds:
-            (json['downstreamIds'] as List<dynamic>?)?.cast<String>(),
+        downstreamIds: json['downstreamIds'] is List
+            ? (json['downstreamIds'] as List).whereType<String>().toList()
+            : null,
         confidenceReason: json['confidenceReason'] as String?,
         packageName: json['packageName'] as String?,
         // Defensive casts: malformed JSON (e.g. scaffoldHashKey serialised as
@@ -365,6 +403,48 @@ class PerformanceIssue {
 
   @override
   int get hashCode => stableId?.hashCode ?? super.hashCode;
+}
+
+/// Parse a raw JSON list into `List<AllocationEntry>`, dropping entries
+/// that fail `AllocationEntry.fromJson`'s strict casts instead of letting
+/// one malformed entry abort the whole snapshot. Returns null when no
+/// entries survive, matching the field's nullable contract.
+///
+/// Only payload-shape failures are swallowed: `TypeError` (the most
+/// common schema-drift shape — e.g. `{'className': 42}` failing
+/// `as String`) and `Exception` subclasses (`FormatException`,
+/// `ArgumentError`-as-Exception, parse failures). `StackOverflowError`,
+/// `OutOfMemoryError`, `StateError`, and other `Error` subclasses
+/// propagate because they signal VM instability or genuine programmer
+/// bugs, not payload drift (Codex post-impl meta-review finding C2,
+/// v0.16.0).
+List<AllocationEntry>? _tryParseAllocationEntries(List raw) {
+  final out = <AllocationEntry>[];
+  for (final item in raw) {
+    if (item is! Map<String, dynamic>) continue;
+    try {
+      out.add(AllocationEntry.fromJson(item));
+    } on TypeError catch (_) {
+      // JS numeric coercion, renamed field type, etc.
+    } on Exception catch (_) {
+      // FormatException, ArgumentError, other parse drift.
+    }
+  }
+  return out.isEmpty ? null : out;
+}
+
+/// Guarded enum parsing: returns the matching enum value, or null when
+/// `raw` is missing, non-String, or not a legal name. Callers supply a
+/// fallback via `??` for required fields so one renamed value doesn't
+/// poison the whole snapshot (Codex post-impl meta-review finding C3,
+/// v0.16.0).
+T? _tryParseEnum<T extends Enum>(List<T> values, Object? raw) {
+  if (raw is! String) return null;
+  try {
+    return values.byName(raw);
+  } on ArgumentError {
+    return null;
+  }
 }
 
 extension InteractionContextDisplay on InteractionContext {

@@ -333,6 +333,136 @@ void main() {
     });
   });
 
+  // -- v0.16.0 C4 + Codex post-impl finding 2 regression --
+  //
+  // fromJson must coerce malformed fields to null / empty list instead of
+  // throwing. Outer shape guards (List/Map/int) landed in v0.16.0;
+  // per-entry hardening of `topAllocators` lands in the post-Codex
+  // hardening pass so one bad AllocationEntry payload can't poison the
+  // whole snapshot deserialization.
+  group('PerformanceIssue.fromJson defensive casts', () {
+    Map<String, dynamic> minimalValid() => {
+          'severity': 'warning',
+          'category': 'build',
+          'confidence': 'confirmed',
+          'title': 'Test',
+          'detail': 'detail',
+          'fixHint': 'fix',
+        };
+
+    test('tolerates malformed topAllocators entry (JS string coercion)', () {
+      final json = minimalValid()
+        ..['topAllocators'] = [
+          {'className': 42}, // malformed: className should be String
+        ];
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.topAllocators, isNull,
+          reason: 'Single bad entry should drop silently, not crash');
+    });
+
+    test('keeps valid allocator entries and drops invalid siblings', () {
+      final json = minimalValid()
+        ..['topAllocators'] = [
+          {
+            'className': 'GoodWidget',
+            'libraryUri': 'package:app/good.dart',
+            'instancesDelta': 10,
+            'bytesDelta': 1024,
+            'percentage': 42.5,
+          },
+          {'className': 42}, // malformed
+          'not-a-map', // malformed wrapper
+        ];
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.topAllocators, hasLength(1));
+      expect(parsed.topAllocators!.single.className, 'GoodWidget');
+    });
+
+    test('tolerates string rankingScore coercion', () {
+      final json = minimalValid()..['rankingScore'] = '42';
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.rankingScore, isNull);
+    });
+
+    test('tolerates downstreamIds containing mixed types', () {
+      final json = minimalValid()..['downstreamIds'] = ['a', 1, 'b', null];
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.downstreamIds, equals(['a', 'b']));
+    });
+
+    // -- Codex post-impl meta-review finding C3 --
+    //
+    // Required enum fields (severity, category, confidence) must
+    // survive schema drift: a renamed value or a JS-coerced numeric
+    // payload cannot abort the whole snapshot deserialization.
+    // Optional enum fields (observationSource, interactionContext,
+    // fixEffort) must degrade to null under the same conditions.
+    test('falls back to warning when severity is a numeric coercion', () {
+      final json = minimalValid()..['severity'] = 42;
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.severity, IssueSeverity.warning);
+    });
+
+    test('falls back to warning when severity is a typo (renamed value)', () {
+      final json = minimalValid()..['severity'] = 'warn';
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.severity, IssueSeverity.warning);
+    });
+
+    test('falls back to build when category is renamed/unknown', () {
+      final json = minimalValid()..['category'] = 'gpu';
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.category, IssueCategory.build);
+    });
+
+    test('falls back to possible when confidence is missing', () {
+      final json = minimalValid()..remove('confidence');
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.confidence, IssueConfidence.possible);
+    });
+
+    test('optional observationSource drops to null on rename', () {
+      final json = minimalValid()..['observationSource'] = 'structuralScan';
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.observationSource, isNull);
+    });
+
+    test('optional fixEffort drops to null on numeric coercion', () {
+      final json = minimalValid()..['fixEffort'] = 0;
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.fixEffort, isNull);
+    });
+
+    // -- v0.16.0 advanced-adversarial-review Blocker 2 --
+    //
+    // detectedAt must degrade to null rather than aborting the whole
+    // factory when the payload is malformed or non-string. Matches the
+    // Meta-C3 pattern applied to the enum fields.
+    test('tolerates malformed detectedAt ISO string (drops to null)', () {
+      // `DateTime.tryParse` accepts out-of-range date components by rolling
+      // them over (e.g. '2026-13-45' becomes 2027-02-14), so we use a string
+      // that is not parseable as an ISO timestamp at all.
+      final json = minimalValid()..['detectedAt'] = 'not-a-valid-iso-date';
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.detectedAt, isNull);
+      expect(parsed.title, 'Test',
+          reason: 'Other fields must still deserialize');
+    });
+
+    test('tolerates non-string detectedAt (drops to null)', () {
+      final json = minimalValid()..['detectedAt'] = 42;
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.detectedAt, isNull);
+    });
+
+    test('accepts valid ISO detectedAt', () {
+      final json = minimalValid()..['detectedAt'] = '2026-04-17T10:00:00Z';
+      final parsed = PerformanceIssue.fromJson(json);
+      expect(parsed.detectedAt, isNotNull);
+      expect(parsed.detectedAt!.year, 2026);
+    });
+  });
+
   group('InteractionContext displayName', () {
     test('idle', () {
       expect(InteractionContext.idle.displayName, 'idle');

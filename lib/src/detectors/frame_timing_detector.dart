@@ -18,7 +18,8 @@ class FrameTimingDetector extends BaseDetector {
     int? warningThresholdMs,
     int? criticalThresholdMs,
     this.fpsTarget = 60,
-    this.warmupFrameCount = _defaultWarmupFrameCount,
+    this.warmupFrameCount = 0,
+    this.warmupDuration = _defaultWarmupDuration,
     this.onFrameStats,
   })  : warningThresholdMs = warningThresholdMs ?? (1000 ~/ fpsTarget),
         criticalThresholdMs = criticalThresholdMs ?? ((1000 ~/ fpsTarget) * 2),
@@ -33,7 +34,23 @@ class FrameTimingDetector extends BaseDetector {
   final int warningThresholdMs;
   final int criticalThresholdMs;
   final int fpsTarget;
+
+  /// Legacy frame-count gate (AND-combined with [warmupDuration]).
+  ///
+  /// Kept for callers that want an explicit frame-based floor. Default is 0
+  /// (disabled) — the refresh-rate-independent [warmupDuration] gate is the
+  /// primary warmup mechanism as of v0.16.0. See v0.16.0 C1 fix: the old
+  /// default of 180 frames meant warmup ended in 1.5 s on 120 Hz displays,
+  /// which misattributed startup jank as real jank on every iPad Pro /
+  /// Pixel 8 Pro session.
   final int warmupFrameCount;
+
+  /// Wall-clock gate suppressing jank evaluation during app warmup
+  /// (shader compilation, route init, Dart VM JIT). Refresh-rate
+  /// independent. Measured against the timestamp of the first frame the
+  /// detector observes, not app-launch time.
+  final Duration warmupDuration;
+
   final void Function(FrameStatsBuffer buffer)? onFrameStats;
 
   final FrameStatsBuffer _buffer = FrameStatsBuffer();
@@ -46,8 +63,23 @@ class FrameTimingDetector extends BaseDetector {
   // First ~3 seconds of monitoring produce jank from shader compilation,
   // route initialization, and Dart VM warmup. Suppress issue evaluation
   // during this window to avoid false positives on every app launch.
-  static const int _defaultWarmupFrameCount = 180; // ~3s at 60fps
+  static const Duration _defaultWarmupDuration = Duration(seconds: 3);
   int _totalFramesSeen = 0;
+
+  // Wall-clock fallback timestamp — used only when the engine's monotonic
+  // vsync timestamp is unavailable (e.g. synthetic test frames without
+  // `FrameStats.vsyncStartUs`). Susceptible to `addTimingsCallback`
+  // batching: Flutter can deliver a queue of frames in a single callback
+  // with all `DateTime.now()` stamps collapsed to one tick, which would
+  // hold the gate closed far past the intended warmup window.
+  DateTime? _firstFrameTimestamp;
+
+  // Monotonic microsecond timestamp (same clock domain as
+  // [FrameTiming.vsyncStart]) of the first frame observed by the detector.
+  // Measured against `frames.last.vsyncStartUs` — both are derived from the
+  // engine clock, so batched callback delivery no longer collapses elapsed
+  // time to zero (Codex post-impl review finding 1, v0.16.0).
+  int? _firstFrameVsyncUs;
 
   // -- Raster cache trend thresholds --
   static const int _thrashingWindowFrames = 15;
@@ -93,10 +125,56 @@ class FrameTimingDetector extends BaseDetector {
   void addFrameForTest(FrameStats stats) {
     if (!_isEnabled) return;
     _totalFramesSeen++;
+    _firstFrameTimestamp ??= stats.timestamp;
+    if (stats.vsyncStartUs != null) {
+      _firstFrameVsyncUs ??= stats.vsyncStartUs;
+    }
     _buffer.add(stats);
     _evaluateJank();
     _evaluateCacheTrends();
     onFrameStats?.call(_buffer);
+  }
+
+  /// Test-only bridge into the real `addTimingsCallback` pipeline so
+  /// callers can feed `List<FrameTiming>` batches through the exact code
+  /// path the engine uses. Validates that batched delivery (one callback
+  /// with many frames) no longer collapses the warmup duration gate
+  /// (Codex post-impl review finding 1).
+  @visibleForTesting
+  void handleTimingsForTest(List<FrameTiming> timings) => _onTimings(timings);
+
+  /// Returns `true` once BOTH warmup gates have elapsed:
+  ///   * frame-count floor ([warmupFrameCount]) — legacy, default 0
+  ///   * wall-clock duration ([warmupDuration]) — primary, default 3 s
+  ///
+  /// Duration is preferably measured in engine microseconds
+  /// ([FrameTiming.vsyncStart] domain) since those timestamps are
+  /// immune to `addTimingsCallback` batching: the engine stamps each
+  /// frame at its actual vsync, even when ten frames are delivered to
+  /// Dart in a single callback. Falls back to wall-clock `timestamp` only
+  /// when the frame lacks `vsyncStartUs` (synthetic test frames).
+  bool _isPastWarmup() {
+    if (_totalFramesSeen < warmupFrameCount) return false;
+    if (warmupDuration > Duration.zero) {
+      final frames = _buffer.frames;
+      if (frames.isEmpty) return false;
+
+      final firstVsync = _firstFrameVsyncUs;
+      final lastVsync = frames.last.vsyncStartUs;
+      if (firstVsync != null && lastVsync != null) {
+        final elapsedUs = lastVsync - firstVsync;
+        if (elapsedUs < warmupDuration.inMicroseconds) return false;
+      } else {
+        // Fallback: no monotonic vsync data available. Must still enforce
+        // the duration gate for test frames and custom BaseDetector
+        // consumers that bypass the timings callback.
+        final first = _firstFrameTimestamp;
+        if (first == null) return false;
+        final elapsed = frames.last.timestamp.difference(first);
+        if (elapsed < warmupDuration) return false;
+      }
+    }
+    return true;
   }
 
   void start() {
@@ -123,10 +201,12 @@ class FrameTimingDetector extends BaseDetector {
     for (final timing in timings) {
       _frameNumber++;
       _totalFramesSeen++;
+      _firstFrameTimestamp ??= DateTime.now();
 
       // Extract all 5 phase timestamps for frame-event correlation.
       final vsyncStartUs =
           timing.timestampInMicroseconds(FramePhase.vsyncStart);
+      _firstFrameVsyncUs ??= vsyncStartUs;
       final buildStartUs =
           timing.timestampInMicroseconds(FramePhase.buildStart);
       final buildFinishUs =
@@ -182,7 +262,7 @@ class FrameTimingDetector extends BaseDetector {
 
     // Suppress jank evaluation during warmup period (shader compilation,
     // route init, Dart VM warmup produce non-actionable jank).
-    if (_totalFramesSeen < warmupFrameCount) return;
+    if (!_isPastWarmup()) return;
 
     final frames = _buffer.frames;
     if (frames.length < 5) return; // Need enough data
@@ -240,7 +320,7 @@ class FrameTimingDetector extends BaseDetector {
   }
 
   void _evaluateCacheTrends() {
-    if (_totalFramesSeen < warmupFrameCount) return;
+    if (!_isPastWarmup()) return;
 
     final frames = _buffer.frames;
     if (frames.length < 2) return;
@@ -466,6 +546,8 @@ class FrameTimingDetector extends BaseDetector {
     _buffer.clear();
     _issues.clear();
     _totalFramesSeen = 0;
+    _firstFrameTimestamp = null;
+    _firstFrameVsyncUs = null;
     _consecutiveThrashingFrames = 0;
     _consecutiveGrowthFrames = 0;
     _consecutiveZeroCacheFrames = 0;

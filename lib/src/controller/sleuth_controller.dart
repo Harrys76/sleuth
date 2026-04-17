@@ -280,6 +280,17 @@ class SleuthController {
   int _cachedIssueGeneration = -1;
   List<PerformanceIssue>? _cachedAllIssues;
 
+  /// Detectors that threw during any stage of the most recent structural
+  /// scan. F3 quarantine (v0.16.0) stops later-stage callbacks for these
+  /// detectors, but the partial output they already emitted before throwing
+  /// must not leak into `_getAllIssues()` / `_collectHighlights()` — a
+  /// `SimpleStructuralDetector` subclass that throws mid-walk has already
+  /// committed `report(...)` calls for the elements it visited. The set is
+  /// cleared at the start of every `_runStructuralScans` invocation and
+  /// populated as failures occur, so the filter in aggregation always
+  /// reflects the most recent scan's quarantine decisions.
+  final Set<BaseDetector> _lastScanFailedDetectors = <BaseDetector>{};
+
   /// Notifies listeners when issues change.
   final ValueNotifier<List<PerformanceIssue>> issuesNotifier = ValueNotifier(
     [],
@@ -672,6 +683,7 @@ class SleuthController {
     _frameTiming = FrameTimingDetector(
       fpsTarget: config.fpsTarget,
       warmupFrameCount: config.frameTimingWarmupFrameCount,
+      warmupDuration: config.frameTimingWarmupDuration,
       onFrameStats: _onFrameStats,
     )..isEnabled = enabled.contains(DetectorType.frameTiming);
 
@@ -853,6 +865,16 @@ class SleuthController {
   void initializeDetectorsForTest() {
     _initializeDetectors();
     _installDebugInstrumentation();
+  }
+
+  /// Inject a detector into the live `_detectors` list so tests can exercise
+  /// the scan-stage failure paths (v0.16.0 F3 quarantine regression tests).
+  ///
+  /// Callers are expected to have called [initializeDetectorsForTest] first.
+  /// Production code must never call this.
+  @visibleForTesting
+  void addDetectorForTest(BaseDetector detector) {
+    _detectors.add(detector);
   }
 
   /// Inject a (typically fake) [VmServiceClient] for tests that need to
@@ -2104,6 +2126,28 @@ class SleuthController {
     }
   }
 
+  /// Route a detector failure through `FlutterError.reportError` so it
+  /// survives profile-mode compilation (asserts are stripped).
+  ///
+  /// Reported failures flow through `FlutterError.onError`, which integrates
+  /// with the app's crash reporter and with Flutter's default presentation in
+  /// debug mode. Tests can override `FlutterError.onError` to assert on the
+  /// reported details.
+  void _reportDetectorFailure(
+    BaseDetector d,
+    String stage,
+    Object e,
+    StackTrace s,
+  ) {
+    FlutterError.reportError(FlutterErrorDetails(
+      exception: e,
+      stack: s,
+      library: 'sleuth',
+      context: ErrorDescription('while running ${d.name}.$stage'),
+      silent: false,
+    ));
+  }
+
   /// Run all tree-scanning detectors (hybrid + structural) in a single
   /// unified walk. Custom detectors fall back to their own scanTree().
   void _runStructuralScans(BuildContext scanContext) {
@@ -2119,10 +2163,34 @@ class SleuthController {
       }
     }
 
-    // Phase 1: Preparation
+    // Detectors that throw during any stage of this scan are added here and
+    // skipped in every subsequent per-detector stage (v0.16.0 F3 quarantine).
+    // A detector with half-initialised state in `prepareScan` would otherwise
+    // keep being called on every element and every later stage, potentially
+    // throwing `LateInitializationError` on uninitialised fields or amplifying
+    // noise across thousands of visitor invocations.
+    //
+    // Also consulted post-scan by `_getAllIssues()` and `_collectHighlights()`
+    // so partial output a detector already committed (via `report(...)`
+    // during earlier walk callbacks) does not leak into aggregation — the
+    // F3 quarantine is only sound if tainted output is suppressed too.
+    final failedDetectors = _lastScanFailedDetectors;
+    failedDetectors.clear();
+
+    // Phase 1: Preparation. Per-detector try/catch isolates a misbehaving
+    // detector from the rest of the scan (v0.16.0 C2 fix — previously
+    // only checkElement/afterElement were guarded, so an exception in
+    // prepareScan would crash the entire scan cycle). Failures are routed
+    // through `FlutterError.reportError` so they surface in profile mode
+    // (v0.16.0 F3 — assert() is stripped outside debug).
     typeNameCache.clear();
     for (final d in unified) {
-      d.prepareScan(scanContext);
+      try {
+        d.prepareScan(scanContext);
+      } catch (e, s) {
+        _reportDetectorFailure(d, 'prepareScan', e, s);
+        failedDetectors.add(d);
+      }
     }
 
     // Phase 2: Unified walk — O(N) instead of O(detectors × N)
@@ -2140,24 +2208,22 @@ class SleuthController {
 
     void visitor(Element element) {
       for (final d in walkDetectors) {
+        if (failedDetectors.contains(d)) continue;
         try {
           d.checkElement(element);
         } catch (e, s) {
-          assert(() {
-            debugPrint('Sleuth: ${d.name} checkElement failed: $e\n$s');
-            return true;
-          }());
+          _reportDetectorFailure(d, 'checkElement', e, s);
+          failedDetectors.add(d);
         }
       }
       element.visitChildren(visitor);
       for (final d in walkDetectors) {
+        if (failedDetectors.contains(d)) continue;
         try {
           d.afterElement(element);
         } catch (e, s) {
-          assert(() {
-            debugPrint('Sleuth: ${d.name} afterElement failed: $e\n$s');
-            return true;
-          }());
+          _reportDetectorFailure(d, 'afterElement', e, s);
+          failedDetectors.add(d);
         }
       }
     }
@@ -2167,28 +2233,54 @@ class SleuthController {
       scanContext.visitChildElements(visitor);
       walkCompleted = true;
     } catch (e, s) {
-      assert(() {
-        debugPrint('Sleuth: tree walk failed: $e\n$s');
-        return true;
-      }());
+      FlutterError.reportError(FlutterErrorDetails(
+        exception: e,
+        stack: s,
+        library: 'sleuth',
+        context: ErrorDescription('while walking the element tree'),
+      ));
     }
 
     // Phase 3: Finalization
     // notifyWalkCompleted only for detectors that participated in the walk.
     // finalizeScan for ALL unified detectors — exempted detectors need it
     // to clear stale state (e.g. swap empty _childSnapshots, clear _usages).
+    // Per-detector try/catch (v0.16.0 C2 fix). Quarantined detectors are
+    // skipped so a `prepareScan` failure doesn't leak garbage issues from
+    // partially-initialised state (v0.16.0 F3).
     if (walkCompleted) {
       for (final d in walkDetectors) {
-        d.notifyWalkCompleted();
+        if (failedDetectors.contains(d)) continue;
+        try {
+          d.notifyWalkCompleted();
+        } catch (e, s) {
+          _reportDetectorFailure(d, 'notifyWalkCompleted', e, s);
+          failedDetectors.add(d);
+        }
       }
     }
     for (final d in unified) {
-      d.finalizeScan();
+      if (failedDetectors.contains(d)) continue;
+      try {
+        d.finalizeScan();
+      } catch (e, s) {
+        _reportDetectorFailure(d, 'finalizeScan', e, s);
+        failedDetectors.add(d);
+      }
     }
 
-    // Phase 4: Legacy custom detectors (separate walks)
+    // Phase 4: Legacy custom detectors (separate walks).
+    // Per-detector try/catch (v0.16.0 C2 fix) so a buggy custom detector
+    // can't crash the rest of the scan cycle. Custom detectors that throw
+    // during scanTree() are added to failedDetectors so any partial output
+    // they committed before the throw is suppressed at aggregation time.
     for (final d in legacy) {
-      d.scanTree(scanContext);
+      try {
+        d.scanTree(scanContext);
+      } catch (e, s) {
+        _reportDetectorFailure(d, 'scanTree', e, s);
+        failedDetectors.add(d);
+      }
     }
 
     // Invalidate _getAllIssues cache — detectors have fresh issues.
@@ -2200,12 +2292,20 @@ class SleuthController {
   /// Detectors collect highlights during their scanTree() calls.
   /// This method just gathers them — no tree walking or re-detection.
   void _collectHighlights() {
+    // F3 aggregation filter (v0.16.0): skip detectors that threw during the
+    // most recent structural scan. See `_getAllIssues` for the full
+    // rationale — highlights are subject to the same half-scan leakage risk
+    // as issues because detectors append to `_highlights` inside
+    // `checkElement`/`afterElement`.
+    final failed = _lastScanFailedDetectors;
+
     // Fast path: if no highlights existed last scan and no detector produced
     // any this scan, skip the list spread, generation increment, and notifier
     // update to avoid unnecessary overlay repaints (Pillar 2a M2).
     if (highlightsNotifier.value.items.isEmpty) {
       bool anyHighlights = false;
       for (final d in _detectors) {
+        if (failed.contains(d)) continue;
         if (d.highlights.isNotEmpty) {
           anyHighlights = true;
           break;
@@ -2223,7 +2323,10 @@ class SleuthController {
     }
 
     _highlightGeneration++;
-    final items = [for (final d in _detectors) ...d.highlights];
+    final items = [
+      for (final d in _detectors)
+        if (!failed.contains(d)) ...d.highlights,
+    ];
     highlightsNotifier.value = (generation: _highlightGeneration, items: items);
 
     // Rebind selected highlight to fresh object with updated rect (v9.14).
@@ -3056,7 +3159,18 @@ class SleuthController {
         _cachedAllIssues != null) {
       return _cachedAllIssues!;
     }
-    _cachedAllIssues = [for (final d in _detectors) ...d.issues];
+    // F3 aggregation filter (v0.16.0): skip detectors that threw during the
+    // most recent structural scan. Their `.issues` list may hold partial
+    // findings committed via `report(...)` before the throw, and publishing
+    // that half-scan output would defeat the quarantine set up in
+    // `_runStructuralScans`. The filter is a no-op for detectors that never
+    // failed and for non-structural detectors (runtime/VM), which are never
+    // added to `_lastScanFailedDetectors`.
+    final failed = _lastScanFailedDetectors;
+    _cachedAllIssues = [
+      for (final d in _detectors)
+        if (!failed.contains(d)) ...d.issues,
+    ];
     _cachedIssueGeneration = _issueGeneration;
     return _cachedAllIssues!;
   }
@@ -3345,7 +3459,8 @@ class SleuthConfig {
     this.largeResponseThresholdBytes = 1048576,
     this.networkExcludePatterns,
     this.memoryWarmupDurationMs = 3000,
-    this.frameTimingWarmupFrameCount = 180,
+    this.frameTimingWarmupFrameCount = 0,
+    this.frameTimingWarmupDuration = const Duration(seconds: 3),
     this.platformChannelDurationThresholdMs = 8,
     this.suppressedIssues = const {},
     this.customDetectors = const [],
@@ -3418,6 +3533,10 @@ class SleuthConfig {
           'frameTimingWarmupFrameCount must be >= 0. '
           'Set to 0 in tests to disable warmup suppression.',
         ),
+        // Duration operators are not const-evaluable. Runtime validation
+        // for `frameTimingWarmupDuration >= Duration.zero` lives in the
+        // [SleuthController] constructor body alongside the companion
+        // `treeScanInterval > Duration.zero` check.
         assert(
           platformChannelDurationThresholdMs >= 0,
           'platformChannelDurationThresholdMs must be >= 0.',
@@ -3781,15 +3900,28 @@ class SleuthConfig {
   /// allocation tracking from sample zero.
   final int memoryWarmupDurationMs;
 
-  /// Number of frames to suppress frame-timing jank evaluation at
-  /// startup.
+  /// Legacy frame-count gate for jank-evaluation warmup suppression.
   ///
-  /// **Default:** 180. At 60 FPS that's ~3 s — long enough to cover
-  /// splash screens, first-frame shader warmups, and initial image
-  /// decodes that would otherwise dominate a session's "jank" count.
+  /// **Default:** 0 (disabled). The wall-clock
+  /// [frameTimingWarmupDuration] is the primary warmup gate as of
+  /// v0.16.0 — the old 180-frame default was refresh-rate-dependent
+  /// and ended warmup at 1.5 s on 120 Hz displays, causing startup
+  /// jank to surface as real jank on every iPad Pro / Pixel 8 Pro
+  /// session. Kept for callers that want an explicit frame-count
+  /// floor on top of the duration gate.
   ///
-  /// **Set to 0** in tests to disable warmup suppression entirely.
+  /// **Set to 0** (default) to rely solely on duration.
   final int frameTimingWarmupFrameCount;
+
+  /// Wall-clock duration during which frame-timing jank evaluation is
+  /// suppressed after the first observed frame.
+  ///
+  /// **Default:** 3 seconds — covers shader compilation, route init,
+  /// and Dart VM JIT warmup regardless of refresh rate.
+  ///
+  /// **Set to [Duration.zero]** in tests to disable warmup suppression
+  /// entirely (pair with [frameTimingWarmupFrameCount] = 0).
+  final Duration frameTimingWarmupDuration;
 
   /// Cumulative platform channel duration threshold in milliseconds per
   /// window.
@@ -3963,6 +4095,7 @@ class SleuthConfig {
     Object? networkExcludePatterns = _sentinel,
     int? memoryWarmupDurationMs,
     int? frameTimingWarmupFrameCount,
+    Duration? frameTimingWarmupDuration,
     int? platformChannelDurationThresholdMs,
     Set<String>? suppressedIssues,
     List<BaseDetector>? customDetectors,
@@ -4012,6 +4145,8 @@ class SleuthConfig {
           memoryWarmupDurationMs ?? this.memoryWarmupDurationMs,
       frameTimingWarmupFrameCount:
           frameTimingWarmupFrameCount ?? this.frameTimingWarmupFrameCount,
+      frameTimingWarmupDuration:
+          frameTimingWarmupDuration ?? this.frameTimingWarmupDuration,
       platformChannelDurationThresholdMs: platformChannelDurationThresholdMs ??
           this.platformChannelDurationThresholdMs,
       suppressedIssues: suppressedIssues ?? this.suppressedIssues,

@@ -1,3 +1,5 @@
+import 'dart:ui' show FrameTiming;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
@@ -9,7 +11,10 @@ void main() {
     late FrameTimingDetector detector;
 
     setUp(() {
-      detector = FrameTimingDetector(warmupFrameCount: 0);
+      detector = FrameTimingDetector(
+        warmupFrameCount: 0,
+        warmupDuration: Duration.zero,
+      );
     });
 
     FrameStats makeFrame({
@@ -181,7 +186,11 @@ void main() {
 
     test('custom thresholds affect jank detection', () {
       // 120fps target: 8ms budget, severe = 16ms
-      detector = FrameTimingDetector(fpsTarget: 120, warmupFrameCount: 0);
+      detector = FrameTimingDetector(
+        fpsTarget: 120,
+        warmupFrameCount: 0,
+        warmupDuration: Duration.zero,
+      );
 
       // Frames at 12ms — not janky at 60fps but janky at 120fps
       for (var i = 0; i < 20; i++) {
@@ -538,7 +547,13 @@ void main() {
       late FrameTimingDetector warmupDetector;
 
       setUp(() {
-        warmupDetector = FrameTimingDetector(warmupFrameCount: 180);
+        // `warmupDuration: Duration.zero` isolates the frame-count gate so
+        // these legacy tests measure only frame counts. The v0.16.0
+        // duration gate is covered separately below.
+        warmupDetector = FrameTimingDetector(
+          warmupFrameCount: 180,
+          warmupDuration: Duration.zero,
+        );
       });
 
       test('no jank issues during warmup period despite severe frames', () {
@@ -641,6 +656,186 @@ void main() {
         }
         expect(warmupDetector.issues, isEmpty,
             reason: 'Warmup counter should reset on dispose');
+      });
+    });
+
+    // -- v0.16.0 C1 regression: duration-based warmup gate --
+    //
+    // The pre-v0.16.0 default suppressed jank for 180 frames, which ends
+    // warmup in 1.5 s on 120 Hz displays rather than the documented ~3 s.
+    // These tests assert the wall-clock duration gate is enforced
+    // independent of refresh rate.
+
+    group('Warmup Suppression (duration gate, v0.16.0)', () {
+      FrameStats frameAt({
+        required int uiMs,
+        required int rasterMs,
+        required DateTime timestamp,
+        int frameNumber = 1,
+        int frameBudgetMs = 16,
+      }) {
+        return FrameStats(
+          frameNumber: frameNumber,
+          uiDuration: Duration(milliseconds: uiMs),
+          rasterDuration: Duration(milliseconds: rasterMs),
+          timestamp: timestamp,
+          totalSpan: Duration(milliseconds: uiMs + rasterMs),
+          frameBudgetMs: frameBudgetMs,
+        );
+      }
+
+      test(
+          'duration gate suppresses jank during 3s wall-clock window '
+          'regardless of frame count (120Hz regression)', () {
+        // Simulate 120Hz: 360 frames fit into 3 seconds. The pre-fix
+        // default of warmupFrameCount=180 would have exited warmup at
+        // 1.5 s; the new default of warmupDuration=3s suppresses for the
+        // full window.
+        final detector = FrameTimingDetector(
+          warmupFrameCount: 0,
+          // warmupDuration defaults to 3 s
+        );
+        final start = DateTime(2026, 4, 17, 12);
+
+        // 180 severe-jank frames across 1.5 s (8.33 ms spacing @ 120Hz)
+        for (var i = 0; i < 180; i++) {
+          detector.addFrameForTest(frameAt(
+            uiMs: 40,
+            rasterMs: 40,
+            timestamp: start.add(Duration(microseconds: i * 8333)),
+            frameNumber: i + 1,
+          ));
+        }
+        expect(detector.issues, isEmpty,
+            reason: '180 frames at 120Hz = 1.5 s — duration gate still '
+                'active at default 3 s');
+
+        // Another 180 frames spanning the remaining 1.5 s — total 3.0 s
+        for (var i = 180; i < 360; i++) {
+          detector.addFrameForTest(frameAt(
+            uiMs: 40,
+            rasterMs: 40,
+            timestamp: start.add(Duration(microseconds: i * 8333)),
+            frameNumber: i + 1,
+          ));
+        }
+
+        // One frame just beyond 3 s to exit the duration window
+        detector.addFrameForTest(frameAt(
+          uiMs: 40,
+          rasterMs: 40,
+          timestamp: start.add(const Duration(seconds: 3, milliseconds: 10)),
+          frameNumber: 361,
+        ));
+        expect(detector.issues, isNotEmpty,
+            reason: 'Past 3 s wall-clock, jank evaluation should fire');
+      });
+
+      test('custom short warmupDuration exits quickly regardless of frames',
+          () {
+        final detector = FrameTimingDetector(
+          warmupFrameCount: 0,
+          warmupDuration: const Duration(milliseconds: 500),
+        );
+        final start = DateTime(2026, 4, 17, 12);
+
+        // 5 frames within 500 ms — still warming up
+        for (var i = 0; i < 5; i++) {
+          detector.addFrameForTest(frameAt(
+            uiMs: 40,
+            rasterMs: 40,
+            timestamp: start.add(Duration(milliseconds: i * 80)),
+            frameNumber: i + 1,
+          ));
+        }
+        expect(detector.issues, isEmpty);
+
+        // One frame past 500 ms — duration gate open
+        for (var i = 5; i < 10; i++) {
+          detector.addFrameForTest(frameAt(
+            uiMs: 40,
+            rasterMs: 40,
+            timestamp: start.add(Duration(milliseconds: 550 + i * 16)),
+            frameNumber: i + 1,
+          ));
+        }
+        expect(detector.issues, isNotEmpty);
+      });
+
+      test('explicit Duration.zero disables duration gate entirely', () {
+        final detector = FrameTimingDetector(
+          warmupFrameCount: 0,
+          warmupDuration: Duration.zero,
+        );
+        final start = DateTime(2026, 4, 17, 12);
+
+        for (var i = 0; i < 10; i++) {
+          detector.addFrameForTest(frameAt(
+            uiMs: 40,
+            rasterMs: 40,
+            timestamp: start.add(Duration(microseconds: i * 100)),
+            frameNumber: i + 1,
+          ));
+        }
+        expect(detector.issues, isNotEmpty,
+            reason: 'With duration gate disabled and frame-count gate 0, '
+                'evaluation runs from frame 1');
+      });
+
+      // Codex post-impl review finding 1: the wall-clock fallback path
+      // uses `DateTime.now()` which is stamped once per callback batch,
+      // not once per frame. A real cold start can deliver 60+ frames in a
+      // single `addTimingsCallback` invocation — if the gate read batch
+      // wall time instead of per-frame vsync, a 500 ms monotonic-timestamp
+      // batch would look like 0 ms elapsed and keep suppressing jank.
+      test(
+          'batched FrameTiming delivery uses monotonic vsync for elapsed '
+          'time (C-Codex-1 regression)', () {
+        final detector = FrameTimingDetector(
+          warmupFrameCount: 0,
+          warmupDuration: const Duration(seconds: 3),
+        );
+
+        // Build 200 FrameTiming objects with monotonic vsync stamps
+        // spanning only 500 ms — below the 3 s gate. If the detector
+        // consulted wall clock from the batch, the gate would open the
+        // moment the next real frame arrives; consulting monotonic vsync
+        // keeps it correctly closed.
+        const baseVsyncUs = 1000000000;
+        const frameSpacingUs = 2500; // 400 Hz synthetic, 500 ms / 200
+        final batch = <FrameTiming>[
+          for (var i = 0; i < 200; i++)
+            FrameTiming(
+              vsyncStart: baseVsyncUs + i * frameSpacingUs,
+              buildStart: baseVsyncUs + i * frameSpacingUs + 100,
+              buildFinish: baseVsyncUs + i * frameSpacingUs + 40100,
+              rasterStart: baseVsyncUs + i * frameSpacingUs + 40200,
+              rasterFinish: baseVsyncUs + i * frameSpacingUs + 80200,
+              rasterFinishWallTime: baseVsyncUs + i * frameSpacingUs + 80200,
+              frameNumber: i + 1,
+            ),
+        ];
+        detector.handleTimingsForTest(batch);
+        expect(detector.issues, isEmpty,
+            reason: '200 frames spanning 500 ms of engine time is still '
+                'well inside the 3 s warmup gate. Gate must consult '
+                'monotonic vsync, not per-callback wall clock.');
+
+        // Second batch pushes elapsed vsync past 3 s → gate opens.
+        const pastWarmupUs = baseVsyncUs + 3100000;
+        detector.handleTimingsForTest([
+          FrameTiming(
+            vsyncStart: pastWarmupUs,
+            buildStart: pastWarmupUs + 100,
+            buildFinish: pastWarmupUs + 40100,
+            rasterStart: pastWarmupUs + 40200,
+            rasterFinish: pastWarmupUs + 80200,
+            rasterFinishWallTime: pastWarmupUs + 80200,
+            frameNumber: 201,
+          ),
+        ]);
+        expect(detector.issues, isNotEmpty,
+            reason: 'Past 3 s of engine time, jank evaluation must fire');
       });
     });
 

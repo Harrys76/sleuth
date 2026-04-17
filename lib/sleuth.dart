@@ -98,6 +98,8 @@ export 'src/utils/fix_hint_builder.dart';
 export 'src/utils/session_markdown_exporter.dart';
 export 'src/models/startup_metrics.dart';
 export 'src/models/route_session.dart';
+export 'src/validation/evidence_tier.dart';
+export 'src/validation/detector_metadata.dart';
 
 /// Entry point for the Sleuth package.
 ///

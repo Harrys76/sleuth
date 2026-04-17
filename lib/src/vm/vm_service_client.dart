@@ -258,7 +258,14 @@ class VmServiceClient {
     return false;
   }
 
-  /// Reconnect with exponential backoff (1s, 2s, 4s).
+  /// Reconnect with exponential backoff: 1s → 2s → 4s → 8s → 16s
+  /// (cumulative ~31s before giving up).
+  ///
+  /// Pre-v0.16.0 this ladder stopped at 4s (7s cumulative), which was
+  /// shorter than the 30s window documented in CLAUDE.md and too
+  /// impatient for cold-start scenarios on Android emulators where the
+  /// VM service socket can take ~10–20s to bind. C3 fix: extend the
+  /// ladder to match the documented window.
   Future<bool> reconnect() async {
     if (_reconnecting || _disposed) return false;
 
@@ -281,6 +288,8 @@ class VmServiceClient {
       Duration(seconds: 1),
       Duration(seconds: 2),
       Duration(seconds: 4),
+      Duration(seconds: 8),
+      Duration(seconds: 16),
     ];
 
     try {
