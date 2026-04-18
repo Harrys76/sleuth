@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -13,7 +15,7 @@ import '../utils/widget_location.dart';
 ///
 /// **Structural Detector** — checks for SliverChildListDelegate with >50 items
 /// and three sliver anti-patterns that defeat lazy loading.
-class ListviewDetector extends BaseDetector {
+class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
   ListviewDetector({this.childThreshold = 50})
       : super(
           type: DetectorType.listview,
@@ -509,6 +511,15 @@ class ListviewDetector extends BaseDetector {
     _highlights.clear();
     _sliverFillFindings.clear();
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale: 'Sliver anti-pattern heuristics (shrinkWrap inside sliver, '
+            'SliverToBoxAdapter large subtree, SliverFillRemaining '
+            'misuse). Not runtime-verified or cited to Flutter '
+            'sliver-performance guidance.',
+      );
 }
 
 /// Internal record for deferred SliverFillRemaining findings (Check B).

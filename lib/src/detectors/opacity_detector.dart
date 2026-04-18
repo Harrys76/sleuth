@@ -2,6 +2,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -15,7 +17,7 @@ import '../utils/widget_location.dart';
 ///
 /// For AnimatedOpacity, only flags when the animation has settled
 /// (completed/dismissed) to avoid transient false positives during fade-in.
-class OpacityDetector extends BaseDetector {
+class OpacityDetector extends BaseDetector with DetectorMetadataProvider {
   OpacityDetector()
       : super(
           type: DetectorType.opacity,
@@ -152,4 +154,12 @@ class OpacityDetector extends BaseDetector {
     _found.clear();
     _insideAnimatedOpacity = 0;
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'Opacity(0) skip heuristic and saveLayer-cost threshold. Not '
+            'runtime-verified or cited to Flutter paint-phase guidance.',
+      );
 }

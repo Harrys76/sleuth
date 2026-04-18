@@ -1,4 +1,6 @@
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
@@ -6,7 +8,8 @@ import '../vm/timeline_parser.dart';
 /// Detects excessive platform channel calls.
 ///
 /// **VM-Only Detector** — monitors platform channel timeline events for >20 calls/sec.
-class PlatformChannelDetector extends BaseDetector {
+class PlatformChannelDetector extends BaseDetector
+    with DetectorMetadataProvider {
   PlatformChannelDetector({
     this.callsPerSecThreshold = 20,
     this.durationThresholdUs = 8000,
@@ -137,4 +140,13 @@ class PlatformChannelDetector extends BaseDetector {
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'Platform-channel call-duration threshold and frequency '
+            'heuristic. Not runtime-verified or cited to Flutter '
+            'platform-channel performance docs.',
+      );
 }

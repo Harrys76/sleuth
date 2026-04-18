@@ -2,6 +2,8 @@ import 'dart:collection';
 
 import '../models/allocation_entry.dart';
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/heap_sample.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
@@ -10,7 +12,8 @@ import '../utils/fix_hint_builder.dart';
 ///
 /// **VM-Only Detector** — monitors GC frequency, heap growth rate via
 /// linear regression over a rolling window, and heap capacity usage.
-class MemoryPressureDetector extends BaseDetector {
+class MemoryPressureDetector extends BaseDetector
+    with DetectorMetadataProvider {
   MemoryPressureDetector({
     DateTime Function()? clock,
     this.warmupDurationMs = 3000,
@@ -479,4 +482,13 @@ class MemoryPressureDetector extends BaseDetector {
     _capacityWindow.clear();
     _issues.clear();
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'Memory growth thresholds, warmup, capacity, and 10s '
+            'sliding-window GC-rate calculation. Not runtime-verified '
+            'against a low-memory device profile or externally cited.',
+      );
 }

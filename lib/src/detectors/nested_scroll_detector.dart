@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -11,7 +13,8 @@ import '../utils/widget_location.dart';
 ///
 /// **Structural Detector** — this pattern means all children are built
 /// even when offscreen, defeating virtualization.
-class NestedScrollDetector extends BaseDetector {
+class NestedScrollDetector extends BaseDetector
+    with DetectorMetadataProvider {
   NestedScrollDetector({this.childThreshold = 50})
       : super(
           type: DetectorType.nestedScroll,
@@ -233,4 +236,12 @@ class NestedScrollDetector extends BaseDetector {
     _issues.clear();
     _highlights.clear();
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'NestedScrollView-with-inner-scrollable structural '
+            'heuristic. Not runtime-verified or externally cited.',
+      );
 }

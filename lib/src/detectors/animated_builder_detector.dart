@@ -2,6 +2,8 @@ import 'package:flutter/widgets.dart';
 
 import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -12,7 +14,8 @@ import 'setstate_scope_detector.dart';
 ///
 /// **Structural Detector** — without `child`, the entire builder subtree
 /// rebuilds on every animation tick (60x/sec), causing unnecessary work.
-class AnimatedBuilderDetector extends BaseDetector {
+class AnimatedBuilderDetector extends BaseDetector
+    with DetectorMetadataProvider {
   AnimatedBuilderDetector({this.minSubtreeSize = 50})
       : super(
           type: DetectorType.animatedBuilder,
@@ -195,4 +198,14 @@ class AnimatedBuilderDetector extends BaseDetector {
     _subtreeSizeStack.clear();
     _lastDebugSnapshot = null;
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'AnimatedBuilder-without-child-parameter heuristic: '
+            'identifies builders that rebuild subtrees the animation does '
+            'not actually touch. Not runtime-verified against a '
+            'real-device profile trace or externally cited.',
+      );
 }

@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -21,7 +23,8 @@ const int _defaultRecreationThreshold = 5;
 /// **Structural Detector** — counts user-assigned GlobalKey instances on
 /// children of ListView, GridView, PageView per-scrollable (>threshold
 /// prevents element recycling).
-class GlobalKeyDetector extends BaseDetector {
+class GlobalKeyDetector extends BaseDetector
+    with DetectorMetadataProvider {
   GlobalKeyDetector({
     this.threshold = 20,
     this.recreationThreshold = _defaultRecreationThreshold,
@@ -251,4 +254,12 @@ class GlobalKeyDetector extends BaseDetector {
     _currentKeyIds.clear();
     _prevScanRootId = null;
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'GlobalKey re-creation detection heuristic and threshold. '
+            'Not runtime-verified or externally cited.',
+      );
 }

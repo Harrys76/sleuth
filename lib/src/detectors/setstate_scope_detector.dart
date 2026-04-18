@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -19,7 +21,8 @@ import '../utils/widget_location.dart';
 ///
 /// This avoids false positives on animation-based pages (CustomPainterDemo)
 /// while reliably catching setState-heavy pages (HighLevelSetStateDemo).
-class SetStateScopeDetector extends BaseDetector {
+class SetStateScopeDetector extends BaseDetector
+    with DetectorMetadataProvider {
   SetStateScopeDetector({
     this.dirtyRatioThreshold = 0.5,
     this.minSubtreeSize = 50,
@@ -498,4 +501,12 @@ class SetStateScopeDetector extends BaseDetector {
     _subtreeSizeStack.clear();
     _stableCountStack.clear();
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'setState scope-breadth estimation heuristic. Not '
+            'runtime-verified or externally cited.',
+      );
 }

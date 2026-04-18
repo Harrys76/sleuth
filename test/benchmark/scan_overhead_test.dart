@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/models/base_detector.dart';
 import 'package:sleuth/src/detectors/animated_builder_detector.dart';
 import 'package:sleuth/src/detectors/custom_painter_detector.dart';
 import 'package:sleuth/src/detectors/font_loading_detector.dart';
@@ -212,7 +213,7 @@ void main() {
       await tester.pumpWidget(buildMixedTree(500));
       var context = tester.element(find.byType(Directionality));
 
-      final detectors = [
+      final List<BaseDetector> detectors = [
         RebuildDetector(),
         RepaintDetector(),
         GpuPressureDetector(),

@@ -1,3 +1,95 @@
+## 0.16.1
+
+**Per-detector validation — first milestone.** Rolls the v0.16.0 methodology
+contract onto the detector surface: every shipped detector now declares a
+`DetectorMetadata` entry; `NetworkMonitorDetector` is the first detector to
+ship at `EvidenceTier.reproducerOnly` with a hermetic reproducer. The CI
+audit gate deferred from v0.16.0 lands alongside, enforcing the contract on
+every subsequent milestone.
+
+### Added
+
+- **`test/validation/detector_metadata_audit_test.dart`** — the audit gate
+  deferred from v0.16.0. Walks `SleuthController.detectorsForAudit` (a new
+  `@visibleForTesting` getter that filters out user-authored
+  `config.customDetectors`) and asserts per-detector invariants published in
+  `DetectorMetadata`'s doc: mixin presence, non-null metadata, non-empty
+  rationale, tier-appropriate fields (`reproducerOnly` / `runtimeVerified` →
+  `reproducerPath` non-null; `externallyCited` → `citationUrl` + `reproducerPath`
+  non-null), and file-exists check on declared reproducer paths when the
+  test CWD is the package root. A final pin-test anchors
+  `NetworkMonitorDetector` at `reproducerOnly` so a future demotion fails a
+  test instead of silently regressing the reliability ledger.
+- **`test/validation/network_monitor_reproducer_test.dart`** — two-layer
+  hermetic reproducer cited by `NetworkMonitorDetector.validationMetadata
+  .reproducerPath`. Layer 1 exercises `processRecord` at the exact threshold
+  boundaries (999/1000/2999/3000/3001 ms) and asserts the `critical > slow`
+  reachability invariant. Layer 2 drives the full pipeline
+  (`SleuthHttpOverrides → _MonitoringHttpClient → _MonitoringRequest →
+  _MonitoringResponse → RequestRecord → processRecord`) against a loopback
+  `HttpServer`, proving the proxy measures real durations and emits records
+  that reach the detector.
+- **`SleuthController.detectorsForAudit`** — `@visibleForTesting` getter
+  exposing the registered built-in detectors (custom detectors filtered
+  out). The audit gate's access point.
+
+### Changed
+
+- **22 built-in detectors bulk-seeded at `EvidenceTier.unvalidated`.** Every
+  detector now mixes in `DetectorMetadataProvider` and returns a
+  `const DetectorMetadata` with a detector-specific rationale describing what
+  heuristic or threshold is not yet runtime-verified. Subsequent milestones
+  raise one detector at a time. The metadata is non-breaking — it adds
+  surface, not required parameters.
+- **`NetworkMonitorDetector` is the first detector at
+  `EvidenceTier.reproducerOnly`.** `reproducerPath` points at the new
+  hermetic test file. The detector's 1000 ms / 3000 ms thresholds and the
+  `critical > slow` reachability invariant are now covered by the two-layer
+  reproducer.
+- **`DetectorMetadata` + `DetectorMetadataProvider` doc comments tightened.**
+  `DetectorMetadata` now documents the audit gate as live since v0.16.1 with
+  the exact tier-appropriate field requirements the gate enforces.
+  `DetectorMetadataProvider` drops the unreachable "landing with the first
+  per-detector validation PR" claim (v0.16.1 IS that PR) and states the
+  honest contract: v0.16.1 seeds every shipped detector, subsequent
+  milestones raise one at a time.
+
+### Fixed
+
+- **`SleuthHttpOverrides` + `drain()` / `.asFuture()` terminal-event leak
+  (AB1).** `_MonitoringResponse.listen()` previously returned the inner
+  subscription directly and relied on its wrapping `onDone` closure to emit
+  the `RequestRecord`. `Stream.drain()` internally calls `listen(null,
+  cancelOnError: true).asFuture(futureValue)` and
+  `StreamSubscription.asFuture()` REPLACES the subscription's `_onDone` —
+  so any consumer using `drain()` or `.asFuture()` silently lost the
+  terminal event and the proxy never emitted. `_MonitoringResponse.listen()`
+  now returns a new `_MonitoringSubscription<T>` wrapper that (a) overrides
+  `asFuture` to complete from a proxy-owned `Completer<void>` rather than
+  delegating to `_inner.asFuture`, preserving the terminal-event emission
+  regardless of how the caller consumes the stream; (b) overrides `cancel`
+  to fire the terminal emit before cancelling so early-abort consumers
+  still produce a `RequestRecord`; and (c) delegates all other
+  subscription operations (`onData`/`onError`/`onDone`/`pause`/`resume`/
+  `isPaused`) to the inner subscription unchanged. The reproducer now
+  includes regression tests for both `drain()` and `.listen(...).asFuture()`
+  consumption paths.
+- **Example `network_stress_demo.dart` FIX bodies use `await for` (AB0).**
+  The FIX demonstrations for cached (`_triggerCached`) and paginated
+  (`_triggerPaginated`) flows previously used `response.drain<void>()` and
+  `response.listen(...).asFuture<void>()` respectively — contradicting the
+  inline warnings in the BAD bodies and silently bypassing the very
+  detector the milestone advertises. Both switched to the same `await for`
+  pattern used in the BAD bodies, with matching comments explaining the
+  terminal-event constraint.
+
+### Notes
+
+- Test count: 2,225 → 2,238 (+8 reproducer + 5 audit gate).
+- No adversarial plan-review round; plan was approved after deep-plan +
+  scope-confirmation. Post-impl `/adversarial-review` scheduled on the
+  working-tree diff before tag/push per project workflow.
+
 ## 0.16.0
 
 **Validation methodology** — infrastructure milestone that introduces the

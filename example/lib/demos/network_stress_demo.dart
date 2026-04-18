@@ -65,7 +65,13 @@ class _NetworkStressDemoState extends State<NetworkStressDemo> {
         Uri.parse('https://httpbin.org/delay/3'),
       );
       final response = await request.close();
-      await response.drain<void>();
+      // Use `await for` to consume the body. `drain()` / `.asFuture()`
+      // replace the response subscription's `onDone`, which Sleuth's
+      // `SleuthHttpOverrides` proxy relies on to emit the
+      // `RequestRecord` — see CHANGELOG v0.16.1 known limitation.
+      await for (final _ in response) {
+        // Intentionally empty — we only need the stream to complete.
+      }
       if (!mounted) return;
       _addLog('Slow request done: ${response.statusCode}');
     } catch (e) {
@@ -90,7 +96,9 @@ class _NetworkStressDemoState extends State<NetworkStressDemo> {
               Uri.parse('https://httpbin.org/get?i=$i'),
             );
             final res = await req.close();
-            await res.drain<void>();
+            await for (final _ in res) {
+              // Drain via `await for` so the proxy's `onDone` fires.
+            }
             completed++;
           } catch (_) {
             completed++;
@@ -117,7 +125,12 @@ class _NetworkStressDemoState extends State<NetworkStressDemo> {
       );
       final response = await request.close();
       var bytes = 0;
-      await response.listen((chunk) => bytes += chunk.length).asFuture<void>();
+      // `await for` keeps the proxy's wrapping `onDone` intact.
+      // `listen(...).asFuture()` would replace it and the
+      // `RequestRecord` would never emit.
+      await for (final chunk in response) {
+        bytes += chunk.length;
+      }
       if (!mounted) return;
       _addLog('Large response done: $bytes bytes');
     } catch (e) {
@@ -162,7 +175,11 @@ class _NetworkStressDemoState extends State<NetworkStressDemo> {
         Uri.parse('https://httpbin.org/get?cached=1'),
       );
       final response = await request.close();
-      await response.drain<void>();
+      await for (final _ in response) {
+        // Drain via `await for` so the proxy's `onDone` fires and the
+        // `RequestRecord` is emitted. `drain()` / `.asFuture()` replace
+        // the subscription's `onDone` and silently bypass the monitor.
+      }
       if (!mounted) return;
       _cachedSmallResponse = '<cached ${response.statusCode}>';
       _addLog('Cached. Subsequent taps will be 0 requests.');
@@ -185,7 +202,12 @@ class _NetworkStressDemoState extends State<NetworkStressDemo> {
       );
       final response = await request.close();
       var bytes = 0;
-      await response.listen((chunk) => bytes += chunk.length).asFuture<void>();
+      // `await for` keeps the proxy's wrapping `onDone` intact.
+      // `listen(...).asFuture()` would replace it and the
+      // `RequestRecord` would never emit.
+      await for (final chunk in response) {
+        bytes += chunk.length;
+      }
       if (!mounted) return;
       _addLog('Page done: $bytes bytes (fits in a single small payload).');
     } catch (e) {

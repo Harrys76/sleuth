@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/frame_stats.dart';
 import '../utils/fix_hint_builder.dart';
@@ -13,7 +15,7 @@ import '../vm/timeline_parser.dart';
 /// every frame) and optionally augments with exact VM Timeline phase data.
 ///
 /// **Runtime Detector** — near-zero overhead, always available.
-class FrameTimingDetector extends BaseDetector {
+class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   FrameTimingDetector({
     int? warningThresholdMs,
     int? criticalThresholdMs,
@@ -554,6 +556,15 @@ class FrameTimingDetector extends BaseDetector {
     _impellerDetected = false;
     _lastTimelineData = null;
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale: 'FPS target (60), warmup duration (3s), and jank thresholds '
+            '(refresh-rate-aware). Not yet cited to Flutter engine '
+            'sources or verified via a profile-mode capture on a '
+            'reference device.',
+      );
 }
 
 class _JankBottleneck {

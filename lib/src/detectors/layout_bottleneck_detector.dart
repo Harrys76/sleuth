@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -11,7 +13,8 @@ import '../utils/widget_location.dart';
 ///
 /// **Structural Detector** — scans render tree for RenderIntrinsicHeight/Width.
 /// Nested intrinsics are escalated to critical severity (exponential layout).
-class LayoutBottleneckDetector extends BaseDetector {
+class LayoutBottleneckDetector extends BaseDetector
+    with DetectorMetadataProvider {
   LayoutBottleneckDetector()
       : super(
           type: DetectorType.layoutBottleneck,
@@ -222,4 +225,12 @@ class LayoutBottleneckDetector extends BaseDetector {
     _wrapFindings.clear();
     _intrinsicDepth = 0;
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'Layout-phase duration threshold for bottleneck attribution. '
+            'Not runtime-verified or externally cited.',
+      );
 }

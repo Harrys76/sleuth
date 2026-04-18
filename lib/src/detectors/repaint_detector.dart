@@ -2,6 +2,8 @@ import 'package:flutter/widgets.dart';
 
 import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/phase_event.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
@@ -20,7 +22,8 @@ import '../vm/timeline_parser.dart';
 /// Data sources accumulate into staging fields; the single [_evaluate]
 /// method is the ONLY writer of [_issues]. Called from [scanTree] (scan
 /// tick) and [evaluateNow] (timeline tick).
-class RepaintDetector extends BaseDetector {
+class RepaintDetector extends BaseDetector
+    with DetectorMetadataProvider {
   RepaintDetector({
     this.paintFrequencyThreshold = 30,
     DateTime Function()? clock,
@@ -442,4 +445,13 @@ class RepaintDetector extends BaseDetector {
     _stagedEnrichedDirtyTotal = null;
     _pendingDebugSnapshot = null;
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'Excessive-repaint rate threshold (30 paints/sec) plus '
+            'animation-owner filter. Not runtime-verified against '
+            'refresh-rate-specific baselines or externally cited.',
+      );
 }

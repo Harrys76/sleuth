@@ -1,4 +1,6 @@
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/phase_event.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
@@ -7,7 +9,8 @@ import '../vm/timeline_parser.dart';
 /// Detects heavy computation blocking the UI thread.
 ///
 /// **VM-Only Detector** — monitors Dart isolate event gaps >8ms.
-class HeavyComputeDetector extends BaseDetector {
+class HeavyComputeDetector extends BaseDetector
+    with DetectorMetadataProvider {
   HeavyComputeDetector({this.lagThresholdMs = 8})
       : super(
           type: DetectorType.heavyCompute,
@@ -136,4 +139,13 @@ class HeavyComputeDetector extends BaseDetector {
 
   @override
   void dispose() => _issues.clear();
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'Frame-blocking synchronous-compute duration threshold and '
+            'attribution heuristic. Not runtime-verified or externally '
+            'cited.',
+      );
 }

@@ -3,6 +3,8 @@ import 'package:flutter/widgets.dart';
 
 import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -16,7 +18,8 @@ import '../utils/widget_location.dart';
 /// then checks the render tree for a [RenderRepaintBoundary] within
 /// [maxAncestorDepth] parent levels. Missing boundaries allow repaints to
 /// propagate up the tree unnecessarily.
-class RepaintBoundaryDetector extends BaseDetector {
+class RepaintBoundaryDetector extends BaseDetector
+    with DetectorMetadataProvider {
   RepaintBoundaryDetector({this.maxAncestorDepth = 5})
       : super(
           type: DetectorType.repaintBoundary,
@@ -278,4 +281,13 @@ class RepaintBoundaryDetector extends BaseDetector {
     _excessiveFindings.clear();
     _lastDebugSnapshot = null;
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'Missing-RepaintBoundary structural heuristic around '
+            'animated subtrees. Not runtime-verified or cited to Flutter '
+            'repaint-boundary guidance.',
+      );
 }

@@ -438,7 +438,7 @@ class _MonitoringResponse extends Stream<List<int>>
   final int _requestId;
   final void Function(int requestId)? _onRequestEnded;
 
-  void _emitRecord(int bytesReceived) {
+  void _emitRecord(int bytesReceived, {bool cancelled = false}) {
     try {
       _onRequestEnded?.call(_requestId);
     } catch (_) {
@@ -452,6 +452,7 @@ class _MonitoringResponse extends Stream<List<int>>
         durationMs: DateTime.now().difference(_startTime).inMilliseconds,
         responseBytes: bytesReceived,
         startedAt: _startTime,
+        cancelled: cancelled,
       ));
     } catch (_) {
       // Non-fatal: monitoring must not alter app behavior.
@@ -465,35 +466,62 @@ class _MonitoringResponse extends Stream<List<int>>
     void Function()? onDone,
     bool? cancelOnError,
   }) {
-    int bytesReceived = 0;
-    bool recorded = false;
-    return _inner.listen(
+    // Terminal-event plumbing decoupled from what the caller passes:
+    //
+    // - `Stream.drain()` internally calls
+    //   `listen(null, cancelOnError: true).asFuture(futureValue)`, and
+    //   `StreamSubscription.asFuture()` REPLACES the subscription's
+    //   `_onDone` — so we route `asFuture()` through our own Completer
+    //   instead of delegating to `_inner.asFuture()`.
+    //
+    // - Consumers can legitimately do
+    //   `final sub = response.listen(...); sub.onDone(...);` (or
+    //   `sub.onError(...)`) to rebind terminal callbacks AFTER listen.
+    //   If those setters were forwarded to `_inner`, they would strip
+    //   the closures that call `_emitRecord` — resurfacing AB1 via a
+    //   new vector. To guard against that, the inner subscription's
+    //   handlers are PERMANENTLY owned by this proxy; the wrapper
+    //   stores user-supplied callbacks in mutable fields and the
+    //   permanent handlers dereference those fields at call time.
+    //   `sub.onDone(newCb)` mutates the wrapper's field — it never
+    //   touches `_inner`'s terminal handler, so record emission
+    //   survives rebinding.
+    final sub = _MonitoringSubscription<List<int>>._(_emitRecord);
+    // Suppress unhandled-async-error on the terminal future — if the
+    // caller never asks for it via `asFuture`, any error we forward
+    // into the completer would otherwise surface as an uncaught
+    // asynchronous error in tests/prod. Callers that DO use
+    // `asFuture` will chain .then/.catchError and receive the error.
+    sub._terminated.future.ignore();
+    sub._userOnData = onData;
+    sub._userOnError = onError;
+    sub._userOnDone = onDone;
+
+    sub._inner = _inner.listen(
       (chunk) {
-        bytesReceived += chunk.length;
-        onData?.call(chunk);
+        sub._bytesReceived += chunk.length;
+        sub._userOnData?.call(chunk);
       },
       onError: (Object error, [StackTrace? stackTrace]) {
-        if (!recorded) {
-          recorded = true;
-          _emitRecord(bytesReceived);
-        }
-        if (onError != null) {
-          if (onError is void Function(Object, StackTrace)) {
-            onError(error, stackTrace ?? StackTrace.empty);
+        final stack = stackTrace ?? StackTrace.empty;
+        sub._emitOnTerminalWithError(error, stack);
+        final handler = sub._userOnError;
+        if (handler != null) {
+          if (handler is void Function(Object, StackTrace)) {
+            handler(error, stack);
           } else {
-            (onError as void Function(Object))(error);
+            (handler as void Function(Object))(error);
           }
         }
       },
       onDone: () {
-        if (!recorded) {
-          recorded = true;
-          _emitRecord(bytesReceived);
-        }
-        onDone?.call();
+        sub._emitOnTerminal();
+        sub._userOnDone?.call();
       },
       cancelOnError: cancelOnError,
     );
+
+    return sub;
   }
 
   // -- HttpClientResponse properties (not inherited from Stream) --
@@ -542,4 +570,122 @@ class _MonitoringResponse extends Stream<List<int>>
 
   @override
   Future<Socket> detachSocket() => _inner.detachSocket();
+}
+
+/// Wrapping [StreamSubscription] that owns the terminal-event signal so
+/// the proxy's [RequestRecord] always lands, regardless of how the caller
+/// consumes the response.
+///
+/// The wrapper addresses two failure modes:
+///
+/// 1. `Stream.drain()` calls `listen(null, cancelOnError: true).asFuture()`
+///    and `StreamSubscription.asFuture()` REPLACES the subscription's
+///    `_onDone` with its own handler — so a proxy that depends on a
+///    wrapping `onDone` closure to emit its terminal record silently
+///    loses the event. [asFuture] here completes from a [Completer]
+///    driven by the proxy's own emit path instead of delegating.
+///
+/// 2. Post-listen rebinding — `final sub = response.listen(...);
+///    sub.onDone(newCb);` — previously forwarded straight to the inner
+///    subscription, which replaced the proxy's wrapping closures and
+///    recreated the drop-record failure mode via a different vector.
+///    Here the inner subscription's handlers are PERMANENTLY owned by
+///    this wrapper: they dereference [_userOnData] / [_userOnError] /
+///    [_userOnDone] at call time, and the wrapper's setters mutate those
+///    fields instead of touching `_inner`. Rebinding can never strip the
+///    emit path.
+class _MonitoringSubscription<T> implements StreamSubscription<T> {
+  _MonitoringSubscription._(this._emit);
+
+  /// Assigned immediately after construction by [_MonitoringResponse.listen].
+  late StreamSubscription<T> _inner;
+
+  /// Completes when the stream terminates (naturally, via error, or via
+  /// cancel). `asFuture()` chains from here so `Stream.drain()` and
+  /// hand-written `asFuture()` callers receive the terminal signal even
+  /// though the inner subscription's `_onDone` was installed by this
+  /// proxy, not the caller.
+  final Completer<void> _terminated = Completer<void>();
+
+  /// Bytes observed on the inner stream. Incremented in the permanent
+  /// `onData` handler before dispatching to the user callback.
+  int _bytesReceived = 0;
+
+  /// Guards against double-emit. `_emitOnTerminal` and
+  /// `_emitOnTerminalWithError` may race — e.g., a server closes the
+  /// socket just as the consumer cancels — and [_emit] must run exactly
+  /// once per request.
+  bool _terminatedFlag = false;
+
+  /// Proxy-owned emit path. Invoked by terminal handlers on the inner
+  /// subscription and by [cancel]. Signature matches
+  /// `_MonitoringResponse._emitRecord`.
+  final void Function(int bytesReceived, {bool cancelled}) _emit;
+
+  /// Mutable user callbacks. The inner subscription's handlers read these
+  /// at call time, so rebinding via [onData] / [onError] / [onDone]
+  /// mutates the fields and the emit path stays intact.
+  void Function(T data)? _userOnData;
+  Function? _userOnError;
+  void Function()? _userOnDone;
+
+  /// Emit a terminal record and complete [_terminated]. Idempotent.
+  void _emitOnTerminal({bool cancelled = false}) {
+    if (_terminatedFlag) return;
+    _terminatedFlag = true;
+    _emit(_bytesReceived, cancelled: cancelled);
+    if (!_terminated.isCompleted) {
+      _terminated.complete();
+    }
+  }
+
+  /// Emit a terminal record and surface the error to `asFuture()` chainers.
+  /// Idempotent.
+  void _emitOnTerminalWithError(Object error, StackTrace stackTrace) {
+    if (_terminatedFlag) return;
+    _terminatedFlag = true;
+    _emit(_bytesReceived, cancelled: false);
+    if (!_terminated.isCompleted) {
+      _terminated.completeError(error, stackTrace);
+    }
+  }
+
+  @override
+  Future<E> asFuture<E>([E? futureValue]) =>
+      _terminated.future.then<E>((_) => futureValue as E);
+
+  @override
+  Future<void> cancel() {
+    // Cancel-before-terminate is treated as a terminal event so the
+    // `RequestRecord` still lands — otherwise `_activeRequests` would
+    // leak and `pendingRequestSnapshot()` attribution would be poisoned
+    // for later verdicts. Marked `cancelled: true` so the detector can
+    // distinguish aborts from completions.
+    _emitOnTerminal(cancelled: true);
+    return _inner.cancel();
+  }
+
+  @override
+  void onData(void Function(T data)? handleData) {
+    _userOnData = handleData;
+  }
+
+  @override
+  void onError(Function? handleError) {
+    _userOnError = handleError;
+  }
+
+  @override
+  void onDone(void Function()? handleDone) {
+    _userOnDone = handleDone;
+  }
+
+  @override
+  void pause([Future<void>? resumeSignal]) => _inner.pause(resumeSignal);
+
+  @override
+  void resume() => _inner.resume();
+
+  @override
+  bool get isPaused => _inner.isPaused;
 }

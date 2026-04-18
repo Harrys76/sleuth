@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -25,7 +27,8 @@ class UncachedImageInfo {
 ///
 /// **Structural Detector** — finds Image widgets that load full-resolution
 /// images into memory without downscaling.
-class ImageMemoryDetector extends BaseDetector {
+class ImageMemoryDetector extends BaseDetector
+    with DetectorMetadataProvider {
   ImageMemoryDetector()
       : super(
           type: DetectorType.imageMemory,
@@ -201,4 +204,13 @@ class ImageMemoryDetector extends BaseDetector {
     _highlights.clear();
     _uncachedImages.clear();
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'Decoded-image-size vs. display-size ratio threshold for '
+            'oversized image detection. Not runtime-verified or cited to '
+            'Flutter image-loading guidance.',
+      );
 }

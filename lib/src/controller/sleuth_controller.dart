@@ -966,6 +966,24 @@ class SleuthController {
   @visibleForTesting
   int get detectorCountForTest => _detectors.length;
 
+  /// Unmodifiable view of Sleuth's **built-in** registered detectors for the
+  /// validation audit gate at `test/validation/detector_metadata_audit_test.dart`.
+  ///
+  /// The audit walks this list to enforce that every shipped detector mixes
+  /// in `DetectorMetadataProvider` and returns non-null metadata with a
+  /// rationale — the public reliability ledger contract introduced in
+  /// v0.16.0 and enforced starting v0.16.1. User-authored custom detectors
+  /// (`config.customDetectors`) are deliberately excluded: the ledger
+  /// covers Sleuth's own shipped numbers, not detectors the consumer
+  /// brings with them.
+  @visibleForTesting
+  List<BaseDetector> get detectorsForAudit {
+    final customs = config.customDetectors.toSet();
+    return List.unmodifiable(
+      _detectors.where((d) => !customs.contains(d)),
+    );
+  }
+
   /// Computed scan interval: backs off when the app is healthy.
   int get _currentScanIntervalMs {
     final baseMs = config.treeScanInterval.inMilliseconds;

@@ -417,6 +417,12 @@ The in-app Startup Metrics page also includes a full "Measurement Methodology" s
 | RepaintBoundary | Element + render tree | Expensive GPU widget without RepaintBoundary ancestor, excessive boundaries in scrollables | Possible–Confirmed | Escalates with debug paint rate evidence. ColorFiltered detected via widget type |
 | Startup | `Sleuth.init()` + FrameTiming | TTFF exceeded budget, dominant phase attribution | Confirmed | One-shot; requires `Sleuth.init()` before `runApp()`. Wall-clock measurement has ~5-50ms inherent skew |
 
+## Validation Ledger
+
+Each detector carries a `DetectorMetadata` record declaring the strongest evidence backing its current thresholds and heuristics, ordered across four tiers: `unvalidated` → `reproducerOnly` → `runtimeVerified` → `externallyCited`. As of v0.16.1, **1 / 23 detectors ship at `reproducerOnly`** (`NetworkMonitorDetector`, `slow_request` family only) and the remaining 22 ship at `unvalidated` with rationales documented. The CI audit gate at `test/validation/detector_metadata_audit_test.dart` enforces the contract on every test run.
+
+The per-detector ledger lives at [`doc/validation_ledger.md`](doc/validation_ledger.md) — it names each detector's current tier, links to its reproducer when one exists, and explains what would raise it. Subsequent v0.16.N releases raise one detector at a time, landing the supporting reproducer in the same PR.
+
 ## What This Does Better Than DevTools
 
 - **Always on**: no separate tool window, no connection setup — performance data is visible as you use your app

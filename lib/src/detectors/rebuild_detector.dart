@@ -2,6 +2,8 @@ import 'package:flutter/widgets.dart';
 
 import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/phase_event.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
@@ -19,7 +21,8 @@ import '../vm/timeline_parser.dart';
 /// Data sources accumulate into staging fields; the single [_evaluate]
 /// method is the ONLY writer of [_issues]. Called from [scanTree] (scan
 /// tick) and [evaluateNow] (timeline tick).
-class RebuildDetector extends BaseDetector {
+class RebuildDetector extends BaseDetector
+    with DetectorMetadataProvider {
   RebuildDetector({
     this.rebuildsPerSecThreshold = 10,
     DateTime Function()? clock,
@@ -508,4 +511,14 @@ class RebuildDetector extends BaseDetector {
     _pendingEnrichedNames.clear();
     _stagedEnrichedNames = null;
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'Rebuild-rate thresholds (20/50 builds/sec) with 30-build / '
+            '1.5s noise floor, plus profile-mode vs debug-mode '
+            'attribution source. Not runtime-verified on a reference '
+            'device or externally cited.',
+      );
 }

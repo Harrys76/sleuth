@@ -2,6 +2,8 @@ import 'package:flutter/widgets.dart';
 
 import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../utils/fix_hint_builder.dart';
 import '../utils/type_name_cache.dart';
@@ -16,7 +18,8 @@ import '../vm/timeline_parser.dart';
 ///
 /// Note: This detector does not observe actual dependency usage — it
 /// identifies structural risk, not proven rebuild causes.
-class ShallowRebuildRiskDetector extends BaseDetector {
+class ShallowRebuildRiskDetector extends BaseDetector
+    with DetectorMetadataProvider {
   ShallowRebuildRiskDetector({this.depthThreshold = 3})
       : super(
           type: DetectorType.shallowRebuildRisk,
@@ -241,6 +244,13 @@ class ShallowRebuildRiskDetector extends BaseDetector {
     _usages.clear();
     _lastDebugSnapshot = null;
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale: 'Shallow-rebuild-risk structural heuristic. Not '
+            'runtime-verified or externally cited.',
+      );
 }
 
 class _ShallowWidgetUsage {

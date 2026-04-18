@@ -5,6 +5,8 @@ import '../models/base_detector.dart';
 import '../models/performance_issue.dart';
 import '../network/request_record.dart';
 import '../utils/fix_hint_builder.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 
 /// Detects slow, excessive, or oversized HTTP requests.
 ///
@@ -19,7 +21,8 @@ import '../utils/fix_hint_builder.dart';
 /// new record and on each frequency timer tick. The buffer is cleared
 /// on route transitions via [clearRecords], so issues from a previous
 /// page don't persist on the new page.
-class NetworkMonitorDetector extends BaseDetector {
+class NetworkMonitorDetector extends BaseDetector
+    with DetectorMetadataProvider {
   NetworkMonitorDetector({
     this.slowThresholdMs = 1000,
     this.criticalSlowThresholdMs = 3000,
@@ -203,8 +206,12 @@ class NetworkMonitorDetector extends BaseDetector {
   }
 
   void _evaluateSlowRequests() {
-    final slowRecords =
-        _records.where((r) => r.durationMs >= slowThresholdMs).toList();
+    // Cancelled requests are kept in the record buffer so pending-request
+    // accounting stays honest, but an intentional abort is not evidence
+    // of a slow API — filter them out before latency classification.
+    final slowRecords = _records
+        .where((r) => !r.cancelled && r.durationMs >= slowThresholdMs)
+        .toList();
     if (slowRecords.isEmpty) return;
 
     final worstMs =
@@ -280,13 +287,16 @@ class NetworkMonitorDetector extends BaseDetector {
   }
 
   void _evaluateFrequency() {
-    if (_records.length <= frequencyLimit) return;
+    // Cancels are excluded from frequency classification — a prefetch
+    // that the caller aborts is not evidence of a noisy endpoint.
+    final recordsList =
+        _records.where((r) => !r.cancelled).toList(growable: false);
+    if (recordsList.length <= frequencyLimit) return;
 
     // Find the peak 5-second window across the entire buffer.
     // This keeps the spike visible while evidence remains in the buffer,
     // rather than vanishing after the 5-second detection window.
     // Buffer is cleared on route transitions via clearRecords().
-    final recordsList = _records.toList();
     int peakCount = 0;
     int left = 0;
     for (var right = 0; right < recordsList.length; right++) {
@@ -402,7 +412,10 @@ class NetworkMonitorDetector extends BaseDetector {
     // that pagination / search params still count as the same endpoint
     // for burst detection. Uses the full buffer so evidence persists
     // until route transition clears records.
-    final recentRecords = _records.toList();
+    // Cancels excluded — an aborted request to the same path is not
+    // evidence of missing caching or un-debounced input.
+    final recentRecords =
+        _records.where((r) => !r.cancelled).toList(growable: false);
 
     // Group by method + normalized URL
     final groups = <String, List<RequestRecord>>{};
@@ -515,4 +528,29 @@ class NetworkMonitorDetector extends BaseDetector {
     _issues.clear();
     _activeRequests.clear();
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.reproducerOnly,
+        rationale:
+            'Slow-request warning (1000 ms) and critical (3000 ms) thresholds '
+            'covered by a deterministic hermetic reproducer: direct '
+            'processRecord boundary tests at 999/1000/2999/3000/3001 ms plus '
+            'a loopback HttpServer exercising the SleuthHttpOverrides → '
+            'RequestRecord → processRecord pipeline. Pipeline coverage spans '
+            '`await for`, `.listen()`, `.drain()`, and `.asFuture()` '
+            'consumption paths — `_MonitoringResponse.listen()` now returns '
+            'a wrapper subscription whose `asFuture` completes from a '
+            'proxy-owned terminal signal rather than delegating to the inner '
+            'subscription, so `drain()` / `.asFuture()` consumers no longer '
+            'silently bypass the monitor. Thresholds themselves are not yet '
+            'runtime-verified against a reference device or externally cited '
+            'to a published mobile-API guideline. Other issue families this '
+            'detector emits (large_response, request_frequency, '
+            'http_error_spike, high_frequency_same_path) are NOT covered by '
+            'the reproducer and remain implicitly unvalidated — see '
+            '`coveredStableIds`.',
+        reproducerPath: 'test/validation/network_monitor_reproducer_test.dart',
+        coveredStableIds: {'slow_request'},
+      );
 }

@@ -2,6 +2,8 @@ import 'package:flutter/rendering.dart' show KeepAliveParentDataMixin;
 import 'package:flutter/widgets.dart';
 
 import '../models/base_detector.dart';
+import '../validation/detector_metadata.dart';
+import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
@@ -41,7 +43,8 @@ class _ScrollableAccumulator {
 /// memory. Only counts KeepAlive widgets inside PageView or TabBarView, where
 /// entire pages/tabs are kept in memory. ListView/GridView keep-alives
 /// are normal framework behavior and are not flagged.
-class KeepAliveDetector extends BaseDetector {
+class KeepAliveDetector extends BaseDetector
+    with DetectorMetadataProvider {
   KeepAliveDetector({this.threshold = 5})
       : super(
           type: DetectorType.keepAlive,
@@ -205,4 +208,12 @@ class KeepAliveDetector extends BaseDetector {
     _scrollableData.clear();
     _scrollableStack.clear();
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'AutomaticKeepAlive-misuse structural heuristic. Not '
+            'runtime-verified or externally cited.',
+      );
 }

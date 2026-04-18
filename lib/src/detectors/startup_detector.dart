@@ -17,7 +17,7 @@ import '../../sleuth.dart';
 /// it persists for the session but is not re-evaluated. This avoids stale
 /// re-detection on hot restart where [Sleuth.init] guards against
 /// double-measurement.
-class StartupDetector extends BaseDetector {
+class StartupDetector extends BaseDetector with DetectorMetadataProvider {
   StartupDetector({
     this.ttffWarningMs = 1500,
     this.ttffCriticalMs = 3000,
@@ -205,4 +205,13 @@ class StartupDetector extends BaseDetector {
   void dispose() {
     _issues.clear();
   }
+
+  @override
+  DetectorMetadata get validationMetadata => const DetectorMetadata(
+        tier: EvidenceTier.unvalidated,
+        rationale:
+            'TTFF/TTI phase-breakdown thresholds and slow-startup warning '
+            'gate. Not runtime-verified against a reference cold-start '
+            'profile or externally cited.',
+      );
 }
