@@ -285,8 +285,7 @@ class RepaintBoundaryDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'Missing-RepaintBoundary structural heuristic around '
+        rationale: 'Missing-RepaintBoundary structural heuristic around '
             'animated subtrees. Not runtime-verified or cited to Flutter '
             'repaint-boundary guidance.',
       );

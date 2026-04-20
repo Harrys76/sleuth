@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.16.1 (2026-04-18)_
+_Last updated: v0.16.2 (2026-04-18)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
@@ -75,6 +75,29 @@ detectors currently at `runtimeVerified` or `externallyCited`.
 | RepaintBoundary | `unvalidated` | — | Missing-RepaintBoundary structural heuristic around animated subtrees. |
 | Startup | `unvalidated` | — | TTFF/TTI phase-breakdown thresholds and slow-startup warning gate. |
 
+## Non-Detector Components
+
+Some components that make per-test reliability claims are not detectors —
+rankers, causal-graph rules, const deny-lists, and so on. They carry their
+tier claim via the parallel `ComponentMetadata` framework and register with
+`ValidatedComponentRegistry` from a `static void registerMetadata()` entry
+point.
+
+**Summary:** 0 components currently registered. The audit gate
+(`test/validation/component_metadata_audit_test.dart`) enforces the same
+five invariants as the detector gate on any components that do register.
+v0.16.2 exercises invariants 2–5 (rationale, tier-appropriate fields,
+reproducer-file contract, capture-schema contract) against dormant
+synthetic `ComponentMetadata` so the gate's per-invariant logic is live
+today. Invariant 1 (registration dispatch — "did you forget to call
+`registerMetadata()`?") is wired but unreachable until the first real
+component lands in v0.16.6; its dispatch site is trivially exercised
+against an empty expected-components list today.
+
+| Component | Tier | Reproducer | Notes |
+|---|---|---|---|
+| _(none yet)_ | — | — | First real registration expected in v0.16.6 alongside the `IssueRanker` tier raise. |
+
 ## Roadmap
 
 The v0.16 milestone arc is carrying detectors up the ledger one tier raise
@@ -83,11 +106,17 @@ per release:
 - **v0.16.0** — Validation methodology infrastructure (`EvidenceTier`,
   `DetectorMetadata`, audit gate contract).
 - **v0.16.1** — First tier raise: `NetworkMonitorDetector` at `reproducerOnly`
-  for `slow_request`. **← current release**
-- **v0.16.2+** — One detector per release, each raise landing with its
-  reproducer in the same PR. Order not yet committed; detector selection is
-  driven by which threshold is most load-bearing in real apps and which is
-  cheapest to pin deterministically.
+  for `slow_request`.
+- **v0.16.2** — Infrastructure for `runtimeVerified` and `externallyCited`:
+  `ComponentMetadata` + `ValidatedComponentRegistry`, `ProfileCaptureSchema`
+  with bracketing-rule triad check, pinned reference-device matrix,
+  capture-authoring README, `profileCapturePath` → `profileCapturePaths`
+  list rename. **← current release**
+- **v0.16.3+** — One detector per release, each raise landing with its
+  reproducer (and, where applicable, its bracketing triad of captures) in
+  the same PR. Order not yet committed; detector selection is driven by
+  which threshold is most load-bearing in real apps and which is cheapest
+  to pin deterministically.
 
 Follow-up work called out in the v0.16.1 adversarial-review cycle:
 

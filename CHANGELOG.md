@@ -1,3 +1,58 @@
+## 0.16.2
+
+**Validation infrastructure — second v0.16 milestone.** Extends the detector reliability ledger with machinery needed to raise claims to `runtimeVerified` and `externallyCited`: non-detector component framework, profile-mode capture schema, bracketing rule, pinned reference-device policy, and dormant-gate coverage exercising every new code path ahead of the first real tier raise (v0.16.4).
+
+### Added
+
+- **`ComponentMetadata` + `ComponentMetadataProvider` mixin** (`lib/src/validation/component_metadata.dart`) — parallel framework to `DetectorMetadata` for non-detector components (helpers, const rule tables). Same field shape except `componentName` (components lack uniform `runtimeType` naming) and `coveredClaimIds` (parallels `coveredStableIds`). Full-field structural `operator ==` / `hashCode` (`Object.hashAll` ordered for `profileCapturePaths`, `Object.hashAllUnordered` for `coveredClaimIds`) so `const` instances from different compilation units compare equal.
+- **`ValidatedComponentRegistry`** (`@internal`) — append-only, idempotent singleton populated via explicit `static void registerMetadata()` entry points called from the audit test's `setUpAll`. Dart's lazy top-level initialisers fire on first read, not on import, so explicit dispatch makes "forgot to register" a compile-time error. `register` throws `StateError` on collision (same `componentName` + differing metadata) with both the existing and incoming metadata in the message.
+- **`ProfileCaptureSchema`** (`lib/src/validation/profile_capture_schema.dart`) — `parse()` + `parseFile()` + `validateBracket()`. Validates the `sleuthMetadata` wrapper on DevTools Chrome Trace Event exports:
+  - Required keys, pair-matched device / OS, pinned Flutter major.minor.
+  - `expectedMagnitude.{min, observed, max}` numeric, **all > 0** (zero / negative rejected), `min ≤ observed ≤ max`, `unit` required non-empty string (AB-1 cross-check no-ops without it).
+  - ISO-8601 `captureDate` round-tripped through `toIso8601String()` — catches silent rollover (`2026-13-45` → `2027-02-14`). Sub-second fractions and `Z` / `+00:00` zone forms normalised before comparison.
+  - `traceEvents` required, non-empty, ≥10 entries, every entry a JSON object with a recognised `ph` phase from the full Chrome Trace Event Format set (`B`/`E`/`X`/`b`/`e`/`i`/`I`/`M`/`C`/`s`/`f`/`t`).
+  - Pre-`jsonDecode` duplicate-key scanner — captures repeated `sleuthMetadata` keys in raw source (e.g. `"device": "iPhone", "device": "Pixel"`) and fails parse so a merge conflict or careless edit cannot silently flip captured provenance (RFC 8259 §4 silently takes last write).
+  - UTF-8 BOM strip, CRLF / lone-CR normalisation before decode.
+  - `_flutterVersionPattern` accepts optional pre-release (`-1.0.pre`) and build-metadata (`+channel-stable`) suffixes on the pinned major.minor; pin stays strict on major.minor (3.32), patch and suffix free.
+- **`validateBracket()`** — below / at / above triad rule against three captures spanning a threshold (±10% at-band default). Provenance cross-check iterates `device`, `deviceOsVersion`, `flutterVersion` across the triad and throws `FormatException` on any mismatch so a bracket cannot claim one environment in the at-capture while below was run on a different device.
+- **AB-1 cross-check** — trace-vs-observed ratio invariant. Span bound to `scenarioBeginMarker` / `scenarioEndMarker` instant pair (ph=`i`), not min/max across the whole capture, so a claim against a specific event is measured against that event, not adjacent work noise. `maxObservedToSpanRatio = 100`.
+- **Shared audit-invariant module** (`test/validation/_support/audit_invariants.dart`) — five invariants shared between detector and component audit gates: rationale non-empty, tier-appropriate fields, citation URL (parseable http/https URI with authority, host rejection for RFC1918 IPv4 `10/8`/`172.16/12`/`192.168/16`, link-local `169.254/16`, IPv6 `fe80::/10` link-local, IPv6 `fc00::/7` ULA — family-discriminated via `InternetAddress.tryParse`), reproducer-file contract (AST-based gate via `package:analyzer` — `_ReproducerAstVisitor extends RecursiveAstVisitor` flips `hasTestInvocation` only on real `test(...)` / `testWidgets(...)` `MethodInvocation` nodes; credits required tokens only when they appear as `SimpleIdentifier` AST nodes, not inside string literals or comments; `${test(...)}` interpolation expressions correctly credited), capture-schema contract (every declared capture run through `ProfileCaptureSchema.parseFile`). Path-traversal defence via `p.canonicalize` — absolute paths, `../../` escapes, and symlink escapes fail the gate even if the target file exists. Block-comment-aware citation parsing.
+- **`test/validation/profile_capture_schema_test.dart`** (+27) — unit coverage: happy-path parsing against anchor + bracket fixtures; negative parsing against bad fixtures (`missing_device.json`, `bad_iso_date.json`, `min_gt_observed.json`); programmatic negatives (missing traceEvents, non-approved device, non-approved OS on approved device, non-pinned Flutter version, zero / negative magnitude, ISO-8601 rollover at month 13 / day 45 / hour 25 / minute 60, millisecond fraction round-trip); encoding hardening (BOM stripping, CRLF normalisation); `validateBracket` positive + failure modes (swapped below/above, at above tolerance, missing file surfaces path, triad provenance mismatch on each of device / OS / Flutter); dormant-gate fake `DetectorMetadataProvider` at `runtimeVerified` walking every `profileCapturePaths` code path ahead of v0.16.4.
+- **`test/validation/profile_capture_schema_anchor_test.dart`** (+3) — grounds schema against the anchor DevTools export fixture; pins device, OS, Flutter major.minor.
+- **`test/validation/component_metadata_audit_test.dart`** (+9) — audit gate for non-detector components. Mirrors the five detector invariants against synthetic `ComponentMetadata`. `_expectedRegisteredComponents` empty for v0.16.2; first real entry lands v0.16.6. Invariants 2–5 (rationale, tier-appropriate fields, reproducer-file contract, capture-schema contract) run against synthetic `ComponentMetadata` today; invariant 1 (registration dispatch) wired but only exercises a trivial empty-expected-list loop until v0.16.6.
+- **`test/validation/ledger_sync_test.dart`** — counts per-tier rows between `## Ledger` and `## Non-Detector Components` headings in `doc/validation_ledger.md`, cross-checks against `detectorsForAudit` tier counts AND the `N / TOTAL at \`tier\`` summary denominator. A tier raise in code without a corresponding ledger update (or vice versa) fails CI.
+- **Filesystem-walk gates** — new tests walk `lib/src/` for `class X ... with ComponentMetadataProvider` patterns asserting each declared class appears in `_expectedRegisteredComponents`; parallel walk over `lib/src/detectors/` for `class X extends BaseDetector` cross-checked against `controller.detectorsForAudit` runtime types (skipping `_`-prefixed privates and `SimpleStructuralDetector`). A component that publishes metadata but forgets its `registerMetadata()` dispatch, or a detector file shipping without controller registration, is a hard failure.
+- **Public API coverage test** — `validation_public_api_test.dart` extended to assert `ComponentMetadata`, `ComponentMetadataProvider`, and `ProfileCaptureSchema` are reachable through the public `package:sleuth/sleuth.dart` barrel.
+- **Anchor fixture byte fingerprint** — SHA-256 pin on `anchor_devtools_export.json` via `_expectedAnchorSha256` const. Intentional updates (e.g. replacing synthetic anchor with real DevTools export in v0.16.4) require updating the constant in the same PR — one-line diff flags "anchor changed" for reviewers.
+- **Capture fixtures** — 3 dormant-gate bracket fixtures (`dormant_bracket_below.json`, `_at.json`, `_above.json`) synthesised around a 1000 ms threshold; anchor DevTools export (`anchor_devtools_export.json`) as shape-faithful synthetic (to be replaced in-place with real DevTools export at first v0.16.4 raise); 3 negative fixtures (`missing_device.json`, `bad_iso_date.json`, `min_gt_observed.json`). 6 fixtures padded with 11 synthetic events each so invariant-under-test surfaces instead of blanket "no events" rejection. Provenance ledger in `test/validation/captures/_fixtures/README.md`.
+- **`doc/reference_devices.md`** — pinned reference-device matrix (iPhone 13 mini + iOS 17.6.1 / Pixel 7 + Android 14 / Flutter 3.32.x) + annual rotation policy (dedicated release, not silently inside a tier-raise PR).
+- **`test/validation/captures/README.md`** — capture authoring checklist for contributors raising a detector / component to `runtimeVerified`.
+- **`CONTRIBUTING.md`** — top-level contribution guide with validation pointers, analyzer / test gates, tier-raise artefact requirements.
+
+### Changed
+
+- **`DetectorMetadata.profileCapturePath` (`String?`) → `profileCapturePaths` (`List<String>?`)** — bracketing rule requires three captures per threshold (below / at / above). Audit gate asserts **exactly 3** entries at `runtimeVerified` / `externallyCited` via `_expectBracketCaptures(label, meta, failures)`; every declared capture run through `ProfileCaptureSchema.parseFile` so malformed captures fail CI.
+- Public barrel (`lib/sleuth.dart`) exports `ComponentMetadata`, `ComponentMetadataProvider`, `ProfileCaptureSchema`. `ValidatedComponentRegistry` intentionally NOT exported (`@internal`).
+- `pubspec.yaml` — `package:meta ^1.15.0` promoted to direct dep (was transitive); `package:analyzer ^6.0.0` added as dev-only dep for the AST reproducer gate (not re-exported).
+
+### Migration
+
+Source-breaking on `DetectorMetadata`. Zero real detectors set `profileCapturePath` in v0.16.1 (all `runtimeVerified` slots empty until v0.16.4), so no in-tree callers. Forks carrying a `runtimeVerified` raise:
+
+```diff
+-  profileCapturePath: 'path/to/capture.json',
++  profileCapturePaths: ['path/to/capture.json'],
+```
+
+Patch-milestone bump (0.16.1 → 0.16.2) — v0.16 line is pre-1.0 validation infrastructure; no shipping detector relies on the field.
+
+### Notes
+
+- Test count: 2,238 → 2,391. `fvm flutter analyze` clean, `fvm flutter test` all green (example 9/9).
+- Spec OQ1 (anchor-fixture provenance) and OQ4 (pair-matched device policy) from `doc/spec_v0_16_validation_methodology.md` resolved in-release; remaining OQs carry through to v0.16.3+.
+- Deferred to v0.16.3: ledger-sync coverage of the `else`-branch dormant path (fires once a component registers, target v0.16.6).
+
+
 ## 0.16.1
 
 **Per-detector validation — first milestone.** Rolls the v0.16.0 methodology

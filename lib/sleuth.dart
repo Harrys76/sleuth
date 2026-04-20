@@ -100,6 +100,8 @@ export 'src/models/startup_metrics.dart';
 export 'src/models/route_session.dart';
 export 'src/validation/evidence_tier.dart';
 export 'src/validation/detector_metadata.dart';
+export 'src/validation/component_metadata.dart';
+export 'src/validation/profile_capture_schema.dart';
 
 /// Entry point for the Sleuth package.
 ///

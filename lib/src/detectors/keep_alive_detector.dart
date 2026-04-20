@@ -43,8 +43,7 @@ class _ScrollableAccumulator {
 /// memory. Only counts KeepAlive widgets inside PageView or TabBarView, where
 /// entire pages/tabs are kept in memory. ListView/GridView keep-alives
 /// are normal framework behavior and are not flagged.
-class KeepAliveDetector extends BaseDetector
-    with DetectorMetadataProvider {
+class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
   KeepAliveDetector({this.threshold = 5})
       : super(
           type: DetectorType.keepAlive,
@@ -212,8 +211,7 @@ class KeepAliveDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'AutomaticKeepAlive-misuse structural heuristic. Not '
+        rationale: 'AutomaticKeepAlive-misuse structural heuristic. Not '
             'runtime-verified or externally cited.',
       );
 }

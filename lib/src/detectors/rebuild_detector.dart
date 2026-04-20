@@ -21,8 +21,7 @@ import '../vm/timeline_parser.dart';
 /// Data sources accumulate into staging fields; the single [_evaluate]
 /// method is the ONLY writer of [_issues]. Called from [scanTree] (scan
 /// tick) and [evaluateNow] (timeline tick).
-class RebuildDetector extends BaseDetector
-    with DetectorMetadataProvider {
+class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   RebuildDetector({
     this.rebuildsPerSecThreshold = 10,
     DateTime Function()? clock,
@@ -515,8 +514,7 @@ class RebuildDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'Rebuild-rate thresholds (20/50 builds/sec) with 30-build / '
+        rationale: 'Rebuild-rate thresholds (20/50 builds/sec) with 30-build / '
             '1.5s noise floor, plus profile-mode vs debug-mode '
             'attribution source. Not runtime-verified on a reference '
             'device or externally cited.',

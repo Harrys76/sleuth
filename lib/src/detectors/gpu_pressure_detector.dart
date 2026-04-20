@@ -16,8 +16,7 @@ import '../vm/timeline_parser.dart';
 ///
 /// **Hybrid Detector** — VM raster thread duration + render tree
 /// to identify Opacity, ClipPath, BackdropFilter on deep subtrees.
-class GpuPressureDetector extends BaseDetector
-    with DetectorMetadataProvider {
+class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   GpuPressureDetector({this.rasterMultiplierThreshold = 2.0})
       : super(
           type: DetectorType.gpuPressure,
@@ -274,8 +273,7 @@ class GpuPressureDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'GPU-phase frame-time threshold and sustained-pressure '
+        rationale: 'GPU-phase frame-time threshold and sustained-pressure '
             'window. Not runtime-verified against Impeller/Skia budgets '
             'or externally cited.',
       );

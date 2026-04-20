@@ -21,8 +21,7 @@ import '../utils/widget_location.dart';
 ///
 /// This avoids false positives on animation-based pages (CustomPainterDemo)
 /// while reliably catching setState-heavy pages (HighLevelSetStateDemo).
-class SetStateScopeDetector extends BaseDetector
-    with DetectorMetadataProvider {
+class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
   SetStateScopeDetector({
     this.dirtyRatioThreshold = 0.5,
     this.minSubtreeSize = 50,
@@ -505,8 +504,7 @@ class SetStateScopeDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'setState scope-breadth estimation heuristic. Not '
+        rationale: 'setState scope-breadth estimation heuristic. Not '
             'runtime-verified or externally cited.',
       );
 }

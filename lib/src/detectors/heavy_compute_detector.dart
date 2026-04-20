@@ -9,8 +9,7 @@ import '../vm/timeline_parser.dart';
 /// Detects heavy computation blocking the UI thread.
 ///
 /// **VM-Only Detector** — monitors Dart isolate event gaps >8ms.
-class HeavyComputeDetector extends BaseDetector
-    with DetectorMetadataProvider {
+class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   HeavyComputeDetector({this.lagThresholdMs = 8})
       : super(
           type: DetectorType.heavyCompute,
@@ -143,8 +142,7 @@ class HeavyComputeDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'Frame-blocking synchronous-compute duration threshold and '
+        rationale: 'Frame-blocking synchronous-compute duration threshold and '
             'attribution heuristic. Not runtime-verified or externally '
             'cited.',
       );

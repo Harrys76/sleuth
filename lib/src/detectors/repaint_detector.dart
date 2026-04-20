@@ -22,8 +22,7 @@ import '../vm/timeline_parser.dart';
 /// Data sources accumulate into staging fields; the single [_evaluate]
 /// method is the ONLY writer of [_issues]. Called from [scanTree] (scan
 /// tick) and [evaluateNow] (timeline tick).
-class RepaintDetector extends BaseDetector
-    with DetectorMetadataProvider {
+class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   RepaintDetector({
     this.paintFrequencyThreshold = 30,
     DateTime Function()? clock,
@@ -449,8 +448,7 @@ class RepaintDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'Excessive-repaint rate threshold (30 paints/sec) plus '
+        rationale: 'Excessive-repaint rate threshold (30 paints/sec) plus '
             'animation-owner filter. Not runtime-verified against '
             'refresh-rate-specific baselines or externally cited.',
       );

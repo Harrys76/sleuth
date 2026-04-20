@@ -1,0 +1,136 @@
+{
+  "traceEvents": [
+    {
+      "ph": "M",
+      "name": "process_name",
+      "pid": 1,
+      "tid": 0,
+      "args": {"name": "sleuth_example"}
+    },
+    {
+      "ph": "M",
+      "name": "thread_name",
+      "pid": 1,
+      "tid": 39,
+      "args": {"name": "1.ui"}
+    },
+    {
+      "ph": "M",
+      "name": "thread_name",
+      "pid": 1,
+      "tid": 40,
+      "args": {"name": "1.raster"}
+    },
+    {
+      "ph": "i",
+      "cat": "Sleuth",
+      "name": "sleuth.scenario.begin",
+      "pid": 1,
+      "tid": 39,
+      "ts": 10000,
+      "s": "p"
+    },
+    {
+      "ph": "B",
+      "cat": "Dart",
+      "name": "HttpClient.getUrl",
+      "pid": 1,
+      "tid": 39,
+      "ts": 10000
+    },
+    {
+      "ph": "E",
+      "cat": "Dart",
+      "name": "HttpClient.getUrl",
+      "pid": 1,
+      "tid": 39,
+      "ts": 11250
+    },
+    {
+      "ph": "X",
+      "cat": "Dart",
+      "name": "BUILD",
+      "pid": 1,
+      "tid": 39,
+      "ts": 12500,
+      "dur": 420,
+      "args": {}
+    },
+    {
+      "ph": "X",
+      "cat": "Dart",
+      "name": "LAYOUT",
+      "pid": 1,
+      "tid": 39,
+      "ts": 12950,
+      "dur": 180,
+      "args": {}
+    },
+    {
+      "ph": "X",
+      "cat": "Dart",
+      "name": "PAINT",
+      "pid": 1,
+      "tid": 39,
+      "ts": 13150,
+      "dur": 95,
+      "args": {}
+    },
+    {
+      "ph": "i",
+      "cat": "Embedder",
+      "name": "ShaderCompile",
+      "pid": 1,
+      "tid": 40,
+      "ts": 13300,
+      "s": "t"
+    },
+    {
+      "ph": "b",
+      "cat": "Dart",
+      "name": "PlatformChannel:send",
+      "pid": 1,
+      "tid": 39,
+      "id": "0x1",
+      "ts": 13400
+    },
+    {
+      "ph": "e",
+      "cat": "Dart",
+      "name": "PlatformChannel:send",
+      "pid": 1,
+      "tid": 39,
+      "id": "0x1",
+      "ts": 13450
+    },
+    {
+      "ph": "i",
+      "cat": "Sleuth",
+      "name": "sleuth.scenario.end",
+      "pid": 1,
+      "tid": 39,
+      "ts": 1260000,
+      "s": "p"
+    }
+  ],
+  "displayTimeUnit": "ns",
+  "systemTraceEvents": "",
+  "otherData": {
+    "version": "Flutter DevTools (anchor fixture — see _fixtures/README.md)"
+  },
+  "sleuthMetadata": {
+    "device": "iPhone 13 mini",
+    "deviceOsVersion": "iOS 17.6.1",
+    "flutterVersion": "3.32.5",
+    "captureCommand": "fvm flutter run --profile --device-id iPhone13mini",
+    "scenario": "NetworkMonitor slow_request Layer 2 loopback scenario — 1250ms slow response delay",
+    "expectedMagnitude": {
+      "min": 1100,
+      "observed": 1250,
+      "max": 1400,
+      "unit": "ms"
+    },
+    "captureDate": "2026-04-18T14:32:00Z",
+    "notes": "Shape anchor for ProfileCaptureSchema grounding. Provenance tracked in _fixtures/README.md."
+  }
+}

@@ -144,8 +144,7 @@ class PlatformChannelDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'Platform-channel call-duration threshold and frequency '
+        rationale: 'Platform-channel call-duration threshold and frequency '
             'heuristic. Not runtime-verified or cited to Flutter '
             'platform-channel performance docs.',
       );

@@ -486,8 +486,7 @@ class MemoryPressureDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'Memory growth thresholds, warmup, capacity, and 10s '
+        rationale: 'Memory growth thresholds, warmup, capacity, and 10s '
             'sliding-window GC-rate calculation. Not runtime-verified '
             'against a low-memory device profile or externally cited.',
       );

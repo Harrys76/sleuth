@@ -10,8 +10,7 @@ import '../vm/timeline_parser.dart';
 /// **VM-Only Detector** — flags shader compilations >100ms.
 /// On Impeller (default since Flutter 3.16), shaders are pre-compiled at
 /// build time so this detector correctly produces no issues.
-class ShaderJankDetector extends BaseDetector
-    with DetectorMetadataProvider {
+class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
   ShaderJankDetector({this.thresholdMs = 100})
       : super(
           type: DetectorType.shaderJank,
@@ -87,8 +86,7 @@ class ShaderJankDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'Shader-compile duration threshold for first-frame jank '
+        rationale: 'Shader-compile duration threshold for first-frame jank '
             'attribution. Not runtime-verified against Impeller/Skia '
             'shader-compile budgets or externally cited.',
       );

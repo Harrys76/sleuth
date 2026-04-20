@@ -12,8 +12,7 @@ import '../utils/widget_location.dart';
 /// Detects CustomPainter where shouldRepaint always returns true.
 ///
 /// **Structural Detector** — checks CustomPaint widgets for always-true repaint.
-class CustomPainterDetector extends BaseDetector
-    with DetectorMetadataProvider {
+class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
   CustomPainterDetector()
       : super(
           type: DetectorType.customPainter,
@@ -175,8 +174,7 @@ class CustomPainterDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'CustomPainter missing shouldRepaint override heuristic and '
+        rationale: 'CustomPainter missing shouldRepaint override heuristic and '
             'repaint-frequency threshold. Not runtime-verified or cited '
             'to Flutter rendering docs.',
       );

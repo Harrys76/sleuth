@@ -10,8 +10,7 @@ import '../utils/fix_hint_builder.dart';
 ///
 /// **Structural Detector** — flags Text/RichText using non-system fonts
 /// that may not be loaded, causing invisible text or layout shifts.
-class FontLoadingDetector extends BaseDetector
-    with DetectorMetadataProvider {
+class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
   FontLoadingDetector({this.maxFamilies = 3})
       : super(
           type: DetectorType.fontLoading,
@@ -167,8 +166,7 @@ class FontLoadingDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'Font-load duration threshold and missing-asset-font '
+        rationale: 'Font-load duration threshold and missing-asset-font '
             'heuristic. Not runtime-verified against device-specific font '
             'loading profiles or externally cited.',
       );

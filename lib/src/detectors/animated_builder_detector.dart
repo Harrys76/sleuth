@@ -202,8 +202,7 @@ class AnimatedBuilderDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'AnimatedBuilder-without-child-parameter heuristic: '
+        rationale: 'AnimatedBuilder-without-child-parameter heuristic: '
             'identifies builders that rebuild subtrees the animation does '
             'not actually touch. Not runtime-verified against a '
             'real-device profile trace or externally cited.',

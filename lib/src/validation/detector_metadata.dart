@@ -21,7 +21,9 @@ class DetectorMetadata {
     required this.rationale,
     this.citationUrl,
     this.reproducerPath,
-    this.profileCapturePath,
+    this.profileCapturePaths,
+    this.bracketThreshold,
+    this.bracketUnit,
     this.coveredStableIds,
   });
 
@@ -41,25 +43,42 @@ class DetectorMetadata {
   /// the test or demo that exercises the detector deterministically.
   final String? reproducerPath;
 
-  /// For [EvidenceTier.runtimeVerified] and above, a repo-relative path to
-  /// a captured profile-mode artifact (timeline JSON, DevTools snapshot,
-  /// recorded frame batch) that backs the claim that the detector's
-  /// numbers hold against a real engine in profile mode — not only against
-  /// unit-test stubs driving `processRecord` directly. `reproducerOnly`
-  /// tests prove the detector reacts correctly to inputs at the boundary;
-  /// `runtimeVerified` additionally proves those inputs actually occur on
-  /// a reference device with the claimed magnitude. The audit gate
-  /// enforces this field for any detector shipping at `runtimeVerified`
-  /// or stronger, closing the AB4 artifact-contract gap: without it, a
-  /// tier raise to `runtimeVerified` would be indistinguishable from
-  /// `reproducerOnly`.
+  /// For [EvidenceTier.runtimeVerified] and above, repo-relative paths to
+  /// the checked-in profile-mode captures (timeline JSON, DevTools export,
+  /// recorded frame batch) that back the claim that the detector's numbers
+  /// hold against a real engine in profile mode — not only against
+  /// unit-test stubs driving the detector's inputs directly.
+  /// `reproducerOnly` tests prove the detector reacts correctly to inputs
+  /// at the boundary; `runtimeVerified` additionally proves those inputs
+  /// actually occur on a reference device with the claimed magnitude.
   ///
-  /// The audit gate currently only asserts file existence for this path.
-  /// The first tier raise to [EvidenceTier.runtimeVerified] is expected to
-  /// also add a format/parse validation step for the checked-in capture
-  /// (e.g. timeline-JSON schema check) — file existence alone is
-  /// insufficient for the contract.
-  final String? profileCapturePath;
+  /// The bracketing rule (below / at / above threshold, observed ±10%) that
+  /// `runtimeVerified` imposes requires three captures per claim, so this
+  /// field is a `List<String>` rather than a single path. The audit gate
+  /// enforces non-empty content when [tier] is [EvidenceTier.runtimeVerified]
+  /// or stronger, closing the AB4 artifact-contract gap: without it, a tier
+  /// raise to `runtimeVerified` would be indistinguishable from
+  /// `reproducerOnly`. Each path in the list is additionally run through
+  /// `ProfileCaptureSchema.parseFile` so a malformed capture fails the gate.
+  final List<String>? profileCapturePaths;
+
+  /// For [EvidenceTier.runtimeVerified] and above, the numeric threshold the
+  /// three captures in [profileCapturePaths] are required to bracket. The
+  /// audit gate calls `ProfileCaptureSchema.validateBracket(threshold:
+  /// bracketThreshold, unit: bracketUnit, ...)` on the triad, which enforces
+  /// `below.observed < threshold`, `threshold <= at.observed <= threshold *
+  /// 1.1`, and `above.observed > threshold`. Without this field the audit
+  /// can confirm the three captures exist and parse cleanly but cannot
+  /// verify the bracketing rule itself — a tier raise could ship with three
+  /// captures all recorded well below (or well above) the threshold.
+  ///
+  /// Required when [tier] is [EvidenceTier.runtimeVerified] or stronger;
+  /// null otherwise.
+  final num? bracketThreshold;
+
+  /// Unit label for [bracketThreshold] (e.g. `'ms'`, `'bytes'`, `'frames'`).
+  /// Required alongside [bracketThreshold].
+  final String? bracketUnit;
 
   /// The set of stable issue IDs this [tier] claim covers, for detectors
   /// that emit more than one family of issue. `NetworkMonitorDetector`, for

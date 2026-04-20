@@ -9,45 +9,49 @@
 //   - Tier-appropriate fields are populated:
 //       reproducerOnly                   → `reproducerPath` non-null
 //       runtimeVerified                  → `reproducerPath` non-null AND
-//                                          `profileCapturePath` non-null
-//                                          (v0.16.1 AB4 fix — closes the
-//                                          "runtimeVerified has no stronger
-//                                          artifact contract than
-//                                          reproducerOnly" gap).
-//       externallyCited                  → `citationUrl`, `reproducerPath`,
-//                                          and `profileCapturePath` all
-//                                          non-null (citation + reproducer
-//                                          + capture of the cited number
-//                                          actually occurring).
+//                                          `profileCapturePaths` non-null
+//                                          and length == 3 (v0.16.2
+//                                          bracketing rule).
+//       externallyCited                  → `citationUrl` (http/https with
+//                                          authority), `reproducerPath`,
+//                                          and `profileCapturePaths` all
+//                                          present; bracket count == 3.
 //       any tier > unvalidated           → `coveredStableIds` non-null and
-//                                          non-empty (pins which issue
-//                                          families the evidence covers
-//                                          for multi-family detectors —
-//                                          v0.16.1 AB2 fix).
+//                                          non-empty.
 //   - If a `reproducerPath` is present AND the test is running from the
-//     repo root, the file actually exists on disk (catches typos and
-//     files that get moved without updating the metadata), the file
-//     contains `test(` / `testWidgets(` outside of line comments, AND
-//     the file references the detector's runtimeType by name (v0.16.1
-//     AB3 fix — prevents a tier raise from pointing at a stub or an
-//     unrelated test file that just happens to contain a test token).
+//     repo root, the file is inside the repo (no absolute paths / `..`
+//     traversal / symlink escapes), it contains `test(` /
+//     `testWidgets(` outside of line AND block comments (CLAUDE-R4-1),
+//     and it references the detector's runtimeType by name.
+//   - If `profileCapturePaths` is declared, every path is inside the
+//     repo and parses cleanly via `ProfileCaptureSchema.parseFile`.
 //
-// v0.16.1 seeds every shipped detector at [EvidenceTier.unvalidated]
-// except [NetworkMonitorDetector], which ships at
-// [EvidenceTier.reproducerOnly] with a hermetic reproducer. Subsequent
-// milestones raise one detector at a time; this gate ensures any tier
-// raise either ships with the required supporting artifact or fails CI.
+// v0.16.2 post-adversarial-review hardening extracted the five invariant
+// checkers into `_support/audit_invariants.dart` so the detector gate and
+// the component gate share a single implementation. Individual blockers
+// closed by the shared module:
 //
-// This test imports `src/` directly (not the public barrel) because
-// [SleuthController.detectorsForAudit] is a `@visibleForTesting` getter.
+//   - CLAUDE-R4-1 — line-AND-block comment stripping via
+//     `stripDartComments`.
+//   - CODEX-R6-1 — repo-containment check via `isPathInsideRepo` (rejects
+//     absolute paths, `../../` traversal, and symlinked files that
+//     canonicalise outside the repo root).
+//   - CLAUDE-R1-2 — citation-URL validation via `checkCitationUrl`
+//     (requires parseable http/https URI with authority).
 
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart'
-    show DetectorMetadata, DetectorMetadataProvider, EvidenceTier;
+    show
+        DetectorMetadata,
+        DetectorMetadataProvider,
+        EvidenceTier,
+        ProfileCaptureSchema;
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/base_detector.dart';
+
+import '_support/audit_invariants.dart';
 
 void main() {
   group('Detector metadata audit (v0.16.1 gate)', () {
@@ -84,31 +88,12 @@ void main() {
 
     test('every detector returns non-null metadata with non-empty rationale',
         () {
-      // Reject empty/whitespace plus trivially-short or un-punctuated
-      // strings. A one-character "x" used to pass the prior `trim().isEmpty`
-      // check; that defeated the premise of the audit (every metadata
-      // entry carries a human-readable justification).
-      const minRationaleLength = 20;
       final failures = <String>[];
       for (final d in controller.detectorsForAudit) {
         if (d is! DetectorMetadataProvider) continue;
         final DetectorMetadata meta =
             (d as DetectorMetadataProvider).validationMetadata;
-        final trimmed = meta.rationale.trim();
-        if (trimmed.isEmpty) {
-          failures.add('${d.runtimeType}: empty rationale');
-          continue;
-        }
-        if (trimmed.length < minRationaleLength) {
-          failures.add('${d.runtimeType}: rationale too short '
-              '(${trimmed.length} chars, need >= $minRationaleLength)');
-          continue;
-        }
-        if (!trimmed.contains('.')) {
-          failures.add(
-              '${d.runtimeType}: rationale must contain at least one period '
-              '(should read as one or more sentences)');
-        }
+        failures.addAll(checkRationale('${d.runtimeType}', meta.rationale));
       }
       expect(failures, isEmpty,
           reason: 'Metadata rationale must describe what was validated. '
@@ -125,7 +110,6 @@ void main() {
 
         switch (meta.tier) {
           case EvidenceTier.unvalidated:
-            // No required fields beyond rationale — covered above.
             break;
           case EvidenceTier.reproducerOnly:
             if (meta.reproducerPath == null ||
@@ -138,34 +122,47 @@ void main() {
                 meta.reproducerPath!.trim().isEmpty) {
               failures.add('$label: missing reproducerPath');
             }
-            // AB4 (v0.16.1): `runtimeVerified` must carry a profile-mode
-            // capture artifact on top of the reproducer — without it the
-            // tier is indistinguishable from `reproducerOnly` and the
-            // "runs on a real engine in profile mode" claim is unbacked.
-            if (meta.profileCapturePath == null ||
-                meta.profileCapturePath!.trim().isEmpty) {
-              failures.add('$label: missing profileCapturePath — '
-                  'runtimeVerified requires a captured profile-mode '
-                  'artifact (timeline JSON / DevTools snapshot) in '
-                  'addition to the reproducer');
-            }
+            failures.addAll(checkBracketCount(
+              label: label,
+              tier: meta.tier,
+              capturePaths: meta.profileCapturePaths,
+            ));
+            failures.addAll(checkBracketValidation(
+              label: label,
+              tier: meta.tier,
+              capturePaths: meta.profileCapturePaths,
+              bracketThreshold: meta.bracketThreshold,
+              bracketUnit: meta.bracketUnit,
+            ));
             break;
           case EvidenceTier.externallyCited:
-            if (meta.citationUrl == null || meta.citationUrl!.trim().isEmpty) {
-              failures.add('$label: missing citationUrl');
-            }
+            failures.addAll(
+                checkCitationUrl(label, meta.citationUrl, required: true));
             if (meta.reproducerPath == null ||
                 meta.reproducerPath!.trim().isEmpty) {
               failures.add('$label: missing reproducerPath');
             }
-            if (meta.profileCapturePath == null ||
-                meta.profileCapturePath!.trim().isEmpty) {
-              failures.add('$label: missing profileCapturePath — '
-                  'externallyCited requires the profile-mode capture '
-                  'demonstrating the cited threshold in practice, in '
-                  'addition to the citation URL and the reproducer');
-            }
+            failures.addAll(checkBracketCount(
+              label: label,
+              tier: meta.tier,
+              capturePaths: meta.profileCapturePaths,
+            ));
+            failures.addAll(checkBracketValidation(
+              label: label,
+              tier: meta.tier,
+              capturePaths: meta.profileCapturePaths,
+              bracketThreshold: meta.bracketThreshold,
+              bracketUnit: meta.bracketUnit,
+            ));
             break;
+        }
+
+        // CLAUDE-R1-2 tightening also runs on non-externallyCited tiers
+        // whenever a citationUrl is set voluntarily — a malformed URL in a
+        // `reproducerOnly` metadata is still a bug.
+        if (meta.tier != EvidenceTier.externallyCited) {
+          failures.addAll(
+              checkCitationUrl(label, meta.citationUrl, required: false));
         }
 
         // Any tier stronger than `unvalidated` must pin the set of stable
@@ -195,11 +192,9 @@ void main() {
       expect(failures, isEmpty, reason: 'Tier invariants violated: $failures');
     });
 
-    test('declared reproducer files exist on disk and contain tests', () {
-      // Soft check: `flutter test` always runs from the package root, but
-      // be defensive — if the working directory does not contain
-      // `pubspec.yaml`, the repo-relative path cannot be resolved and the
-      // existence check is meaningless. Skip rather than false-fail.
+    test(
+        'declared reproducer + capture files are inside the repo, exist, '
+        'and satisfy the reproducer / schema contracts', () {
       if (!File('pubspec.yaml').existsSync()) {
         markTestSkipped(
           'Cannot resolve reproducerPath values: test CWD is not the '
@@ -208,78 +203,75 @@ void main() {
         return;
       }
 
-      // Require not just file existence but also that the file contains
-      // actual test declarations. Prevents a tier promotion from shipping
-      // with an empty stub — `touch test/validation/foo_test.dart` used
-      // to satisfy the gate.
-      final testInvocation = RegExp(r'\b(test|testWidgets)\s*\(');
-
-      // AB3 (v0.16.1): the reproducer file must also reference the detector's
-      // runtime type by name. Prevents a tier raise from pointing at a
-      // shared/unrelated test file that just happens to contain a `test(`
-      // token, or at a file whose `test()` blocks are all line-commented.
-      // Line comments are stripped before matching so `// test(...)` does
-      // not satisfy the invocation regex.
-      final lineComment = RegExp(r'//[^\n]*');
-
-      final missing = <String>[];
-      final empty = <String>[];
-      final unrelated = <String>[];
-      final missingCapture = <String>[];
+      final failures = <String>[];
       for (final d in controller.detectorsForAudit) {
         if (d is! DetectorMetadataProvider) continue;
         final meta = (d as DetectorMetadataProvider).validationMetadata;
+        final label = '${d.runtimeType}';
         final path = meta.reproducerPath;
-        if (path == null || path.trim().isEmpty) continue;
-        final file = File(path);
-        if (!file.existsSync()) {
-          missing.add('${d.runtimeType}: $path');
-          continue;
+        if (path != null && path.trim().isNotEmpty) {
+          failures.addAll(checkReproducerFile(
+            label: label,
+            reproducerPath: path,
+            requiredTokens: [d.runtimeType.toString()],
+          ));
         }
-        final rawContents = file.readAsStringSync();
-        final codeOnly = rawContents.replaceAll(lineComment, '');
-        if (!testInvocation.hasMatch(codeOnly)) {
-          empty.add('${d.runtimeType}: $path (no test()/testWidgets() calls '
-              'outside of line comments)');
-          continue;
-        }
-        final typeName = d.runtimeType.toString();
-        if (!codeOnly.contains(typeName)) {
-          unrelated.add('${d.runtimeType}: $path (file contains tests but '
-              'does not reference $typeName by name — the reproducer must '
-              'exercise the detector it is cited for)');
-        }
-        // AB4 (v0.16.1): when a profileCapturePath is declared, the file
-        // must actually exist on disk. Required for `runtimeVerified` +
-        // `externallyCited` per the tier-fields test above; optional for
-        // weaker tiers but still file-exists-checked when present so a
-        // stale path cannot rot unnoticed.
-        final capture = meta.profileCapturePath;
-        if (capture != null && capture.trim().isNotEmpty) {
-          if (!File(capture).existsSync()) {
-            missingCapture.add('${d.runtimeType}: $capture');
-          }
+        failures.addAll(checkCapturePaths(
+          label: label,
+          capturePaths: meta.profileCapturePaths,
+        ));
+      }
+      expect(failures, isEmpty,
+          reason: 'Declared reproducer / capture artifacts failed the '
+              'repo-containment + existence + parse contracts. Fix the '
+              'metadata or the artifact — a runtimeVerified claim backed '
+              'by a malformed capture loses all audit value: $failures');
+    });
+
+    test(
+        'filesystem walk: every `class X extends BaseDetector` in '
+        'lib/src/detectors/ is registered on the controller (CLAUDE-R6-1)', () {
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
+      final detectorsDir = Directory('lib/src/detectors');
+      expect(detectorsDir.existsSync(), isTrue,
+          reason: 'lib/src/detectors/ must exist for the walk to make sense.');
+      final declaredOnDisk = <String>{};
+      final classDeclRe = RegExp(
+        // Matches `class X extends BaseDetector` or
+        // `class X extends BaseDetector with SomeMixin` etc. Filters out
+        // `abstract class` and `class X<T> extends ...` is caught via \w+.
+        r'^(?:abstract\s+)?class\s+(\w+)\s+extends\s+BaseDetector\b',
+        multiLine: true,
+      );
+      for (final entity in detectorsDir.listSync(recursive: true)) {
+        if (entity is! File) continue;
+        if (!entity.path.endsWith('.dart')) continue;
+        final source = stripDartComments(entity.readAsStringSync());
+        for (final m in classDeclRe.allMatches(source)) {
+          final name = m.group(1)!;
+          // Skip private helpers / test-only stand-ins defensively, though
+          // none exist in lib/src/detectors/ today.
+          if (name.startsWith('_')) continue;
+          // Skip the abstract helper `SimpleStructuralDetector` — it is a
+          // base class for user-authored custom detectors and is not
+          // itself registered.
+          if (name == 'SimpleStructuralDetector') continue;
+          declaredOnDisk.add(name);
         }
       }
+      final registeredNames = controller.detectorsForAudit
+          .map((d) => d.runtimeType.toString())
+          .toSet();
+      final missing = declaredOnDisk.difference(registeredNames);
       expect(missing, isEmpty,
-          reason: 'Declared reproducer paths do not exist on disk — either '
-              'the file was renamed/moved without updating the metadata, '
-              'or the path contains a typo: $missing');
-      expect(empty, isEmpty,
-          reason: 'Declared reproducer files exist but contain no test '
-              'declarations. A tier promotion must be backed by a real '
-              'test, not an empty stub: $empty');
-      expect(unrelated, isEmpty,
-          reason: 'Declared reproducer files do not reference the detector '
-              'under promotion by runtimeType name. A tier raise must cite '
-              'a test that actually exercises the detector, not an '
-              'unrelated file that happens to contain a test() token: '
-              '$unrelated');
-      expect(missingCapture, isEmpty,
-          reason: 'Declared profileCapturePath values do not exist on disk. '
-              'Either the capture file was renamed/moved without updating '
-              'the metadata, the path contains a typo, or the capture was '
-              'never committed: $missingCapture');
+          reason: 'These detector classes are declared in lib/src/detectors/ '
+              'but are NOT registered on SleuthController.detectorsForAudit. '
+              'A detector file that ships without being registered never '
+              'runs and never appears in the reliability ledger — add it to '
+              'the controller or delete the file. Missing: $missing');
     });
 
     test('NetworkMonitorDetector ships at reproducerOnly (v0.16.1)', () {
@@ -298,15 +290,215 @@ void main() {
       expect(meta.tier, EvidenceTier.reproducerOnly);
       expect(meta.reproducerPath,
           equals('test/validation/network_monitor_reproducer_test.dart'));
-      // AB2 (v0.16.1): the reproducer exercises only the slow_request
-      // thresholds. The other four issue families this detector emits
-      // remain implicitly unvalidated. Pin the coverage set so a silent
-      // widening to "whole detector" fails this test.
       expect(meta.coveredStableIds, equals(const {'slow_request'}),
           reason: 'The reproducer only covers slow_request boundaries. If '
               'the coverage set was widened, a matching reproducer for the '
               'new family must land with it, not a silent detector-scope '
               'claim.');
+    });
+  });
+
+  group('Detector metadata audit — dormant-gate regressions (v0.16.2)', () {
+    // These tests do NOT walk the real controller. They simulate the audit
+    // loop's bucket-accumulation behaviour against synthetic malformed
+    // captures so the audit-gate logic stays honest even when no real
+    // detector is at `runtimeVerified`.
+
+    test('malformedCapture detection: bad_iso_date fixture fails parseFile',
+        () {
+      final file = File('test/validation/captures/_fixtures/bad_iso_date.json');
+      expect(file.existsSync(), isTrue,
+          reason: 'Negative fixture must exist for this regression to be '
+              'meaningful.');
+      expect(
+          () => ProfileCaptureSchema.parseFile(file),
+          throwsA(isA<FormatException>()
+              .having((e) => e.message, 'message', contains('captureDate'))));
+    });
+
+    test('malformedCapture detection: min_gt_observed fixture fails parseFile',
+        () {
+      final file =
+          File('test/validation/captures/_fixtures/min_gt_observed.json');
+      expect(file.existsSync(), isTrue);
+      expect(
+          () => ProfileCaptureSchema.parseFile(file),
+          throwsA(isA<FormatException>().having(
+              (e) => e.message, 'message', contains('expectedMagnitude'))));
+    });
+
+    test(
+        'checkCapturePaths populates a failure entry on a malformed capture '
+        '(bucket-then-assert pattern)', () {
+      final failures = checkCapturePaths(
+        label: 'FakeDetector',
+        capturePaths: const [
+          'test/validation/captures/_fixtures/bad_iso_date.json',
+        ],
+      );
+      expect(failures, isNotEmpty,
+          reason: 'checkCapturePaths must surface FormatException as a '
+              'failure entry — otherwise malformed captures silently '
+              'pass CI.');
+      expect(failures.single, contains('bad_iso_date.json'));
+    });
+
+    test('checkBracketCount rejects a one-file runtimeVerified claim', () {
+      const oneFile = DetectorMetadata(
+        tier: EvidenceTier.runtimeVerified,
+        rationale: 'Synthetic — should fail bracket-count check.',
+        reproducerPath: 'test/validation/fake_reproducer_test.dart',
+        coveredStableIds: {'fake_family'},
+        profileCapturePaths: [
+          'test/validation/captures/_fixtures/'
+              'dormant_bracket_at.json'
+        ],
+      );
+      final failures = checkBracketCount(
+        label: 'FakeDetector',
+        tier: oneFile.tier,
+        capturePaths: oneFile.profileCapturePaths,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('exactly 3'));
+    });
+
+    test('checkBracketCount rejects a zero-file runtimeVerified claim', () {
+      const empty = DetectorMetadata(
+        tier: EvidenceTier.runtimeVerified,
+        rationale: 'Synthetic — should fail bracket-count check.',
+        reproducerPath: 'test/validation/fake_reproducer_test.dart',
+        coveredStableIds: {'fake_family'},
+        profileCapturePaths: <String>[],
+      );
+      final failures = checkBracketCount(
+        label: 'FakeDetector',
+        tier: empty.tier,
+        capturePaths: empty.profileCapturePaths,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('missing profileCapturePaths'));
+    });
+
+    test('checkBracketCount accepts exactly three captures', () {
+      const triad = DetectorMetadata(
+        tier: EvidenceTier.runtimeVerified,
+        rationale: 'Synthetic — valid triad, should produce zero failures.',
+        reproducerPath: 'test/validation/fake_reproducer_test.dart',
+        coveredStableIds: {'fake_family'},
+        profileCapturePaths: [
+          'test/validation/captures/_fixtures/dormant_bracket_below.json',
+          'test/validation/captures/_fixtures/dormant_bracket_at.json',
+          'test/validation/captures/_fixtures/dormant_bracket_above.json',
+        ],
+      );
+      final failures = checkBracketCount(
+        label: 'FakeDetector',
+        tier: triad.tier,
+        capturePaths: triad.profileCapturePaths,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test(
+        'checkBracketValidation rejects runtimeVerified without '
+        'bracketThreshold / bracketUnit (CODEX-R1-2)', () {
+      const triadNoThreshold = DetectorMetadata(
+        tier: EvidenceTier.runtimeVerified,
+        rationale: 'Synthetic — valid triad but no bracketThreshold/Unit.',
+        reproducerPath: 'test/validation/fake_reproducer_test.dart',
+        coveredStableIds: {'fake_family'},
+        profileCapturePaths: [
+          'test/validation/captures/_fixtures/dormant_bracket_below.json',
+          'test/validation/captures/_fixtures/dormant_bracket_at.json',
+          'test/validation/captures/_fixtures/dormant_bracket_above.json',
+        ],
+      );
+      final failures = checkBracketValidation(
+        label: 'FakeDetector',
+        tier: triadNoThreshold.tier,
+        capturePaths: triadNoThreshold.profileCapturePaths,
+        bracketThreshold: triadNoThreshold.bracketThreshold,
+        bracketUnit: triadNoThreshold.bracketUnit,
+      );
+      expect(failures, isNotEmpty);
+      expect(
+          failures.any((f) => f.contains('missing bracketThreshold')), isTrue);
+      expect(failures.any((f) => f.contains('missing bracketUnit')), isTrue);
+    });
+
+    test(
+        'checkBracketValidation passes on dormant-bracket triad around '
+        'threshold=1000 ms', () {
+      const triad = DetectorMetadata(
+        tier: EvidenceTier.runtimeVerified,
+        rationale: 'Synthetic — valid triad with threshold + unit.',
+        reproducerPath: 'test/validation/fake_reproducer_test.dart',
+        coveredStableIds: {'fake_family'},
+        bracketThreshold: 1000,
+        bracketUnit: 'ms',
+        profileCapturePaths: [
+          'test/validation/captures/_fixtures/dormant_bracket_below.json',
+          'test/validation/captures/_fixtures/dormant_bracket_at.json',
+          'test/validation/captures/_fixtures/dormant_bracket_above.json',
+        ],
+      );
+      final failures = checkBracketValidation(
+        label: 'FakeDetector',
+        tier: triad.tier,
+        capturePaths: triad.profileCapturePaths,
+        bracketThreshold: triad.bracketThreshold,
+        bracketUnit: triad.bracketUnit,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test(
+        'checkBracketValidation fails when triad does not bracket threshold '
+        '(swap below and above)', () {
+      // Same fixtures, but below and above files swapped — the observed
+      // values no longer bracket the 1000 ms threshold, so
+      // ProfileCaptureSchema.validateBracket must surface a violation.
+      const swapped = DetectorMetadata(
+        tier: EvidenceTier.runtimeVerified,
+        rationale: 'Synthetic — swapped bracket; should fail validation.',
+        reproducerPath: 'test/validation/fake_reproducer_test.dart',
+        coveredStableIds: {'fake_family'},
+        bracketThreshold: 1000,
+        bracketUnit: 'ms',
+        profileCapturePaths: [
+          'test/validation/captures/_fixtures/dormant_bracket_above.json',
+          'test/validation/captures/_fixtures/dormant_bracket_at.json',
+          'test/validation/captures/_fixtures/dormant_bracket_below.json',
+        ],
+      );
+      final failures = checkBracketValidation(
+        label: 'FakeDetector',
+        tier: swapped.tier,
+        capturePaths: swapped.profileCapturePaths,
+        bracketThreshold: swapped.bracketThreshold,
+        bracketUnit: swapped.bracketUnit,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.first, contains('bracket validation failed'));
+    });
+
+    test('checkBracketValidation is a no-op for unvalidated / reproducerOnly',
+        () {
+      for (final tier in [
+        EvidenceTier.unvalidated,
+        EvidenceTier.reproducerOnly
+      ]) {
+        final failures = checkBracketValidation(
+          label: 'FakeDetector',
+          tier: tier,
+          capturePaths: null,
+          bracketThreshold: null,
+          bracketUnit: null,
+        );
+        expect(failures, isEmpty,
+            reason: 'Tier $tier should not require bracket validation.');
+      }
     });
   });
 }

@@ -27,8 +27,7 @@ class UncachedImageInfo {
 ///
 /// **Structural Detector** — finds Image widgets that load full-resolution
 /// images into memory without downscaling.
-class ImageMemoryDetector extends BaseDetector
-    with DetectorMetadataProvider {
+class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
   ImageMemoryDetector()
       : super(
           type: DetectorType.imageMemory,
@@ -208,8 +207,7 @@ class ImageMemoryDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'Decoded-image-size vs. display-size ratio threshold for '
+        rationale: 'Decoded-image-size vs. display-size ratio threshold for '
             'oversized image detection. Not runtime-verified or cited to '
             'Flutter image-loading guidance.',
       );

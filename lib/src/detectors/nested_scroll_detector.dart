@@ -13,8 +13,7 @@ import '../utils/widget_location.dart';
 ///
 /// **Structural Detector** — this pattern means all children are built
 /// even when offscreen, defeating virtualization.
-class NestedScrollDetector extends BaseDetector
-    with DetectorMetadataProvider {
+class NestedScrollDetector extends BaseDetector with DetectorMetadataProvider {
   NestedScrollDetector({this.childThreshold = 50})
       : super(
           type: DetectorType.nestedScroll,
@@ -240,8 +239,7 @@ class NestedScrollDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.unvalidated,
-        rationale:
-            'NestedScrollView-with-inner-scrollable structural '
+        rationale: 'NestedScrollView-with-inner-scrollable structural '
             'heuristic. Not runtime-verified or externally cited.',
       );
 }
