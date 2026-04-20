@@ -256,8 +256,19 @@ class GlobalKeyDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'GlobalKey re-creation detection heuristic and threshold. '
-            'Not runtime-verified or externally cited.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale:
+            'Hermetic reproducer pins both families: excessive_global_keys '
+            '(threshold boundary, critical escalation above 3× threshold, '
+            'scrollable-context gate — bare-tree keys are ignored) and '
+            'global_key_recreation (identity-hash churn across two scans on '
+            'the same scan root fires, stable keys held in State fields do '
+            'not, first scan alone is silent because _prevKeyIds is empty). '
+            'Not yet runtime-verified on a profile-mode capture.',
+        reproducerPath: 'test/validation/global_key_reproducer_test.dart',
+        coveredStableIds: {
+          'excessive_global_keys',
+          'global_key_recreation',
+        },
       );
 }

@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.16.2 (2026-04-18)_
+_Last updated: v0.16.3 (2026-04-21)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
@@ -29,7 +29,7 @@ adding a new tier requires a semver major bump:
 
 ## Ledger
 
-**Summary:** 1 / 23 at `reproducerOnly`, 22 / 23 at `unvalidated`. No
+**Summary:** 5 / 23 at `reproducerOnly`, 18 / 23 at `unvalidated`. No
 detectors currently at `runtimeVerified` or `externallyCited`.
 
 ### Runtime detectors (2)
@@ -63,14 +63,14 @@ detectors currently at `runtimeVerified` or `externallyCited`.
 |---|---|---|---|
 | setState Scope | `unvalidated` | — | setState scope-breadth estimation heuristic. |
 | Layout Bottleneck | `unvalidated` | — | Layout-phase duration threshold for bottleneck attribution. |
-| ListView | `unvalidated` | — | Sliver anti-pattern heuristics (shrinkWrap inside sliver, SliverToBoxAdapter large subtree, SliverFillRemaining misuse). |
-| Image Memory | `unvalidated` | — | Decoded-image-size vs. display-size ratio threshold. |
-| GlobalKey | `unvalidated` | — | GlobalKey re-creation detection heuristic and threshold. |
+| ListView | `reproducerOnly` | [`listview_reproducer_test.dart`](../test/validation/listview_reproducer_test.dart) | 3 of 8 stable-id families pinned: `non_lazy_listview` (childThreshold boundary + `.builder` lazy-path bypass), `sliver_to_box_adapter_large`, `sliver_fill_remaining_scrollable` (eager-build trap with `hasScrollBody: false`). Remaining 5 families (`non_lazy_gridview`, `non_lazy_sliver_list`, `non_lazy_sliver_grid`, `sliver_to_box_adapter_shrinkwrap`, `non_lazy_list`) are implicitly `unvalidated` — same single-family-pin precedent as v0.16.1 NetworkMonitor. |
+| Image Memory | `reproducerOnly` | [`image_memory_reproducer_test.dart`](../test/validation/image_memory_reproducer_test.dart) | 50dp small-image skip threshold pinned by 40×40 / 50×50 / 51×51 / 100×100 boundary triad, plus ResizeImage wrapper suppression and the "zero is NOT small" unconstrained-size policy. Pure structural scan — no decode dependency — so reproducer covers the full runtime trigger path. `coveredStableIds = {'uncached_images'}`. |
+| GlobalKey | `reproducerOnly` | [`global_key_reproducer_test.dart`](../test/validation/global_key_reproducer_test.dart) | Both families pinned: `excessive_global_keys` (threshold boundary + critical above 3× threshold + scrollable-context gate — bare-tree keys ignored) and `global_key_recreation` (identity-hash churn across two scans on the same scan root fires, State-held stable keys do not, first scan alone is silent because `_prevKeyIds` is empty). `coveredStableIds = {'excessive_global_keys', 'global_key_recreation'}` using the prefix convention for the indexed `excessive_global_keys:<i>` family. |
 | Nested Scroll | `unvalidated` | — | NestedScrollView-with-inner-scrollable structural heuristic. |
 | CustomPainter | `unvalidated` | — | `shouldRepaint` override heuristic and repaint-frequency threshold. |
 | Keep Alive | `unvalidated` | — | `AutomaticKeepAlive` misuse structural heuristic. |
 | AnimatedBuilder | `unvalidated` | — | AnimatedBuilder-without-child-parameter heuristic for subtree-rebuild detection. |
-| Opacity | `unvalidated` | — | Opacity(0) skip heuristic and saveLayer-cost threshold. |
+| Opacity | `reproducerOnly` | [`opacity_reproducer_test.dart`](../test/validation/opacity_reproducer_test.dart) | Exact-zero contract pinned (0.0 fires, 0.005 and 0.5 do not), AnimatedOpacity settled-at-zero fires exactly once (inner FadeTransition suppressed by `_insideAnimatedOpacity` depth counter), nested Opacity(0.0) produces one rollup issue with a count reflecting both occurrences. `coveredStableIds = {'opacity_zero'}`. |
 | Font Loading | `unvalidated` | — | Font-load duration threshold and missing-asset-font heuristic. |
 | RepaintBoundary | `unvalidated` | — | Missing-RepaintBoundary structural heuristic around animated subtrees. |
 | Startup | `unvalidated` | — | TTFF/TTI phase-breakdown thresholds and slow-startup warning gate. |
@@ -111,12 +111,16 @@ per release:
   `ComponentMetadata` + `ValidatedComponentRegistry`, `ProfileCaptureSchema`
   with bracketing-rule triad check, pinned reference-device matrix,
   capture-authoring README, `profileCapturePath` → `profileCapturePaths`
-  list rename. **← current release**
-- **v0.16.3+** — One detector per release, each raise landing with its
-  reproducer (and, where applicable, its bracketing triad of captures) in
-  the same PR. Order not yet committed; detector selection is driven by
-  which threshold is most load-bearing in real apps and which is cheapest
-  to pin deterministically.
+  list rename.
+- **v0.16.3** — Four structural detectors raised to `reproducerOnly` in a
+  single release: `ImageMemoryDetector`, `OpacityDetector`,
+  `ListviewDetector` (3 of 8 families), `GlobalKeyDetector`. Pure
+  structural scans with cheap hermetic boundary tests — no profile-mode
+  capture dependency. **← current release**
+- **v0.16.4+** — Continue raising one or more detectors per release.
+  Remaining `unvalidated` detectors cluster around runtime/VM-driven
+  thresholds (frame timing, memory pressure, GPU pressure) where the next
+  tier raise will typically also need a reference-device profile capture.
 
 Follow-up work called out in the v0.16.1 adversarial-review cycle:
 

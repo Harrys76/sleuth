@@ -206,9 +206,16 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'Decoded-image-size vs. display-size ratio threshold for '
-            'oversized image detection. Not runtime-verified or cited to '
-            'Flutter image-loading guidance.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale:
+            'Hermetic reproducer pins the 50dp small-image skip threshold '
+            '(40×40 no fire, 50×50 at-threshold no fire, 51×51 fires), the '
+            'ResizeImage-wrapper suppression contract, and the "zero is NOT '
+            'small" unconstrained-size policy. Detector is a pure structural '
+            'scan over widget shape + render-object size — no decode or VM '
+            'timeline dependency — so the reproducer covers the full runtime '
+            'trigger path. Not yet runtime-verified on a profile-mode capture.',
+        reproducerPath: 'test/validation/image_memory_reproducer_test.dart',
+        coveredStableIds: {'uncached_images'},
       );
 }

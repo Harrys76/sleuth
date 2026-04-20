@@ -157,9 +157,16 @@ class OpacityDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
+        tier: EvidenceTier.reproducerOnly,
         rationale:
-            'Opacity(0) skip heuristic and saveLayer-cost threshold. Not '
-            'runtime-verified or cited to Flutter paint-phase guidance.',
+            'Hermetic reproducer pins the exact-zero contract (Opacity(0.0) '
+            'fires, 0.005 and 0.5 do not), the AnimatedOpacity settled-at-zero '
+            'path (suppressing the inner FadeTransition via the '
+            '_insideAnimatedOpacity depth counter so the same widget is not '
+            'double-counted), and the nested-Opacity rollup shape (one issue '
+            'with count reflecting both occurrences). Not yet runtime-verified '
+            'on a profile-mode capture.',
+        reproducerPath: 'test/validation/opacity_reproducer_test.dart',
+        coveredStableIds: {'opacity_zero'},
       );
 }

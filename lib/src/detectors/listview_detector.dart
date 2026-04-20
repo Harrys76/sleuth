@@ -514,11 +514,23 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'Sliver anti-pattern heuristics (shrinkWrap inside sliver, '
-            'SliverToBoxAdapter large subtree, SliverFillRemaining '
-            'misuse). Not runtime-verified or cited to Flutter '
-            'sliver-performance guidance.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hermetic reproducer pins 3 of 8 stable-id families: '
+            'non_lazy_listview (childThreshold boundary + ListView.builder '
+            'lazy-path bypass), sliver_to_box_adapter_large (Column subtree '
+            'above threshold), sliver_fill_remaining_scrollable '
+            '(hasScrollBody:false eager-build trap vs hasScrollBody:true '
+            'happy path). Remaining 5 families '
+            '(non_lazy_gridview, non_lazy_sliver_list, non_lazy_sliver_grid, '
+            'sliver_to_box_adapter_shrinkwrap, non_lazy_list) remain '
+            'implicitly unvalidated at v0.16.3 — same single-family pin '
+            'precedent as v0.16.1 NetworkMonitor. Ledger row calls this out.',
+        reproducerPath: 'test/validation/listview_reproducer_test.dart',
+        coveredStableIds: {
+          'non_lazy_listview',
+          'sliver_to_box_adapter_large',
+          'sliver_fill_remaining_scrollable',
+        },
       );
 }
 
