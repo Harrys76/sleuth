@@ -48,6 +48,7 @@ import 'package:sleuth/sleuth.dart'
         EvidenceTier,
         ProfileCaptureSchema;
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/detectors/frame_timing_detector.dart';
 import 'package:sleuth/src/detectors/network_monitor_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart';
 
@@ -338,7 +339,7 @@ void main() {
       expect(meta.profileCapturePaths, isNull,
           reason: 'profileCapturePaths is first-class on externallyCited / '
               'runtimeVerified only — the three capture files on disk are '
-              'retained orphans for v0.16.6 re-raise reuse, tracked in the '
+              'retained orphans for v0.16.7+ re-raise reuse, tracked in the '
               'orphan manifest below, not live metadata.');
       expect(meta.bracketThreshold, isNull);
       expect(meta.bracketUnit, isNull);
@@ -404,7 +405,7 @@ void main() {
       // that adjusts one but not the other creates silent drift (the
       // detector emits on a different threshold than the externally-cited
       // bracket claims). Dormant while `bracketThreshold` is null at
-      // reproducerOnly; fires the moment v0.16.6 re-raises.
+      // reproducerOnly; fires on v0.16.7+ re-raise.
       if (meta.bracketThreshold != null) {
         final detector = NetworkMonitorDetector();
         expect(detector.slowThresholdMs, equals(meta.bracketThreshold),
@@ -414,6 +415,60 @@ void main() {
                 'mismatch means the externally-cited bracket claims a '
                 'different threshold than the detector actually uses.');
       }
+    });
+
+    test('FrameTimingDetector pinned at reproducerOnly (v0.16.6)', () {
+      // Anti-tautology anchor (B30). v0.16.6 raises FrameTimingDetector
+      // unvalidated → reproducerOnly with four stableIds pinned by the
+      // hermetic reproducer at `test/validation/frame_timing_reproducer_test.dart`:
+      // `sustained_jank`, `jank_detected`, `raster_cache_thrashing`,
+      // `raster_cache_growing`. All extended-claim fields (citationUrl /
+      // profileCapturePaths / bracketThreshold / bracketUnit /
+      // coveredThresholds / aboveCeilingMultiplier) MUST remain null —
+      // none of them are load-bearing at reproducerOnly, and a future
+      // externallyCited raise populates them deliberately. Pinning every
+      // field blocks silent drift in either direction.
+      final BaseDetector? ft = controller.detectorsForAudit
+          .where((d) => d.type == DetectorType.frameTiming)
+          .cast<BaseDetector?>()
+          .firstWhere((_) => true, orElse: () => null);
+      expect(ft, isNotNull,
+          reason: 'FrameTimingDetector should be registered by default.');
+      expect(ft, isA<DetectorMetadataProvider>());
+      final meta = (ft as DetectorMetadataProvider).validationMetadata;
+      expect(meta.tier, EvidenceTier.reproducerOnly,
+          reason: 'v0.16.6 raised FrameTimingDetector to reproducerOnly via '
+              'a hermetic reproducer bypassing warmup and exercising both '
+              'synthetic FrameStats and real-pipeline FrameTiming paths.');
+      expect(meta.reproducerPath,
+          equals('test/validation/frame_timing_reproducer_test.dart'));
+      expect(meta.citationUrl, isNull,
+          reason: 'No external citation at reproducerOnly tier.');
+      expect(meta.profileCapturePaths, isNull,
+          reason: 'profileCapturePaths is first-class on externallyCited / '
+              'runtimeVerified only.');
+      expect(meta.bracketThreshold, isNull);
+      expect(meta.bracketUnit, isNull);
+      expect(meta.coveredThresholds, isNull,
+          reason: 'No severity-scoped claim at reproducerOnly.');
+      expect(meta.aboveCeilingMultiplier, isNull);
+      expect(
+          meta.coveredStableIds,
+          equals(const {
+            'sustained_jank',
+            'jank_detected',
+            'raster_cache_thrashing',
+            'raster_cache_growing',
+          }),
+          reason: 'v0.16.6 pins exactly four FrameTiming stableIds. Any '
+              'addition or removal must land alongside a reproducer change.');
+
+      // Constructor side-effect check: the audit walks real controller
+      // detectors, so FrameTimingDetector must be constructible without
+      // side effects (matches the v0.16.0 F1 fix).
+      expect(() => FrameTimingDetector(), returnsNormally,
+          reason: 'FrameTimingDetector() must be side-effect-free so the '
+              'audit can construct it in isolation.');
     });
   });
 
@@ -652,7 +707,7 @@ void main() {
     // profile captures only verify scenario marker span, not detector
     // emission. Detector metadata nulled `profileCapturePaths` in the
     // revert, so all three capture files become orphans on disk. They
-    // are retained here — not deleted — because v0.16.6 re-raise
+    // are retained here — not deleted — because the v0.16.7+ re-raise
     // reuses the on-device recording (re-recording across the Flutter
     // 3.41.4 pin + iPhone 12 exception is expensive to redo without
     // reason). Manifest cross-check guarantees the files on disk still
@@ -667,15 +722,16 @@ void main() {
         unit: 'ms',
         observedMin: 720,
         observedMax: 900,
-        consumeBy: '0.16.6',
+        consumeBy: '0.16.7',
         owningClaim:
             'NetworkMonitorDetector.slow_request.warning externallyCited '
-            're-raise (v0.16.6)',
+            're-raise (v0.16.7)',
         rationale: 'Below bracket (812 ms) captured on iPhone 12 / iOS 17.5 / '
             'Flutter 3.41.4 via the example app NetworkMonitor Capture '
-            'Helper screen. Retained from v0.16.5 revert — v0.16.6 wires '
-            'this into the re-raise once citation + detector-emission '
-            'gate blockers are resolved.',
+            'Helper screen. Retained from v0.16.5 revert; v0.16.6 shipped '
+            'FrameTiming + ListView tier raises instead and deferred the '
+            'NetworkMonitor re-raise — wiring now slated for v0.16.7 once '
+            'citation + detector-emission gate blockers are resolved.',
       ),
       'test/validation/captures/network_monitor/slow_request_at.json':
           RetainedOrphanEntry(
@@ -686,13 +742,14 @@ void main() {
         unit: 'ms',
         observedMin: 1000,
         observedMax: 1100,
-        consumeBy: '0.16.6',
+        consumeBy: '0.16.7',
         owningClaim:
             'NetworkMonitorDetector.slow_request.warning externallyCited '
-            're-raise (v0.16.6)',
+            're-raise (v0.16.7)',
         rationale: 'At bracket (1035 ms, within ±10% of 1000 ms threshold) '
             'captured on iPhone 12 / iOS 17.5 / Flutter 3.41.4. Retained '
-            'from v0.16.5 revert for v0.16.6 reuse.',
+            'from v0.16.5 revert; v0.16.6 deferred the re-raise so '
+            'reuse shifts to v0.16.7.',
       ),
       'test/validation/captures/network_monitor/slow_request_above.json':
           RetainedOrphanEntry(
@@ -703,13 +760,14 @@ void main() {
         unit: 'ms',
         observedMin: 1450,
         observedMax: 1800,
-        consumeBy: '0.16.6',
+        consumeBy: '0.16.7',
         owningClaim:
             'NetworkMonitorDetector.slow_request.warning externallyCited '
-            're-raise (v0.16.6)',
+            're-raise (v0.16.7)',
         rationale: 'Above bracket (1515 ms) within `[1000, 2000)` band so the '
             '`aboveCeilingMultiplier: 2.0` ceiling fires dormantly until '
-            'v0.16.6 wires the raise. Retained from v0.16.5 revert.',
+            'v0.16.7 wires the raise. Retained from v0.16.5 revert; '
+            'v0.16.6 deferred the re-raise.',
       ),
     };
 

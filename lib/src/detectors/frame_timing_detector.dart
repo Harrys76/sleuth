@@ -559,11 +559,35 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'FPS target (60), warmup duration (3s), and jank thresholds '
-            '(refresh-rate-aware). Not yet cited to Flutter engine '
-            'sources or verified via a profile-mode capture on a '
-            'reference device.',
+        tier: EvidenceTier.reproducerOnly,
+        reproducerPath: 'test/validation/frame_timing_reproducer_test.dart',
+        coveredStableIds: {
+          'sustained_jank',
+          'jank_detected',
+          'raster_cache_thrashing',
+          'raster_cache_growing',
+        },
+        rationale: 'Four stableIds pinned by hermetic reproducer: '
+            '`sustained_jank` (≥3 severe frames in a 60-frame window), '
+            '`jank_detected` (>15% jank frames, ≥5-frame sample), '
+            '`raster_cache_thrashing` (≥15 consecutive frames of '
+            '≥20% picture-cache-count fluctuation, seeded by '
+            '`previous.pictureCacheCount > 5`), and `raster_cache_growing` '
+            '(≥30 consecutive frames of monotonic picture-cache-count '
+            'growth). Reproducer bypasses warmup via '
+            '`warmupDuration: Duration.zero`; every stableId has a synthetic '
+            '`FrameStats` path plus a real `FrameTiming` integration leg via '
+            '`handleTimingsForTest` so hand-written synthetic fixtures cannot '
+            'encode the detector\'s own expected shape (anti-tautology, '
+            'Tactic 9). Impeller-zero suppression (all four cache metrics '
+            'zero for ≥30 frames) pinned by a dedicated `pictureCacheBytes: 1` '
+            'belt-and-suspender test so cache-family issues are not '
+            'silently suppressed. Not yet cited to Flutter engine sources or '
+            'verified via a profile-mode capture on a reference device; '
+            'v0.16.N re-raise to `externallyCited` requires either a Flutter '
+            'docs citation matching the 16.67 ms budget semantics or a '
+            'runtime-verified capture triad with a detector-emitted '
+            'trace record inside the scenario window.',
       );
 }
 

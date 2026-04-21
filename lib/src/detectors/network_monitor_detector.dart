@@ -550,7 +550,7 @@ class NetworkMonitorDetector extends BaseDetector
             'the profile captures only verify scenario begin/end marker '
             'span, not detector-produced issue emission — a capture triad '
             'can pass the bracket audit even if the detector were '
-            'disabled. v0.16.6 re-raise prerequisites: replace citation '
+            'disabled. v0.16.7+ re-raise prerequisites: replace citation '
             'with a generic mobile/API HTTP latency source OR narrow the '
             'detector contract to user-blocking requests, AND extend the '
             'capture helper to emit a `sleuth.issue.slow_request.warning` '

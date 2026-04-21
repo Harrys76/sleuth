@@ -515,27 +515,45 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hermetic reproducer pins 3 of 8 stable-id families: '
-            'non_lazy_listview (childThreshold boundary + ListView.builder '
-            'lazy-path bypass), sliver_to_box_adapter_large (Column subtree '
-            'above threshold), and sliver_fill_remaining_scrollable as a '
+        rationale: 'Hermetic reproducer pins all 8 stable-id families. '
+            'Non-lazy construction families — non_lazy_listview '
+            '(ListView(children:) above childThreshold, with .builder lazy-'
+            'path bypass as negative control); non_lazy_gridview '
+            '(GridView(children:) above threshold, .builder negative); '
+            'non_lazy_sliver_list (SliverList(SliverChildListDelegate) above '
+            'threshold, SliverChildBuilderDelegate negative); '
+            'non_lazy_sliver_grid (SliverGrid(SliverChildListDelegate) above '
+            'threshold, builder negative); and non_lazy_list '
+            '(SingleChildScrollView + Column/Row above threshold, at-'
+            'threshold negative). Sliver boundary families — '
+            'sliver_to_box_adapter_large (Column subtree above threshold), '
+            'sliver_to_box_adapter_shrinkwrap (inner ListView with '
+            'shrinkWrap:true inside SliverToBoxAdapter fires when '
+            '!isNonLazy; shrinkWrap:false negative; many list-delegate '
+            'children route to Check A non_lazy_listview instead, pinning '
+            'the isNonLazy bypass), and sliver_fill_remaining_scrollable '
+            'as a '
             'structural adjacency check — fires when any scrollable '
-            'descendant appears under SliverFillRemaining(hasScrollBody: '
+            'descendant appears under SliverFillRemaining(hasScrollBody:'
             'false), with hasScrollBody:true as the negative control. The '
-            'runtime performance pathology this pattern correlates with is '
-            'not directly measured by the reproducer (the real anti-pattern '
-            'throws a layout error in flutter_test, forcing a SizedBox '
-            'wrapper around the inner scrollable); the detector is '
-            'DetectorLifecycle.structural by declaration, so structural-'
-            'only validation is internally consistent. Remaining 5 families '
-            '(non_lazy_gridview, non_lazy_sliver_list, non_lazy_sliver_grid, '
-            'sliver_to_box_adapter_shrinkwrap, non_lazy_list) remain '
-            'implicitly unvalidated at v0.16.3 — same single-family pin '
-            'precedent as v0.16.1 NetworkMonitor. Ledger row calls this out.',
+            'runtime performance pathology the sliver_fill_remaining pattern '
+            'correlates with is not directly measured by the reproducer (the '
+            'real anti-pattern throws a layout error in flutter_test, forcing '
+            'a SizedBox wrapper around the inner scrollable); the detector '
+            'is DetectorLifecycle.structural by declaration, so structural-'
+            'only validation is internally consistent. v0.16.N re-raise to '
+            'runtimeVerified would require a profile-mode capture triad per '
+            'family demonstrating measurable frame-budget impact under the '
+            'non-lazy construction path.',
         reproducerPath: 'test/validation/listview_reproducer_test.dart',
         coveredStableIds: {
           'non_lazy_listview',
+          'non_lazy_gridview',
+          'non_lazy_sliver_list',
+          'non_lazy_sliver_grid',
+          'non_lazy_list',
           'sliver_to_box_adapter_large',
+          'sliver_to_box_adapter_shrinkwrap',
           'sliver_fill_remaining_scrollable',
         },
       );

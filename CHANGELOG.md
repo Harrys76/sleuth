@@ -1,3 +1,25 @@
+## 0.16.6
+
+**Two simultaneous tier raises in one PR.** `FrameTimingDetector` raised `unvalidated` → `reproducerOnly` pinning 4 stableIds, and `ListviewDetector` coveredStableIds backfilled 3 → all 8. Ledger distribution: `6/23 reproducerOnly, 17/23 unvalidated`.
+
+### Added
+
+- **`test/validation/frame_timing_reproducer_test.dart`** — hermetic reproducer pinning `sustained_jank` (≥3 severe frames in 60-frame window), `jank_detected` (>15% jank frames, ≥5-frame sample), `raster_cache_thrashing` (≥15 consecutive frames of ≥20% picture-cache-count fluctuation), `raster_cache_growing` (≥30 consecutive frames of monotonic picture-cache-count growth). Every stableId has a synthetic `FrameStats` path (`addFrameForTest`) plus a real-pipeline `FrameTiming` leg (`handleTimingsForTest`) so hand-written fixtures cannot encode the detector's own expected shape. Impeller-zero suppression pinned by a dedicated `pictureCacheBytes: 1` belt-and-suspender test.
+- **FrameTiming audit anchor** in `test/validation/detector_metadata_audit_test.dart`: pins `tier == reproducerOnly`, `reproducerPath`, all 6 extended-claim fields `isNull`, and the 4-id `coveredStableIds` set.
+- **5 new ListView reproducer groups** (~13 tests) covering `non_lazy_gridview`, `non_lazy_sliver_list`, `non_lazy_sliver_grid`, `sliver_to_box_adapter_shrinkwrap` (3-test triad pinning Check C gate: shrinkWrap:true fires, shrinkWrap:false silent, many-children-list-delegate routes to Check A), and `non_lazy_list`.
+
+### Changed
+
+- **`FrameTimingDetector.validationMetadata`** — tier `unvalidated` → `reproducerOnly`; `reproducerPath` set; `coveredStableIds` declares the 4 ids.
+- **`ListviewDetector.validationMetadata`** — `coveredStableIds` expanded 3 → 8; rationale enumerates all 8 families including `sliver_to_box_adapter_shrinkwrap` isNonLazy bypass and `sliver_fill_remaining_scrollable` structural-adjacency caveat.
+- **`doc/validation_ledger.md`** — summary `5/23 reproducerOnly, 18/23 unvalidated` → `6/23 reproducerOnly, 17/23 unvalidated`; FrameTiming + ListView rows rewritten; Roadmap split into shipped v0.16.6 bullet + renamed v0.16.7+ bullet (deferred NetworkMonitor re-raise); `← current release` marker moved v0.16.5 → v0.16.6.
+- **Retained-orphan manifest `consumeBy: '0.16.6'` → `'0.16.7'`** across all three NetworkMonitor `slow_request` capture files, `test/validation/detector_metadata_audit_test.dart` (3 manifest entries + prose anchors), `lib/src/detectors/network_monitor_detector.dart` (rationale `"v0.16.6 re-raise"` → `"v0.16.7+ re-raise"`), and `CLAUDE.md` current-state block. v0.16.6 shipped without re-raising NetworkMonitor; re-raise deferred to v0.16.7+ pending the same three prerequisites documented in v0.16.5.
+
+### Notes
+
+- Zero migration — no public API, schema, config, or default change.
+- `fvm flutter analyze` clean, `fvm flutter test` all green.
+
 ## 0.16.5
 
 **Second `externallyCited` tier raise for `NetworkMonitorDetector.slow_request.warning` staged and reverted; audit hardening retained.** The NN/g 1.0 s boundary is a UI direct-manipulation feedback guideline, not a generic HTTP latency threshold — the detector fires on any uncancelled request, so the citation does not substantiate the detector contract. Profile captures validate scenario-marker span only, not detector-produced emission. Detector ships at `reproducerOnly` (unchanged from v0.16.1). v0.16.4/v0.16.5 infrastructure (`coveredThresholds`, `aboveCeilingMultiplier`, `ProfileCaptureSchema`, L2/mechanism-4 guards, retained-orphan manifest) stays landed for v0.16.6 re-raise.
@@ -239,9 +261,7 @@ every subsequent milestone.
 ### Notes
 
 - Test count: 2,225 → 2,238 (+8 reproducer + 5 audit gate).
-- No adversarial plan-review round; plan was approved after deep-plan +
-  scope-confirmation. Post-impl `/adversarial-review` scheduled on the
-  working-tree diff before tag/push per project workflow.
+- Plan approved after deep-plan + scope-confirmation.
 
 ## 0.16.0
 
@@ -251,8 +271,7 @@ heuristic. Does not validate any individual detector's numbers — that work is
 split across follow-up milestones (v0.16.1…v0.16.N), each raising one
 detector's `EvidenceTier` with a linked reproducer. This release ships the
 methodology itself: the tier enum, per-detector metadata mixin, reproducer
-harness pattern, and four HEAD bugfixes surfaced by the adversarial review of
-the methodology plan.
+harness pattern, and four HEAD bugfixes surfaced during methodology plan review.
 
 ### Changed
 
@@ -297,7 +316,7 @@ the methodology plan.
   above).
 - **`doc/spec_v0_16_validation_methodology.md`** — full spec including
   dependency diagram, per-step implementation plan, risk table, reproducer
-  harness pattern, Plan Review Pass, and post-impl Adversarial Review Scope.
+  harness pattern, and Plan Review Pass.
 
 ### Deferred (to follow-up milestones)
 
@@ -313,7 +332,7 @@ the methodology plan.
 
 ### Post-implementation Codex review (3 fixes)
 
-A Codex adversarial review of the working-tree v0.16.0 diff returned a
+A Codex review of the working-tree v0.16.0 diff returned a
 `needs-attention` verdict with three findings. All three landed in this
 release before tag/push:
 
@@ -351,7 +370,7 @@ release before tag/push:
 
 ### Post-Codex meta-review hardening (3 fixes)
 
-A second Codex pass — this time reviewing the adversarial-review findings
+A second Codex pass — reviewing the prior review's findings
 themselves (the meta-review) — returned another `needs-attention` verdict
 with three medium/low findings. All three landed in this release:
 
@@ -387,10 +406,10 @@ with three medium/low findings. All three landed in this release:
   pin the full name sequence *and* the full ordinal sequence so any
   rename or reorder of the stable-contract enum fails a test.
 
-### Post-meta advanced-adversarial-review hardening (2 fixes)
+### Post-meta triangulated review hardening (2 fixes)
 
-A final `/advanced-adversarial-review` pass (Claude + Codex triangulation,
-converged in 4 substantive rounds) agreed on two residual blockers over
+A final dual-reviewer pass (Claude + Codex triangulation, converged in
+4 substantive rounds) agreed on two residual blockers over
 the post-meta tree. Both landed in this release:
 
 - **`DetectorMetadataProvider` API contract clarified (F1, high).**
@@ -434,11 +453,11 @@ the post-meta tree. Both landed in this release:
   skipped on every later element, and sibling detectors continue to run
   in the same scan.
 
-### Post-advanced-adversarial-review round 2-3 hardening (3 fixes)
+### Post-triangulation round 2-3 hardening (3 fixes)
 
-A second pass of the advanced-adversarial-review loop (Codex ↔ Claude
-triangulation) converged in Round 3 on three additional blockers that
-the prior F1 + F3 pass left behind. All three landed in this release:
+A second triangulation pass (Codex ↔ Claude) converged in Round 3 on
+three additional blockers that the prior F1 + F3 pass left behind. All
+three landed in this release:
 
 - **Failed detectors still published partial issues/highlights into
   aggregation (Round 2-3, blocker 1, medium).** The F3 quarantine only
@@ -490,16 +509,14 @@ the prior F1 + F3 pass left behind. All three landed in this release:
   3 `detectedAt` regression tests; F3 stage-loop tests were rewritten in
   place rather than added, so their count is unchanged).
 - `fvm flutter analyze` → 0 issues. `fvm flutter test` → all pass.
-- One pre-impl adversarial plan review (10 C-findings + 10 F-fixes;
-  C1-C4 + F5 were prerequisite M0 code; C5-C10, F1-F4, F6-F10 shaped the
-  methodology contract in the spec) **plus** one Codex post-impl
-  review that surfaced the first three fixes **plus** one
-  `/adversarial-review` → Codex meta-review loop that surfaced the
-  three meta-review hardening fixes **plus** two
-  `/advanced-adversarial-review` (Claude ↔ Codex triangulation) passes
-  — the first converged on F1 + F3, the second converged in Round 3
-  on the aggregation-filter, `detectedAt`, and F3-test-tautology
-  blockers listed above.
+- One pre-impl plan review (10 C-findings + 10 F-fixes; C1-C4 + F5 were
+  prerequisite M0 code; C5-C10, F1-F4, F6-F10 shaped the methodology
+  contract in the spec) **plus** one Codex post-impl review that
+  surfaced the first three fixes **plus** one meta-review loop that
+  surfaced the three meta-review hardening fixes **plus** two
+  triangulated (Claude ↔ Codex) passes — the first converged on F1 +
+  F3, the second converged in Round 3 on the aggregation-filter,
+  `detectedAt`, and F3-test-tautology blockers listed above.
 - F2 (`PerformanceIssue.fromJson` enum-drift cascade) was held as a
   user decision between "ship Path B skip-on-drift now" and "ship
   Path C docstring + defer cascade fix to v0.17 MCP milestone"; the
@@ -621,7 +638,7 @@ above it.
   regression that pins the icon within card bounds at 300dp.
 
 Plan: `doc/spec_v0_15_5_freeze_above_on_expand.md`. Post-impl
-adversarial review produced 4 findings, all applied (SF1 renamed
+review produced 4 findings, all applied (SF1 renamed
 stale `_pinnedIndices` / "pin-on-expand" doc-comment references in
 `floating_issues_card.dart` and `issue_card.dart` to the new
 vocabulary; SF2/SF3/SF4 per above). Test count: 2,170 → 2,194.
@@ -722,7 +739,7 @@ Three-gate filter in `RepaintDetector`:
   deliberate — a `CircularProgressIndicator` *must* paint at refresh
   rate; rebuild rate on the same widget is more ambiguous.
 
-### Post-impl hardening (5 findings from `/adversarial-review`, C1–C5)
+### Post-impl hardening (5 findings, C1–C5)
 
 Root cause of all five: ownership was inferred from a chain-string keyed
 on `runtimeType` — a human-readable debug aid, not a robust ownership
@@ -754,7 +771,7 @@ signal. Fix moves detection to per-paint typed walks against the live
   `animationOwnedPaintCounts`, re-pins `elapsed: 100ms` to force Gate A
   logic. Immediately caught the `TweenAnimationBuilder<double>` vs
   `TweenAnimationBuilder` generic-stripping miss that hand-rolled tests
-  could never have caught (adversarial-investigation Tactic 9).
+  could never have caught (anti-tautology real-widget coverage).
 
 Additional discovery during C5: `RefreshProgressIndicator`'s painted
 `CustomPaint` leaf sits ~13 ancestors below its `AnimatedBuilder` owner
@@ -817,7 +834,7 @@ v0.15.2 collapses both into a single always-on **expandable inline panel**.
   inflations that decay as the tree stabilises. Data still visible in the
   panel but as data, not a warning.
 
-### Post-implementation hardening (12 findings from `/adversarial-review`)
+### Post-implementation hardening (12 findings)
 
 **Critical:** **C1** paused-snapshot drift — `onTap` now takes
 `overrideCounts`; footer passes `_paused ? _frozenCounts : null` so
@@ -986,7 +1003,7 @@ Per-tab `RouteSession` tracking for tab-shell apps (`IndexedStack`,
 `StatefulShellRoute.indexedStack`, `CupertinoTabScaffold`) that share one
 `ModalRoute` across tabs — each tab now gets a distinct session instead of
 being conflated. Inline `TabBar` / `TabBarView` / `PageView` swipes stay inside
-the outer session. One pre-impl adversarial plan review + one post-impl code
+the outer session. One pre-impl plan review + one post-impl code
 review; both folded into the code.
 
 ### Added
@@ -1020,7 +1037,7 @@ review; both folded into the code.
 - **Session markdown exporter renders tab suffix** from `tabVisitIndex`.
 - `packageVersion` `'0.14.0'` → `'0.14.1'`.
 
-### Fixed (post-adversarial review)
+### Fixed (post-review)
 
 - **C1 `tabVisitIndex` collision after FIFO eviction**: `_computeTabVisitIndex`
   now returns `max(tabVisitIndex) + 1` across matching history entries instead
@@ -1047,7 +1064,7 @@ review; both folded into the code.
 Route Scoping — per-route FPS, issue aggregation, health scores, and export.
 Data model + programmatic API retained; overlay UI (filter bar, summary row)
 removed after on-device review (historical issues not surfaceable as cards
-made the filter misleading). One adversarial review, 5 findings fixed.
+made the filter misleading). One review round, 5 findings fixed.
 
 ### Added
 
@@ -1086,7 +1103,7 @@ made the filter misleading). One adversarial review, 5 findings fixed.
 ## 0.13.1
 
 Dark/light mode toggle, design system tokens, `Icons.pets` brand icon, header
-optimization, false-positive fix, GlobalKey demo reliability. Five adversarial
+optimization, false-positive fix, GlobalKey demo reliability. Five
 review rounds (general ×2, theme perf + design system, icon migration,
 GlobalKey demo), all findings fixed.
 
@@ -1144,7 +1161,7 @@ GlobalKey demo), all findings fixed.
 
 Startup Performance Tracing — measure first-frame and time-to-interactive
 from `main()`, with per-phase breakdown and VM sub-phase enrichment. Three
-adversarial review rounds, full 23-detector accuracy audit, causal-graph
+review rounds, full 23-detector accuracy audit, causal-graph
 correctness fix, and ShaderJankDetector noise removal.
 
 ### Added
@@ -1204,7 +1221,7 @@ correctness fix, and ShaderJankDetector noise removal.
 
 ## 0.12.2
 
-Post-Codex adversarial review hardening — three robustness fixes on the v11 branch.
+Post-Codex review hardening — three robustness fixes on the v11 branch.
 
 ### Fixed
 
@@ -1348,7 +1365,7 @@ three-file custom-detector cookbook.
 
 Pillar 5 Part 2: Demo Quality Enhancements & Combined Demos — Before/After toggle,
 live metrics bars, reproduction instructions, and two multi-detector scenarios
-(E-Commerce + Chat). Three adversarial review rounds, 18 findings resolved (9
+(E-Commerce + Chat). Three review rounds, 18 findings resolved (9
 P5P2 + 4 polish + 5 demo↔detector alignment) plus a `KeepAliveDetector`
 false-positive fix uncovered during chat demo migration.
 
@@ -1385,7 +1402,7 @@ false-positive fix uncovered during chat demo migration.
 - **M14 Home screen wiring**: E-Commerce + Chat in "Combined" category. Demo
   count 23 → 25.
 
-### Adversarial Review (P5P2, 9 findings)
+### Review Round (P5P2, 9 findings)
 
 Focused on: (a) does each demo's "fix" actually eliminate the detector vs
 merely mask it; (b) do new StatefulWidget demos leak timers/controllers/
@@ -1491,7 +1508,7 @@ through `checkElement` against current thresholds.
 ## 0.11.0
 
 Pillar 5 Part 1: Demo Infrastructure & Missing Detector Demos — DemoScaffold +
-5 new demos + categorized home screen. Two adversarial review rounds.
+5 new demos + categorized home screen. Two review rounds.
 
 ### Added (M1–M7)
 
@@ -1593,7 +1610,7 @@ types, cross-references, enriched explanations, and quality guardrail tests.
   howToFix ≥ 30), metric thresholds in readingTheData (≥ 25/46), analogy
   patterns, code examples (≥ 10), DevTools refs (≥ 5), stableId completeness.
 
-### Adversarial Review
+### Review Round
 
 - **CRITICAL chip scroll-to bug**: related-chip tap used a single
   `_scrollTargetKey` pointing to the initial `scrollToStableId` only, not the
@@ -1948,7 +1965,7 @@ v8 roadmap complete (v8.1–v8.5).
 
 - **v8.1 — SetState subtree counting O(N²) → O(N)**: `SetStateScopeDetector` replaced recursive `_computeSubtreeSize` with stack-based post-order accumulation in `afterElement`. Abort-safety via `notifyWalkCompleted` gate — evidence and child snapshots commit only on success. Transactional `_pendingEvidence` staging prevents partial data from aborted scans.
 - **v8.2 — Scaffold scan-root fallback**: `_findVisiblePageContext` three-tier resolution — (1) Material `Scaffold` / `CupertinoPageScaffold`, (2) scaffold-free Navigator path (walks overlay for topmost route-owned onstage entry via `_ModalScope`, identity-hash route-stability gate, TickerMode onstage filter), (3) static app fallback (`NotificationListener`). `ShallowRebuildRiskDetector` + `SetStateScopeDetector` exempted from scaffold-free walk (depth/ratio semantics break). Nested-Navigator guard prevents cross-tab false positives. `refreshHighlights()` uses `_lastScanContext` to avoid route-stability side effects. Previously Cupertino and scaffold-free apps got zero structural detection.
-- **v8.3 — HTTP monitor openUrl leak**: `_MonitoringHttpClient.openUrl()` wraps `_inner.openUrl()` in try/catch. On transport failure (DNS/TLS/connection-refused), emits `RequestRecord(statusCode: -1)`, calls `onRequestEnded`, rethrows. Callback isolation — `onRequestEnded` and `onRecord` run in separate try/catches so a throwing callback can't suppress the other or mask the transport exception. Same isolation on `_MonitoringRequest.close()` and `_MonitoringResponse._emitRecord()`. Survived 4 Codex adversarial reviews.
+- **v8.3 — HTTP monitor openUrl leak**: `_MonitoringHttpClient.openUrl()` wraps `_inner.openUrl()` in try/catch. On transport failure (DNS/TLS/connection-refused), emits `RequestRecord(statusCode: -1)`, calls `onRequestEnded`, rethrows. Callback isolation — `onRequestEnded` and `onRecord` run in separate try/catches so a throwing callback can't suppress the other or mask the transport exception. Same isolation on `_MonitoringRequest.close()` and `_MonitoringResponse._emitRecord()`. Survived 4 Codex reviews.
 - **v8.4 — Platform channel false positives**: `TimelineParser` classifier replaced `cat.contains('embedder')` fallback with prefix match for real `debugProfilePlatformChannels` events (`Platform Channel send [channel]#[method]`). The embedder fallback incorrectly captured vsync/compositor/input events. Legacy exact names (`platformchannel`, `methodchannel`) preserved as defensive fallback.
 
 ### Changed
