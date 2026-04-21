@@ -26,18 +26,17 @@
 //   - If `profileCapturePaths` is declared, every path is inside the
 //     repo and parses cleanly via `ProfileCaptureSchema.parseFile`.
 //
-// v0.16.2 post-adversarial-review hardening extracted the five invariant
-// checkers into `_support/audit_invariants.dart` so the detector gate and
-// the component gate share a single implementation. Individual blockers
-// closed by the shared module:
+// v0.16.2 hardening extracted the five invariant checkers into
+// `_support/audit_invariants.dart` so the detector gate and the
+// component gate share a single implementation. Gaps closed by the
+// shared module:
 //
-//   - CLAUDE-R4-1 — line-AND-block comment stripping via
-//     `stripDartComments`.
-//   - CODEX-R6-1 — repo-containment check via `isPathInsideRepo` (rejects
-//     absolute paths, `../../` traversal, and symlinked files that
-//     canonicalise outside the repo root).
-//   - CLAUDE-R1-2 — citation-URL validation via `checkCitationUrl`
-//     (requires parseable http/https URI with authority).
+//   - Line-AND-block comment stripping via `stripDartComments`.
+//   - Repo-containment check via `isPathInsideRepo` (rejects absolute
+//     paths, `../../` traversal, and symlinked files that canonicalise
+//     outside the repo root).
+//   - Citation-URL validation via `checkCitationUrl` (requires
+//     parseable http/https URI with authority).
 
 import 'dart:io';
 
@@ -122,6 +121,19 @@ void main() {
                 meta.reproducerPath!.trim().isEmpty) {
               failures.add('$label: missing reproducerPath');
             }
+            failures.addAll(checkCoveredThresholds(
+              label: label,
+              tier: meta.tier,
+              coveredThresholds: meta.coveredThresholds,
+              coveredStableIds: meta.coveredStableIds,
+              bracketThreshold: meta.bracketThreshold,
+            ));
+            failures.addAll(checkSeverityScopedCeiling(
+              label: label,
+              tier: meta.tier,
+              coveredThresholds: meta.coveredThresholds,
+              aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+            ));
             failures.addAll(checkBracketCount(
               label: label,
               tier: meta.tier,
@@ -133,6 +145,7 @@ void main() {
               capturePaths: meta.profileCapturePaths,
               bracketThreshold: meta.bracketThreshold,
               bracketUnit: meta.bracketUnit,
+              aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
             ));
             break;
           case EvidenceTier.externallyCited:
@@ -142,6 +155,19 @@ void main() {
                 meta.reproducerPath!.trim().isEmpty) {
               failures.add('$label: missing reproducerPath');
             }
+            failures.addAll(checkCoveredThresholds(
+              label: label,
+              tier: meta.tier,
+              coveredThresholds: meta.coveredThresholds,
+              coveredStableIds: meta.coveredStableIds,
+              bracketThreshold: meta.bracketThreshold,
+            ));
+            failures.addAll(checkSeverityScopedCeiling(
+              label: label,
+              tier: meta.tier,
+              coveredThresholds: meta.coveredThresholds,
+              aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+            ));
             failures.addAll(checkBracketCount(
               label: label,
               tier: meta.tier,
@@ -153,6 +179,7 @@ void main() {
               capturePaths: meta.profileCapturePaths,
               bracketThreshold: meta.bracketThreshold,
               bracketUnit: meta.bracketUnit,
+              aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
             ));
             break;
         }
@@ -275,11 +302,18 @@ void main() {
               'the controller or delete the file. Missing: $missing');
     });
 
-    test('NetworkMonitorDetector ships at reproducerOnly (v0.16.1)', () {
-      // Anti-tautology anchor: pins the headline v0.16.1 upgrade. If
-      // someone demotes NetworkMonitorDetector back to unvalidated without
-      // updating this test, the contradiction surfaces here rather than
-      // as a silent regression in the reliability ledger.
+    test('NetworkMonitorDetector ships at reproducerOnly (v0.16.4)', () {
+      // Anti-tautology anchor. v0.16.4 staged an `externallyCited` raise
+      // on the `slow_request` WARNING tier (1000 ms NNG citation) and
+      // reverted in the same release: the `above` capture at 3117 ms
+      // ambiently brackets the 3000 ms critical tier, providing dual-use
+      // evidence the prose scope boundary cannot un-bracket. Re-raise is
+      // deferred to v0.16.5 once the `above` capture is re-recorded
+      // within [1000, 2000), severity-scoped `coveredThresholds` metadata
+      // is wired through the audit + ledger, and the `aboveCeilingMultiplier`
+      // schema guard (landed in v0.16.4) mechanically blocks drift.
+      // Tier history: v0.16.1 reproducerOnly → v0.16.4 reproducerOnly
+      // (externallyCited staged + reverted in same release).
       final BaseDetector? nm = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.networkMonitor)
           .cast<BaseDetector?>()
@@ -291,11 +325,19 @@ void main() {
       expect(meta.tier, EvidenceTier.reproducerOnly);
       expect(meta.reproducerPath,
           equals('test/validation/network_monitor_reproducer_test.dart'));
+      expect(meta.citationUrl, isNull,
+          reason:
+              'reproducerOnly does not populate citationUrl — reverted in v0.16.4 '
+              'pending re-raise.');
+      expect(meta.profileCapturePaths, isNull,
+          reason: 'reproducerOnly does not ship profileCapturePaths — reverted '
+              'in v0.16.4 pending re-raise.');
+      expect(meta.bracketThreshold, isNull);
+      expect(meta.bracketUnit, isNull);
       expect(meta.coveredStableIds, equals(const {'slow_request'}),
-          reason: 'The reproducer only covers slow_request boundaries. If '
-              'the coverage set was widened, a matching reproducer for the '
-              'new family must land with it, not a silent detector-scope '
-              'claim.');
+          reason: 'The reproducer still covers slow_request at both '
+              'warning and critical tiers (reproducerOnly does not '
+              'distinguish severities).');
     });
   });
 
@@ -500,6 +542,148 @@ void main() {
         expect(failures, isEmpty,
             reason: 'Tier $tier should not require bracket validation.');
       }
+    });
+  });
+
+  group('Orphan capture audit', () {
+    // Walks `test/validation/captures/` (excluding `_fixtures/`) and
+    // fails if any committed `.json` capture is neither referenced by a
+    // detector's `profileCapturePaths` nor listed in the retained-
+    // orphan allowlist below. Closes the v0.16.4 revert gap — two
+    // below/at capture files were kept on disk for v0.16.5 re-raise
+    // reuse after NetworkMonitorDetector demoted back to
+    // `reproducerOnly` with `profileCapturePaths = null`. Without this
+    // audit, a future drift that forgets those files (or deletes the
+    // wrong one) passes CI silently because the metadata cross-check
+    // only fires for captures referenced by live metadata.
+    //
+    // Retained-orphan allowlist: every entry must carry a rationale
+    // linking to the milestone where the orphan acquires a live claim.
+    // When a milestone consumes an entry, the entry moves from the
+    // allowlist into the matching detector/component's
+    // `profileCapturePaths` in the same PR — the list never grows
+    // unbounded.
+    // Typed manifest replaces the freeform `Map<String, String>`
+    // allowlist. Each entry pins device / OS / Flutter / unit /
+    // observed band / consumeBy release / owning claim so the audit
+    // can parse every file on disk and cross-check it against the
+    // manifest, and so expired entries (consumeBy release reached)
+    // fail automatically rather than sitting dormant indefinitely.
+    const retainedOrphans = <String, RetainedOrphanEntry>{
+      'test/validation/captures/network_monitor/slow_request_below.json':
+          RetainedOrphanEntry(
+        role: 'below',
+        device: 'iPhone 12',
+        deviceOsVersion: 'iOS 17.5',
+        flutterMajorMinor: '3.41',
+        unit: 'ms',
+        observedMin: 750,
+        observedMax: 950,
+        consumeBy: '0.16.5',
+        owningClaim: 'NetworkMonitorDetector.slow_request.warning',
+        rationale: 'v0.16.5 re-raise reuse — below bracket (812 ms, '
+            'captured iPhone 12 iOS 17.5).',
+      ),
+      'test/validation/captures/network_monitor/slow_request_at.json':
+          RetainedOrphanEntry(
+        role: 'at',
+        device: 'iPhone 12',
+        deviceOsVersion: 'iOS 17.5',
+        flutterMajorMinor: '3.41',
+        unit: 'ms',
+        observedMin: 1000,
+        observedMax: 1100,
+        consumeBy: '0.16.5',
+        owningClaim: 'NetworkMonitorDetector.slow_request.warning',
+        rationale: 'v0.16.5 re-raise reuse — at bracket (1035 ms, '
+            'captured iPhone 12 iOS 17.5).',
+      ),
+    };
+
+    test('no unreferenced captures on disk', () {
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
+      final controller = SleuthController();
+      try {
+        controller.initializeDetectorsForTest();
+        final referencedPaths = <String>{};
+        for (final d in controller.detectorsForAudit) {
+          if (d is! DetectorMetadataProvider) continue;
+          final meta = (d as DetectorMetadataProvider).validationMetadata;
+          final paths = meta.profileCapturePaths;
+          if (paths == null) continue;
+          for (final pth in paths) {
+            if (pth.trim().isEmpty) continue;
+            referencedPaths.add(pth);
+          }
+        }
+        final failures = checkCaptureOrphans(
+          capturesRoot: Directory('test/validation/captures'),
+          referencedPaths: referencedPaths,
+          allowlist: retainedOrphans.keys.toSet(),
+        );
+        expect(failures, isEmpty,
+            reason: 'Orphan captures found on disk. If the capture is '
+                'deliberately retained for a future milestone, add it '
+                'to `retainedOrphans` above with a rationale linking '
+                'to the milestone. Otherwise delete the file or wire '
+                'it into a detector\'s profileCapturePaths. Orphans: '
+                '$failures');
+      } finally {
+        controller.dispose();
+      }
+    });
+
+    test('retained-orphan allowlist entries actually exist on disk', () {
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
+      // Anti-rot: an allowlist that references deleted files silently
+      // drifts into stale-promise territory. Assert every allowlist
+      // entry resolves to a real file so the list cannot outlive the
+      // artifacts it is meant to protect.
+      final missing = <String>[];
+      for (final relative in retainedOrphans.keys) {
+        if (!File(relative).existsSync()) {
+          missing.add(relative);
+        }
+      }
+      expect(missing, isEmpty,
+          reason: 'Retained-orphan allowlist entries reference missing '
+              'files. A deleted file no longer needs an allowlist '
+              'entry — either restore the file (if it was deleted in '
+              'error) or remove the allowlist entry. Missing: $missing');
+    });
+
+    test('retained-orphan manifest parses + cross-checks + lifecycle', () {
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
+      // Parse `version: X.Y.Z` from pubspec.yaml — the audit
+      // compares it against each entry's `consumeBy` and fails
+      // entries whose consume release has been reached or passed.
+      final pubspecText = File('pubspec.yaml').readAsStringSync();
+      final versionMatch = RegExp(r'^version:\s*(\S+)\s*$', multiLine: true)
+          .firstMatch(pubspecText);
+      expect(versionMatch, isNotNull,
+          reason: 'pubspec.yaml is missing a top-level `version:` line');
+      final currentVersion = versionMatch!.group(1)!;
+      final failures = checkRetainedOrphanManifest(
+        manifest: retainedOrphans,
+        currentReleaseVersion: currentVersion,
+      );
+      expect(failures, isEmpty,
+          reason: 'Retained-orphan manifest audit failed. Either (a) '
+              'fix the capture on disk so it matches the manifest '
+              'declaration, (b) update the manifest entry to match '
+              'the true recording, (c) consume the capture in its '
+              'owning claim, or (d) remove the file + manifest entry '
+              'together if the milestone was skipped. Failures: '
+              '$failures');
     });
   });
 }

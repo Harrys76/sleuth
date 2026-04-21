@@ -29,13 +29,46 @@ Two single captures at "fast" and "slow" prove nothing about the
 threshold itself — it's the *spanning* that makes the bracketing rule a
 falsifiable claim.
 
-## Recording a capture (iPhone 13 mini, pinned)
+## Scenario markers (AB-1 span pin)
+
+`ProfileCaptureSchema`'s AB-1 cross-check binds the `observed` magnitude
+claim to the instant-event pair:
+
+- `sleuth.scenario.begin` — instant marker (`ph:"i"` from a Chrome-
+  native DevTools export, or `ph:"n"` from a Perfetto `traceconv`
+  export of `Timeline.instantSync`)
+- `sleuth.scenario.end`   — same phase rules
+
+Both forms are accepted by `ProfileCaptureSchema._scenarioInstantPhases`.
+Which form you land with depends on the DevTools export path: the
+Chrome-native JSON exporter emits `ph:"i"`; Perfetto pipelines
+(`.pftrace` → `traceconv` → JSON) emit `ph:"n"`. Either is fine.
+
+Without these markers, a capture containing a 50 s cold-start prelude
+plus a 3 s request would appear to span 50 s, failing the 100×
+trace-vs-observed ratio invariant. The markers delimit the scenario
+window so `observed` refers to the span *you claim it refers to*.
+
+Emit them from Dart with `developer.Timeline.instantSync('sleuth.scenario.begin')`
+/ `developer.Timeline.instantSync('sleuth.scenario.end')`. The
+`NetworkMonitor Capture Helper` screen under `example/lib/demos/` is
+a ready-made subject for the planned v0.16.5 `externallyCited` raise on
+the `slow_request` WARNING tier (1000 ms) — three preset delay knobs
+(800 / 1020 / 1500 ms) already emit the markers and hit a loopback
+server for deterministic bracket magnitudes. The `above` preset is
+deliberately inside `[1000, 2000)` so the artifact cannot ambiently
+bracket the 3000 ms critical tier; a critical-tier protocol is reserved
+for a future raise.
+
+## Recording a capture (pinned device)
 
 1. `fvm flutter --version` must print the pinned stable release
-   (`ProfileCaptureSchema.approvedFlutterMajorMinor`, currently `3.32.x`).
+   (`ProfileCaptureSchema.approvedFlutterMajorMinor`, currently `3.41.x`).
    If it doesn't, switch with `fvm use <version>` before recording.
-2. Plug the iPhone 13 mini in. Confirm iOS version matches
-   `ProfileCaptureSchema.approvedDevicePairs['iPhone 13 mini']`.
+2. Plug in a device from `ProfileCaptureSchema.approvedDevicePairs`
+   (iPhone 13 mini / iPhone 12 / Pixel 7 as of v0.16.4). Confirm the
+   OS version matches the approved set for that device — pair-matched
+   policy rejects mismatches.
 3. From the `example/` directory, run:
    ```
    cd example
@@ -58,7 +91,7 @@ falsifiable claim.
   "sleuthMetadata": {
     "device":          "iPhone 13 mini",                    // required — pinned
     "deviceOsVersion": "iOS 17.6.1",                        // required — pinned
-    "flutterVersion":  "3.32.5",                            // required — pinned major.minor
+    "flutterVersion":  "3.41.4",                            // required — pinned major.minor
     "captureCommand":  "fvm flutter run --profile",         // required — reproducer
     "scenario":        "NetworkMonitor slow_request at 3s", // required — human label
     "expectedMagnitude": {
@@ -77,8 +110,10 @@ Required keys enforced by `ProfileCaptureSchema`:
 - `device` must be in `ProfileCaptureSchema.approvedDevicePairs`.
 - `deviceOsVersion` must be in the approved OS set for the chosen
   device (pair-matched, not just membership).
-- `flutterVersion` must match `^3\.32\.\d+$` until the next annual
-  rotation.
+- `flutterVersion` must match `^3\.41\.\d+(?:[-+][0-9A-Za-z.\-]+)?$`
+  (mirrors `ProfileCaptureSchema._flutterVersionPattern`) until the
+  next annual rotation. Pre-release (`-1.0.pre`) and build-metadata
+  (`+channel-stable`) suffixes are accepted; major.minor is strict.
 - `expectedMagnitude.{min, observed, max}` must be numbers satisfying
   `min <= observed <= max`.
 - `captureDate` must parse as ISO-8601.

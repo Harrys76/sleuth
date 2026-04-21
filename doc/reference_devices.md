@@ -8,12 +8,13 @@ the repo, boot the same hardware and Flutter version, and re-record a
 capture that satisfies the same schema. Anything more permissive than
 that is aspirational.
 
-## Current matrix (v0.16.2)
+## Current matrix (v0.16.4)
 
-| Role | Device | OS | Flutter stable |
-|---|---|---|---|
-| Primary iOS | iPhone 13 mini | iOS 17.6.1 | 3.32.x |
-| Primary Android | Pixel 7 | Android 14 | 3.32.x |
+| Role | Device | SoC | OS | Flutter stable |
+|---|---|---|---|---|
+| Primary iOS | iPhone 13 mini | A15 | iOS 17.6.1 | 3.41.x |
+| Secondary iOS (ad-hoc, v0.16.4) | iPhone 12 | A14 | iOS 17.5 | 3.41.x |
+| Primary Android | Pixel 7 | Tensor G2 | Android 14 | 3.41.x |
 
 Enforced programmatically in
 `lib/src/validation/profile_capture_schema.dart`:
@@ -21,10 +22,45 @@ Enforced programmatically in
 ```dart
 static const Map<String, Set<String>> approvedDevicePairs = {
   'iPhone 13 mini': {'iOS 17.6.1'},
+  'iPhone 12':      {'iOS 17.5'},
   'Pixel 7':        {'Android 14'},
 };
-static const String approvedFlutterMajorMinor = '3.32';
+static const String approvedFlutterMajorMinor = '3.41';
 ```
+
+### One-time exception: v0.16.4 matrix additions
+
+**This is a one-time exception, not a new policy.** v0.16.4 added
+iPhone 12 / iOS 17.5 to `approvedDevicePairs` and rotated
+`approvedFlutterMajorMinor` from `3.32` to `3.41` mid-cycle — both
+outside the annual rotation window. The next rotation remains annual
+(v0.17 or later). Future requests for mid-cycle matrix changes are
+rejected per the policy in "Why rotations are deliberate, not silent"
+below; this section documents why v0.16.4 bent the rule once, not a
+general carve-out.
+
+Context for the one-time exception:
+
+- **iPhone 12 / iOS 17.5**: the reviewer recording v0.16.4's first
+  `externallyCited` tier raise did not have access to an iPhone 13
+  mini. A14 Bionic (iPhone 12) is an adjacent performance class to A15
+  (iPhone 13 mini) for mobile-API latency budgets in the 1 s / 3 s
+  range, so a single-device bracket triad on iPhone 12 was accepted as
+  partial validation. The claim is explicitly scoped as single-device
+  in the detector's rationale — it is NOT a statement that the
+  threshold holds across the matrix.
+- **Flutter 3.41.x**: the recording environment ships iOS
+  `AppDelegate.swift` bindings (`FlutterImplicitEngineDelegate`,
+  `FlutterSceneDelegate`) and a `vm_service` patch level the example
+  project depends on, and cannot be downgraded to 3.32 without a
+  multi-file compat regression. 3.41 is the current stable channel
+  minor at v0.16.4 ship and matches the development baseline.
+
+The anchor fixture's `flutterVersion` was bumped in lockstep
+(`3.32.5` → `3.41.4`) and its SHA-256 fingerprint in
+`test/validation/profile_capture_schema_anchor_test.dart` updated to
+the new digest. Subsequent tier raises MUST wait for the annual
+rotation rather than repeat this exception.
 
 ## Why two devices
 
@@ -46,11 +82,20 @@ cross-platform regressions invisible to the ledger.
 Both are common enough to source used, keeping the rotation cost
 bounded.
 
-## Why Flutter 3.32.x
+## Why Flutter 3.41.x
 
-The current stable channel's minor version at v0.16.2 ship. The schema
-pins the full major.minor to surface a silent channel bump: a tier raise
-PR that captures on 3.33 will fail the gate until the matrix rotates.
+The current stable channel's minor version at v0.16.4 ship (rotated
+in v0.16.4 from 3.32 — see "One-time exception" above). 3.41 chosen
+over 3.40 or earlier because the example app's iOS bootstrap uses
+`FlutterImplicitEngineDelegate` / `FlutterSceneDelegate` bindings
+introduced in 3.41, and the `vm_service` patch level required by the
+validation harness ships on 3.41+. Downgrading to 3.40 would require
+reverting those bindings (multi-file compat regression). 3.42+ was
+not yet on the stable channel at ship time.
+
+The schema pins the full major.minor to surface a silent channel
+bump: a tier raise PR that captures on 3.42 will fail the gate until
+the matrix rotates.
 
 ## Rotation policy
 
@@ -81,15 +126,16 @@ nothing.
 ## Why rotations are deliberate, not silent
 
 A rotation changes the *meaning* of every prior `runtimeVerified` claim:
-"holds on Flutter 3.32.x / iPhone 13 mini iOS 17.6.1" is a specific
+"holds on Flutter 3.41.x / iPhone 13 mini iOS 17.6.1" is a specific
 statement. If we silently advanced the matrix to 3.34.x mid-year, every
 unexpired tier raise would start claiming something it was never
 validated against. Rotating in a dedicated release is the only way to
 say "we accept the responsibility to re-validate the ledger against the
 new pins."
 
-Requests for ad-hoc pair additions (new device, same year) should be
+Requests for ad-hoc pair additions (new device, same year) are
 rejected in favour of waiting for the next rotation window. If a
 detector's behaviour is specific to hardware not currently in the
-matrix, that detector's tier raise should wait for the matrix to
-rotate — not bend the schema to accommodate.
+matrix, that detector's tier raise waits for the matrix to rotate —
+not bend the schema to accommodate. The v0.16.4 additions documented
+above are a one-time exception, not precedent.

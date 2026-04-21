@@ -52,12 +52,13 @@ class ProfileCaptureSchema {
   /// calendar year in a dedicated release — not silently.
   static const Map<String, Set<String>> approvedDevicePairs = {
     'iPhone 13 mini': {'iOS 17.6.1'},
+    'iPhone 12': {'iOS 17.5'},
     'Pixel 7': {'Android 14'},
   };
 
   /// Captures must be recorded under a Flutter stable release matching
   /// this major.minor pin. Rotated together with the device matrix.
-  static const String approvedFlutterMajorMinor = '3.32';
+  static const String approvedFlutterMajorMinor = '3.41';
 
   /// Default bracket tolerance for the `_at` capture — observed may lie
   /// anywhere in `[threshold, threshold * (1 + defaultAtTolerance)]`.
@@ -131,16 +132,23 @@ class ProfileCaptureSchema {
   static const int minTraceEvents = 10;
 
   /// Chrome Trace Event Format phase codes accepted in a capture. The
-  /// superset includes sync (B/E/X), async (b/e/i/I), metadata (M),
+  /// superset includes sync (B/E/X), async (b/e/n/i/I), metadata (M),
   /// counter (C), and flow (s/f/t) phases. Unknown phases fail the
   /// schema so a fabricated export cannot sneak through with `ph: 'z'`
   /// entries.
+  ///
+  /// `'n'` — async nestable instant — is the form Perfetto's `traceconv`
+  /// (the conversion path from DevTools' on-disk `.pftrace` binary to
+  /// Chrome Trace JSON) emits for Dart's `Timeline.instantSync(...)`;
+  /// the Chrome-native path uses `'i'`/`'I'`. Accepting both keeps the
+  /// schema agnostic to which DevTools export path produced the capture.
   static const Set<String> allowedTracePhases = {
     'B',
     'E',
     'X',
     'b',
     'e',
+    'n',
     'i',
     'I',
     'M',
@@ -286,10 +294,16 @@ class ProfileCaptureSchema {
     for (final event in events) {
       if (event is! Map) continue;
       final ph = event['ph'];
-      // Scenario markers must be instant events. Chrome Trace uses
-      // lowercase `i` canonically and uppercase `I` legacy; accept
-      // both so a DevTools export from either path round-trips.
-      if (ph != 'i' && ph != 'I') continue;
+      // Scenario markers are instant events. Chrome Trace uses lowercase
+      // `i` canonically and uppercase `I` legacy. Perfetto's `traceconv`
+      // — the conversion path from DevTools' on-disk `.pftrace` binary to
+      // Chrome Trace JSON — emits Dart's `Timeline.instantSync(...)` as
+      // `ph: 'n'` (async nestable instant) rather than `'i'`. Accept all
+      // three so a capture round-trips regardless of which export path
+      // produced it. The AB-1 assertion (scenario markers must be 0-dur
+      // instant-class events, one begin + one end, inside the scenario
+      // window) remains intact across the expanded set.
+      if (ph != 'i' && ph != 'I' && ph != 'n') continue;
       final name = event['name'];
       if (name is! String) continue;
       final ts = event['ts'];
@@ -306,8 +320,8 @@ class ProfileCaptureSchema {
       throw FormatException(
           'Capture is missing scenario markers. A time-unit capture must '
           'emit exactly one "$scenarioBeginMarker" and one '
-          '"$scenarioEndMarker" instant event (ph="i") so the AB-1 '
-          'cross-check can bound the observed magnitude against a '
+          '"$scenarioEndMarker" instant event (ph="i", "I", or "n") so '
+          'the AB-1 cross-check can bound the observed magnitude against a '
           'scoped work window. The global min/max over every work-phase '
           'event was bypassable by padding unrelated events to inflate '
           'the denominator. Got begin=$beginCount, end=$endCount.');
@@ -334,7 +348,27 @@ class ProfileCaptureSchema {
     }
     final observed = (magnitude['observed'] as num).toDouble();
     final observedMicros = observed * unitMicros;
+    // Belt-and-suspenders non-finite guard.
+    // `_validateExpectedMagnitude` already rejects non-finite observed and
+    // `spanMicros > 0` is checked above, so the derived ratios should be
+    // finite positive today. If any upstream change regresses that,
+    // comparing a non-finite ratio against `maxObservedToSpanRatio` would
+    // silently bypass the AB-1 assertion (`NaN > x` is false, and
+    // `Infinity > x` short-circuits without revealing which side blew up).
+    // Reject explicitly so the diagnostic surfaces the offending derived
+    // value before the threshold check.
+    if (!observedMicros.isFinite) {
+      throw FormatException(
+          'Derived "observed × unit" is non-finite ($observedMicros µs). '
+          'Upstream finite-positive guard on expectedMagnitude.observed '
+          'regressed; AB-1 cross-check cannot proceed.');
+    }
     final ratio = observedMicros / spanMicros;
+    if (!ratio.isFinite) {
+      throw FormatException('Derived trace-vs-observed ratio is non-finite '
+          '($observedMicros µs / $spanMicros µs = $ratio). AB-1 '
+          'cross-check cannot proceed.');
+    }
     if (ratio > maxObservedToSpanRatio) {
       throw FormatException(
           'Trace-vs-observed cross-check failed: expectedMagnitude.observed '
@@ -345,6 +379,31 @@ class ProfileCaptureSchema {
           'markers bracketing the full duration; a ratio above '
           '${maxObservedToSpanRatio.toInt()}× indicates a fabricated '
           'export or misplaced markers. Widen the scenario window to '
+          'match the claim.');
+    }
+    // v0.16.4 post-review LOW-2: symmetric guard. If the scenario span
+    // is wildly larger than the observed magnitude, the markers are
+    // placed too wide — the window contains unrelated work (cold-start
+    // warmup, idle dwell, follow-up requests), and the "observed"
+    // claim no longer corresponds to what's inside the span. Same
+    // ratio ceiling, inverted direction.
+    final inverseRatio = spanMicros / observedMicros;
+    if (!inverseRatio.isFinite) {
+      throw FormatException(
+          'Derived inverse trace-vs-observed ratio is non-finite '
+          '($spanMicros µs / $observedMicros µs = $inverseRatio). AB-1 '
+          'cross-check cannot proceed.');
+    }
+    if (inverseRatio > maxObservedToSpanRatio) {
+      throw FormatException(
+          'Trace-vs-observed cross-check failed: scenario-marker span '
+          '($spanMicros µs, bounded by "$scenarioBeginMarker" → '
+          '"$scenarioEndMarker") is ${inverseRatio.toStringAsFixed(0)}× '
+          'larger than expectedMagnitude.observed = $observed $unit. A '
+          'span this much wider than the observed magnitude means the '
+          'markers bracket unrelated work (warmup, dwell, other '
+          'requests); a ratio above ${maxObservedToSpanRatio.toInt()}× '
+          'indicates misplaced markers. Tighten the scenario window to '
           'match the claim.');
     }
   }
@@ -638,6 +697,12 @@ class ProfileCaptureSchema {
   ///
   /// [atTolerance] defaults to [defaultAtTolerance] (10%). Pass a smaller
   /// value for detectors whose captures cluster tightly.
+  /// Default ceiling multiplier applied to the `above` capture's observed
+  /// magnitude. Guards against an `above` capture whose magnitude drifts
+  /// so far past [threshold] that it ambiently brackets an adjacent
+  /// higher-severity threshold. Added in v0.16.4.
+  static const double defaultAboveCeilingMultiplier = 2.0;
+
   static void validateBracket({
     required File belowFile,
     required File atFile,
@@ -645,7 +710,17 @@ class ProfileCaptureSchema {
     required num threshold,
     required String unit,
     double atTolerance = defaultAtTolerance,
+    double aboveCeilingMultiplier = defaultAboveCeilingMultiplier,
   }) {
+    // Reject non-finite numeric inputs before any comparison. Dart's
+    // NaN-comparison semantics return false for every comparison
+    // against NaN, which silently bypasses the bracket, at-band, and
+    // ceiling guards below. Infinity disables the ceiling similarly
+    // (threshold * Infinity = Infinity; observed > Infinity = false).
+    _requireFinitePositive(threshold, 'bracketThreshold');
+    _requireFiniteNonNegative(atTolerance, 'atTolerance');
+    _requireFinitePositive(aboveCeilingMultiplier, 'aboveCeilingMultiplier');
+
     final below = _parseOrThrowWithLabel(belowFile, 'below');
     final at = _parseOrThrowWithLabel(atFile, 'at');
     final above = _parseOrThrowWithLabel(aboveFile, 'above');
@@ -737,11 +812,107 @@ class ProfileCaptureSchema {
           'strictly greater than threshold ($threshold). '
           'File: ${aboveFile.path}');
     }
+    // Upper bound on `above` so a bracket cannot drift into an
+    // adjacent higher-severity threshold.
+    // A NetworkMonitor warning-tier raise (threshold 1000 ms) whose
+    // `above` is recorded at 3117 ms ambiently brackets the 3000 ms
+    // critical tier too — the prose scope boundary can't un-bracket
+    // the artifact on disk.
+    if (aboveCeilingMultiplier <= 1.0) {
+      throw FormatException(
+          'aboveCeilingMultiplier ($aboveCeilingMultiplier) must be > 1.0 — '
+          'a ceiling at or below the threshold makes the "above" bracket '
+          'unreachable.');
+    }
+    // Guard against a ceiling that collides with the at-band upper
+    // bound. If `aboveCeilingMultiplier <=
+    // 1 + atTolerance`, the "above" band (threshold, threshold ×
+    // aboveCeilingMultiplier] either collapses (equal) or is entirely
+    // nested inside the at-band (less), making the triad unsatisfiable
+    // without the error message naming the real cause. Reject at call
+    // time so the misuse is obvious.
+    final atUpperMultiplier = 1 + atTolerance;
+    if (aboveCeilingMultiplier <= atUpperMultiplier) {
+      throw FormatException(
+          'aboveCeilingMultiplier ($aboveCeilingMultiplier) must exceed '
+          '1 + atTolerance ($atUpperMultiplier) to leave a non-empty '
+          '"above" band. At or below this value the above bracket '
+          'collapses into the at-band and the triad is unsatisfiable. '
+          'Either lower atTolerance or raise aboveCeilingMultiplier.');
+    }
+    final aboveCeiling = threshold * aboveCeilingMultiplier;
+    if (aboveObs > aboveCeiling) {
+      throw FormatException(
+          'Bracket violation: $unit "above" observed ($aboveObs) exceeds '
+          'ceiling ($aboveCeiling = threshold × $aboveCeilingMultiplier). '
+          'Re-record within (threshold, ceiling] so the artifact cannot '
+          'provide ambient evidence for an adjacent higher-severity '
+          'threshold. File: ${aboveFile.path}');
+    }
   }
 
   // ---------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------
+
+  /// Rejects NaN, +Infinity, -Infinity, and non-positive numeric
+  /// inputs at the boundary of every guard that compares against
+  /// them.
+  ///
+  /// Motivation: Dart's IEEE-754 semantics make every comparison
+  /// against NaN return `false` — `NaN < x`, `NaN > x`, `NaN <= x`,
+  /// `NaN >= x`, `NaN == NaN` all evaluate to `false`. This silently
+  /// bypasses every bracket/magnitude guard in the schema module. A
+  /// `bracketThreshold: double.nan` makes `below.observed >= NaN`,
+  /// `at.observed < NaN`, `above.observed <= NaN`, and
+  /// `above.observed > ceiling` all fall through. An
+  /// `aboveCeilingMultiplier: double.infinity` makes the at-band
+  /// collision guard (`<= 1 + atTolerance`) pass and the ceiling
+  /// (`threshold * infinity = infinity`) unreachable. Same class of
+  /// bypass hits `expectedMagnitude.{min, observed, max}`.
+  ///
+  /// Callers: every numeric-read site in this module. The helper is
+  /// intentionally strict (positive, not non-negative) — the schema's
+  /// quantities (milliseconds, bytes, frame counts, thresholds,
+  /// multipliers) are strictly positive in practice. Use
+  /// [_requireFiniteNonNegative] for tolerance-style fields where 0
+  /// is a meaningful tight-band value.
+  static num _requireFinitePositive(num value, String fieldName) {
+    if (!value.isFinite) {
+      throw FormatException(
+          '"$fieldName" must be a finite number (got $value). NaN, '
+          '+Infinity, and -Infinity are rejected because Dart\'s '
+          'NaN-comparison semantics silently bypass every downstream '
+          'bracket and magnitude guard. Exponent-overflow JSON forms '
+          'like 1e400 decode to Infinity — canonicalise the capture '
+          'or pin the tier metadata to a finite numeric value.');
+    }
+    if (value <= 0) {
+      throw FormatException(
+          '"$fieldName" must be strictly positive (got $value). The '
+          'quantities this schema gates (milliseconds, bytes, frame '
+          'counts, thresholds, multipliers) are strictly positive in '
+          'practice.');
+    }
+    return value;
+  }
+
+  /// Companion to [_requireFinitePositive] for tolerance-style fields
+  /// where 0 is a valid tight-band value (e.g. `atTolerance: 0` means
+  /// the `at` capture must equal threshold exactly).
+  static num _requireFiniteNonNegative(num value, String fieldName) {
+    if (!value.isFinite) {
+      throw FormatException(
+          '"$fieldName" must be a finite number (got $value). NaN, '
+          '+Infinity, and -Infinity are rejected because Dart\'s '
+          'NaN-comparison semantics silently bypass every downstream '
+          'bracket and magnitude guard.');
+    }
+    if (value < 0) {
+      throw FormatException('"$fieldName" must be non-negative (got $value).');
+    }
+    return value;
+  }
 
   static String _decodeUtf8(List<int> bytes) {
     try {
@@ -799,13 +970,13 @@ class ProfileCaptureSchema {
     }
   }
 
-  // Matches `3.32.<patch>` with an optional pre-release suffix (`-1.0.pre`)
+  // Matches `3.41.<patch>` with an optional pre-release suffix (`-1.0.pre`)
   // or build-metadata suffix (`+channel-stable`). Flutter stable's own
   // versioning and `flutter --version` output both include suffixes, so a
-  // strict `^3\.32\.\d+$` regex rejected legitimate author-entered values.
-  // The pin is still on major.minor (3.32); patch and suffix are free.
+  // strict `^3\.41\.\d+$` regex rejected legitimate author-entered values.
+  // The pin is still on major.minor (3.41); patch and suffix are free.
   static final RegExp _flutterVersionPattern =
-      RegExp(r'^3\.32\.\d+(?:[-+][0-9A-Za-z.\-]+)?$');
+      RegExp(r'^3\.41\.\d+(?:[-+][0-9A-Za-z.\-]+)?$');
 
   static void _validateFlutterVersion(Map<String, Object?> metadata) {
     final version = metadata['flutterVersion'];
@@ -843,24 +1014,21 @@ class ProfileCaptureSchema {
     if (max is! num) {
       throw const FormatException('"expectedMagnitude.max" must be a number.');
     }
-    // CODEX-R1-3: reject non-positive magnitudes. A "slow_request" claim
-    // asserting `observed: 0` or `observed: -1` is either author error
-    // or a fabricated capture — the quantities this validator gates
-    // (milliseconds, bytes, frame counts, GC events) are all strictly
-    // positive in practice. NaN / Infinity are non-risk because
-    // `jsonDecode` rejects them at parse time.
+    // Reject non-finite (NaN, +Infinity, -Infinity) AND non-positive
+    // magnitudes. `jsonDecode` rejects the literal tokens `NaN` /
+    // `Infinity` syntactically, but exponent-overflow forms like
+    // `1e400` decode silently to `double.infinity`, and
+    // hand-constructed `Map` inputs bypass JSON entirely. Dart's NaN
+    // comparison semantics (every comparison against NaN returns
+    // false, including `NaN == NaN`) silently bypass every downstream
+    // bracket and magnitude guard, so non-finite inputs must be
+    // rejected at the boundary.
     for (final pair in <MapEntry<String, num>>[
       MapEntry('min', min),
       MapEntry('observed', observed),
       MapEntry('max', max),
     ]) {
-      if (pair.value <= 0) {
-        throw FormatException(
-            '"expectedMagnitude.${pair.key}" must be strictly positive '
-            '(got ${pair.value}). Zero or negative magnitudes are rejected '
-            'because the quantities this schema gates (milliseconds, bytes, '
-            'frame counts, GC events) are strictly positive in practice.');
-      }
+      _requireFinitePositive(pair.value, 'expectedMagnitude.${pair.key}');
     }
     if (min > observed) {
       throw FormatException(

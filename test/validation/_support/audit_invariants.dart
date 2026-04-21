@@ -7,17 +7,17 @@
 // reproducer-file shape (exists + contains tests + references the thing
 // under claim), capture-file shape (exists + parses through the schema),
 // and bracket-count ( runtimeVerified / externallyCited must carry three
-// captures). The duplication hid three bugs surfaced by the
-// /advanced-adversarial-review pass:
+// captures). Consolidating them closed three gaps:
 //
-//   - CLAUDE-R4-1 — audit stripped `//` line comments but not `/* ... */`
-//     block comments; a reproducer whose `test(...)` calls were all inside
-//     a block comment passed the gate.
-//   - CODEX-R6-1 — audit called `File(path)` with no canonicalization, so
-//     absolute paths, `../../` traversal, or symlink escapes silently
-//     passed when the target file happened to exist.
-//   - CODEX-R3-2 — component audit never enforced that the reproducer
-//     references the component by name (AB3 parity with the detector side).
+//   - Block-comment stripping: stripping `//` line comments but not
+//     `/* ... */` block comments let a reproducer whose `test(...)`
+//     calls were all inside a block comment pass the gate.
+//   - Path canonicalization: calling `File(path)` with no canonicalization
+//     silently passed absolute paths, `../../` traversal, or symlink
+//     escapes when the target file happened to exist.
+//   - Component-side name reference: the component audit never enforced
+//     that the reproducer references the component by name (AB3 parity
+//     with the detector side).
 //
 // Centralizing the helpers lets a single fix close all three gaps on both
 // audit surfaces, and gives future audits (ledger-sync, public-barrel
@@ -652,15 +652,11 @@ List<String> checkCapturePaths({
   return failures;
 }
 
-/// Invariant 3b (shared, F2 contract): `runtimeVerified` and
-/// `externallyCited` must carry exactly three captures (below / at /
-/// above threshold). Any other length is either a deferred bracket or a
-/// silently-widened claim.
-///
-/// The detector audit added this post-v0.16.2-review; the component
-/// audit did not. Sharing this helper closes CODEX-R2-1 (component
-/// audit enforces no bracket count/semantics — share
-/// `_expectBracketCaptures`).
+/// Invariant 3b (shared): `runtimeVerified` and `externallyCited`
+/// must carry exactly three captures (below / at / above threshold).
+/// Any other length is either a deferred bracket or a
+/// silently-widened claim. Sharing this helper between the detector
+/// and component audits keeps the bracket contract in one place.
 List<String> checkBracketCount({
   required String label,
   required EvidenceTier tier,
@@ -686,6 +682,181 @@ List<String> checkBracketCount({
   return const [];
 }
 
+/// `runtimeVerified` and `externallyCited` tiers must declare
+/// `coveredThresholds` so a detector with multiple severity boundaries
+/// (e.g. slow/warning vs critical on the same stable ID) cannot
+/// silently imply evidence for every tier when the captured data
+/// covers only one. A detector-level tier claim without severity scope
+/// recreates the v0.16.4 revert's ambient-bracketing symptom: a single
+/// `above` capture at 3117 ms brackets both the 1000 ms warning AND
+/// the 3000 ms critical threshold, and the prose scope boundary can't
+/// un-bracket the artifact on disk.
+///
+/// Structural contract:
+///   * Each entry is either `<stableId>` (single-severity family) or
+///     `<stableId>.<severity>` (severity-scoped). Dotted entries must
+///     split on EXACTLY one `.` into two non-empty parts — `.warning`,
+///     `slow_request.`, `slow_request..warning`, and any form with a
+///     second dot are rejected as malformed.
+///   * `<severity>` must be a member of [knownSeverityTags]
+///     (`info` / `warning` / `critical`). A typo like
+///     `slow_request.warn` no longer passes the string-set gate.
+///   * `<stableId>` must match an entry in `coveredStableIds` (exact
+///     or as the prefix of a parameterised form per the `:<param>`
+///     convention used by the `coveredStableIds` field). Catches
+///     cross-family typos (`slow_equest.warning`) and drift between
+///     the two scopes.
+///   * When `bracketThreshold` is set, non-dotted entries are rejected
+///     for the family the bracket scopes. The numeric bracket claim
+///     targets a specific severity boundary by construction — an
+///     un-scoped family entry next to a bracketThreshold silently
+///     overclaims. Matches the shape of the v0.16.4 revert: the
+///     bracket triad's `above` ambient-bracketed both severity tiers
+///     exactly because the scope was implicit.
+///
+/// Kept permissive: a bare `coveredStableIds`-style entry (no dot) is
+/// still valid when no `bracketThreshold` is declared. Single-severity
+/// detectors (e.g. `ImageMemoryDetector` at structural tier only) do
+/// not need a severity suffix.
+List<String> checkCoveredThresholds({
+  required String label,
+  required EvidenceTier tier,
+  required Set<String>? coveredThresholds,
+  Set<String>? coveredStableIds,
+  num? bracketThreshold,
+}) {
+  if (tier != EvidenceTier.runtimeVerified &&
+      tier != EvidenceTier.externallyCited) {
+    return const [];
+  }
+  if (coveredThresholds == null) {
+    return [
+      '$label: missing coveredThresholds — runtimeVerified/externallyCited '
+          'tiers must name which thresholds the evidence covers (e.g. '
+          '{"slow_request.warning"}) so the claim cannot silently imply '
+          'evidence for an adjacent higher-severity threshold.',
+    ];
+  }
+  if (coveredThresholds.isEmpty) {
+    return [
+      '$label: coveredThresholds is empty — declare the scoped thresholds '
+          'this evidence covers, or demote the tier',
+    ];
+  }
+  final failures = <String>[];
+  for (final raw in coveredThresholds) {
+    final entry = raw.trim();
+    if (entry.isEmpty) {
+      failures
+          .add('$label: coveredThresholds contains an empty/whitespace entry');
+      continue;
+    }
+    final parts = entry.split('.');
+    final isDotted = parts.length > 1;
+    if (isDotted) {
+      if (parts.length != 2) {
+        failures.add('$label: coveredThresholds entry "$entry" has '
+            '${parts.length - 1} dots — must be "<stableId>.<severity>" '
+            'with exactly one separator');
+        continue;
+      }
+      final stableId = parts[0];
+      final severity = parts[1];
+      if (stableId.isEmpty) {
+        failures.add('$label: coveredThresholds entry "$entry" has an '
+            'empty stableId prefix before "."');
+        continue;
+      }
+      if (severity.isEmpty) {
+        failures.add('$label: coveredThresholds entry "$entry" has an '
+            'empty severity suffix after "."');
+        continue;
+      }
+      if (!knownSeverityTags.contains(severity)) {
+        failures.add('$label: coveredThresholds entry "$entry" uses '
+            'unrecognised severity "$severity" (must be one of '
+            '$knownSeverityTags) — typo or non-canonical tag');
+        continue;
+      }
+      if (coveredStableIds != null &&
+          !_stableIdCovers(coveredStableIds, stableId)) {
+        failures.add('$label: coveredThresholds entry "$entry" references '
+            'stableId "$stableId" not declared in coveredStableIds '
+            '($coveredStableIds) — cross-scope drift');
+        continue;
+      }
+      continue;
+    }
+    // Non-dotted entry.
+    if (coveredStableIds != null && !_stableIdCovers(coveredStableIds, entry)) {
+      failures.add('$label: coveredThresholds entry "$entry" is non-dotted '
+          'but does not match any coveredStableIds entry '
+          '($coveredStableIds)');
+      continue;
+    }
+    if (bracketThreshold != null) {
+      failures.add('$label: coveredThresholds entry "$entry" is non-dotted '
+          'but bracketThreshold is set ($bracketThreshold) — a numeric '
+          'threshold claim is inherently severity-scoped, so the entry '
+          'must be "$entry.<severity>" to prevent ambient bracketing '
+          'of an adjacent tier');
+      continue;
+    }
+  }
+  return failures;
+}
+
+/// Canonical severity-tag vocabulary used by [checkCoveredThresholds].
+/// Mirrors the `IssueSeverity` enum values the detector pipeline emits.
+const Set<String> knownSeverityTags = {'info', 'warning', 'critical'};
+
+bool _stableIdCovers(Set<String> coveredStableIds, String candidate) {
+  if (coveredStableIds.contains(candidate)) return true;
+  for (final id in coveredStableIds) {
+    if (candidate.startsWith('$id:')) return true;
+  }
+  return false;
+}
+
+/// When `coveredThresholds` contains a severity-scoped entry (dotted
+/// form like `slow_request.warning`), an explicit
+/// `aboveCeilingMultiplier` must be set on the detector metadata. The
+/// schema default
+/// [ProfileCaptureSchema.defaultAboveCeilingMultiplier] (2.0) is a safe
+/// upper bound for detectors whose severity tiers are spaced by more
+/// than 2× — but a detector with warning=800 / critical=1500 has a
+/// ratio of 1.875, and a default 2.0× ceiling on the warning `above`
+/// capture silently accepts magnitudes that ambiently bracket the
+/// critical tier. Requiring an explicit value forces the author to
+/// pick a ceiling appropriate for the specific tier layout, not
+/// inherit a convenience default.
+List<String> checkSeverityScopedCeiling({
+  required String label,
+  required EvidenceTier tier,
+  required Set<String>? coveredThresholds,
+  required double? aboveCeilingMultiplier,
+}) {
+  if (tier != EvidenceTier.runtimeVerified &&
+      tier != EvidenceTier.externallyCited) {
+    return const [];
+  }
+  if (coveredThresholds == null) return const [];
+  final scopedEntries =
+      coveredThresholds.where((e) => e.contains('.')).toList();
+  if (scopedEntries.isEmpty) return const [];
+  if (aboveCeilingMultiplier == null) {
+    return [
+      '$label: coveredThresholds names severity-scoped entries '
+          '$scopedEntries so aboveCeilingMultiplier must be set explicitly '
+          '— the schema default (2.0) is convenience; pick a value '
+          'appropriate for the spacing of this detector\'s tiers to '
+          'prevent the `above` capture from ambiently bracketing an '
+          'adjacent severity tier.',
+    ];
+  }
+  return const [];
+}
+
 /// CODEX-R1-2: Invariant wiring the audit gate to
 /// `ProfileCaptureSchema.validateBracket`. For `runtimeVerified` /
 /// `externallyCited` tiers, `bracketThreshold` + `bracketUnit` must be
@@ -703,6 +874,7 @@ List<String> checkBracketValidation({
   required List<String>? capturePaths,
   required num? bracketThreshold,
   required String? bracketUnit,
+  double? aboveCeilingMultiplier,
   String? repoRoot,
 }) {
   if (tier != EvidenceTier.runtimeVerified &&
@@ -739,9 +911,297 @@ List<String> checkBracketValidation({
       aboveFile: resolve(capturePaths[2]),
       threshold: bracketThreshold!,
       unit: bracketUnit!,
+      aboveCeilingMultiplier: aboveCeilingMultiplier ??
+          ProfileCaptureSchema.defaultAboveCeilingMultiplier,
     );
   } on FormatException catch (e) {
     failures.add('$label: bracket validation failed — ${e.message}');
   }
   return failures;
+}
+
+/// Walks [capturesRoot] for every committed `.json` capture and
+/// returns a failure entry for any file
+/// that is neither declared in some detector/component's
+/// `profileCapturePaths` nor explicitly allowlisted.
+///
+/// Motivation: v0.16.4 reverted `NetworkMonitorDetector` from a staged
+/// `externallyCited` raise back to `reproducerOnly` but kept two
+/// below/at capture files on disk (for v0.16.5 re-raise reuse). Without
+/// this audit, a future drift that forgets the files or deletes the
+/// wrong one silently passes CI — the cross-check against
+/// `profileCapturePaths` only fires for referenced files, not for
+/// orphans.
+///
+/// [referencedPaths] is a set of repo-relative paths harvested from
+/// every detector/component metadata the caller walks. [allowlist] is
+/// a closed set of repo-relative orphan paths that are deliberately
+/// retained (e.g. future-release placeholders); every entry must carry
+/// a human-readable rationale in the calling test's comment so a
+/// reviewer can audit the reason the file exists without a live claim.
+///
+/// Paths are compared after `path.canonicalize` on an absolute form so
+/// forward/back slash and trailing-slash drift cannot mask an orphan.
+/// Subdirectories listed in [excludedSubdirectoryNames] are skipped
+/// (default `{'_fixtures'}` — fixtures are negative-case data, not
+/// captures-under-claim, and have their own audit surfaces).
+List<String> checkCaptureOrphans({
+  required Directory capturesRoot,
+  required Set<String> referencedPaths,
+  required Set<String> allowlist,
+  String? repoRoot,
+  Set<String> excludedSubdirectoryNames = const {'_fixtures'},
+}) {
+  if (!capturesRoot.existsSync()) return const [];
+  final rootDirPath = repoRoot ?? Directory.current.path;
+  String canonicalize(String raw) {
+    final absolute = p.isAbsolute(raw) ? raw : p.join(rootDirPath, raw);
+    try {
+      return p.canonicalize(absolute);
+    } on FileSystemException {
+      return p.normalize(absolute);
+    }
+  }
+
+  final canonicalReferenced = referencedPaths.map(canonicalize).toSet();
+  final canonicalAllowlist = allowlist.map(canonicalize).toSet();
+  final canonicalCapturesRoot = canonicalize(capturesRoot.path);
+  final failures = <String>[];
+  for (final entity in capturesRoot.listSync(recursive: true)) {
+    if (entity is! File) continue;
+    if (!entity.path.toLowerCase().endsWith('.json')) continue;
+    final canonicalEntityPath = canonicalize(entity.path);
+    final rel = p.relative(canonicalEntityPath, from: canonicalCapturesRoot);
+    final parts = p.split(rel);
+    if (parts.any(excludedSubdirectoryNames.contains)) continue;
+    if (canonicalReferenced.contains(canonicalEntityPath)) continue;
+    if (canonicalAllowlist.contains(canonicalEntityPath)) continue;
+    final displayRel = p.relative(
+      canonicalEntityPath,
+      from: canonicalize(rootDirPath),
+    );
+    failures.add(
+      'orphan capture: $displayRel is not referenced by any detector/'
+      'component profileCapturePaths and is not on the retained-orphan '
+      'allowlist. Either reference it from a metadata entry, delete it, '
+      'or add it to the allowlist with a rationale explaining why it is '
+      'retained (e.g. v0.16.N re-raise reuse).',
+    );
+  }
+  return failures;
+}
+
+/// Typed retained-orphan manifest entry. Each field pins a dimension
+/// of the capture so the audit can cross-check the file on disk
+/// against the manifest and fail on silent drift (wrong device, stale
+/// Flutter
+/// version, observed magnitude outside declared band) rather than
+/// waving the file through based on filename alone.
+///
+/// Lifecycle: every entry declares the release it expects to be
+/// consumed by (`consumeBy`, semver string like `"0.16.5"`) and the
+/// planned claim that will consume it (`owningClaim`, e.g.
+/// `"NetworkMonitorDetector.slow_request.warning"`). When the repo's
+/// current release reaches or passes `consumeBy`, the audit fails the
+/// entry — allowlisted orphans cannot outlive their promised
+/// consumption window.
+class RetainedOrphanEntry {
+  const RetainedOrphanEntry({
+    required this.role,
+    required this.device,
+    required this.deviceOsVersion,
+    required this.flutterMajorMinor,
+    required this.unit,
+    required this.observedMin,
+    required this.observedMax,
+    required this.consumeBy,
+    required this.owningClaim,
+    required this.rationale,
+  });
+
+  /// Role in the bracket triad — `'below'` / `'at'` / `'above'` — or
+  /// any short descriptive label for non-bracket orphans. Surfaced in
+  /// failure messages so the reviewer sees which slot the file was
+  /// meant to fill.
+  final String role;
+
+  /// Expected `sleuthMetadata.device` value (e.g. `"iPhone 12"`).
+  final String device;
+
+  /// Expected `sleuthMetadata.deviceOsVersion` value.
+  final String deviceOsVersion;
+
+  /// Expected `sleuthMetadata.flutterVersion` major.minor prefix
+  /// (e.g. `"3.41"`). Full patch level drifts across recordings; the
+  /// audit only pins the major.minor.
+  final String flutterMajorMinor;
+
+  /// Expected `sleuthMetadata.expectedMagnitude.unit`.
+  final String unit;
+
+  /// Lower bound (inclusive) of the acceptable
+  /// `expectedMagnitude.observed` band.
+  final num observedMin;
+
+  /// Upper bound (inclusive) of the acceptable
+  /// `expectedMagnitude.observed` band.
+  final num observedMax;
+
+  /// Semver string naming the release the entry expects to land in.
+  /// When the audit's `currentReleaseVersion` reaches or passes this,
+  /// the entry is declared expired and fails.
+  final String consumeBy;
+
+  /// Descriptive identifier for the planned claim that will consume
+  /// the capture — surfaced verbatim in failure messages so a
+  /// reviewer can jump from audit output to the roadmap row.
+  final String owningClaim;
+
+  /// Human-readable rationale. Matches the freeform string form that
+  /// existed before the manifest shape — still required so the list
+  /// reads as intent, not just data.
+  final String rationale;
+}
+
+/// Parses every entry in a typed retained-orphan manifest,
+/// cross-checks parsed `sleuthMetadata` against the manifest's
+/// declared device / OS / Flutter / unit / observed band, and fails
+/// entries whose `consumeBy` release has been reached or passed.
+///
+/// Motivation: v0.16.4 introduced a freeform `Map<String, String>`
+/// allowlist for the two `slow_request` below/at captures held for
+/// v0.16.5 re-raise reuse. The freeform shape had three rot surfaces:
+/// (1) no schema parse ran against the files on disk, so a corrupted
+/// or edited capture could sit dormant for releases until v0.16.5
+/// tried to wire it in; (2) no lifecycle — the rationale could
+/// quietly reference a milestone that was skipped, leaving the files
+/// as permanent orphans; (3) no cross-check on device / Flutter /
+/// unit / observed, so a future recording drift would not surface
+/// until the next time a human reviewed the allowlist. The typed
+/// manifest closes all three by contract.
+///
+/// Returns a `List<String>` of human-readable failures. Empty list
+/// means the manifest held. Failure categories surfaced per entry:
+/// missing file, schema parse failure, device/OS/Flutter/unit
+/// mismatch against the manifest declaration, observed magnitude
+/// outside `[observedMin, observedMax]` band, expired `consumeBy`.
+///
+/// Any entry that fails for any reason is reported with the full
+/// set of violations for that entry so one audit run surfaces every
+/// drift source at once — no "fix one, run it again, fix the next"
+/// round-tripping.
+///
+/// [currentReleaseVersion] is the repo's active release semver
+/// string (e.g. from `pubspec.yaml`). When `_compareSemver(current,
+/// entry.consumeBy) >= 0`, the entry is expired.
+List<String> checkRetainedOrphanManifest({
+  required Map<String, RetainedOrphanEntry> manifest,
+  required String currentReleaseVersion,
+  String? repoRoot,
+}) {
+  if (manifest.isEmpty) return const [];
+  final rootDirPath = repoRoot ?? Directory.current.path;
+  if (!File(p.join(rootDirPath, 'pubspec.yaml')).existsSync()) {
+    return const [];
+  }
+  final failures = <String>[];
+  manifest.forEach((relPath, entry) {
+    final perEntry = <String>[];
+    final file =
+        File(p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath));
+    if (!file.existsSync()) {
+      perEntry.add('file does not exist on disk');
+    } else {
+      Map<String, Object?>? metadata;
+      try {
+        metadata = ProfileCaptureSchema.parseFile(file);
+      } on FormatException catch (e) {
+        perEntry.add('ProfileCaptureSchema.parseFile failed: ${e.message}');
+      }
+      if (metadata != null) {
+        final device = metadata['device'];
+        if (device != entry.device) {
+          perEntry.add('device mismatch — manifest declares '
+              '"${entry.device}" but capture says "$device"');
+        }
+        final osVersion = metadata['deviceOsVersion'];
+        if (osVersion != entry.deviceOsVersion) {
+          perEntry.add('deviceOsVersion mismatch — manifest declares '
+              '"${entry.deviceOsVersion}" but capture says "$osVersion"');
+        }
+        final flutterVersion = metadata['flutterVersion'];
+        if (flutterVersion is! String ||
+            !flutterVersion.startsWith('${entry.flutterMajorMinor}.')) {
+          perEntry.add('flutterVersion mismatch — manifest declares '
+              'major.minor "${entry.flutterMajorMinor}" but capture says '
+              '"$flutterVersion"');
+        }
+        final magnitude = metadata['expectedMagnitude'];
+        if (magnitude is Map<String, Object?>) {
+          final unit = magnitude['unit'];
+          if (unit != entry.unit) {
+            perEntry.add('expectedMagnitude.unit mismatch — manifest '
+                'declares "${entry.unit}" but capture says "$unit"');
+          }
+          final observed = magnitude['observed'];
+          if (observed is num) {
+            if (observed < entry.observedMin || observed > entry.observedMax) {
+              perEntry.add('expectedMagnitude.observed $observed outside '
+                  'manifest band [${entry.observedMin}, '
+                  '${entry.observedMax}] — recording drift or wrong manifest '
+                  'entry');
+            }
+          } else {
+            perEntry.add('expectedMagnitude.observed is not a number '
+                '(got $observed)');
+          }
+        } else {
+          perEntry.add('expectedMagnitude is not a Map (got $magnitude)');
+        }
+      }
+    }
+    final cmp = _compareSemver(currentReleaseVersion, entry.consumeBy);
+    if (cmp >= 0) {
+      perEntry.add('consumeBy "${entry.consumeBy}" has been reached by '
+          'current release "$currentReleaseVersion" — entry is expired. '
+          'Either consume the capture in the owning claim '
+          '("${entry.owningClaim}") or delete the file and remove this '
+          'manifest entry');
+    }
+    if (perEntry.isNotEmpty) {
+      failures.add('retained orphan "$relPath" (role=${entry.role}, '
+          'owningClaim=${entry.owningClaim}): ${perEntry.join('; ')}');
+    }
+  });
+  return failures;
+}
+
+/// Compares two dotted-numeric semver strings. Returns a negative int
+/// when [a] < [b], zero when equal, positive when [a] > [b]. Handles
+/// differing segment counts ( `"0.16" < "0.16.5"` ) by zero-padding.
+/// Pre-release and build suffixes (`-pre.1`, `+build`) are stripped
+/// with a plain `indexOf` — the manifest's consumeBy is expected to
+/// be a canonical release number, not a pre-release identifier.
+int _compareSemver(String a, String b) {
+  List<int> parts(String v) {
+    var trimmed = v.trim();
+    final dash = trimmed.indexOf('-');
+    if (dash != -1) trimmed = trimmed.substring(0, dash);
+    final plus = trimmed.indexOf('+');
+    if (plus != -1) trimmed = trimmed.substring(0, plus);
+    return trimmed
+        .split('.')
+        .map((s) => int.tryParse(s) ?? 0)
+        .toList(growable: false);
+  }
+
+  final pa = parts(a);
+  final pb = parts(b);
+  final len = pa.length > pb.length ? pa.length : pb.length;
+  for (var i = 0; i < len; i++) {
+    final ai = i < pa.length ? pa[i] : 0;
+    final bi = i < pb.length ? pb[i] : 0;
+    if (ai != bi) return ai - bi;
+  }
+  return 0;
 }

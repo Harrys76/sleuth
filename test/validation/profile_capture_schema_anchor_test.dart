@@ -69,9 +69,11 @@ void main() {
 }
 
 /// SHA-256 of `test/validation/captures/_fixtures/anchor_devtools_export.json`
-/// as of v0.16.2. Regenerate when the anchor is intentionally replaced
-/// (planned for v0.16.4 when the first real DevTools export lands): run
+/// as of v0.16.4 (added `provenance` field declaring the anchor as
+/// shape-faithful synthetic, plus the 3.32 → 3.41 `flutterVersion`
+/// rotation). Regenerate when the anchor is intentionally
+/// replaced: run
 /// `shasum -a 256 test/validation/captures/_fixtures/anchor_devtools_export.json`
 /// and paste the new digest here.
 const String _expectedAnchorSha256 =
-    '1d7213fe637dd37967c1891227b692b0d53b40fa022dd39d1c672997fbd78b46';
+    'b8cfcc6ffa825f7710722f5e3d79696aace223dc4a687a18951fe1227a1366c3';

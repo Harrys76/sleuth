@@ -1,20 +1,18 @@
 // Dedicated unit tests for the shared audit-invariant helpers used by
 // both `detector_metadata_audit_test.dart` and
 // `component_metadata_audit_test.dart`. Pins the exact negative cases
-// that the post-v0.16.2-adversarial-review hardening was designed to
-// close:
+// the v0.16.2 hardening pass was designed to close:
 //
-//   - CLAUDE-R4-1 — block-comment stripping: a reproducer file whose
-//     only `test(` calls are inside `/* ... */` must not satisfy the
-//     gate.
-//   - CODEX-R6-1 — repo containment: absolute paths, `../../` traversal
-//     that escapes the repo, and symlinks that canonicalise outside the
+//   - Block-comment stripping: a reproducer file whose only `test(`
+//     calls are inside `/* ... */` must not satisfy the gate.
+//   - Repo containment: absolute paths, `../../` traversal that
+//     escapes the repo, and symlinks that canonicalise outside the
 //     repo all fail the reproducer + capture checks.
-//   - CLAUDE-R1-2 — citation URL: non-empty strings that are not
-//     parseable http/https URIs with an authority (e.g. `'see spec'`,
-//     `'ftp://...'`, or a relative path) must fail.
-//   - CODEX-R2-1 / F2 — bracket-count: runtimeVerified and
-//     externallyCited demand exactly three captures.
+//   - Citation URL: non-empty strings that are not parseable http/https
+//     URIs with an authority (e.g. `'see spec'`, `'ftp://...'`, or a
+//     relative path) must fail.
+//   - Bracket-count: runtimeVerified and externallyCited demand
+//     exactly three captures.
 //
 // Where a helper needs on-disk state, the test materialises a temporary
 // directory with a synthetic `pubspec.yaml` and passes it through the
@@ -23,9 +21,11 @@
 // and the negative shape of every rule without writing fixture files
 // that the Flutter test runner might try to execute.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:sleuth/sleuth.dart' show EvidenceTier;
 
 import 'audit_invariants.dart';
@@ -681,7 +681,7 @@ void main() {
     });
   });
 
-  group('checkBracketCount (CODEX-R2-1 / F2)', () {
+  group('checkBracketCount', () {
     test('unvalidated tier is unaffected', () {
       expect(
           checkBracketCount(
@@ -743,6 +743,262 @@ void main() {
     });
   });
 
+  group('checkCoveredThresholds', () {
+    test('unvalidated tier is unaffected', () {
+      expect(
+          checkCoveredThresholds(
+            label: 'x',
+            tier: EvidenceTier.unvalidated,
+            coveredThresholds: null,
+          ),
+          isEmpty);
+    });
+
+    test('reproducerOnly tier is unaffected', () {
+      expect(
+          checkCoveredThresholds(
+            label: 'x',
+            tier: EvidenceTier.reproducerOnly,
+            coveredThresholds: null,
+          ),
+          isEmpty);
+    });
+
+    test('runtimeVerified with null coveredThresholds fails', () {
+      final failures = checkCoveredThresholds(
+        label: 'x',
+        tier: EvidenceTier.runtimeVerified,
+        coveredThresholds: null,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('missing coveredThresholds'));
+    });
+
+    test('externallyCited with empty set fails', () {
+      final failures = checkCoveredThresholds(
+        label: 'x',
+        tier: EvidenceTier.externallyCited,
+        coveredThresholds: const <String>{},
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('empty'));
+    });
+
+    test('whitespace-only entry fails', () {
+      final failures = checkCoveredThresholds(
+        label: 'x',
+        tier: EvidenceTier.externallyCited,
+        coveredThresholds: const {'   '},
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('empty/whitespace'));
+    });
+
+    test('dotted severity-scoped entry passes', () {
+      expect(
+          checkCoveredThresholds(
+            label: 'x',
+            tier: EvidenceTier.externallyCited,
+            coveredThresholds: const {'slow_request.warning'},
+          ),
+          isEmpty);
+    });
+
+    test('non-dotted entry passes (single-severity detector)', () {
+      expect(
+          checkCoveredThresholds(
+            label: 'x',
+            tier: EvidenceTier.runtimeVerified,
+            coveredThresholds: const {'slow_request'},
+          ),
+          isEmpty);
+    });
+
+    // Malformed-entry negatives.
+    test('entry with two dots is rejected as malformed', () {
+      final failures = checkCoveredThresholds(
+        label: 'x',
+        tier: EvidenceTier.externallyCited,
+        coveredThresholds: const {'slow_request.warning.extra'},
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('dots'));
+      expect(failures.single, contains('slow_request.warning.extra'));
+    });
+
+    test('entry with leading dot is rejected (empty stableId)', () {
+      final failures = checkCoveredThresholds(
+        label: 'x',
+        tier: EvidenceTier.externallyCited,
+        coveredThresholds: const {'.warning'},
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('empty stableId'));
+    });
+
+    test('entry with trailing dot is rejected (empty severity)', () {
+      final failures = checkCoveredThresholds(
+        label: 'x',
+        tier: EvidenceTier.externallyCited,
+        coveredThresholds: const {'slow_request.'},
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('empty severity'));
+    });
+
+    test('typoed severity is rejected', () {
+      final failures = checkCoveredThresholds(
+        label: 'x',
+        tier: EvidenceTier.externallyCited,
+        coveredThresholds: const {'slow_request.warn'},
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('unrecognised severity'));
+      expect(failures.single, contains('warn'));
+    });
+
+    test('stableId not in coveredStableIds is rejected', () {
+      final failures = checkCoveredThresholds(
+        label: 'x',
+        tier: EvidenceTier.externallyCited,
+        coveredThresholds: const {'unknown_family.warning'},
+        coveredStableIds: const {'slow_request'},
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('cross-scope drift'));
+    });
+
+    test('dotted entry with matching coveredStableIds passes', () {
+      expect(
+          checkCoveredThresholds(
+            label: 'x',
+            tier: EvidenceTier.externallyCited,
+            coveredThresholds: const {'slow_request.warning'},
+            coveredStableIds: const {'slow_request'},
+          ),
+          isEmpty);
+    });
+
+    test('non-dotted entry with bracketThreshold is rejected', () {
+      final failures = checkCoveredThresholds(
+        label: 'x',
+        tier: EvidenceTier.externallyCited,
+        coveredThresholds: const {'slow_request'},
+        coveredStableIds: const {'slow_request'},
+        bracketThreshold: 1000,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('bracketThreshold is set'));
+      expect(failures.single, contains('ambient bracketing'));
+    });
+
+    test('non-dotted entry without bracketThreshold still passes', () {
+      expect(
+          checkCoveredThresholds(
+            label: 'x',
+            tier: EvidenceTier.externallyCited,
+            coveredThresholds: const {'slow_request'},
+            coveredStableIds: const {'slow_request'},
+          ),
+          isEmpty);
+    });
+
+    test('multiple entries surface multiple failures', () {
+      final failures = checkCoveredThresholds(
+        label: 'x',
+        tier: EvidenceTier.externallyCited,
+        coveredThresholds: const {
+          'slow_request.warning.extra',
+          'other.warn',
+          '.warning',
+        },
+      );
+      expect(failures.length, greaterThanOrEqualTo(3));
+    });
+  });
+
+  group('checkSeverityScopedCeiling', () {
+    test('unvalidated tier is unaffected', () {
+      expect(
+          checkSeverityScopedCeiling(
+            label: 'x',
+            tier: EvidenceTier.unvalidated,
+            coveredThresholds: const {'slow_request.warning'},
+            aboveCeilingMultiplier: null,
+          ),
+          isEmpty);
+    });
+
+    test('reproducerOnly tier is unaffected', () {
+      expect(
+          checkSeverityScopedCeiling(
+            label: 'x',
+            tier: EvidenceTier.reproducerOnly,
+            coveredThresholds: const {'slow_request.warning'},
+            aboveCeilingMultiplier: null,
+          ),
+          isEmpty);
+    });
+
+    test(
+        'null coveredThresholds is unaffected (checkCoveredThresholds already failed it)',
+        () {
+      expect(
+          checkSeverityScopedCeiling(
+            label: 'x',
+            tier: EvidenceTier.runtimeVerified,
+            coveredThresholds: null,
+            aboveCeilingMultiplier: null,
+          ),
+          isEmpty);
+    });
+
+    test('non-dotted scope does not require explicit multiplier', () {
+      expect(
+          checkSeverityScopedCeiling(
+            label: 'x',
+            tier: EvidenceTier.runtimeVerified,
+            coveredThresholds: const {'slow_request'},
+            aboveCeilingMultiplier: null,
+          ),
+          isEmpty);
+    });
+
+    test('dotted scope without multiplier fails', () {
+      final failures = checkSeverityScopedCeiling(
+        label: 'x',
+        tier: EvidenceTier.externallyCited,
+        coveredThresholds: const {'slow_request.warning'},
+        aboveCeilingMultiplier: null,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('severity-scoped'));
+      expect(failures.single, contains('slow_request.warning'));
+    });
+
+    test('dotted scope with explicit multiplier passes', () {
+      expect(
+          checkSeverityScopedCeiling(
+            label: 'x',
+            tier: EvidenceTier.externallyCited,
+            coveredThresholds: const {'slow_request.warning'},
+            aboveCeilingMultiplier: 1.5,
+          ),
+          isEmpty);
+    });
+
+    test('mixed dotted + non-dotted entries require multiplier', () {
+      final failures = checkSeverityScopedCeiling(
+        label: 'x',
+        tier: EvidenceTier.externallyCited,
+        coveredThresholds: const {'slow_request', 'memory_pressure.critical'},
+        aboveCeilingMultiplier: null,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('memory_pressure.critical'));
+    });
+  });
+
   group('checkRationale', () {
     test('rejects empty', () {
       expect(checkRationale('x', ''), isNotEmpty);
@@ -763,6 +1019,485 @@ void main() {
       expect(
           checkRationale('x', 'This rationale has enough length and a period.'),
           isEmpty);
+    });
+  });
+
+  group('checkCaptureOrphans', () {
+    late Directory tempRepo;
+    late Directory capturesRoot;
+
+    setUp(() {
+      tempRepo = Directory.systemTemp.createTempSync('orphan_audit_');
+      File(p.join(tempRepo.path, 'pubspec.yaml')).writeAsStringSync('name: t');
+      capturesRoot = Directory(p.join(tempRepo.path, 'captures'))
+        ..createSync(recursive: true);
+    });
+
+    tearDown(() {
+      if (tempRepo.existsSync()) {
+        tempRepo.deleteSync(recursive: true);
+      }
+    });
+
+    File writeCapture(String relPath, {String body = '{}'}) {
+      final f = File(p.join(capturesRoot.path, relPath));
+      f.parent.createSync(recursive: true);
+      f.writeAsStringSync(body);
+      return f;
+    }
+
+    test('no-op when capturesRoot does not exist', () {
+      final missing = Directory(p.join(tempRepo.path, 'does_not_exist'));
+      final failures = checkCaptureOrphans(
+        capturesRoot: missing,
+        referencedPaths: const {},
+        allowlist: const {},
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('flags unreferenced, unallowlisted capture', () {
+      writeCapture('network_monitor/orphan.json');
+      final failures = checkCaptureOrphans(
+        capturesRoot: capturesRoot,
+        referencedPaths: const {},
+        allowlist: const {},
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('orphan capture'));
+      expect(failures.single, contains('orphan.json'));
+    });
+
+    test('accepts files referenced via profileCapturePaths', () {
+      writeCapture('network_monitor/live.json');
+      final failures = checkCaptureOrphans(
+        capturesRoot: capturesRoot,
+        referencedPaths: const {'captures/network_monitor/live.json'},
+        allowlist: const {},
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('accepts files listed on the retained-orphan allowlist', () {
+      writeCapture('network_monitor/retained.json');
+      final failures = checkCaptureOrphans(
+        capturesRoot: capturesRoot,
+        referencedPaths: const {},
+        allowlist: const {'captures/network_monitor/retained.json'},
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('skips files inside `_fixtures/` by default', () {
+      writeCapture('_fixtures/negative_case.json');
+      final failures = checkCaptureOrphans(
+        capturesRoot: capturesRoot,
+        referencedPaths: const {},
+        allowlist: const {},
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, isEmpty,
+          reason: '_fixtures/ carries negative-case data audited '
+              'elsewhere; the orphan walk must skip it.');
+    });
+
+    test('ignores non-JSON files (README.md, etc.)', () {
+      File(p.join(capturesRoot.path, 'README.md'))
+          .writeAsStringSync('docs only');
+      final failures = checkCaptureOrphans(
+        capturesRoot: capturesRoot,
+        referencedPaths: const {},
+        allowlist: const {},
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('surfaces every orphan in one pass (bucket-then-assert)', () {
+      writeCapture('network_monitor/orphan_one.json');
+      writeCapture('network_monitor/orphan_two.json');
+      writeCapture('network_monitor/referenced.json');
+      final failures = checkCaptureOrphans(
+        capturesRoot: capturesRoot,
+        referencedPaths: const {'captures/network_monitor/referenced.json'},
+        allowlist: const {},
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(2));
+      expect(failures.any((f) => f.contains('orphan_one.json')), isTrue);
+      expect(failures.any((f) => f.contains('orphan_two.json')), isTrue);
+    });
+
+    test(
+        'canonicalizes paths so trailing-slash / separator drift '
+        'cannot mask a referenced file', () {
+      writeCapture('network_monitor/live.json');
+      final failures = checkCaptureOrphans(
+        capturesRoot: capturesRoot,
+        // Leading `./` + redundant separator — still the same file.
+        referencedPaths: const {'./captures/network_monitor/live.json'},
+        allowlist: const {},
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, isEmpty);
+    });
+  });
+
+  group('checkRetainedOrphanManifest', () {
+    late Directory tempRepo;
+
+    setUp(() {
+      tempRepo = Directory.systemTemp.createTempSync('orphan_manifest_');
+      File(p.join(tempRepo.path, 'pubspec.yaml')).writeAsStringSync('name: t');
+    });
+
+    tearDown(() {
+      if (tempRepo.existsSync()) {
+        tempRepo.deleteSync(recursive: true);
+      }
+    });
+
+    Map<String, Object?> validMetadata({
+      String device = 'iPhone 12',
+      String deviceOsVersion = 'iOS 17.5',
+      String flutterVersion = '3.41.4',
+      String unit = 'ms',
+      num min = 900,
+      num observed = 1000,
+      num max = 1100,
+    }) =>
+        <String, Object?>{
+          'device': device,
+          'deviceOsVersion': deviceOsVersion,
+          'flutterVersion': flutterVersion,
+          'captureCommand': 'fvm flutter run --profile',
+          'scenario': 'synthetic programmatic test body',
+          'expectedMagnitude': {
+            'min': min,
+            'observed': observed,
+            'max': max,
+            'unit': unit,
+          },
+          'captureDate': '2026-04-18T16:00:00Z',
+        };
+
+    List<Map<String, Object?>> validTraceEvents() => [
+          {
+            'ph': 'M',
+            'name': 'process_name',
+            'pid': 1,
+            'tid': 0,
+            'args': {'name': 't'}
+          },
+          {
+            'ph': 'M',
+            'name': 'thread_name',
+            'pid': 1,
+            'tid': 39,
+            'args': {'name': '1.ui'}
+          },
+          {
+            'ph': 'M',
+            'name': 'thread_name',
+            'pid': 1,
+            'tid': 40,
+            'args': {'name': '1.raster'}
+          },
+          {
+            'ph': 'i',
+            'cat': 'Sleuth',
+            'name': 'sleuth.scenario.begin',
+            'pid': 1,
+            'tid': 39,
+            'ts': 100,
+            's': 'p'
+          },
+          {
+            'ph': 'i',
+            'cat': 'Sleuth',
+            'name': 'sleuth.scenario.end',
+            'pid': 1,
+            'tid': 39,
+            'ts': 1000100,
+            's': 'p'
+          },
+          {
+            'ph': 'X',
+            'cat': 'Dart',
+            'name': 'BUILD',
+            'pid': 1,
+            'tid': 39,
+            'ts': 100,
+            'dur': 50
+          },
+          {
+            'ph': 'X',
+            'cat': 'Dart',
+            'name': 'LAYOUT',
+            'pid': 1,
+            'tid': 39,
+            'ts': 150,
+            'dur': 30
+          },
+          {
+            'ph': 'X',
+            'cat': 'Dart',
+            'name': 'PAINT',
+            'pid': 1,
+            'tid': 39,
+            'ts': 180,
+            'dur': 20
+          },
+          {
+            'ph': 'B',
+            'cat': 'Dart',
+            'name': 'frame',
+            'pid': 1,
+            'tid': 39,
+            'ts': 200
+          },
+          {
+            'ph': 'E',
+            'cat': 'Dart',
+            'name': 'frame',
+            'pid': 1,
+            'tid': 39,
+            'ts': 300
+          },
+          {
+            'ph': 'i',
+            'cat': 'Embedder',
+            'name': 'ShaderCompile',
+            'pid': 1,
+            'tid': 40,
+            'ts': 320,
+            's': 't'
+          },
+        ];
+
+    File writeCaptureFile(String relPath, Map<String, Object?> metadata) {
+      final f = File(p.join(tempRepo.path, relPath));
+      f.parent.createSync(recursive: true);
+      f.writeAsStringSync(jsonEncode({
+        'traceEvents': validTraceEvents(),
+        'sleuthMetadata': metadata,
+      }));
+      return f;
+    }
+
+    RetainedOrphanEntry entry({
+      String role = 'below',
+      String device = 'iPhone 12',
+      String deviceOsVersion = 'iOS 17.5',
+      String flutterMajorMinor = '3.41',
+      String unit = 'ms',
+      num observedMin = 900,
+      num observedMax = 1100,
+      String consumeBy = '0.16.5',
+      String owningClaim = 'NetworkMonitorDetector.slow_request.warning',
+      String rationale = 'v0.16.5 re-raise reuse.',
+    }) =>
+        RetainedOrphanEntry(
+          role: role,
+          device: device,
+          deviceOsVersion: deviceOsVersion,
+          flutterMajorMinor: flutterMajorMinor,
+          unit: unit,
+          observedMin: observedMin,
+          observedMax: observedMax,
+          consumeBy: consumeBy,
+          owningClaim: owningClaim,
+          rationale: rationale,
+        );
+
+    test('no-op on empty manifest', () {
+      final failures = checkRetainedOrphanManifest(
+        manifest: const {},
+        currentReleaseVersion: '0.16.4',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('no-op when repo has no pubspec.yaml', () {
+      final other = Directory.systemTemp.createTempSync('no_pubspec_');
+      try {
+        final failures = checkRetainedOrphanManifest(
+          manifest: {'captures/x.json': entry()},
+          currentReleaseVersion: '0.16.4',
+          repoRoot: other.path,
+        );
+        expect(failures, isEmpty);
+      } finally {
+        other.deleteSync(recursive: true);
+      }
+    });
+
+    test('happy path — capture on disk matches manifest, not yet expired', () {
+      writeCaptureFile('captures/slow.json', validMetadata());
+      final failures = checkRetainedOrphanManifest(
+        manifest: {'captures/slow.json': entry()},
+        currentReleaseVersion: '0.16.4',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('fails when capture file is missing from disk', () {
+      final failures = checkRetainedOrphanManifest(
+        manifest: {'captures/missing.json': entry()},
+        currentReleaseVersion: '0.16.4',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('file does not exist on disk'));
+    });
+
+    test('fails when capture file does not parse through schema', () {
+      final f = File(p.join(tempRepo.path, 'captures/broken.json'));
+      f.parent.createSync(recursive: true);
+      f.writeAsStringSync('{ not valid json');
+      final failures = checkRetainedOrphanManifest(
+        manifest: {'captures/broken.json': entry()},
+        currentReleaseVersion: '0.16.4',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('parseFile failed'));
+    });
+
+    test('fails when capture device disagrees with manifest', () {
+      writeCaptureFile('captures/slow.json',
+          validMetadata(device: 'Pixel 7', deviceOsVersion: 'Android 14'));
+      final failures = checkRetainedOrphanManifest(
+        manifest: {'captures/slow.json': entry()},
+        currentReleaseVersion: '0.16.4',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('device mismatch'));
+    });
+
+    test('fails when flutterVersion major.minor disagrees with manifest', () {
+      writeCaptureFile(
+          'captures/slow.json', validMetadata(flutterVersion: '3.41.4'));
+      final failures = checkRetainedOrphanManifest(
+        manifest: {
+          'captures/slow.json': entry(flutterMajorMinor: '3.32'),
+        },
+        currentReleaseVersion: '0.16.4',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('flutterVersion mismatch'));
+    });
+
+    test('fails when observed sits below manifest band', () {
+      // Capture metadata is self-consistent (min <= observed <= max)
+      // but the observed magnitude falls outside the manifest's
+      // narrower tolerance band — the drift the manifest cross-check
+      // is designed to catch.
+      writeCaptureFile('captures/slow.json',
+          validMetadata(min: 500, observed: 600, max: 700));
+      final failures = checkRetainedOrphanManifest(
+        manifest: {
+          'captures/slow.json': entry(observedMin: 900, observedMax: 1100),
+        },
+        currentReleaseVersion: '0.16.4',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('outside manifest band'));
+    });
+
+    test('fails when observed sits above manifest band', () {
+      writeCaptureFile('captures/slow.json',
+          validMetadata(min: 1400, observed: 1500, max: 1600));
+      final failures = checkRetainedOrphanManifest(
+        manifest: {
+          'captures/slow.json': entry(observedMin: 900, observedMax: 1100),
+        },
+        currentReleaseVersion: '0.16.4',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('outside manifest band'));
+    });
+
+    test('fails when unit disagrees with manifest', () {
+      writeCaptureFile('captures/slow.json', validMetadata(unit: 'bytes'));
+      final failures = checkRetainedOrphanManifest(
+        manifest: {'captures/slow.json': entry(unit: 'ms')},
+        currentReleaseVersion: '0.16.4',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures.any((f) => f.contains('unit mismatch')), isTrue);
+    });
+
+    test('fails when consumeBy release has been reached', () {
+      writeCaptureFile('captures/slow.json', validMetadata());
+      final failures = checkRetainedOrphanManifest(
+        manifest: {
+          'captures/slow.json': entry(consumeBy: '0.16.5'),
+        },
+        currentReleaseVersion: '0.16.5',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('consumeBy "0.16.5" has been reached'));
+    });
+
+    test('fails when consumeBy release has been passed', () {
+      writeCaptureFile('captures/slow.json', validMetadata());
+      final failures = checkRetainedOrphanManifest(
+        manifest: {
+          'captures/slow.json': entry(consumeBy: '0.16.5'),
+        },
+        currentReleaseVersion: '0.16.6',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('has been reached'));
+    });
+
+    test('surfaces multiple independent failures for one entry in one run', () {
+      // Device + unit both wrong AND consumeBy reached — all three
+      // should be reported in a single failure string.
+      writeCaptureFile(
+          'captures/slow.json',
+          validMetadata(
+              device: 'Pixel 7', deviceOsVersion: 'Android 14', unit: 'bytes'));
+      final failures = checkRetainedOrphanManifest(
+        manifest: {
+          'captures/slow.json': entry(consumeBy: '0.16.4'),
+        },
+        currentReleaseVersion: '0.16.4',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('device mismatch'));
+      expect(failures.single, contains('unit mismatch'));
+      expect(failures.single, contains('has been reached'));
+    });
+
+    test('surfaces failures across multiple entries in one run', () {
+      writeCaptureFile('captures/a.json',
+          validMetadata(device: 'Pixel 7', deviceOsVersion: 'Android 14'));
+      final failures = checkRetainedOrphanManifest(
+        manifest: {
+          'captures/a.json': entry(),
+          'captures/missing.json': entry(),
+        },
+        currentReleaseVersion: '0.16.4',
+        repoRoot: tempRepo.path,
+      );
+      expect(failures, hasLength(2));
+      expect(failures.any((f) => f.contains('a.json')), isTrue);
+      expect(failures.any((f) => f.contains('missing.json')), isTrue);
     });
   });
 }

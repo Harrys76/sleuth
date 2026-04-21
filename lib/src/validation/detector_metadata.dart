@@ -25,6 +25,8 @@ class DetectorMetadata {
     this.bracketThreshold,
     this.bracketUnit,
     this.coveredStableIds,
+    this.coveredThresholds,
+    this.aboveCeilingMultiplier,
   });
 
   /// Strongest evidence tier that applies to this detector's numbers.
@@ -98,6 +100,32 @@ class DetectorMetadata {
   /// issue-family identifiers land (targeted for v0.16.2+ or the next
   /// multi-family tier raise).
   final Set<String>? coveredStableIds;
+
+  /// Severity-scoped evidence boundaries for detectors that emit multiple
+  /// severity tiers on the same stable ID. Entries use the form
+  /// `<stableId>.<severity>` (e.g. `'slow_request.warning'`). When null,
+  /// the [coveredStableIds] entries apply to every severity the detector
+  /// can emit for that family — correct for single-severity detectors
+  /// but overclaims when a detector has per-severity threshold semantics.
+  ///
+  /// Added in v0.16.4 after the NetworkMonitor tier raise demonstrated
+  /// the gap: the same `slow_request` stable ID
+  /// is emitted at both 1000 ms warning and 3000 ms critical, and the
+  /// external NNG citation covers only the warning boundary. Without a
+  /// severity dimension, a detector-level `externallyCited` tier with
+  /// `coveredStableIds: {'slow_request'}` mechanically attributes the
+  /// external evidence to the critical threshold too.
+  final Set<String>? coveredThresholds;
+
+  /// For [EvidenceTier.runtimeVerified] and above, the upper bound
+  /// multiplier applied to the `above` capture's observed magnitude.
+  /// `ProfileCaptureSchema.validateBracket` rejects the triad when
+  /// `aboveObs > threshold * aboveCeilingMultiplier`. Defaults to 2.0
+  /// schema-side when null. Tighten per-detector when the `above`
+  /// capture must stay well below an adjacent critical tier threshold
+  /// (e.g. a 1000 ms warning bracket whose `above` must stay under the
+  /// 3000 ms critical to avoid dual-use evidence).
+  final double? aboveCeilingMultiplier;
 }
 
 /// Mixin that lets a detector declare its validation metadata.

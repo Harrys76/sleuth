@@ -532,24 +532,28 @@ class NetworkMonitorDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale:
-            'Slow-request warning (1000 ms) and critical (3000 ms) thresholds '
-            'covered by a deterministic hermetic reproducer: direct '
-            'processRecord boundary tests at 999/1000/2999/3000/3001 ms plus '
-            'a loopback HttpServer exercising the SleuthHttpOverrides → '
-            'RequestRecord → processRecord pipeline. Pipeline coverage spans '
-            '`await for`, `.listen()`, `.drain()`, and `.asFuture()` '
-            'consumption paths — `_MonitoringResponse.listen()` now returns '
-            'a wrapper subscription whose `asFuture` completes from a '
-            'proxy-owned terminal signal rather than delegating to the inner '
-            'subscription, so `drain()` / `.asFuture()` consumers no longer '
-            'silently bypass the monitor. Thresholds themselves are not yet '
-            'runtime-verified against a reference device or externally cited '
-            'to a published mobile-API guideline. Other issue families this '
-            'detector emits (large_response, request_frequency, '
-            'http_error_spike, high_frequency_same_path) are NOT covered by '
-            'the reproducer and remain implicitly unvalidated — see '
-            '`coveredStableIds`.',
+        rationale: 'Scope: `slow_request` family only (both warning + critical '
+            'tiers pinned by the same hermetic reproducer). Pinning: '
+            'direct processRecord boundary tests at 999/1000/2999/3000/3001 ms '
+            'plus a loopback HttpServer exercising the full '
+            'SleuthHttpOverrides → RequestRecord → processRecord pipeline '
+            'across `await for`, `.listen()`, `.drain()`, and `.asFuture()` '
+            'consumption paths. An `externallyCited` tier raise for the '
+            '1000 ms WARNING tier was staged in v0.16.4 with NNG "Response '
+            'Times" as the source of truth but REVERTED post-adversarial-'
+            'review: the v0.16.4 `above` capture landed at 3117 ms, which '
+            'ambiently brackets the 3000 ms critical tier and provides '
+            'dual-use evidence the prose scope boundary cannot un-bracket. '
+            'Re-raise deferred to v0.16.5 once (a) an `above` capture is '
+            're-recorded within `[1000, 2000)` so it cannot ambiently '
+            'bracket the 3000 ms critical tier, (b) severity-scoped '
+            'metadata (`coveredThresholds: {"slow_request.warning"}`) is '
+            'wired through the audit + ledger, and (c) the schema\'s '
+            '`aboveCeilingMultiplier` guard (landed in v0.16.4) '
+            'mechanically rejects any drift. Other issue families '
+            '(large_response, request_frequency, http_error_spike, '
+            'high_frequency_same_path) remain implicitly unvalidated — '
+            'see `coveredStableIds`.',
         reproducerPath: 'test/validation/network_monitor_reproducer_test.dart',
         coveredStableIds: {'slow_request'},
       );

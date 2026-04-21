@@ -22,14 +22,12 @@
 //      repo, exists on disk, AND parses cleanly via
 //      `ProfileCaptureSchema.parseFile`.
 //
-// v0.16.2 post-adversarial-review hardening extracted these checkers
-// into `_support/audit_invariants.dart` so the detector gate and the
-// component gate share a single implementation. This closes CODEX-R2-1
-// (component audit had no bracket-count check), CODEX-R3-2 (component
-// audit had no reproducer-token check), CLAUDE-R4-1 (block-comment
-// stripping missing on both sides), CODEX-R6-1 (path-traversal check
-// missing on both sides), and CLAUDE-R1-2 (citation URL was only a
-// non-empty check).
+// v0.16.2 hardening extracted these checkers into
+// `_support/audit_invariants.dart` so the detector gate and the
+// component gate share a single implementation. Gaps closed: the
+// component audit had no bracket-count check and no reproducer-token
+// check; both sides lacked block-comment stripping and path-traversal
+// rejection; citation-URL validation was only a non-empty check.
 //
 // v0.16.2 ships the framework with **zero** real non-detector components
 // registered. The first registration lands in v0.16.6. The real-registry

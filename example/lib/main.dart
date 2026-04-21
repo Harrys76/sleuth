@@ -21,6 +21,7 @@ import 'demos/intrinsic_height_demo.dart';
 import 'demos/keepalive_demo.dart';
 import 'demos/memory_pressure_demo.dart';
 import 'demos/nested_scroll_demo.dart';
+import 'demos/network_monitor_capture_screen.dart';
 import 'demos/network_stress_demo.dart';
 import 'demos/non_lazy_list_demo.dart';
 import 'demos/opacity_zero_demo.dart';
@@ -289,6 +290,13 @@ class DemoHome extends StatelessWidget {
             subtitle: 'Network Monitor detector',
             color: Colors.orange,
             builder: (_) => const NetworkStressDemo(),
+          ),
+          _DemoRoute(
+            icon: Icons.videocam,
+            title: 'NetworkMonitor Capture Helper',
+            subtitle: 'v0.16.4 slow_request bracket capture (profile mode)',
+            color: Colors.orange,
+            builder: (_) => const NetworkMonitorCaptureScreen(),
           ),
           _DemoRoute(
             icon: Icons.settings_input_hdmi,

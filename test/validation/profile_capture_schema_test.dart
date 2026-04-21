@@ -40,7 +40,7 @@ void main() {
           ProfileCaptureSchema.parseFile(_fx('anchor_devtools_export.json'));
       expect(metadata['device'], 'iPhone 13 mini');
       expect(metadata['deviceOsVersion'], 'iOS 17.6.1');
-      expect(metadata['flutterVersion'], '3.32.5');
+      expect(metadata['flutterVersion'], '3.41.4');
       expect(metadata['scenario'], isA<String>());
       final magnitude = metadata['expectedMagnitude'] as Map<String, Object?>;
       expect(magnitude['observed'], isA<num>());
@@ -114,7 +114,7 @@ void main() {
     });
 
     test('non-pinned Flutter major.minor is rejected', () {
-      final meta = _validMetadata()..['flutterVersion'] = '3.31.0';
+      final meta = _validMetadata()..['flutterVersion'] = '3.40.0';
       final bytes = _wrap(meta);
       expect(
           () => ProfileCaptureSchema.parse(bytes),
@@ -122,27 +122,27 @@ void main() {
               (e) => e.message, 'message', contains('pinned Flutter'))));
     });
 
-    // v0.16.2 post-review F1: the regex used to reject any suffix, including
-    // Flutter stable's own pre-release tags (`3.32.0-1.0.pre`) and build
-    // metadata (`3.32.0+channel-stable`) that commonly appear in
+    // v0.16.2 regex relaxation: previously rejected any suffix, including
+    // Flutter stable's own pre-release tags (`3.41.0-1.0.pre`) and build
+    // metadata (`3.41.0+channel-stable`) that commonly appear in
     // `flutter --version` output. Captures authored from copy-pasted version
     // strings would fail audit. The regex now accepts suffixes; major.minor
     // stays strictly pinned.
     test('pre-release suffix on pinned major.minor is accepted', () {
-      final meta = _validMetadata()..['flutterVersion'] = '3.32.0-1.0.pre';
+      final meta = _validMetadata()..['flutterVersion'] = '3.41.0-1.0.pre';
       final bytes = _wrap(meta);
       expect(() => ProfileCaptureSchema.parse(bytes), returnsNormally);
     });
 
     test('build-metadata suffix on pinned major.minor is accepted', () {
       final meta = _validMetadata()
-        ..['flutterVersion'] = '3.32.0+channel-stable';
+        ..['flutterVersion'] = '3.41.0+channel-stable';
       final bytes = _wrap(meta);
       expect(() => ProfileCaptureSchema.parse(bytes), returnsNormally);
     });
 
     test('suffix on non-pinned major.minor is still rejected', () {
-      final meta = _validMetadata()..['flutterVersion'] = '3.33.0-1.0.pre';
+      final meta = _validMetadata()..['flutterVersion'] = '3.42.0-1.0.pre';
       final bytes = _wrap(meta);
       expect(
           () => ProfileCaptureSchema.parse(bytes),
@@ -179,6 +179,44 @@ void main() {
           () => ProfileCaptureSchema.parse(bytes),
           throwsA(isA<FormatException>().having(
               (e) => e.message, 'message', contains('strictly positive'))));
+    });
+
+    // Exponent-overflow JSON literals decode silently to
+    // `double.infinity` in Dart. Without
+    // the finite-positive guard at `_validateExpectedMagnitude` this would
+    // pass every magnitude invariant (`Infinity > 0` is true; `min >
+    // observed` and `observed > max` both evaluate false when either side
+    // is `Infinity`). Literal `NaN`/`Infinity` tokens cannot reach parse
+    // via bytes (the JSON spec rejects them, and `jsonEncode` refuses to
+    // emit them), so the only realistic exploit path at parse level is
+    // overflow on decode. Map-input NaN/Infinity coverage lives on
+    // `validateBracket` below.
+    test('exponent-overflow (1e400) observed decodes to Infinity and rejects',
+        () {
+      final baseline =
+          utf8.decode(_wrap(_validMetadata()), allowMalformed: false);
+      // Swap the observed magnitude in-string for an exponent-overflow
+      // literal. `_validMetadata()` sets observed=1000 and this file has
+      // no other `"observed":1000` occurrence so the replace is precise.
+      final exploit =
+          baseline.replaceFirst('"observed":1000', '"observed":1e400');
+      expect(
+          () => ProfileCaptureSchema.parse(utf8.encode(exploit)),
+          throwsA(isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              contains(
+                  '"expectedMagnitude.observed" must be a finite number'))));
+    });
+
+    test('exponent-overflow (-1e400) min decodes to -Infinity and rejects', () {
+      final baseline =
+          utf8.decode(_wrap(_validMetadata()), allowMalformed: false);
+      final exploit = baseline.replaceFirst('"min":900', '"min":-1e400');
+      expect(
+          () => ProfileCaptureSchema.parse(utf8.encode(exploit)),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message',
+              contains('"expectedMagnitude.min" must be a finite number'))));
     });
 
     // CODEX-R1-4: out-of-range date/time components are rejected.
@@ -537,6 +575,28 @@ void main() {
               (e) => e.message, 'message', contains('cross-check failed'))));
     });
 
+    // v0.16.4 post-review LOW-2: symmetric guard — span wildly larger
+    // than observed magnitude means markers bracket unrelated work.
+    test('inverse ratio 200× (span >> observed) is rejected', () {
+      // observedMs=1 → observedMicros=1000; spanMicros=200000 →
+      // inverseRatio = 200×.
+      final body = _buildCaptureWithSpan(observedMs: 1, spanMicros: 200000);
+      expect(
+          () => ProfileCaptureSchema.parse(body),
+          throwsA(isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains('cross-check failed'),
+                  contains('larger than expectedMagnitude.observed')))));
+    });
+
+    test('inverse ratio 50× (span > observed within ceiling) passes', () {
+      // observedMs=1 → observedMicros=1000; spanMicros=50000 →
+      // inverseRatio = 50×, within 100× ceiling.
+      final body = _buildCaptureWithSpan(observedMs: 1, spanMicros: 50000);
+      expect(() => ProfileCaptureSchema.parse(body), returnsNormally);
+    });
+
     // R3-NEW-1: scenario-marker presence, uniqueness, and ordering.
     test('missing scenario markers are rejected', () {
       final events = _validTraceEvents()
@@ -595,6 +655,49 @@ void main() {
           () => ProfileCaptureSchema.parse(utf8.encode(body)),
           throwsA(isA<FormatException>().having((e) => e.message, 'message',
               contains('Scenario markers inverted'))));
+    });
+
+    // v0.16.4 post-review MED-2: pin `ph: 'n'` (async nestable instant)
+    // acceptance. Perfetto `traceconv` converts Dart `Timeline.instantSync`
+    // events to `ph: 'n'` when exporting `.pftrace` → Chrome Trace JSON;
+    // the DevTools-native export path emits `'i'`/`'I'`. v0.16.4 captures
+    // travelled the Perfetto path, so the schema must accept `'n'` for
+    // scenario markers AND as a general allowed phase.
+    test('ph "n" scenario markers are accepted (Perfetto traceconv path)', () {
+      final events = _validTraceEvents().map((e) {
+        if (e['name'] == 'sleuth.scenario.begin' ||
+            e['name'] == 'sleuth.scenario.end') {
+          return {...e, 'ph': 'n'}..remove('s');
+        }
+        return e;
+      }).toList();
+      final body = jsonEncode({
+        'traceEvents': events,
+        'sleuthMetadata': _validMetadata(),
+      });
+      expect(
+          () => ProfileCaptureSchema.parse(utf8.encode(body)), returnsNormally);
+    });
+
+    test('ph "n" is allowed in allowedTracePhases', () {
+      final events = [
+        ..._validTraceEvents(),
+        {
+          'ph': 'n',
+          'cat': 'Dart',
+          'name': 'nestable_instant_event',
+          'pid': 1,
+          'tid': 39,
+          'ts': 500,
+          'id': '0x42',
+        },
+      ];
+      final body = jsonEncode({
+        'traceEvents': events,
+        'sleuthMetadata': _validMetadata(),
+      });
+      expect(
+          () => ProfileCaptureSchema.parse(utf8.encode(body)), returnsNormally);
     });
 
     test('non-time unit (bytes) skips the cross-check', () {
@@ -821,7 +924,7 @@ void main() {
     test('Flutter patch-level mismatch across triad is rejected (provenance)',
         () async {
       final tamperedBelow = await cloneWithFieldOverride(
-          below, 'flutterVersion', '3.32.4', 'flutter_below');
+          below, 'flutterVersion', '3.41.3', 'flutter_below');
       expect(
           () => ProfileCaptureSchema.validateBracket(
                 belowFile: tamperedBelow,
@@ -832,6 +935,201 @@ void main() {
               ),
           throwsA(isA<FormatException>().having((e) => e.message, 'message',
               contains('provenance mismatch on "flutterVersion"'))));
+    });
+
+    // Bounded `above`. The schema default ceiling is 2.0 × threshold;
+    // fixtures at `observed = 1200 ms` pass under threshold = 1000 ms.
+    // Tightening the multiplier below the fixture's observed value
+    // must surface a bracket violation so a detector whose `above`
+    // capture drifts into an adjacent tier (e.g. 1000 ms warning vs
+    // 3000 ms critical — the dual-use pattern v0.16.4 reverted) fails
+    // loudly instead of silently over-claiming evidence.
+    test('above above ceiling is rejected (aboveCeilingMultiplier)', () {
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: threshold,
+                unit: unit,
+                // observed = 1200, ceiling = 1000 * 1.15 = 1150 < 1200.
+                // Multiplier 1.15 exceeds default `1 + atTolerance = 1.10`
+                // so the at-band collision guard does not fire; the
+                // ceiling guard does.
+                aboveCeilingMultiplier: 1.15,
+              ),
+          throwsA(isA<FormatException>().having(
+              (e) => e.message, 'message', contains('exceeds ceiling'))));
+    });
+
+    test('aboveCeilingMultiplier <= 1.0 is rejected', () {
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: threshold,
+                unit: unit,
+                aboveCeilingMultiplier: 1.0,
+              ),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message',
+              contains('aboveCeilingMultiplier'))));
+    });
+
+    test('aboveCeilingMultiplier <= 1 + atTolerance collapses band', () {
+      // Ceiling multiplier equal to `1 + atTolerance` (default 1.10)
+      // makes the above-band collapse into the at-band. Guard must
+      // reject before the ceiling comparison so the failure message
+      // names the real cause.
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: threshold,
+                unit: unit,
+                aboveCeilingMultiplier: 1.10,
+              ),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message',
+              contains('non-empty "above" band'))));
+    });
+
+    test('aboveCeilingMultiplier below 1 + atTolerance also rejected', () {
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: threshold,
+                unit: unit,
+                aboveCeilingMultiplier: 1.05,
+              ),
+          throwsA(isA<FormatException>().having(
+              (e) => e.message, 'message', contains('1 + atTolerance'))));
+    });
+
+    test('tighter atTolerance makes narrower multiplier valid again', () {
+      // Contract sanity: `atTolerance: 0.05` puts at-band ceiling at 1.05;
+      // the at-fixture's observed = 1050 still lands inside the band
+      // (upper bound is inclusive). Multiplier 1.10 now leaves a valid
+      // (1.05, 1.10] above strip and the collision guard (1.10 >
+      // 1+0.05 = 1.05) passes. above observed 1200 still exceeds ceiling
+      // 1100 so the ceiling guard fires — proves the collision guard
+      // is a _precondition_ for the ceiling check, not a replacement.
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: threshold,
+                unit: unit,
+                atTolerance: 0.05,
+                aboveCeilingMultiplier: 1.10,
+              ),
+          throwsA(isA<FormatException>().having(
+              (e) => e.message, 'message', contains('exceeds ceiling'))));
+    });
+
+    test('default aboveCeilingMultiplier accepts fixture observed = 1200', () {
+      // Sanity: no explicit multiplier uses `defaultAboveCeilingMultiplier`
+      // (2.0). 1200 < 2000, so the default bracket still succeeds.
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: threshold,
+                unit: unit,
+              ),
+          returnsNormally);
+    });
+
+    // Non-finite-input regression tests. Dart's NaN-comparison
+    // semantics (every `<`, `>`, `<=`,
+    // `>=`, `==` against NaN returns `false`) silently bypass every
+    // bracket and magnitude guard. Infinity disables the ceiling
+    // (`threshold * Infinity = Infinity`; `observed > Infinity =
+    // false`). Both must be rejected at `validateBracket`'s numeric
+    // boundary before any comparison happens.
+    test('NaN bracketThreshold is rejected', () {
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: double.nan,
+                unit: unit,
+              ),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message',
+              contains('"bracketThreshold" must be a finite number'))));
+    });
+
+    test('+Infinity bracketThreshold is rejected', () {
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: double.infinity,
+                unit: unit,
+              ),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message',
+              contains('"bracketThreshold" must be a finite number'))));
+    });
+
+    test('-Infinity bracketThreshold is rejected', () {
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: double.negativeInfinity,
+                unit: unit,
+              ),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message',
+              contains('"bracketThreshold" must be a finite number'))));
+    });
+
+    test('NaN aboveCeilingMultiplier is rejected', () {
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: threshold,
+                unit: unit,
+                aboveCeilingMultiplier: double.nan,
+              ),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message',
+              contains('"aboveCeilingMultiplier" must be a finite number'))));
+    });
+
+    test('+Infinity aboveCeilingMultiplier is rejected', () {
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: threshold,
+                unit: unit,
+                aboveCeilingMultiplier: double.infinity,
+              ),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message',
+              contains('"aboveCeilingMultiplier" must be a finite number'))));
+    });
+
+    test('NaN atTolerance is rejected', () {
+      expect(
+          () => ProfileCaptureSchema.validateBracket(
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+                threshold: threshold,
+                unit: unit,
+                atTolerance: double.nan,
+              ),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message',
+              contains('"atTolerance" must be a finite number'))));
     });
   });
 
@@ -886,7 +1184,7 @@ void main() {
 Map<String, Object?> _validMetadata() => <String, Object?>{
       'device': 'iPhone 13 mini',
       'deviceOsVersion': 'iOS 17.6.1',
-      'flutterVersion': '3.32.5',
+      'flutterVersion': '3.41.4',
       'captureCommand': 'fvm flutter run --profile',
       'scenario': 'synthetic programmatic test body',
       'expectedMagnitude': {
