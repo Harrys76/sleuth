@@ -48,6 +48,7 @@ import 'package:sleuth/sleuth.dart'
         EvidenceTier,
         ProfileCaptureSchema;
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/detectors/network_monitor_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart';
 
 import '_support/audit_invariants.dart';
@@ -302,18 +303,21 @@ void main() {
               'the controller or delete the file. Missing: $missing');
     });
 
-    test('NetworkMonitorDetector ships at reproducerOnly (v0.16.4)', () {
-      // Anti-tautology anchor. v0.16.4 staged an `externallyCited` raise
-      // on the `slow_request` WARNING tier (1000 ms NNG citation) and
-      // reverted in the same release: the `above` capture at 3117 ms
-      // ambiently brackets the 3000 ms critical tier, providing dual-use
-      // evidence the prose scope boundary cannot un-bracket. Re-raise is
-      // deferred to v0.16.5 once the `above` capture is re-recorded
-      // within [1000, 2000), severity-scoped `coveredThresholds` metadata
-      // is wired through the audit + ledger, and the `aboveCeilingMultiplier`
-      // schema guard (landed in v0.16.4) mechanically blocks drift.
-      // Tier history: v0.16.1 reproducerOnly → v0.16.4 reproducerOnly
-      // (externallyCited staged + reverted in same release).
+    test('NetworkMonitorDetector pinned at reproducerOnly (v0.16.5)', () {
+      // Anti-tautology anchor. v0.16.5's staged `externallyCited` raise
+      // was REVERTED after `/advanced-adversarial-review` triangulation
+      // converged on two blockers: (1) NN/g "Response Times: The 3
+      // Important Limits" 1.0 s is a UI direct-manipulation feedback
+      // guideline, not a generic HTTP latency threshold — the detector
+      // emits `slow_request` for any uncancelled request regardless of
+      // whether it blocks user interaction; (2) profile captures only
+      // verify scenario begin/end marker span, not detector-produced
+      // issue emission. Tier history: v0.16.1 reproducerOnly → v0.16.4
+      // reproducerOnly (externallyCited staged + reverted same release) →
+      // v0.16.5 reproducerOnly (second externallyCited staged + reverted
+      // same release). The L2 negative assertion + mechanism-4 prose
+      // drift guard below remain wired so v0.16.6's re-raise cannot
+      // silently regress.
       final BaseDetector? nm = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.networkMonitor)
           .cast<BaseDetector?>()
@@ -322,22 +326,94 @@ void main() {
           reason: 'NetworkMonitorDetector should be registered by default.');
       expect(nm, isA<DetectorMetadataProvider>());
       final meta = (nm as DetectorMetadataProvider).validationMetadata;
-      expect(meta.tier, EvidenceTier.reproducerOnly);
+      expect(meta.tier, EvidenceTier.reproducerOnly,
+          reason: 'v0.16.5 shipped at reproducerOnly — the second staged '
+              'externallyCited raise was reverted after advanced-adversarial '
+              'review converged on NN/g semantic mismatch + capture-proves-'
+              'helper-not-detector blockers.');
       expect(meta.reproducerPath,
           equals('test/validation/network_monitor_reproducer_test.dart'));
       expect(meta.citationUrl, isNull,
-          reason:
-              'reproducerOnly does not populate citationUrl — reverted in v0.16.4 '
-              'pending re-raise.');
+          reason: 'No external citation at reproducerOnly tier.');
       expect(meta.profileCapturePaths, isNull,
-          reason: 'reproducerOnly does not ship profileCapturePaths — reverted '
-              'in v0.16.4 pending re-raise.');
+          reason: 'profileCapturePaths is first-class on externallyCited / '
+              'runtimeVerified only — the three capture files on disk are '
+              'retained orphans for v0.16.6 re-raise reuse, tracked in the '
+              'orphan manifest below, not live metadata.');
       expect(meta.bracketThreshold, isNull);
       expect(meta.bracketUnit, isNull);
+      expect(meta.coveredThresholds, isNull,
+          reason: 'No severity-scoped claim at reproducerOnly.');
+      expect(meta.aboveCeilingMultiplier, isNull);
       expect(meta.coveredStableIds, equals(const {'slow_request'}),
-          reason: 'The reproducer still covers slow_request at both '
-              'warning and critical tiers (reproducerOnly does not '
-              'distinguish severities).');
+          reason: 'Reproducer still covers the `slow_request` family; '
+              'preserved from v0.16.1.');
+
+      // L2 negative assertion (post-impl adversarial review, v0.16.5):
+      // wired dormantly at reproducerOnly. Fires the moment a future
+      // re-raise populates `coveredThresholds` — if a diff adds
+      // `slow_request.critical` without wiring a separate citation +
+      // bracket triad, the guard fails CI before shipping. Critical
+      // cannot piggyback on a warning-tier raise.
+      final covered = meta.coveredThresholds ?? const <String>{};
+      final criticalClaims =
+          covered.where((t) => t.endsWith('.critical')).toList();
+      expect(criticalClaims, isEmpty,
+          reason: 'L2: no coveredThresholds entry may claim the critical '
+              'tier without its own citation + bracket triad. Offending '
+              'entries: $criticalClaims.');
+
+      // Symptom-persistence mechanism 4 (post-impl adversarial review,
+      // v0.16.5, AB3-hardened): rationale prose making an externally-
+      // grounded claim about the critical tier without metadata backing is
+      // prohibited. Block comments stripped first. Inline backticks are
+      // normalised to whitespace BEFORE lowercasing — otherwise the
+      // exclusion-phrase matcher silently fails when the rationale wraps
+      // identifier fragments like `` stays `reproducerOnly` `` or
+      // `` `slow_request.warning` threshold only `` in inline code, as
+      // round-2 Codex's live match trace caught.
+      final stripped =
+          meta.rationale.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
+      final normalised = stripped.replaceAll('`', ' ');
+      final collapsed =
+          normalised.replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+      final mentionsCitationSource = collapsed.contains('nn/g') ||
+          collapsed.contains('nielsen norman') ||
+          collapsed.contains('response-times') ||
+          collapsed.contains('response times');
+      final hasCriticalAndCitation =
+          collapsed.contains('critical') && mentionsCitationSource;
+      if (hasCriticalAndCitation) {
+        // Allowed only if the critical mention is explicitly an exclusion.
+        final hasExclusion = collapsed.contains('stays reproduceronly') ||
+            collapsed.contains('not covered') ||
+            collapsed.contains('scoped out') ||
+            collapsed.contains('only the warning') ||
+            collapsed.contains('warning threshold only') ||
+            collapsed.contains('warning tier only');
+        expect(hasExclusion, isTrue,
+            reason: 'Symptom-persistence mechanism 4: rationale co-mentions '
+                'the NN/g citation source and the critical tier without an '
+                'explicit exclusion. Prose must make clear critical is NOT '
+                'externally grounded.');
+      }
+
+      // AB4 default-drift cross-check (post-impl adversarial review,
+      // v0.16.5): when `bracketThreshold` is set on metadata, it must
+      // match the detector's runtime default — otherwise a future change
+      // that adjusts one but not the other creates silent drift (the
+      // detector emits on a different threshold than the externally-cited
+      // bracket claims). Dormant while `bracketThreshold` is null at
+      // reproducerOnly; fires the moment v0.16.6 re-raises.
+      if (meta.bracketThreshold != null) {
+        final detector = NetworkMonitorDetector();
+        expect(detector.slowThresholdMs, equals(meta.bracketThreshold),
+            reason: 'AB4: metadata bracketThreshold (${meta.bracketThreshold} '
+                '${meta.bracketUnit}) must track the detector\'s runtime '
+                'default (slowThresholdMs = ${detector.slowThresholdMs}). A '
+                'mismatch means the externally-cited bracket claims a '
+                'different threshold than the detector actually uses.');
+      }
     });
   });
 
@@ -569,6 +645,18 @@ void main() {
     // can parse every file on disk and cross-check it against the
     // manifest, and so expired entries (consumeBy release reached)
     // fail automatically rather than sitting dormant indefinitely.
+    // v0.16.5 staged the `externallyCited` raise a second time and
+    // REVERTED it after `/advanced-adversarial-review` converged on
+    // (a) the NN/g 1.0 s boundary is a UI feedback guideline that does
+    // not substantiate a generic HTTP latency threshold and (b) the
+    // profile captures only verify scenario marker span, not detector
+    // emission. Detector metadata nulled `profileCapturePaths` in the
+    // revert, so all three capture files become orphans on disk. They
+    // are retained here — not deleted — because v0.16.6 re-raise
+    // reuses the on-device recording (re-recording across the Flutter
+    // 3.41.4 pin + iPhone 12 exception is expensive to redo without
+    // reason). Manifest cross-check guarantees the files on disk still
+    // match the declared device / OS / Flutter / unit / observed band.
     const retainedOrphans = <String, RetainedOrphanEntry>{
       'test/validation/captures/network_monitor/slow_request_below.json':
           RetainedOrphanEntry(
@@ -577,12 +665,17 @@ void main() {
         deviceOsVersion: 'iOS 17.5',
         flutterMajorMinor: '3.41',
         unit: 'ms',
-        observedMin: 750,
-        observedMax: 950,
-        consumeBy: '0.16.5',
-        owningClaim: 'NetworkMonitorDetector.slow_request.warning',
-        rationale: 'v0.16.5 re-raise reuse — below bracket (812 ms, '
-            'captured iPhone 12 iOS 17.5).',
+        observedMin: 720,
+        observedMax: 900,
+        consumeBy: '0.16.6',
+        owningClaim:
+            'NetworkMonitorDetector.slow_request.warning externallyCited '
+            're-raise (v0.16.6)',
+        rationale: 'Below bracket (812 ms) captured on iPhone 12 / iOS 17.5 / '
+            'Flutter 3.41.4 via the example app NetworkMonitor Capture '
+            'Helper screen. Retained from v0.16.5 revert — v0.16.6 wires '
+            'this into the re-raise once citation + detector-emission '
+            'gate blockers are resolved.',
       ),
       'test/validation/captures/network_monitor/slow_request_at.json':
           RetainedOrphanEntry(
@@ -593,10 +686,30 @@ void main() {
         unit: 'ms',
         observedMin: 1000,
         observedMax: 1100,
-        consumeBy: '0.16.5',
-        owningClaim: 'NetworkMonitorDetector.slow_request.warning',
-        rationale: 'v0.16.5 re-raise reuse — at bracket (1035 ms, '
-            'captured iPhone 12 iOS 17.5).',
+        consumeBy: '0.16.6',
+        owningClaim:
+            'NetworkMonitorDetector.slow_request.warning externallyCited '
+            're-raise (v0.16.6)',
+        rationale: 'At bracket (1035 ms, within ±10% of 1000 ms threshold) '
+            'captured on iPhone 12 / iOS 17.5 / Flutter 3.41.4. Retained '
+            'from v0.16.5 revert for v0.16.6 reuse.',
+      ),
+      'test/validation/captures/network_monitor/slow_request_above.json':
+          RetainedOrphanEntry(
+        role: 'above',
+        device: 'iPhone 12',
+        deviceOsVersion: 'iOS 17.5',
+        flutterMajorMinor: '3.41',
+        unit: 'ms',
+        observedMin: 1450,
+        observedMax: 1800,
+        consumeBy: '0.16.6',
+        owningClaim:
+            'NetworkMonitorDetector.slow_request.warning externallyCited '
+            're-raise (v0.16.6)',
+        rationale: 'Above bracket (1515 ms) within `[1000, 2000)` band so the '
+            '`aboveCeilingMultiplier: 2.0` ceiling fires dormantly until '
+            'v0.16.6 wires the raise. Retained from v0.16.5 revert.',
       ),
     };
 

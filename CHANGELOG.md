@@ -1,3 +1,32 @@
+## 0.16.5
+
+**Second `externallyCited` tier raise for `NetworkMonitorDetector.slow_request.warning` staged and reverted; audit hardening retained.** The NN/g 1.0 s boundary is a UI direct-manipulation feedback guideline, not a generic HTTP latency threshold — the detector fires on any uncancelled request, so the citation does not substantiate the detector contract. Profile captures validate scenario-marker span only, not detector-produced emission. Detector ships at `reproducerOnly` (unchanged from v0.16.1). v0.16.4/v0.16.5 infrastructure (`coveredThresholds`, `aboveCeilingMultiplier`, `ProfileCaptureSchema`, L2/mechanism-4 guards, retained-orphan manifest) stays landed for v0.16.6 re-raise.
+
+### Changed
+
+- **`NetworkMonitorDetector.validationMetadata`** — tier `externallyCited` → `reproducerOnly`. `citationUrl` / `profileCapturePaths` / `bracketThreshold` / `bracketUnit` / `coveredThresholds` / `aboveCeilingMultiplier` nulled. Rationale enumerates the three v0.16.6 re-raise prerequisites: match citation semantics to detector contract (or narrow the contract), extend capture helper to emit a `sleuth.issue.slow_request.warning` trace record, extend `ProfileCaptureSchema.validateBracket` to require that record inside the scenario window. `reproducerPath` + `coveredStableIds: {'slow_request'}` preserved.
+- **`test/validation/detector_metadata_audit_test.dart`** — anchor renamed to `'pinned at reproducerOnly (v0.16.5)'`; asserts `tier == reproducerOnly` and extended-claim fields all `isNull`. L2 negative assertion, mechanism-4 guard, and default-drift cross-check wired dormantly so they fire on v0.16.6 re-raise.
+- **Retained-orphan manifest** repopulated for all three captures (`slow_request_below.json` @ 812 ms, `slow_request_at.json` @ 1035 ms, `slow_request_above.json` @ 1515 ms) with `consumeBy: '0.16.6'`, pinned to iPhone 12 / iOS 17.5 / Flutter 3.41. Closes the gap where nulled `profileCapturePaths` would otherwise trip `checkCaptureOrphans` on the retained files.
+- **`test/validation/ledger_sync_test.dart`** — pinned row regex `` | `externallyCited` | `` → `` | `reproducerOnly` | ``.
+- **`doc/validation_ledger.md`** — summary `1/23 externallyCited, 4/23 reproducerOnly, 18/23 unvalidated` → `5/23 reproducerOnly, 18/23 unvalidated`. Network Monitor row and roadmap bullet document the revert plus the three v0.16.6 prerequisites.
+- **Capture `captureNotes`** in all three `slow_request_*.json` — orphan-retention framing (`Retained orphan (v0.16.5). ... Tracked in retainedOrphans manifest with consumeBy='0.16.6'`).
+
+### Audit hardening (retained)
+
+- **L2 negative assertion** on NetworkMonitor anchor: `meta.coveredThresholds` contains no `*.critical` entries. Dormant at reproducerOnly; fires on v0.16.6 re-raise to block silent broadening of a warning-tier claim to critical.
+- **Mechanism-4 matcher backtick normalisation.** Inline-code fragments like `` `reproducerOnly` `` or `` `slow_request.warning` `` caused exclusion-phrase matching to silently fail. Matcher now strips backticks then collapses whitespace before lowercasing: `rationale.replaceAll('\`', ' ').replaceAll(RegExp(r'\s+'), ' ').toLowerCase()`.
+- **Default-drift cross-check.** When `meta.bracketThreshold` is non-null, anchor asserts `NetworkMonitorDetector().slowThresholdMs == meta.bracketThreshold`. Dormant at reproducerOnly; catches drift between constructor default and metadata in either direction once v0.16.6 sets the field.
+
+### Deferred
+
+- **Detector-emission evidence in captures.** Helper emits scenario markers but no `sleuth.issue.slow_request.warning` trace record — captures prove the helper delayed, not that the detector classified. Non-blocking at `reproducerOnly`; v0.16.6 re-raise lands both the capture-helper and schema extensions before re-setting `profileCapturePaths`.
+
+### Notes
+
+- Detector ledger distribution: `5/23 reproducerOnly, 18/23 unvalidated` (unchanged from v0.16.4).
+- Zero migration; no public API change.
+- Test count stable at 2,493 root + 9 example. `fvm flutter analyze` clean, `fvm flutter test` all green.
+
 ## 0.16.4
 
 **Validation infrastructure release.** The planned first `externallyCited` tier raise on `NetworkMonitorDetector.slow_request` was staged and reverted in the same release: the `above`-bracket capture at 3117 ms simultaneously brackets the WARNING (1000 ms) AND the CRITICAL (3000 ms) thresholds, so the file on disk ambiently validates a claim the detector rationale explicitly scopes out. `NetworkMonitorDetector` ships at `reproducerOnly` (unchanged from v0.16.1). Downstream infrastructure added during the staged raise — Flutter-pin rotation, schema ph=`n` acceptance, symmetric AB-1 inverse guard, new `aboveCeilingMultiplier` schema ceiling, `coveredThresholds` / `aboveCeilingMultiplier` fields on `DetectorMetadata`, capture-helper example screen, README documenting both Chrome-native and Perfetto traceconv export paths, one-time matrix exception for iPhone 12 / iOS 17.5 — lands as committed so v0.16.5 can re-raise trivially once a real `[1000, 2000)` `above` capture is recorded.

@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.16.4 (2026-04-21)_
+_Last updated: v0.16.5 (2026-04-21)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
@@ -29,22 +29,28 @@ adding a new tier requires a semver major bump:
 
 ## Ledger
 
-**Summary:** 0 / 23 at `externallyCited`, 5 / 23 at `reproducerOnly`, 18 / 23
-at `unvalidated`. No detectors currently at `runtimeVerified` or stronger.
-v0.16.4 staged an `externallyCited` raise on `NetworkMonitorDetector.slow_request`
-WARNING tier (NNG 1.0 s citation) but reverted post-adversarial-review: the
-`above` capture at 3117 ms ambiently bracketed the 3000 ms critical tier,
-providing dual-use evidence the prose scope boundary could not un-bracket.
-Re-raise targeted for v0.16.5 once the `above` capture is re-recorded within
-`[1000, 2000)`, severity-scoped `coveredThresholds` metadata is wired through,
-and the new `aboveCeilingMultiplier` schema guard can mechanically enforce
-the band.
+**Summary:** 5 / 23 at `reproducerOnly`, 18 / 23 at `unvalidated`. No
+detectors currently at `runtimeVerified` or `externallyCited`. v0.16.5
+staged a second `externallyCited` raise on
+`NetworkMonitorDetector.slow_request.warning` (1000 ms) and reverted it
+on two grounds: (1) NN/g "Response Times: The 3 Important Limits" 1.0 s
+is a UI direct-manipulation feedback guideline, not a generic HTTP
+latency threshold — the detector emits `slow_request` for any
+uncancelled request, so the citation does not substantiate the detector
+contract; (2) profile captures verify scenario begin/end marker span
+only, not detector-produced issue emission. Distribution is unchanged
+from v0.16.3. The three capture files (812 / 1035 / 1515 ms on iPhone
+12 / iOS 17.5 / Flutter 3.41.4) stay on disk as retained orphans
+pointing at v0.16.6, which re-raises once the citation is replaced with
+a source matching the detector semantics AND
+`ProfileCaptureSchema.validateBracket` is extended to require
+detector-produced issue markers inside the scenario window.
 
 ### Runtime detectors (2)
 
 | Detector | Tier | Reproducer | Notes |
 |---|---|---|---|
-| Network Monitor | `reproducerOnly` | [`network_monitor_reproducer_test.dart`](../test/validation/network_monitor_reproducer_test.dart) | `slow_request` family pinned (both warning + critical tiers) by a hermetic reproducer covering `processRecord` boundaries plus a loopback `HttpServer` exercising the full `SleuthHttpOverrides → RequestRecord → processRecord` pipeline across `await for`, `.listen()`, `.drain()`, and `.asFuture()` consumption paths. **v0.16.4 staged an `externallyCited` raise on the WARNING tier (NNG 1.0 s citation) and reverted** post-adversarial-review: the `above` capture at 3117 ms ambiently bracketed the 3000 ms critical tier, providing dual-use evidence the prose scope boundary could not un-bracket. Re-raise deferred to v0.16.5 once (a) `above` is re-recorded within `[1000, 2000)`, (b) severity-scoped `coveredThresholds: {'slow_request.warning'}` metadata is wired through the audit + ledger, and (c) the v0.16.4 `aboveCeilingMultiplier` schema guard mechanically rejects drift. `coveredStableIds = {'slow_request'}` — the other four issue families (`large_response`, `request_frequency`, `http_error_spike`, `high_frequency_same_path`) remain implicitly `unvalidated`. |
+| Network Monitor | `reproducerOnly` | [`network_monitor_reproducer_test.dart`](../test/validation/network_monitor_reproducer_test.dart) | Hermetic reproducer: `processRecord` boundary tests at 999 / 1000 / 2999 / 3000 / 3001 ms plus a loopback `HttpServer` exercising the full `SleuthHttpOverrides` → `_MonitoringHttpClient` → `RequestRecord` → `processRecord` pipeline. Tier history: v0.16.1 → `reproducerOnly`; v0.16.4 staged `externallyCited` raise reverted (above capture at 3117 ms ambiently bracketed warning AND critical); v0.16.5 second staged `externallyCited` raise reverted on two grounds — (a) NN/g 1.0 s is a UI direct-manipulation feedback guideline, not a generic HTTP latency threshold, (b) profile captures validate scenario marker span, not detector emission. Three capture files retained on disk as orphans for v0.16.6 reuse: [`slow_request_below.json`](../test/validation/captures/network_monitor/slow_request_below.json) (812 ms), [`slow_request_at.json`](../test/validation/captures/network_monitor/slow_request_at.json) (1035 ms), [`slow_request_above.json`](../test/validation/captures/network_monitor/slow_request_above.json) (1515 ms). `coveredStableIds = {'slow_request'}` — four other families remain implicitly `unvalidated`. |
 | Frame Timing | `unvalidated` | — | FPS target (60), warmup duration (3 s), and refresh-rate-aware jank thresholds. Not yet cited to Flutter engine sources or verified via a profile-mode capture. |
 
 ### VM-only detectors (5)
@@ -127,11 +133,10 @@ per release:
   capture dependency.
 - **v0.16.4** — Validation-infrastructure hardening. Staged the first
   `externallyCited` tier raise on `NetworkMonitorDetector.slow_request`
-  WARNING tier (NNG citation + iPhone 12 / iOS 17.5 below/at/above triad)
+  WARNING tier (NN/g citation + iPhone 12 / iOS 17.5 below/at/above triad)
   and reverted it post-adversarial-review: the `above` capture at 3117 ms
-  ambiently brackets the 3000 ms critical tier, dual-use evidence a prose
-  scope boundary cannot un-bracket. Infrastructure landed anyway:
-  `DetectorMetadata.coveredThresholds` (severity-scoped evidence
+  ambiently brackets the 3000 ms critical tier. Infrastructure landed
+  anyway: `DetectorMetadata.coveredThresholds` (severity-scoped evidence
   boundaries), `DetectorMetadata.aboveCeilingMultiplier` + schema-level
   `ProfileCaptureSchema.validateBracket` upper bound on `above`
   (default 2.0 × threshold), Flutter pin rotation 3.32 → 3.41,
@@ -139,19 +144,35 @@ per release:
   and `ProfileCaptureSchema._crossCheckTraceVsObserved` symmetric
   inverse-ratio guard. iPhone 12 / iOS 17.5 added to `approvedDevicePairs`
   as a one-time rotation exception documented in
-  `doc/reference_devices.md` as non-precedent. **← current release**
-- **v0.16.5** — Planned re-raise: re-record `slow_request_above.json`
-  within `[1000, 2000)`, wire `coveredThresholds: {'slow_request.warning'}`
-  through the audit + ledger renderer, restore the `externallyCited` tier
-  on the warning threshold with the `aboveCeilingMultiplier` guard
-  mechanically preventing drift. Consider structured matrix-exception
-  metadata (typed `retireAfter` field) and per-capture Flutter-version
-  provenance (or a `grandfatheredCaptures` set) so future pin rotations
-  cannot retroactively re-bind older captures.
-- **v0.16.5+** — Continue raising one or more detectors per release.
-  Remaining `unvalidated` detectors cluster around runtime/VM-driven
-  thresholds (frame timing, memory pressure, GPU pressure) where the next
-  tier raise will typically also need a reference-device profile capture.
+  `doc/reference_devices.md` as non-precedent.
+- **v0.16.5** — Second `externallyCited` tier raise staged and reverted.
+  Two grounds: (1) NN/g "Response Times: The 3 Important Limits" 1.0 s is
+  a UI direct-manipulation feedback guideline, not a generic HTTP
+  latency threshold — the detector emits `slow_request` for any
+  uncancelled request, so the citation does not substantiate the
+  detector contract; (2) profile captures verify scenario begin/end
+  marker span only, not detector-produced issue emission — a capture
+  triad can pass the bracket audit even if the detector were disabled.
+  Audit hardening landed and stays dormant until v0.16.6 re-raise:
+  backtick normalisation on the mechanism-4 prose-drift guard so
+  exclusion phrases match regardless of inline-code nesting around
+  identifier fragments; L2 negative assertion on
+  `coveredThresholds.*.critical`; default-drift cross-check between
+  `DetectorMetadata.bracketThreshold` and the detector's runtime
+  default. The three capture files on disk are retained orphans under
+  the manifest pointing at v0.16.6. **← current release**
+- **v0.16.6+** — Re-raise `NetworkMonitorDetector.slow_request.warning`.
+  Prerequisites: (a) replace citation with a generic mobile/API HTTP
+  latency source matching the detector semantics OR narrow the detector
+  contract to user-blocking requests and enforce scope with a gate;
+  (b) extend capture helper to emit a
+  `sleuth.issue.slow_request.warning` trace/log record with the
+  detector-measured duration; (c) extend
+  `ProfileCaptureSchema.validateBracket` to require that record inside
+  the scenario window. Remaining `unvalidated` detectors cluster around
+  runtime/VM-driven thresholds (frame timing, memory pressure, GPU
+  pressure) where the next tier raise will typically also need a
+  reference-device profile capture.
 
 Follow-up work called out in the v0.16.1 adversarial-review cycle:
 

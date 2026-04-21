@@ -157,16 +157,18 @@ void main() {
 
     test(
         'pinned detector-row assertion — NetworkMonitorDetector is on '
-        'the ledger at reproducerOnly (v0.16.4)', () {
+        'the ledger at reproducerOnly (v0.16.5)', () {
       // AB-9: The tier-counts test above is coarse — it proves "N
-      // detectors are at reproducerOnly" but cannot catch a ledger edit
-      // that swaps which specific detector holds a given tier without
-      // changing the count. Pin the specific row so a silent swap
-      // fails loudly.
+      // detectors are at reproducerOnly" but cannot catch a ledger
+      // edit that swaps which specific detector holds a given tier
+      // without changing the count. Pin the specific row so a silent
+      // swap fails loudly.
       //
       // Tier history: v0.16.1 reproducerOnly → v0.16.4 reproducerOnly
-      // (externallyCited staged + reverted in same release; see
-      // detector rationale for re-raise plan).
+      // (externallyCited staged + reverted in same release) → v0.16.5
+      // reproducerOnly (second externallyCited staged + reverted after
+      // advanced-adversarial-review caught NN/g semantic mismatch and
+      // capture-proves-helper-not-detector blockers).
       final ledgerFile = File('doc/validation_ledger.md');
       if (!ledgerFile.existsSync()) {
         markTestSkipped('CWD is not the package root; skipping.');
@@ -187,7 +189,7 @@ void main() {
       );
       expect(pinnedRow.hasMatch(detectorSection), isTrue,
           reason: 'Ledger must carry a pinned row `| Network Monitor | '
-              '`reproducerOnly` | ...` — a silent demotion or an '
+              '`reproducerOnly` | ...` — a silent tier raise or an '
               'unreviewed tier swap would otherwise pass the tier-count '
               'gate.');
     });
