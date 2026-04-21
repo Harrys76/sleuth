@@ -360,6 +360,161 @@ void main() {
       expect(failures.first, contains('does not reference "MyThing"'));
     });
 
+    // B4 Bundle K (v0.16.3 blocker): the reproducer gate must prove the
+    // detector is actually constructed inside a test scope — not just
+    // referenced by name. A file with an unused type annotation and a
+    // single unrelated test would previously satisfy the old gate. These
+    // negative tests close that loophole while keeping the 4 v0.16.3
+    // reproducers (which instantiate in setUp at group scope) passing
+    // because setUp is tracked as a wrapper.
+    test('B4: rejects a file with token only in a top-level type annotation',
+        () async {
+      final file = File('${root.path}/top_level_only_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+// Unused annotation outside any test-harness callback — should NOT
+// credit XyzDetector as "exercised" by the reproducer.
+late XyzDetector _unused;
+
+void main() {
+  test('unrelated', () {
+    expect(true, isTrue);
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'top_level_only_test.dart',
+        requiredTokens: ['XyzDetector'],
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.first,
+          contains('does not reference "XyzDetector" by name inside a test'));
+    });
+
+    test('B4: rejects a file with token referenced but never instantiated',
+        () async {
+      final file = File('${root.path}/no_instantiation_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  group('g', () {
+    XyzDetector? detector;
+    test('references but never constructs', () {
+      // `detector` is declared but never assigned — XyzDetector
+      // appears as identifier inside scope (satisfying the scope
+      // check) but is never instantiated.
+      expect(detector, isNull);
+    });
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'no_instantiation_test.dart',
+        requiredTokens: ['XyzDetector'],
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.first, contains('never instantiates "XyzDetector"'));
+    });
+
+    test(
+        'B4: accepts instantiation in setUp at group scope (v0.16.3 '
+        'reproducer pattern)', () async {
+      final file = File('${root.path}/group_setup_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  group('g', () {
+    late XyzDetector detector;
+    setUp(() {
+      detector = XyzDetector();
+    });
+    test('uses it', () {
+      expect(detector, isNotNull);
+    });
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'group_setup_test.dart',
+        requiredTokens: ['XyzDetector'],
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason: 'setUp at group scope must credit instantiation — '
+              'this is the v0.16.3 reproducer pattern.');
+    });
+
+    test(
+        'B4: rejects when coveredStableIds is declared but no stable-id '
+        'literal appears in a test scope', () async {
+      final file = File('${root.path}/missing_covered_id_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('constructs but does not assert the claimed family', () {
+    final d = XyzDetector();
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'missing_covered_id_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.first,
+          contains('does not reference any coveredStableIds entry'));
+    });
+
+    test(
+        'B4: accepts coveredStableIds prefix match (family:suffix covers '
+        'the canonical family id)', () async {
+      final file = File('${root.path}/prefix_covered_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('exact prefix', () {
+    final d = XyzDetector();
+    expect('my_family:0', contains('my_family:'));
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'prefix_covered_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason: 'A string literal matching "my_family:<suffix>" must '
+              'satisfy the coveredStableIds prefix convention.');
+    });
+
     test('skips gracefully when CWD is not a package root', () {
       // No pubspec.yaml at this override — helper must return [] rather
       // than false-failing.

@@ -214,6 +214,7 @@ void main() {
             label: label,
             reproducerPath: path,
             requiredTokens: [d.runtimeType.toString()],
+            coveredStableIds: meta.coveredStableIds,
           ));
         }
         failures.addAll(checkCapturePaths(

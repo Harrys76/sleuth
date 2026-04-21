@@ -258,13 +258,15 @@ class GlobalKeyDetector extends BaseDetector with DetectorMetadataProvider {
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
         rationale:
-            'Hermetic reproducer pins both families: excessive_global_keys '
-            '(threshold boundary, critical escalation above 3× threshold, '
-            'scrollable-context gate — bare-tree keys are ignored) and '
-            'global_key_recreation (identity-hash churn across two scans on '
-            'the same scan root fires, stable keys held in State fields do '
-            'not, first scan alone is silent because _prevKeyIds is empty). '
-            'Not yet runtime-verified on a profile-mode capture.',
+            'Hermetic reproducer pins both families with their correct scope '
+            'contracts: excessive_global_keys is scrollable-gated (threshold '
+            'boundary, critical escalation above 3× threshold, bare-tree '
+            'keys ignored), while global_key_recreation is whole-tree '
+            '(identity-hash churn across two scans on the same scan root '
+            'fires in a scrollable context AND in a bare Column tree, stable '
+            'keys held in State fields do not, first scan alone is silent '
+            'because _prevKeyIds is empty). Not yet runtime-verified on a '
+            'profile-mode capture.',
         reproducerPath: 'test/validation/global_key_reproducer_test.dart',
         coveredStableIds: {
           'excessive_global_keys',

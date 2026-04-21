@@ -2,26 +2,37 @@
 //
 // Cited by `ImageMemoryDetector.validationMetadata.reproducerPath` as the
 // single-file evidence supporting the detector's
-// `EvidenceTier.reproducerOnly` claim (v0.16.3 per-detector validation
-// milestone). Covers the `uncached_images` stable-id family.
+// `EvidenceTier.reproducerOnly` claim. Covers the `uncached_images`
+// stable-id family across BOTH emission branches:
+//
+//   - `Image` widget branch (`checkElement` line 76-82 of
+//     image_memory_detector.dart)
+//   - `DecoratedBox` branch with `BoxDecoration.image`
+//     (`_checkDecorationImage`, line 87-101) — `Container(decoration:
+//     BoxDecoration(image: DecorationImage(...)))` hoists to a
+//     `DecoratedBox` during element build, so the tree walk reaches the
+//     decoration path directly.
 //
 // The detector is a pure structural scan over the element tree — no VM
 // timeline, no decode dependency. It triggers when:
-//   1. widget is Image (or DecoratedBox with BoxDecoration.image)
-//   2. provider is NOT a ResizeImage
+//   1. widget is Image OR DecoratedBox with BoxDecoration.image
+//   2. provider (or `decoration.image.image`) is NOT a ResizeImage
 //   3. render-object size is NOT within the 50dp×50dp small-image skip
 //      (zero / unconstrained sizes are treated as NOT small so they still
 //      fire — a 0-size Image almost always means the parent forgot to
 //      constrain it, which is the bug we want surfaced)
 //
-// Boundary triad:
+// Boundary triad (Image branch):
 //   - 40×40 (below)  → _isSmallImage returns true → NO fire
 //   - 51×51 (at)     → above 50dp threshold → fires
 //   - 100×100 (above) → fires
 //
-// Plus: ResizeImage wrapper at any size suppresses; and a zero-size
-// unconstrained Image still fires (documents the "zero is not small"
-// policy the detector's docstring commits to).
+// Plus: ResizeImage wrapper at any size suppresses (tested both on the
+// Image branch and inside a DecorationImage); a zero-size unconstrained
+// Image still fires (documents the "zero is not small" policy); and a
+// 100×100 Container-with-BoxDecoration-image fires under the DecoratedBox
+// branch to prove the decoration emission path is exercised by this
+// single-file evidence, not only the Image branch.
 
 import 'dart:typed_data';
 
@@ -166,6 +177,62 @@ void main() {
           .where((i) => i.stableId == 'uncached_images')
           .toList();
       expect(issues, hasLength(1));
+    });
+
+    testWidgets(
+        '100×100 Container(decoration: BoxDecoration(image: DecorationImage)) '
+        'fires uncached_images via the DecoratedBox branch', (tester) async {
+      // `Container(decoration: BoxDecoration(image: ...))` hoists to a
+      // `DecoratedBox` during element build, so the tree walk reaches
+      // `_checkDecorationImage` (detector line 87-101), a sibling branch
+      // to the `Image` widget branch. Without this case, a regression
+      // isolated to the decoration path (missing ResizeImage bail-out,
+      // BoxDecoration semantics drift, Container→DecoratedBox hoist
+      // change) would ship with the reproducerOnly badge and no failing
+      // test.
+      await tester.pumpWidget(_wrapSized(
+        size: 100,
+        child: Container(
+          decoration: BoxDecoration(
+            image: DecorationImage(image: MemoryImage(_kTransparentPng)),
+          ),
+        ),
+      ));
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      final issues = detector.issues
+          .where((i) => i.stableId == 'uncached_images')
+          .toList();
+      expect(issues, hasLength(1),
+          reason: 'DecoratedBox emission path must fire just like the '
+              'Image widget branch when above the 50dp threshold.');
+    });
+
+    testWidgets('100×100 DecorationImage wrapping ResizeImage suppresses', (
+      tester,
+    ) async {
+      // Parallel to the Image-branch ResizeImage suppression — the
+      // `_checkDecorationImage` guard must also bail out when the inner
+      // provider is a ResizeImage, or the documented fix is unenforced
+      // on the decoration path.
+      await tester.pumpWidget(_wrapSized(
+        size: 100,
+        child: Container(
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              image: ResizeImage(MemoryImage(_kTransparentPng), width: 100),
+            ),
+          ),
+        ),
+      ));
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      expect(
+        detector.issues.where((i) => i.stableId == 'uncached_images'),
+        isEmpty,
+        reason: 'ResizeImage-inside-DecorationImage is the documented fix '
+            'for the DecoratedBox emission branch.',
+      );
     });
   });
 }

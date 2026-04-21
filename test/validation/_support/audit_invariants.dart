@@ -374,6 +374,8 @@ List<String> checkReproducerFile({
   required String label,
   required String reproducerPath,
   required Iterable<String> requiredTokens,
+  Set<String>? coveredStableIds,
+  bool requireInstantiation = true,
   String? repoRoot,
 }) {
   if (reproducerPath.trim().isEmpty) return const [];
@@ -424,7 +426,10 @@ List<String> checkReproducerFile({
       featureSet: FeatureSet.latestLanguageVersion(),
       throwIfDiagnostics: false,
     );
-    visitor = _ReproducerAstVisitor(requiredTokens.toSet());
+    visitor = _ReproducerAstVisitor(
+      requiredTokens: requiredTokens.toSet(),
+      coveredStableIds: coveredStableIds ?? const <String>{},
+    );
     result.unit.visitChildren(visitor);
   } on ArgumentError catch (e) {
     failures.add('$label: reproducer file failed to parse as Dart '
@@ -438,11 +443,36 @@ List<String> checkReproducerFile({
   }
   for (final token in requiredTokens) {
     if (token.isEmpty) continue;
-    if (!visitor.foundTokens.contains(token)) {
-      failures.add('$label: reproducer file does not reference "$token" by '
-          'name — the reproducer must exercise the thing under claim '
-          '(file: $reproducerPath)');
+    // B4 Bundle K: credit identifier occurrences ONLY inside test-wrapper
+    // callback bodies (test / testWidgets / setUp / setUpAll / tearDown /
+    // tearDownAll / group). A top-level `late XyzDetector _unused;` or a
+    // dangling import re-export no longer satisfies the reproducer gate.
+    if (!visitor.tokensFoundInScope.contains(token)) {
+      failures.add('$label: reproducer file does not reference "$token" '
+          'by name inside a test/testWidgets/setUp/tearDown/group body — '
+          'the reproducer must exercise the thing under claim from real '
+          'test-harness code (file: $reproducerPath)');
+      continue;
     }
+    // B4 Bundle K: the token must be instantiated (`XyzDetector(...)`)
+    // at least once inside a test scope so a stale type annotation that
+    // never constructs the detector cannot satisfy the gate. Components
+    // that publish metadata for a utility class (e.g. a schema with only
+    // static methods) opt out via `requireInstantiation: false`.
+    if (requireInstantiation && !visitor.tokensInstantiated.contains(token)) {
+      failures.add('$label: reproducer file never instantiates "$token" '
+          '(no `$token(...)` construction found inside a test scope) — '
+          'the reproducer must drive the detector through its real '
+          'construction path (file: $reproducerPath)');
+    }
+  }
+  if ((coveredStableIds ?? const <String>{}).isNotEmpty &&
+      !visitor.hasCoveredStableIdLiteralInScope) {
+    failures.add('$label: reproducer file does not reference any '
+        'coveredStableIds entry ($coveredStableIds) as a string literal '
+        'inside a test scope — the reproducer must assert against the '
+        'detector\'s declared stable-id family, not just construct the '
+        'detector and walk away (file: $reproducerPath)');
   }
   return failures;
 }
@@ -466,11 +496,53 @@ List<String> checkReproducerFile({
 ///     expression; default descent visits the expression but skips the
 ///     text, which is exactly what we want.
 class _ReproducerAstVisitor extends RecursiveAstVisitor<void> {
-  _ReproducerAstVisitor(this.requiredTokens);
+  _ReproducerAstVisitor({
+    required this.requiredTokens,
+    required this.coveredStableIds,
+  });
 
   final Set<String> requiredTokens;
+  final Set<String> coveredStableIds;
+
   bool hasTestInvocation = false;
-  final Set<String> foundTokens = <String>{};
+  final Set<String> tokensFoundInScope = <String>{};
+  final Set<String> tokensInstantiated = <String>{};
+  bool hasCoveredStableIdLiteralInScope = false;
+
+  /// Test-harness wrapper names whose body callback counts as a
+  /// "test scope" for the purposes of crediting identifier references
+  /// and stable-id string literals. `group` is included because the
+  /// 4 v0.16.3 reproducers all declare `late XyzDetector detector;`
+  /// and `setUp(() { detector = XyzDetector(); })` at group scope.
+  /// `setUp` / `setUpAll` / `tearDown` / `tearDownAll` are the other
+  /// canonical fixture entry points.
+  static const _wrapperNames = <String>{
+    'test',
+    'testWidgets',
+    'group',
+    'setUp',
+    'setUpAll',
+    'tearDown',
+    'tearDownAll',
+  };
+
+  int _scopeDepth = 0;
+
+  bool _isTestWrapperCallback(FunctionExpression node) {
+    final parent = node.parent;
+    if (parent is! ArgumentList) return false;
+    final invocation = parent.parent;
+    if (invocation is! MethodInvocation) return false;
+    return _wrapperNames.contains(invocation.methodName.name);
+  }
+
+  @override
+  void visitFunctionExpression(FunctionExpression node) {
+    final isWrapper = _isTestWrapperCallback(node);
+    if (isWrapper) _scopeDepth++;
+    super.visitFunctionExpression(node);
+    if (isWrapper) _scopeDepth--;
+  }
 
   @override
   void visitMethodInvocation(MethodInvocation node) {
@@ -478,15 +550,67 @@ class _ReproducerAstVisitor extends RecursiveAstVisitor<void> {
     if (name == 'test' || name == 'testWidgets') {
       hasTestInvocation = true;
     }
+    // Credit implicit-new constructor calls like `XyzDetector()` which
+    // `parseString` (syntactic-only, no element resolution) parses as a
+    // `MethodInvocation` rather than an `InstanceCreationExpression`
+    // because it has no type info to disambiguate. Required tokens are
+    // by contract type names, so any call whose method-name matches
+    // counts as instantiation.
+    if (_scopeDepth > 0 && requiredTokens.contains(name)) {
+      tokensInstantiated.add(name);
+    }
     super.visitMethodInvocation(node);
   }
 
   @override
   void visitSimpleIdentifier(SimpleIdentifier node) {
-    if (requiredTokens.contains(node.name)) {
-      foundTokens.add(node.name);
+    if (_scopeDepth > 0 && requiredTokens.contains(node.name)) {
+      tokensFoundInScope.add(node.name);
     }
     super.visitSimpleIdentifier(node);
+  }
+
+  @override
+  void visitNamedType(NamedType node) {
+    // `NamedType.name2` is a Token (not a child node) in analyzer 6.x,
+    // so default `RecursiveAstVisitor` descent does NOT fire
+    // `visitSimpleIdentifier` on type names. Without this explicit
+    // visit, `late XyzDetector detector;` inside a `group(() { ... })`
+    // callback would not credit the `XyzDetector` scope reference and
+    // the audit would spuriously fail on a well-formed reproducer.
+    if (_scopeDepth > 0) {
+      final typeToken = node.name2.lexeme;
+      if (requiredTokens.contains(typeToken)) {
+        tokensFoundInScope.add(typeToken);
+      }
+    }
+    super.visitNamedType(node);
+  }
+
+  @override
+  void visitInstanceCreationExpression(InstanceCreationExpression node) {
+    if (_scopeDepth > 0) {
+      final typeToken = node.constructorName.type.name2.lexeme;
+      if (requiredTokens.contains(typeToken)) {
+        tokensInstantiated.add(typeToken);
+      }
+    }
+    super.visitInstanceCreationExpression(node);
+  }
+
+  @override
+  void visitSimpleStringLiteral(SimpleStringLiteral node) {
+    if (_scopeDepth > 0 && coveredStableIds.isNotEmpty) {
+      final value = node.value;
+      for (final id in coveredStableIds) {
+        if (id.isEmpty) continue;
+        if (value == id || value.startsWith('$id:')) {
+          hasCoveredStableIdLiteralInScope = true;
+          break;
+        }
+      }
+    }
+    super.visitSimpleStringLiteral(node);
   }
 }
 

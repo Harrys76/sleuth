@@ -651,6 +651,13 @@ List<String> _runInvariants(List<ComponentMetadata> components) {
         // CODEX-R3-2 parity with the detector gate: the reproducer must
         // textually reference the componentName by name.
         requiredTokens: [m.componentName],
+        // Components cover non-detector entities (schemas, validators,
+        // utility classes) — many have only static methods and are
+        // never constructed from the reproducer. The detector gate's
+        // instantiation requirement does not transfer; a component's
+        // reproducer exercises the component through whatever its
+        // actual API shape is (e.g. `ProfileCaptureSchema.parseFile`).
+        requireInstantiation: false,
       ));
     }
 

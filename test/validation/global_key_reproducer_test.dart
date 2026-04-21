@@ -19,8 +19,14 @@
 //     asymmetric — one page's keys vanish, another's appear) from
 //     in-place rebuild-driven recreation.
 //
-// Both require a scrollable context. The detector ONLY counts keys
-// while a ListView/GridView/PageView is on its internal stack.
+// The two families have DIFFERENT scope contracts. `excessive_global_keys`
+// only counts keys while a ListView / GridView / PageView is on the
+// detector's internal scrollable stack — bare-tree keys are ignored.
+// `global_key_recreation` is WHOLE-TREE: every GlobalKey identity hash
+// is recorded into `_currentKeyIds` at `checkElement` BEFORE the
+// scrollable-stack gate, so a non-scrollable tree (e.g., a Form whose
+// field-bound GlobalKeys get rebuilt every frame) still produces churn
+// and fires. Both scope contracts are pinned below.
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -204,6 +210,45 @@ void main() {
         isEmpty,
         reason: 'identity hashes are unchanged across scans — no churn.',
       );
+    });
+
+    testWidgets(
+        'recreation in a NON-SCROLLABLE tree still fires — '
+        'family is whole-tree, not scrollable-gated', (tester) async {
+      // Pins the implementation contract: `_currentKeyIds.add` at
+      // global_key_detector.dart:117 runs for every GlobalKey BEFORE
+      // the scrollable-stack gate at line 123. A Form that rebuilds
+      // field-bound GlobalKeys every frame — no ListView/GridView/PageView
+      // in sight — still produces recreation churn. This is the
+      // contract the `excessive_global_keys` scrollable-only test
+      // explicitly does NOT apply to.
+      List<Widget> fresh() => [
+            for (var i = 0; i < 4; i++)
+              SizedBox(
+                key: GlobalKey(debugLabel: 'bare$i'),
+                height: 40,
+                child: Text('$i'),
+              ),
+          ];
+
+      Widget bareTree(List<Widget> children) => Directionality(
+            textDirection: TextDirection.ltr,
+            child: Column(children: children),
+          );
+
+      await tester.pumpWidget(bareTree(fresh()));
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      await tester.pumpWidget(bareTree(fresh()));
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      final issues = detector.issues
+          .where((i) => i.stableId == 'global_key_recreation')
+          .toList();
+      expect(issues, hasLength(1),
+          reason: 'recreation family is whole-tree — a Column-only tree '
+              'must still fire when keys churn.');
+      expect(issues.single.title, contains('4 keys recreated'));
     });
 
     testWidgets(
