@@ -273,15 +273,13 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hybrid detector. Both emission families pinned by '
-            '`test/detectors/gpu_pressure_detector_test.dart` — '
-            '`raster_dominance` (VM timeline: raster > UI × 2.0 sustained) '
-            'and `expensive_gpu_nodes` (tree walk: deep Opacity/ClipPath '
-            'stacks corroborated by raster pressure). Confidence '
-            'downgrade on VM disconnect pinned. Reproducer reuses '
-            'existing detector unit tests; fixtures are synthetic and '
-            'predate the validation methodology. Not yet runtime-verified '
-            'against Impeller/Skia budgets or externally cited.',
+        rationale: 'Hybrid detector. Both families pinned: '
+            '`raster_dominance` (VM timeline raster > UI × 2.0 sustained) '
+            'and `expensive_gpu_nodes` (tree walk, deep Opacity/ClipPath '
+            'corroborated by raster pressure). Confidence downgrade on '
+            'VM disconnect pinned. Fixtures synthetic, same-author '
+            'provenance. Not runtime-verified against Impeller/Skia '
+            'budgets or externally cited.',
         reproducerPath: 'test/detectors/gpu_pressure_detector_test.dart',
         coveredStableIds: {'raster_dominance', 'expensive_gpu_nodes'},
       );

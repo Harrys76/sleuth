@@ -448,24 +448,16 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hybrid detector. Two non-parametric families pinned by '
-            '`test/detectors/repaint_detector_test.dart` — '
-            '`excessive_repaint` (>30 paints/sec aggregate) and '
+        rationale: 'Hybrid detector. Two families pinned: '
+            '`excessive_repaint` (>30 paints/sec aggregate) + '
             '`excessive_repaint_debug` (debug-callback corroborated '
-            'residual). Animation-owner filter pinned by the dedicated '
-            'group in the test file. Known narrowing: the parametric '
-            '`repaint_debug_<typeName>` family uses `_` not `:` as the '
-            'separator, so the audit-gate prefix convention does not '
-            'match it. The concrete `repaint_debug_CustomPaint` instance '
-            'IS exercised by existing assertions (test lines 682/698/723) '
-            'but is not declared in `coveredStableIds` — the literal is '
-            'observed by the visitor and silently ignored because it '
-            'does not match either declared family. The parametric '
-            'family is effectively covered-in-test but unclaimed-in-metadata. '
-            'Reproducer reuses existing detector unit tests; fixtures '
-            'are synthetic and predate the validation methodology. Not '
-            'yet runtime-verified against refresh-rate-specific '
-            'baselines or externally cited.',
+            'residual). Animation-owner filter pinned. Narrowing: '
+            'parametric `repaint_debug_<typeName>` uses `_` separator, '
+            'outside audit prefix convention — concrete '
+            '`repaint_debug_CustomPaint` is test-exercised but not '
+            'declarable at detector scope. Fixtures synthetic, '
+            'same-author provenance. Not runtime-verified against '
+            'refresh-rate-specific baselines or externally cited.',
         reproducerPath: 'test/detectors/repaint_detector_test.dart',
         coveredStableIds: {'excessive_repaint', 'excessive_repaint_debug'},
       );

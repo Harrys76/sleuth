@@ -55,14 +55,9 @@ import 'package:sleuth/src/models/base_detector.dart';
 
 import '_support/audit_invariants.dart';
 
-// File-scope anchor expectations. Each map pins the (type → reproducerPath
-// → coveredStableIds) triple for a tier-raise batch. These maps are the
-// SINGLE SOURCE OF TRUTH for the ratchet invariant below — `anchoredTypes`
-// derives its entries from these maps' keys, so deleting an anchor block
-// literally removes the detector from `anchoredTypes` and fires the
-// ratchet. Prior designs kept a separate hand-maintained `anchoredTypes`
-// set which could drift out of sync if an anchor block was deleted while
-// the allowlist entry stayed; that gap is closed by derivation.
+// Anchor expectations per batch. Single source of truth: `anchoredTypes`
+// below derives its entries from these maps' keys, so deleting an anchor
+// block removes its detectors from `anchoredTypes` and fires the ratchet.
 const _v0163Expectations = <DetectorType, (String, Set<String>)>{
   DetectorType.imageMemory: (
     'test/validation/image_memory_reproducer_test.dart',

@@ -514,24 +514,17 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hybrid detector. Two families pinned by '
-            '`test/detectors/rebuild_detector_test.dart`: '
-            '`stateful_density` (public-named StatefulWidget count '
-            'crosses the density gate; framework/private widgets '
-            'filtered) and `rebuild_activity` (VM-timeline rebuild-rate '
-            'aggregate — warning at `buildCount > rebuildsPerSecThreshold` '
-            'default 10/sec, critical at `> 3 × threshold` = 30/sec; '
-            'pinned by tests at buildCount=15 → warning and buildCount=35 '
-            '→ critical). Known narrowing: the parametric '
-            '`rebuild_debug_<typeName>` family uses `_` separator, '
-            'outside the audit gate prefix convention (`:`) — concrete '
-            'instances may be test-exercised but cannot be declared '
-            'at detector scope. Reproducer reuses existing detector '
-            'unit tests; fixtures are synthetic with same-author '
-            'provenance (not an anti-tautology acknowledgement). '
-            'VM → TimelineParser → detector boundary is NOT exercised '
-            'at this tier. Not yet runtime-verified on a reference '
-            'device or externally cited.',
+        rationale: 'Hybrid detector. Two families pinned: '
+            '`stateful_density` (public-named StatefulWidget density; '
+            'framework/private filtered) + `rebuild_activity` '
+            '(VM-timeline rebuild-rate — warning at '
+            '`> rebuildsPerSecThreshold` default 10/sec, critical at '
+            '`> 3×` = 30/sec; tests pin 15 → warning, 35 → critical). '
+            'Narrowing: parametric `rebuild_debug_<typeName>` uses `_` '
+            'separator, outside the audit prefix convention. VM → '
+            'TimelineParser → detector boundary not exercised at this '
+            'tier. Fixtures synthetic, same-author provenance. Not '
+            'runtime-verified or externally cited.',
         reproducerPath: 'test/detectors/rebuild_detector_test.dart',
         coveredStableIds: {'stateful_density', 'rebuild_activity'},
       );

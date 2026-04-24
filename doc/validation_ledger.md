@@ -30,16 +30,13 @@ adding a new tier requires a semver major bump:
 ## Ledger
 
 **Summary:** **23 / 23 at `reproducerOnly`, 0 / 23 at `unvalidated`**
-in v0.17.2. No detectors currently at `runtimeVerified` or
-`externallyCited`. **Tier is NOT uniform** across 23 detectors —
-v0.17.2's 8 vmOnly + hybrid detectors drive detector entrypoints
-(`processTimelineData`, `processHeapSample`) directly with synthetic
-helper-constructed inputs; the VM → `TimelineParser` → detector
-contract boundary is NOT exercised. Prior-batch structural detectors
-(v0.16.3, v0.17.1) drove real `pumpWidget` + `scanTree` and carry
-materially stronger evidence. A future tier ladder may split
-parser-blind vs end-to-end into sub-tiers. v0.17.2 raises the final 8
-vmOnly + hybrid detectors in a single bulk batch:
+in v0.17.2. No detectors at `runtimeVerified` or `externallyCited`.
+**Tier not uniform.** v0.17.2 vmOnly reproducers drive detector
+entrypoints directly (`processTimelineData` / `processHeapSample`);
+VM → `TimelineParser` → detector boundary not exercised. Prior
+structural batches (v0.16.3, v0.17.1) drove real `pumpWidget` +
+`scanTree` — materially stronger evidence. v0.17.2 raises the final
+8 vmOnly + hybrid detectors in a single bulk batch:
 `ShaderJankDetector`, `HeavyComputeDetector`, `PlatformChannelDetector`,
 `MemoryPressureDetector`, `GpuPressureDetector`, `RepaintDetector`,
 `RebuildDetector`, and `ShallowRebuildRiskDetector`. Reproducers reuse
@@ -241,25 +238,16 @@ per release:
   `MemoryPressureDetector`, `GpuPressureDetector`, `RepaintDetector`,
   `RebuildDetector`, `ShallowRebuildRiskDetector`. Reproducers reuse
   existing `test/detectors/*_detector_test.dart` suites (fixtures
-  synthetic, predate validation methodology — disclosed per
-  rationale). **Pipeline gap**: vmOnly reproducers drive detector
-  internals directly (`processTimelineData` /
-  `processHeapSample`); the real VM → `TimelineParser` → detector
-  contract boundary is NOT exercised at this tier. A format-level
-  bug at that hop (field rename, type coercion, enum shift) would
-  pass audit silently. A runtimeVerified raise would additionally
-  require a profile-mode capture exercising the full pipeline. Two
-  partial-coverage disclosures ship: `RepaintDetector` (parametric
-  `repaint_debug_<typeName>` uncovered — concrete
-  `repaint_debug_CustomPaint` instance IS exercised by tests but not
-  declared in `coveredStableIds` because the audit prefix convention
-  uses `:` not `_`) and `RebuildDetector` (`rebuild_activity` +
-  parametric `rebuild_debug_<typeName>` uncovered). Parametric
-  underscore-separator families outside the audit gate's `:` prefix
-  convention remain the one methodology gap. Ledger distribution:
-  **23/23 `reproducerOnly`, 0/23 `unvalidated`** — detector-scope
-  milestone (family-scope coverage is NOT universal per the two
-  disclosures above). **← current release**
+  synthetic, same-author provenance). **Pipeline gap**: vmOnly
+  reproducers drive detector entrypoints directly; VM →
+  `TimelineParser` → detector boundary not exercised. Format-level
+  regressions at that hop pass audit silently. One narrowing shipped
+  for both `RepaintDetector` and `RebuildDetector`: parametric
+  underscore-separator families (`repaint_debug_<typeName>`,
+  `rebuild_debug_<typeName>`) not declarable under audit's `:`
+  prefix convention. Ledger distribution: **23/23 `reproducerOnly`,
+  0/23 `unvalidated`** — detector-scope only (family-scope coverage
+  not universal per disclosures above). **← current release**
 - **v0.18.0+** — Re-raise `NetworkMonitorDetector.slow_request.warning`
   (hard deadline — orphan manifest `consumeBy: '0.18.0'` blocks the
   release unless re-raised or orphans deleted). Also drops the

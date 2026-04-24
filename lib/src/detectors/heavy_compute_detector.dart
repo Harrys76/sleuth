@@ -143,18 +143,14 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
         rationale: 'VM-only detector. Frame-blocking compute-gap threshold '
-            'pinned by `test/detectors/heavy_compute_detector_test.dart` — '
-            'both emission sites exercised: enriched path '
-            '(`_createIssue` with `dirtyList`, "Heavy Build:" title) and '
-            'non-enriched path (`_createGenericIssue`, "Heavy '
-            'Computation:" title). Both emit `heavy_compute` stableId. '
-            'Reproducer drives `processTimelineData` with synthetic '
-            'frame-gap events, asserts emission at boundary + silence '
-            'below. Reproducer reuses existing detector unit tests; '
-            'fixtures are synthetic and predate the validation '
-            'methodology. VM → `TimelineParser` → detector contract '
-            'boundary is NOT exercised at this tier. Not yet '
-            'runtime-verified or externally cited.',
+            'pinned. Both emission sites exercised: enriched '
+            '(`_createIssue` + dirtyList, "Heavy Build:" title) + '
+            'non-enriched (`_createGenericIssue`, "Heavy Computation:" '
+            'title). Both emit `heavy_compute`. Drives '
+            '`processTimelineData` with synthetic frame-gap events. '
+            'VM → TimelineParser boundary not exercised. Fixtures '
+            'synthetic, same-author provenance. Not runtime-verified '
+            'or externally cited.',
         reproducerPath: 'test/detectors/heavy_compute_detector_test.dart',
         coveredStableIds: {'heavy_compute'},
       );
