@@ -125,18 +125,25 @@ const _v0171Expectations = <DetectorType, (String, Set<String>)>{
   ),
 };
 
-const _v0172Expectations = <DetectorType, (String, Set<String>)>{
+/// v0.17.2 expectations tuple is `(reproducerPath, coveredStableIds,
+/// parametricFamilies?)`. Last element is null for detectors that don't
+/// declare parametric families; repaint + rebuild declare `{'repaint_debug'}`
+/// / `{'rebuild_debug'}` since v0.17.3.
+const _v0172Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
   DetectorType.shaderJank: (
     'test/detectors/shader_jank_detector_test.dart',
     {'shader_compilation'},
+    null,
   ),
   DetectorType.heavyCompute: (
     'test/detectors/heavy_compute_detector_test.dart',
     {'heavy_compute'},
+    null,
   ),
   DetectorType.platformChannel: (
     'test/detectors/platform_channel_detector_test.dart',
     {'platform_channel_traffic'},
+    null,
   ),
   DetectorType.memoryPressure: (
     'test/detectors/memory_pressure_detector_test.dart',
@@ -146,22 +153,27 @@ const _v0172Expectations = <DetectorType, (String, Set<String>)>{
       'heap_near_capacity',
       'native_memory_growing',
     },
+    null,
   ),
   DetectorType.gpuPressure: (
     'test/detectors/gpu_pressure_detector_test.dart',
     {'raster_dominance', 'expensive_gpu_nodes'},
+    null,
   ),
   DetectorType.repaint: (
     'test/detectors/repaint_detector_test.dart',
     {'excessive_repaint', 'excessive_repaint_debug'},
+    {'repaint_debug'},
   ),
   DetectorType.rebuild: (
     'test/detectors/rebuild_detector_test.dart',
     {'stateful_density', 'rebuild_activity'},
+    {'rebuild_debug'},
   ),
   DetectorType.shallowRebuildRisk: (
     'test/detectors/shallow_rebuild_risk_detector_test.dart',
     {'shallow_rebuild_risk'},
+    null,
   ),
 };
 
@@ -248,6 +260,7 @@ void main() {
               tier: meta.tier,
               coveredThresholds: meta.coveredThresholds,
               coveredStableIds: meta.coveredStableIds,
+              parametricFamilies: meta.parametricFamilies,
               bracketThreshold: meta.bracketThreshold,
             ));
             failures.addAll(checkSeverityScopedCeiling(
@@ -282,6 +295,7 @@ void main() {
               tier: meta.tier,
               coveredThresholds: meta.coveredThresholds,
               coveredStableIds: meta.coveredStableIds,
+              parametricFamilies: meta.parametricFamilies,
               bracketThreshold: meta.bracketThreshold,
             ));
             failures.addAll(checkSeverityScopedCeiling(
@@ -315,25 +329,74 @@ void main() {
         }
 
         // Any tier stronger than `unvalidated` must pin the set of stable
-        // IDs its evidence covers. A detector that emits multiple issue
-        // families cannot inherit a detector-scope tier claim across
-        // families the reproducer never exercised (see v0.16.1 AB2).
+        // IDs its evidence covers. `coveredStableIds` and
+        // `parametricFamilies` are peer namespaces — at least one must be
+        // non-empty, entries are trim/empty validated, and overlap
+        // between the two is rejected so a single literal can't discharge
+        // two obligations.
         if (meta.tier != EvidenceTier.unvalidated) {
           final covered = meta.coveredStableIds;
-          if (covered == null) {
-            failures.add('$label: missing coveredStableIds — tier > '
-                'unvalidated must declare which stable IDs the evidence '
-                'covers');
-          } else if (covered.isEmpty) {
-            failures.add('$label: coveredStableIds is empty — declare the '
-                'stable IDs the evidence covers, or demote to unvalidated');
-          } else {
+          final parametric = meta.parametricFamilies;
+          final hasCovered = covered != null && covered.isNotEmpty;
+          final hasParametric = parametric != null && parametric.isNotEmpty;
+          if (!hasCovered && !hasParametric) {
+            failures.add('$label: missing coveredStableIds AND '
+                'parametricFamilies — tier > unvalidated must declare at '
+                'least one non-empty namespace of stable IDs the evidence '
+                'covers (exact / `<family>:<param>` in coveredStableIds, or '
+                '`<family>_<typeName>` prefix in parametricFamilies)');
+          }
+          if (covered != null) {
             for (final id in covered) {
               if (id.trim().isEmpty) {
                 failures.add('$label: coveredStableIds contains an empty '
                     'or whitespace-only entry');
                 break;
               }
+            }
+          }
+          if (parametric != null) {
+            for (final fam in parametric) {
+              if (fam.trim().isEmpty) {
+                failures.add('$label: parametricFamilies contains an empty '
+                    'or whitespace-only entry');
+                break;
+              }
+            }
+          }
+          if (covered != null && parametric != null) {
+            final overlap = covered.intersection(parametric);
+            if (overlap.isNotEmpty) {
+              failures.add('$label: coveredStableIds and parametricFamilies '
+                  'share entries $overlap — declaring the same name in '
+                  'both namespaces is rejected; pick one (exact/`:` for '
+                  'bare families, `_` prefix for underscore-parametric)');
+            }
+          }
+          // Reject prefix-collision within parametricFamilies. When two
+          // entries share a `<prefix>_` relationship (e.g. `{'foo',
+          // 'foo_bar'}`), a literal like `foo_bar_baz` would match both
+          // families and let one assertion discharge two obligations.
+          if (parametric != null && parametric.length > 1) {
+            final list = parametric.toList();
+            final collisions = <String>{};
+            for (var i = 0; i < list.length; i++) {
+              for (var j = i + 1; j < list.length; j++) {
+                final a = list[i];
+                final b = list[j];
+                if (a.isEmpty || b.isEmpty) continue;
+                if (a.startsWith('${b}_') || b.startsWith('${a}_')) {
+                  collisions.add(a);
+                  collisions.add(b);
+                }
+              }
+            }
+            if (collisions.isNotEmpty) {
+              failures.add('$label: parametricFamilies entries collide on '
+                  '`_`-prefix: $collisions. A literal matching the longer '
+                  'family necessarily matches the shorter too, letting '
+                  'one assertion credit both. Narrow the declaration so '
+                  'no entry is a prefix of another.');
             }
           }
         }
@@ -364,6 +427,7 @@ void main() {
             reproducerPath: path,
             requiredTokens: [d.runtimeType.toString()],
             coveredStableIds: meta.coveredStableIds,
+            parametricFamilies: meta.parametricFamilies,
           ));
         }
         failures.addAll(checkCapturePaths(
@@ -460,6 +524,8 @@ void main() {
       expect(meta.coveredThresholds, isNull,
           reason: 'No severity-scoped claim at reproducerOnly.');
       expect(meta.aboveCeilingMultiplier, isNull);
+      expect(meta.parametricFamilies, isNull,
+          reason: 'NetworkMonitor does not declare parametric families.');
       expect(meta.coveredStableIds, equals(const {'slow_request'}),
           reason: 'Reproducer still covers the `slow_request` family; '
               'preserved from v0.16.1.');
@@ -476,15 +542,11 @@ void main() {
               'tier without its own citation + bracket triad. Offending '
               'entries: $criticalClaims.');
 
-      // Symptom-persistence mechanism 4 (v0.16.5, AB3-hardened):
-      // rationale prose making an externally-grounded claim about the
+      // Rationale prose making an externally-grounded claim about the
       // critical tier without metadata backing is prohibited. Block
-      // comments stripped first. Inline backticks normalised to
-      // whitespace BEFORE lowercasing — otherwise the exclusion-phrase
-      // matcher silently fails when the rationale wraps identifier
-      // fragments like `` stays `reproducerOnly` `` or
-      // `` `slow_request.warning` threshold only `` in inline code, as
-      // round-2 Codex's live match trace caught.
+      // comments stripped first; inline backticks normalised to
+      // whitespace BEFORE lowercasing so identifier fragments like
+      // `` stays `reproducerOnly` `` don't mask the phrase match.
       final stripped =
           meta.rationale.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
       final normalised = stripped.replaceAll('`', ' ');
@@ -561,6 +623,8 @@ void main() {
       expect(meta.coveredThresholds, isNull,
           reason: 'No severity-scoped claim at reproducerOnly.');
       expect(meta.aboveCeilingMultiplier, isNull);
+      expect(meta.parametricFamilies, isNull,
+          reason: 'FrameTiming does not declare parametric families.');
       expect(
           meta.coveredStableIds,
           equals(const {
@@ -644,6 +708,11 @@ void main() {
               '${meta.aboveCeilingMultiplier}, expected null at '
               'reproducerOnly');
         }
+        if (meta.parametricFamilies != null) {
+          failures.add('${type.name}: parametricFamilies='
+              '${meta.parametricFamilies}, expected null — v0.17.1 '
+              'structural batch does not declare parametric families');
+        }
       }
 
       expect(failures, isEmpty,
@@ -699,6 +768,11 @@ void main() {
           failures.add('${type.name}: extended-claim field populated but '
               'tier is reproducerOnly');
         }
+        if (meta.parametricFamilies != null) {
+          failures.add('${type.name}: parametricFamilies='
+              '${meta.parametricFamilies}, expected null — v0.16.3 '
+              'pre-ratchet batch does not declare parametric families');
+        }
       }
 
       expect(failures, isEmpty,
@@ -716,7 +790,7 @@ void main() {
       final failures = <String>[];
       for (final entry in expectations.entries) {
         final type = entry.key;
-        final (expectedPath, expectedIds) = entry.value;
+        final (expectedPath, expectedIds, expectedParametric) = entry.value;
         final BaseDetector? d = controller.detectorsForAudit
             .where((d) => d.type == type)
             .cast<BaseDetector?>()
@@ -742,6 +816,10 @@ void main() {
             !setEquals(meta.coveredStableIds, expectedIds)) {
           failures.add('${type.name}: coveredStableIds='
               '${meta.coveredStableIds}, expected $expectedIds');
+        }
+        if (!setEquals(meta.parametricFamilies, expectedParametric)) {
+          failures.add('${type.name}: parametricFamilies='
+              '${meta.parametricFamilies}, expected $expectedParametric');
         }
         if (meta.citationUrl != null ||
             meta.profileCapturePaths != null ||

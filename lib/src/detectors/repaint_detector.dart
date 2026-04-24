@@ -448,17 +448,18 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hybrid detector. Two families pinned: '
-            '`excessive_repaint` (>30 paints/sec aggregate) + '
+        rationale: 'Hybrid detector. All three families pinned: '
+            '`excessive_repaint` (>30 paints/sec aggregate), '
             '`excessive_repaint_debug` (debug-callback corroborated '
-            'residual). Animation-owner filter pinned. Narrowing: '
-            'parametric `repaint_debug_<typeName>` uses `_` separator, '
-            'outside audit prefix convention — concrete '
-            '`repaint_debug_CustomPaint` is test-exercised but not '
-            'declarable at detector scope. Fixtures synthetic, '
-            'same-author provenance. Not runtime-verified against '
-            'refresh-rate-specific baselines or externally cited.',
+            'residual), and parametric `repaint_debug_<typeName>` '
+            '(per-widget attribution, declared via `parametricFamilies` '
+            'since v0.17.3 — concrete `repaint_debug_CustomPaint` credits '
+            'the family via the `_` separator matcher). Animation-owner '
+            'filter pinned. Fixtures synthetic, same-author provenance. '
+            'Not runtime-verified against refresh-rate-specific baselines '
+            'or externally cited.',
         reproducerPath: 'test/detectors/repaint_detector_test.dart',
         coveredStableIds: {'excessive_repaint', 'excessive_repaint_debug'},
+        parametricFamilies: {'repaint_debug'},
       );
 }

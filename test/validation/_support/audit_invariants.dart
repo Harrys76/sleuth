@@ -375,6 +375,7 @@ List<String> checkReproducerFile({
   required String reproducerPath,
   required Iterable<String> requiredTokens,
   Set<String>? coveredStableIds,
+  Set<String>? parametricFamilies,
   bool requireInstantiation = true,
   String? repoRoot,
 }) {
@@ -429,6 +430,7 @@ List<String> checkReproducerFile({
     visitor = _ReproducerAstVisitor(
       requiredTokens: requiredTokens.toSet(),
       coveredStableIds: coveredStableIds ?? const <String>{},
+      parametricFamilies: parametricFamilies ?? const <String>{},
     );
     result.unit.visitChildren(visitor);
   } on ArgumentError catch (e) {
@@ -443,10 +445,10 @@ List<String> checkReproducerFile({
   }
   for (final token in requiredTokens) {
     if (token.isEmpty) continue;
-    // B4 Bundle K: credit identifier occurrences ONLY inside test-wrapper
-    // callback bodies (test / testWidgets / setUp / setUpAll / tearDown /
-    // tearDownAll / group). A top-level `late XyzDetector _unused;` or a
-    // dangling import re-export no longer satisfies the reproducer gate.
+    // Credit references that appear inside test-wrapper callback
+    // bodies (test / testWidgets / setUp / setUpAll / tearDown /
+    // tearDownAll / group). Top-level declarations / import re-exports
+    // don't count.
     if (!visitor.tokensFoundInScope.contains(token)) {
       failures.add('$label: reproducer file does not reference "$token" '
           'by name inside a test/testWidgets/setUp/tearDown/group body — '
@@ -454,11 +456,9 @@ List<String> checkReproducerFile({
           'test-harness code (file: $reproducerPath)');
       continue;
     }
-    // B4 Bundle K: the token must be instantiated (`XyzDetector(...)`)
-    // at least once inside a test scope so a stale type annotation that
-    // never constructs the detector cannot satisfy the gate. Components
-    // that publish metadata for a utility class (e.g. a schema with only
-    // static methods) opt out via `requireInstantiation: false`.
+    // The token must be instantiated at least once inside a test scope.
+    // Components that publish metadata for a utility class with only
+    // static methods opt out via `requireInstantiation: false`.
     if (requireInstantiation && !visitor.tokensInstantiated.contains(token)) {
       failures.add('$label: reproducer file never instantiates "$token" '
           '(no `$token(...)` construction found inside a test scope) — '
@@ -466,20 +466,36 @@ List<String> checkReproducerFile({
           'construction path (file: $reproducerPath)');
     }
   }
-  // Require every declared family to be observed as a credited literal.
-  if ((coveredStableIds ?? const <String>{}).isNotEmpty) {
-    final declared = coveredStableIds!;
-    final missing = declared.difference(visitor.matchedCoveredFamilies);
+  // Bare/colon families and underscore-parametric families track in
+  // independent namespaces — a literal credited under one does not
+  // satisfy the other. Overlap between the two declaration sets is
+  // rejected upstream at the metadata gate.
+  final declaredBare = coveredStableIds ?? const <String>{};
+  if (declaredBare.isNotEmpty) {
+    final missing = declaredBare.difference(visitor.matchedBareFamilies);
     if (missing.isNotEmpty) {
       failures.add('$label: reproducer does not assert against every family '
           'declared in coveredStableIds. Missing: $missing. Each family '
-          'must appear as a string literal (bare family name, or '
-          '"<family>:" prefix for parameterised families) inside an '
-          'expect() or matcher argument — a positional arg of an '
-          'assertion/matcher call, not inside a `reason:` or other named '
-          'argument. Either add assertions covering each missing family '
-          'or narrow `coveredStableIds` in the detector metadata to the '
-          'actually-covered set. (file: $reproducerPath)');
+          'must appear as a credited string literal where the assertion '
+          'is AST-provable as detector-derived (argument to `hasStableId` '
+          '/ `hasStableIdPrefix` / `lacksStableId`; operand of `==` against '
+          '`<x>.stableId`; `<x>.stableId.startsWith/contains/endsWith`; or '
+          '`expect(<x>.stableId, ...)` where the actual references '
+          '`.stableId`). Bare/colon families: exact match or `<family>:` '
+          'prefix. (file: $reproducerPath)');
+    }
+  }
+  final declaredParametric = parametricFamilies ?? const <String>{};
+  if (declaredParametric.isNotEmpty) {
+    final missing =
+        declaredParametric.difference(visitor.matchedParametricFamilies);
+    if (missing.isNotEmpty) {
+      failures.add('$label: reproducer does not assert against every family '
+          'declared in parametricFamilies. Missing: $missing. Each family '
+          'must appear as a credited string literal of the form '
+          '`<family>_<non-empty-suffix>` where the assertion is AST-provable '
+          'as detector-derived (see coveredStableIds message for accepted '
+          'shapes). (file: $reproducerPath)');
     }
   }
   return failures;
@@ -507,19 +523,38 @@ class _ReproducerAstVisitor extends RecursiveAstVisitor<void> {
   _ReproducerAstVisitor({
     required this.requiredTokens,
     required this.coveredStableIds,
+    required this.parametricFamilies,
   });
 
   final Set<String> requiredTokens;
   final Set<String> coveredStableIds;
+  final Set<String> parametricFamilies;
 
   bool hasTestInvocation = false;
   final Set<String> tokensFoundInScope = <String>{};
   final Set<String> tokensInstantiated = <String>{};
 
-  /// Families observed as credited string literals. Every entry in
-  /// `coveredStableIds` must appear here — multi-family detectors cannot
-  /// pass the gate by asserting only one family.
-  final Set<String> matchedCoveredFamilies = <String>{};
+  /// Bare / colon-parametric families observed as credited string literals.
+  /// Every entry in `coveredStableIds` must appear here.
+  final Set<String> matchedBareFamilies = <String>{};
+
+  /// Underscore-parametric families observed as credited string literals.
+  /// Every entry in `parametricFamilies` must appear here.
+  final Set<String> matchedParametricFamilies = <String>{};
+
+  /// Identifiers bound to detector-derived values. Added by variable
+  /// declarations, assignments, `for-in` loop binders, and whitelisted
+  /// closure parameters whose initializer/RHS/iterable passes the
+  /// structural walk. Removed on non-derived re-bindings and pattern
+  /// destructuring. Sticky across test-wrapper callbacks so the
+  /// `late detector; setUp(() { detector = ...; })` pattern survives.
+  final Set<String> detectorBoundIdentifiers = <String>{};
+
+  /// True when the file locally declares `hasStableId` /
+  /// `hasStableIdPrefix` / `lacksStableId` (as function, method, or
+  /// variable). Rule-1 rejects credit in that file — a local stub
+  /// could always-return-true and bypass the detector-output check.
+  bool hasStableIdShadow = false;
 
   /// Test-harness wrapper names whose body callback counts as a
   /// "test scope" for the purposes of crediting identifier references
@@ -538,34 +573,64 @@ class _ReproducerAstVisitor extends RecursiveAstVisitor<void> {
     'tearDownAll',
   };
 
-  /// Assertion and matcher-factory names whose argument subtree credits
-  /// a stable-id literal. `expect`/`expectLater`/`expectAsync*` are the
-  /// core assertion calls; `predicate` covers the harness's
-  /// `hasStableId`/`lacksStableId`/`hasStableIdPrefix` factories; the
-  /// remaining entries are matcher helpers so `expect(x, contains('id'))`
-  /// credits via either the outer `expect` or the inner `contains`.
-  static const _assertionNames = <String>{
-    'expect',
-    'expectLater',
-    'expectAsync',
-    'expectAsync0',
-    'expectAsync1',
-    'expectAsync2',
-    'expectAsync3',
-    'predicate',
-    'contains',
-    'startsWith',
-    'endsWith',
-    'equals',
-    'matches',
-    'anyOf',
-    'allOf',
-    'isA',
-    'everyElement',
-    'anyElement',
+  /// Methods that preserve element identity on a detector-derived
+  /// iterable. Transform methods (`map`, `expand`, `followedBy`,
+  /// `reduce`, `fold`, `whereType`) are excluded — they can inject
+  /// synthesized values.
+  static const _elementPreservingMethods = <String>{
+    'where',
+    'firstWhere',
+    'lastWhere',
+    'singleWhere',
+    'take',
+    'skip',
+    'takeWhile',
+    'skipWhile',
+    'toList',
+    'toSet',
+    'toIterable',
+    'first',
+    'last',
+    'single',
+    'elementAt',
+    'reversed',
+  };
+
+  /// Methods on a required-token instance that emit detector output.
+  /// `scanTree` / `scanFrame` are `BaseDetector` APIs; `issues` covers
+  /// both the getter form and the rare method-invocation form.
+  static const _producerMethods = <String>{
+    'scanTree',
+    'scanFrame',
+    'issues',
+  };
+
+  /// Parameter position that iterates over detector elements per
+  /// method. Filter/map methods → position 0. `reduce` / `fold` →
+  /// position 1 (position 0 is the accumulator). Methods not listed
+  /// here bind no closure parameters.
+  static const Map<String, int> _closureParamPositions = {
+    'where': 0,
+    'firstWhere': 0,
+    'lastWhere': 0,
+    'singleWhere': 0,
+    'any': 0,
+    'every': 0,
+    'map': 0,
+    'forEach': 0,
+    'expand': 0,
+    'takeWhile': 0,
+    'skipWhile': 0,
+    'reduce': 1,
+    'fold': 1,
+  };
+
+  /// Canonical matcher-helper names. A local shadow (function, method,
+  /// or variable) would let Rule-1 credit by name alone.
+  static const _shadowNames = <String>{
     'hasStableId',
-    'lacksStableId',
     'hasStableIdPrefix',
+    'lacksStableId',
   };
 
   int _scopeDepth = 0;
@@ -582,8 +647,265 @@ class _ReproducerAstVisitor extends RecursiveAstVisitor<void> {
   void visitFunctionExpression(FunctionExpression node) {
     final isWrapper = _isTestWrapperCallback(node);
     if (isWrapper) _scopeDepth++;
+
+    // Bind closure parameters only when the enclosing call is in the
+    // whitelist and its receiver is detector-derived. Only the
+    // element-iteration position binds — `fold((acc, item) => ...)`
+    // binds `item`, not the accumulator `acc`.
+    final addedParamNames = <String>[];
+    final parent = node.parent;
+    if (parent is ArgumentList) {
+      final invocation = parent.parent;
+      if (invocation is MethodInvocation) {
+        final methodName = invocation.methodName.name;
+        final position = _closureParamPositions[methodName];
+        if (position != null &&
+            _expressionIsDetectorDerived(invocation.realTarget)) {
+          final params = node.parameters?.parameters;
+          if (params != null && position < params.length) {
+            final name = params[position].name?.lexeme;
+            if (name != null && !detectorBoundIdentifiers.contains(name)) {
+              detectorBoundIdentifiers.add(name);
+              addedParamNames.add(name);
+            }
+          }
+        }
+      }
+    }
+
     super.visitFunctionExpression(node);
+
+    // Remove scoped closure-param bindings so they don't leak into sibling
+    // closures or later tests.
+    for (final name in addedParamNames) {
+      detectorBoundIdentifiers.remove(name);
+    }
+
     if (isWrapper) _scopeDepth--;
+  }
+
+  @override
+  void visitVariableDeclaration(VariableDeclaration node) {
+    final init = node.initializer;
+    final name = node.name.lexeme;
+    if (_shadowNames.contains(name)) {
+      hasStableIdShadow = true;
+    }
+    if (init != null) {
+      if (_expressionIsDetectorDerived(init)) {
+        detectorBoundIdentifiers.add(name);
+      } else {
+        detectorBoundIdentifiers.remove(name);
+      }
+    }
+    super.visitVariableDeclaration(node);
+  }
+
+  @override
+  void visitAssignmentExpression(AssignmentExpression node) {
+    // Covers `late detector; detector = XyzDetector(...);` AND
+    // reassignment to a non-derived value. Any operator counts.
+    final lhs = node.leftHandSide;
+    if (lhs is SimpleIdentifier) {
+      if (_expressionIsDetectorDerived(node.rightHandSide)) {
+        detectorBoundIdentifiers.add(lhs.name);
+      } else {
+        detectorBoundIdentifiers.remove(lhs.name);
+      }
+    }
+    super.visitAssignmentExpression(node);
+  }
+
+  @override
+  void visitPatternVariableDeclaration(PatternVariableDeclaration node) {
+    // Dart 3 destructuring (`final (a, b) = (x, y);`) rebinds multiple
+    // names at once. Per-slot derivation cannot be proven here, so
+    // every declared name is conservatively cleared.
+    final declaredNames = <String>[];
+    _collectPatternNames(node.pattern, declaredNames);
+    for (final name in declaredNames) {
+      detectorBoundIdentifiers.remove(name);
+    }
+    super.visitPatternVariableDeclaration(node);
+  }
+
+  @override
+  void visitPatternAssignment(PatternAssignment node) {
+    // `(a, b) = (x, y);` overwrites existing bindings — same kill.
+    final assignedNames = <String>[];
+    _collectPatternNames(node.pattern, assignedNames);
+    for (final name in assignedNames) {
+      detectorBoundIdentifiers.remove(name);
+    }
+    super.visitPatternAssignment(node);
+  }
+
+  /// Recursively collects every declared or assigned identifier name
+  /// from a [DartPattern] into [out].
+  void _collectPatternNames(DartPattern pattern, List<String> out) {
+    if (pattern is DeclaredVariablePattern) {
+      out.add(pattern.name.lexeme);
+      return;
+    }
+    if (pattern is AssignedVariablePattern) {
+      out.add(pattern.name.lexeme);
+      return;
+    }
+    if (pattern is RecordPattern) {
+      for (final field in pattern.fields) {
+        _collectPatternNames(field.pattern, out);
+      }
+      return;
+    }
+    if (pattern is ListPattern) {
+      for (final element in pattern.elements) {
+        if (element is DartPattern) _collectPatternNames(element, out);
+      }
+      return;
+    }
+    if (pattern is MapPattern) {
+      for (final element in pattern.elements) {
+        if (element is MapPatternEntry) {
+          _collectPatternNames(element.value, out);
+        }
+      }
+      return;
+    }
+    if (pattern is ObjectPattern) {
+      for (final field in pattern.fields) {
+        _collectPatternNames(field.pattern, out);
+      }
+      return;
+    }
+    if (pattern is CastPattern) {
+      _collectPatternNames(pattern.pattern, out);
+      return;
+    }
+    if (pattern is NullCheckPattern) {
+      _collectPatternNames(pattern.pattern, out);
+      return;
+    }
+    if (pattern is NullAssertPattern) {
+      _collectPatternNames(pattern.pattern, out);
+      return;
+    }
+    if (pattern is ParenthesizedPattern) {
+      _collectPatternNames(pattern.pattern, out);
+      return;
+    }
+    if (pattern is LogicalAndPattern) {
+      _collectPatternNames(pattern.leftOperand, out);
+      _collectPatternNames(pattern.rightOperand, out);
+      return;
+    }
+    if (pattern is LogicalOrPattern) {
+      _collectPatternNames(pattern.leftOperand, out);
+      _collectPatternNames(pattern.rightOperand, out);
+      return;
+    }
+  }
+
+  @override
+  void visitForStatement(ForStatement node) {
+    // `for (final issue in <iterable>)` uses `DeclaredIdentifier`, so
+    // the normal variable-declaration hook doesn't fire. Rebind here
+    // around the entire body visit; restore prior state on exit.
+    final parts = node.forLoopParts;
+    String? name;
+    bool wasPriorBound = false;
+    if (parts is ForEachPartsWithDeclaration) {
+      name = parts.loopVariable.name.lexeme;
+      wasPriorBound = detectorBoundIdentifiers.contains(name);
+      if (_expressionIsDetectorDerived(parts.iterable)) {
+        detectorBoundIdentifiers.add(name);
+      } else {
+        detectorBoundIdentifiers.remove(name);
+      }
+    }
+
+    super.visitForStatement(node);
+
+    if (name != null) {
+      if (wasPriorBound) {
+        detectorBoundIdentifiers.add(name);
+      } else {
+        detectorBoundIdentifiers.remove(name);
+      }
+    }
+  }
+
+  @override
+  void visitFunctionDeclaration(FunctionDeclaration node) {
+    if (_shadowNames.contains(node.name.lexeme)) {
+      hasStableIdShadow = true;
+    }
+    super.visitFunctionDeclaration(node);
+  }
+
+  @override
+  void visitMethodDeclaration(MethodDeclaration node) {
+    if (_shadowNames.contains(node.name.lexeme)) {
+      hasStableIdShadow = true;
+    }
+    super.visitMethodDeclaration(node);
+  }
+
+  /// True iff [node] is structurally provable as detector-derived.
+  /// Recurses through aliasing shapes (`PropertyAccess`,
+  /// `PrefixedIdentifier`, `IndexExpression`, parenthesis/await/cast),
+  /// required-token constructors, element-preserving iterable methods
+  /// on a derived receiver, and producer methods on a detector instance.
+  /// Composite expressions (list/map/record/set literals, conditionals,
+  /// binary ops, spreads, collection-if/for, unknown methods, transform
+  /// methods like `map`/`expand`/`followedBy`/`reduce`/`fold`) return
+  /// false.
+  bool _expressionIsDetectorDerived(AstNode? node) {
+    if (node == null) return false;
+
+    if (node is ParenthesizedExpression) {
+      return _expressionIsDetectorDerived(node.expression);
+    }
+    if (node is AwaitExpression) {
+      return _expressionIsDetectorDerived(node.expression);
+    }
+    if (node is AsExpression) {
+      return _expressionIsDetectorDerived(node.expression);
+    }
+    if (node is SimpleIdentifier) {
+      return detectorBoundIdentifiers.contains(node.name);
+    }
+    if (node is PrefixedIdentifier) {
+      return detectorBoundIdentifiers.contains(node.prefix.name);
+    }
+    if (node is PropertyAccess) {
+      if (_producerMethods.contains(node.propertyName.name) &&
+          _expressionIsDetectorDerived(node.target)) {
+        return true;
+      }
+      return _expressionIsDetectorDerived(node.target);
+    }
+    if (node is IndexExpression) {
+      return _expressionIsDetectorDerived(node.target);
+    }
+    if (node is InstanceCreationExpression) {
+      return requiredTokens.contains(node.constructorName.type.name2.lexeme);
+    }
+    if (node is MethodInvocation) {
+      // Implicit-new constructor call parses as MethodInvocation with
+      // null target under `parseString` (no type resolution).
+      if (node.target == null &&
+          requiredTokens.contains(node.methodName.name)) {
+        return true;
+      }
+      final methodName = node.methodName.name;
+      if ((_producerMethods.contains(methodName) ||
+              _elementPreservingMethods.contains(methodName)) &&
+          _expressionIsDetectorDerived(node.realTarget)) {
+        return true;
+      }
+      return false;
+    }
+    return false;
   }
 
   @override
@@ -642,45 +964,131 @@ class _ReproducerAstVisitor extends RecursiveAstVisitor<void> {
 
   @override
   void visitSimpleStringLiteral(SimpleStringLiteral node) {
-    // Credit only via the parent-chain walk. A bare string in a test
-    // body, a `reason:` named-arg, or a String extension method call
-    // (`str.contains('id')`) must not count as coverage evidence.
-    if (_scopeDepth > 0 &&
-        coveredStableIds.isNotEmpty &&
-        _isCreditedLiteral(node)) {
+    // Credit a literal as a family-coverage observation only when its
+    // AST position proves detector-derived provenance (see
+    // [_isCreditedLiteral]).
+    final anyDeclared =
+        coveredStableIds.isNotEmpty || parametricFamilies.isNotEmpty;
+    if (_scopeDepth > 0 && anyDeclared && _isCreditedLiteral(node)) {
       final value = node.value;
+      // Bare / colon-parametric families.
       for (final id in coveredStableIds) {
         if (id.isEmpty) continue;
         if (value == id || value.startsWith('$id:')) {
-          matchedCoveredFamilies.add(id);
+          matchedBareFamilies.add(id);
+        }
+      }
+      // Underscore-parametric families: require `<family>_<non-empty>`.
+      for (final family in parametricFamilies) {
+        if (family.isEmpty) continue;
+        final prefix = '${family}_';
+        if (value.startsWith(prefix) && value.length > prefix.length) {
+          matchedParametricFamilies.add(family);
         }
       }
     }
     super.visitSimpleStringLiteral(node);
   }
 
-  /// Returns true when the literal reaches an allowlisted assertion or
-  /// matcher-factory MethodInvocation (null target) through the AST
-  /// parent chain. Rejects at NamedExpression (`reason:`/`skip:`) or at
-  /// an allowlisted name whose `target` is non-null (String extension
-  /// method). Non-allowlisted calls (`issues.where(...)`) are skipped so
-  /// outer `expect(...)` frames still credit.
+  /// True when the literal's AST position proves detector-derived
+  /// provenance. Four accepted shapes, any of which credit:
+  ///
+  ///   1. Arg to `hasStableId` / `hasStableIdPrefix` / `lacksStableId`
+  ///      (rejected when the file locally shadows those names).
+  ///   2. Operand of `==` / `!=` whose other operand references
+  ///      `.stableId` (covers `i.stableId == '...'` predicates).
+  ///   3. Arg to `<x>.stableId.startsWith` / `.endsWith` / `.contains`.
+  ///   4. Arg to `expect(<actual>, ...)` / `expectLater(<actual>, ...)`
+  ///      where `<actual>` references `.stableId` anywhere in its
+  ///      subtree.
+  ///
+  /// A literal under `NamedExpression` (e.g. `reason:` / `skip:`) is
+  /// rejected regardless of the rules above.
   bool _isCreditedLiteral(AstNode startNode) {
     AstNode? cur = startNode.parent;
     var hops = 0;
     while (cur != null && hops < 20) {
       if (cur is NamedExpression) return false;
-      if (cur is MethodInvocation) {
+      // Rule 1.
+      if (cur is MethodInvocation && cur.target == null) {
         final name = cur.methodName.name;
-        if (_assertionNames.contains(name)) {
-          if (cur.target != null) return false;
+        if (_shadowNames.contains(name)) {
+          return !hasStableIdShadow;
+        }
+      }
+      // Rule 2.
+      if (cur is BinaryExpression) {
+        final op = cur.operator.lexeme;
+        if (op == '==' || op == '!=') {
+          if (_mentionsStableId(cur.leftOperand) ||
+              _mentionsStableId(cur.rightOperand)) {
+            return true;
+          }
+        }
+      }
+      // Rule 3.
+      if (cur is MethodInvocation && cur.target != null) {
+        final name = cur.methodName.name;
+        if ((name == 'startsWith' ||
+                name == 'endsWith' ||
+                name == 'contains') &&
+            _mentionsStableId(cur.target!)) {
           return true;
+        }
+      }
+      // Rule 4.
+      if (cur is MethodInvocation && cur.target == null) {
+        final name = cur.methodName.name;
+        if (name == 'expect' || name == 'expectLater') {
+          final args = cur.argumentList.arguments;
+          if (args.isNotEmpty && _mentionsStableId(args.first)) {
+            return true;
+          }
         }
       }
       cur = cur.parent;
       hops++;
     }
     return false;
+  }
+
+  /// True iff [node] contains a `.stableId` property read whose
+  /// receiver is structurally detector-derived. A bare
+  /// `SimpleIdentifier` named `stableId` (e.g. a local variable) does
+  /// not fire — only reads through a receiver count.
+  bool _mentionsStableId(AstNode node) {
+    final v = _StableIdReferenceVisitor(
+      isReceiverDerived: _expressionIsDetectorDerived,
+    );
+    node.accept(v);
+    return v.found;
+  }
+}
+
+/// Visitor that flips `found` when it sees a `.stableId` property read
+/// whose receiver passes [isReceiverDerived]. Used by
+/// `_ReproducerAstVisitor._mentionsStableId`.
+class _StableIdReferenceVisitor extends RecursiveAstVisitor<void> {
+  _StableIdReferenceVisitor({required this.isReceiverDerived});
+
+  final bool Function(AstNode?) isReceiverDerived;
+  bool found = false;
+
+  @override
+  void visitPropertyAccess(PropertyAccess node) {
+    if (node.propertyName.name == 'stableId' &&
+        isReceiverDerived(node.target)) {
+      found = true;
+    }
+    super.visitPropertyAccess(node);
+  }
+
+  @override
+  void visitPrefixedIdentifier(PrefixedIdentifier node) {
+    if (node.identifier.name == 'stableId' && isReceiverDerived(node.prefix)) {
+      found = true;
+    }
+    super.visitPrefixedIdentifier(node);
   }
 }
 
@@ -793,6 +1201,7 @@ List<String> checkCoveredThresholds({
   required EvidenceTier tier,
   required Set<String>? coveredThresholds,
   Set<String>? coveredStableIds,
+  Set<String>? parametricFamilies,
   num? bracketThreshold,
 }) {
   if (tier != EvidenceTier.runtimeVerified &&
@@ -848,20 +1257,25 @@ List<String> checkCoveredThresholds({
             '$knownSeverityTags) — typo or non-canonical tag');
         continue;
       }
-      if (coveredStableIds != null &&
-          !_stableIdCovers(coveredStableIds, stableId)) {
+      if ((coveredStableIds != null || parametricFamilies != null) &&
+          !_stableIdCovers(coveredStableIds ?? const {}, stableId,
+              parametricFamilies: parametricFamilies)) {
         failures.add('$label: coveredThresholds entry "$entry" references '
             'stableId "$stableId" not declared in coveredStableIds '
-            '($coveredStableIds) — cross-scope drift');
+            '($coveredStableIds) or parametricFamilies '
+            '($parametricFamilies) — cross-scope drift');
         continue;
       }
       continue;
     }
     // Non-dotted entry.
-    if (coveredStableIds != null && !_stableIdCovers(coveredStableIds, entry)) {
+    if ((coveredStableIds != null || parametricFamilies != null) &&
+        !_stableIdCovers(coveredStableIds ?? const {}, entry,
+            parametricFamilies: parametricFamilies)) {
       failures.add('$label: coveredThresholds entry "$entry" is non-dotted '
-          'but does not match any coveredStableIds entry '
-          '($coveredStableIds)');
+          'but does not match any coveredStableIds '
+          '($coveredStableIds) or parametricFamilies '
+          '($parametricFamilies) entry');
       continue;
     }
     if (bracketThreshold != null) {
@@ -880,10 +1294,29 @@ List<String> checkCoveredThresholds({
 /// Mirrors the `IssueSeverity` enum values the detector pipeline emits.
 const Set<String> knownSeverityTags = {'info', 'warning', 'critical'};
 
-bool _stableIdCovers(Set<String> coveredStableIds, String candidate) {
+bool _stableIdCovers(
+  Set<String> coveredStableIds,
+  String candidate, {
+  Set<String>? parametricFamilies,
+}) {
   if (coveredStableIds.contains(candidate)) return true;
   for (final id in coveredStableIds) {
     if (candidate.startsWith('$id:')) return true;
+  }
+  if (parametricFamilies != null) {
+    // Family-scoped form: candidate equals a declared family (e.g.
+    // `repaint_debug.warning` → stableId prefix `repaint_debug`).
+    if (parametricFamilies.contains(candidate)) return true;
+    // Concrete-instance form: candidate is `<family>_<non-empty-suffix>`
+    // (e.g. `repaint_debug_CustomPaint.warning` → stableId prefix
+    // `repaint_debug_CustomPaint`).
+    for (final fam in parametricFamilies) {
+      if (fam.isEmpty) continue;
+      final prefix = '${fam}_';
+      if (candidate.startsWith(prefix) && candidate.length > prefix.length) {
+        return true;
+      }
+    }
   }
   return false;
 }

@@ -1055,6 +1055,7 @@ void main() {
         orElse: () => fail(
             'Expected a rebuild_debug_TestCounterWidget issue in $detector.issues'),
       );
+      expect(issue.stableId, 'rebuild_debug_TestCounterWidget');
       expect(issue.confidence, IssueConfidence.confirmed);
       expect(issue.observationSource, ObservationSource.debugCallback);
     });

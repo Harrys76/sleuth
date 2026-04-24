@@ -514,18 +514,21 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hybrid detector. Two families pinned: '
+        rationale: 'Hybrid detector. All three families pinned: '
             '`stateful_density` (public-named StatefulWidget density; '
-            'framework/private filtered) + `rebuild_activity` '
+            'framework/private filtered), `rebuild_activity` '
             '(VM-timeline rebuild-rate — warning at '
             '`> rebuildsPerSecThreshold` default 10/sec, critical at '
-            '`> 3×` = 30/sec; tests pin 15 → warning, 35 → critical). '
-            'Narrowing: parametric `rebuild_debug_<typeName>` uses `_` '
-            'separator, outside the audit prefix convention. VM → '
-            'TimelineParser → detector boundary not exercised at this '
-            'tier. Fixtures synthetic, same-author provenance. Not '
-            'runtime-verified or externally cited.',
+            '`> 3×` = 30/sec; tests pin 15 → warning, 35 → critical), '
+            'and parametric `rebuild_debug_<typeName>` (declared via '
+            '`parametricFamilies` since v0.17.3 — concrete '
+            '`rebuild_debug_TestCounterWidget` credits via `_` '
+            'separator matcher). VM → TimelineParser → detector '
+            'boundary not exercised at this tier. Fixtures synthetic, '
+            'same-author provenance. Not runtime-verified or externally '
+            'cited.',
         reproducerPath: 'test/detectors/rebuild_detector_test.dart',
         coveredStableIds: {'stateful_density', 'rebuild_activity'},
+        parametricFamilies: {'rebuild_debug'},
       );
 }

@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.17.2 (2026-04-24)_
+_Last updated: v0.17.3 (2026-04-24)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
@@ -83,13 +83,13 @@ on disk as retained orphans with `consumeBy: '0.18.0'`.
 | Heavy Compute | `reproducerOnly` | [`heavy_compute_detector_test.dart`](../test/detectors/heavy_compute_detector_test.dart) | Frame-gap threshold pinned via synthetic timeline events. `coveredStableIds = {'heavy_compute'}`. Fixtures synthetic. |
 | Platform Channel | `reproducerOnly` | [`platform_channel_detector_test.dart`](../test/detectors/platform_channel_detector_test.dart) | >20/sec call-frequency threshold pinned via synthetic channel-call events. `coveredStableIds = {'platform_channel_traffic'}`. Fixtures synthetic. |
 | Memory Pressure | `reproducerOnly` | [`memory_pressure_detector_test.dart`](../test/detectors/memory_pressure_detector_test.dart) | All 4 emission families pinned via synthetic heap/RSS timeseries: `gc_pressure`, `heap_growing`, `heap_near_capacity`, `native_memory_growing`. Warmup + 10 s sliding-window guards pinned. Fixtures synthetic. |
-| Repaint | `reproducerOnly` | [`repaint_detector_test.dart`](../test/detectors/repaint_detector_test.dart) | **Partial coverage.** `coveredStableIds = {'excessive_repaint', 'excessive_repaint_debug'}`. Parametric `repaint_debug_<typeName>` family uncovered at detector scope (uses `_` separator; audit gate prefix convention uses `:`). Fixtures synthetic. |
+| Repaint | `reproducerOnly` | [`repaint_detector_test.dart`](../test/detectors/repaint_detector_test.dart) | All 3 families covered: `excessive_repaint`, `excessive_repaint_debug`, and parametric `repaint_debug_<typeName>` (declared via `parametricFamilies` since v0.17.3; concrete `repaint_debug_CustomPaint` credits the family). Animation-owner filter pinned. Fixtures synthetic. |
 
 ### Hybrid detectors (3)
 
 | Detector | Tier | Reproducer | Notes |
 |---|---|---|---|
-| Rebuild | `reproducerOnly` | [`rebuild_detector_test.dart`](../test/detectors/rebuild_detector_test.dart) | Two families pinned: `stateful_density` + `rebuild_activity` (warning at `buildCount > rebuildsPerSecThreshold` default 10/sec, critical at `> 3 × threshold` = 30/sec; test-pinned at 15 → warning and 35 → critical). Known narrowing: parametric `rebuild_debug_<typeName>` uses `_` separator, outside audit prefix convention. Fixtures synthetic. |
+| Rebuild | `reproducerOnly` | [`rebuild_detector_test.dart`](../test/detectors/rebuild_detector_test.dart) | All 3 families covered: `stateful_density`, `rebuild_activity` (warning at `buildCount > rebuildsPerSecThreshold` default 10/sec, critical at `> 3 × threshold` = 30/sec; test-pinned at 15 → warning and 35 → critical), and parametric `rebuild_debug_<typeName>` (declared via `parametricFamilies` since v0.17.3; concrete `rebuild_debug_TestCounterWidget` credits the family). Fixtures synthetic. |
 | GPU Pressure | `reproducerOnly` | [`gpu_pressure_detector_test.dart`](../test/detectors/gpu_pressure_detector_test.dart) | Both emission families pinned: `raster_dominance` (VM timeline raster > UI × 2.0 sustained) and `expensive_gpu_nodes` (tree walk corroborated by raster pressure). Confidence downgrade on VM disconnect pinned. Fixtures synthetic. |
 | Shallow Rebuild Risk | `reproducerOnly` | [`shallow_rebuild_risk_detector_test.dart`](../test/detectors/shallow_rebuild_risk_detector_test.dart) | `shallow_rebuild_risk` pinned via real `pumpWidget` tree with shallow StatefulWidget + VM-staged high-build-activity data. Framework-widget suppression pinned. Fixtures synthetic. |
 

@@ -25,6 +25,7 @@ class DetectorMetadata {
     this.bracketThreshold,
     this.bracketUnit,
     this.coveredStableIds,
+    this.parametricFamilies,
     this.coveredThresholds,
     this.aboveCeilingMultiplier,
   });
@@ -100,6 +101,38 @@ class DetectorMetadata {
   /// issue-family identifiers land (targeted for v0.16.2+ or the next
   /// multi-family tier raise).
   final Set<String>? coveredStableIds;
+
+  /// Underscore-parametric family prefixes. Each entry is a family name
+  /// without trailing separator; the audit matcher credits emitted
+  /// stableIds that start with `'<family>_'` AND have a non-empty suffix.
+  ///
+  /// Example: declaring `{'repaint_debug'}` credits literals like
+  /// `'repaint_debug_CustomPaint'` (`<family>_<typeName>`). A bare
+  /// `'repaint_debug_'` (empty suffix) is rejected — empty-suffix matches
+  /// are treated as invalid parametric instances.
+  ///
+  /// Peer namespace to [coveredStableIds] — the two declaration sets are
+  /// tracked independently by the audit's reproducer walker. A literal
+  /// credited under one namespace does NOT satisfy declarations in the
+  /// other. Every declared family here must be matched by at least one
+  /// credited literal of the form `<family>_<non-empty-suffix>` in the
+  /// reproducer.
+  ///
+  /// Used for parametric stableIds that use `_` as their family-separator
+  /// (e.g., `repaint_debug_<typeName>`, `rebuild_debug_<typeName>`),
+  /// which do not fit the `:` prefix convention of [coveredStableIds].
+  ///
+  /// Contract rules enforced by the audit metadata gate:
+  /// - At least one of [coveredStableIds] or [parametricFamilies] must
+  ///   be non-empty when [tier] is stronger than
+  ///   [EvidenceTier.unvalidated] — either namespace satisfies the
+  ///   "must pin stable IDs" invariant on its own.
+  /// - Declaring the same name in both namespaces is rejected at audit
+  ///   time. Pick one: exact (or `<family>:<param>`) for bare families,
+  ///   `_`-prefix for underscore-parametric families.
+  /// - Entries are trim/empty validated; a blank or whitespace-only
+  ///   entry fails the metadata gate.
+  final Set<String>? parametricFamilies;
 
   /// Severity-scoped evidence boundaries for detectors that emit multiple
   /// severity tiers on the same stable ID. Entries use the form

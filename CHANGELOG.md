@@ -1,3 +1,59 @@
+## 0.17.3
+
+**Audit methodology gap closed: underscore-parametric families, first-class across the pipeline.** The v0.17.2 audit matcher treated the `:` separator as the only family-parametric form, so `repaint_debug_<typeName>` and `rebuild_debug_<typeName>` families were undeclarable. v0.17.3 adds `DetectorMetadata.parametricFamilies: Set<String>?` as a peer namespace to `coveredStableIds`, and promotes it to first-class status across every audit surface (literal-provenance matcher, namespace tracker, top-level metadata gate, stronger-tier threshold cross-reference). `RepaintDetector` and `RebuildDetector` drop their partial-coverage disclosures; both detectors now declare all emitted families and the audit proves coverage via detector-derived literal assertions.
+
+### Added
+
+- `DetectorMetadata.parametricFamilies` field — underscore-parametric family prefixes. Matcher credits `<family>_<non-empty-suffix>` literals.
+- Bare/colon and underscore-parametric families tracked in independent namespaces (`matchedBareFamilies`, `matchedParametricFamilies`). A literal credited in one namespace does NOT satisfy a declaration in the other; declaring the same name in both namespaces is rejected at the metadata gate.
+- Top-level metadata invariant accepts EITHER non-empty `coveredStableIds` OR non-empty `parametricFamilies` for tiers stronger than `unvalidated`. Empty/whitespace entries rejected in both namespaces.
+- `checkCoveredThresholds` + `_stableIdCovers` accept `parametricFamilies` for stronger-tier validation. Dotted entries (`repaint_debug.warning`) resolve against family declarations; concrete instances (`repaint_debug_CustomPaint.warning`) resolve via the `_` non-empty-suffix rule.
+- 10 regression tests in `audit_invariants_test.dart` covering the tightened matcher: detector-derived `expect(issue.stableId, ...)` shape, underscore-parametric positive / negative cases, false-positive guard, real-literal anchor (`repaint_debug_CustomPaint`), mixed + parametric-only declarations.
+- v0.17.2 anchor block expectations tuple expanded to `(reproducerPath, coveredStableIds, parametricFamilies?)`. All other anchor blocks (v0.16.3, v0.17.1, NetworkMonitor, FrameTiming) gain explicit `meta.parametricFamilies == null` assertion.
+
+### Changed
+
+- `_isCreditedLiteral` tightened to require detector-derived provenance. Four accepted AST shapes: direct argument to `hasStableId` / `hasStableIdPrefix` / `lacksStableId`; operand of `==` / `!=` against `<x>.stableId`; argument to `<x>.stableId.startsWith` / `contains` / `endsWith`; argument to `expect(<actual>, ...)` where `<actual>` subtree references `.stableId`. Self-assertion tautologies (`expect('foo', equals('foo'))`) no longer credit the coverage gate.
+- `RepaintDetector` declares `parametricFamilies: {'repaint_debug'}`. Rationale drops narrowing prose.
+- `RebuildDetector` declares `parametricFamilies: {'rebuild_debug'}`. Rationale drops narrowing prose.
+- `rebuild_detector_test.dart` gains `expect(issue.stableId, 'rebuild_debug_TestCounterWidget')` assertion in the real-captured debug-callback test (was only a `reason:` string before).
+- `doc/validation_ledger.md` — repaint + rebuild rows updated from "Partial coverage" to "All families covered"; summary drops the family-scope-not-universal caveat for those 2 detectors.
+- `CLAUDE.md` — family declaration convention documented (`coveredStableIds` vs `parametricFamilies`); "known audit gap" note removed.
+
+### Provenance hardening (CR1 / CR2 / CR3 / CR4 + P3 / P4 / P5 / P8)
+
+Second adversarial-review pass surfaced a sticky-binding leak, whole-subtree taint via descendant scan, name-shadowing of Rule-1 helpers, and over-bound closure parameters on `fold`/`reduce`. The tightened matcher previously only proved `.stableId` is syntactically present; synthetic `class FakeIssue { String stableId; }` still credited. Five rounds of adversarial pushback converged on an 8-point structural provenance model:
+
+- **Structural receiver-chain walker (`_expressionIsDetectorDerived`)**. Replaces the earlier subtree-containment rule. Walks only through aliasing shapes that preserve detector provenance: `MethodInvocation` (direct required-token construction, or recursion through element-preserving methods on a derived receiver, or producer methods like `scanTree` / `scanFrame` / `issues` on a required-token instance), `InstanceCreationExpression` (required-token type), `PropertyAccess` / `PrefixedIdentifier` / `SimpleIdentifier` (alias lookup), `IndexExpression`, `ParenthesizedExpression`, `AwaitExpression`, `AsExpression`. List literals, map literals, conditionals, binary ops, spread elements, collection-if/for, `map`/`expand`/`followedBy`/`reduce`/`fold`/`whereType`/unknown extension methods → NOT derived.
+- **Full add/remove lifecycle on `detectorBoundIdentifiers`**. `visitVariableDeclaration` + `visitAssignmentExpression` ADD when RHS is structurally derived, REMOVE when not (any assignment operator). Closes the sticky-set leak where `final issue = FakeIssue(...)` after a prior derived binding kept `issue` in the bound set.
+- **Pattern destructuring kill**. `visitPatternVariableDeclaration` + `visitPatternAssignment` conservatively REMOVE every declared/assigned name (Dart 3 `(a, b) = ...` rebinding cannot be proven per-slot). Record, list, map, object, cast, null-check, null-assert, parenthesized, logical-and, logical-or patterns all enumerated.
+- **for-in binder handling**. `visitForStatement` detects `ForEachPartsWithDeclaration`, rebinds the `DeclaredIdentifier` loop variable based on `_expressionIsDetectorDerived(iterable)`, and restores prior state on loop exit. Real pattern `for (final issue in detector.scanTree(root))` credits via producer-method whitelist; fabricated `for (final issue in [FakeIssue('foo')])` fails to credit.
+- **Closure-param whitelist by method position**. `visitFunctionExpression` adds a parameter to the bound set ONLY when the enclosing method is in `_closureParamPositions` AND its position matches the element-iteration slot: `where/firstWhere/lastWhere/singleWhere/any/every/map/forEach/expand/takeWhile/skipWhile` → position 0; `reduce/fold` → position 1 (accumulator is position 0 and does NOT bind). Scoped push/pop — closure params do not leak out of the closure body.
+- **Shadow detection for Rule-1**. `visitFunctionDeclaration` + `visitMethodDeclaration` + `visitVariableDeclaration` flag any local definition of `hasStableId` / `hasStableIdPrefix` / `lacksStableId`. When the flag is set, Rule-1 rejects credit in the file — a local stub could be an always-true helper that bypasses detector-output proof.
+- **Rule-4 covers `expectLater`** alongside `expect` (P8).
+- **Prefix-collision rejection** in `parametricFamilies`. Top-level metadata audit adds a pair-wise check: for families `(a, b)` with `a.startsWith('${b}_')` or vice versa, failure raised. Prevents single literal `foo_bar_baz` from crediting both `{'foo'}` and `{'foo_bar'}` (P3).
+
+Total regression fixtures added over both hardening passes: 12. New anchors in this pass:
+- Rule-1 positive (without local stub — shadow detection otherwise rejects)
+- Rule-2 positive (`.where((i) => i.stableId == 'LIT')` closure parameter)
+- Rule-3 positive (`<x>.stableId.startsWith('LIT_')`)
+- Tautology negative (`expect('foo', equals('foo'))` must fail — P5)
+- FakeIssue anti-bypass (synthetic `stableId` getter must fail — P1)
+- CR1 reassignment-kill (sticky set must release prior binding on non-derived re-declaration)
+- CR2 list-literal smuggling (composite-expression taint must not propagate)
+- CR4 fold accumulator (caller-controlled `acc` position must not bind)
+- for-in shadow kill (`for (final issue in fakeList)` must invalidate)
+- for-in positive (`for (final issue in detector.scanTree(...))` must credit)
+- Pattern-destructure kill (`(issue, _) = (FakeIssue(...), 0)` must invalidate)
+- Shadow rejection (local `Matcher hasStableId(...)` must reject Rule-1)
+
+### Notes
+
+- `DetectorMetadata` is public API; `parametricFamilies` is nullable → pure additive, no backward-compat impact.
+- No serialisation of `DetectorMetadata` exists downstream; no schema versioning needed.
+- Residual risks (LOW): cross-test undeclared-name reuse leaks (real reproducers always declare per-test); unknown iterable extension methods fail-closed (authors migrate to the whitelisted forms); mixed-detector reproducer can theoretically credit wrong detector. All require adversarial authorship; the audit is a CI hygiene gate, not a security boundary.
+- `fvm flutter analyze` clean, `fvm flutter test` 2,634 tests green.
+
 ## 0.17.2
 
 **All 23 detectors at `reproducerOnly`.** Final 8 vmOnly + hybrid detectors flipped from `unvalidated`: `ShaderJankDetector`, `HeavyComputeDetector`, `PlatformChannelDetector`, `MemoryPressureDetector`, `GpuPressureDetector`, `RepaintDetector`, `RebuildDetector`, `ShallowRebuildRiskDetector`. Reproducers point at existing `test/detectors/*_detector_test.dart` suites.

@@ -498,7 +498,8 @@ class XyzDetector {}
 void main() {
   test('exact prefix', () {
     final d = XyzDetector();
-    expect('my_family:0', contains('my_family:'));
+    final issue = d;
+    expect(issue.stableId, 'my_family:0');
     d.toString();
   });
 }
@@ -595,7 +596,8 @@ class XyzDetector {}
 void main() {
   test('asserts only family_a, not family_b', () {
     final d = XyzDetector();
-    expect('family_a', equals('family_a'));
+    final issue = d;
+    expect(issue.stableId, 'family_a');
     d.toString();
   });
 }
@@ -615,6 +617,253 @@ void main() {
           reason: 'family_a was asserted; it should not appear as missing.');
     });
 
+    test('parametricFamilies: underscore family matches non-empty suffix',
+        () async {
+      final file = File('${root.path}/parametric_match_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('parametric hit', () {
+    final d = XyzDetector();
+    final issue = d;
+    expect(issue.stableId, 'foo_bar_Baz');
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'parametric_match_test.dart',
+        requiredTokens: ['XyzDetector'],
+        parametricFamilies: const {'foo_bar'},
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason: "'foo_bar_Baz' must credit parametric family 'foo_bar'.");
+    });
+
+    test('parametricFamilies: empty suffix rejected (foo_ does not match foo)',
+        () async {
+      final file = File('${root.path}/parametric_empty_suffix_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('only empty suffix', () {
+    final d = XyzDetector();
+    final issue = d;
+    expect(issue.stableId, 'foo_');
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'parametric_empty_suffix_test.dart',
+        requiredTokens: ['XyzDetector'],
+        parametricFamilies: const {'foo'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason:
+              "'foo_' has empty suffix → must NOT credit parametric 'foo'.");
+      expect(failures.first, contains('foo'));
+    });
+
+    test(
+        'parametricFamilies: bare family does NOT match (coveredStableIds scope)',
+        () async {
+      final file = File('${root.path}/parametric_no_bare_match_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('only bare literal', () {
+    final d = XyzDetector();
+    final issue = d;
+    expect(issue.stableId, 'foo');
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'parametric_no_bare_match_test.dart',
+        requiredTokens: ['XyzDetector'],
+        parametricFamilies: const {'foo'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: "'foo' bare literal must NOT match parametric 'foo' — "
+              'parametric requires `_<suffix>`.');
+    });
+
+    test('parametricFamilies: false-positive guard (food_bar vs foo_)',
+        () async {
+      final file = File('${root.path}/parametric_false_positive_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('lookalike only', () {
+    final d = XyzDetector();
+    final issue = d;
+    expect(issue.stableId, 'food_bar');
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'parametric_false_positive_test.dart',
+        requiredTokens: ['XyzDetector'],
+        parametricFamilies: const {'foo'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: "'food_bar' must NOT match parametric 'foo' — prefix check "
+              'requires exact `foo_`, not `food`.');
+    });
+
+    test(
+        'parametricFamilies: real detector literal (repaint_debug_CustomPaint) '
+        'credits family `repaint_debug`', () async {
+      // Anti-tautology anchor — literal is the exact string emitted by
+      // RepaintDetector at runtime (stableId: `repaint_debug_$typeName`).
+      // If the detector renames the parametric prefix, this test breaks.
+      final file = File('${root.path}/parametric_real_literal_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('real detector literal', () {
+    final d = XyzDetector();
+    final issue = d;
+    expect(issue.stableId, 'repaint_debug_CustomPaint');
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'parametric_real_literal_test.dart',
+        requiredTokens: ['XyzDetector'],
+        parametricFamilies: const {'repaint_debug'},
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason: 'Real detector emission literal must credit parametric '
+              'family declared in metadata.');
+    });
+
+    test('parametricFamilies + coveredStableIds: BOTH must be matched',
+        () async {
+      final file = File('${root.path}/parametric_mixed_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('only bare asserted', () {
+    final d = XyzDetector();
+    final issue = d;
+    expect(issue.stableId, 'foo');
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'parametric_mixed_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'foo'},
+        parametricFamilies: const {'bar_baz'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'Bare `foo` satisfied but parametric `bar_baz` has no '
+              'credited literal — must fail.');
+      expect(failures.first, contains('bar_baz'));
+    });
+
+    test(
+        'parametricFamilies-only declaration: no coveredStableIds, parametric '
+        'family matched', () async {
+      // Edge case — detector declares ONLY parametricFamilies (null / empty
+      // coveredStableIds). Audit gate must still require the declared
+      // parametric family to be credited.
+      final file = File('${root.path}/parametric_only_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('parametric hit only', () {
+    final d = XyzDetector();
+    final issue = d;
+    expect(issue.stableId, 'foo_Bar');
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'parametric_only_test.dart',
+        requiredTokens: ['XyzDetector'],
+        parametricFamilies: const {'foo'},
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason: 'Parametric-only declaration must pass when the family '
+              'prefix is exercised.');
+    });
+
+    test('parametricFamilies: empty Set treated as none-declared (not failure)',
+        () async {
+      // Edge case — detector explicitly passes `const <String>{}` instead
+      // of null. Audit must treat empty as "nothing declared" and not
+      // synthesise a false-missing entry.
+      final file = File('${root.path}/parametric_empty_set_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('bare only', () {
+    final d = XyzDetector();
+    final issue = d;
+    expect(issue.stableId, 'foo');
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'parametric_empty_set_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'foo'},
+        parametricFamilies: const <String>{},
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason: 'Empty parametricFamilies set contributes zero declared '
+              'families; bare `foo` satisfies the only declared family.');
+    });
+
     test('skips gracefully when CWD is not a package root', () {
       // No pubspec.yaml at this override — helper must return [] rather
       // than false-failing.
@@ -626,6 +875,447 @@ void main() {
             '/tmp/definitely_not_a_package_root_${DateTime.now().microsecondsSinceEpoch}',
       );
       expect(failures, isEmpty);
+    });
+
+    test('Rule-1 credit: `expect(issues, hasStableId("LIT"))` shape', () async {
+      // `parseString` is syntactic-only, so leaving `hasStableId`
+      // undefined in the fixture is fine. A local stub would trip
+      // shadow detection and reject Rule-1 credit.
+      final file = File('${root.path}/rule1_hasStableId_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('rule-1 positive', () {
+    final d = XyzDetector();
+    expect([d], hasStableId('my_family'));
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'rule1_hasStableId_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason: 'Literal as direct arg to `hasStableId(...)` must credit '
+              'family `my_family` (Rule 1).');
+    });
+
+    test(
+        'Rule-2 credit: `.where((i) => i.stableId == "LIT")` closure-parameter '
+        'shape', () async {
+      // Positive fixture for the matcher's second accepted shape — an
+      // inline predicate where the literal is compared against
+      // `<param>.stableId` inside a closure whose outer receiver is
+      // detector-derived.
+      final file = File('${root.path}/rule2_binary_stableId_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {
+  List<dynamic> get issues => const [];
+}
+
+void main() {
+  test('rule-2 positive', () {
+    final d = XyzDetector();
+    expect(d.issues.where((i) => i.stableId == 'my_family'), isEmpty);
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'rule2_binary_stableId_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason: 'Literal as right operand of `i.stableId == "..."` inside a '
+              '`.where` closure on a detector-derived receiver must credit '
+              '(Rule 2).');
+    });
+
+    test(
+        'Rule-3 credit: `<x>.stableId.startsWith("LIT_")` method-on-stableId '
+        'shape', () async {
+      // Positive fixture for the matcher's third accepted shape — the
+      // literal is the argument to `startsWith`/`contains`/`endsWith`
+      // whose target is a `.stableId` property access.
+      final file = File('${root.path}/rule3_startsWith_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('rule-3 positive', () {
+    final d = XyzDetector();
+    final issue = d;
+    expect(issue.stableId.startsWith('my_family:'), isTrue);
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'rule3_startsWith_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason:
+              'Literal as arg to `<x>.stableId.startsWith(...)` must credit '
+              'family via the `<family>:` prefix convention (Rule 3).');
+    });
+
+    test(
+        'negative anchor: `expect("foo", equals("foo"))` tautology MUST NOT '
+        'credit', () async {
+      // The literal's AST position must prove detector-derived
+      // provenance. A pure self-assertion never does — reject.
+      final file = File('${root.path}/tautology_rejected_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('self-assertion tautology', () {
+    final d = XyzDetector();
+    expect('my_family', equals('my_family'));
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'tautology_rejected_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'Self-assertion tautology `expect("foo", equals("foo"))` '
+              'must not credit family coverage.');
+      expect(failures.first, contains('does not assert against every family'));
+      expect(failures.first, contains('my_family'));
+    });
+
+    test('synthetic `FakeIssue.stableId` MUST NOT credit', () async {
+      // A class with its own `stableId` getter cannot discharge family
+      // coverage — the `.stableId` read must root in a detector-bound
+      // receiver.
+      final file = File('${root.path}/fake_issue_rejected_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+class FakeIssue {
+  final String stableId;
+  const FakeIssue(this.stableId);
+}
+
+void main() {
+  test('synthetic stableId getter', () {
+    final d = XyzDetector();
+    d.toString();
+    final fake = const FakeIssue('my_family');
+    expect(fake.stableId, 'my_family');
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'fake_issue_rejected_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'A synthetic class with a `stableId` getter must NOT credit '
+              'family coverage — receiver root `fake` is not detector-bound '
+              'so the literal fails provenance.');
+      expect(failures.first, contains('my_family'));
+    });
+
+    test(
+        'reassignment-kill: `final issue = FakeIssue(...)` after prior '
+        'detector-bound `issue` MUST NOT credit', () async {
+      // Non-derived re-declaration removes the prior binding.
+      final file = File('${root.path}/reassignment_kill_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {
+  List<dynamic> get issues => const [];
+}
+
+class FakeIssue {
+  final String stableId;
+  const FakeIssue(this.stableId);
+}
+
+void main() {
+  test('reassignment invalidates prior detector binding', () {
+    final d = XyzDetector();
+    final issue = d;
+    issue.toString();
+    final fake = const FakeIssue('my_family');
+    final issue2 = fake;
+    expect(issue2.stableId, 'my_family');
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'reassignment_kill_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'Second declaration `issue2 = fake` is non-derived so the '
+              'name is not bound; `issue2.stableId` must fail provenance.');
+      expect(failures.first, contains('my_family'));
+    });
+
+    test(
+        'list-literal smuggling: detector-bound name inside a list '
+        'MUST NOT taint the whole expression', () async {
+      // Structural walker returns false for list literals regardless of
+      // contents.
+      final file = File('${root.path}/list_smuggling_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+class FakeIssue {
+  final String stableId;
+  const FakeIssue(this.stableId);
+}
+
+void main() {
+  test('list-literal smuggling', () {
+    final d = XyzDetector();
+    final mixed = [const FakeIssue('my_family'), d];
+    expect(mixed.first.stableId, 'my_family');
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'list_smuggling_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'List literal is not an aliasing shape; `mixed` must NOT '
+              'be detector-bound even though the literal contains `d`.');
+      expect(failures.first, contains('my_family'));
+    });
+
+    test('fold accumulator: `fold((acc, item) => ...)` MUST NOT bind `acc`',
+        () async {
+      // `_closureParamPositions['fold'] = 1` so only `item` is bound;
+      // the caller-controlled accumulator stays free.
+      final file = File('${root.path}/fold_accumulator_kill_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {
+  List<dynamic> get issues => const [];
+}
+
+class FakeIssue {
+  final String stableId;
+  const FakeIssue(this.stableId);
+}
+
+void main() {
+  test('fold accumulator is not detector-bound', () {
+    final d = XyzDetector();
+    final result = d.issues.fold(const FakeIssue('my_family'), (acc, item) {
+      return acc.stableId == 'my_family' ? acc : acc;
+    });
+    result.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'fold_accumulator_kill_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: '`acc` is the accumulator (position 0 of fold), not an '
+              'element iteration variable. It must NOT be bound, and '
+              '`acc.stableId == "my_family"` must fail to credit.');
+      expect(failures.first, contains('my_family'));
+    });
+
+    test(
+        'for-in loop shadow: rebinding `issue` to fake iterable MUST clear '
+        'prior detector binding inside the loop body', () async {
+      // Iterable is a list literal (not derived), so the loop binder
+      // is cleared for the loop body.
+      final file = File('${root.path}/forin_shadow_kill_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {
+  List<dynamic> get issues => const [];
+}
+
+class FakeIssue {
+  final String stableId;
+  const FakeIssue(this.stableId);
+}
+
+void main() {
+  test('for-in binder overrides outer detector binding', () {
+    final d = XyzDetector();
+    for (final issue in [const FakeIssue('my_family')]) {
+      expect(issue.stableId, 'my_family');
+    }
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'forin_shadow_kill_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'Iterable is a list literal (not derived). Loop binder '
+              '`issue` must NOT be bound inside the loop body; Rule-4 must '
+              'reject the literal.');
+      expect(failures.first, contains('my_family'));
+    });
+
+    test(
+        'for-in loop positive: `for (final issue in detector.scanTree(...))` '
+        'keeps `issue` detector-bound in loop body', () async {
+      // Iterable `d.scanTree(null)` is derived via producer-method
+      // whitelist. Loop binder is bound inside the loop body.
+      final file = File('${root.path}/forin_scanTree_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {
+  List<dynamic> scanTree(dynamic root) => const [];
+}
+
+void main() {
+  test('for-in over scanTree credits', () {
+    final d = XyzDetector();
+    for (final issue in d.scanTree(null)) {
+      expect(issue.stableId, 'my_family');
+    }
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'forin_scanTree_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason: 'Iterable `d.scanTree(null)` is detector-derived via '
+              'producer-method whitelist. Loop binder `issue` must be '
+              'detector-bound in the loop body; Rule-4 credits.');
+    });
+
+    test(
+        'pattern-destructure kill: `(issue, _) = ...` overwrite MUST clear '
+        'prior detector binding', () async {
+      // Dart 3 destructuring overwrites — per-slot derivation cannot be
+      // proven, so every name in the pattern is conservatively cleared.
+      final file = File('${root.path}/pattern_destructure_kill_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {
+  List<dynamic> get issues => const [];
+}
+
+class FakeIssue {
+  final String stableId;
+  const FakeIssue(this.stableId);
+}
+
+void main() {
+  test('pattern destructure rebinds issue to fake', () {
+    final d = XyzDetector();
+    var issue = d;
+    issue.toString();
+    (issue, _) = (const FakeIssue('my_family'), 0);
+    expect(issue.stableId, 'my_family');
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'pattern_destructure_kill_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'Pattern-assignment conservatively removes `issue` from '
+              'bound set (cannot prove per-slot derivation). Rule-4 must '
+              'reject.');
+      expect(failures.first, contains('my_family'));
+    });
+
+    test(
+        'shadow detection: local `Matcher hasStableId(...)` function '
+        'declaration rejects Rule-1 credit', () async {
+      // A local shadow could be a stub that always returns true. Until
+      // it is removed (or the reproducer switches to Rule-2/3/4),
+      // Rule-1 credits no family for this file.
+      final file = File('${root.path}/shadow_rejects_rule1_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+Matcher hasStableId(String s) => equals(s);
+
+void main() {
+  test('shadow makes Rule-1 unsafe', () {
+    final d = XyzDetector();
+    expect([d], hasStableId('my_family'));
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'shadow_rejects_rule1_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'Local `Matcher hasStableId(...)` function declaration '
+              'triggers shadow detection; Rule-1 must reject to avoid '
+              'credit via a potentially-stub helper.');
+      expect(failures.first, contains('my_family'));
     });
   });
 
