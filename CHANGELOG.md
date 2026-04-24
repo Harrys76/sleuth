@@ -1,3 +1,36 @@
+## 0.17.2
+
+**All 23 detectors now at `reproducerOnly` tier.** The 8 remaining `unvalidated` detectors — all vmOnly or hybrid lifecycle — flipped to `reproducerOnly`: `ShaderJankDetector`, `HeavyComputeDetector`, `PlatformChannelDetector`, `MemoryPressureDetector`, `GpuPressureDetector`, `RepaintDetector`, `RebuildDetector`, `ShallowRebuildRiskDetector`. Reproducers point at existing `test/detectors/*_detector_test.dart` suites.
+
+**Caveat — tier is not uniform.** v0.17.2 vmOnly reproducers drive detector entrypoints (`processTimelineData`, `processHeapSample`) directly with helper-constructed synthetic inputs. The VM → `TimelineParser` → detector contract boundary is NOT exercised. This is meaningfully weaker evidence than prior-batch structural reproducers (v0.16.3, v0.17.1) that drove real `pumpWidget` + `scanTree`. "23/23 `reproducerOnly`" is accurate at the tier-registry level; it does NOT imply uniform evidence strength across all 23 detectors. A future tier ladder may split parser-blind vs end-to-end into sub-tiers.
+
+### Added
+
+- **v0.17.2 anchor block** in `test/validation/detector_metadata_audit_test.dart` pinning the (type → reproducerPath → coveredStableIds) triple for all 8 raised detectors plus negative-field assertions. 8 new entries in `anchoredTypes` — ratchet remains universal.
+- **3 `expect(issue.stableId, ...)` assertions** added to existing tests so the B1 parent-chain walker credits the literal in positional-arg position: `shallow_rebuild_risk_detector_test.dart` (flags shallow StatefulWidget), `gpu_pressure_detector_test.dart` (both families), `rebuild_detector_test.dart` (stateful_density).
+
+### Changed
+
+- **8 detector `validationMetadata` blocks** flipped to `reproducerOnly` with rationale + `reproducerPath` + `coveredStableIds`:
+  - `ShaderJankDetector` → `{'shader_compilation'}`
+  - `HeavyComputeDetector` → `{'heavy_compute'}`
+  - `PlatformChannelDetector` → `{'platform_channel_traffic'}`
+  - `MemoryPressureDetector` → all 4 families
+  - `GpuPressureDetector` → `{'raster_dominance', 'expensive_gpu_nodes'}`
+  - `RepaintDetector` → `{'excessive_repaint', 'excessive_repaint_debug'}` (narrowed)
+  - `RebuildDetector` → `{'stateful_density'}` (narrowed)
+  - `ShallowRebuildRiskDetector` → `{'shallow_rebuild_risk'}`
+- **`doc/validation_ledger.md`** — summary recount (15/23 → **23/23 `reproducerOnly`, 0/23 `unvalidated`** — milestone), 8 row flips, v0.17.2 roadmap entry.
+
+### Notes
+
+- **Two partial-coverage disclosures**: `RepaintDetector` and `RebuildDetector` carry documented narrowings — both for the same root cause (underscore-parametric family unrepresentable in audit schema).
+  - `RepaintDetector`: parametric `repaint_debug_<typeName>` not declarable at detector scope (uses `_` separator; audit gate prefix convention uses `:`).
+  - `RebuildDetector`: parametric `rebuild_debug_<typeName>` same `_`-separator issue. `rebuild_activity` IS covered — warning at `buildCount > rebuildsPerSecThreshold` (default 10/sec), critical at `> 3 × threshold` (= 30/sec), pinned by tests at buildCount=15 → warning and buildCount=35 → critical.
+- **`reproducerPath` points at `test/detectors/`** for this batch — existing detector unit tests are the reproducer. Prior batches (v0.17.1, v0.16.3) used purpose-written `test/validation/*_reproducer_test.dart` files. Both path conventions pass `isPathInsideRepo`.
+- **Fixture provenance disclosed in each rationale**: "Reproducer reuses existing detector unit tests; fixtures are synthetic and predate the validation methodology." This is a provenance disclosure — NOT an anti-tautology acknowledgement. The reused tests drive detector internals with helper-constructed synthetic inputs and carry same-author provenance; they do not materially reduce Tactic 9 risk. Treat this batch's `reproducerOnly` claim as "behavior pinned at thresholds" only; a future tier raise requires independent captured inputs.
+- `fvm flutter analyze` clean, `fvm flutter test` all green.
+
 ## 0.17.1
 
 **Bulk structural validation batch.** Nine structural detectors raised `unvalidated` → `reproducerOnly`: `LayoutBottleneckDetector`, `NestedScrollDetector`, `CustomPainterDetector`, `AnimatedBuilderDetector`, `KeepAliveDetector`, `FontLoadingDetector`, `RepaintBoundaryDetector`, `SetStateScopeDetector`, `StartupDetector`. All nine are pure structural or one-shot scans, so hermetic reproducers cover the runtime trigger path end-to-end. Ledger distribution: **15/23 `reproducerOnly`, 8/23 `unvalidated`**.

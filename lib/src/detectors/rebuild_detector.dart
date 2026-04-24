@@ -513,10 +513,26 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'Rebuild-rate thresholds (20/50 builds/sec) with 30-build / '
-            '1.5s noise floor, plus profile-mode vs debug-mode '
-            'attribution source. Not runtime-verified on a reference '
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hybrid detector. Two families pinned by '
+            '`test/detectors/rebuild_detector_test.dart`: '
+            '`stateful_density` (public-named StatefulWidget count '
+            'crosses the density gate; framework/private widgets '
+            'filtered) and `rebuild_activity` (VM-timeline rebuild-rate '
+            'aggregate — warning at `buildCount > rebuildsPerSecThreshold` '
+            'default 10/sec, critical at `> 3 × threshold` = 30/sec; '
+            'pinned by tests at buildCount=15 → warning and buildCount=35 '
+            '→ critical). Known narrowing: the parametric '
+            '`rebuild_debug_<typeName>` family uses `_` separator, '
+            'outside the audit gate prefix convention (`:`) — concrete '
+            'instances may be test-exercised but cannot be declared '
+            'at detector scope. Reproducer reuses existing detector '
+            'unit tests; fixtures are synthetic with same-author '
+            'provenance (not an anti-tautology acknowledgement). '
+            'VM → TimelineParser → detector boundary is NOT exercised '
+            'at this tier. Not yet runtime-verified on a reference '
             'device or externally cited.',
+        reproducerPath: 'test/detectors/rebuild_detector_test.dart',
+        coveredStableIds: {'stateful_density', 'rebuild_activity'},
       );
 }

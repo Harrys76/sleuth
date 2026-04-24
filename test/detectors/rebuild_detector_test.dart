@@ -42,6 +42,7 @@ void main() {
         detector.evaluateNow();
 
         expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.stableId, 'rebuild_activity');
         expect(detector.issues.first.severity, IssueSeverity.warning);
         expect(detector.issues.first.title, contains('Rebuild Activity'));
       });
@@ -52,6 +53,7 @@ void main() {
         detector.evaluateNow();
 
         expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.stableId, 'rebuild_activity');
         expect(detector.issues.first.severity, IssueSeverity.critical);
       });
 
@@ -498,6 +500,7 @@ void main() {
         expect(detector.issues, isNotEmpty,
             reason: 'Public-named user widgets should trigger '
                 'stateful_density');
+        expect(detector.issues.first.stableId, 'stateful_density');
       });
     });
 

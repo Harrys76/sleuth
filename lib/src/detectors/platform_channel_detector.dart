@@ -143,9 +143,17 @@ class PlatformChannelDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'Platform-channel call-duration threshold and frequency '
-            'heuristic. Not runtime-verified or cited to Flutter '
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'VM-only detector. Platform-channel frequency threshold '
+            '(>20/sec) pinned by '
+            '`test/detectors/platform_channel_detector_test.dart` — drives '
+            '`processTimelineData` with synthetic channel-call events, '
+            'asserts `platform_channel_traffic` emission at boundary + '
+            'silence below. Reproducer reuses existing detector unit '
+            'tests; fixtures are synthetic and predate the validation '
+            'methodology. Not yet runtime-verified or cited to Flutter '
             'platform-channel performance docs.',
+        reproducerPath: 'test/detectors/platform_channel_detector_test.dart',
+        coveredStableIds: {'platform_channel_traffic'},
       );
 }

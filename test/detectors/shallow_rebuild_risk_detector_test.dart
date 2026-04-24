@@ -35,6 +35,7 @@ void main() {
         detector.scanTree(tester.element(find.byType(Directionality)));
 
         expect(detector.issues, isNotEmpty);
+        expect(detector.issues.first.stableId, 'shallow_rebuild_risk');
         expect(
           detector.issues.first.title,
           contains('Shallow Rebuild Risk'),

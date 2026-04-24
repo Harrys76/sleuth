@@ -485,9 +485,24 @@ class MemoryPressureDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'Memory growth thresholds, warmup, capacity, and 10s '
-            'sliding-window GC-rate calculation. Not runtime-verified '
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'VM-only detector. All 4 emission families pinned by '
+            '`test/detectors/memory_pressure_detector_test.dart` — drives '
+            '`processHeapSample` with synthetic heap/RSS timeseries, '
+            'asserts `gc_pressure` (GC-rate slider), `heap_growing` '
+            '(sustained slope), `heap_near_capacity` (>80% usage + '
+            'growing), and `native_memory_growing` (RSS-heap gap > 1MB/s '
+            '+ 10s sustained) at threshold boundaries + silence below. '
+            'Warmup + 10s sliding-window guards pinned. Reproducer reuses '
+            'existing detector unit tests; fixtures are synthetic and '
+            'predate the validation methodology. Not yet runtime-verified '
             'against a low-memory device profile or externally cited.',
+        reproducerPath: 'test/detectors/memory_pressure_detector_test.dart',
+        coveredStableIds: {
+          'gc_pressure',
+          'heap_growing',
+          'heap_near_capacity',
+          'native_memory_growing',
+        },
       );
 }

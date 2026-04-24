@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.17.1 (2026-04-24)_
+_Last updated: v0.17.2 (2026-04-24)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
@@ -23,22 +23,37 @@ adding a new tier requires a semver major bump:
 | Tier | Meaning |
 |------|---------|
 | `unvalidated` | Rationale is documented but thresholds are not yet backed by a hermetic reproducer or citation. Honest starting state. |
-| `reproducerOnly` | A deterministic, hermetic test in `test/validation/` exercises the detector end-to-end and pins its thresholds. |
+| `reproducerOnly` | A deterministic, hermetic test (at `test/validation/<d>_reproducer_test.dart` for purpose-written reproducers OR `test/detectors/<d>_detector_test.dart` for detectors whose existing unit tests already exercise the emission path) pins the detector's thresholds and stableId families. Structural reproducers drive real `pumpWidget` + `scanTree`; vmOnly reproducers drive `processTimelineData` / `processHeapSample` directly (the VM → `TimelineParser` → detector contract is NOT exercised at this tier). |
 | `runtimeVerified` | `reproducerOnly` plus a checked-in profile-mode capture (timeline JSON / DevTools snapshot) showing the claimed magnitude on a reference device. |
 | `externallyCited` | `runtimeVerified` plus a citation to a Flutter SDK constant, dart-lang issue, or published benchmark. |
 
 ## Ledger
 
-**Summary:** 15 / 23 at `reproducerOnly`, 8 / 23 at `unvalidated`. No
-detectors currently at `runtimeVerified` or `externallyCited`. v0.17.1
-raises 9 structural detectors in a single bulk batch:
-`LayoutBottleneckDetector`, `NestedScrollDetector`,
-`CustomPainterDetector`, `AnimatedBuilderDetector`, `KeepAliveDetector`,
-`FontLoadingDetector`, `RepaintBoundaryDetector`,
-`SetStateScopeDetector`, and `StartupDetector` — all pure structural or
-one-shot scans (no VM-timeline dependency), so hermetic reproducers
-under `test/validation/` cover the runtime trigger path
-end-to-end. A parameterised anchor test
+**Summary:** **23 / 23 at `reproducerOnly`, 0 / 23 at `unvalidated`**
+in v0.17.2. No detectors currently at `runtimeVerified` or
+`externallyCited`. **Tier is NOT uniform** across 23 detectors —
+v0.17.2's 8 vmOnly + hybrid detectors drive detector entrypoints
+(`processTimelineData`, `processHeapSample`) directly with synthetic
+helper-constructed inputs; the VM → `TimelineParser` → detector
+contract boundary is NOT exercised. Prior-batch structural detectors
+(v0.16.3, v0.17.1) drove real `pumpWidget` + `scanTree` and carry
+materially stronger evidence. A future tier ladder may split
+parser-blind vs end-to-end into sub-tiers. v0.17.2 raises the final 8
+vmOnly + hybrid detectors in a single bulk batch:
+`ShaderJankDetector`, `HeavyComputeDetector`, `PlatformChannelDetector`,
+`MemoryPressureDetector`, `GpuPressureDetector`, `RepaintDetector`,
+`RebuildDetector`, and `ShallowRebuildRiskDetector`. Reproducers reuse
+the existing `test/detectors/*_detector_test.dart` suites — fixtures are
+synthetic and predate the validation methodology, disclosed in each
+rationale. Two partial-coverage disclosures ship in this batch:
+`RepaintDetector` (parametric `repaint_debug_<typeName>` uncovered) and
+`RebuildDetector` (`rebuild_activity` + parametric
+`rebuild_debug_<typeName>` uncovered). v0.17.1 raised 9 structural
+detectors in a single bulk batch: `LayoutBottleneckDetector`,
+`NestedScrollDetector`, `CustomPainterDetector`,
+`AnimatedBuilderDetector`, `KeepAliveDetector`, `FontLoadingDetector`,
+`RepaintBoundaryDetector`, `SetStateScopeDetector`, and
+`StartupDetector` — all pure structural or one-shot scans. A parameterised anchor test
 (`detector_metadata_audit_test.dart` → `v0.17.1 structural batch
 pinned at reproducerOnly`) pins the (type → reproducerPath →
 coveredStableIds) triple for all 9 so silent rename / stableId drift
@@ -67,19 +82,19 @@ on disk as retained orphans with `consumeBy: '0.18.0'`.
 
 | Detector | Tier | Reproducer | Notes |
 |---|---|---|---|
-| Shader Jank | `unvalidated` | — | Shader-compile duration threshold for first-frame jank attribution. Not runtime-verified against Impeller/Skia shader-compile budgets or externally cited. |
-| Heavy Compute | `unvalidated` | — | Frame-blocking synchronous-compute duration threshold and attribution heuristic. Not runtime-verified or externally cited. |
-| Platform Channel | `unvalidated` | — | Platform-channel call-duration threshold and frequency heuristic. Not runtime-verified or cited to Flutter platform-channel performance docs. |
-| Memory Pressure | `unvalidated` | — | Memory growth thresholds, warmup, capacity, and 10 s sliding-window GC-rate calculation. Not runtime-verified against a low-memory device profile or externally cited. |
-| Repaint | `unvalidated` | — | Excessive-repaint rate threshold (30 paints/sec) plus animation-owner filter. Not runtime-verified against refresh-rate-specific baselines or externally cited. |
+| Shader Jank | `reproducerOnly` | [`shader_jank_detector_test.dart`](../test/detectors/shader_jank_detector_test.dart) | Shader-compile duration threshold pinned via `processTimelineData` with synthetic shader-compile events. `coveredStableIds = {'shader_compilation'}`. Fixtures synthetic (predate methodology). |
+| Heavy Compute | `reproducerOnly` | [`heavy_compute_detector_test.dart`](../test/detectors/heavy_compute_detector_test.dart) | Frame-gap threshold pinned via synthetic timeline events. `coveredStableIds = {'heavy_compute'}`. Fixtures synthetic. |
+| Platform Channel | `reproducerOnly` | [`platform_channel_detector_test.dart`](../test/detectors/platform_channel_detector_test.dart) | >20/sec call-frequency threshold pinned via synthetic channel-call events. `coveredStableIds = {'platform_channel_traffic'}`. Fixtures synthetic. |
+| Memory Pressure | `reproducerOnly` | [`memory_pressure_detector_test.dart`](../test/detectors/memory_pressure_detector_test.dart) | All 4 emission families pinned via synthetic heap/RSS timeseries: `gc_pressure`, `heap_growing`, `heap_near_capacity`, `native_memory_growing`. Warmup + 10 s sliding-window guards pinned. Fixtures synthetic. |
+| Repaint | `reproducerOnly` | [`repaint_detector_test.dart`](../test/detectors/repaint_detector_test.dart) | **Partial coverage.** `coveredStableIds = {'excessive_repaint', 'excessive_repaint_debug'}`. Parametric `repaint_debug_<typeName>` family uncovered at detector scope (uses `_` separator; audit gate prefix convention uses `:`). Fixtures synthetic. |
 
 ### Hybrid detectors (3)
 
 | Detector | Tier | Reproducer | Notes |
 |---|---|---|---|
-| Rebuild | `unvalidated` | — | Rebuild-rate thresholds (20 / 50 builds/sec) with 30-build / 1.5 s noise floor, plus profile-mode vs debug-mode attribution source. Not runtime-verified on a reference device or externally cited. |
-| GPU Pressure | `unvalidated` | — | GPU-phase frame-time threshold and sustained-pressure window. Not runtime-verified against Impeller/Skia budgets or externally cited. |
-| Shallow Rebuild Risk | `unvalidated` | — | Shallow-rebuild-risk structural heuristic. Not runtime-verified or externally cited. |
+| Rebuild | `reproducerOnly` | [`rebuild_detector_test.dart`](../test/detectors/rebuild_detector_test.dart) | Two families pinned: `stateful_density` + `rebuild_activity` (warning at `buildCount > rebuildsPerSecThreshold` default 10/sec, critical at `> 3 × threshold` = 30/sec; test-pinned at 15 → warning and 35 → critical). Known narrowing: parametric `rebuild_debug_<typeName>` uses `_` separator, outside audit prefix convention. Fixtures synthetic. |
+| GPU Pressure | `reproducerOnly` | [`gpu_pressure_detector_test.dart`](../test/detectors/gpu_pressure_detector_test.dart) | Both emission families pinned: `raster_dominance` (VM timeline raster > UI × 2.0 sustained) and `expensive_gpu_nodes` (tree walk corroborated by raster pressure). Confidence downgrade on VM disconnect pinned. Fixtures synthetic. |
+| Shallow Rebuild Risk | `reproducerOnly` | [`shallow_rebuild_risk_detector_test.dart`](../test/detectors/shallow_rebuild_risk_detector_test.dart) | `shallow_rebuild_risk` pinned via real `pumpWidget` tree with shallow StatefulWidget + VM-staged high-build-activity data. Framework-widget suppression pinned. Fixtures synthetic. |
 
 ### Structural detectors (13)
 
@@ -219,7 +234,32 @@ per release:
   DebugSnapshot confidence-upgrade path (likely / confirmed via
   rebuild-counter correlation) is a known gap documented in the
   detector rationale. Ledger distribution: **15/23
-  `reproducerOnly`, 8/23 `unvalidated`**. **← current release**
+  `reproducerOnly`, 8/23 `unvalidated`**.
+- **v0.17.2** — Bulk vmOnly + hybrid batch. Final 8 detectors raised
+  `unvalidated` → `reproducerOnly`: `ShaderJankDetector`,
+  `HeavyComputeDetector`, `PlatformChannelDetector`,
+  `MemoryPressureDetector`, `GpuPressureDetector`, `RepaintDetector`,
+  `RebuildDetector`, `ShallowRebuildRiskDetector`. Reproducers reuse
+  existing `test/detectors/*_detector_test.dart` suites (fixtures
+  synthetic, predate validation methodology — disclosed per
+  rationale). **Pipeline gap**: vmOnly reproducers drive detector
+  internals directly (`processTimelineData` /
+  `processHeapSample`); the real VM → `TimelineParser` → detector
+  contract boundary is NOT exercised at this tier. A format-level
+  bug at that hop (field rename, type coercion, enum shift) would
+  pass audit silently. A runtimeVerified raise would additionally
+  require a profile-mode capture exercising the full pipeline. Two
+  partial-coverage disclosures ship: `RepaintDetector` (parametric
+  `repaint_debug_<typeName>` uncovered — concrete
+  `repaint_debug_CustomPaint` instance IS exercised by tests but not
+  declared in `coveredStableIds` because the audit prefix convention
+  uses `:` not `_`) and `RebuildDetector` (`rebuild_activity` +
+  parametric `rebuild_debug_<typeName>` uncovered). Parametric
+  underscore-separator families outside the audit gate's `:` prefix
+  convention remain the one methodology gap. Ledger distribution:
+  **23/23 `reproducerOnly`, 0/23 `unvalidated`** — detector-scope
+  milestone (family-scope coverage is NOT universal per the two
+  disclosures above). **← current release**
 - **v0.18.0+** — Re-raise `NetworkMonitorDetector.slow_request.warning`
   (hard deadline — orphan manifest `consumeBy: '0.18.0'` blocks the
   release unless re-raised or orphans deleted). Also drops the

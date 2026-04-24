@@ -247,9 +247,18 @@ class ShallowRebuildRiskDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'Shallow-rebuild-risk structural heuristic. Not '
-            'runtime-verified or externally cited.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hybrid detector. `shallow_rebuild_risk` emission pinned '
+            'by `test/detectors/shallow_rebuild_risk_detector_test.dart` '
+            '— real `pumpWidget` tree with a shallow StatefulWidget '
+            'against VM-staged high-build-activity data, asserts '
+            'emission + confidence + observationSource + framework-widget '
+            'suppression. Reproducer reuses existing detector unit '
+            'tests; fixtures are synthetic and predate the validation '
+            'methodology. Not yet runtime-verified or externally cited.',
+        reproducerPath:
+            'test/detectors/shallow_rebuild_risk_detector_test.dart',
+        coveredStableIds: {'shallow_rebuild_risk'},
       );
 }
 

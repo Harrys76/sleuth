@@ -117,6 +117,8 @@ void main() {
           (issue) => issue.stableId == 'expensive_gpu_nodes',
         );
 
+        expect(rasterIssue.stableId, 'raster_dominance');
+        expect(nodeIssue.stableId, 'expensive_gpu_nodes');
         expect(rasterIssue.confidence, IssueConfidence.confirmed);
         expect(rasterIssue.detail, isNot(contains('Suspected cause')));
         expect(nodeIssue.confidence, IssueConfidence.likely);

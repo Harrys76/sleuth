@@ -55,6 +55,130 @@ import 'package:sleuth/src/models/base_detector.dart';
 
 import '_support/audit_invariants.dart';
 
+// File-scope anchor expectations. Each map pins the (type → reproducerPath
+// → coveredStableIds) triple for a tier-raise batch. These maps are the
+// SINGLE SOURCE OF TRUTH for the ratchet invariant below — `anchoredTypes`
+// derives its entries from these maps' keys, so deleting an anchor block
+// literally removes the detector from `anchoredTypes` and fires the
+// ratchet. Prior designs kept a separate hand-maintained `anchoredTypes`
+// set which could drift out of sync if an anchor block was deleted while
+// the allowlist entry stayed; that gap is closed by derivation.
+const _v0163Expectations = <DetectorType, (String, Set<String>)>{
+  DetectorType.imageMemory: (
+    'test/validation/image_memory_reproducer_test.dart',
+    {'uncached_images'},
+  ),
+  DetectorType.opacity: (
+    'test/validation/opacity_reproducer_test.dart',
+    {'opacity_zero'},
+  ),
+  DetectorType.globalKey: (
+    'test/validation/global_key_reproducer_test.dart',
+    {'excessive_global_keys', 'global_key_recreation'},
+  ),
+  DetectorType.listview: (
+    'test/validation/listview_reproducer_test.dart',
+    {
+      'non_lazy_listview',
+      'non_lazy_gridview',
+      'non_lazy_sliver_list',
+      'non_lazy_sliver_grid',
+      'non_lazy_list',
+      'sliver_to_box_adapter_large',
+      'sliver_to_box_adapter_shrinkwrap',
+      'sliver_fill_remaining_scrollable',
+    },
+  ),
+};
+
+const _v0171Expectations = <DetectorType, (String, Set<String>)>{
+  DetectorType.layoutBottleneck: (
+    'test/validation/layout_bottleneck_reproducer_test.dart',
+    {'layout_bottleneck', 'wrap_layout_bottleneck'},
+  ),
+  DetectorType.nestedScroll: (
+    'test/validation/nested_scroll_reproducer_test.dart',
+    {'nested_scroll', 'nested_scroll_same_axis'},
+  ),
+  DetectorType.customPainter: (
+    'test/validation/custom_painter_reproducer_test.dart',
+    {'always_repaint_painter', 'frequent_repaint_painter'},
+  ),
+  DetectorType.animatedBuilder: (
+    'test/validation/animated_builder_reproducer_test.dart',
+    {'animated_builder_no_child'},
+  ),
+  DetectorType.keepAlive: (
+    'test/validation/keep_alive_reproducer_test.dart',
+    {'excessive_keep_alive'},
+  ),
+  DetectorType.fontLoading: (
+    'test/validation/font_loading_reproducer_test.dart',
+    {'runtime_font_loading', 'multiple_custom_fonts'},
+  ),
+  DetectorType.repaintBoundary: (
+    'test/validation/repaint_boundary_reproducer_test.dart',
+    {'missing_repaint_boundary', 'excessive_repaint_boundary'},
+  ),
+  DetectorType.setStateScope: (
+    'test/validation/setstate_scope_reproducer_test.dart',
+    {'setstate_scope'},
+  ),
+  DetectorType.startup: (
+    'test/validation/startup_reproducer_test.dart',
+    {'slow_startup_ttff'},
+  ),
+};
+
+const _v0172Expectations = <DetectorType, (String, Set<String>)>{
+  DetectorType.shaderJank: (
+    'test/detectors/shader_jank_detector_test.dart',
+    {'shader_compilation'},
+  ),
+  DetectorType.heavyCompute: (
+    'test/detectors/heavy_compute_detector_test.dart',
+    {'heavy_compute'},
+  ),
+  DetectorType.platformChannel: (
+    'test/detectors/platform_channel_detector_test.dart',
+    {'platform_channel_traffic'},
+  ),
+  DetectorType.memoryPressure: (
+    'test/detectors/memory_pressure_detector_test.dart',
+    {
+      'gc_pressure',
+      'heap_growing',
+      'heap_near_capacity',
+      'native_memory_growing',
+    },
+  ),
+  DetectorType.gpuPressure: (
+    'test/detectors/gpu_pressure_detector_test.dart',
+    {'raster_dominance', 'expensive_gpu_nodes'},
+  ),
+  DetectorType.repaint: (
+    'test/detectors/repaint_detector_test.dart',
+    {'excessive_repaint', 'excessive_repaint_debug'},
+  ),
+  DetectorType.rebuild: (
+    'test/detectors/rebuild_detector_test.dart',
+    {'stateful_density', 'rebuild_activity'},
+  ),
+  DetectorType.shallowRebuildRisk: (
+    'test/detectors/shallow_rebuild_risk_detector_test.dart',
+    {'shallow_rebuild_risk'},
+  ),
+};
+
+/// Detectors anchored by NetworkMonitor + FrameTiming single-detector
+/// anchors (not batch blocks). These are enumerated explicitly because
+/// the v0.16.5 / v0.16.6 anchor tests assert against the detector's
+/// `validationMetadata` directly rather than a shared expectations map.
+const _singleDetectorAnchors = <DetectorType>{
+  DetectorType.networkMonitor,
+  DetectorType.frameTiming,
+};
+
 void main() {
   group('Detector metadata audit (v0.16.1 gate)', () {
     late SleuthController controller;
@@ -468,44 +592,7 @@ void main() {
       // Every raise here is reproducerOnly — all extended-claim fields
       // (citationUrl, profileCapturePaths, bracketThreshold, bracketUnit,
       // coveredThresholds, aboveCeilingMultiplier) MUST remain null.
-      const expectations = <DetectorType, (String, Set<String>)>{
-        DetectorType.layoutBottleneck: (
-          'test/validation/layout_bottleneck_reproducer_test.dart',
-          {'layout_bottleneck', 'wrap_layout_bottleneck'},
-        ),
-        DetectorType.nestedScroll: (
-          'test/validation/nested_scroll_reproducer_test.dart',
-          {'nested_scroll', 'nested_scroll_same_axis'},
-        ),
-        DetectorType.customPainter: (
-          'test/validation/custom_painter_reproducer_test.dart',
-          {'always_repaint_painter', 'frequent_repaint_painter'},
-        ),
-        DetectorType.animatedBuilder: (
-          'test/validation/animated_builder_reproducer_test.dart',
-          {'animated_builder_no_child'},
-        ),
-        DetectorType.keepAlive: (
-          'test/validation/keep_alive_reproducer_test.dart',
-          {'excessive_keep_alive'},
-        ),
-        DetectorType.fontLoading: (
-          'test/validation/font_loading_reproducer_test.dart',
-          {'runtime_font_loading', 'multiple_custom_fonts'},
-        ),
-        DetectorType.repaintBoundary: (
-          'test/validation/repaint_boundary_reproducer_test.dart',
-          {'missing_repaint_boundary', 'excessive_repaint_boundary'},
-        ),
-        DetectorType.setStateScope: (
-          'test/validation/setstate_scope_reproducer_test.dart',
-          {'setstate_scope'},
-        ),
-        DetectorType.startup: (
-          'test/validation/startup_reproducer_test.dart',
-          {'slow_startup_ttff'},
-        ),
-      };
+      const expectations = _v0171Expectations;
 
       final failures = <String>[];
       for (final entry in expectations.entries) {
@@ -576,33 +663,7 @@ void main() {
       // batch uses. All four are `reproducerOnly`; extended-claim fields
       // (citationUrl, profileCapturePaths, bracketThreshold, bracketUnit,
       // coveredThresholds, aboveCeilingMultiplier) MUST remain null.
-      const expectations = <DetectorType, (String, Set<String>)>{
-        DetectorType.imageMemory: (
-          'test/validation/image_memory_reproducer_test.dart',
-          {'uncached_images'},
-        ),
-        DetectorType.opacity: (
-          'test/validation/opacity_reproducer_test.dart',
-          {'opacity_zero'},
-        ),
-        DetectorType.globalKey: (
-          'test/validation/global_key_reproducer_test.dart',
-          {'excessive_global_keys', 'global_key_recreation'},
-        ),
-        DetectorType.listview: (
-          'test/validation/listview_reproducer_test.dart',
-          {
-            'non_lazy_listview',
-            'non_lazy_gridview',
-            'non_lazy_sliver_list',
-            'non_lazy_sliver_grid',
-            'non_lazy_list',
-            'sliver_to_box_adapter_large',
-            'sliver_to_box_adapter_shrinkwrap',
-            'sliver_fill_remaining_scrollable',
-          },
-        ),
-      };
+      const expectations = _v0163Expectations;
 
       final failures = <String>[];
       for (final entry in expectations.entries) {
@@ -649,27 +710,71 @@ void main() {
           reason: 'v0.16.3 pre-ratchet anchor drift: $failures');
     });
 
+    test('v0.17.2 vmOnly + hybrid batch pinned at reproducerOnly', () {
+      // Anti-tautology anchor for the 8-detector vmOnly + hybrid batch.
+      // Each entry pins the (type → reproducerPath → coveredStableIds)
+      // triple. All 8 raises are `reproducerOnly`; extended-claim fields
+      // (citationUrl, profileCapturePaths, bracketThreshold, bracketUnit,
+      // coveredThresholds, aboveCeilingMultiplier) MUST remain null.
+      const expectations = _v0172Expectations;
+
+      final failures = <String>[];
+      for (final entry in expectations.entries) {
+        final type = entry.key;
+        final (expectedPath, expectedIds) = entry.value;
+        final BaseDetector? d = controller.detectorsForAudit
+            .where((d) => d.type == type)
+            .cast<BaseDetector?>()
+            .firstWhere((_) => true, orElse: () => null);
+        if (d == null) {
+          failures.add('${type.name}: not registered on controller');
+          continue;
+        }
+        if (d is! DetectorMetadataProvider) {
+          failures.add('${type.name}: missing DetectorMetadataProvider');
+          continue;
+        }
+        final meta = (d as DetectorMetadataProvider).validationMetadata;
+        if (meta.tier != EvidenceTier.reproducerOnly) {
+          failures.add('${type.name}: tier=${meta.tier.name}, expected '
+              'reproducerOnly');
+        }
+        if (meta.reproducerPath != expectedPath) {
+          failures.add('${type.name}: reproducerPath=${meta.reproducerPath}, '
+              'expected $expectedPath');
+        }
+        if (meta.coveredStableIds == null ||
+            !setEquals(meta.coveredStableIds, expectedIds)) {
+          failures.add('${type.name}: coveredStableIds='
+              '${meta.coveredStableIds}, expected $expectedIds');
+        }
+        if (meta.citationUrl != null ||
+            meta.profileCapturePaths != null ||
+            meta.bracketThreshold != null ||
+            meta.bracketUnit != null ||
+            meta.coveredThresholds != null ||
+            meta.aboveCeilingMultiplier != null) {
+          failures.add('${type.name}: extended-claim field populated but '
+              'tier is reproducerOnly');
+        }
+      }
+
+      expect(failures, isEmpty,
+          reason: 'v0.17.2 vmOnly + hybrid batch anchor drift: $failures');
+    });
+
     test('every reproducerOnly+ detector appears in an anchor block', () {
       // Ratchet invariant. Every detector shipped at `reproducerOnly` or
-      // stronger must be named by `DetectorType.<value>` in an anchor
-      // block above. A new tier raise must add both an entry here AND
-      // a triple-check anchor block — no allowlist escape hatches.
-      const anchoredTypes = <DetectorType>{
-        DetectorType.networkMonitor,
-        DetectorType.frameTiming,
-        DetectorType.layoutBottleneck,
-        DetectorType.nestedScroll,
-        DetectorType.customPainter,
-        DetectorType.animatedBuilder,
-        DetectorType.keepAlive,
-        DetectorType.fontLoading,
-        DetectorType.repaintBoundary,
-        DetectorType.setStateScope,
-        DetectorType.startup,
-        DetectorType.imageMemory,
-        DetectorType.opacity,
-        DetectorType.globalKey,
-        DetectorType.listview,
+      // stronger must be named in an anchor block. `anchoredTypes` is
+      // DERIVED from the file-scope expectations maps' keys plus the
+      // single-detector anchor set — deleting an anchor block removes
+      // entries from `anchoredTypes` automatically and fires the ratchet.
+      // Single source of truth; no hand-maintained allowlist drift.
+      final anchoredTypes = <DetectorType>{
+        ..._singleDetectorAnchors,
+        ..._v0163Expectations.keys,
+        ..._v0171Expectations.keys,
+        ..._v0172Expectations.keys,
       };
 
       final shippedAboveUnvalidated = <DetectorType>{};
