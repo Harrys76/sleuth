@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 5,
+  "exportedAt": "2026-04-24T12:00:00.000Z",
+  "packageVersion": "0.17.0",
+  "isVmConnected": false,
+  "isDebugMode": false,
+  "frameStatsSummary": {
+    "totalFrames": 60,
+    "jankFrames": 2,
+    "actualFps": 58.0,
+    "actualFpsRaw": 117.0,
+    "throughputFps": 60.0,
+    "averageFps": 60.0,
+    "worstFrameTimeUs": 33000
+  },
+  "capturedFrames": [],
+  "currentIssues": []
+}
