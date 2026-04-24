@@ -40,16 +40,17 @@ all 8 stableIds. v0.16.5 staged a second `externallyCited` raise on
 guideline, not a generic HTTP latency threshold; (2) profile captures
 verify scenario marker span only, not detector-produced issue emission.
 v0.16.6 shipped without re-raising NetworkMonitor; re-raise deferred to
-v0.16.7+. The three capture files (812 / 1035 / 1515 ms on iPhone 12 /
-iOS 17.5 / Flutter 3.41.4) stay on disk as retained orphans with
-`consumeBy: '0.16.7'`.
+v0.16.7 (hard deadline — orphan manifest `consumeBy: '0.16.7'` fails
+audit at `currentReleaseVersion >= consumeBy`). Three capture files
+(812 / 1035 / 1515 ms on iPhone 12 / iOS 17.5 / Flutter 3.41.4) stay
+on disk as retained orphans with `consumeBy: '0.16.7'`.
 
 ### Runtime detectors (2)
 
 | Detector | Tier | Reproducer | Notes |
 |---|---|---|---|
 | Network Monitor | `reproducerOnly` | [`network_monitor_reproducer_test.dart`](../test/validation/network_monitor_reproducer_test.dart) | Hermetic reproducer: `processRecord` boundary tests at 999 / 1000 / 2999 / 3000 / 3001 ms plus a loopback `HttpServer` exercising the full `SleuthHttpOverrides` → `_MonitoringHttpClient` → `RequestRecord` → `processRecord` pipeline. Tier history: v0.16.1 → `reproducerOnly`; v0.16.4 staged `externallyCited` raise reverted (above capture at 3117 ms ambiently bracketed warning AND critical); v0.16.5 second staged `externallyCited` raise reverted on two grounds — (a) NN/g 1.0 s is a UI direct-manipulation feedback guideline, not a generic HTTP latency threshold, (b) profile captures validate scenario marker span, not detector emission. Three capture files retained on disk as orphans for v0.16.7 reuse (manifest `consumeBy: '0.16.7'`): [`slow_request_below.json`](../test/validation/captures/network_monitor/slow_request_below.json) (812 ms), [`slow_request_at.json`](../test/validation/captures/network_monitor/slow_request_at.json) (1035 ms), [`slow_request_above.json`](../test/validation/captures/network_monitor/slow_request_above.json) (1515 ms). `coveredStableIds = {'slow_request'}` — four other families remain implicitly `unvalidated`. |
-| Frame Timing | `reproducerOnly` | [`frame_timing_reproducer_test.dart`](../test/validation/frame_timing_reproducer_test.dart) | Four stableIds pinned by hermetic reproducer: `sustained_jank` (≥3 severe frames in a 60-frame window), `jank_detected` (>15% jank frames, ≥5-frame sample), `raster_cache_thrashing` (≥15 consecutive frames of ≥20% picture-cache-count fluctuation, seeded by `previous.pictureCacheCount > 5`), and `raster_cache_growing` (≥30 consecutive frames of monotonic picture-cache-count growth). Reproducer bypasses warmup via `warmupDuration: Duration.zero`; every stableId has a synthetic `FrameStats` path plus a real `FrameTiming` integration leg via `handleTimingsForTest` so hand-written synthetic fixtures cannot encode the detector's own expected shape (anti-tautology, Tactic 9). Impeller-zero suppression (all four cache metrics zero for ≥30 frames) pinned by a dedicated `pictureCacheBytes: 1` belt-and-suspender test. v0.16.N re-raise to `externallyCited` requires either a Flutter docs citation matching the 16.67 ms budget semantics or a runtime-verified capture triad with a detector-emitted trace record inside the scenario window. |
+| Frame Timing | `reproducerOnly` | [`frame_timing_reproducer_test.dart`](../test/validation/frame_timing_reproducer_test.dart) | Four stableIds pinned by hermetic reproducer: `sustained_jank` (≥3 severe frames in a 60-frame window), `jank_detected` (>15% jank frames, ≥5-frame sample), `raster_cache_thrashing` (≥15 consecutive frames of ≥20% picture-cache-count fluctuation, seeded by `previous.pictureCacheCount > 5`), and `raster_cache_growing` (≥30 consecutive frames of monotonic picture-cache-count growth). Reproducer bypasses warmup via `warmupDuration: Duration.zero`; every stableId has a synthetic `FrameStats` path plus a real `FrameTiming` integration leg via `handleTimingsForTest` so hand-written synthetic fixtures cannot encode the detector's own expected shape (anti-tautology, Tactic 9). Impeller-zero suppression (all four cache metrics zero for ≥30 frames) pinned by a dedicated `pictureCacheBytes: 1` belt-and-suspender test. Next raise (reproducerOnly → `runtimeVerified`) requires a profile-mode capture triad with a detector-emitted trace record inside the scenario window; a subsequent raise to `externallyCited` additionally requires a Flutter docs citation matching the 16.67 ms budget semantics. |
 
 ### VM-only detectors (5)
 
@@ -175,7 +176,9 @@ per release:
   Retained-orphan manifest bumped `consumeBy: '0.16.6'` → `'0.16.7'`
   for all three `slow_request` capture files. Ledger distribution:
   6/23 `reproducerOnly`, 17/23 `unvalidated`. **← current release**
-- **v0.16.7+** — Re-raise `NetworkMonitorDetector.slow_request.warning`.
+- **v0.16.7** — Re-raise `NetworkMonitorDetector.slow_request.warning`
+  (hard deadline — orphan manifest `consumeBy: '0.16.7'` blocks the
+  release unless re-raised or orphans deleted).
   Prerequisites: (a) replace citation with a generic mobile/API HTTP
   latency source matching the detector semantics OR narrow the detector
   contract to user-blocking requests and enforce scope with a gate;
@@ -190,9 +193,11 @@ per release:
 
 Follow-up work from v0.16.1:
 
-- **Canonical issue-family identifiers** (v0.16.2+ or next multi-family tier
-  raise) — so `coveredStableIds` can scope parameterized stable IDs without
-  relying on the "prefix up to `:`" convention.
+- **Canonical issue-family identifiers** (still deferred; v0.16.6's
+  multi-family raise scoped by bare stable ID, not parameterized
+  `<family>:<hash>`, so the "prefix up to `:`" convention remained
+  sufficient) — will replace the convention once a parameterized-ID
+  family needs tier-scoped coverage.
 - **Format/parse validation for `profileCapturePath`** (first
   `runtimeVerified` raise) — so file existence alone does not satisfy the
   audit gate once a detector claims a profile-mode capture backs its

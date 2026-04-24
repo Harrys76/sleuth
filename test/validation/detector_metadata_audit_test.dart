@@ -305,20 +305,15 @@ void main() {
     });
 
     test('NetworkMonitorDetector pinned at reproducerOnly (v0.16.5)', () {
-      // Anti-tautology anchor. v0.16.5's staged `externallyCited` raise
-      // was REVERTED after `/advanced-adversarial-review` triangulation
-      // converged on two blockers: (1) NN/g "Response Times: The 3
-      // Important Limits" 1.0 s is a UI direct-manipulation feedback
-      // guideline, not a generic HTTP latency threshold — the detector
-      // emits `slow_request` for any uncancelled request regardless of
-      // whether it blocks user interaction; (2) profile captures only
-      // verify scenario begin/end marker span, not detector-produced
-      // issue emission. Tier history: v0.16.1 reproducerOnly → v0.16.4
-      // reproducerOnly (externallyCited staged + reverted same release) →
-      // v0.16.5 reproducerOnly (second externallyCited staged + reverted
-      // same release). The L2 negative assertion + mechanism-4 prose
-      // drift guard below remain wired so v0.16.6's re-raise cannot
-      // silently regress.
+      // Anti-tautology anchor. v0.16.5's second `externallyCited` raise
+      // REVERTED on two grounds: (1) NN/g 1.0 s is a UI feedback
+      // guideline, not a generic HTTP latency threshold; (2) profile
+      // captures verify scenario marker span only, not detector emission.
+      // Tier history: v0.16.1 reproducerOnly → v0.16.4 reproducerOnly
+      // (externallyCited staged+reverted) → v0.16.5 reproducerOnly
+      // (second externallyCited staged+reverted). L2 negative assertion
+      // + mechanism-4 prose-drift guard below stay wired so the v0.16.7
+      // re-raise cannot silently regress.
       final BaseDetector? nm = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.networkMonitor)
           .cast<BaseDetector?>()
@@ -328,10 +323,9 @@ void main() {
       expect(nm, isA<DetectorMetadataProvider>());
       final meta = (nm as DetectorMetadataProvider).validationMetadata;
       expect(meta.tier, EvidenceTier.reproducerOnly,
-          reason: 'v0.16.5 shipped at reproducerOnly — the second staged '
-              'externallyCited raise was reverted after advanced-adversarial '
-              'review converged on NN/g semantic mismatch + capture-proves-'
-              'helper-not-detector blockers.');
+          reason: 'v0.16.5 shipped at reproducerOnly — second staged '
+              'externallyCited raise reverted on NN/g semantic mismatch '
+              '+ capture-proves-helper-not-detector grounds.');
       expect(meta.reproducerPath,
           equals('test/validation/network_monitor_reproducer_test.dart'));
       expect(meta.citationUrl, isNull,
@@ -339,7 +333,7 @@ void main() {
       expect(meta.profileCapturePaths, isNull,
           reason: 'profileCapturePaths is first-class on externallyCited / '
               'runtimeVerified only — the three capture files on disk are '
-              'retained orphans for v0.16.7+ re-raise reuse, tracked in the '
+              'retained orphans for v0.16.7 re-raise reuse, tracked in the '
               'orphan manifest below, not live metadata.');
       expect(meta.bracketThreshold, isNull);
       expect(meta.bracketUnit, isNull);
@@ -350,12 +344,10 @@ void main() {
           reason: 'Reproducer still covers the `slow_request` family; '
               'preserved from v0.16.1.');
 
-      // L2 negative assertion (post-impl adversarial review, v0.16.5):
-      // wired dormantly at reproducerOnly. Fires the moment a future
-      // re-raise populates `coveredThresholds` — if a diff adds
-      // `slow_request.critical` without wiring a separate citation +
-      // bracket triad, the guard fails CI before shipping. Critical
-      // cannot piggyback on a warning-tier raise.
+      // L2 negative assertion (v0.16.5). Dormant at reproducerOnly.
+      // Fires when a re-raise populates `coveredThresholds`: a diff that
+      // adds `slow_request.critical` without its own citation + bracket
+      // triad fails CI. Critical cannot piggyback on a warning-tier raise.
       final covered = meta.coveredThresholds ?? const <String>{};
       final criticalClaims =
           covered.where((t) => t.endsWith('.critical')).toList();
@@ -364,13 +356,13 @@ void main() {
               'tier without its own citation + bracket triad. Offending '
               'entries: $criticalClaims.');
 
-      // Symptom-persistence mechanism 4 (post-impl adversarial review,
-      // v0.16.5, AB3-hardened): rationale prose making an externally-
-      // grounded claim about the critical tier without metadata backing is
-      // prohibited. Block comments stripped first. Inline backticks are
-      // normalised to whitespace BEFORE lowercasing — otherwise the
-      // exclusion-phrase matcher silently fails when the rationale wraps
-      // identifier fragments like `` stays `reproducerOnly` `` or
+      // Symptom-persistence mechanism 4 (v0.16.5, AB3-hardened):
+      // rationale prose making an externally-grounded claim about the
+      // critical tier without metadata backing is prohibited. Block
+      // comments stripped first. Inline backticks normalised to
+      // whitespace BEFORE lowercasing — otherwise the exclusion-phrase
+      // matcher silently fails when the rationale wraps identifier
+      // fragments like `` stays `reproducerOnly` `` or
       // `` `slow_request.warning` threshold only `` in inline code, as
       // round-2 Codex's live match trace caught.
       final stripped =
@@ -399,13 +391,10 @@ void main() {
                 'externally grounded.');
       }
 
-      // AB4 default-drift cross-check (post-impl adversarial review,
-      // v0.16.5): when `bracketThreshold` is set on metadata, it must
-      // match the detector's runtime default — otherwise a future change
-      // that adjusts one but not the other creates silent drift (the
-      // detector emits on a different threshold than the externally-cited
-      // bracket claims). Dormant while `bracketThreshold` is null at
-      // reproducerOnly; fires on v0.16.7+ re-raise.
+      // AB4 default-drift cross-check (v0.16.5): when `bracketThreshold`
+      // is set, it must match the detector's runtime default — otherwise
+      // a change adjusting one but not the other creates silent drift.
+      // Dormant at reproducerOnly; fires on v0.16.7 re-raise.
       if (meta.bracketThreshold != null) {
         final detector = NetworkMonitorDetector();
         expect(detector.slowThresholdMs, equals(meta.bracketThreshold),
@@ -700,18 +689,15 @@ void main() {
     // can parse every file on disk and cross-check it against the
     // manifest, and so expired entries (consumeBy release reached)
     // fail automatically rather than sitting dormant indefinitely.
-    // v0.16.5 staged the `externallyCited` raise a second time and
-    // REVERTED it after `/advanced-adversarial-review` converged on
-    // (a) the NN/g 1.0 s boundary is a UI feedback guideline that does
-    // not substantiate a generic HTTP latency threshold and (b) the
-    // profile captures only verify scenario marker span, not detector
-    // emission. Detector metadata nulled `profileCapturePaths` in the
-    // revert, so all three capture files become orphans on disk. They
-    // are retained here — not deleted — because the v0.16.7+ re-raise
-    // reuses the on-device recording (re-recording across the Flutter
-    // 3.41.4 pin + iPhone 12 exception is expensive to redo without
-    // reason). Manifest cross-check guarantees the files on disk still
-    // match the declared device / OS / Flutter / unit / observed band.
+    // v0.16.5 second `externallyCited` raise REVERTED on (a) NN/g 1.0 s
+    // is a UI feedback guideline, not a generic HTTP latency threshold
+    // and (b) profile captures verify scenario marker span only, not
+    // detector emission. Detector metadata nulled `profileCapturePaths`
+    // in the revert, so all three captures become orphans on disk.
+    // Retained — not deleted — because the v0.16.7 re-raise reuses the
+    // on-device recording (re-recording across the Flutter 3.41.4 pin
+    // + iPhone 12 exception is expensive without reason). Manifest
+    // cross-check enforces device / OS / Flutter / unit / observed band.
     const retainedOrphans = <String, RetainedOrphanEntry>{
       'test/validation/captures/network_monitor/slow_request_below.json':
           RetainedOrphanEntry(
