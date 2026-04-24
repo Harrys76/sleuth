@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 23 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~2,493 tests, ~30s)
+fvm flutter test                    # Run all tests (~2,634 tests, ~30s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -59,10 +59,17 @@ test/
 
 ## Current state
 
-**v0.16.6** (current) — Two simultaneous tier raises in one PR. `FrameTimingDetector` raised `unvalidated` → `reproducerOnly` with 4 stableIds pinned (`sustained_jank`, `jank_detected`, `raster_cache_thrashing`, `raster_cache_growing`) via hermetic reproducer bypassing warmup (`warmupDuration: Duration.zero`) and exercising both synthetic `FrameStats` and real-pipeline `FrameTiming` paths per-stableId (anti-tautology, Tactic 9). Impeller-zero suppression pinned by `pictureCacheBytes: 1` belt-and-suspender test. `ListviewDetector` coveredStableIds backfilled 3 → all 8 (added `non_lazy_gridview`, `non_lazy_sliver_list`, `non_lazy_sliver_grid`, `sliver_to_box_adapter_shrinkwrap`, `non_lazy_list`); Check-C gate pinned by a three-test triad covering the isNonLazy bypass. Ledger distribution: `6/23 reproducerOnly, 17/23 unvalidated`.
+**v0.17.4** (current) — Ledger distribution: **23/23 `reproducerOnly`, 0/23 `unvalidated`**. No detectors at `runtimeVerified` or `externallyCited`. Evidence NOT uniform across the 23 — three within-tier strata:
+1. **Parser-boundary exercised** (4 detectors, v0.17.4 rewrite): ShaderJank, HeavyCompute, PlatformChannel, MemoryPressure. Reproducers at `test/validation/*_reproducer_test.dart` feed raw `List<TimelineEvent>` through `TimelineParser.parse()` into the detector.
+2. **Real `pumpWidget` + `scanTree`** (13 structural detectors, v0.16.3 / v0.17.1 batches).
+3. **Reused unit-test suites** (4 detectors still queued for rewrite): GpuPressure, Repaint, Rebuild, ShallowRebuildRisk. `reproducerPath` still points at `test/detectors/*_detector_test.dart` with synthetic `ParsedTimelineData` construction bypassing the parser boundary.
 
-**v0.16.5** — Second `externallyCited` raise on `NetworkMonitorDetector.slow_request.warning` staged and reverted. Detector stays at `reproducerOnly`. Audit hardening retained (mechanism-4 backtick-stripping matcher, default-drift cross-check, L2 `*.critical` negative assertion, retained-orphan manifest with `consumeBy: '0.16.7'` after v0.16.6 bumped the lifecycle).
+**v0.17.4** closed the parser-boundary gap for 4 of 8 v0.17.2-batch detectors. New shared harness `test/validation/_helpers/vm_reproducer_harness.dart` with parser-drop guard (`parseAndAssertShape`). MemoryPressure rationale discloses 3 skipped upstream hops (`VmServiceClient.getMemoryUsage` repack, `EventStreams.kGC` stream, `VmServiceClient._readRssBytes()` / `ProcessInfo.currentRss`). Anchor block `_v0172Expectations` → `_v0174Expectations`.
 
-**NetworkMonitor v0.16.N re-raise prerequisites** (unchanged from v0.16.5): (1) replace citation with a source matching detector semantics (or narrow contract); (2) extend capture helper to emit `sleuth.issue.slow_request.warning` trace record with detector-measured duration; (3) extend `ProfileCaptureSchema.validateBracket` to require that record inside scenario window.
+**v0.17.3** closed the audit methodology gap that forced v0.17.2 to ship two partial-coverage narrowings. Added `DetectorMetadata.parametricFamilies: Set<String>?` as peer namespace to `coveredStableIds` — matcher credits `<family>_<non-empty-suffix>` literals. `RepaintDetector` + `RebuildDetector` drop narrowings; all 3 underscore-parametric families (`repaint_debug`, `rebuild_debug`) declared + audit-tracked. Literal-provenance matcher hardened via 8-point structural provenance model (sticky-binding release, subtree-taint boundary, Rule-1 shadow detection, over-bound `fold`/`reduce` closure params). 12 regression fixtures.
 
-For version history v0.16.4 and earlier see `CHANGELOG.md`. Spec docs in `doc/spec_v*.md`.
+**Next forward motion** — options are (a) continue the tier-quality audit with v0.17.5 (2 hybrid: GpuPressure, ShallowRebuildRisk) + v0.17.6 (2 structural: Repaint, Rebuild); OR (b) `reproducerOnly` → `runtimeVerified` raises: need checked-in profile-mode captures (timeline JSON / DevTools snapshot) showing claimed magnitude on reference device. NetworkMonitor has 3 capture files orphaned on disk (`consumeBy: '0.18.0'`) — lowest-friction candidate. Recommend (a) first for audit-trail coherence.
+
+**NetworkMonitor re-raise prerequisites** (deferred to v0.18.0): (1) replace NN/g citation (rejected twice — UI direct-manipulation guideline, not generic HTTP latency threshold); (2) extend capture helper to emit `sleuth.issue.slow_request.warning` trace record with detector-measured duration; (3) extend `ProfileCaptureSchema.validateBracket` to require that record inside scenario window.
+
+For version history v0.17.3 and earlier see `CHANGELOG.md`. Spec docs in `doc/spec_v*.md`.

@@ -125,28 +125,38 @@ const _v0171Expectations = <DetectorType, (String, Set<String>)>{
   ),
 };
 
-/// v0.17.2 expectations tuple is `(reproducerPath, coveredStableIds,
+/// v0.17.2 initial raise from unvalidated → reproducerOnly for the
+/// 8-detector vmOnly + hybrid batch. v0.17.4–v0.17.6 tier-quality audit
+/// rewrote the reproducers per detector (tier unchanged, evidence
+/// strengthened): vmOnly + structural reproducers now feed raw
+/// `List<TimelineEvent>` through `TimelineParser.parse()` into the
+/// detector, exercising the VM → parser → detector boundary that the
+/// original v0.17.2 fixtures bypassed. Paths flip patch-by-patch — a
+/// detector still pointing at `test/detectors/*_detector_test.dart`
+/// carries the pre-rewrite reproducer shape.
+///
+/// Expectations tuple is `(reproducerPath, coveredStableIds,
 /// parametricFamilies?)`. Last element is null for detectors that don't
-/// declare parametric families; repaint + rebuild declare `{'repaint_debug'}`
-/// / `{'rebuild_debug'}` since v0.17.3.
-const _v0172Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
+/// declare parametric families; repaint + rebuild declare
+/// `{'repaint_debug'}` / `{'rebuild_debug'}` since v0.17.3.
+const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
   DetectorType.shaderJank: (
-    'test/detectors/shader_jank_detector_test.dart',
+    'test/validation/shader_jank_reproducer_test.dart',
     {'shader_compilation'},
     null,
   ),
   DetectorType.heavyCompute: (
-    'test/detectors/heavy_compute_detector_test.dart',
+    'test/validation/heavy_compute_reproducer_test.dart',
     {'heavy_compute'},
     null,
   ),
   DetectorType.platformChannel: (
-    'test/detectors/platform_channel_detector_test.dart',
+    'test/validation/platform_channel_reproducer_test.dart',
     {'platform_channel_traffic'},
     null,
   ),
   DetectorType.memoryPressure: (
-    'test/detectors/memory_pressure_detector_test.dart',
+    'test/validation/memory_pressure_reproducer_test.dart',
     {
       'gc_pressure',
       'heap_growing',
@@ -779,13 +789,15 @@ void main() {
           reason: 'v0.16.3 pre-ratchet anchor drift: $failures');
     });
 
-    test('v0.17.2 vmOnly + hybrid batch pinned at reproducerOnly', () {
-      // Anti-tautology anchor for the 8-detector vmOnly + hybrid batch.
-      // Each entry pins the (type → reproducerPath → coveredStableIds)
-      // triple. All 8 raises are `reproducerOnly`; extended-claim fields
-      // (citationUrl, profileCapturePaths, bracketThreshold, bracketUnit,
+    test('v0.17.4+ reproducer-rewrite batch pinned at reproducerOnly', () {
+      // Anti-tautology anchor for the 8-detector vmOnly + hybrid batch
+      // originally raised in v0.17.2 and reproducer-rewritten in
+      // v0.17.4–v0.17.6. Each entry pins the (type → reproducerPath →
+      // coveredStableIds → parametricFamilies?) tuple. All 8 stay at
+      // `reproducerOnly`; extended-claim fields (citationUrl,
+      // profileCapturePaths, bracketThreshold, bracketUnit,
       // coveredThresholds, aboveCeilingMultiplier) MUST remain null.
-      const expectations = _v0172Expectations;
+      const expectations = _v0174Expectations;
 
       final failures = <String>[];
       for (final entry in expectations.entries) {
@@ -833,7 +845,8 @@ void main() {
       }
 
       expect(failures, isEmpty,
-          reason: 'v0.17.2 vmOnly + hybrid batch anchor drift: $failures');
+          reason: 'v0.17.4+ reproducer-rewrite batch anchor drift: '
+              '$failures');
     });
 
     test('every reproducerOnly+ detector appears in an anchor block', () {
@@ -847,7 +860,7 @@ void main() {
         ..._singleDetectorAnchors,
         ..._v0163Expectations.keys,
         ..._v0171Expectations.keys,
-        ..._v0172Expectations.keys,
+        ..._v0174Expectations.keys,
       };
 
       final shippedAboveUnvalidated = <DetectorType>{};

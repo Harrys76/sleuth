@@ -486,16 +486,37 @@ class MemoryPressureDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'VM-only detector. 4 families pinned via '
-            '`processHeapSample` with synthetic heap/RSS timeseries: '
-            '`gc_pressure` (GC-rate slider), `heap_growing` (sustained '
-            'slope), `heap_near_capacity` (>80% + growing), '
-            '`native_memory_growing` (RSS-heap gap > 1MB/s + 10s '
-            'sustained). Warmup + 10s sliding-window guards pinned. '
-            'VM → TimelineParser boundary not exercised. Fixtures '
-            'synthetic, same-author provenance. Not runtime-verified '
-            'against a low-memory device profile or externally cited.',
-        reproducerPath: 'test/detectors/memory_pressure_detector_test.dart',
+        rationale: 'VM-only detector. 4 families pinned by hermetic '
+            'reproducer at detector entrypoints (`processHeapSample` + '
+            '`recordGcCycle`): `gc_pressure` (>5 cycles / 10s sliding '
+            'window = >30/min rate), `heap_growing` (slope > 512KB/s '
+            'sustained ≥10s), `heap_near_capacity` (>80% AND 4-of-5 '
+            'samples over AND correlated heap_growing), '
+            '`native_memory_growing` (RSS-heap gap slope > 1MB/s '
+            'sustained ≥10s). Null-rssBytes (web) and zero-heap / '
+            'zero-capacity null-coalesce edges asserted non-emitting.\n'
+            '\n'
+            'Three upstream hops disclosed as skipped: (1) '
+            '`VmServiceClient.getMemoryUsage` repacks '
+            '`vm_service.MemoryUsage` into `HeapSample` with `null → 0` '
+            'fallback on heap/capacity/external fields — the '
+            'zero-coalesce edge is exercised but the repack is not; '
+            '(2) `EventStreams.kGC → _onGcEvent → recordGcCycle` is '
+            'the authoritative per-cycle GC signal and is called '
+            'directly, bypassing the VM-service stream plumbing; '
+            '(3) `VmServiceClient._readRssBytes() → '
+            '`ProcessInfo.currentRss` is the OS-level RSS collection '
+            'boundary that sources `HeapSample.rssBytes` and therefore '
+            'gates `native_memory_growing` (which derives `nativeBytes '
+            '= rssBytes - heapUsage`) — the null-rssBytes edge (web / '
+            'unusual embeddings) is exercised but the `ProcessInfo` '
+            'call and its try/catch are not. '
+            'TimelineParser\'s `gcEvents` list is NOT used by this '
+            'detector (it over-counts GC sub-phase events 5–15× per '
+            'cycle); that design choice is verified at the controller '
+            'boundary, not here. Real-device capture comparison is '
+            'runtime-verified-tier work.',
+        reproducerPath: 'test/validation/memory_pressure_reproducer_test.dart',
         coveredStableIds: {
           'gc_pressure',
           'heap_growing',

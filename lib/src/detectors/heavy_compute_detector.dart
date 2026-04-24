@@ -142,16 +142,23 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'VM-only detector. Frame-blocking compute-gap threshold '
-            'pinned. Both emission sites exercised: enriched '
-            '(`_createIssue` + dirtyList, "Heavy Build:" title) + '
-            'non-enriched (`_createGenericIssue`, "Heavy Computation:" '
-            'title). Both emit `heavy_compute`. Drives '
-            '`processTimelineData` with synthetic frame-gap events. '
-            'VM → TimelineParser boundary not exercised. Fixtures '
-            'synthetic, same-author provenance. Not runtime-verified '
-            'or externally cited.',
-        reproducerPath: 'test/detectors/heavy_compute_detector_test.dart',
+        rationale: 'VM-only detector. Frame-blocking compute-gap '
+            'threshold (8ms strict, 2× critical) pinned by hermetic '
+            'reproducer feeding `BUILD` `\'X\'` events through '
+            '`TimelineParser.parse()` into the detector — exercises '
+            'parser `PhaseEvent` construction with dirtyList arg '
+            'extraction. All three emission paths covered: enriched '
+            '`_createIssue` (dirtyList present, "Heavy Build:" title), '
+            'unenriched `_createIssue` (no dirtyList but `ts` set, '
+            '"Heavy Computation:" title), and fallback '
+            '`_createGenericIssue` (BUILD event without `ts` — parser '
+            'populates `buildScopeDurations` but skips `phaseEvents`, '
+            'detector takes the raw-durations branch). 2× threshold '
+            'pinned at exactly 16000µs to stay warning (strict-greater '
+            'critical escalation). Fixtures hand-built against parser '
+            'allowlist; real-device capture comparison is '
+            'runtime-verified-tier work.',
+        reproducerPath: 'test/validation/heavy_compute_reproducer_test.dart',
         coveredStableIds: {'heavy_compute'},
       );
 }

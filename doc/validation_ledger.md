@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.17.3 (2026-04-24)_
+_Last updated: v0.17.4 (2026-04-25)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
@@ -23,50 +23,68 @@ adding a new tier requires a semver major bump:
 | Tier | Meaning |
 |------|---------|
 | `unvalidated` | Rationale is documented but thresholds are not yet backed by a hermetic reproducer or citation. Honest starting state. |
-| `reproducerOnly` | A deterministic, hermetic test (at `test/validation/<d>_reproducer_test.dart` for purpose-written reproducers OR `test/detectors/<d>_detector_test.dart` for detectors whose existing unit tests already exercise the emission path) pins the detector's thresholds and stableId families. Structural reproducers drive real `pumpWidget` + `scanTree`; vmOnly reproducers drive `processTimelineData` / `processHeapSample` directly (the VM → `TimelineParser` → detector contract is NOT exercised at this tier). |
+| `reproducerOnly` | A deterministic, hermetic test (at `test/validation/<d>_reproducer_test.dart` for purpose-written reproducers OR `test/detectors/<d>_detector_test.dart` for detectors whose existing unit tests already exercise the emission path) pins the detector's thresholds and stableId families. Structural reproducers drive real `pumpWidget` + `scanTree`. VmOnly reproducers MAY drive `processTimelineData` / `processHeapSample` directly OR feed raw `List<TimelineEvent>` through `TimelineParser.parse()` into the detector — both shapes are within-tier; the parser-boundary shape is a quality gradient (materially stronger evidence) not a tier change. Tier raise to `runtimeVerified` still requires captured real-device profile-mode data. |
 | `runtimeVerified` | `reproducerOnly` plus a checked-in profile-mode capture (timeline JSON / DevTools snapshot) showing the claimed magnitude on a reference device. |
 | `externallyCited` | `runtimeVerified` plus a citation to a Flutter SDK constant, dart-lang issue, or published benchmark. |
 
 ## Ledger
 
 **Summary:** **23 / 23 at `reproducerOnly`, 0 / 23 at `unvalidated`**
-in v0.17.2. No detectors at `runtimeVerified` or `externallyCited`.
-**Tier not uniform.** v0.17.2 vmOnly reproducers drive detector
-entrypoints directly (`processTimelineData` / `processHeapSample`);
-VM → `TimelineParser` → detector boundary not exercised. Prior
-structural batches (v0.16.3, v0.17.1) drove real `pumpWidget` +
-`scanTree` — materially stronger evidence. v0.17.2 raises the final
-8 vmOnly + hybrid detectors in a single bulk batch:
-`ShaderJankDetector`, `HeavyComputeDetector`, `PlatformChannelDetector`,
-`MemoryPressureDetector`, `GpuPressureDetector`, `RepaintDetector`,
-`RebuildDetector`, and `ShallowRebuildRiskDetector`. Reproducers reuse
-the existing `test/detectors/*_detector_test.dart` suites — fixtures are
-synthetic and predate the validation methodology, disclosed in each
-rationale. Two partial-coverage disclosures ship in this batch:
-`RepaintDetector` (parametric `repaint_debug_<typeName>` uncovered) and
-`RebuildDetector` (`rebuild_activity` + parametric
-`rebuild_debug_<typeName>` uncovered). v0.17.1 raised 9 structural
-detectors in a single bulk batch: `LayoutBottleneckDetector`,
-`NestedScrollDetector`, `CustomPainterDetector`,
-`AnimatedBuilderDetector`, `KeepAliveDetector`, `FontLoadingDetector`,
-`RepaintBoundaryDetector`, `SetStateScopeDetector`, and
-`StartupDetector` — all pure structural or one-shot scans. A parameterised anchor test
-(`detector_metadata_audit_test.dart` → `v0.17.1 structural batch
-pinned at reproducerOnly`) pins the (type → reproducerPath →
-coveredStableIds) triple for all 9 so silent rename / stableId drift
-/ path churn trips CI. v0.16.6 raised `FrameTimingDetector`
-unvalidated → `reproducerOnly` (4 stableIds) and backfilled
-`ListviewDetector` coverage 3 → all 8 stableIds. v0.16.5 staged a
-second `externallyCited` raise on
+as of v0.17.4. No detectors at `runtimeVerified` or `externallyCited`.
+
+**Evidence not uniform across the 23.** Reproducers ship in three
+evidence-strength tiers, all within `reproducerOnly`:
+
+1. **Parser-boundary exercised** (strongest within-tier) — 4 of 8
+   v0.17.2-batch detectors rewritten in v0.17.4: `ShaderJankDetector`,
+   `HeavyComputeDetector`, `PlatformChannelDetector`,
+   `MemoryPressureDetector`. Reproducers at
+   `test/validation/<d>_reproducer_test.dart` feed raw
+   `List<TimelineEvent>` through `TimelineParser.parse()` into the
+   detector (MemoryPressure exercises `processHeapSample` +
+   `recordGcCycle` directly and discloses skipped upstream hops). Each
+   rationale names what it skips.
+2. **Real `pumpWidget` + `scanTree`** — 13 structural detectors raised
+   in v0.16.3 / v0.17.1 bulk batches. Hermetic trees drive the unified
+   walk end-to-end.
+3. **Reused unit-test suites** (weakest within-tier) — 4 of 8
+   v0.17.2-batch detectors still queued for purpose-rewrite in
+   v0.17.5 / v0.17.6: `GpuPressureDetector`, `RepaintDetector`,
+   `RebuildDetector`, `ShallowRebuildRiskDetector`. Their
+   `reproducerPath` still points at `test/detectors/*_detector_test.dart`
+   with synthetic `ParsedTimelineData` construction that bypasses the
+   parser boundary. Disclosed in each rationale.
+
+v0.17.3 closed the audit methodology gap that forced v0.17.2 to ship
+partial-coverage narrowings on Repaint/Rebuild. `parametricFamilies`
+added as peer namespace to `coveredStableIds`; underscore-parametric
+families (`repaint_debug_<typeName>`, `rebuild_debug_<typeName>`) now
+declared + audit-tracked. Literal-provenance matcher hardened via
+8-point structural provenance model. 12 regression fixtures.
+
+v0.17.1 raised 9 structural detectors in a single bulk batch:
+`LayoutBottleneckDetector`, `NestedScrollDetector`,
+`CustomPainterDetector`, `AnimatedBuilderDetector`, `KeepAliveDetector`,
+`FontLoadingDetector`, `RepaintBoundaryDetector`, `SetStateScopeDetector`,
+and `StartupDetector` — all pure structural or one-shot scans. A
+parameterised anchor test (`detector_metadata_audit_test.dart` →
+`v0.17.1 structural batch pinned at reproducerOnly`) pins the
+(type → reproducerPath → coveredStableIds) triple for all 9 so silent
+rename / stableId drift / path churn trips CI.
+
+v0.16.6 raised `FrameTimingDetector` unvalidated → `reproducerOnly`
+(4 stableIds) and backfilled `ListviewDetector` coverage 3 → all 8
+stableIds. v0.16.5 staged a second `externallyCited` raise on
 `NetworkMonitorDetector.slow_request.warning` (1000 ms) and reverted
 it: (1) NN/g "Response Times" 1.0 s is a UI direct-manipulation
-feedback guideline, not a generic HTTP latency threshold; (2) profile
-captures verify scenario marker span only, not detector-produced
-issue emission. v0.16.6 shipped without re-raising NetworkMonitor;
-re-raise deferred to v0.18.0 (orphan manifest `consumeBy: '0.18.0'`
-after v0.17.0 bumped the lifecycle). Three capture files
-(812 / 1035 / 1515 ms on iPhone 12 / iOS 17.5 / Flutter 3.41.4) stay
-on disk as retained orphans with `consumeBy: '0.18.0'`.
+feedback guideline, not a generic HTTP latency threshold;
+(2) profile captures verify scenario marker span only, not
+detector-produced issue emission. v0.16.6 shipped without re-raising
+NetworkMonitor; re-raise deferred to v0.18.0 (orphan manifest
+`consumeBy: '0.18.0'` after v0.17.0 bumped the lifecycle). Three
+capture files (812 / 1035 / 1515 ms on iPhone 12 / iOS 17.5 /
+Flutter 3.41.4) stay on disk as retained orphans with
+`consumeBy: '0.18.0'`.
 
 ### Runtime detectors (2)
 
@@ -79,10 +97,10 @@ on disk as retained orphans with `consumeBy: '0.18.0'`.
 
 | Detector | Tier | Reproducer | Notes |
 |---|---|---|---|
-| Shader Jank | `reproducerOnly` | [`shader_jank_detector_test.dart`](../test/detectors/shader_jank_detector_test.dart) | Shader-compile duration threshold pinned via `processTimelineData` with synthetic shader-compile events. `coveredStableIds = {'shader_compilation'}`. Fixtures synthetic (predate methodology). |
-| Heavy Compute | `reproducerOnly` | [`heavy_compute_detector_test.dart`](../test/detectors/heavy_compute_detector_test.dart) | Frame-gap threshold pinned via synthetic timeline events. `coveredStableIds = {'heavy_compute'}`. Fixtures synthetic. |
-| Platform Channel | `reproducerOnly` | [`platform_channel_detector_test.dart`](../test/detectors/platform_channel_detector_test.dart) | >20/sec call-frequency threshold pinned via synthetic channel-call events. `coveredStableIds = {'platform_channel_traffic'}`. Fixtures synthetic. |
-| Memory Pressure | `reproducerOnly` | [`memory_pressure_detector_test.dart`](../test/detectors/memory_pressure_detector_test.dart) | All 4 emission families pinned via synthetic heap/RSS timeseries: `gc_pressure`, `heap_growing`, `heap_near_capacity`, `native_memory_growing`. Warmup + 10 s sliding-window guards pinned. Fixtures synthetic. |
+| Shader Jank | `reproducerOnly` | [`shader_jank_reproducer_test.dart`](../test/validation/shader_jank_reproducer_test.dart) | v0.17.4 tier-quality audit: feeds raw `List<TimelineEvent>` through `TimelineParser.parse()` into the detector (VM → parser → detector boundary exercised). 100 ms inclusive threshold + 2× critical + Impeller-zero suppression + shader-name variants (`ShaderCompilation`, `Pipeline::Create`, lowercase). `coveredStableIds = {'shader_compilation'}`. Fixtures hand-built against parser allowlist; real-device capture comparison is runtimeVerified-tier work. |
+| Heavy Compute | `reproducerOnly` | [`heavy_compute_reproducer_test.dart`](../test/validation/heavy_compute_reproducer_test.dart) | v0.17.4 tier-quality audit: feeds `BUILD` `'X'` events through `TimelineParser.parse()` into the detector (parser `PhaseEvent` construction with dirtyList arg extraction exercised). 8 ms strict threshold + 2× critical triad. All three emission paths covered: enriched `_createIssue` ("Heavy Build:" title with dirtyList), unenriched `_createIssue` ("Heavy Computation:" title, `ts` present but no dirtyList), and fallback `_createGenericIssue` (BUILD event without `ts` — parser skips `phaseEvents`, detector takes raw-durations branch). 2× boundary pinned at exactly 16000µs staying warning (strict-greater critical escalation). `coveredStableIds = {'heavy_compute'}`. |
+| Platform Channel | `reproducerOnly` | [`platform_channel_reproducer_test.dart`](../test/validation/platform_channel_reproducer_test.dart) | v0.17.4 tier-quality audit: feeds channel events through `TimelineParser.parse()` into the detector. Two parser-accepted phase+name shapes covered — lowercase async `'b'` with `Platform Channel send ` prefix (real `debugProfilePlatformChannels` output via `TimelineTask`) and sync `'X'` with `MethodChannel` name. Uppercase sync `'B'` async-shaped events asserted non-emitting — the canonical format-boundary trap for channel observers. Parser accepts 9 channel-shape variants (6 sync-name + 3 async-prefix casings); other 7 (`PlatformChannel`, `platformchannel`, `Platform_Channel`, `platform_channel`, `methodchannel`, `Platform Channel Send ` prefix, `platform channel send ` prefix) are implicitly uncovered at this tier. Both emission axes pinned independently: (a) >20/sec frequency strict + 2× critical at 41 calls + 40 calls held at warning (critical-escalation inequality), (b) >8000µs cumulative duration per window strict (7998/8000/8001µs via sync `'X'` events with 3 calls — duration axis isolated from frequency). `coveredStableIds = {'platform_channel_traffic'}`. |
+| Memory Pressure | `reproducerOnly` | [`memory_pressure_reproducer_test.dart`](../test/validation/memory_pressure_reproducer_test.dart) | v0.17.4 tier-quality audit: 4 families pinned at detector entrypoints (`processHeapSample` + `recordGcCycle`). Threshold triads — `gc_pressure` (>5 cycles / 10 s sliding window), `heap_growing` (slope >512 KB/s sustained ≥10 s), `heap_near_capacity` (>80% AND 4-of-5 samples AND correlated `heap_growing`), `native_memory_growing` (RSS-heap gap >1 MB/s sustained ≥10 s). Null-`rssBytes` (web) + zero-heap + zero-capacity null-coalesce edges asserted non-emitting. **Three upstream hops disclosed as skipped**: (1) `VmServiceClient.getMemoryUsage` repack with `null → 0` fallback (zero-coalesce edge exercised; repack itself is not); (2) `EventStreams.kGC → _onGcEvent → recordGcCycle` is the authoritative per-cycle signal and is called directly, bypassing the VM-service stream plumbing — `TimelineParser.gcEvents` over-counts sub-phase events 5–15× and is NOT used by this detector; (3) `VmServiceClient._readRssBytes() → ProcessInfo.currentRss` is the OS-level RSS collection boundary that sources `HeapSample.rssBytes` and therefore gates `native_memory_growing` — reproducer injects `rssBytes` directly so the null-rssBytes edge (web / unusual embeddings) is exercised but the `ProcessInfo` call and its try/catch are not. `coveredStableIds = {'gc_pressure', 'heap_growing', 'heap_near_capacity', 'native_memory_growing'}`. |
 | Repaint | `reproducerOnly` | [`repaint_detector_test.dart`](../test/detectors/repaint_detector_test.dart) | All 3 families covered: `excessive_repaint`, `excessive_repaint_debug`, and parametric `repaint_debug_<typeName>` (declared via `parametricFamilies` since v0.17.3; concrete `repaint_debug_CustomPaint` credits the family). Animation-owner filter pinned. Fixtures synthetic. |
 
 ### Hybrid detectors (3)
@@ -247,7 +265,35 @@ per release:
   `rebuild_debug_<typeName>`) not declarable under audit's `:`
   prefix convention. Ledger distribution: **23/23 `reproducerOnly`,
   0/23 `unvalidated`** — detector-scope only (family-scope coverage
-  not universal per disclosures above). **← current release**
+  not universal per disclosures above).
+- **v0.17.3** — Audit methodology gap closed. `parametricFamilies`
+  added as peer namespace to `coveredStableIds`; matcher credits
+  `<family>_<non-empty-suffix>` literals. `RepaintDetector` and
+  `RebuildDetector` drop the v0.17.2 narrowings — all 3 underscore-
+  parametric families (`repaint_debug`, `rebuild_debug`) now declared
+  and audit-tracked. Literal-provenance matcher hardened via 8-point
+  structural provenance model (sticky-binding release, subtree-taint
+  boundary, Rule-1 shadow detection, over-bound `fold`/`reduce`
+  closure params, pattern-destructure kill, for-in binder handling).
+  12 regression fixtures. Ledger distribution unchanged.
+- **v0.17.4** — Tier-quality audit, vmOnly batch (4 of 8). Purpose-
+  rewrote 4 of the 8 v0.17.2 reproducers with hermetic files at
+  `test/validation/<d>_reproducer_test.dart`: `ShaderJankDetector`,
+  `HeavyComputeDetector`, `PlatformChannelDetector`,
+  `MemoryPressureDetector`. VmOnly reproducers now feed raw
+  `List<TimelineEvent>` through `TimelineParser.parse()` into the
+  detector — closing the VM → parser → detector boundary gap v0.17.2
+  disclosed. MemoryPressure rationale discloses three skipped upstream
+  hops (`VmServiceClient.getMemoryUsage` repack, `EventStreams.kGC`
+  stream, `VmServiceClient._readRssBytes()` / `ProcessInfo.currentRss`).
+  New shared harness `vm_reproducer_harness.dart` with parser-drop
+  guard (`parseAndAssertShape`) asserts parser output matches expected
+  counts so silent drops fail loudly. Anchor block `_v0172Expectations`
+  → `_v0174Expectations` with history-tracking comment. Ledger
+  distribution unchanged; evidence strength improved for 4 of 8
+  v0.17.2-batch detectors. Remaining 4 (`GpuPressureDetector`,
+  `RepaintDetector`, `RebuildDetector`, `ShallowRebuildRiskDetector`)
+  queued for v0.17.5 / v0.17.6. **← current release**
 - **v0.18.0+** — Re-raise `NetworkMonitorDetector.slow_request.warning`
   (hard deadline — orphan manifest `consumeBy: '0.18.0'` blocks the
   release unless re-raised or orphans deleted). Also drops the

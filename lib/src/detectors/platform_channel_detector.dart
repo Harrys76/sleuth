@@ -144,12 +144,30 @@ class PlatformChannelDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'VM-only detector. >20/sec channel-frequency threshold '
-            'pinned via `processTimelineData` with synthetic channel-call '
-            'events. VM → TimelineParser boundary not exercised. '
-            'Fixtures synthetic, same-author provenance. Not '
-            'runtime-verified or cited to Flutter platform-channel docs.',
-        reproducerPath: 'test/detectors/platform_channel_detector_test.dart',
+        rationale: 'VM-only detector. Both emission axes pinned by '
+            'hermetic reproducer feeding events through '
+            '`TimelineParser.parse()` into the detector: (a) >20/sec '
+            'frequency (strict, 2× critical at 41 calls; 40 calls held '
+            'at warning to pin critical-escalation inequality), and '
+            '(b) >8000µs cumulative per 1s window (strict, tested at '
+            '7998/8000/8001µs via sync `\'X\'` events with 3 calls — '
+            'isolates duration axis from frequency axis). Two '
+            'parser-accepted phase+name shapes covered: lowercase async '
+            '`\'b\'` with `Platform Channel send ` prefix (real '
+            '`debugProfilePlatformChannels` output via TimelineTask) and '
+            'sync `\'X\'` with `MethodChannel` name. Parser allowlist '
+            'accepts 9 shapes total (6 sync names + 3 async-prefix '
+            'casings); the 7 untested shapes (`PlatformChannel`, '
+            '`platformchannel`, `Platform_Channel`, `platform_channel`, '
+            '`methodchannel`, `Platform Channel Send ` prefix, `platform '
+            'channel send ` prefix) are implicitly uncovered at this '
+            'tier. Uppercase sync `\'B\'` '
+            'async-shaped events are silently dropped by the parser '
+            'and asserted non-emitting — the canonical format-boundary '
+            'trap for channel observers. Fixtures hand-built against '
+            'parser allowlist; real-device capture comparison is '
+            'runtime-verified-tier work.',
+        reproducerPath: 'test/validation/platform_channel_reproducer_test.dart',
         coveredStableIds: {'platform_channel_traffic'},
       );
 }

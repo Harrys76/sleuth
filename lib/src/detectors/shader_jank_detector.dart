@@ -87,12 +87,15 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
         rationale: 'VM-only detector. Shader-compile duration threshold '
-            'pinned via `processTimelineData` with synthetic shader '
-            'events — asserts emission at boundary + silence below. '
-            'VM → TimelineParser boundary not exercised. Fixtures '
-            'synthetic, same-author provenance. Not runtime-verified '
-            'against Impeller/Skia budgets or externally cited.',
-        reproducerPath: 'test/detectors/shader_jank_detector_test.dart',
+            '(100ms inclusive, 2× critical) pinned by hermetic '
+            'reproducer feeding raw `List<TimelineEvent>` through '
+            '`TimelineParser.parse()` into the detector — exercises the '
+            'VM → parser → detector boundary including shader name '
+            'variants (ShaderCompilation, Pipeline::Create, lowercase) '
+            'and Impeller-zero suppression via consecutive empty polls. '
+            'Fixtures hand-built against parser allowlist; real-device '
+            'capture comparison is runtime-verified-tier work.',
+        reproducerPath: 'test/validation/shader_jank_reproducer_test.dart',
         coveredStableIds: {'shader_compilation'},
       );
 }
