@@ -238,8 +238,17 @@ class NestedScrollDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'NestedScrollView-with-inner-scrollable structural '
-            'heuristic. Not runtime-verified or externally cited.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hermetic reproducer pins `nested_scroll` (inner '
+            'Scrollable-count > `childThreshold`, strict-greater) and '
+            '`nested_scroll_same_axis` (parent + inner sharing vertical '
+            'axis). NeverScrollableScrollPhysics and cross-axis '
+            'suppressions are pinned as negative controls so the '
+            'axis-match contract cannot silently regress. Detector is '
+            'structural only — no scroll-interaction timing — so the '
+            'reproducer covers the runtime trigger path. Not yet '
+            'runtime-verified on a profile-mode capture.',
+        reproducerPath: 'test/validation/nested_scroll_reproducer_test.dart',
+        coveredStableIds: {'nested_scroll', 'nested_scroll_same_axis'},
       );
 }

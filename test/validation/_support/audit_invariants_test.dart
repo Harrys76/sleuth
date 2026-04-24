@@ -482,8 +482,8 @@ void main() {
         repoRoot: root.path,
       );
       expect(failures, isNotEmpty);
-      expect(failures.first,
-          contains('does not reference any coveredStableIds entry'));
+      expect(failures.first, contains('does not assert against every family'));
+      expect(failures.first, contains('my_family'));
     });
 
     test(
@@ -513,6 +513,106 @@ void main() {
       expect(failures, isEmpty,
           reason: 'A string literal matching "my_family:<suffix>" must '
               'satisfy the coveredStableIds prefix convention.');
+    });
+
+    test('rejects stable-id literal inside expect() `reason:` named arg',
+        () async {
+      // Literal sits in a NamedExpression (`reason:`) inside expect() —
+      // reason strings are prose, not assertions. Parent-chain walk
+      // must reject at the NamedExpression.
+      final file = File('${root.path}/reason_bypass_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('bypass attempt via reason string', () {
+    final d = XyzDetector();
+    expect(42, equals(42), reason: 'my_family');
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'reason_bypass_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'A literal in a `reason:` named arg must NOT satisfy the '
+              'coveredStableIds gate — reason strings are prose, not '
+              'assertions against detector output.');
+      expect(failures.first, contains('my_family'));
+    });
+
+    test(
+        'rejects stable-id literal inside instance-method call '
+        '(String.contains collision)', () async {
+      // `contains` is in the matcher allowlist but `target != null`
+      // distinguishes the String extension method from the test-package
+      // matcher factory. Walker must reject at the non-null-target
+      // MethodInvocation.
+      final file = File('${root.path}/string_method_bypass_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('bypass via String.contains', () {
+    final d = XyzDetector();
+    final result = 'probe_value'.contains('my_family');
+    if (result) d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'string_method_bypass_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'my_family'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'A literal in `str.contains("my_family")` must NOT credit '
+              'the gate — String extension method is not a matcher factory.');
+      expect(failures.first, contains('my_family'));
+    });
+
+    test('multi-family gate requires EVERY declared family to be asserted',
+        () async {
+      // `coveredStableIds: {'a', 'b'}` with only family `a` asserted —
+      // set-tracking must reject because {a, b}.difference({a}) == {b}.
+      final file = File('${root.path}/multi_family_partial_test.dart');
+      await file.writeAsString('''
+import 'package:flutter_test/flutter_test.dart';
+
+class XyzDetector {}
+
+void main() {
+  test('asserts only family_a, not family_b', () {
+    final d = XyzDetector();
+    expect('family_a', equals('family_a'));
+    d.toString();
+  });
+}
+''');
+      final failures = checkReproducerFile(
+        label: 'XyzDetector',
+        reproducerPath: 'multi_family_partial_test.dart',
+        requiredTokens: ['XyzDetector'],
+        coveredStableIds: const {'family_a', 'family_b'},
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'Declared families {family_a, family_b} but only family_a '
+              'asserted — gate must surface family_b as missing.');
+      expect(failures.first, contains('family_b'));
+      expect(failures.first, isNot(contains('family_a: ')),
+          reason: 'family_a was asserted; it should not appear as missing.');
     });
 
     test('skips gracefully when CWD is not a package root', () {

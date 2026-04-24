@@ -284,9 +284,25 @@ class RepaintBoundaryDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'Missing-RepaintBoundary structural heuristic around '
-            'animated subtrees. Not runtime-verified or cited to Flutter '
-            'repaint-boundary guidance.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hermetic reproducer pins `missing_repaint_boundary` '
+            '(Opacity 0<x<1 and ClipPath without RepaintBoundary ancestor '
+            'within `maxAncestorDepth`) and `excessive_repaint_boundary` '
+            '(21 user-placed RepaintBoundaries in CustomScrollView with '
+            '`addRepaintBoundaries: false` cross the 20-boundary hardcoded '
+            'threshold). Known narrowing: the strict-greater at-threshold '
+            'boundary is NOT pinned — the framework\'s scrollable '
+            'pipeline injects extra RepaintBoundary nodes the detector '
+            'counter observes, so exactly-20 tests cross unpredictably '
+            'across Flutter SDK versions. Opacity 0.0/1.0 passthrough '
+            'suppression and framework-managed ListView auto-boundary '
+            'skip (-1 sentinel) are pinned as negative controls. '
+            'Fixtures use Opacity, not CustomPaint, to keep the '
+            'missing-branch test cross-detector clean.',
+        reproducerPath: 'test/validation/repaint_boundary_reproducer_test.dart',
+        coveredStableIds: {
+          'missing_repaint_boundary',
+          'excessive_repaint_boundary',
+        },
       );
 }

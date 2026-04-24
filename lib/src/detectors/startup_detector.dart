@@ -208,10 +208,19 @@ class StartupDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale:
-            'TTFF/TTI phase-breakdown thresholds and slow-startup warning '
-            'gate. Not runtime-verified against a reference cold-start '
-            'profile or externally cited.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hermetic reproducer pins `slow_startup_ttff` via '
+            'injected StartupMetrics through the `@visibleForTesting` '
+            '`Sleuth.setStartupMetricsForTest` hook: ttffMs >= '
+            '`ttffWarningMs` fires at warning severity, ttffMs >= '
+            '`ttffCriticalMs` promotes to critical, ttffMs < warning '
+            'threshold silent (strict-less), ttffMs null silent, no '
+            'StartupMetrics at all silent, and the one-shot `_consumed` '
+            'guard pinned by second-prepareScan no-op. Detector is '
+            '`prepareScan`-only (element methods are no-ops). Not yet '
+            'runtime-verified against a reference cold-start profile '
+            'capture.',
+        reproducerPath: 'test/validation/startup_reproducer_test.dart',
+        coveredStableIds: {'slow_startup_ttff'},
       );
 }

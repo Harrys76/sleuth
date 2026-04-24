@@ -1,3 +1,27 @@
+## 0.17.1
+
+**Bulk structural validation batch.** Nine structural detectors raised `unvalidated` → `reproducerOnly`: `LayoutBottleneckDetector`, `NestedScrollDetector`, `CustomPainterDetector`, `AnimatedBuilderDetector`, `KeepAliveDetector`, `FontLoadingDetector`, `RepaintBoundaryDetector`, `SetStateScopeDetector`, `StartupDetector`. All nine are pure structural or one-shot scans, so hermetic reproducers cover the runtime trigger path end-to-end. Ledger distribution: **15/23 `reproducerOnly`, 8/23 `unvalidated`**.
+
+### Added
+
+- **9 hermetic reproducers** under `test/validation/` (60 tests). Each pins positive-trigger + boundary silence + negative controls for every family the detector emits. `StartupDetector` reproducer uses the `@visibleForTesting` `Sleuth.setStartupMetricsForTest` hook.
+- **Shared scan harness** at `test/validation/_helpers/structural_reproducer_harness.dart` — `scanAndIssues` drives the unified walk directly so walker exceptions propagate to the test.
+- **Anchor blocks** in `test/validation/detector_metadata_audit_test.dart` for the v0.17.1 batch and the v0.16.3 pre-ratchet detectors (imageMemory, opacity, globalKey, listview). Every `reproducerOnly+` detector has a (type → reproducerPath → coveredStableIds) triple and an allowlist entry — silent rename, stableId drift, or path churn fails CI.
+- **Strengthened `checkReproducerFile` gate.** Stable-id literals are credited only via a parent-chain walk that rejects `NamedExpression` ancestors (`reason:`/`skip:` bypass) and non-null-target MethodInvocations (String extension-method bypass). `coveredStableIds` is set-tracked — every declared family must be observed.
+
+### Changed
+
+- **9 detector `validationMetadata` blocks flipped** to `reproducerOnly` with rationales, `reproducerPath`, and `coveredStableIds` set to the families the reproducer actually exercises.
+- **`doc/validation_ledger.md`** — summary recount (6/23 → 15/23), 9 structural rows flipped, v0.17.1 roadmap entry added.
+- **`FontLoadingDetector` source comment** rewritten — the detector DOES cover `DefaultTextStyle` inheritance via Text's internal `RichText` materialisation (previous comment claimed otherwise).
+
+### Notes
+
+- **`SetStateScopeDetector` covers the structural / possible-confidence path only.** Uncovered at this tier: rebuild-evidence branch (likely / possible), severity branching (`ratio > 0.5 ? critical : warning`), DebugSnapshot confidence upgrade.
+- **`RepaintBoundaryDetector.excessive_repaint_boundary`** at-threshold pin is out of reach: the scrollable pipeline injects extra RepaintBoundary nodes the detector counter observes, regardless of `addRepaintBoundaries: false`.
+- **Reproducer thresholds are tuned down from production defaults** (e.g. `minSubtreeSize: 1`, `maxFamilies: 1`, `childThreshold: 3`) to cross boundaries on small hermetic trees — tests validate classification semantics, not threshold values.
+- `fvm flutter analyze` clean, `fvm flutter test` all green (2,613 tests).
+
 ## 0.17.0
 
 **FPS semantics rewrite.** Sleuth now exposes two frame-rate metrics instead of one: count-based `actualFps` (frames presented in a rolling 1 s window anchored on `FrameTiming.rasterFinish`) and latency-derived `throughputFps` (the v4 formula, `1e6 / avg(frame_duration_us)`). `averageFps` is retained as an alias for v4 consumers and scheduled for removal in v0.18.0. `FrameStatsSummary` JSON schema bumped `v4 → v5` additively; the new fields backfill from `averageFps` when reading v4 snapshots so no consumer has to migrate.

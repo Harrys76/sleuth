@@ -503,8 +503,23 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'setState scope-breadth estimation heuristic. Not '
-            'runtime-verified or externally cited.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hermetic reproducer pins `setstate_scope` on the '
+            'structural / possible-confidence path only — widest public '
+            'StatefulWidget owns > `dirtyRatioThreshold` of the scanned '
+            'tree AND `_maxSubtreeSize > minSubtreeSize`, with no '
+            'rebuild evidence and no animation scope. Private-named '
+            'widgets skipped (`!name.startsWith("_")`), animation-scope '
+            'suppression (`hasAnimScope && !hasRebuildEvidence`), and '
+            'below-minSubtreeSize silence pinned as negative controls. '
+            'Known uncovered paths at this tier: (a) rebuild-evidence '
+            'branch — two-scan rebuild-counter path, emits '
+            'IssueConfidence.likely or .possible; (b) severity branching '
+            '(`ratio > 0.5 ? critical : warning`); (c) DebugSnapshot '
+            'confidence upgrade via type-name rebuild correlation. '
+            'Thresholds tuned down in tests to validate classification '
+            'semantics, not threshold values.',
+        reproducerPath: 'test/validation/setstate_scope_reproducer_test.dart',
+        coveredStableIds: {'setstate_scope'},
       );
 }

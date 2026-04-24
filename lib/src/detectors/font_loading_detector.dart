@@ -53,8 +53,12 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
-  // Known limitation: does not detect fonts applied via DefaultTextStyle
-  // or Theme.textTheme inheritance. Only scans direct Text/RichText styles.
+  // Scans direct Text.style / RichText.text.style. Inherited fonts
+  // (DefaultTextStyle, Theme.textTheme) ARE covered via Text's internal
+  // RichText materialisation: `Text.build()` wraps its child in a
+  // `RichText` whose `TextSpan.style` has the inherited DefaultTextStyle
+  // merged in, so `checkElement` observes the inherited family on the
+  // RichText branch. Verified by font_loading_reproducer_test.dart.
   @override
   void prepareScan(BuildContext context) {
     _issues.clear();
@@ -165,9 +169,16 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'Font-load duration threshold and missing-asset-font '
-            'heuristic. Not runtime-verified against device-specific font '
-            'loading profiles or externally cited.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hermetic reproducer pins `runtime_font_loading` '
+            '(custom `fontFamily` + non-empty `fontFamilyFallback`, '
+            'exercised on both Text and RichText paths) and '
+            '`multiple_custom_fonts` (distinct-family count > '
+            '`maxFamilies`, strict-greater). System-font suppression, '
+            'no-fallback silence, and duplicate-family dedup are '
+            'pinned as negative controls. Not yet runtime-verified '
+            'against a device-specific font-load profile.',
+        reproducerPath: 'test/validation/font_loading_reproducer_test.dart',
+        coveredStableIds: {'runtime_font_loading', 'multiple_custom_fonts'},
       );
 }

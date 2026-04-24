@@ -210,8 +210,19 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'AutomaticKeepAlive-misuse structural heuristic. Not '
-            'runtime-verified or externally cited.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hermetic reproducer pins the parameterised '
+            '`excessive_keep_alive:<i>` family on a PageView with '
+            'AutomaticKeepAliveClientMixin pages, above '
+            '`threshold` (strict-greater). Pages are visited via '
+            'PageController.jumpToPage so `_isActiveKeepAlive` reads '
+            'parent-data `true` — the stale '
+            '`element.widget.keepAlive` path stays false otherwise. '
+            'ListView-suppression, wantKeepAlive=false silence, and '
+            'at-threshold silence are pinned as negative controls. '
+            'Family prefix convention pinned at the `:` separator. '
+            'Not yet runtime-verified on a profile-mode capture.',
+        reproducerPath: 'test/validation/keep_alive_reproducer_test.dart',
+        coveredStableIds: {'excessive_keep_alive'},
       );
 }

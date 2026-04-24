@@ -466,13 +466,21 @@ List<String> checkReproducerFile({
           'construction path (file: $reproducerPath)');
     }
   }
-  if ((coveredStableIds ?? const <String>{}).isNotEmpty &&
-      !visitor.hasCoveredStableIdLiteralInScope) {
-    failures.add('$label: reproducer file does not reference any '
-        'coveredStableIds entry ($coveredStableIds) as a string literal '
-        'inside a test scope — the reproducer must assert against the '
-        'detector\'s declared stable-id family, not just construct the '
-        'detector and walk away (file: $reproducerPath)');
+  // Require every declared family to be observed as a credited literal.
+  if ((coveredStableIds ?? const <String>{}).isNotEmpty) {
+    final declared = coveredStableIds!;
+    final missing = declared.difference(visitor.matchedCoveredFamilies);
+    if (missing.isNotEmpty) {
+      failures.add('$label: reproducer does not assert against every family '
+          'declared in coveredStableIds. Missing: $missing. Each family '
+          'must appear as a string literal (bare family name, or '
+          '"<family>:" prefix for parameterised families) inside an '
+          'expect() or matcher argument — a positional arg of an '
+          'assertion/matcher call, not inside a `reason:` or other named '
+          'argument. Either add assertions covering each missing family '
+          'or narrow `coveredStableIds` in the detector metadata to the '
+          'actually-covered set. (file: $reproducerPath)');
+    }
   }
   return failures;
 }
@@ -507,7 +515,11 @@ class _ReproducerAstVisitor extends RecursiveAstVisitor<void> {
   bool hasTestInvocation = false;
   final Set<String> tokensFoundInScope = <String>{};
   final Set<String> tokensInstantiated = <String>{};
-  bool hasCoveredStableIdLiteralInScope = false;
+
+  /// Families observed as credited string literals. Every entry in
+  /// `coveredStableIds` must appear here — multi-family detectors cannot
+  /// pass the gate by asserting only one family.
+  final Set<String> matchedCoveredFamilies = <String>{};
 
   /// Test-harness wrapper names whose body callback counts as a
   /// "test scope" for the purposes of crediting identifier references
@@ -524,6 +536,36 @@ class _ReproducerAstVisitor extends RecursiveAstVisitor<void> {
     'setUpAll',
     'tearDown',
     'tearDownAll',
+  };
+
+  /// Assertion and matcher-factory names whose argument subtree credits
+  /// a stable-id literal. `expect`/`expectLater`/`expectAsync*` are the
+  /// core assertion calls; `predicate` covers the harness's
+  /// `hasStableId`/`lacksStableId`/`hasStableIdPrefix` factories; the
+  /// remaining entries are matcher helpers so `expect(x, contains('id'))`
+  /// credits via either the outer `expect` or the inner `contains`.
+  static const _assertionNames = <String>{
+    'expect',
+    'expectLater',
+    'expectAsync',
+    'expectAsync0',
+    'expectAsync1',
+    'expectAsync2',
+    'expectAsync3',
+    'predicate',
+    'contains',
+    'startsWith',
+    'endsWith',
+    'equals',
+    'matches',
+    'anyOf',
+    'allOf',
+    'isA',
+    'everyElement',
+    'anyElement',
+    'hasStableId',
+    'lacksStableId',
+    'hasStableIdPrefix',
   };
 
   int _scopeDepth = 0;
@@ -600,17 +642,45 @@ class _ReproducerAstVisitor extends RecursiveAstVisitor<void> {
 
   @override
   void visitSimpleStringLiteral(SimpleStringLiteral node) {
-    if (_scopeDepth > 0 && coveredStableIds.isNotEmpty) {
+    // Credit only via the parent-chain walk. A bare string in a test
+    // body, a `reason:` named-arg, or a String extension method call
+    // (`str.contains('id')`) must not count as coverage evidence.
+    if (_scopeDepth > 0 &&
+        coveredStableIds.isNotEmpty &&
+        _isCreditedLiteral(node)) {
       final value = node.value;
       for (final id in coveredStableIds) {
         if (id.isEmpty) continue;
         if (value == id || value.startsWith('$id:')) {
-          hasCoveredStableIdLiteralInScope = true;
-          break;
+          matchedCoveredFamilies.add(id);
         }
       }
     }
     super.visitSimpleStringLiteral(node);
+  }
+
+  /// Returns true when the literal reaches an allowlisted assertion or
+  /// matcher-factory MethodInvocation (null target) through the AST
+  /// parent chain. Rejects at NamedExpression (`reason:`/`skip:`) or at
+  /// an allowlisted name whose `target` is non-null (String extension
+  /// method). Non-allowlisted calls (`issues.where(...)`) are skipped so
+  /// outer `expect(...)` frames still credit.
+  bool _isCreditedLiteral(AstNode startNode) {
+    AstNode? cur = startNode.parent;
+    var hops = 0;
+    while (cur != null && hops < 20) {
+      if (cur is NamedExpression) return false;
+      if (cur is MethodInvocation) {
+        final name = cur.methodName.name;
+        if (_assertionNames.contains(name)) {
+          if (cur.target != null) return false;
+          return true;
+        }
+      }
+      cur = cur.parent;
+      hops++;
+    }
+    return false;
   }
 }
 

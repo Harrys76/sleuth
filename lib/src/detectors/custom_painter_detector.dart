@@ -173,9 +173,20 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'CustomPainter missing shouldRepaint override heuristic and '
-            'repaint-frequency threshold. Not runtime-verified or cited '
-            'to Flutter rendering docs.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hermetic reproducer pins both emission branches: '
+            '`always_repaint_painter` (shouldRepaint self-comparison returns '
+            'true, exercised on both `painter` and `foregroundPainter` '
+            'slots) and `frequent_repaint_painter` (paintsPerSecond > 30 '
+            'via injected `DebugSnapshot`, silent at threshold — '
+            'strict-greater). The "always-repaint suppresses frequent" '
+            'ordering contract is pinned as a negative control so both '
+            'branches cannot fire simultaneously. Not yet runtime-verified '
+            'against a real paint-counter stream.',
+        reproducerPath: 'test/validation/custom_painter_reproducer_test.dart',
+        coveredStableIds: {
+          'always_repaint_painter',
+          'frequent_repaint_painter',
+        },
       );
 }

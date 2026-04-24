@@ -228,9 +228,16 @@ class LayoutBottleneckDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale:
-            'Layout-phase duration threshold for bottleneck attribution. '
-            'Not runtime-verified or externally cited.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hermetic reproducer pins `layout_bottleneck` '
+            '(IntrinsicHeight/IntrinsicWidth structural trigger) and '
+            '`wrap_layout_bottleneck` (Wrap with > `wrapChildThreshold` '
+            'children, strict-greater). Detector is a pure structural scan '
+            'over widget shape — no layout-phase timing dependency — so the '
+            'reproducer covers the full runtime trigger path. Not yet '
+            'runtime-verified on a profile-mode capture.',
+        reproducerPath:
+            'test/validation/layout_bottleneck_reproducer_test.dart',
+        coveredStableIds: {'layout_bottleneck', 'wrap_layout_bottleneck'},
       );
 }

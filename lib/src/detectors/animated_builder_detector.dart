@@ -201,10 +201,16 @@ class AnimatedBuilderDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.unvalidated,
-        rationale: 'AnimatedBuilder-without-child-parameter heuristic: '
-            'identifies builders that rebuild subtrees the animation does '
-            'not actually touch. Not runtime-verified against a '
-            'real-device profile trace or externally cited.',
+        tier: EvidenceTier.reproducerOnly,
+        rationale: 'Hermetic reproducer pins `animated_builder_no_child` '
+            'on both AnimatedBuilder and TweenAnimationBuilder '
+            '(ImplicitlyAnimatedWidget bypass of `isFrameworkOwned`), '
+            'at the `subtreeSize > minSubtreeSize` boundary '
+            '(strict-greater). The `child`-provided silence and '
+            'no-AnimatedBuilder silence are pinned as negative '
+            'controls. Not yet runtime-verified on a profile-mode '
+            'capture.',
+        reproducerPath: 'test/validation/animated_builder_reproducer_test.dart',
+        coveredStableIds: {'animated_builder_no_child'},
       );
 }

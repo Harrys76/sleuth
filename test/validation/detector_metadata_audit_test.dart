@@ -40,6 +40,7 @@
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart'
     show
@@ -458,6 +459,248 @@ void main() {
       expect(() => FrameTimingDetector(), returnsNormally,
           reason: 'FrameTimingDetector() must be side-effect-free so the '
               'audit can construct it in isolation.');
+    });
+
+    test('v0.17.1 structural batch pinned at reproducerOnly', () {
+      // Anti-tautology anchor for the 9-detector bulk tier raise. Each
+      // entry pins the (type → reproducerPath → coveredStableIds) triple
+      // so a silent rename, stableId drift, or path-churn trips CI.
+      // Every raise here is reproducerOnly — all extended-claim fields
+      // (citationUrl, profileCapturePaths, bracketThreshold, bracketUnit,
+      // coveredThresholds, aboveCeilingMultiplier) MUST remain null.
+      const expectations = <DetectorType, (String, Set<String>)>{
+        DetectorType.layoutBottleneck: (
+          'test/validation/layout_bottleneck_reproducer_test.dart',
+          {'layout_bottleneck', 'wrap_layout_bottleneck'},
+        ),
+        DetectorType.nestedScroll: (
+          'test/validation/nested_scroll_reproducer_test.dart',
+          {'nested_scroll', 'nested_scroll_same_axis'},
+        ),
+        DetectorType.customPainter: (
+          'test/validation/custom_painter_reproducer_test.dart',
+          {'always_repaint_painter', 'frequent_repaint_painter'},
+        ),
+        DetectorType.animatedBuilder: (
+          'test/validation/animated_builder_reproducer_test.dart',
+          {'animated_builder_no_child'},
+        ),
+        DetectorType.keepAlive: (
+          'test/validation/keep_alive_reproducer_test.dart',
+          {'excessive_keep_alive'},
+        ),
+        DetectorType.fontLoading: (
+          'test/validation/font_loading_reproducer_test.dart',
+          {'runtime_font_loading', 'multiple_custom_fonts'},
+        ),
+        DetectorType.repaintBoundary: (
+          'test/validation/repaint_boundary_reproducer_test.dart',
+          {'missing_repaint_boundary', 'excessive_repaint_boundary'},
+        ),
+        DetectorType.setStateScope: (
+          'test/validation/setstate_scope_reproducer_test.dart',
+          {'setstate_scope'},
+        ),
+        DetectorType.startup: (
+          'test/validation/startup_reproducer_test.dart',
+          {'slow_startup_ttff'},
+        ),
+      };
+
+      final failures = <String>[];
+      for (final entry in expectations.entries) {
+        final type = entry.key;
+        final (expectedPath, expectedIds) = entry.value;
+        final BaseDetector? d = controller.detectorsForAudit
+            .where((d) => d.type == type)
+            .cast<BaseDetector?>()
+            .firstWhere((_) => true, orElse: () => null);
+        if (d == null) {
+          failures.add('${type.name}: not registered on controller');
+          continue;
+        }
+        if (d is! DetectorMetadataProvider) {
+          failures.add('${type.name}: missing DetectorMetadataProvider');
+          continue;
+        }
+        final meta = (d as DetectorMetadataProvider).validationMetadata;
+        if (meta.tier != EvidenceTier.reproducerOnly) {
+          failures.add('${type.name}: tier=${meta.tier.name}, expected '
+              'reproducerOnly');
+        }
+        if (meta.reproducerPath != expectedPath) {
+          failures.add('${type.name}: reproducerPath='
+              '${meta.reproducerPath}, expected $expectedPath');
+        }
+        if (meta.coveredStableIds == null ||
+            !setEquals(meta.coveredStableIds, expectedIds)) {
+          failures.add('${type.name}: coveredStableIds='
+              '${meta.coveredStableIds}, expected $expectedIds');
+        }
+        if (meta.citationUrl != null) {
+          failures.add('${type.name}: citationUrl=${meta.citationUrl}, '
+              'expected null at reproducerOnly');
+        }
+        if (meta.profileCapturePaths != null) {
+          failures.add('${type.name}: profileCapturePaths='
+              '${meta.profileCapturePaths}, expected null at reproducerOnly');
+        }
+        if (meta.bracketThreshold != null) {
+          failures.add('${type.name}: bracketThreshold='
+              '${meta.bracketThreshold}, expected null at reproducerOnly');
+        }
+        if (meta.bracketUnit != null) {
+          failures.add('${type.name}: bracketUnit=${meta.bracketUnit}, '
+              'expected null at reproducerOnly');
+        }
+        if (meta.coveredThresholds != null) {
+          failures.add('${type.name}: coveredThresholds='
+              '${meta.coveredThresholds}, expected null at reproducerOnly');
+        }
+        if (meta.aboveCeilingMultiplier != null) {
+          failures.add('${type.name}: aboveCeilingMultiplier='
+              '${meta.aboveCeilingMultiplier}, expected null at '
+              'reproducerOnly');
+        }
+      }
+
+      expect(failures, isEmpty,
+          reason: 'v0.17.1 structural batch anchor drift — one of the 9 '
+              'bulk-raised detectors has diverged from the pinned triple '
+              '(tier, reproducerPath, coveredStableIds): $failures');
+    });
+
+    test('v0.16.3 pre-ratchet anchor block', () {
+      // Anchor the 4 v0.16.3 detectors with the same (type →
+      // reproducerPath → coveredStableIds) triple the v0.17.1 structural
+      // batch uses. All four are `reproducerOnly`; extended-claim fields
+      // (citationUrl, profileCapturePaths, bracketThreshold, bracketUnit,
+      // coveredThresholds, aboveCeilingMultiplier) MUST remain null.
+      const expectations = <DetectorType, (String, Set<String>)>{
+        DetectorType.imageMemory: (
+          'test/validation/image_memory_reproducer_test.dart',
+          {'uncached_images'},
+        ),
+        DetectorType.opacity: (
+          'test/validation/opacity_reproducer_test.dart',
+          {'opacity_zero'},
+        ),
+        DetectorType.globalKey: (
+          'test/validation/global_key_reproducer_test.dart',
+          {'excessive_global_keys', 'global_key_recreation'},
+        ),
+        DetectorType.listview: (
+          'test/validation/listview_reproducer_test.dart',
+          {
+            'non_lazy_listview',
+            'non_lazy_gridview',
+            'non_lazy_sliver_list',
+            'non_lazy_sliver_grid',
+            'non_lazy_list',
+            'sliver_to_box_adapter_large',
+            'sliver_to_box_adapter_shrinkwrap',
+            'sliver_fill_remaining_scrollable',
+          },
+        ),
+      };
+
+      final failures = <String>[];
+      for (final entry in expectations.entries) {
+        final type = entry.key;
+        final (expectedPath, expectedIds) = entry.value;
+        final BaseDetector? d = controller.detectorsForAudit
+            .where((d) => d.type == type)
+            .cast<BaseDetector?>()
+            .firstWhere((_) => true, orElse: () => null);
+        if (d == null) {
+          failures.add('${type.name}: not registered on controller');
+          continue;
+        }
+        if (d is! DetectorMetadataProvider) {
+          failures.add('${type.name}: missing DetectorMetadataProvider');
+          continue;
+        }
+        final meta = (d as DetectorMetadataProvider).validationMetadata;
+        if (meta.tier != EvidenceTier.reproducerOnly) {
+          failures.add('${type.name}: tier=${meta.tier.name}, expected '
+              'reproducerOnly');
+        }
+        if (meta.reproducerPath != expectedPath) {
+          failures.add('${type.name}: reproducerPath=${meta.reproducerPath}, '
+              'expected $expectedPath');
+        }
+        if (meta.coveredStableIds == null ||
+            !setEquals(meta.coveredStableIds, expectedIds)) {
+          failures.add('${type.name}: coveredStableIds='
+              '${meta.coveredStableIds}, expected $expectedIds');
+        }
+        if (meta.citationUrl != null ||
+            meta.profileCapturePaths != null ||
+            meta.bracketThreshold != null ||
+            meta.bracketUnit != null ||
+            meta.coveredThresholds != null ||
+            meta.aboveCeilingMultiplier != null) {
+          failures.add('${type.name}: extended-claim field populated but '
+              'tier is reproducerOnly');
+        }
+      }
+
+      expect(failures, isEmpty,
+          reason: 'v0.16.3 pre-ratchet anchor drift: $failures');
+    });
+
+    test('every reproducerOnly+ detector appears in an anchor block', () {
+      // Ratchet invariant. Every detector shipped at `reproducerOnly` or
+      // stronger must be named by `DetectorType.<value>` in an anchor
+      // block above. A new tier raise must add both an entry here AND
+      // a triple-check anchor block — no allowlist escape hatches.
+      const anchoredTypes = <DetectorType>{
+        DetectorType.networkMonitor,
+        DetectorType.frameTiming,
+        DetectorType.layoutBottleneck,
+        DetectorType.nestedScroll,
+        DetectorType.customPainter,
+        DetectorType.animatedBuilder,
+        DetectorType.keepAlive,
+        DetectorType.fontLoading,
+        DetectorType.repaintBoundary,
+        DetectorType.setStateScope,
+        DetectorType.startup,
+        DetectorType.imageMemory,
+        DetectorType.opacity,
+        DetectorType.globalKey,
+        DetectorType.listview,
+      };
+
+      final shippedAboveUnvalidated = <DetectorType>{};
+      for (final d in controller.detectorsForAudit) {
+        if (d is! DetectorMetadataProvider) continue;
+        final meta = (d as DetectorMetadataProvider).validationMetadata;
+        if (meta.tier != EvidenceTier.unvalidated) {
+          shippedAboveUnvalidated.add(d.type);
+        }
+      }
+
+      final unanchored = shippedAboveUnvalidated.difference(anchoredTypes);
+      expect(unanchored, isEmpty,
+          reason: 'These detectors are shipped above `unvalidated` but no '
+              'anchor block in detector_metadata_audit_test.dart names them '
+              'by `DetectorType.<value>`. An anchor block pins the '
+              '(type, reproducerPath, coveredStableIds) triple so silent '
+              'rename / path churn / stableId drift fails CI. Add an anchor '
+              'block and extend the `anchoredTypes` set to include: '
+              '$unanchored');
+
+      // Symmetric check: anchors referencing detectors NOT registered on
+      // the controller would indicate a stale allowlist (detector was
+      // removed but anchor kept).
+      final registeredTypes =
+          controller.detectorsForAudit.map((d) => d.type).toSet();
+      final stale = anchoredTypes.difference(registeredTypes);
+      expect(stale, isEmpty,
+          reason: 'These anchored DetectorTypes are no longer registered on '
+              'the controller — remove the stale anchor allowlist entry: '
+              '$stale');
     });
   });
 

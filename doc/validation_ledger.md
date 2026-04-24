@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.16.6 (2026-04-22)_
+_Last updated: v0.17.1 (2026-04-24)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
@@ -29,21 +29,32 @@ adding a new tier requires a semver major bump:
 
 ## Ledger
 
-**Summary:** 6 / 23 at `reproducerOnly`, 17 / 23 at `unvalidated`. No
-detectors currently at `runtimeVerified` or `externallyCited`. v0.16.6
-raised `FrameTimingDetector` unvalidated → `reproducerOnly` (4 stableIds:
-`sustained_jank`, `jank_detected`, `raster_cache_thrashing`,
-`raster_cache_growing`) and backfilled `ListviewDetector` coverage 3 →
-all 8 stableIds. v0.16.5 staged a second `externallyCited` raise on
-`NetworkMonitorDetector.slow_request.warning` (1000 ms) and reverted it:
-(1) NN/g "Response Times" 1.0 s is a UI direct-manipulation feedback
-guideline, not a generic HTTP latency threshold; (2) profile captures
-verify scenario marker span only, not detector-produced issue emission.
-v0.16.6 shipped without re-raising NetworkMonitor; re-raise deferred to
-v0.16.7 (hard deadline — orphan manifest `consumeBy: '0.16.7'` fails
-audit at `currentReleaseVersion >= consumeBy`). Three capture files
+**Summary:** 15 / 23 at `reproducerOnly`, 8 / 23 at `unvalidated`. No
+detectors currently at `runtimeVerified` or `externallyCited`. v0.17.1
+raises 9 structural detectors in a single bulk batch:
+`LayoutBottleneckDetector`, `NestedScrollDetector`,
+`CustomPainterDetector`, `AnimatedBuilderDetector`, `KeepAliveDetector`,
+`FontLoadingDetector`, `RepaintBoundaryDetector`,
+`SetStateScopeDetector`, and `StartupDetector` — all pure structural or
+one-shot scans (no VM-timeline dependency), so hermetic reproducers
+under `test/validation/` cover the runtime trigger path
+end-to-end. A parameterised anchor test
+(`detector_metadata_audit_test.dart` → `v0.17.1 structural batch
+pinned at reproducerOnly`) pins the (type → reproducerPath →
+coveredStableIds) triple for all 9 so silent rename / stableId drift
+/ path churn trips CI. v0.16.6 raised `FrameTimingDetector`
+unvalidated → `reproducerOnly` (4 stableIds) and backfilled
+`ListviewDetector` coverage 3 → all 8 stableIds. v0.16.5 staged a
+second `externallyCited` raise on
+`NetworkMonitorDetector.slow_request.warning` (1000 ms) and reverted
+it: (1) NN/g "Response Times" 1.0 s is a UI direct-manipulation
+feedback guideline, not a generic HTTP latency threshold; (2) profile
+captures verify scenario marker span only, not detector-produced
+issue emission. v0.16.6 shipped without re-raising NetworkMonitor;
+re-raise deferred to v0.18.0 (orphan manifest `consumeBy: '0.18.0'`
+after v0.17.0 bumped the lifecycle). Three capture files
 (812 / 1035 / 1515 ms on iPhone 12 / iOS 17.5 / Flutter 3.41.4) stay
-on disk as retained orphans with `consumeBy: '0.16.7'`.
+on disk as retained orphans with `consumeBy: '0.18.0'`.
 
 ### Runtime detectors (2)
 
@@ -74,19 +85,19 @@ on disk as retained orphans with `consumeBy: '0.16.7'`.
 
 | Detector | Tier | Reproducer | Notes |
 |---|---|---|---|
-| setState Scope | `unvalidated` | — | setState scope-breadth estimation heuristic. |
-| Layout Bottleneck | `unvalidated` | — | Layout-phase duration threshold for bottleneck attribution. |
+| setState Scope | `reproducerOnly` | [`setstate_scope_reproducer_test.dart`](../test/validation/setstate_scope_reproducer_test.dart) | **Structural / possible-confidence path only** pinned: widest public StatefulWidget owns > `dirtyRatioThreshold` of tree AND `_maxSubtreeSize > minSubtreeSize`. Private-named widgets skipped (`!name.startsWith("_")`), animation-scope suppression, and below-minSubtreeSize silence pinned as negative controls. The DebugSnapshot confidence-upgrade path (likely / confirmed via rebuild-counter correlation) is a known gap not covered at this tier — documented in the detector rationale. Thresholds tuned down in tests to validate classification semantics, not threshold values. `coveredStableIds = {'setstate_scope'}`. |
+| Layout Bottleneck | `reproducerOnly` | [`layout_bottleneck_reproducer_test.dart`](../test/validation/layout_bottleneck_reproducer_test.dart) | Both families pinned: `layout_bottleneck` (IntrinsicHeight / IntrinsicWidth structural trigger) and `wrap_layout_bottleneck` (Wrap with > `wrapChildThreshold` children, strict-greater). Pure structural scan — no layout-phase timing dependency — so the reproducer covers the full runtime trigger path. `coveredStableIds = {'layout_bottleneck', 'wrap_layout_bottleneck'}`. |
 | ListView | `reproducerOnly` | [`listview_reproducer_test.dart`](../test/validation/listview_reproducer_test.dart) | All 8 stable-id families pinned (v0.16.6 backfill from 3 → 8). Non-lazy construction families: `non_lazy_listview`, `non_lazy_gridview`, `non_lazy_sliver_list`, `non_lazy_sliver_grid` (each with list-delegate eager + builder-lazy negative control), and `non_lazy_list` (`SingleChildScrollView` + `Column`/`Row` above threshold, at-threshold silent). Sliver boundary families: `sliver_to_box_adapter_large` (Column subtree above threshold), `sliver_to_box_adapter_shrinkwrap` (Check-C gate pinned by a three-test triad — shrinkWrap:true fires, shrinkWrap:false silent, many-children-in-list-delegate routes to Check A non_lazy_listview not Check C, pinning the isNonLazy bypass), and `sliver_fill_remaining_scrollable` as a **structural adjacency check** — fires when any scrollable descendant appears under `SliverFillRemaining(hasScrollBody: false)`, with `hasScrollBody: true` as the negative control. The runtime performance pathology the sliver_fill_remaining pattern correlates with is not directly measured (the real anti-pattern throws a layout error in `flutter_test`, forcing a `SizedBox` wrapper around the inner scrollable); the detector is `DetectorLifecycle.structural` by declaration, so structural-only validation is internally consistent. v0.16.N re-raise to `runtimeVerified` would require a profile-mode capture triad per family demonstrating measurable frame-budget impact under the non-lazy construction path. |
 | Image Memory | `reproducerOnly` | [`image_memory_reproducer_test.dart`](../test/validation/image_memory_reproducer_test.dart) | 50dp small-image skip threshold pinned by 40×40 / 50×50 / 51×51 / 100×100 boundary triad, ResizeImage wrapper suppression, and the "zero is NOT small" unconstrained-size policy. **Both emission branches exercised**: the `Image` widget branch and the `DecoratedBox` branch (`Container` with `BoxDecoration.image` at 100×100 fires; `DecorationImage` wrapping a `ResizeImage` suppresses). Pure structural scan — no decode dependency. `coveredStableIds = {'uncached_images'}`. |
 | GlobalKey | `reproducerOnly` | [`global_key_reproducer_test.dart`](../test/validation/global_key_reproducer_test.dart) | Both families pinned with their correct scope contracts: `excessive_global_keys` is **scrollable-gated** (threshold boundary + critical above 3× threshold; bare-tree keys ignored) while `global_key_recreation` is **whole-tree** (identity-hash churn across two scans on the same scan root fires in a scrollable context AND in a bare `Column` tree; State-held stable keys do not; first scan alone is silent because `_prevKeyIds` is empty). `coveredStableIds = {'excessive_global_keys', 'global_key_recreation'}` using the prefix convention for the indexed `excessive_global_keys:<i>` family. |
-| Nested Scroll | `unvalidated` | — | NestedScrollView-with-inner-scrollable structural heuristic. |
-| CustomPainter | `unvalidated` | — | `shouldRepaint` override heuristic and repaint-frequency threshold. |
-| Keep Alive | `unvalidated` | — | `AutomaticKeepAlive` misuse structural heuristic. |
-| AnimatedBuilder | `unvalidated` | — | AnimatedBuilder-without-child-parameter heuristic for subtree-rebuild detection. |
+| Nested Scroll | `reproducerOnly` | [`nested_scroll_reproducer_test.dart`](../test/validation/nested_scroll_reproducer_test.dart) | Both families pinned: `nested_scroll` (inner-Scrollable count > `childThreshold`, strict-greater) and `nested_scroll_same_axis` (parent + inner sharing vertical axis). `NeverScrollableScrollPhysics` suppression and cross-axis silence pinned as negative controls so the axis-match contract cannot silently regress. `coveredStableIds = {'nested_scroll', 'nested_scroll_same_axis'}`. |
+| CustomPainter | `reproducerOnly` | [`custom_painter_reproducer_test.dart`](../test/validation/custom_painter_reproducer_test.dart) | Both emission branches pinned: `always_repaint_painter` (shouldRepaint self-comparison returns true, exercised on both `painter` and `foregroundPainter` slots) and `frequent_repaint_painter` (paintsPerSecond > 30 via injected `DebugSnapshot`, silent at threshold — strict-greater). The "always-repaint suppresses frequent" ordering contract pinned as a negative control. `coveredStableIds = {'always_repaint_painter', 'frequent_repaint_painter'}`. |
+| Keep Alive | `reproducerOnly` | [`keep_alive_reproducer_test.dart`](../test/validation/keep_alive_reproducer_test.dart) | Parameterised `excessive_keep_alive:<i>` family pinned on a PageView with `AutomaticKeepAliveClientMixin` pages, above `threshold` (strict-greater). Pages are visited via `PageController.jumpToPage` so `_isActiveKeepAlive` reads parent-data `true` — the stale `element.widget.keepAlive` path stays false otherwise. ListView suppression, `wantKeepAlive=false` silence, and at-threshold silence pinned as negative controls. Family-prefix convention pinned at the `:` separator. `coveredStableIds = {'excessive_keep_alive'}`. |
+| AnimatedBuilder | `reproducerOnly` | [`animated_builder_reproducer_test.dart`](../test/validation/animated_builder_reproducer_test.dart) | `animated_builder_no_child` pinned on both `AnimatedBuilder` and `TweenAnimationBuilder` (`ImplicitlyAnimatedWidget` bypass of `isFrameworkOwned`), at the `subtreeSize > minSubtreeSize` boundary (strict-greater). The `child`-provided silence and no-AnimatedBuilder silence pinned as negative controls. `coveredStableIds = {'animated_builder_no_child'}`. |
 | Opacity | `reproducerOnly` | [`opacity_reproducer_test.dart`](../test/validation/opacity_reproducer_test.dart) | Exact-zero contract pinned (0.0 fires, 0.005 and 0.5 do not), AnimatedOpacity settled-at-zero fires exactly once (inner FadeTransition suppressed by `_insideAnimatedOpacity` depth counter), **standalone `FadeTransition`** settled at 0.0 fires via the `_insideAnimatedOpacity == 0` guard (non-zero does not), and nested `Opacity(0.0)` produces one rollup issue with a count reflecting both occurrences. `coveredStableIds = {'opacity_zero'}`. |
-| Font Loading | `unvalidated` | — | Font-load duration threshold and missing-asset-font heuristic. |
-| RepaintBoundary | `unvalidated` | — | Missing-RepaintBoundary structural heuristic around animated subtrees. |
-| Startup | `unvalidated` | — | TTFF/TTI phase-breakdown thresholds and slow-startup warning gate. |
+| Font Loading | `reproducerOnly` | [`font_loading_reproducer_test.dart`](../test/validation/font_loading_reproducer_test.dart) | Both families pinned: `runtime_font_loading` (custom `fontFamily` + non-empty `fontFamilyFallback`, exercised on both Text and RichText paths) and `multiple_custom_fonts` (distinct-family count > `maxFamilies`, strict-greater). System-font suppression, no-fallback silence, and duplicate-family dedup pinned as negative controls. The detector's source comment claiming DefaultTextStyle inheritance is NOT covered is stale — Text materialises an internal RichText with the inherited style merged into its TextSpan, so the RichText branch in `checkElement` actually observes the inherited family; documented inline in the reproducer for a future source-comment cleanup. `coveredStableIds = {'runtime_font_loading', 'multiple_custom_fonts'}`. |
+| RepaintBoundary | `reproducerOnly` | [`repaint_boundary_reproducer_test.dart`](../test/validation/repaint_boundary_reproducer_test.dart) | Both families pinned: `missing_repaint_boundary` (Opacity 0<x<1 and ClipPath without RepaintBoundary ancestor within `maxAncestorDepth`) and `excessive_repaint_boundary` (> 20-boundary hardcoded threshold in CustomScrollView with `addRepaintBoundaries: false`). Opacity 0.0 / 1.0 passthrough suppression and framework-managed ListView auto-boundary skip (-1 sentinel) pinned as negative controls. Fixtures use Opacity, not CustomPaint, to keep the missing-branch test cross-detector clean. `coveredStableIds = {'missing_repaint_boundary', 'excessive_repaint_boundary'}`. |
+| Startup | `reproducerOnly` | [`startup_reproducer_test.dart`](../test/validation/startup_reproducer_test.dart) | `slow_startup_ttff` pinned via injected `StartupMetrics` through the `@visibleForTesting` `Sleuth.setStartupMetricsForTest` hook: ttffMs >= `ttffWarningMs` fires at warning severity, ttffMs >= `ttffCriticalMs` promotes to critical, ttffMs < warning threshold silent (strict-less), ttffMs null silent, no StartupMetrics at all silent, and the one-shot `_consumed` guard pinned by second-`prepareScan` no-op. Detector is `prepareScan`-only (element methods are no-ops). `coveredStableIds = {'slow_startup_ttff'}`. |
 
 ## Non-Detector Components
 
@@ -187,7 +198,28 @@ per release:
   `consumeBy: '0.16.7'` → `'0.18.0'` for all three `slow_request`
   capture files (re-raise window extended with the minor bump). Ledger
   distribution unchanged: 6/23 `reproducerOnly`, 17/23 `unvalidated`.
-  **← current release**
+- **v0.17.1** — Bulk structural batch. Nine detectors raised
+  `unvalidated` → `reproducerOnly` in a single release:
+  `LayoutBottleneckDetector`, `NestedScrollDetector`,
+  `CustomPainterDetector`, `AnimatedBuilderDetector`,
+  `KeepAliveDetector`, `FontLoadingDetector`,
+  `RepaintBoundaryDetector`, `SetStateScopeDetector`, and
+  `StartupDetector`. All nine are pure structural or one-shot scans
+  (no VM-timeline dependency); hermetic reproducers under
+  `test/validation/` cover the runtime trigger path end-to-end
+  (anti-tautology, Tactic 9: real `pumpWidget` + `scanTree(root)` for
+  structural detectors, injected `StartupMetrics` via the
+  `@visibleForTesting` hook for Startup). Shared scan harness lives
+  at `test/validation/_helpers/structural_reproducer_harness.dart`
+  (plumbing only — detector-specific fixture construction stays
+  inline so shared code does not re-encode detector assumptions).
+  Parameterised anchor test pins the (type → reproducerPath →
+  coveredStableIds) triple for all nine. `SetStateScopeDetector`
+  covers the STRUCTURAL / possible-confidence path only — the
+  DebugSnapshot confidence-upgrade path (likely / confirmed via
+  rebuild-counter correlation) is a known gap documented in the
+  detector rationale. Ledger distribution: **15/23
+  `reproducerOnly`, 8/23 `unvalidated`**. **← current release**
 - **v0.18.0+** — Re-raise `NetworkMonitorDetector.slow_request.warning`
   (hard deadline — orphan manifest `consumeBy: '0.18.0'` blocks the
   release unless re-raised or orphans deleted). Also drops the
