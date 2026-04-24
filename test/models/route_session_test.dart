@@ -215,6 +215,41 @@ void main() {
             RouteSession(routeName: '/home', startedAt: DateTime.now());
         expect(session.fpsTarget, 60);
       });
+
+      // v0.17.0 Step 6: healthScore uses throughputFps (rename only — the
+      // underlying formula and output value are identical to the v4
+      // averageFps-based computation). These tests prove the rename did
+      // not change the numeric output and that the score stays robust at
+      // low sample counts where actualFps would collapse.
+      test('rename-only — v4 averageFps inputs yield same score as v5', () {
+        final sessionV4Like =
+            RouteSession(routeName: '/x', startedAt: DateTime.now());
+        for (var i = 0; i < 10; i++) {
+          sessionV4Like.frameStats.add(
+            _frame(number: i + 1, uiUs: 16000, rasterUs: 10000),
+          );
+        }
+        // Before v0.17.0 this would have been computed from averageFps.
+        // v0.17.0 uses throughputFps — but averageFps is now an alias so
+        // the score must be unchanged.
+        expect(sessionV4Like.healthScore, 100);
+      });
+
+      test('warm-up robustness — single frame does not collapse score', () {
+        // A single frame means actualFps == 1.0 (one frame in the window)
+        // → if healthScore used actualFps, fpsComponent = 1/60 * 40 ≈
+        // 0.67 pts. Score would sit near 30. throughputFps is robust:
+        // a single fast frame yields target-speed throughput.
+        final session =
+            RouteSession(routeName: '/x', startedAt: DateTime.now());
+        session.frameStats.add(
+          _frame(number: 1, uiUs: 8000, rasterUs: 5000),
+        );
+        // throughputFps = 1e6 / 8000 = 125 → clamped to 120.
+        // fpsComponent = (120 / 60 * 40).clamp(0, 40) = 40.
+        // No jank, no issues → healthScore stays at 100.
+        expect(session.healthScore, 100);
+      });
     });
 
     group('toJson', () {

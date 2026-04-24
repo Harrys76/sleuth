@@ -1260,93 +1260,240 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
 // ─── Status Row ─────────────────────────────────────────────────────────
 
-class _StatusRow extends StatelessWidget {
+class _StatusRow extends StatefulWidget {
   const _StatusRow({required this.controller});
 
+  final SleuthController controller;
+
+  @override
+  State<_StatusRow> createState() => _StatusRowState();
+}
+
+class _StatusRowState extends State<_StatusRow> {
+  /// Warm-up threshold — 3 frames ≈ 50 ms @ 60 Hz. Prevents flashing a
+  /// red `0 FPS` while the rolling window is populating. See
+  /// Minimum frames in the buffer before the primary numeral shows.
+  /// Shown as `—` while the buffer warms up so the first tick does not
+  /// flash a red 0.
+  static const int _warmupFrameCount = 3;
+
+  /// True when the user has tapped the info icon — reveals the Actual /
+  /// Throughput FPS detail row and short explainer.
+  bool _infoExpanded = false;
+
+  SleuthController get controller => widget.controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = SleuthTheme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: EdgeInsets.symmetric(
+              horizontal: theme.spacingLg, vertical: theme.spacingXs),
+          child: Row(
+            children: [
+              // Primary numeral shows throughputFps (latency-derived) so
+              // idle screens read smooth — actualFps counts presented
+              // frames and drops to low values when Flutter is not
+              // repainting. True device rate is still exposed in the
+              // expanded detail row (ACTUAL cell) and the snapshot export.
+              ValueListenableBuilder<FrameStatsBuffer>(
+                valueListenable: controller.frameStatsNotifier,
+                builder: (_, buffer, __) {
+                  final target = controller.config.fpsTarget;
+                  final isWarming = buffer.length < _warmupFrameCount;
+                  final fps =
+                      buffer.throughputFps.clamp(0.0, target.toDouble());
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        isWarming ? '—' : fps.toStringAsFixed(0),
+                        style: TextStyle(
+                          color: isWarming
+                              ? theme.textTertiary
+                              : theme.fpsColor(fps, target: target),
+                          fontSize: theme.fontXxl,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(width: theme.spacingXxs),
+                      Text(
+                        'FPS',
+                        style: TextStyle(
+                            color: theme.textTertiary, fontSize: theme.fontSm),
+                      ),
+                      SizedBox(width: theme.spacingXxs),
+                      // 28dp tap target — documented compromise for the
+                      // cramped 330dp overlay budget (precedent:
+                      // `_RebuildStatsBannerState` pause icon at ~2155,
+                      // v0.15.2 H1). Full 48dp would overflow the card
+                      // min width alongside FPS numeral + label + issue
+                      // count. `HitTestBehavior.opaque` ensures the pad
+                      // is hittable, not just the glyph.
+                      Semantics(
+                        label: _infoExpanded
+                            ? 'Hide FPS explainer'
+                            : 'Show FPS explainer',
+                        button: true,
+                        child: GestureDetector(
+                          onTap: () =>
+                              setState(() => _infoExpanded = !_infoExpanded),
+                          behavior: HitTestBehavior.opaque,
+                          child: SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: Center(
+                              child: Icon(
+                                Icons.info_outline,
+                                size: theme.fontSm,
+                                color: theme.textQuaternary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const Spacer(),
+              // Issue count + severity dot
+              ValueListenableBuilder<List<PerformanceIssue>>(
+                valueListenable: controller.issuesNotifier,
+                builder: (_, issues, __) {
+                  if (issues.isEmpty) {
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.check_circle,
+                            color: theme.severityOk, size: 14),
+                        SizedBox(width: theme.spacingXs),
+                        Text(
+                          '0 issues',
+                          style: TextStyle(
+                              color: theme.severityOk, fontSize: theme.fontMd),
+                        ),
+                      ],
+                    );
+                  }
+                  final hasCritical =
+                      issues.any((i) => i.severity == IssueSeverity.critical);
+                  final severityColor = hasCritical
+                      ? theme.severityCritical
+                      : theme.severityWarning;
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: severityColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      SizedBox(width: theme.spacingXs),
+                      Text(
+                        '${issues.length} issue${issues.length == 1 ? '' : 's'}',
+                        style: TextStyle(
+                            color: severityColor, fontSize: theme.fontMd),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        if (_infoExpanded) ...[
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                theme.spacingLg, 0, theme.spacingLg, theme.spacingXs),
+            child: Text(
+              'TPUT (primary): latency-derived capacity estimate.\n'
+              'ACTUAL: presented frames/sec (count — low when idle).',
+              style: TextStyle(
+                  color: theme.textTertiary,
+                  fontSize: theme.fontXs,
+                  height: 1.4),
+            ),
+          ),
+          _ThroughputDetailRow(controller: controller),
+        ],
+      ],
+    );
+  }
+}
+
+/// Expanded-card detail row showing actualFps alongside throughputFps.
+/// Visible only when the user taps the info icon on `_StatusRow`.
+class _ThroughputDetailRow extends StatelessWidget {
+  const _ThroughputDetailRow({required this.controller});
   final SleuthController controller;
 
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     return Padding(
-      padding: EdgeInsets.symmetric(
-          horizontal: theme.spacingLg, vertical: theme.spacingXs),
-      child: Row(
-        children: [
-          // FPS number (color-coded)
-          ValueListenableBuilder<FrameStatsBuffer>(
-            valueListenable: controller.frameStatsNotifier,
-            builder: (_, buffer, __) {
-              final target = controller.config.fpsTarget;
-              final fps = buffer.averageFps.clamp(0.0, target.toDouble());
-              final color = theme.fpsColor(fps, target: target);
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    fps.toStringAsFixed(0),
-                    style: TextStyle(
-                      color: color,
-                      fontSize: theme.fontXxl,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(width: theme.spacingXxs),
-                  Text(
-                    'FPS',
-                    style: TextStyle(
-                        color: theme.textTertiary, fontSize: theme.fontSm),
-                  ),
-                ],
-              );
-            },
-          ),
-          const Spacer(),
-          // Issue count + severity dot
-          ValueListenableBuilder<List<PerformanceIssue>>(
-            valueListenable: controller.issuesNotifier,
-            builder: (_, issues, __) {
-              if (issues.isEmpty) {
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.check_circle, color: theme.severityOk, size: 14),
-                    SizedBox(width: theme.spacingXs),
-                    Text(
-                      '0 issues',
-                      style: TextStyle(
-                          color: theme.severityOk, fontSize: theme.fontMd),
-                    ),
-                  ],
-                );
-              }
-              final hasCritical =
-                  issues.any((i) => i.severity == IssueSeverity.critical);
-              final severityColor =
-                  hasCritical ? theme.severityCritical : theme.severityWarning;
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: severityColor,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  SizedBox(width: theme.spacingXs),
-                  Text(
-                    '${issues.length} issue${issues.length == 1 ? '' : 's'}',
-                    style:
-                        TextStyle(color: severityColor, fontSize: theme.fontMd),
-                  ),
-                ],
-              );
-            },
-          ),
-        ],
+      padding: EdgeInsets.fromLTRB(
+          theme.spacingLg, 0, theme.spacingLg, theme.spacingXs),
+      child: ValueListenableBuilder<FrameStatsBuffer>(
+        valueListenable: controller.frameStatsNotifier,
+        builder: (_, buffer, __) {
+          final target = controller.config.fpsTarget;
+          final actual = buffer.actualFps.clamp(0.0, target.toDouble());
+          final throughput = buffer.throughputFps.clamp(0.0, target.toDouble());
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _FpsCell(value: actual, target: target, label: 'ACTUAL'),
+              SizedBox(width: theme.spacingLg),
+              _FpsCell(value: throughput, target: target, label: 'TPUT'),
+            ],
+          );
+        },
       ),
+    );
+  }
+}
+
+class _FpsCell extends StatelessWidget {
+  const _FpsCell({
+    required this.value,
+    required this.target,
+    required this.label,
+  });
+  final double value;
+  final int target;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = SleuthTheme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          value.toStringAsFixed(0),
+          style: TextStyle(
+            color: theme.fpsColor(value, target: target),
+            fontSize: theme.fontXxl,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            color: theme.textTertiary,
+            fontSize: theme.fontXs,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ],
     );
   }
 }

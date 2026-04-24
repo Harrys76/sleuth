@@ -18,7 +18,7 @@ class SessionSnapshot {
     required this.capturedFrames,
     required this.currentIssues,
     required this.frameStatsSummary,
-    this.schemaVersion = 4,
+    this.schemaVersion = 5,
     this.packageVersion = '',
     this.isVmConnected = false,
     this.isDebugMode = false,
@@ -42,6 +42,9 @@ class SessionSnapshot {
   /// v3: adds sessionSummary (top issues, causal edges, frame histogram,
   /// detector hit rates, memory trend summary).
   /// v4: adds routeSessions (per-route health, FPS, issues).
+  /// v5: splits FPS into count-based `actualFps` (+ raw uncapped
+  /// `actualFpsRaw`) and latency-derived `throughputFps` alongside
+  /// the v4 `averageFps` alias.
   final int schemaVersion;
 
   /// Wall-clock time when this snapshot was exported.
@@ -154,66 +157,72 @@ class SessionSnapshot {
   /// Pretty-printed JSON string for export/sharing.
   String toJsonString() => const JsonEncoder.withIndent('  ').convert(toJson());
 
-  factory SessionSnapshot.fromJson(Map<String, dynamic> json) =>
-      SessionSnapshot(
-        schemaVersion: json['schemaVersion'] as int? ?? 1,
-        exportedAt: DateTime.parse(json['exportedAt'] as String),
-        packageVersion: json['packageVersion'] as String? ?? '',
-        isVmConnected: json['isVmConnected'] as bool? ?? false,
-        isDebugMode: json['isDebugMode'] as bool? ?? false,
-        frameStatsSummary: FrameStatsSummary.fromJson(
-            json['frameStatsSummary'] as Map<String, dynamic>),
-        capturedFrames: (json['capturedFrames'] as List<dynamic>)
-            .map((e) => CaptureEntry.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        currentIssues: (json['currentIssues'] as List<dynamic>)
-            .map((e) => PerformanceIssue.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        suppressedCount: json['suppressedCount'] as int? ?? 0,
-        // recentRequests and heapSamples are export-only; not deserialized
-        phaseEvents: json['phaseEvents'] != null
-            ? (json['phaseEvents'] as List<dynamic>)
-                .map((e) => PhaseEvent.fromJson(e as Map<String, dynamic>))
-                .toList()
-            : null,
-        gcEvents: json['gcEvents'] != null
-            ? (json['gcEvents'] as List<dynamic>)
-                .map((e) => GcEventSummary.fromJson(e as Map<String, dynamic>))
-                .toList()
-            : null,
-        platformChannelEvents: json['platformChannelEvents'] != null
-            ? (json['platformChannelEvents'] as List<dynamic>)
-                .map((e) =>
-                    PlatformChannelSummary.fromJson(e as Map<String, dynamic>))
-                .toList()
-            : null,
-        recentFrames: json['recentFrames'] != null
-            ? (json['recentFrames'] as List<dynamic>)
-                .map((e) => FrameStats.fromJson(e as Map<String, dynamic>))
-                .toList()
-            : null,
-        widgetHeatMap: json['widgetHeatMap'] != null
-            ? (json['widgetHeatMap'] as List<dynamic>)
-                .map((e) =>
-                    WidgetHeatMapEntry.fromJson(e as Map<String, dynamic>))
-                .toList()
-            : null,
-        recurrenceTrends: json['recurrenceTrends'] != null
-            ? (json['recurrenceTrends'] as Map<String, dynamic>).map(
-                (k, v) => MapEntry(k, v as Map<String, dynamic>),
-              )
-            : null,
-        sessionSummary: json['sessionSummary'] as Map<String, dynamic>?,
-        startupMetrics: json['startupMetrics'] != null
-            ? StartupMetrics.fromJson(
-                json['startupMetrics'] as Map<String, dynamic>)
-            : null,
-        routeSessions: json['routeSessions'] != null
-            ? (json['routeSessions'] as List<dynamic>)
-                .map((e) => e as Map<String, dynamic>)
-                .toList()
-            : null,
-      );
+  factory SessionSnapshot.fromJson(Map<String, dynamic> json) {
+    final incomingSchema = json['schemaVersion'] as int? ?? 1;
+    // Upgrade-on-read: `toJson` always emits v5 FPS shape, so a v<5 input
+    // must declare v5 after deserialization to keep declared schema in sync
+    // with emitted payload. v5+ inputs flow through untouched.
+    final effectiveSchema = incomingSchema < 5 ? 5 : incomingSchema;
+    return SessionSnapshot(
+      schemaVersion: effectiveSchema,
+      exportedAt: DateTime.parse(json['exportedAt'] as String),
+      packageVersion: json['packageVersion'] as String? ?? '',
+      isVmConnected: json['isVmConnected'] as bool? ?? false,
+      isDebugMode: json['isDebugMode'] as bool? ?? false,
+      frameStatsSummary: FrameStatsSummary.fromJson(
+          json['frameStatsSummary'] as Map<String, dynamic>),
+      capturedFrames: (json['capturedFrames'] as List<dynamic>)
+          .map((e) => CaptureEntry.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      currentIssues: (json['currentIssues'] as List<dynamic>)
+          .map((e) => PerformanceIssue.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      suppressedCount: json['suppressedCount'] as int? ?? 0,
+      // recentRequests and heapSamples are export-only; not deserialized
+      phaseEvents: json['phaseEvents'] != null
+          ? (json['phaseEvents'] as List<dynamic>)
+              .map((e) => PhaseEvent.fromJson(e as Map<String, dynamic>))
+              .toList()
+          : null,
+      gcEvents: json['gcEvents'] != null
+          ? (json['gcEvents'] as List<dynamic>)
+              .map((e) => GcEventSummary.fromJson(e as Map<String, dynamic>))
+              .toList()
+          : null,
+      platformChannelEvents: json['platformChannelEvents'] != null
+          ? (json['platformChannelEvents'] as List<dynamic>)
+              .map((e) =>
+                  PlatformChannelSummary.fromJson(e as Map<String, dynamic>))
+              .toList()
+          : null,
+      recentFrames: json['recentFrames'] != null
+          ? (json['recentFrames'] as List<dynamic>)
+              .map((e) => FrameStats.fromJson(e as Map<String, dynamic>))
+              .toList()
+          : null,
+      widgetHeatMap: json['widgetHeatMap'] != null
+          ? (json['widgetHeatMap'] as List<dynamic>)
+              .map(
+                  (e) => WidgetHeatMapEntry.fromJson(e as Map<String, dynamic>))
+              .toList()
+          : null,
+      recurrenceTrends: json['recurrenceTrends'] != null
+          ? (json['recurrenceTrends'] as Map<String, dynamic>).map(
+              (k, v) => MapEntry(k, v as Map<String, dynamic>),
+            )
+          : null,
+      sessionSummary: json['sessionSummary'] as Map<String, dynamic>?,
+      startupMetrics: json['startupMetrics'] != null
+          ? StartupMetrics.fromJson(
+              json['startupMetrics'] as Map<String, dynamic>)
+          : null,
+      routeSessions: json['routeSessions'] != null
+          ? (json['routeSessions'] as List<dynamic>)
+              .map((e) => e as Map<String, dynamic>)
+              .toList()
+          : null,
+    );
+  }
 }
 
 /// Aggregated frame stats summary for the export.
@@ -223,8 +232,13 @@ class FrameStatsSummary {
     required this.jankFrames,
     required this.averageFps,
     required this.worstFrameTimeUs,
+    double? actualFps,
+    double? throughputFps,
+    double? actualFpsRaw,
     this.fpsPercentiles,
-  });
+  })  : actualFps = actualFps ?? averageFps,
+        throughputFps = throughputFps ?? averageFps,
+        actualFpsRaw = actualFpsRaw ?? (actualFps ?? averageFps);
 
   /// Total frames observed since monitoring started.
   final int totalFrames;
@@ -232,7 +246,23 @@ class FrameStatsSummary {
   /// Number of frames that exceeded the frame budget.
   final int jankFrames;
 
-  /// Average FPS across the live frame buffer.
+  /// Count-based FPS: frames presented in the last 1s window, clamped to
+  /// `SleuthConfig.fpsTarget` on the UI path. Added in v5. Backfills from
+  /// `averageFps` when reading a v4 snapshot.
+  final double actualFps;
+
+  /// Uncapped count-based FPS — the raw number of frames presented in the
+  /// last 1s window on the device (e.g. 120 on ProMotion). Added in v5.
+  /// Backfills from `actualFps` (which in turn backfills from `averageFps`)
+  /// when reading older snapshots.
+  final double actualFpsRaw;
+
+  /// Latency-derived throughput FPS: `1e6 / avg(frame_duration_us)`.
+  /// Added in v5. Backfills from `averageFps` when reading a v4 snapshot.
+  final double throughputFps;
+
+  /// Alias for [throughputFps] retained for v4 consumers.
+  /// Scheduled for removal in v0.18.0. See CHANGELOG v0.17.0.
   final double averageFps;
 
   /// Duration of the worst single frame in microseconds.
@@ -245,20 +275,33 @@ class FrameStatsSummary {
   Map<String, dynamic> toJson() => {
         'totalFrames': totalFrames,
         'jankFrames': jankFrames,
+        'actualFps': double.parse(actualFps.toStringAsFixed(1)),
+        'actualFpsRaw': double.parse(actualFpsRaw.toStringAsFixed(1)),
+        'throughputFps': double.parse(throughputFps.toStringAsFixed(1)),
         'averageFps': double.parse(averageFps.toStringAsFixed(1)),
         'worstFrameTimeUs': worstFrameTimeUs,
         if (fpsPercentiles != null) 'fpsPercentiles': fpsPercentiles!.toJson(),
       };
 
-  factory FrameStatsSummary.fromJson(Map<String, dynamic> json) =>
-      FrameStatsSummary(
-        totalFrames: json['totalFrames'] as int,
-        jankFrames: json['jankFrames'] as int,
-        averageFps: (json['averageFps'] as num).toDouble(),
-        worstFrameTimeUs: json['worstFrameTimeUs'] as int,
-        fpsPercentiles: json['fpsPercentiles'] != null
-            ? FpsPercentiles.fromJson(
-                json['fpsPercentiles'] as Map<String, dynamic>)
-            : null,
-      );
+  factory FrameStatsSummary.fromJson(Map<String, dynamic> json) {
+    final rawAverage = (json['averageFps'] as num?)?.toDouble() ?? 0.0;
+    final rawActual = (json['actualFps'] as num?)?.toDouble() ?? rawAverage;
+    final rawThroughput =
+        (json['throughputFps'] as num?)?.toDouble() ?? rawAverage;
+    final rawActualUncapped =
+        (json['actualFpsRaw'] as num?)?.toDouble() ?? rawActual;
+    return FrameStatsSummary(
+      totalFrames: json['totalFrames'] as int,
+      jankFrames: json['jankFrames'] as int,
+      averageFps: rawAverage,
+      actualFps: rawActual,
+      actualFpsRaw: rawActualUncapped,
+      throughputFps: rawThroughput,
+      worstFrameTimeUs: json['worstFrameTimeUs'] as int,
+      fpsPercentiles: json['fpsPercentiles'] != null
+          ? FpsPercentiles.fromJson(
+              json['fpsPercentiles'] as Map<String, dynamic>)
+          : null,
+    );
+  }
 }

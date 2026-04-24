@@ -171,8 +171,10 @@ void main() {
         ),
       ));
 
-      // Default FrameStatsBuffer has 0 FPS
-      expect(find.text('0'), findsOneWidget);
+      // v0.17.0: empty buffer → warm-up placeholder while windowSampleCount
+      // is below the 3-frame threshold. The trigger shows '—' instead of
+      // flashing red '0 FPS'.
+      expect(find.text('—'), findsOneWidget);
 
       issues.dispose();
       vm.dispose();

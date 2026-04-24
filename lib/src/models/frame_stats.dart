@@ -141,16 +141,84 @@ class FrameStats {
   bool get isJank => effectiveTotalDuration.inMilliseconds > frameBudgetMs;
   bool get isSevereJank =>
       effectiveTotalDuration.inMilliseconds > frameBudgetMs * 2;
+
+  /// Sentinel distinguishing "caller omitted the field" from "caller
+  /// passed null". Nullable fields in [copyWith] accept this sentinel as
+  /// default; any other value (including explicit `null`) overwrites.
+  static const Object _unset = Object();
+
+  FrameStats copyWith({
+    int? frameNumber,
+    Duration? uiDuration,
+    Duration? rasterDuration,
+    DateTime? timestamp,
+    Duration? vsyncOverhead,
+    int? layerCacheCount,
+    int? layerCacheBytes,
+    int? pictureCacheCount,
+    int? pictureCacheBytes,
+    int? frameBudgetMs,
+    Object? totalSpan = _unset,
+    Duration? buildToRasterGap,
+    Object? vsyncStartUs = _unset,
+    Object? buildStartUs = _unset,
+    Object? buildFinishUs = _unset,
+    Object? rasterStartUs = _unset,
+    Object? rasterFinishUs = _unset,
+  }) {
+    return FrameStats(
+      frameNumber: frameNumber ?? this.frameNumber,
+      uiDuration: uiDuration ?? this.uiDuration,
+      rasterDuration: rasterDuration ?? this.rasterDuration,
+      timestamp: timestamp ?? this.timestamp,
+      vsyncOverhead: vsyncOverhead ?? this.vsyncOverhead,
+      layerCacheCount: layerCacheCount ?? this.layerCacheCount,
+      layerCacheBytes: layerCacheBytes ?? this.layerCacheBytes,
+      pictureCacheCount: pictureCacheCount ?? this.pictureCacheCount,
+      pictureCacheBytes: pictureCacheBytes ?? this.pictureCacheBytes,
+      frameBudgetMs: frameBudgetMs ?? this.frameBudgetMs,
+      totalSpan: identical(totalSpan, _unset)
+          ? this.totalSpan
+          : totalSpan as Duration?,
+      buildToRasterGap: buildToRasterGap ?? this.buildToRasterGap,
+      vsyncStartUs: identical(vsyncStartUs, _unset)
+          ? this.vsyncStartUs
+          : vsyncStartUs as int?,
+      buildStartUs: identical(buildStartUs, _unset)
+          ? this.buildStartUs
+          : buildStartUs as int?,
+      buildFinishUs: identical(buildFinishUs, _unset)
+          ? this.buildFinishUs
+          : buildFinishUs as int?,
+      rasterStartUs: identical(rasterStartUs, _unset)
+          ? this.rasterStartUs
+          : rasterStartUs as int?,
+      rasterFinishUs: identical(rasterFinishUs, _unset)
+          ? this.rasterFinishUs
+          : rasterFinishUs as int?,
+    );
+  }
 }
 
 /// Circular buffer holding the last [capacity] frames for live display.
 class FrameStatsBuffer {
-  FrameStatsBuffer({this.capacity = 60});
+  FrameStatsBuffer({int? capacity, int fpsTarget = 60})
+      : capacity = capacity ?? (fpsTarget * 2).clamp(60, 240);
 
   /// Shallow copy — shares [FrameStats] instances (they're immutable).
+  ///
+  /// Copies the memoised `actualFps` and `fpsPercentiles` values and
+  /// their dirty flags so the copy's first read does not redundantly
+  /// recompute values the source already cached. Throttled notifier
+  /// emission (5 Hz × 240-entry buffer) previously re-scanned the buffer
+  /// on every UI rebuild.
   factory FrameStatsBuffer.from(FrameStatsBuffer other) {
     final copy = FrameStatsBuffer(capacity: other.capacity);
     copy._buffer.addAll(other._buffer);
+    copy._cachedActualFps = other._cachedActualFps;
+    copy._actualFpsDirty = other._actualFpsDirty;
+    copy._cachedPercentiles = other._cachedPercentiles;
+    copy._percentilesDirty = other._percentilesDirty;
     return copy;
   }
 
@@ -159,6 +227,8 @@ class FrameStatsBuffer {
   List<FrameStats>? _cachedFrames;
   bool _percentilesDirty = true;
   FpsPercentiles? _cachedPercentiles;
+  bool _actualFpsDirty = true;
+  double? _cachedActualFps;
 
   List<FrameStats> get frames => _cachedFrames ??= List.unmodifiable(_buffer);
   int get length => _buffer.length;
@@ -166,15 +236,61 @@ class FrameStatsBuffer {
 
   FrameStats? get latest => _buffer.isEmpty ? null : _buffer.last;
 
-  /// Processing-throughput FPS: how many frames/sec the engine could produce
-  /// given the average [effectiveTotalDuration].
+  /// Presented frames per second in the last 1 second of engine time.
+  ///
+  /// Counts buffer frames whose [FrameStats.rasterFinishUs] falls in
+  /// `[latest - 1_000_000, latest]` (inclusive). Anchors on the latest
+  /// rasterFinishUs, so batched `addTimingsCallback` delivery does not
+  /// distort the count.
+  ///
+  /// Returns 0 when:
+  ///   * no frame has a non-null rasterFinishUs, or
+  ///   * `latestVsyncStartUs - latestRasterFinishUs > 1 s` (null-tail decay
+  ///     — newer frames arrived without rasterFinish so the anchor is
+  ///     stale and the UI warm-up gate should re-engage).
+  double get actualFps {
+    if (!_actualFpsDirty && _cachedActualFps != null) return _cachedActualFps!;
+    final count = _countInWindow();
+    _actualFpsDirty = false;
+    return _cachedActualFps = count.toDouble();
+  }
+
+  /// Number of frames with non-null rasterFinishUs inside the 1-s window.
+  /// UI reads this to gate the warm-up placeholder. Null-tail decay ⇒ 0
+  /// for the same condition as [actualFps].
+  int get windowSampleCount => _countInWindow();
+
+  /// Shared counter for [actualFps] and [windowSampleCount].
+  int _countInWindow() {
+    var latestRaster = -1;
+    var latestVsync = -1;
+    for (final f in _buffer) {
+      final raster = f.rasterFinishUs;
+      if (raster != null && raster > latestRaster) latestRaster = raster;
+      final vsync = f.vsyncStartUs;
+      if (vsync != null && vsync > latestVsync) latestVsync = vsync;
+    }
+    if (latestRaster < 0) return 0;
+    // Null-tail decay: engine clock advanced >1s past freshest rasterFinish.
+    if (latestVsync >= 0 && latestVsync - latestRaster > 1000000) return 0;
+    final windowStart = latestRaster - 1000000;
+    var count = 0;
+    for (final f in _buffer) {
+      final ts = f.rasterFinishUs;
+      if (ts != null && ts >= windowStart && ts <= latestRaster) count++;
+    }
+    return count;
+  }
+
+  /// Latency-derived throughput (capacity estimate):
+  /// `1e6 / average(effectiveTotalDuration_us)`, clamped to `[0, 120]`.
   ///
   /// Capped at 120. The UI further caps at [SleuthConfig.fpsTarget] so an
   /// idle screen in profile mode shows the target (e.g. 60).
   ///
   /// In debug mode, idle screens may show lower FPS due to debug overhead —
   /// this is expected. Always use profile mode for reliable FPS readings.
-  double get averageFps {
+  double get throughputFps {
     if (_buffer.isEmpty) return 0;
     final totalUs = _buffer.fold<int>(
       0,
@@ -183,6 +299,10 @@ class FrameStatsBuffer {
     if (totalUs == 0) return 0;
     return (1000000.0 / (totalUs / _buffer.length)).clamp(0, 120);
   }
+
+  /// Alias for [throughputFps] retained for backward compatibility.
+  /// Scheduled for removal in v0.18.0. See CHANGELOG v0.17.0.
+  double get averageFps => throughputFps;
 
   int get jankCount => _buffer.where((f) => f.isJank).length;
 
@@ -193,6 +313,8 @@ class FrameStatsBuffer {
     _buffer.add(frame);
     _cachedFrames = null;
     _percentilesDirty = true;
+    _actualFpsDirty = true;
+    _cachedActualFps = null;
   }
 
   /// Computes FPS percentiles from the current buffer contents.
@@ -238,6 +360,8 @@ class FrameStatsBuffer {
     _cachedFrames = null;
     _percentilesDirty = true;
     _cachedPercentiles = null;
+    _actualFpsDirty = true;
+    _cachedActualFps = null;
   }
 }
 

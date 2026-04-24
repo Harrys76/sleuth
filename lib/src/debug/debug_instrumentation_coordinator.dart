@@ -562,6 +562,8 @@ class DebugInstrumentationCoordinator {
     // --- Sleuth overlay widget classes (26) ---
     'FloatingIssuesCard',
     '_StatusRow',
+    '_ThroughputDetailRow',
+    '_FpsCell',
     '_DebugModeBanner',
     '_WarningBanners',
     '_CardFooter',

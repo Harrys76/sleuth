@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart';
@@ -847,6 +848,191 @@ void main() {
       expect(restored.averageFps, 58.3);
       expect(restored.worstFrameTimeUs, 45000);
     });
+
+    test('v4 fromJson — actualFps and throughputFps backfill from averageFps',
+        () {
+      // v4 snapshot: only averageFps is present. New reader must synthesize
+      // actualFps and throughputFps from that single field so no v4 export
+      // comes back with NaN or a silent zero.
+      final v4Json = {
+        'totalFrames': 60,
+        'jankFrames': 5,
+        'averageFps': 58.3,
+        'worstFrameTimeUs': 45000,
+      };
+      final restored = FrameStatsSummary.fromJson(v4Json);
+      expect(restored.averageFps, 58.3);
+      expect(restored.actualFps, 58.3);
+      expect(restored.throughputFps, 58.3);
+      expect(restored.actualFpsRaw, 58.3);
+    });
+
+    test('v5 round-trip preserves all three FPS fields', () {
+      const original = FrameStatsSummary(
+        totalFrames: 120,
+        jankFrames: 2,
+        averageFps: 60.0,
+        actualFps: 58.0,
+        actualFpsRaw: 117.0,
+        throughputFps: 60.0,
+        worstFrameTimeUs: 33000,
+      );
+      final restored = FrameStatsSummary.fromJson(original.toJson());
+      expect(restored.actualFps, 58.0);
+      expect(restored.actualFpsRaw, 117.0);
+      expect(restored.throughputFps, 60.0);
+      expect(restored.averageFps, 60.0);
+    });
+
+    test('v5→v4 reader simulation — stripped v5 keys still parse', () {
+      // Simulate an old (v4) consumer reading a v5 snapshot: the v5-only
+      // keys are stripped from the payload but averageFps remains. The
+      // backfill chain must make the result look like a v4 object.
+      const v5 = FrameStatsSummary(
+        totalFrames: 60,
+        jankFrames: 0,
+        averageFps: 60.0,
+        actualFps: 58.0,
+        actualFpsRaw: 120.0,
+        throughputFps: 60.0,
+        worstFrameTimeUs: 16000,
+      );
+      final v5Json = v5.toJson();
+      v5Json.remove('actualFps');
+      v5Json.remove('actualFpsRaw');
+      v5Json.remove('throughputFps');
+      final restored = FrameStatsSummary.fromJson(v5Json);
+      expect(restored.averageFps, 60.0);
+      expect(restored.actualFps, 60.0);
+      expect(restored.actualFpsRaw, 60.0);
+      expect(restored.throughputFps, 60.0);
+    });
+
+    test('schemaVersion default is 5', () {
+      final snapshot = SessionSnapshot(
+        exportedAt: DateTime.utc(2026, 4, 24),
+        capturedFrames: const [],
+        currentIssues: const [],
+        frameStatsSummary: const FrameStatsSummary(
+          totalFrames: 0,
+          jankFrames: 0,
+          averageFps: 0,
+          worstFrameTimeUs: 0,
+        ),
+      );
+      expect(snapshot.schemaVersion, 5);
+    });
+
+    // Schema-bump gate — any PR that adds a field to FrameStatsSummary or
+    // SessionSnapshot without updating the v5 golden fixture fails here.
+    // Forces an intentional schema decision instead of silent drift.
+    test('v5 golden file gate', () {
+      final fixture =
+          File('test/models/_fixtures/session_snapshot_v5_golden.json');
+      expect(fixture.existsSync(), isTrue,
+          reason: 'v5 golden fixture missing — create it alongside any '
+              'snapshot field addition');
+      final json =
+          jsonDecode(fixture.readAsStringSync()) as Map<String, dynamic>;
+      final snapshot = SessionSnapshot.fromJson(json);
+      expect(snapshot.schemaVersion, 5);
+      expect(snapshot.frameStatsSummary.actualFps, 58.0);
+      expect(snapshot.frameStatsSummary.actualFpsRaw, 117.0);
+      expect(snapshot.frameStatsSummary.throughputFps, 60.0);
+      expect(snapshot.frameStatsSummary.averageFps, 60.0);
+
+      // Round-trip — re-serialize and require the re-emitted FrameStats
+      // summary to match the golden byte-for-byte. Value equality (not
+      // just key-set equality) catches both new-field additions AND
+      // silent value drift (e.g. a rounding regression flipping
+      // actualFps <-> throughputFps). Rounding in `toJson` is
+      // deterministic (one decimal) so this comparison is stable.
+      final roundTripped = snapshot.toJson();
+      final summary = roundTripped['frameStatsSummary'] as Map<String, dynamic>;
+      final goldenSummary = json['frameStatsSummary'] as Map<String, dynamic>;
+      expect(summary, equals(goldenSummary),
+          reason: 'FrameStatsSummary.toJson drifted from the v5 golden — '
+              'either a new field was added without updating the golden '
+              'fixture, or an existing field value changed');
+    });
+
+    // v0.17.0 C1 regression: v4 → fromJson → toJson must NOT produce a
+    // schemaVersion=4 payload wrapping v5 field shape. Upgrade-on-read
+    // normalises schemaVersion to 5 so the declared version matches the
+    // actual emitted shape.
+    test('v4 JSON → fromJson → toJson normalises schemaVersion to 5', () {
+      final v4 = <String, dynamic>{
+        'schemaVersion': 4,
+        'exportedAt': DateTime.utc(2026, 4, 24).toIso8601String(),
+        'packageVersion': '0.16.6',
+        'isVmConnected': false,
+        'isDebugMode': false,
+        'frameStatsSummary': <String, dynamic>{
+          'totalFrames': 60,
+          'jankFrames': 2,
+          'averageFps': 58.3,
+          'worstFrameTimeUs': 33000,
+        },
+        'capturedFrames': <dynamic>[],
+        'currentIssues': <dynamic>[],
+      };
+      final snapshot = SessionSnapshot.fromJson(v4);
+      // Upgrade-on-read: in-memory object advertises v5 because toJson
+      // will emit v5-shape unconditionally.
+      expect(snapshot.schemaVersion, 5);
+      final roundTripped = snapshot.toJson();
+      expect(roundTripped['schemaVersion'], 5);
+      // Re-emitted frameStatsSummary MUST contain every v5 FPS key.
+      final summary = roundTripped['frameStatsSummary'] as Map<String, dynamic>;
+      expect(summary.containsKey('actualFps'), isTrue);
+      expect(summary.containsKey('actualFpsRaw'), isTrue);
+      expect(summary.containsKey('throughputFps'), isTrue);
+      expect(summary.containsKey('averageFps'), isTrue);
+      // v4 averageFps backfills the three new fields at identical value.
+      expect(summary['averageFps'], 58.3);
+      expect(summary['actualFps'], 58.3);
+      expect(summary['actualFpsRaw'], 58.3);
+      expect(summary['throughputFps'], 58.3);
+    });
+
+    // v3 / v2 / v1 inputs also upgrade on read (no regression for older
+    // schemas either — upgrade path is uniform for any schemaVersion < 5).
+    test('v3 JSON → fromJson normalises schemaVersion to 5', () {
+      final v3 = <String, dynamic>{
+        'schemaVersion': 3,
+        'exportedAt': DateTime.utc(2026, 4, 24).toIso8601String(),
+        'frameStatsSummary': <String, dynamic>{
+          'totalFrames': 10,
+          'jankFrames': 0,
+          'averageFps': 60.0,
+          'worstFrameTimeUs': 16000,
+        },
+        'capturedFrames': <dynamic>[],
+        'currentIssues': <dynamic>[],
+      };
+      final snapshot = SessionSnapshot.fromJson(v3);
+      expect(snapshot.schemaVersion, 5);
+    });
+
+    // v6+ (hypothetical future schema) flows through untouched — don't
+    // clobber forward schemaVersions.
+    test('v6 JSON → fromJson preserves schemaVersion (no clobber on future)',
+        () {
+      final v6 = <String, dynamic>{
+        'schemaVersion': 6,
+        'exportedAt': DateTime.utc(2026, 4, 24).toIso8601String(),
+        'frameStatsSummary': <String, dynamic>{
+          'totalFrames': 0,
+          'jankFrames': 0,
+          'averageFps': 0,
+          'worstFrameTimeUs': 0,
+        },
+        'capturedFrames': <dynamic>[],
+        'currentIssues': <dynamic>[],
+      };
+      final snapshot = SessionSnapshot.fromJson(v6);
+      expect(snapshot.schemaVersion, 6);
+    });
   });
 
   group('SessionSnapshot serialization', () {
@@ -1199,7 +1385,7 @@ void main() {
   });
 
   group('SessionSnapshot v2 fields', () {
-    test('schemaVersion defaults to 4 for new snapshots', () {
+    test('schemaVersion defaults to 5 for new snapshots', () {
       final snapshot = SessionSnapshot(
         exportedAt: DateTime.utc(2026, 3, 30),
         capturedFrames: const [],
@@ -1212,8 +1398,8 @@ void main() {
         ),
       );
 
-      expect(snapshot.schemaVersion, 4);
-      expect(snapshot.toJson()['schemaVersion'], 4);
+      expect(snapshot.schemaVersion, 5);
+      expect(snapshot.toJson()['schemaVersion'], 5);
     });
 
     test('fromJson without schemaVersion defaults to 1', () {
@@ -1230,7 +1416,11 @@ void main() {
       };
 
       final snapshot = SessionSnapshot.fromJson(json);
-      expect(snapshot.schemaVersion, 1);
+      // v0.17.0 C1 fix: upgrade-on-read normalises schemaVersion<5 to 5
+      // so the in-memory shape matches what toJson unconditionally emits.
+      // Historical behaviour (schemaVersion=1 default for absent key) is
+      // preserved only in terms of which input path was taken.
+      expect(snapshot.schemaVersion, 5);
     });
 
     test('roundtrip with all v2 fields', () {
@@ -1280,14 +1470,18 @@ void main() {
       );
 
       final json = snapshot.toJson();
+      // toJson emits whatever schemaVersion the in-memory object declares,
+      // so explicitly-constructed v2 objects serialise with schemaVersion=2.
       expect(json['schemaVersion'], 2);
       expect(json.containsKey('phaseEvents'), isTrue);
       expect(json.containsKey('gcEvents'), isTrue);
       expect(json.containsKey('platformChannelEvents'), isTrue);
       expect(json.containsKey('recentFrames'), isTrue);
 
+      // v0.17.0 C1 fix: fromJson upgrades schemaVersion<5 → 5 on read so
+      // the in-memory object advertises the v5 shape it actually carries.
       final restored = SessionSnapshot.fromJson(json);
-      expect(restored.schemaVersion, 2);
+      expect(restored.schemaVersion, 5);
       expect(restored.phaseEvents, hasLength(1));
       expect(restored.phaseEvents![0].phase, TimelinePhase.build);
       expect(restored.gcEvents, hasLength(1));
@@ -1313,7 +1507,8 @@ void main() {
       };
 
       final snapshot = SessionSnapshot.fromJson(json);
-      expect(snapshot.schemaVersion, 2);
+      // v0.17.0 C1 upgrade-on-read: 2 → 5.
+      expect(snapshot.schemaVersion, 5);
       expect(snapshot.phaseEvents, isNull);
       expect(snapshot.gcEvents, isNull);
       expect(snapshot.platformChannelEvents, isNull);
@@ -1363,7 +1558,9 @@ void main() {
       final decoded = jsonDecode(jsonString) as Map<String, dynamic>;
       final restored = SessionSnapshot.fromJson(decoded);
 
-      expect(restored.schemaVersion, 2);
+      // v0.17.0 C1 upgrade-on-read: v2 normalises to v5 because toJson
+      // always emits v5 frameStatsSummary shape.
+      expect(restored.schemaVersion, 5);
       expect(restored.phaseEvents, hasLength(1));
     });
   });
@@ -1973,7 +2170,8 @@ void main() {
       };
 
       final snapshot = SessionSnapshot.fromJson(json);
-      expect(snapshot.schemaVersion, 2);
+      // v0.17.0 C1 upgrade-on-read: 2 → 5.
+      expect(snapshot.schemaVersion, 5);
       expect(snapshot.sessionSummary, isNull);
       expect(snapshot.currentIssues, hasLength(1));
       expect(snapshot.packageVersion, '0.5.0');
@@ -2054,12 +2252,14 @@ void main() {
       );
 
       final json = snapshot.toJson();
+      // toJson preserves the declared schemaVersion on the in-memory object.
       expect(json['schemaVersion'], 4);
       expect(json.containsKey('routeSessions'), isTrue);
       expect(json['routeSessions'], hasLength(2));
 
       final restored = SessionSnapshot.fromJson(json);
-      expect(restored.schemaVersion, 4);
+      // v0.17.0 C1 upgrade-on-read: 4 → 5.
+      expect(restored.schemaVersion, 5);
       expect(restored.routeSessions, isNotNull);
       expect(restored.routeSessions, hasLength(2));
       expect(restored.routeSessions![0]['routeName'], '/home');

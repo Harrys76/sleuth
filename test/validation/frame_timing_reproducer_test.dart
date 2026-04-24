@@ -434,4 +434,135 @@ void main() {
       );
     });
   });
+
+  // v0.17.0 FPS semantics (count-based actualFps, rolling 1-s window
+  // anchored on latest rasterFinishUs). Every test uses the real
+  // `handleTimingsForTest` path so hand-written synthetic fixtures
+  // cannot encode the detector's own expected shape (Tactic 9).
+  group('FrameTimingDetector reproducer — FPS semantics', () {
+    // Build one `FrameTiming` per intended-presented frame with rasterFinish
+    // timestamps stepping at `1_000_000 / fps` microseconds. Matches the
+    // engine's real monotonic rasterFinishUs contract.
+    FrameTiming makeFpsTiming({
+      required int frameNumber,
+      required int rasterFinishUs,
+    }) {
+      // 10 ms synthetic frame — not jank. vsyncStart anchored so each frame
+      // is ≥ 10 ms after the previous raster finish.
+      final vsyncStart = rasterFinishUs - 10000;
+      final midpoint = vsyncStart + 5000;
+      return FrameTiming(
+        vsyncStart: vsyncStart,
+        buildStart: vsyncStart,
+        buildFinish: midpoint,
+        rasterStart: midpoint,
+        rasterFinish: rasterFinishUs,
+        rasterFinishWallTime: rasterFinishUs,
+        pictureCacheCount: 0,
+        pictureCacheBytes: 1,
+      );
+    }
+
+    test('60 monotonic frames over 1s → actualFps == 60', () {
+      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+      final stepUs = 1000000 ~/ 60;
+      final timings = List.generate(
+        60,
+        (i) => makeFpsTiming(
+          frameNumber: i + 1,
+          rasterFinishUs: 1000000 + i * stepUs,
+        ),
+      );
+      detector.handleTimingsForTest(timings);
+      expect(detector.frameBuffer.actualFps, 60);
+      expect(detector.frameBuffer.windowSampleCount, 60);
+    });
+
+    test('120 monotonic frames @ fpsTarget=120 → actualFps == 120', () {
+      final detector = FrameTimingDetector(
+        fpsTarget: 120,
+        warmupDuration: Duration.zero,
+      );
+      // Capacity must auto-size to (120 * 2).clamp(60, 240) = 240 so a
+      // full 1-s window of 120 frames is retained without eviction.
+      expect(detector.frameBuffer.capacity, 240);
+      final stepUs = 1000000 ~/ 120;
+      final timings = List.generate(
+        120,
+        (i) => makeFpsTiming(
+          frameNumber: i + 1,
+          rasterFinishUs: 1000000 + i * stepUs,
+        ),
+      );
+      detector.handleTimingsForTest(timings);
+      expect(detector.frameBuffer.actualFps, 120);
+    });
+
+    test('batched delivery — all 60 timings in one callback → actualFps == 60',
+        () {
+      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+      final stepUs = 1000000 ~/ 60;
+      // Single call with all 60 — the engine can batch on slow hardware.
+      // Window math is anchored on rasterFinishUs, so arrival pattern is
+      // irrelevant.
+      detector.handleTimingsForTest(
+        List.generate(
+          60,
+          (i) => makeFpsTiming(
+            frameNumber: i + 1,
+            rasterFinishUs: 1000000 + i * stepUs,
+          ),
+        ),
+      );
+      expect(detector.frameBuffer.actualFps, 60);
+    });
+
+    test('window slides — 90 frames over 1.5s, newest stays ~60', () {
+      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+      final stepUs = 1000000 ~/ 60; // 60 FPS cadence, 1.5 s total
+      final timings = List.generate(
+        90,
+        (i) => makeFpsTiming(
+          frameNumber: i + 1,
+          rasterFinishUs: 1000000 + i * stepUs,
+        ),
+      );
+      detector.handleTimingsForTest(timings);
+      // Oldest frames fell out of the 1-s window, newest ~60 in.
+      // ±1 tolerance for the integer step rounding (stepUs = 16666 μs).
+      expect(detector.frameBuffer.actualFps, closeTo(60, 1));
+    });
+
+    test('zero frames → actualFps == 0, windowSampleCount == 0', () {
+      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+      expect(detector.frameBuffer.actualFps, 0);
+      expect(detector.frameBuffer.windowSampleCount, 0);
+    });
+
+    test('null rasterFinishUs → frame present but not counted', () {
+      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+      // Synthetic FrameStats with no rasterFinishUs.
+      detector.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 10),
+          rasterDuration: Duration.zero,
+          timestamp: DateTime(2026, 4, 22),
+        ).copyWith(rasterFinishUs: null),
+      );
+      // `addFrameForTest` auto-injects rasterFinishUs when null.
+      // To pin "null propagates through buffer math" directly, clear and
+      // add one frame via the raw buffer on a fresh buffer instance.
+      final buffer = FrameStatsBuffer();
+      buffer.add(FrameStats(
+        frameNumber: 1,
+        uiDuration: const Duration(milliseconds: 10),
+        rasterDuration: Duration.zero,
+        timestamp: DateTime(2026, 4, 22),
+      ));
+      expect(buffer.latest, isNotNull);
+      expect(buffer.windowSampleCount, 0);
+      expect(buffer.actualFps, 0);
+    });
+  });
 }

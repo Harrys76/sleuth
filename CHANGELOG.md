@@ -1,3 +1,40 @@
+## 0.17.0
+
+**FPS semantics rewrite.** Sleuth now exposes two frame-rate metrics instead of one: count-based `actualFps` (frames presented in a rolling 1 s window anchored on `FrameTiming.rasterFinish`) and latency-derived `throughputFps` (the v4 formula, `1e6 / avg(frame_duration_us)`). `averageFps` is retained as an alias for v4 consumers and scheduled for removal in v0.18.0. `FrameStatsSummary` JSON schema bumped `v4 → v5` additively; the new fields backfill from `averageFps` when reading v4 snapshots so no consumer has to migrate.
+
+### Added
+
+- **`FrameStatsBuffer.actualFps`** — rolling 1 s count-based FPS, anchored on the latest `FrameStats.rasterFinishUs` (engine monotonic clock, not `DateTime.now()`) so batched `addTimingsCallback` delivery does not distort the count. Memoised; invalidated on `add()` and `clear()`.
+- **`FrameStatsBuffer.windowSampleCount`** — number of frames with non-null `rasterFinishUs` inside the 1 s window. Drives the UI warm-up placeholder (`—` until ≥ 3 samples ≈ 50 ms @ 60 Hz).
+- **`FrameStatsBuffer.throughputFps`** — renamed getter for the existing latency-derived formula. `averageFps` kept as a plain alias (no `@Deprecated` annotation — avoids lint-noise explosion across internal consumers).
+- **Auto-sized buffer capacity.** `FrameStatsBuffer({int? capacity, int fpsTarget = 60})` defaults capacity to `(fpsTarget * 2).clamp(60, 240)` so a ProMotion 120 Hz device retains a full 1 s window (120 frames) without eviction. Explicit `capacity:` still honoured.
+- **`FrameStats.copyWith()`** — lets `addFrameForTest` auto-inject a monotonic `rasterFinishUs` when the caller omits it, so pre-v0.17.0 tests don't silently observe `actualFps == 0`.
+- **`FrameStatsSummary.actualFps` / `.actualFpsRaw` / `.throughputFps`** — three new fields on the export. `actualFpsRaw` carries the device rate (e.g. 120 on ProMotion) clamped at a 240 Hz ceiling so pathological clock-stuck inputs cannot overflow the buffer-count bound; `actualFps` is clamped to `SleuthConfig.fpsTarget` for UI parity.
+- **UI warm-up placeholder.** `_StatusRow` and `TriggerButton` show `—` in `textTertiary` until the frame buffer has 3 entries. Prevents a red `0 FPS` flash at app launch or after navigation.
+- **Info-icon + inline explainer** on `_StatusRow` — tap the `Icons.info_outline` glyph to reveal a 2-line explainer and the `_ThroughputDetailRow` (`_FpsCell` for ACTUAL + TPUT side-by-side). 28 dp tap target matches the `_RebuildStatsBanner` pause precedent (v0.15.2 H1 overlay-budget compromise).
+- **Primary UI numeral is `throughputFps`.** `actualFps` counts frames Flutter actually presented — it collapses to a few frames/sec on idle screens because the engine skips vsync when nothing changes. `throughputFps` stays representative of the engine's rendering capacity and matches pre-v0.17.0 overlay behaviour. `actualFps` remains visible in the expanded detail row and in snapshot exports (`FrameStatsSummary.actualFps` + `actualFpsRaw`).
+- **6 new tests in `test/validation/frame_timing_reproducer_test.dart`** (FPS semantics group) — all via the real `handleTimingsForTest` path: 60 monotonic frames over 1 s → 60, 120 monotonic @ `fpsTarget: 120` → 120, batched delivery → 60 regardless of arrival pattern, 90-frame window slide → ~60, zero frames → 0, null `rasterFinishUs` → counted in `latest` but not in the window.
+- **9 new tests in `test/models/frame_stats_buffer_fps_test.dart`** — window boundary (left-inclusive), non-monotonic timestamp handling (latest anchor holds), `fpsTarget=120` capacity retention, `clear()` full reset, memoisation consistency, empty buffer, auto-sized vs explicit capacity, alias parity.
+- **3 new tests in `test/models/serialization_test.dart`** — v4 → v5 `fromJson` backfill chain, v5 round-trip, v5 → v4 reader simulation (stripped keys still parse), `schemaVersion` default bump, and a **golden-file gate** (`test/models/_fixtures/session_snapshot_v5_golden.json`) so any PR that adds a `FrameStatsSummary` field without updating the fixture fails CI.
+- **2 new tests in `test/models/route_session_test.dart`** — `healthScore` rename-only preservation (pre-v0.17.0 inputs yield identical scores) and warm-up robustness (single frame does not collapse the score — step 6 decision).
+
+### Changed
+
+- **`SessionSnapshot.schemaVersion` default `4 → 5`.** Additive bump: all v4 fields retained, v4 consumers reading v5 snapshots continue to read `averageFps` unchanged (UI path clamps stay in place).
+- **`FrameTimingDetector._onTimings`** populates `FrameStats.rasterFinishUs` from `timing.timestampInMicroseconds(FramePhase.rasterFinish)`; the detector treats `0` as absent (some engine/platform combos omit the phase) so `actualFps` does not poison its window with a zero anchor.
+- **`SleuthController.exportSnapshot()`** emits clamped `actualFps` / `throughputFps` (UI parity) plus uncapped `actualFpsRaw` so external consumers can see the device's real rate on 120 Hz hardware. `packageVersion` bumped `0.15.1 → 0.17.0`.
+- **`RouteSession.healthScore`** uses `throughputFps` (rename only, formula unchanged). Chosen over `actualFps` because health scoring must be robust at low sample counts (startup, idle, navigation) where `actualFps` would collapse toward the frame count. `toJson` emits the same clamped `averageFps` field name so existing exports are byte-identical.
+- **`session_markdown_exporter.dart`** — the `Average FPS` single-line row becomes two lines: `Actual FPS` + `Throughput FPS`. Consumers of the v4 field name will read from `averageFps` on the summary (alias).
+- **`FrameTimingDetector.validationMetadata.rationale`** — append documenting that v0.17.0 adds FPS-semantics exposure without changing stableId coverage (jank detection is orthogonal to FPS reporting).
+- **`_frameworkWidgetDenyList`** in `debug_instrumentation_coordinator.dart` — `_ThroughputDetailRow` + `_FpsCell` added so Sleuth does not self-measure its new overlay widgets in profile mode (KDD-10).
+
+### Notes
+
+- Zero migration for v4 consumers — `averageFps` still emitted, still populated from `throughputFps`.
+- The `@Deprecated` annotation was intentionally NOT applied to `FrameStatsBuffer.averageFps`. A deprecation annotation would flood `flutter analyze` with warnings across internal consumers (C-4 plan-review finding). Removal is scheduled for v0.18.0; the alias keeps the transition silent.
+- Retained-orphan manifest `consumeBy: '0.16.7' → '0.18.0'` across all three NetworkMonitor `slow_request` capture files to track with the real re-raise window; the v0.16.5 prerequisites stay unresolved.
+- `fvm flutter analyze` clean, `fvm flutter test` all green (2,541 tests).
+
 ## 0.16.6
 
 **Two simultaneous tier raises in one PR.** `FrameTimingDetector` raised `unvalidated` → `reproducerOnly` pinning 4 stableIds, and `ListviewDetector` coveredStableIds backfilled 3 → all 8. Ledger distribution: `6/23 reproducerOnly, 17/23 unvalidated`.

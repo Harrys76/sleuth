@@ -65,8 +65,10 @@ class RouteSession {
   /// Wall-clock time when navigation away was detected. Null while active.
   DateTime? endedAt;
 
-  /// Per-route frame stats ring buffer (capacity 60, same as global).
-  final FrameStatsBuffer frameStats = FrameStatsBuffer(capacity: 60);
+  /// Per-route frame stats ring buffer, capacity derived from [fpsTarget]
+  /// so 120 Hz devices retain a full 1 s window.
+  late final FrameStatsBuffer frameStats =
+      FrameStatsBuffer(fpsTarget: fpsTarget);
 
   /// Latest snapshot of each issue observed while this route was active,
   /// keyed by `stableId ?? title`. Upserted each scan cycle — only the
@@ -107,19 +109,25 @@ class RouteSession {
 
   /// Composite health score (0–100).
   ///
-  /// - **FPS component** (40 pts max): `(averageFps / fpsTarget * 40)`
+  /// - **FPS component** (40 pts max): `(throughputFps / fpsTarget * 40)`
   /// - **Jank penalty** (30 pts max): `(jankFrames / totalFrames * 30)`
   /// - **Issue penalty** (30 pts max): `criticalCount*10 + warningCount*3`
   ///
   /// 100 = perfect (target FPS, no jank, no issues). 0 = severely degraded.
   /// Returns 100 when no frames have been recorded (no data = no problems).
+  ///
+  /// Uses [FrameStatsBuffer.throughputFps] (latency-derived) not
+  /// [FrameStatsBuffer.actualFps] (count-based) because health scoring
+  /// needs to be robust to low sample counts (startup, idle, navigation)
+  /// where `actualFps` collapses toward the frame count while
+  /// `throughputFps` remains representative per-frame.
   int get healthScore {
     final total = frameStats.length;
 
     // No frames recorded yet — no data to judge, assume healthy.
     if (total == 0 && issueSnapshots.isEmpty) return 100;
 
-    final fps = frameStats.averageFps;
+    final fps = frameStats.throughputFps;
     final jank = frameStats.jankCount;
 
     // FPS component: 40 points max. When no frames, grant full 40.
@@ -175,7 +183,7 @@ class RouteSession {
         'totalFrames': frameStats.length,
         'jankFrames': frameStats.jankCount,
         'averageFps': double.parse(
-          frameStats.averageFps
+          frameStats.throughputFps
               .clamp(0.0, fpsTarget.toDouble())
               .toStringAsFixed(1),
         ),

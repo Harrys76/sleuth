@@ -1170,19 +1170,26 @@ class SleuthController {
         ? _routeHistory.map((s) => s.toJson()).toList()
         : null;
 
+    // UI clamps to fpsTarget; export carries raw up to a 240 Hz ceiling.
+    final rawActualFps = buffer.actualFps.clamp(0.0, 240.0);
+    final clampedActualFps = rawActualFps.clamp(0.0, target);
+    final clampedThroughputFps = buffer.throughputFps.clamp(0.0, target);
     return SessionSnapshot(
-      schemaVersion: 4,
+      schemaVersion: 5,
       exportedAt: DateTime.now(),
       capturedFrames: _captureBuffer.entries,
       currentIssues: List.unmodifiable(rankedWithScores),
       frameStatsSummary: FrameStatsSummary(
         totalFrames: buffer.length,
         jankFrames: buffer.jankCount,
-        averageFps: buffer.averageFps.clamp(0.0, target),
+        averageFps: clampedThroughputFps,
+        actualFps: clampedActualFps,
+        actualFpsRaw: rawActualFps,
+        throughputFps: clampedThroughputFps,
         worstFrameTimeUs: worstUs,
         fpsPercentiles: percentiles,
       ),
-      packageVersion: '0.15.1',
+      packageVersion: '0.17.0',
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
       recentRequests: _initialized &&

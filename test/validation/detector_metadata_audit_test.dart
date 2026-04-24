@@ -708,7 +708,7 @@ void main() {
         unit: 'ms',
         observedMin: 720,
         observedMax: 900,
-        consumeBy: '0.16.7',
+        consumeBy: '0.18.0',
         owningClaim:
             'NetworkMonitorDetector.slow_request.warning externallyCited '
             're-raise (v0.16.7)',
@@ -728,7 +728,7 @@ void main() {
         unit: 'ms',
         observedMin: 1000,
         observedMax: 1100,
-        consumeBy: '0.16.7',
+        consumeBy: '0.18.0',
         owningClaim:
             'NetworkMonitorDetector.slow_request.warning externallyCited '
             're-raise (v0.16.7)',
@@ -746,7 +746,7 @@ void main() {
         unit: 'ms',
         observedMin: 1450,
         observedMax: 1800,
-        consumeBy: '0.16.7',
+        consumeBy: '0.18.0',
         owningClaim:
             'NetworkMonitorDetector.slow_request.warning externallyCited '
             're-raise (v0.16.7)',

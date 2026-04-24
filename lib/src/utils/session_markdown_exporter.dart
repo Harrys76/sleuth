@@ -40,7 +40,8 @@ class SessionMarkdownExporter {
     // Frame stats
     final stats = snapshot.frameStatsSummary;
     buf.writeln('## Frame Stats');
-    buf.writeln('- Average FPS: **${stats.averageFps.round()}**');
+    buf.writeln('- Actual FPS: **${stats.actualFps.round()}**');
+    buf.writeln('- Throughput FPS: **${stats.throughputFps.round()}**');
     buf.writeln(
         '- Worst frame: **${(stats.worstFrameTimeUs / 1000).round()} ms**');
     buf.writeln(

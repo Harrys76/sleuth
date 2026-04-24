@@ -157,13 +157,17 @@ class _TriggerButtonState extends State<TriggerButton> {
                     ValueListenableBuilder<FrameStatsBuffer>(
                       valueListenable: widget.frameStatsNotifier,
                       builder: (_, buffer, __) {
-                        final fps = buffer.averageFps
+                        // Parity with `_StatusRow`: throughputFps primary,
+                        // warm-up placeholder until buffer has 3 frames.
+                        final isWarming = buffer.length < 3;
+                        final fps = buffer.throughputFps
                             .clamp(0.0, widget.fpsTarget.toDouble());
                         return Text(
-                          fps.toStringAsFixed(0),
+                          isWarming ? '—' : fps.toStringAsFixed(0),
                           style: TextStyle(
-                            color:
-                                theme.fpsColor(fps, target: widget.fpsTarget),
+                            color: isWarming
+                                ? theme.textTertiary
+                                : theme.fpsColor(fps, target: widget.fpsTarget),
                             fontSize: theme.fontBase,
                             fontWeight: FontWeight.bold,
                             shadows: [

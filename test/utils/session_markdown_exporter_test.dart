@@ -77,7 +77,8 @@ void main() {
       expect(md, contains('# Sleuth Session Summary'));
       expect(md, contains('**Captured:** 2026-04-09 14:23:11'));
       expect(md, contains('## Frame Stats'));
-      expect(md, contains('- Average FPS: **58**'));
+      expect(md, contains('- Actual FPS: **58**'));
+      expect(md, contains('- Throughput FPS: **58**'));
       expect(md, contains('- Worst frame: **34 ms**'));
       expect(md, contains('- Jank frames: **2 / 100**'));
       expect(md, contains('## Top Issues (2)'));

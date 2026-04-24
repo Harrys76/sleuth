@@ -50,7 +50,7 @@ on disk as retained orphans with `consumeBy: '0.16.7'`.
 | Detector | Tier | Reproducer | Notes |
 |---|---|---|---|
 | Network Monitor | `reproducerOnly` | [`network_monitor_reproducer_test.dart`](../test/validation/network_monitor_reproducer_test.dart) | Hermetic reproducer: `processRecord` boundary tests at 999 / 1000 / 2999 / 3000 / 3001 ms plus a loopback `HttpServer` exercising the full `SleuthHttpOverrides` → `_MonitoringHttpClient` → `RequestRecord` → `processRecord` pipeline. Tier history: v0.16.1 → `reproducerOnly`; v0.16.4 staged `externallyCited` raise reverted (above capture at 3117 ms ambiently bracketed warning AND critical); v0.16.5 second staged `externallyCited` raise reverted on two grounds — (a) NN/g 1.0 s is a UI direct-manipulation feedback guideline, not a generic HTTP latency threshold, (b) profile captures validate scenario marker span, not detector emission. Three capture files retained on disk as orphans for v0.16.7 reuse (manifest `consumeBy: '0.16.7'`): [`slow_request_below.json`](../test/validation/captures/network_monitor/slow_request_below.json) (812 ms), [`slow_request_at.json`](../test/validation/captures/network_monitor/slow_request_at.json) (1035 ms), [`slow_request_above.json`](../test/validation/captures/network_monitor/slow_request_above.json) (1515 ms). `coveredStableIds = {'slow_request'}` — four other families remain implicitly `unvalidated`. |
-| Frame Timing | `reproducerOnly` | [`frame_timing_reproducer_test.dart`](../test/validation/frame_timing_reproducer_test.dart) | Four stableIds pinned by hermetic reproducer: `sustained_jank` (≥3 severe frames in a 60-frame window), `jank_detected` (>15% jank frames, ≥5-frame sample), `raster_cache_thrashing` (≥15 consecutive frames of ≥20% picture-cache-count fluctuation, seeded by `previous.pictureCacheCount > 5`), and `raster_cache_growing` (≥30 consecutive frames of monotonic picture-cache-count growth). Reproducer bypasses warmup via `warmupDuration: Duration.zero`; every stableId has a synthetic `FrameStats` path plus a real `FrameTiming` integration leg via `handleTimingsForTest` so hand-written synthetic fixtures cannot encode the detector's own expected shape (anti-tautology, Tactic 9). Impeller-zero suppression (all four cache metrics zero for ≥30 frames) pinned by a dedicated `pictureCacheBytes: 1` belt-and-suspender test. Next raise (reproducerOnly → `runtimeVerified`) requires a profile-mode capture triad with a detector-emitted trace record inside the scenario window; a subsequent raise to `externallyCited` additionally requires a Flutter docs citation matching the 16.67 ms budget semantics. |
+| Frame Timing | `reproducerOnly` | [`frame_timing_reproducer_test.dart`](../test/validation/frame_timing_reproducer_test.dart) | Four stableIds pinned by hermetic reproducer: `sustained_jank` (≥3 severe frames in a 60-frame window), `jank_detected` (>15% jank frames, ≥5-frame sample), `raster_cache_thrashing` (≥15 consecutive frames of ≥20% picture-cache-count fluctuation, seeded by `previous.pictureCacheCount > 5`), and `raster_cache_growing` (≥30 consecutive frames of monotonic picture-cache-count growth). Reproducer bypasses warmup via `warmupDuration: Duration.zero`; every stableId has a synthetic `FrameStats` path plus a real `FrameTiming` integration leg via `handleTimingsForTest` so hand-written synthetic fixtures cannot encode the detector's own expected shape (anti-tautology, Tactic 9). Impeller-zero suppression (all four cache metrics zero for ≥30 frames) pinned by a dedicated `pictureCacheBytes: 1` belt-and-suspender test. v0.17.0 added a `FPS semantics` group (6 tests via the real `handleTimingsForTest` path) pinning rolling-window `actualFps` against batched delivery, window slides, 120 Hz capacity, and null-rasterFinishUs handling — stableId coverage unchanged because FPS reporting is orthogonal to jank classification. Next raise (reproducerOnly → `runtimeVerified`) requires a profile-mode capture triad with a detector-emitted trace record inside the scenario window; a subsequent raise to `externallyCited` additionally requires a Flutter docs citation matching the 16.67 ms budget semantics. |
 
 ### VM-only detectors (5)
 
@@ -175,10 +175,24 @@ per release:
   pinned by a three-test triad covering the `isNonLazy` bypass.
   Retained-orphan manifest bumped `consumeBy: '0.16.6'` → `'0.16.7'`
   for all three `slow_request` capture files. Ledger distribution:
-  6/23 `reproducerOnly`, 17/23 `unvalidated`. **← current release**
-- **v0.16.7** — Re-raise `NetworkMonitorDetector.slow_request.warning`
-  (hard deadline — orphan manifest `consumeBy: '0.16.7'` blocks the
-  release unless re-raised or orphans deleted).
+  6/23 `reproducerOnly`, 17/23 `unvalidated`.
+- **v0.17.0** — FPS semantics rewrite. `FrameStatsBuffer` exposes
+  `actualFps` (count-based rolling 1 s window anchored on
+  `FrameTiming.rasterFinish`) alongside renamed `throughputFps`
+  (latency-derived, v4 formula). `averageFps` retained as alias.
+  `FrameStatsSummary` JSON bumped v4 → v5 additively; `FrameTiming`
+  reproducer extended with 6 FPS-semantics tests. StableId coverage
+  unchanged — FPS reporting is orthogonal to jank classification, so
+  no tier change. Retained-orphan manifest bumped
+  `consumeBy: '0.16.7'` → `'0.18.0'` for all three `slow_request`
+  capture files (re-raise window extended with the minor bump). Ledger
+  distribution unchanged: 6/23 `reproducerOnly`, 17/23 `unvalidated`.
+  **← current release**
+- **v0.18.0+** — Re-raise `NetworkMonitorDetector.slow_request.warning`
+  (hard deadline — orphan manifest `consumeBy: '0.18.0'` blocks the
+  release unless re-raised or orphans deleted). Also drops the
+  `FrameStatsBuffer.averageFps` alias — downstream consumers must
+  migrate to `throughputFps` or `actualFps` explicitly.
   Prerequisites: (a) replace citation with a generic mobile/API HTTP
   latency source matching the detector semantics OR narrow the detector
   contract to user-blocking requests and enforce scope with a gate;

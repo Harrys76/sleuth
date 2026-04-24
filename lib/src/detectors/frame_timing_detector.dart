@@ -23,15 +23,33 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     this.warmupFrameCount = 0,
     this.warmupDuration = _defaultWarmupDuration,
     this.onFrameStats,
-  })  : warningThresholdMs = warningThresholdMs ?? (1000 ~/ fpsTarget),
-        criticalThresholdMs = criticalThresholdMs ?? ((1000 ~/ fpsTarget) * 2),
+  })  : warningThresholdMs = warningThresholdMs ??
+            _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 1),
+        criticalThresholdMs = criticalThresholdMs ??
+            _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 2),
         super(
           type: DetectorType.frameTiming,
           lifecycle: DetectorLifecycle.runtime,
           name: 'Frame Timing',
           description: 'Detects jank frames via frame budget '
-              '(${warningThresholdMs ?? 1000 ~/ fpsTarget}ms)',
+              '(${warningThresholdMs ?? _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 1)}ms)',
         );
+
+  /// Validates `fpsTarget` before integer-dividing by it. The
+  /// `SleuthConfig` assert guard is stripped in profile/release, so without
+  /// this check `fpsTarget: 0` would surface as
+  /// `UnsupportedError: Result of truncating division is Infinity`.
+  static int _thresholdFromFpsTarget(int fpsTarget,
+      {required int criticalMultiplier}) {
+    if (fpsTarget < 1 || fpsTarget > 240) {
+      throw ArgumentError.value(
+        fpsTarget,
+        'fpsTarget',
+        'must be in [1, 240]',
+      );
+    }
+    return (1000 ~/ fpsTarget) * criticalMultiplier;
+  }
 
   final int warningThresholdMs;
   final int criticalThresholdMs;
@@ -55,7 +73,12 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
 
   final void Function(FrameStatsBuffer buffer)? onFrameStats;
 
-  final FrameStatsBuffer _buffer = FrameStatsBuffer();
+  // Fixed 240 so `actualFpsRaw` reports the true device rate regardless of
+  // [fpsTarget]. A target-derived capacity would cap the count below the
+  // device refresh (e.g. 60 at fpsTarget=30 on a 120 Hz panel).
+  static const int _bufferCapacity = 240;
+  late final FrameStatsBuffer _buffer =
+      FrameStatsBuffer(capacity: _bufferCapacity);
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
   int _frameNumber = 0;
@@ -123,9 +146,19 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
 
   /// Add a synthetic frame for testing — feeds directly into the buffer
   /// and triggers jank evaluation without requiring SchedulerBinding.
+  ///
+  /// Auto-injects a monotonic [FrameStats.rasterFinishUs] when the caller
+  /// omits one, so `actualFps`-sensitive code paths see a populated rolling
+  /// window. Pass an explicit `rasterFinishUs` for tests that care about
+  /// window boundaries, batched delivery, or non-monotonic timestamps.
   @visibleForTesting
   void addFrameForTest(FrameStats stats) {
     if (!_isEnabled) return;
+    if (stats.rasterFinishUs == null) {
+      final latest = _buffer.latest?.rasterFinishUs ?? 0;
+      final budgetUs = (1000000 / fpsTarget).round();
+      stats = stats.copyWith(rasterFinishUs: latest + budgetUs);
+    }
     _totalFramesSeen++;
     _firstFrameTimestamp ??= stats.timestamp;
     if (stats.vsyncStartUs != null) {
@@ -215,8 +248,13 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           timing.timestampInMicroseconds(FramePhase.buildFinish);
       final rasterStartUs =
           timing.timestampInMicroseconds(FramePhase.rasterStart);
-      final rasterFinishUs =
+      final rasterFinishRaw =
           timing.timestampInMicroseconds(FramePhase.rasterFinish);
+      // Treat 0 as absent — some engine/platform combos omit rasterFinish
+      // when the frame never reached GPU submission. actualFps requires a
+      // real rasterFinishUs timestamp, so nullify here rather than poison
+      // the rolling window with a zero anchor.
+      final rasterFinishUs = rasterFinishRaw > 0 ? rasterFinishRaw : null;
 
       // Build-to-raster gap: time the completed layer tree waits for the
       // raster thread. Computed from raw timestamps.
@@ -587,7 +625,12 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
             'v0.16.N re-raise to `externallyCited` requires either a Flutter '
             'docs citation matching the 16.67 ms budget semantics or a '
             'runtime-verified capture triad with a detector-emitted '
-            'trace record inside the scenario window.',
+            'trace record inside the scenario window. '
+            'v0.17.0 extends FPS semantics: `actualFps` (rolling count in '
+            '1-s window anchored on latest `rasterFinishUs`) and '
+            '`throughputFps` (latency-derived capacity) are exposed as '
+            'distinct metrics. StableId coverage unchanged — FPS semantics '
+            'are orthogonal to jank classification.',
       );
 }
 
