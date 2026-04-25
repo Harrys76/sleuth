@@ -1,3 +1,53 @@
+## 0.17.6
+
+**Tier-quality audit — hybrid batch (final 2 of 8).** Purpose-rewrote `RepaintDetector` and `RebuildDetector` with hermetic reproducers at `test/validation/{repaint,rebuild}_reproducer_test.dart`. Both detectors are hybrid — VM `processTimelineData` + DebugSnapshot per-widget + structural fallback. Reproducers exercise all paths in one file via cross-harness composition (`vm_reproducer_harness` + `structural_reproducer_harness` imported together; matchers re-exported via `show` so no symbol conflict). Tier unchanged (`reproducerOnly`); evidence strength improved for the final 2 of 8 v0.17.2-batch detectors. Stratum-1 coverage now 8/23 detectors, up from 6/23 at v0.17.5. The "reused unit-test suites" stratum is empty — every detector now either drives a parser/transport boundary, exercises a direct production entrypoint with disclosed skipped hops (MemoryPressure), or pumps a real widget tree (13 structural detectors). Tier-quality audit complete.
+
+### Added
+
+- `test/validation/repaint_reproducer_test.dart` — 19 tests across 8 axes:
+  - VM aggregate `excessive_repaint` triad (strict `> 30/sec`: 30 → no fire, 31 → warning, 61 → critical at `> 2×`).
+  - **Enrichment plumbing** — PAINT events with `args: {'dirty count': '5'}` exercise `TimelineParser._parseIntArg` → `PhaseEvent.dirtyCount` → detector's `_pendingEnrichedDirtyTotal` → atomic stage with window count → enriched detail suffix in emitted issue.
+  - **Exact-1000ms boundary** — staging gate is `>= 1000ms`. A regression flipping to strict `>` would only fail at the boundary; reproducer pins the boundary explicitly.
+  - Aggregate-debug `excessive_repaint_debug` triad (residual rate `>= 30/sec`: 29/30/61) — `vmConnected=false` routes the snapshot through the aggregate-debug path.
+  - Per-widget `repaint_debug_<typeName>` triad (residual rate `>= 30/sec`: 29/30/61).
+  - **Gate B animation-owned suppression** pinned with three configurations: (a) all paints owned (broad `expect(issues, isEmpty)` — regression cannot leak through any of the three emission paths simultaneously), (b) partial ownership (residual fires per-widget), (c) **mixed-type ownership** — Spinner fully owned + Chart unowned with sub-threshold residual; `_allPaintsAnimationOwned` AND-semantics returns false → VM fallback fires. Single-type fixture cannot distinguish AND from OR; mixed-type pins the iteration semantics.
+  - **Reconnect-flush** — disconnect after VM emission then reconnect; cold-init false→true stages `_pendingVmWindowCount=0` so the first post-reconnect `_evaluate` clears prior issues.
+  - **Highlights** — severity correlation between issue and `WidgetHighlight`, plus `_maxHighlightsPerType=3` cap proven by mounting 5 instances of one type and asserting only 3 highlights emit.
+
+- `test/validation/rebuild_reproducer_test.dart` — 25 tests across 11 axes:
+  - VM aggregate `rebuild_activity` triad (strict `> 10/sec`: 10/11/31, critical at `> 3×`).
+  - **Enrichment plumbing** — BUILD events with `args: {'build scope dirty list': '[Foo, Bar]'}` exercise `TimelineParser._parseDirtyList` → `PhaseEvent.dirtyList` → detector's `_pendingEnrichedNames` → top-3 dirty-widget detail suffix.
+  - **Exact-1000ms boundary** — same `>= 1000ms` staging gate pinned for the rebuild detector.
+  - Per-widget non-builder `rebuild_debug_<typeName>` triad (rate `>= 10/sec`: 9/10/31).
+  - Per-widget builder `rebuild_debug_StreamBuilder` triad (rate `>= 30/sec`, 3× multiplier: 29/30/91).
+  - **Builder-multiplier paired evidence** — at the SAME rate=25/sec, `MyWidget` fires (25 > 10) and `StreamBuilder` is suppressed (25 < 30). Without the paired test the multiplier could be a coincidental gate; this pins the threshold-shift behaviour.
+  - **Source-mode `RebuildCountSource.flutterTimeline`** per-type suppression (KDD-5: profile-mode counts include initial widget inflations, so per-type emission is gated off; default `RebuildCountSource.none` keeps the per-type path live for backwards-compat with pre-v15 const-literal fixtures). Both branches pinned: flutterTimeline at warning rate → no fire, default source at same rate → fires.
+  - Structural-fallback `stateful_density` triad — 11 public-named StatefulWidgets fires warning at `vmConnected=false`, 9 stays below threshold, 30 private-named (`_`-prefix) widgets are filtered out.
+  - Reconnect-flush for VM emission path.
+  - `_maxHighlightsPerType=3` cap pinned.
+  - **Highlight ↔ issue parity** (Group G) — 2 tests: (a) flutterTimeline source: both `issues` empty AND `highlights` empty (regression that derives `_hotTypes` without source filtering would paint hot-widget overlays alongside the suppressed issue); (b) `AnimatedBuilder` at rate=35: both issue severity AND highlight severity warning (regression using `rebuildsPerSecThreshold * 3` instead of `effectiveThreshold * 3` would over-escalate the highlight to critical 60 units before the issue).
+  - **Stale VM stage replay** (Group H) — flutterTimeline + VM-staged in tick 1: next empty scan does NOT replay `rebuild_activity` from the staged window. Pins the unconditional `_pendingVmWindowCount = null` clear in `_evaluate`'s fresh-debug branch.
+
+All "no-fire" boundary tests use broad `expect(issues, isEmpty)` rather than narrow `lacksStableId('X')` so a regression introducing a new bogus stableId would fail. All "fires" tests assert `expect(issues, hasLength(1))` so a regression that double-emits would fail.
+
+### Fixed
+
+- **`RebuildDetector` highlight emission diverged from issue gate on two axes.** `_hotRebuildTypes` (rebuild_detector.dart:213) iterated `snapshot.rebuildCounts` without checking `snapshot.source`, so a `flutterTimeline` snapshot painted hot-widget overlays even though `_evaluate` correctly suppressed the issue (KDD-5 inflation gate). Added the source-mode skip at the top of `_hotRebuildTypes`. Separately, `checkElement` (rebuild_detector.dart:190) computed highlight critical severity using `rebuildsPerSecThreshold * 3` (= 30) regardless of builder status; for builder widgets the issue path uses `effectiveThreshold * 3` (= 90). At rate=35 a `StreamBuilder` highlight escalated to critical while the issue stayed warning. `checkElement` now reads `_builderWidgetTypes.contains(name)` and uses the same `effectiveThreshold * 3` gate as `_evaluateDebugData`. Highlight ↔ issue parity reproducer tests (Group G) pin both axes.
+- **`RebuildDetector` left a stale `_pendingVmWindowCount` after the `flutterTimeline + totalRebuilds > 0 + hasFreshVm` fall-through path** (rebuild_detector.dart:282-306). The branch fell through both inner sub-cases without consuming the staged VM count, so the next scan replayed it as `rebuild_activity` after enrichment + tree context had been discarded — a ghost issue surfacing 1+ seconds late, often after navigation. The fresh-debug branch now clears `_pendingVmWindowCount` unconditionally (debug snapshot is the priority signal whenever fresh). Stale-replay reproducer test (Group H) pins the contract.
+
+### Changed
+
+- 2 detector `validationMetadata` blocks: `reproducerPath` flipped from `test/detectors/*_detector_test.dart` to `test/validation/*_reproducer_test.dart`. Rationales rewritten to (a) state the parser-boundary leg is now exercised, (b) name every gate the reproducer pins, (c) explicitly call out Gate B (Repaint) and the builder-multiplier paired evidence (Rebuild) so a regression that breaks the rationale's pinned behaviour is visible at the rationale level.
+- 2 anchor entries flipped in `test/validation/detector_metadata_audit_test.dart` `_v0174Expectations` map (DetectorType.repaint line 173, DetectorType.rebuild line 178). Atomic update with the detector source.
+- `doc/validation_ledger.md` — 2 row rationales rewritten. Stratum classification at top updated from three to two strata (the "reused unit-test suites" stratum is now empty). Version-history block adds v0.17.6 entry; `← current release` marker moved from v0.17.5 to v0.17.6.
+
+### Notes
+
+- Existing `test/detectors/{repaint,rebuild}_detector_test.dart` unchanged (additive-only invariant — the original unit tests still pass and remain useful for fast iteration on detector internals).
+- `_vmConnected` defaults to false in both detectors; reproducer setUp blocks explicitly set true with comment naming the precondition. Otherwise VM-backed tests would silently fall into structural fallback (high-likelihood failure mode caught during plan review on the v0.17.4 / v0.17.5 batches).
+- `processTimelineData` stages `_pendingVmWindowCount` only when the call's elapsed timestamp ≥ 1000 ms past `_windowStart`. Reproducer advances the fake clock by 1100 ms BEFORE each `processTimelineData` call so a single call closes the window atomically — no two-call helper needed.
+- `fvm flutter analyze` clean, `fvm flutter test` all green.
+
 ## 0.17.5
 
 **Tier-quality audit — hybrid batch (2 of remaining 4).** Purpose-rewrote `GpuPressureDetector` and `ShallowRebuildRiskDetector` with hermetic reproducers at `test/validation/{gpu_pressure,shallow_rebuild_risk}_reproducer_test.dart`. Both detectors are hybrid — VM `processTimelineData` + structural `scanTree` legs both fire emission paths. Reproducers exercise both legs in one file via cross-harness composition (`vm_reproducer_harness` + structural harness imported together; matchers re-exported via `show` so no symbol conflict). ShallowRebuildRisk adds a third leg pinning DebugSnapshot confidence-upgrade ordering. Tier unchanged (`reproducerOnly`); evidence strength improved for 6 of 8 v0.17.2-batch detectors. Remaining 2 (Repaint + Rebuild) queued for v0.17.6.

@@ -171,12 +171,12 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
     null,
   ),
   DetectorType.repaint: (
-    'test/detectors/repaint_detector_test.dart',
+    'test/validation/repaint_reproducer_test.dart',
     {'excessive_repaint', 'excessive_repaint_debug'},
     {'repaint_debug'},
   ),
   DetectorType.rebuild: (
-    'test/detectors/rebuild_detector_test.dart',
+    'test/validation/rebuild_reproducer_test.dart',
     {'stateful_density', 'rebuild_activity'},
     {'rebuild_debug'},
   ),

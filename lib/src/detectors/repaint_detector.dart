@@ -454,11 +454,17 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
             'residual), and parametric `repaint_debug_<typeName>` '
             '(per-widget attribution, declared via `parametricFamilies` '
             'since v0.17.3 — concrete `repaint_debug_CustomPaint` credits '
-            'the family via the `_` separator matcher). Animation-owner '
-            'filter pinned. Fixtures synthetic, same-author provenance. '
-            'Not runtime-verified against refresh-rate-specific baselines '
-            'or externally cited.',
-        reproducerPath: 'test/detectors/repaint_detector_test.dart',
+            'the family via the `_` separator matcher). VM → '
+            'TimelineParser → detector boundary exercised since v0.17.6 '
+            'via cross-harness reproducer (raw `List<TimelineEvent>` '
+            'through `parseAndAssertShape` + real `pumpWidget` for the '
+            'debug + structural legs). Animation-owner Gate B suppression '
+            'pinned with broad `expect(issues, isEmpty)` so a regression '
+            'cannot leak through any of the three emission paths. '
+            'Fixtures synthetic, same-author provenance. Not runtime-'
+            'verified against refresh-rate-specific baselines or '
+            'externally cited.',
+        reproducerPath: 'test/validation/repaint_reproducer_test.dart',
         coveredStableIds: {'excessive_repaint', 'excessive_repaint_debug'},
         parametricFamilies: {'repaint_debug'},
       );

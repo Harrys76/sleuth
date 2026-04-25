@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.17.5 (2026-04-25)_
+_Last updated: v0.17.6 (2026-04-25)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
@@ -30,30 +30,32 @@ adding a new tier requires a semver major bump:
 ## Ledger
 
 **Summary:** **23 / 23 at `reproducerOnly`, 0 / 23 at `unvalidated`**
-as of v0.17.4. No detectors at `runtimeVerified` or `externallyCited`.
+as of v0.17.6. No detectors at `runtimeVerified` or `externallyCited`.
 
-**Evidence not uniform across the 23.** Reproducers ship in three
-evidence-strength tiers, all within `reproducerOnly`:
+**Evidence not uniform across the 23.** Reproducers ship in two
+evidence-strength tiers, all within `reproducerOnly` (the third
+"reused unit-test suites" stratum was eliminated by v0.17.6):
 
-1. **Parser-boundary exercised** (strongest within-tier) — 4 of 8
-   v0.17.2-batch detectors rewritten in v0.17.4: `ShaderJankDetector`,
-   `HeavyComputeDetector`, `PlatformChannelDetector`,
-   `MemoryPressureDetector`. Reproducers at
-   `test/validation/<d>_reproducer_test.dart` feed raw
-   `List<TimelineEvent>` through `TimelineParser.parse()` into the
-   detector (MemoryPressure exercises `processHeapSample` +
-   `recordGcCycle` directly and discloses skipped upstream hops). Each
-   rationale names what it skips.
+1. **Parser-boundary exercised** (strongest within-tier) — 6 of the 8
+   v0.17.2-batch detectors and the 2 v0.17.6 hybrid detectors:
+   - v0.17.4 vmOnly batch (4): `ShaderJankDetector`,
+     `HeavyComputeDetector`, `PlatformChannelDetector`,
+     `MemoryPressureDetector`. Reproducers feed raw
+     `List<TimelineEvent>` through `TimelineParser.parse()` into the
+     detector (MemoryPressure exercises `processHeapSample` +
+     `recordGcCycle` directly and discloses skipped upstream hops).
+   - v0.17.5 hybrid batch (2): `GpuPressureDetector` and
+     `ShallowRebuildRiskDetector`. Cross-harness composition exercises
+     both VM and structural legs in one file.
+   - v0.17.6 hybrid batch (final 2): `RepaintDetector` and
+     `RebuildDetector`. Same cross-harness composition pattern; closes
+     the last reused-unit-test gap. Repaint pins all three emission
+     paths plus broad Gate B suppression. Rebuild pins builder-widget
+     3× multiplier with paired evidence + source-mode flutterTimeline
+     gate. Each rationale names what it skips.
 2. **Real `pumpWidget` + `scanTree`** — 13 structural detectors raised
    in v0.16.3 / v0.17.1 bulk batches. Hermetic trees drive the unified
    walk end-to-end.
-3. **Reused unit-test suites** (weakest within-tier) — 4 of 8
-   v0.17.2-batch detectors still queued for purpose-rewrite in
-   v0.17.5 / v0.17.6: `GpuPressureDetector`, `RepaintDetector`,
-   `RebuildDetector`, `ShallowRebuildRiskDetector`. Their
-   `reproducerPath` still points at `test/detectors/*_detector_test.dart`
-   with synthetic `ParsedTimelineData` construction that bypasses the
-   parser boundary. Disclosed in each rationale.
 
 v0.17.3 closed the audit methodology gap that forced v0.17.2 to ship
 partial-coverage narrowings on Repaint/Rebuild. `parametricFamilies`
@@ -101,13 +103,13 @@ Flutter 3.41.4) stay on disk as retained orphans with
 | Heavy Compute | `reproducerOnly` | [`heavy_compute_reproducer_test.dart`](../test/validation/heavy_compute_reproducer_test.dart) | v0.17.4 tier-quality audit: feeds `BUILD` `'X'` events through `TimelineParser.parse()` into the detector (parser `PhaseEvent` construction with dirtyList arg extraction exercised). 8 ms strict threshold + 2× critical triad. All three emission paths covered: enriched `_createIssue` ("Heavy Build:" title with dirtyList), unenriched `_createIssue` ("Heavy Computation:" title, `ts` present but no dirtyList), and fallback `_createGenericIssue` (BUILD event without `ts` — parser skips `phaseEvents`, detector takes raw-durations branch). 2× boundary pinned at exactly 16000µs staying warning (strict-greater critical escalation). `coveredStableIds = {'heavy_compute'}`. |
 | Platform Channel | `reproducerOnly` | [`platform_channel_reproducer_test.dart`](../test/validation/platform_channel_reproducer_test.dart) | v0.17.4 tier-quality audit: feeds channel events through `TimelineParser.parse()` into the detector. Two parser-accepted phase+name shapes covered — lowercase async `'b'` with `Platform Channel send ` prefix (real `debugProfilePlatformChannels` output via `TimelineTask`) and sync `'X'` with `MethodChannel` name. Uppercase sync `'B'` async-shaped events asserted non-emitting — the canonical format-boundary trap for channel observers. Parser accepts 9 channel-shape variants (6 sync-name + 3 async-prefix casings); other 7 (`PlatformChannel`, `platformchannel`, `Platform_Channel`, `platform_channel`, `methodchannel`, `Platform Channel Send ` prefix, `platform channel send ` prefix) are implicitly uncovered at this tier. Both emission axes pinned independently: (a) >20/sec frequency strict + 2× critical at 41 calls + 40 calls held at warning (critical-escalation inequality), (b) >8000µs cumulative duration per window strict (7998/8000/8001µs via sync `'X'` events with 3 calls — duration axis isolated from frequency). `coveredStableIds = {'platform_channel_traffic'}`. |
 | Memory Pressure | `reproducerOnly` | [`memory_pressure_reproducer_test.dart`](../test/validation/memory_pressure_reproducer_test.dart) | v0.17.4 tier-quality audit: 4 families pinned at detector entrypoints (`processHeapSample` + `recordGcCycle`). Threshold triads — `gc_pressure` (>5 cycles / 10 s sliding window), `heap_growing` (slope >512 KB/s sustained ≥10 s), `heap_near_capacity` (>80% AND 4-of-5 samples AND correlated `heap_growing`), `native_memory_growing` (RSS-heap gap >1 MB/s sustained ≥10 s). Null-`rssBytes` (web) + zero-heap + zero-capacity null-coalesce edges asserted non-emitting. **Three upstream hops disclosed as skipped**: (1) `VmServiceClient.getMemoryUsage` repack with `null → 0` fallback (zero-coalesce edge exercised; repack itself is not); (2) `EventStreams.kGC → _onGcEvent → recordGcCycle` is the authoritative per-cycle signal and is called directly, bypassing the VM-service stream plumbing — `TimelineParser.gcEvents` over-counts sub-phase events 5–15× and is NOT used by this detector; (3) `VmServiceClient._readRssBytes() → ProcessInfo.currentRss` is the OS-level RSS collection boundary that sources `HeapSample.rssBytes` and therefore gates `native_memory_growing` — reproducer injects `rssBytes` directly so the null-rssBytes edge (web / unusual embeddings) is exercised but the `ProcessInfo` call and its try/catch are not. `coveredStableIds = {'gc_pressure', 'heap_growing', 'heap_near_capacity', 'native_memory_growing'}`. |
-| Repaint | `reproducerOnly` | [`repaint_detector_test.dart`](../test/detectors/repaint_detector_test.dart) | All 3 families covered: `excessive_repaint`, `excessive_repaint_debug`, and parametric `repaint_debug_<typeName>` (declared via `parametricFamilies` since v0.17.3; concrete `repaint_debug_CustomPaint` credits the family). Animation-owner filter pinned. Fixtures synthetic. |
+| Repaint | `reproducerOnly` | [`repaint_reproducer_test.dart`](../test/validation/repaint_reproducer_test.dart) | v0.17.6 tier-quality audit: cross-harness reproducer feeds raw `List<TimelineEvent>` PAINT events through `TimelineParser.parse()` AND mounts real widget trees via `pumpWidget` for the per-widget + structural legs in one file. All 3 families pinned with strict triads — `excessive_repaint` (VM aggregate, strict `> 30/sec`: 30 → no fire, 31 → warning, 61 → critical), `excessive_repaint_debug` (aggregate-debug residual, `>= 30/sec`: 29/30/61), and parametric `repaint_debug_<typeName>` (per-widget residual rate, `>= 30/sec`: 29/30/61). **Gate B animation-owned suppression** pinned with broad `expect(issues, isEmpty)` so a regression cannot leak through any of the three emission paths simultaneously. **Reconnect-flush** pinned (cold-init false→true stages `_pendingVmWindowCount=0`, prior issues cleared on first post-reconnect evaluate). **Highlights** pinned for severity correlation and `_maxHighlightsPerType=3` cap (5 instances → 3 highlights). `coveredStableIds = {'excessive_repaint', 'excessive_repaint_debug'}`, `parametricFamilies = {'repaint_debug'}`. |
 
 ### Hybrid detectors (3)
 
 | Detector | Tier | Reproducer | Notes |
 |---|---|---|---|
-| Rebuild | `reproducerOnly` | [`rebuild_detector_test.dart`](../test/detectors/rebuild_detector_test.dart) | All 3 families covered: `stateful_density`, `rebuild_activity` (warning at `buildCount > rebuildsPerSecThreshold` default 10/sec, critical at `> 3 × threshold` = 30/sec; test-pinned at 15 → warning and 35 → critical), and parametric `rebuild_debug_<typeName>` (declared via `parametricFamilies` since v0.17.3; concrete `rebuild_debug_TestCounterWidget` credits the family). Fixtures synthetic. |
+| Rebuild | `reproducerOnly` | [`rebuild_reproducer_test.dart`](../test/validation/rebuild_reproducer_test.dart) | v0.17.6 tier-quality audit: cross-harness reproducer feeds raw `List<TimelineEvent>` BUILD events through `TimelineParser.parse()` AND mounts real widget trees via `pumpWidget` for the structural-fallback leg in one file. All 3 families pinned with strict triads — `rebuild_activity` (VM aggregate, strict `> 10/sec`: 10/11/31 critical at `> 3×`), `rebuild_debug_<typeName>` non-builder (per-widget rate `>= 10/sec`: 9/10/31), and `stateful_density` (structural-fallback, `>= 10` public-named StatefulWidgets at `vmConnected=false`; framework + `_`-prefixed private widgets filtered out). **Builder-widget 3× threshold multiplier** proven with two pieces of evidence: (a) builder triad on `StreamBuilder` at 29/30/91, and (b) paired non-builder/builder fixture at identical rate=25 (MyWidget fires, StreamBuilder suppressed). **Source-mode `RebuildCountSource.flutterTimeline` per-type suppression** pinned (KDD-5 inflations: profile-mode counts include initial widget inflations, so per-type emission is gated off; default `RebuildCountSource.none` keeps the per-type path live for backwards-compat with pre-v15 const-literal fixtures). **Reconnect-flush** pinned (cold-init false→true stages `_pendingVmWindowCount=0`). **Highlights** pinned for `_maxHighlightsPerType=3` cap. `coveredStableIds = {'stateful_density', 'rebuild_activity'}`, `parametricFamilies = {'rebuild_debug'}`. |
 | GPU Pressure | `reproducerOnly` | [`gpu_pressure_reproducer_test.dart`](../test/validation/gpu_pressure_reproducer_test.dart) | v0.17.5 tier-quality audit: VM leg feeds raster + UI events through `TimelineParser.parse()` into the detector. `raster_dominance` ratio strict `> 2.0` triad + critical at `> 4.0` + `hasRasterTiming` precondition (UI=0 negative). `expensive_gpu_nodes` over **4 RenderObject checks + 1 widget-level check**: `RenderOpacity` (4-axis matrix — opacity 0.0/1.0 short-circuit + subtree gate), `RenderClipPath`, `RenderBackdropFilter` (sigma 3-band: ≤2.0 suppressed, (2.0, 10.0] warning highlight, >10.0 **critical highlight only — issue severity stays `warning`**), `RenderShaderMask`, plus `element.widget is ColorFiltered` (no public RenderObject type for ColorFiltered). Nested-expense subtree-stack arithmetic verified. Confidence correlation: `likely` only with `hasRasterDominance`; `possible` in 3 sub-cases (vmConnected=false, vmConnected=true+no-raster, vmConnected=true+raster present but ratio≤2.0). VM-disconnect setter removes `raster_dominance` + downgrades `expensive_gpu_nodes` confidence in-place. `coveredStableIds = {'raster_dominance', 'expensive_gpu_nodes'}`. |
 | Shallow Rebuild Risk | `reproducerOnly` | [`shallow_rebuild_risk_reproducer_test.dart`](../test/validation/shallow_rebuild_risk_reproducer_test.dart) | v0.17.5 tier-quality audit: VM leg feeds BUILD events through `TimelineParser.parse()` into the detector. **Three gate states pinned exhaustively**: (1) vmConnected=true + buildCount>20 strict + shallow Stateful → VM-backed warning; (2) vmConnected=false + shallow Stateful → structural fallback warning ("VM unavailable"); (3) **vmConnected=true + buildCount≤20 → silent no-fire** (activity-low branch — regression that flips gate to `>=` shows up here only). Depth threshold default 3 pinned at boundary (depth 3 fires inclusive, depth 4 does not). Framework allowlist (13 names) verified by Navigator-only tree producing zero usages. DebugSnapshot confidence upgrade consumed in `finalizeScan` → `_evaluate()`; ordering pin: `updateDebugSnapshot` BEFORE `scanAndIssues`. Rate=0 negative case confirms upgrade gated on `rebuildsPerSecond > 0`. VM-disconnect immediate-effect contract (`_lastBuildCount` + `_issues` cleared synchronously). `coveredStableIds = {'shallow_rebuild_risk'}`. |
 
@@ -317,7 +319,34 @@ per release:
   rewritten to enumerate every gate explicitly. Ledger
   distribution unchanged; evidence strength improved for 6 of 8
   v0.17.2-batch detectors. Remaining 2 (`RepaintDetector`,
-  `RebuildDetector`) queued for v0.17.6. **← current release**
+  `RebuildDetector`) queued for v0.17.6.
+- **v0.17.6** — Tier-quality audit, hybrid batch (final 2 of 8). Purpose-
+  rewrote `RepaintDetector` and `RebuildDetector` with hermetic
+  reproducers at `test/validation/<d>_reproducer_test.dart`. Both
+  detectors are hybrid (VM `processTimelineData` + DebugSnapshot per-
+  widget + structural fallback); reproducers exercise all paths in one
+  file via cross-harness composition (`vm_reproducer_harness` +
+  `structural_reproducer_harness`). New coverage v0.17.4 / v0.17.5 did
+  not address: Repaint per-widget triad on `repaint_debug_<typeName>`
+  residual rate (29/30/61), aggregate-debug `excessive_repaint_debug`
+  triad, and **Gate B animation-owned suppression** pinned with broad
+  `expect(issues, isEmpty)` (regression cannot leak through any of the
+  three emission paths). Rebuild builder-widget 3× threshold multiplier
+  proven via paired non-builder/builder fixture at rate=25 (MyWidget
+  fires at `> 10`, StreamBuilder suppressed at `< 30`), source-mode
+  `RebuildCountSource.flutterTimeline` per-type suppression (KDD-5
+  inflations) explicit, structural-fallback `stateful_density` filter
+  for framework + `_`-prefixed private StatefulWidgets pinned,
+  reconnect-flush behaviour pinned for both detectors (cold-init
+  false→true stages `_pendingVmWindowCount=0`), and `_maxHighlightsPerType=3`
+  cap pinned for both. Tier-quality audit complete: 8/23 detectors at
+  Stratum 1, up from 6/23 at v0.17.5. Stratum 3 (reused unit-test suites)
+  is empty — both queued detectors rewritten this release. The remaining
+  15/23 split between Stratum 2 (real `pumpWidget` + `scanTree`, 13
+  structural detectors) and 2 runtime-driven reproducers (Frame Timing,
+  Network Monitor) that exercise their own production entrypoints
+  (`handleTimingsForTest`, `SleuthHttpOverrides`). Ledger distribution
+  unchanged: 23/23 `reproducerOnly`. **← current release**
 - **v0.18.0+** — Re-raise `NetworkMonitorDetector.slow_request.warning`
   (hard deadline — orphan manifest `consumeBy: '0.18.0'` blocks the
   release unless re-raised or orphans deleted). Also drops the

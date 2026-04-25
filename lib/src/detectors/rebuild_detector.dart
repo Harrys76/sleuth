@@ -175,7 +175,11 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       _widgetRebuildCounts[name] = (_widgetRebuildCounts[name] ?? 0) + 1;
     }
 
-    // Collect highlights for hot types
+    // Collect highlights for hot types. Severity uses the SAME effective
+    // threshold as the issue path (`_evaluateDebugData`): builder widgets
+    // escalate to critical at `> effectiveThreshold * 3` (= 90/sec for
+    // builders), not at `rebuildsPerSecThreshold * 3` (= 30/sec). A plain
+    // `* 3` would over-escalate builders by 60 units relative to issues.
     final rate = _hotTypes[name];
     if (rate != null) {
       final count = _hotCounts[name] ?? 0;
@@ -184,10 +188,13 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         if (ro != null) {
           final rect = getGlobalRect(ro);
           if (rect != null) {
+            final effectiveThreshold = _builderWidgetTypes.contains(name)
+                ? rebuildsPerSecThreshold * _builderThresholdMultiplier
+                : rebuildsPerSecThreshold;
             _highlights.add(WidgetHighlight(
               rect: rect,
               widgetName: name,
-              severity: rate > rebuildsPerSecThreshold * 3
+              severity: rate > effectiveThreshold * 3
                   ? IssueSeverity.critical
                   : IssueSeverity.warning,
               detectorName: 'Rebuild',
@@ -213,9 +220,16 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   Map<String, double> _hotRebuildTypes() {
     final hotTypes = <String, double>{};
 
-    // Priority 1: Debug snapshot (per-widget type attribution)
+    // Priority 1: Debug snapshot (per-widget type attribution).
+    // Source-mode `flutterTimeline` includes initial widget inflations
+    // (KDD-5) — `_evaluate` suppresses per-type issues for that source.
+    // Highlights MUST share the same gate or the overlay paints hot-widget
+    // boxes without a corresponding issue card.
     final snapshot = _pendingDebugSnapshot;
     if (snapshot != null) {
+      if (snapshot.source == RebuildCountSource.flutterTimeline) {
+        return hotTypes;
+      }
       for (final entry in snapshot.rebuildCounts.entries) {
         final rate = snapshot.rebuildsPerSecond(entry.key);
         final threshold = _builderWidgetTypes.contains(entry.key)
@@ -280,7 +294,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     _stagedEnrichedNames = null;
 
     if (hasFreshDebug) {
-      // M14/C1: `_evaluateDebugData` must NOT run on profile-mode
+      // `_evaluateDebugData` must NOT run on profile-mode
       // (`flutterTimeline`) snapshots. Those counts include initial widget
       // inflations per KDD-5 — feeding them to the per-type "Excessive
       // Rebuilds" path produced critical false positives on route entry
@@ -301,9 +315,16 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         if (vmWindowCount > 0) {
           _evaluateVmData(vmWindowCount, enrichedNames);
         }
-        _pendingVmWindowCount = null;
       }
+      // Debug snapshot is the priority signal whenever fresh; consume the
+      // VM window in the same scan. Otherwise the `flutterTimeline +
+      // totalRebuilds > 0 + hasFreshVm` branch falls through both inner
+      // cases and leaves `_pendingVmWindowCount` staged. The next scan
+      // would replay it as `rebuild_activity` after the snapshot's
+      // enrichment + tree context has already been discarded — a stale
+      // ghost issue, often surfacing after navigation.
       _pendingDebugSnapshot = null;
+      _pendingVmWindowCount = null;
     } else if (hasFreshVm) {
       if (vmWindowCount > 0) {
         _evaluateVmData(vmWindowCount, enrichedNames);
@@ -519,15 +540,21 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
             'framework/private filtered), `rebuild_activity` '
             '(VM-timeline rebuild-rate — warning at '
             '`> rebuildsPerSecThreshold` default 10/sec, critical at '
-            '`> 3×` = 30/sec; tests pin 15 → warning, 35 → critical), '
-            'and parametric `rebuild_debug_<typeName>` (declared via '
-            '`parametricFamilies` since v0.17.3 — concrete '
-            '`rebuild_debug_TestCounterWidget` credits via `_` '
+            '`> 3×` = 30/sec; reproducer pins 11 → warning, 31 → '
+            'critical), and parametric `rebuild_debug_<typeName>` '
+            '(declared via `parametricFamilies` since v0.17.3 — '
+            'concrete `rebuild_debug_MyWidget` credits via `_` '
             'separator matcher). VM → TimelineParser → detector '
-            'boundary not exercised at this tier. Fixtures synthetic, '
-            'same-author provenance. Not runtime-verified or externally '
-            'cited.',
-        reproducerPath: 'test/detectors/rebuild_detector_test.dart',
+            'boundary exercised since v0.17.6 via cross-harness '
+            'reproducer (raw `List<TimelineEvent>` through '
+            '`parseAndAssertShape` + real `pumpWidget` for the '
+            'structural-fallback leg). Builder-widget 3× threshold '
+            'multiplier proven with paired non-builder/builder fixture '
+            'at identical rate=25. Source-mode '
+            '`RebuildCountSource.flutterTimeline` per-type suppression '
+            'pinned (KDD-5 inflations). Fixtures synthetic, same-author '
+            'provenance. Not runtime-verified or externally cited.',
+        reproducerPath: 'test/validation/rebuild_reproducer_test.dart',
         coveredStableIds: {'stateful_density', 'rebuild_activity'},
         parametricFamilies: {'rebuild_debug'},
       );
