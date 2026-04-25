@@ -35,6 +35,8 @@
 // before each `processTimelineData` call closes the 1s window in a
 // single call (no helper needed beyond the inline pattern).
 
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
@@ -595,6 +597,40 @@ void main() {
         );
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, isEmpty);
+      });
+
+      testWidgets(
+          'mounted StreamBuilder<int> at rate=35: issue + highlight both '
+          'warning (canonicalization end-to-end)', (tester) async {
+        // End-to-end pin: mounting a real `StreamBuilder<int>` widget
+        // exercises the highlight path (`_hotRebuildTypes` Priority 1 +
+        // `checkElement` severity) alongside the issue path
+        // (`_evaluateDebugData`). The runtime-type string the
+        // tree-walker observes (`'StreamBuilder<int>'`) matches the
+        // snapshot key and the canonicalized base name (`StreamBuilder`)
+        // matches the builder set → builder threshold 30/sec applies on
+        // BOTH paths.
+        final controller = StreamController<int>();
+        addTearDown(controller.close);
+        detector.updateDebugSnapshot(
+          perTypeSnapshot(rebuildCounts: const {'StreamBuilder<int>': 35}),
+        );
+        final issues = await scanAndIssues(
+          tester,
+          detector,
+          StreamBuilder<int>(
+            stream: controller.stream,
+            initialData: 0,
+            builder: (_, __) => const SizedBox(),
+          ),
+        );
+        expect(issues, hasLength(1));
+        expect(issues, hasStableId('rebuild_debug_StreamBuilder<int>'));
+        expect(issues.single.severity, IssueSeverity.warning);
+        final highlight = detector.highlights.firstWhere(
+          (h) => h.widgetName == 'StreamBuilder<int>',
+        );
+        expect(highlight.severity, IssueSeverity.warning);
       });
     });
 

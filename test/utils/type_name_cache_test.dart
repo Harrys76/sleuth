@@ -92,4 +92,33 @@ void main() {
       );
     });
   });
+
+  group('baseTypeName', () {
+    test('empty string returns empty string', () {
+      expect(baseTypeName(''), '');
+    });
+
+    test('bare name (no generic) returns input unchanged', () {
+      expect(baseTypeName('StreamBuilder'), 'StreamBuilder');
+      expect(baseTypeName('Scaffold'), 'Scaffold');
+    });
+
+    test('simple generic strips suffix', () {
+      expect(baseTypeName('StreamBuilder<int>'), 'StreamBuilder');
+    });
+
+    test('nested generic strips at first `<`', () {
+      // `Map<int, List<String>>` — outer base name is `Map`. Inner `<` after
+      // `List` must NOT be the split point.
+      expect(baseTypeName('Map<int, List<String>>'), 'Map');
+    });
+
+    test('private-name generic strips suffix preserving `_` prefix', () {
+      expect(baseTypeName('_ModalScope<dynamic>'), '_ModalScope');
+    });
+
+    test('multi-arg generic strips entire suffix', () {
+      expect(baseTypeName('Tuple<int, String, bool>'), 'Tuple');
+    });
+  });
 }
