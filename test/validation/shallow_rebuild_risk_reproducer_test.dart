@@ -192,6 +192,25 @@ void main() {
         );
         expect(issues, lacksStableId('shallow_rebuild_risk'));
       });
+
+      testWidgets(
+          'generic-suffixed framework name (`_ModalScope<dynamic>`) at '
+          'shallow depth → filtered (canonicalization pin)', (tester) async {
+        // Production `_ModalScope<T>` arrives via runtimeType.toString()
+        // with the generic suffix attached. The detector's allowlist set
+        // contains bare `_ModalScope` — without canonicalization, the
+        // exact-string `contains` check fails and the widget contributes
+        // to `_usages`, blaming Flutter's own modal-scope infrastructure.
+        // Local `_ModalScope<int>` declared at file scope produces the
+        // same runtimeType.toString() shape as the framework type.
+        primeVmBuildCount(50);
+        final issues = await scanAndIssues(
+          tester,
+          detector,
+          const _ModalScope<int>(child: SizedBox()),
+        );
+        expect(issues, lacksStableId('shallow_rebuild_risk'));
+      });
     });
 
     // -- DebugSnapshot confidence upgrade ---------------------------------
@@ -361,6 +380,24 @@ class _StatefulHost extends StatefulWidget {
   const _StatefulHost();
   @override
   State<_StatefulHost> createState() => _StatefulHostState();
+}
+
+/// Mirrors Flutter framework's `_ModalScope<T>` runtime-type string shape
+/// (`_ModalScope<int>` etc.) so the detector's framework-allowlist filter
+/// is exercised against the exact name production widgets surface as.
+/// `runtimeType.toString()` returns the class name + generic args, so the
+/// local class need not be related to the framework type — only the
+/// emitted string matters for the allowlist lookup.
+class _ModalScope<T> extends StatefulWidget {
+  const _ModalScope({required this.child});
+  final Widget child;
+  @override
+  State<_ModalScope<T>> createState() => _ModalScopeState<T>();
+}
+
+class _ModalScopeState<T> extends State<_ModalScope<T>> {
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _StatefulHostState extends State<_StatefulHost> {

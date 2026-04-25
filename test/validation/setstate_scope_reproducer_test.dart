@@ -170,5 +170,35 @@ void main() {
       );
       expect(issues, lacksStableId('setstate_scope'));
     });
+
+    testWidgets(
+        'setstate_scope: widest subtree contains generic '
+        '`ValueListenableBuilder<int>` → suppressed (canonicalization pin)',
+        (tester) async {
+      // `_containsAnimationScope` falls back to a name-equality check for
+      // `ListenableBuilder` / `ValueListenableBuilder`. Production runtime
+      // types arrive as `ValueListenableBuilder<int>` etc.; without
+      // canonicalization the equality fails and the animation scope is
+      // missed → false-positive `setstate_scope` on notifier-driven pages.
+      final detector = SetStateScopeDetector(
+        dirtyRatioThreshold: 0.1,
+        minSubtreeSize: 1,
+      );
+      final notifier = ValueNotifier<int>(0);
+      addTearDown(notifier.dispose);
+      final issues = await scanAndIssues(
+        tester,
+        detector,
+        HeavyStateful(
+          child: ValueListenableBuilder<int>(
+            valueListenable: notifier,
+            builder: (_, __, ___) => Column(
+              children: List.generate(8, (i) => SizedBox(key: ValueKey(i))),
+            ),
+          ),
+        ),
+      );
+      expect(issues, lacksStableId('setstate_scope'));
+    });
   });
 }

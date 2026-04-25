@@ -106,7 +106,10 @@ class ShallowRebuildRiskDetector extends BaseDetector
         'FocusScope',
         'FocusTraversalGroup',
       };
-      if (!frameworkWidgets.contains(name)) {
+      // Canonicalize the generic suffix before set membership — production
+      // `_ModalScope<dynamic>` etc. would otherwise bypass the framework
+      // filter and surface as user-shallow rebuild risk.
+      if (!frameworkWidgets.contains(baseTypeName(name))) {
         _usages.add(_ShallowWidgetUsage(
           widgetName: name,
           depth: _depth,

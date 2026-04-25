@@ -33,3 +33,15 @@ class TypeNameCache {
 ///
 /// Cleared by [SleuthController] before each unified tree walk.
 final typeNameCache = TypeNameCache();
+
+/// Strips a generic suffix (`<...>`) from a runtime-type name.
+///
+/// `runtimeType.toString()` preserves generic arguments, so production
+/// widgets surface as `StreamBuilder<int>` / `_ModalScope<dynamic>` etc.
+/// Detectors that match against bare-name allowlists (`_builderWidgetTypes`,
+/// framework filters) need the canonical base name to compare correctly.
+/// Returns the input unchanged for non-generic names.
+String baseTypeName(String typeName) {
+  final i = typeName.indexOf('<');
+  return i >= 0 ? typeName.substring(0, i) : typeName;
+}

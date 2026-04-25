@@ -416,9 +416,11 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
         return;
       }
       // Also check for ListenableBuilder by name (it may not extend AnimatedWidget
-      // in all Flutter versions)
-      final name = typeNameCache.lookup(el.widget);
-      if (name == 'ListenableBuilder' || name == 'ValueListenableBuilder') {
+      // in all Flutter versions). Canonicalize the generic suffix because
+      // production `ValueListenableBuilder<T>` arrives with the type
+      // parameter attached.
+      final base = baseTypeName(typeNameCache.lookup(el.widget));
+      if (base == 'ListenableBuilder' || base == 'ValueListenableBuilder') {
         found = true;
         return;
       }

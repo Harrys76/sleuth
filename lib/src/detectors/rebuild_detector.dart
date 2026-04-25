@@ -188,9 +188,10 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         if (ro != null) {
           final rect = getGlobalRect(ro);
           if (rect != null) {
-            final effectiveThreshold = _builderWidgetTypes.contains(name)
-                ? rebuildsPerSecThreshold * _builderThresholdMultiplier
-                : rebuildsPerSecThreshold;
+            final effectiveThreshold =
+                _builderWidgetTypes.contains(baseTypeName(name))
+                    ? rebuildsPerSecThreshold * _builderThresholdMultiplier
+                    : rebuildsPerSecThreshold;
             _highlights.add(WidgetHighlight(
               rect: rect,
               widgetName: name,
@@ -232,7 +233,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       }
       for (final entry in snapshot.rebuildCounts.entries) {
         final rate = snapshot.rebuildsPerSecond(entry.key);
-        final threshold = _builderWidgetTypes.contains(entry.key)
+        final threshold = _builderWidgetTypes.contains(baseTypeName(entry.key))
             ? rebuildsPerSecThreshold * _builderThresholdMultiplier
             : rebuildsPerSecThreshold;
         if (rate >= threshold) {
@@ -250,7 +251,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         counts[name] = (counts[name] ?? 0) + 1;
       }
       for (final entry in counts.entries) {
-        final threshold = _builderWidgetTypes.contains(entry.key)
+        final threshold = _builderWidgetTypes.contains(baseTypeName(entry.key))
             ? rebuildsPerSecThreshold * _builderThresholdMultiplier
             : rebuildsPerSecThreshold;
         if (entry.value >= threshold) {
@@ -310,6 +311,15 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       if (debugSnapshot.source != RebuildCountSource.flutterTimeline &&
           debugSnapshot.totalRebuilds > 0) {
         _evaluateDebugData(debugSnapshot);
+        // Same-tick VM fallback. `_evaluateDebugData` only fires when an
+        // individual type crosses its per-type threshold; a window where
+        // total rebuilds are spread across many sub-threshold types
+        // would otherwise drop the VM aggregate signal entirely. Surface
+        // it as `rebuild_activity` instead of silently discarding the
+        // storm.
+        if (_issues.isEmpty && hasFreshVm && vmWindowCount > 0) {
+          _evaluateVmData(vmWindowCount, enrichedNames);
+        }
       } else if (debugSnapshot.totalRebuilds == 0 && hasFreshVm) {
         // Debug callbacks active but returned zero counts — fall back to VM.
         if (vmWindowCount > 0) {
@@ -343,8 +353,10 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       final rate = snapshot.rebuildsPerSecond(typeName);
 
       // Builder widgets are designed to rebuild on data/tick changes —
-      // apply a higher threshold to avoid false positives.
-      final isBuilder = _builderWidgetTypes.contains(typeName);
+      // apply a higher threshold to avoid false positives. Canonicalize
+      // the generic suffix because production runtime types arrive as
+      // `StreamBuilder<int>` etc.
+      final isBuilder = _builderWidgetTypes.contains(baseTypeName(typeName));
       final effectiveThreshold = isBuilder
           ? rebuildsPerSecThreshold * _builderThresholdMultiplier
           : rebuildsPerSecThreshold;

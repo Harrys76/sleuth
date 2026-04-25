@@ -515,6 +515,89 @@ void main() {
       });
     });
 
+    // -- Group I: same-tick VM fallback when per-type emits nothing -------
+    //
+    // Pins the fix for the case where a debug snapshot has totalRebuilds>0
+    // BUT no individual per-type crosses its threshold (e.g. a rebuild
+    // storm spread across many widgets at sub-threshold rate). Without
+    // the same-tick fallback, the staged VM count was discarded along
+    // with the snapshot, silently dropping real `rebuild_activity` evidence.
+
+    group('same-tick VM fallback (sub-threshold per-type)', () {
+      testWidgets(
+          'totalRebuilds=50 spread sub-threshold + VM staged 50 → '
+          'rebuild_activity fires', (tester) async {
+        primeVmWindow(50);
+        detector.updateDebugSnapshot(
+          perTypeSnapshot(
+            // 10 widget types, each rebuilding at 5/sec — below the per-
+            // type threshold of 10. `_evaluateDebugData` emits nothing.
+            // Without the same-tick VM fallback, the staged 50 is dropped
+            // silently and the rebuild storm goes unreported.
+            rebuildCounts: const {
+              'WidgetA': 5,
+              'WidgetB': 5,
+              'WidgetC': 5,
+              'WidgetD': 5,
+              'WidgetE': 5,
+              'WidgetF': 5,
+              'WidgetG': 5,
+              'WidgetH': 5,
+              'WidgetI': 5,
+              'WidgetJ': 5,
+            },
+          ),
+        );
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        expect(issues, hasLength(1));
+        expect(issues, hasStableId('rebuild_activity'));
+      });
+    });
+
+    // -- Group J: generic builder canonicalization ------------------------
+    //
+    // Production builder widgets are generic — `StreamBuilder<int>`,
+    // `FutureBuilder<Foo>`, `ValueListenableBuilder<bool>`. Prior to
+    // canonicalization, `_builderWidgetTypes.contains('StreamBuilder<int>')`
+    // returned false → builder fired at the non-builder threshold (10/sec
+    // instead of 30/sec) and escalated critical at 30/sec instead of 90.
+    // The reproducer's earlier Group BB used bare 'StreamBuilder' which
+    // skipped the production runtime-type shape.
+
+    group('generic builder canonicalization', () {
+      testWidgets(
+          'StreamBuilder<int> at rate=35: warning (NOT critical), '
+          'builder threshold applied', (tester) async {
+        detector.updateDebugSnapshot(
+          perTypeSnapshot(
+            // Generic-suffixed key matches the production shape from
+            // `runtimeType.toString()`. Pre-fix, this would fire as a
+            // non-builder warning (35 > 10) AND escalate critical (35 > 30).
+            // Post-fix, the canonicalized base name `StreamBuilder` matches
+            // the builder set → effective threshold 30 → 35 fires warning,
+            // critical only above 90.
+            rebuildCounts: const {'StreamBuilder<int>': 35},
+          ),
+        );
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        expect(issues, hasLength(1));
+        expect(issues, hasStableId('rebuild_debug_StreamBuilder<int>'));
+        expect(issues.single.severity, IssueSeverity.warning);
+      });
+
+      testWidgets(
+          'StreamBuilder<int> at rate=29 (just-below builder threshold): '
+          'no fire', (tester) async {
+        // Without canonicalization, this would fire at non-builder
+        // threshold (29 > 10).
+        detector.updateDebugSnapshot(
+          perTypeSnapshot(rebuildCounts: const {'StreamBuilder<int>': 29}),
+        );
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        expect(issues, isEmpty);
+      });
+    });
+
     // -- Negative controls -----------------------------------------------
 
     group('negative controls', () {
