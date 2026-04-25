@@ -424,6 +424,34 @@ class Sleuth {
     if (_controller == controller) _controller = null;
   }
 
+  /// Emits a `sleuth.scenario.begin` instant trace event for profile-mode
+  /// capture procedures. The matching `sleuth.scenario.end` marker MUST be
+  /// emitted via [markScenarioEnd] on the same isolate before the work
+  /// being measured completes — `ProfileCaptureSchema.validateBracket`
+  /// requires the pair so the AB-1 cross-check can compute span/observed
+  /// ratios.
+  ///
+  /// No-op in release mode AND when [SleuthConfig.captureMode] is false
+  /// (the default). Production app sessions never emit these markers.
+  ///
+  /// [name] is recorded as an `args` field; pick something stable across
+  /// runs of the same scenario (e.g. `'heavy_compute_above'`).
+  static void markScenarioBegin(String name) {
+    if (kReleaseMode) return;
+    final c = _controller;
+    if (c == null || !c.config.captureMode) return;
+    Timeline.instantSync('sleuth.scenario.begin', arguments: {'name': name});
+  }
+
+  /// Counterpart to [markScenarioBegin]. Emits `sleuth.scenario.end`
+  /// after the work being measured completes.
+  static void markScenarioEnd(String name) {
+    if (kReleaseMode) return;
+    final c = _controller;
+    if (c == null || !c.config.captureMode) return;
+    Timeline.instantSync('sleuth.scenario.end', arguments: {'name': name});
+  }
+
   /// Export session snapshot for comparison and sharing.
   /// Returns null in release mode, before [wrap], or after overlay disposal.
   static SessionSnapshot? exportSnapshot() => _controller?.exportSnapshot();

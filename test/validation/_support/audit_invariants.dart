@@ -1378,6 +1378,9 @@ List<String> checkBracketValidation({
   required num? bracketThreshold,
   required String? bracketUnit,
   double? aboveCeilingMultiplier,
+  String? bracketStableId,
+  String? bracketSeverityLabel,
+  bool requireTraceRecord = false,
   String? repoRoot,
 }) {
   if (tier != EvidenceTier.runtimeVerified &&
@@ -1394,6 +1397,29 @@ List<String> checkBracketValidation({
   if (bracketUnit == null || bracketUnit.trim().isEmpty) {
     failures.add('$label: missing bracketUnit (e.g. "ms", "bytes", "frames") '
         '— required alongside bracketThreshold');
+  }
+  // Codex round-2 B3 — runtimeVerified detector tier raises must prove
+  // the detector actually fired AT THE CLAIMED SEVERITY. Without
+  // bracketStableId + bracketSeverityLabel the schema cannot search
+  // for the trace record. Components (e.g. ProfileCaptureSchema itself)
+  // do not emit issue records, so they pass requireTraceRecord: false.
+  if (requireTraceRecord) {
+    if (bracketStableId == null || bracketStableId.trim().isEmpty) {
+      failures.add('$label: missing bracketStableId — runtimeVerified/'
+          'externallyCited detector tiers require the detector\'s '
+          'stableId so the audit can require a '
+          '`sleuth.issue.<id>.<severity>` trace record inside the '
+          'at+above captures (proof the detector actually fired during '
+          'the captured scenario)');
+    }
+    if (bracketSeverityLabel == null || bracketSeverityLabel.trim().isEmpty) {
+      failures.add('$label: missing bracketSeverityLabel — '
+          'runtimeVerified/externallyCited detector tiers require '
+          'either "warning" or "critical" so the trace-record check '
+          'matches the SAME severity the bracket validates (e.g. an '
+          '8 ms bracket pairs with severityLabel="warning"; a '
+          '`.critical` event must not satisfy a warning audit)');
+    }
   }
   if (failures.isNotEmpty) return failures;
   if (capturePaths == null || capturePaths.length != 3) {
@@ -1416,6 +1442,9 @@ List<String> checkBracketValidation({
       unit: bracketUnit!,
       aboveCeilingMultiplier: aboveCeilingMultiplier ??
           ProfileCaptureSchema.defaultAboveCeilingMultiplier,
+      requireDetectorTraceRecord: requireTraceRecord,
+      stableId: bracketStableId,
+      severityLabel: bracketSeverityLabel,
     );
   } on FormatException catch (e) {
     failures.add('$label: bracket validation failed — ${e.message}');

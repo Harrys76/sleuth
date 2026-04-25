@@ -66,6 +66,7 @@ import '../network/http_monitor.dart';
 import '../ranking/issue_ranker.dart';
 import '../vm/cpu_sample_aggregator.dart';
 import '../vm/vm_service_client.dart';
+import '../utils/capture_helper.dart';
 import '../utils/session_markdown_exporter.dart';
 import '../utils/type_name_cache.dart';
 import '../vm/timeline_parser.dart';
@@ -2308,6 +2309,8 @@ class SleuthController {
       }
     }
 
+    _recordIssuesForCapture(failedDetectors);
+
     // Invalidate _getAllIssues cache — detectors have fresh issues.
     _issueGeneration++;
   }
@@ -2440,6 +2443,8 @@ class SleuthController {
           }
         }
       }
+
+      _recordIssuesForCapture(const <BaseDetector>{});
 
       // Invalidate _getAllIssues cache — detectors have fresh issues.
       _issueGeneration++;
@@ -2622,6 +2627,8 @@ class SleuthController {
         }
       }
     }
+
+    _recordIssuesForCapture(const <BaseDetector>{});
 
     // FrameTimingDetector may have updated its issues — invalidate cache.
     _issueGeneration++;
@@ -3200,6 +3207,27 @@ class SleuthController {
     return _cachedAllIssues!;
   }
 
+  /// Emits `sleuth.issue.<stableId>.<severity>` instant trace events for
+  /// every issue currently held by every non-failed detector. Called at
+  /// each `_issueGeneration++` site (structural scan + VM timeline path)
+  /// so any issue that becomes user-visible also leaves a trace record
+  /// for `runtimeVerified` profile-mode capture validation.
+  ///
+  /// Triple-gated by `CaptureHelper.recordIssue` itself
+  /// (kReleaseMode + captureMode + non-null stableId), so this method is
+  /// effectively free outside capture-mode profile sessions. The fast-
+  /// path early-return below skips even the per-detector iteration when
+  /// captureMode is off, which is the common case.
+  void _recordIssuesForCapture(Set<BaseDetector> failedDetectors) {
+    if (kReleaseMode || !config.captureMode) return;
+    for (final d in _detectors) {
+      if (failedDetectors.contains(d)) continue;
+      for (final issue in d.issues) {
+        CaptureHelper.recordIssue(issue, captureMode: config.captureMode);
+      }
+    }
+  }
+
   // -- Debug instrumentation helpers --
 
   void _installDebugInstrumentation() {
@@ -3497,6 +3525,7 @@ class SleuthConfig {
     this.triggerButtonOffset = const Offset(16, 64),
     this.routeIgnorePatterns = const {},
     this.routeHistoryCapacity = 50,
+    this.captureMode = false,
   })  : assert(
           fpsTarget >= 1 && fpsTarget <= 120,
           'fpsTarget must be between 1 and 120. '
@@ -4082,6 +4111,18 @@ class SleuthConfig {
   /// Valid range: >= 1 (enforced via debug-mode assert).
   final int routeHistoryCapacity;
 
+  /// When true, the controller emits `sleuth.issue.<stableId>.<severity>`
+  /// trace events for every issue published, alongside the existing
+  /// `sleuth.scenario.begin` / `sleuth.scenario.end` markers. Used to
+  /// produce profile-mode capture triads for `runtimeVerified` detector
+  /// audit gates. Default false — production builds and ordinary
+  /// profile-mode sessions emit no extra trace traffic.
+  ///
+  /// Has no effect in release mode (compile-time guarded by
+  /// `kReleaseMode`). When false, `Sleuth.markScenarioBegin/End` and the
+  /// internal capture-helper hook are no-ops.
+  final bool captureMode;
+
   /// Sentinel used by [copyWith] to distinguish "not passed" from "set to null".
   static const Object _sentinel = Object();
 
@@ -4132,6 +4173,7 @@ class SleuthConfig {
     Offset? triggerButtonOffset,
     Set<String>? routeIgnorePatterns,
     int? routeHistoryCapacity,
+    bool? captureMode,
   }) {
     return SleuthConfig(
       theme:
@@ -4187,6 +4229,7 @@ class SleuthConfig {
       triggerButtonOffset: triggerButtonOffset ?? this.triggerButtonOffset,
       routeIgnorePatterns: routeIgnorePatterns ?? this.routeIgnorePatterns,
       routeHistoryCapacity: routeHistoryCapacity ?? this.routeHistoryCapacity,
+      captureMode: captureMode ?? this.captureMode,
     );
   }
 }

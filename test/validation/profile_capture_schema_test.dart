@@ -1179,6 +1179,78 @@ void main() {
           returnsNormally);
     });
   });
+
+  // -- Backwards-compat smoke for v0.18.0 schema extension --------------
+  //
+  // The schema extension adds `requireDetectorTraceRecord` (default
+  // false). NetworkMonitor's 3 retained-orphan captures
+  // (`test/validation/captures/network_monitor/*`) predate the
+  // trace-record contract and don't carry `sleuthMetadata.schemaVersion`.
+  // They should still parse cleanly when `requireDetectorTraceRecord:
+  // false` — preserves the dormant orphan claim that re-raises in a
+  // future release.
+  group('NetworkMonitor orphan backwards-compat (v0.18.0 schema extension)',
+      () {
+    test('orphan capture parses without trace-record requirement', () {
+      const orphanPath =
+          'test/validation/captures/network_monitor/slow_request_at.json';
+      final file = File(orphanPath);
+      expect(file.existsSync(), isTrue,
+          reason: 'orphan capture missing — expected at $orphanPath');
+      // Direct parse must succeed (no schemaVersion check at this gate).
+      expect(() => ProfileCaptureSchema.parseFile(file), returnsNormally);
+    });
+
+    test('orphan triad validateBracket succeeds without trace-record gate', () {
+      // requireDetectorTraceRecord defaults false, so the orphan triad
+      // continues to validate even though it carries no trace records.
+      final below = File(
+          'test/validation/captures/network_monitor/slow_request_below.json');
+      final at =
+          File('test/validation/captures/network_monitor/slow_request_at.json');
+      final above = File(
+          'test/validation/captures/network_monitor/slow_request_above.json');
+      expect(
+          below.existsSync() && at.existsSync() && above.existsSync(), isTrue);
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: below,
+          atFile: at,
+          aboveFile: above,
+          threshold: 1000,
+          unit: 'ms',
+          // requireDetectorTraceRecord intentionally left default-false.
+        ),
+        returnsNormally,
+      );
+    });
+
+    test(
+        'orphan triad validateBracket FAILS when trace-record is required '
+        '(captures predate the contract)', () {
+      final below = File(
+          'test/validation/captures/network_monitor/slow_request_below.json');
+      final at =
+          File('test/validation/captures/network_monitor/slow_request_at.json');
+      final above = File(
+          'test/validation/captures/network_monitor/slow_request_above.json');
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: below,
+          atFile: at,
+          aboveFile: above,
+          threshold: 1000,
+          unit: 'ms',
+          requireDetectorTraceRecord: true,
+          stableId: 'slow_request',
+          severityLabel: 'warning',
+        ),
+        throwsA(isA<FormatException>()),
+        reason: 'Orphan captures must be re-recorded under the v0.18.0 '
+            'procedure before being claimed by a runtimeVerified detector',
+      );
+    });
+  });
 }
 
 Map<String, Object?> _validMetadata() => <String, Object?>{

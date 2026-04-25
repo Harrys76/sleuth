@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'capture_event_constants.dart';
+
 /// Schema + validator for Sleuth profile-mode captures.
 ///
 /// A Sleuth capture is a DevTools Chrome Trace Event Format export with a
@@ -711,7 +713,26 @@ class ProfileCaptureSchema {
     required String unit,
     double atTolerance = defaultAtTolerance,
     double aboveCeilingMultiplier = defaultAboveCeilingMultiplier,
+    bool requireDetectorTraceRecord = false,
+    String? stableId,
+    String? severityLabel,
   }) {
+    if (requireDetectorTraceRecord && (stableId == null || stableId.isEmpty)) {
+      throw const FormatException(
+          '`validateBracket` was called with requireDetectorTraceRecord: true '
+          'but stableId was null or empty. Trace-record search needs the '
+          'detector\'s stableId to compose the expected event name.');
+    }
+    if (requireDetectorTraceRecord &&
+        (severityLabel == null || severityLabel.isEmpty)) {
+      throw const FormatException(
+          '`validateBracket` was called with requireDetectorTraceRecord: true '
+          'but severityLabel was null or empty. The bracket validates a '
+          'specific severity threshold (e.g. warning at 8 ms vs critical at '
+          '16 ms); the trace-record proof must match THAT severity, not just '
+          'any emission on the same stableId. Pass IssueSeverity.warning.name '
+          'or .critical.name (the wire-format string).');
+    }
     // Reject non-finite numeric inputs before any comparison. Dart's
     // NaN-comparison semantics return false for every comparison
     // against NaN, which silently bypasses the bracket, at-band, and
@@ -849,6 +870,176 @@ class ProfileCaptureSchema {
           'provide ambient evidence for an adjacent higher-severity '
           'threshold. File: ${aboveFile.path}');
     }
+
+    if (requireDetectorTraceRecord) {
+      // SchemaVersion gate. Captures recorded under v0.18.0+ declare
+      // `sleuthMetadata.schemaVersion` so the parser can distinguish a
+      // pre-trace-record orphan (NetworkMonitor's v0.16.x triad) from a
+      // contract-conformant runtimeVerified capture.
+      for (final entry in triad) {
+        final declared = entry.$2['schemaVersion'];
+        if (declared != captureSchemaVersion) {
+          throw FormatException(
+              'Capture missing or stale `sleuthMetadata.schemaVersion`: '
+              '"${entry.$1}" capture declared "${declared ?? 'null'}" but '
+              'this validation requires "$captureSchemaVersion". '
+              'Re-record under the v0.18.0+ procedure (see '
+              'test/validation/captures/<detector>/README.md) to populate '
+              'the schemaVersion field. File: ${entry.$3.path}');
+        }
+      }
+      // Trace-record search. Each capture inside the at+above pair must
+      // contain a `sleuth.issue.<stableId>.<severity>` instant event
+      // whose `ts` lies inside the scenario marker span. The `below`
+      // capture is sub-threshold by definition — the detector did not
+      // fire — so absence is expected and verified separately.
+      _requireIssueTraceRecord(at, atFile, stableId!,
+          severityLabel: severityLabel!, context: 'at capture');
+      _requireIssueTraceRecord(above, aboveFile, stableId,
+          severityLabel: severityLabel, context: 'above capture');
+      _requireNoIssueTraceRecord(below, belowFile, stableId,
+          severityLabel: severityLabel, context: 'below capture');
+    }
+  }
+
+  /// Searches [metadata]'s associated `traceEvents` for an instant
+  /// event with name `sleuth.issue.<stableId>.<severityLabel>` whose
+  /// `ts` lies inside the scenario marker span. Throws
+  /// [FormatException] when none is found.
+  ///
+  /// Severity-scoped: a capture bracketing the warning threshold
+  /// (e.g. 8 ms) must contain `sleuth.issue.<id>.warning`, not
+  /// `.critical`. Accepting either would let a `.critical` event
+  /// satisfy a warning-tier audit and vice versa, defeating the
+  /// purpose of bracket-with-trace-proof.
+  static void _requireIssueTraceRecord(
+    Map<String, Object?> metadata,
+    File file,
+    String stableId, {
+    required String severityLabel,
+    required String context,
+  }) {
+    final traceEvents = metadata['_rawTraceEvents'] as List?;
+    if (traceEvents == null) {
+      // Bridge: parseFile only returns the sleuthMetadata block,
+      // not the full root. Re-parse the file to access traceEvents.
+      // Acceptable since validateBracket is not on a hot path.
+      final raw = file.readAsBytesSync();
+      final root = json.decode(_decodeUtf8(raw)) as Map<String, Object?>;
+      final events = root['traceEvents'] as List;
+      _checkIssueTraceRecordPresent(
+          events, stableId, severityLabel, file, context);
+      return;
+    }
+    _checkIssueTraceRecordPresent(
+        traceEvents, stableId, severityLabel, file, context);
+  }
+
+  static void _checkIssueTraceRecordPresent(
+    List events,
+    String stableId,
+    String severityLabel,
+    File file,
+    String context,
+  ) {
+    final (beginTs, endTs) = _scenarioSpan(events, file);
+    final expected = 'sleuth.issue.$stableId.$severityLabel';
+    for (final event in events) {
+      if (event is! Map) continue;
+      final ph = event['ph'];
+      if (ph != 'i' && ph != 'I' && ph != 'n') continue;
+      if (event['name'] != expected) continue;
+      final ts = event['ts'];
+      if (ts is! num) continue;
+      final tsInt = ts.toInt();
+      if (tsInt >= beginTs && tsInt <= endTs) {
+        return; // Found a matching record inside the scenario span.
+      }
+    }
+    throw FormatException(
+        'Missing detector trace record in $context: expected an instant '
+        'event named "$expected" with `ts` inside the scenario span '
+        '[$beginTs, $endTs] (the work window between '
+        'sleuth.scenario.begin and sleuth.scenario.end). A '
+        '`runtimeVerified` capture must contain proof the detector '
+        'fired AT THE CLAIMED SEVERITY during the captured scenario; '
+        'a `.critical` event does not satisfy a `warning`-tier audit '
+        'and vice versa. File: ${file.path}');
+  }
+
+  static void _requireNoIssueTraceRecord(
+    Map<String, Object?> metadata,
+    File file,
+    String stableId, {
+    required String severityLabel,
+    required String context,
+  }) {
+    // Reuse `_rawTraceEvents` stashed by `_parseOrThrowWithLabel` so
+    // the bracket triad is parsed exactly once (M2). Fall back to a
+    // direct read when called outside `validateBracket` (no current
+    // caller, but defensive — preserves the helper's invariant).
+    final List events;
+    final stashed = metadata['_rawTraceEvents'];
+    if (stashed is List) {
+      events = stashed;
+    } else {
+      final raw = file.readAsBytesSync();
+      final root = json.decode(_decodeUtf8(raw)) as Map<String, Object?>;
+      events = root['traceEvents'] as List;
+    }
+    final (beginTs, endTs) = _scenarioSpan(events, file);
+    final expected = 'sleuth.issue.$stableId.$severityLabel';
+    for (final event in events) {
+      if (event is! Map) continue;
+      final ph = event['ph'];
+      if (ph != 'i' && ph != 'I' && ph != 'n') continue;
+      if (event['name'] != expected) continue;
+      final ts = event['ts'];
+      if (ts is! num) continue;
+      final tsInt = ts.toInt();
+      if (tsInt >= beginTs && tsInt <= endTs) {
+        throw FormatException(
+            'Unexpected detector trace record in $context: found instant '
+            'event "$expected" inside the scenario span. The `below` '
+            'capture is sub-threshold and the detector should NOT fire '
+            'at this severity — re-record below the threshold or pick '
+            'a smaller magnitude. File: ${file.path}');
+      }
+    }
+  }
+
+  /// Returns (beginTs, endTs) tuple by locating
+  /// [scenarioBeginMarker] / [scenarioEndMarker] instant events.
+  /// Throws when markers are missing or duplicated.
+  static (int, int) _scenarioSpan(List events, File file) {
+    int? beginTs;
+    int? endTs;
+    var beginCount = 0;
+    var endCount = 0;
+    for (final event in events) {
+      if (event is! Map) continue;
+      final ph = event['ph'];
+      if (ph != 'i' && ph != 'I' && ph != 'n') continue;
+      final name = event['name'];
+      if (name is! String) continue;
+      final ts = event['ts'];
+      if (ts is! num) continue;
+      if (name == scenarioBeginMarker) {
+        beginTs = ts.toInt();
+        beginCount++;
+      } else if (name == scenarioEndMarker) {
+        endTs = ts.toInt();
+        endCount++;
+      }
+    }
+    if (beginCount != 1 || endCount != 1) {
+      throw FormatException(
+          'Scenario markers malformed in ${file.path}: expected exactly one '
+          '"$scenarioBeginMarker" and one "$scenarioEndMarker" instant '
+          'event, found beginCount=$beginCount, endCount=$endCount. '
+          'Trace-record search needs a unique scenario span.');
+    }
+    return (beginTs!, endTs!);
   }
 
   // ---------------------------------------------------------------------
@@ -1178,7 +1369,18 @@ class ProfileCaptureSchema {
           'Bracket "$label" capture does not exist: ${file.path}');
     }
     try {
-      return parse(file.readAsBytesSync());
+      final bytes = file.readAsBytesSync();
+      final metadata = parse(bytes);
+      // Stash the raw traceEvents on the metadata under a private
+      // sentinel key so the trace-record helpers
+      // (`_requireIssueTraceRecord`, `_requireNoIssueTraceRecord`)
+      // can avoid re-reading + re-parsing the file. The sentinel
+      // collides with no schema-defined key (all start without `_`).
+      final root =
+          jsonDecode(_stripBomAndNormaliseLineEndings(_decodeUtf8(bytes)))
+              as Map<String, Object?>;
+      metadata['_rawTraceEvents'] = root['traceEvents'];
+      return metadata;
     } on FormatException catch (e) {
       throw FormatException('Bracket "$label" capture failed schema validation '
           '(${file.path}): ${e.message}');

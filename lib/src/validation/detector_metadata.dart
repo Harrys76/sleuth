@@ -24,6 +24,8 @@ class DetectorMetadata {
     this.profileCapturePaths,
     this.bracketThreshold,
     this.bracketUnit,
+    this.bracketStableId,
+    this.bracketSeverityLabel,
     this.coveredStableIds,
     this.parametricFamilies,
     this.coveredThresholds,
@@ -82,6 +84,34 @@ class DetectorMetadata {
   /// Unit label for [bracketThreshold] (e.g. `'ms'`, `'bytes'`, `'frames'`).
   /// Required alongside [bracketThreshold].
   final String? bracketUnit;
+
+  /// The stableId whose `sleuth.issue.<stableId>.<severity>` trace record
+  /// the audit gate requires inside the at+above captures. Required when
+  /// [tier] is [EvidenceTier.runtimeVerified] or stronger — without it
+  /// the schema cannot prove the detector actually fired during the
+  /// captured scenario; the bracket alone proves only that the captured
+  /// magnitudes flank the threshold, not that the detector reacted.
+  ///
+  /// Pinned to ONE stableId per metadata block: a tier raise covers a
+  /// specific severity threshold of a specific issue family, and the
+  /// captured scenario must have produced THAT issue. Detectors that
+  /// emit multiple issue families at runtimeVerified-quality evidence
+  /// each get their own metadata entry (or per-family declaration on a
+  /// future schema extension).
+  final String? bracketStableId;
+
+  /// Severity label (`'warning'` or `'critical'`, the wire-format string
+  /// from `IssueSeverity.<label>.name`) that the audit gate's
+  /// trace-record check must match. Required alongside [bracketStableId]
+  /// when [tier] is [EvidenceTier.runtimeVerified] or stronger.
+  ///
+  /// Same severity must be the one [bracketThreshold] represents: an
+  /// 8 ms warning bracket pairs with `bracketSeverityLabel: 'warning'`;
+  /// a `.critical` event would not satisfy that audit and vice versa.
+  /// This pairing is what prevents a tier raise from claiming evidence
+  /// for one severity tier while the captures actually exercised the
+  /// adjacent tier.
+  final String? bracketSeverityLabel;
 
   /// The set of stable issue IDs this [tier] claim covers, for detectors
   /// that emit more than one family of issue. `NetworkMonitorDetector`, for

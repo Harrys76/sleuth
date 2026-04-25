@@ -291,6 +291,9 @@ void main() {
               bracketThreshold: meta.bracketThreshold,
               bracketUnit: meta.bracketUnit,
               aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+              bracketStableId: meta.bracketStableId,
+              bracketSeverityLabel: meta.bracketSeverityLabel,
+              requireTraceRecord: true,
             ));
             break;
           case EvidenceTier.externallyCited:
@@ -326,6 +329,9 @@ void main() {
               bracketThreshold: meta.bracketThreshold,
               bracketUnit: meta.bracketUnit,
               aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+              bracketStableId: meta.bracketStableId,
+              bracketSeverityLabel: meta.bracketSeverityLabel,
+              requireTraceRecord: true,
             ));
             break;
         }
@@ -1097,6 +1103,31 @@ void main() {
             reason: 'Tier $tier should not require bracket validation.');
       }
     });
+
+    // Codex round-2 B3 — when requireTraceRecord is true the gate
+    // must reject runtimeVerified metadata that omits bracketStableId
+    // or bracketSeverityLabel (without those, the schema cannot prove
+    // the detector fired at the claimed severity).
+    test(
+        'checkBracketValidation with requireTraceRecord rejects '
+        'missing bracketStableId / bracketSeverityLabel', () {
+      final failures = checkBracketValidation(
+        label: 'FakeDetector',
+        tier: EvidenceTier.runtimeVerified,
+        capturePaths: const [
+          'test/validation/captures/_fixtures/dormant_bracket_below.json',
+          'test/validation/captures/_fixtures/dormant_bracket_at.json',
+          'test/validation/captures/_fixtures/dormant_bracket_above.json',
+        ],
+        bracketThreshold: 1000,
+        bracketUnit: 'ms',
+        // bracketStableId + bracketSeverityLabel intentionally omitted.
+        requireTraceRecord: true,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.any((f) => f.contains('bracketStableId')), isTrue);
+      expect(failures.any((f) => f.contains('bracketSeverityLabel')), isTrue);
+    });
   });
 
   group('Orphan capture audit', () {
@@ -1132,6 +1163,19 @@ void main() {
     // on-device recording (re-recording across the Flutter 3.41.4 pin
     // + iPhone 12 exception is expensive without reason). Manifest
     // cross-check enforces device / OS / Flutter / unit / observed band.
+    //
+    // Extension cap policy: orphan `consumeBy` may extend at most TWICE
+    // before deletion is forced. Original v0.16.5 → v0.16.7 → v0.18.0
+    // (first extension, deferred when v0.16.6 shipped FrameTiming /
+    // ListView raises instead). Now v0.18.0 → v0.19.0 (second
+    // extension, deferred because v0.18.0 ships HeavyCompute as the
+    // first runtimeVerified raise + the capture-helper / schema
+    // infrastructure that NetworkMonitor needs, but the citation
+    // blocker (NN/g rejection) for NetworkMonitor itself remains
+    // unresolved). If v0.19.0 also cannot consume the orphans, they
+    // MUST be deleted from disk and the manifest entries dropped —
+    // perpetual extension is a code smell that defeats the
+    // expired-entry audit.
     const retainedOrphans = <String, RetainedOrphanEntry>{
       'test/validation/captures/network_monitor/slow_request_below.json':
           RetainedOrphanEntry(
@@ -1142,7 +1186,7 @@ void main() {
         unit: 'ms',
         observedMin: 720,
         observedMax: 900,
-        consumeBy: '0.18.0',
+        consumeBy: '0.19.0',
         owningClaim:
             'NetworkMonitorDetector.slow_request.warning externallyCited '
             're-raise (v0.16.7)',
@@ -1162,7 +1206,7 @@ void main() {
         unit: 'ms',
         observedMin: 1000,
         observedMax: 1100,
-        consumeBy: '0.18.0',
+        consumeBy: '0.19.0',
         owningClaim:
             'NetworkMonitorDetector.slow_request.warning externallyCited '
             're-raise (v0.16.7)',
@@ -1180,7 +1224,7 @@ void main() {
         unit: 'ms',
         observedMin: 1450,
         observedMax: 1800,
-        consumeBy: '0.18.0',
+        consumeBy: '0.19.0',
         owningClaim:
             'NetworkMonitorDetector.slow_request.warning externallyCited '
             're-raise (v0.16.7)',
