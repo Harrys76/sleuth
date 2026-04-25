@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.17.4 (2026-04-25)_
+_Last updated: v0.17.5 (2026-04-25)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
@@ -108,8 +108,8 @@ Flutter 3.41.4) stay on disk as retained orphans with
 | Detector | Tier | Reproducer | Notes |
 |---|---|---|---|
 | Rebuild | `reproducerOnly` | [`rebuild_detector_test.dart`](../test/detectors/rebuild_detector_test.dart) | All 3 families covered: `stateful_density`, `rebuild_activity` (warning at `buildCount > rebuildsPerSecThreshold` default 10/sec, critical at `> 3 × threshold` = 30/sec; test-pinned at 15 → warning and 35 → critical), and parametric `rebuild_debug_<typeName>` (declared via `parametricFamilies` since v0.17.3; concrete `rebuild_debug_TestCounterWidget` credits the family). Fixtures synthetic. |
-| GPU Pressure | `reproducerOnly` | [`gpu_pressure_detector_test.dart`](../test/detectors/gpu_pressure_detector_test.dart) | Both emission families pinned: `raster_dominance` (VM timeline raster > UI × 2.0 sustained) and `expensive_gpu_nodes` (tree walk corroborated by raster pressure). Confidence downgrade on VM disconnect pinned. Fixtures synthetic. |
-| Shallow Rebuild Risk | `reproducerOnly` | [`shallow_rebuild_risk_detector_test.dart`](../test/detectors/shallow_rebuild_risk_detector_test.dart) | `shallow_rebuild_risk` pinned via real `pumpWidget` tree with shallow StatefulWidget + VM-staged high-build-activity data. Framework-widget suppression pinned. Fixtures synthetic. |
+| GPU Pressure | `reproducerOnly` | [`gpu_pressure_reproducer_test.dart`](../test/validation/gpu_pressure_reproducer_test.dart) | v0.17.5 tier-quality audit: VM leg feeds raster + UI events through `TimelineParser.parse()` into the detector. `raster_dominance` ratio strict `> 2.0` triad + critical at `> 4.0` + `hasRasterTiming` precondition (UI=0 negative). `expensive_gpu_nodes` over **4 RenderObject checks + 1 widget-level check**: `RenderOpacity` (4-axis matrix — opacity 0.0/1.0 short-circuit + subtree gate), `RenderClipPath`, `RenderBackdropFilter` (sigma 3-band: ≤2.0 suppressed, (2.0, 10.0] warning highlight, >10.0 **critical highlight only — issue severity stays `warning`**), `RenderShaderMask`, plus `element.widget is ColorFiltered` (no public RenderObject type for ColorFiltered). Nested-expense subtree-stack arithmetic verified. Confidence correlation: `likely` only with `hasRasterDominance`; `possible` in 3 sub-cases (vmConnected=false, vmConnected=true+no-raster, vmConnected=true+raster present but ratio≤2.0). VM-disconnect setter removes `raster_dominance` + downgrades `expensive_gpu_nodes` confidence in-place. `coveredStableIds = {'raster_dominance', 'expensive_gpu_nodes'}`. |
+| Shallow Rebuild Risk | `reproducerOnly` | [`shallow_rebuild_risk_reproducer_test.dart`](../test/validation/shallow_rebuild_risk_reproducer_test.dart) | v0.17.5 tier-quality audit: VM leg feeds BUILD events through `TimelineParser.parse()` into the detector. **Three gate states pinned exhaustively**: (1) vmConnected=true + buildCount>20 strict + shallow Stateful → VM-backed warning; (2) vmConnected=false + shallow Stateful → structural fallback warning ("VM unavailable"); (3) **vmConnected=true + buildCount≤20 → silent no-fire** (activity-low branch — regression that flips gate to `>=` shows up here only). Depth threshold default 3 pinned at boundary (depth 3 fires inclusive, depth 4 does not). Framework allowlist (13 names) verified by Navigator-only tree producing zero usages. DebugSnapshot confidence upgrade consumed in `finalizeScan` → `_evaluate()`; ordering pin: `updateDebugSnapshot` BEFORE `scanAndIssues`. Rate=0 negative case confirms upgrade gated on `rebuildsPerSecond > 0`. VM-disconnect immediate-effect contract (`_lastBuildCount` + `_issues` cleared synchronously). `coveredStableIds = {'shallow_rebuild_risk'}`. |
 
 ### Structural detectors (13)
 
@@ -293,7 +293,31 @@ per release:
   distribution unchanged; evidence strength improved for 4 of 8
   v0.17.2-batch detectors. Remaining 4 (`GpuPressureDetector`,
   `RepaintDetector`, `RebuildDetector`, `ShallowRebuildRiskDetector`)
-  queued for v0.17.5 / v0.17.6. **← current release**
+  queued for v0.17.5 / v0.17.6.
+- **v0.17.5** — Tier-quality audit, hybrid batch (2 of remaining 4).
+  Purpose-rewrote `GpuPressureDetector` and `ShallowRebuildRiskDetector`
+  with hermetic reproducers at `test/validation/<d>_reproducer_test.dart`.
+  Both detectors are hybrid (VM `processTimelineData` + structural
+  `scanTree` legs); reproducers exercise both legs in one file via
+  cross-harness composition (`vm_reproducer_harness` + structural
+  harness in the same test). ShallowRebuildRisk reproducer adds a
+  third leg pinning `DebugSnapshot` confidence-upgrade ordering
+  (`updateDebugSnapshot` BEFORE `scanAndIssues`). New coverage that
+  v0.17.4 did not address: GpuPressure RenderOpacity opacity-value
+  short-circuit (0.0 / 1.0 → suppressed), BackdropFilter sigma 3-band
+  (≤ 2.0 suppressed; (2.0, 10.0] warning highlight; > 10.0 critical
+  highlight — issue severity stays `warning` either way), expense
+  matrix over 4 RenderObject checks plus 1 widget-level check
+  (`ColorFiltered`), confidence correlation matrix
+  (`hasRasterDominance`-gated `likely` vs 3 `possible` sub-cases
+  including the raster-present-but-non-dominant case), and
+  ShallowRebuildRisk's silent-no-fire activity gate (vmConnected=true
+  + buildCount ≤ 20) plus the duplicated DebugSnapshot upgrade in
+  the structural-fallback `_evaluate` branch. Detector rationales
+  rewritten to enumerate every gate explicitly. Ledger
+  distribution unchanged; evidence strength improved for 6 of 8
+  v0.17.2-batch detectors. Remaining 2 (`RepaintDetector`,
+  `RebuildDetector`) queued for v0.17.6. **← current release**
 - **v0.18.0+** — Re-raise `NetworkMonitorDetector.slow_request.warning`
   (hard deadline — orphan manifest `consumeBy: '0.18.0'` blocks the
   release unless re-raised or orphans deleted). Also drops the

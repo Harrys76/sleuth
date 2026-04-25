@@ -166,7 +166,7 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
     null,
   ),
   DetectorType.gpuPressure: (
-    'test/detectors/gpu_pressure_detector_test.dart',
+    'test/validation/gpu_pressure_reproducer_test.dart',
     {'raster_dominance', 'expensive_gpu_nodes'},
     null,
   ),
@@ -181,7 +181,7 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
     {'rebuild_debug'},
   ),
   DetectorType.shallowRebuildRisk: (
-    'test/detectors/shallow_rebuild_risk_detector_test.dart',
+    'test/validation/shallow_rebuild_risk_reproducer_test.dart',
     {'shallow_rebuild_risk'},
     null,
   ),

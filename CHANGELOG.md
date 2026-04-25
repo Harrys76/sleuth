@@ -1,3 +1,37 @@
+## 0.17.5
+
+**Tier-quality audit — hybrid batch (2 of remaining 4).** Purpose-rewrote `GpuPressureDetector` and `ShallowRebuildRiskDetector` with hermetic reproducers at `test/validation/{gpu_pressure,shallow_rebuild_risk}_reproducer_test.dart`. Both detectors are hybrid — VM `processTimelineData` + structural `scanTree` legs both fire emission paths. Reproducers exercise both legs in one file via cross-harness composition (`vm_reproducer_harness` + structural harness imported together; matchers re-exported via `show` so no symbol conflict). ShallowRebuildRisk adds a third leg pinning DebugSnapshot confidence-upgrade ordering. Tier unchanged (`reproducerOnly`); evidence strength improved for 6 of 8 v0.17.2-batch detectors. Remaining 2 (Repaint + Rebuild) queued for v0.17.6.
+
+### Added
+
+- `test/validation/gpu_pressure_reproducer_test.dart` — 22 tests across 4 axes:
+  - `raster_dominance` VM ratio triad (1.99 / 2.0 / 2.01) + critical at `> 4.0` + `hasRasterTiming` precondition (zero-UI negative control proves the gate isn't just `vmConnected`).
+  - Structural matrix over 4 RenderObject checks plus 1 widget-level check: `RenderOpacity` (4-axis: opacity-value × subtree — opacity=0.0 / 1.0 short-circuit suppressed even with deep subtree, opacity=0.5 + small subtree suppressed by subtree gate, opacity=0.5 + deep subtree fires), `RenderBackdropFilter` 3-band sigma (≤2.0 suppressed, (2.0, 10.0] warning highlight, >10.0 critical highlight — `expensive_gpu_nodes` issue severity stays `warning`; only the corresponding `WidgetHighlight` entry escalates to critical), `RenderClipPath`, `RenderShaderMask`, plus `element.widget is ColorFiltered` (no public RenderObject type for ColorFiltered).
+  - Nested expense node test (Opacity wrapping Opacity) verifies subtree-stack arithmetic — both inner and outer accumulate correctly.
+  - Confidence correlation matrix: `expensive_gpu_nodes.confidence` is `likely` only when `hasRasterDominance` true; `possible` in 3 sub-cases (vmConnected=false; vmConnected=true + no raster events; vmConnected=true + ratio ≤ 2.0).
+  - VM-disconnect downgrade: setter removes `raster_dominance` and downgrades `expensive_gpu_nodes` confidence in-place.
+
+- `test/validation/shallow_rebuild_risk_reproducer_test.dart` — 12 tests across 5 axes:
+  - **Three gate states pinned exhaustively**: (1) vmConnected=true + buildCount=20 → no fire (strict `>20`); (2) vmConnected=true + buildCount=21 → fire warning/possible; (3) vmConnected=false → structural fallback fire ("VM unavailable" detail); **(4) vmConnected=true + buildCount=15 → silent no-fire** (activity-low branch — regression that flips gate to `>=` shows up here only).
+  - Structural depth threshold default 3 pinned at boundary (depth 3 fires inclusive, depth 4 does not).
+  - Framework allowlist (13 names) verified by Navigator-only tree producing zero usages.
+  - DebugSnapshot confidence upgrade with explicit ordering pin (`updateDebugSnapshot` BEFORE `scanAndIssues`) + rate=0 negative case proving `rebuildsPerSecond > 0` gate.
+  - VM-disconnect immediate-effect contract (`_lastBuildCount` + `_issues` cleared synchronously).
+
+### Changed
+
+- 2 detector `validationMetadata` blocks: `reproducerPath` flipped from `test/detectors/*_detector_test.dart` to `test/validation/*_reproducer_test.dart`. Rationales rewritten to enumerate every gate explicitly. GpuPressure rationale names 4 RenderObject checks + 1 widget-level (`ColorFiltered`) check + opacity-value short-circuit + sigma 3-band (with the highlight-severity-only critical escalation made explicit) + confidence correlation. ShallowRebuildRisk rationale names all 3 gate states + depth threshold + 13-name allowlist (Navigator-only test coverage; other 12 entries implicitly uncovered) + DebugSnapshot ordering requirement + VM-disconnect immediate-effect.
+- 2 anchor entries flipped in `test/validation/detector_metadata_audit_test.dart` `_v0174Expectations` map (DetectorType.gpuPressure line 168, DetectorType.shallowRebuildRisk line 183). Atomic update.
+- `doc/validation_ledger.md` — 2 row rationales rewritten. Version-history block adds v0.17.5 entry; `← current release` marker moved from v0.17.4 to v0.17.5.
+
+### Notes
+
+- Existing `test/detectors/{gpu_pressure,shallow_rebuild_risk}_detector_test.dart` unchanged (additive-only invariant).
+- `_vmConnected` defaults to false in both detectors; reproducer setUp blocks explicitly set true with comment naming the precondition. Otherwise VM-backed tests would silently fall into structural fallback (high-likelihood failure mode caught during plan review).
+- `BackdropFilter` requires a `Stack` ancestor for the engine to materialise the blur layer; without it Flutter substitutes a non-blur RenderObject and `is RenderBackdropFilter` fails. Reproducer fixture wraps in `Stack`.
+- `Stack` import collision between `flutter/widgets` and `vm_service` resolved via `import 'package:vm_service/vm_service.dart' hide Stack;`.
+- `fvm flutter analyze` clean, `fvm flutter test` all green.
+
 ## 0.17.4
 
 **Tier-quality audit — vmOnly batch (4 of 8).** Purpose-rewrote the 4 vmOnly reproducers pointed at `test/detectors/*_detector_test.dart` by v0.17.2 with hermetic reproducers at `test/validation/*_reproducer_test.dart`. Tier unchanged (`reproducerOnly`); evidence strengthened — vmOnly reproducers now feed raw `List<TimelineEvent>` through real `TimelineParser.parse()` into the detector, exercising the VM → parser → detector boundary that the original v0.17.2 fixtures bypassed by hand-constructing `ParsedTimelineData` directly. Remaining 4 detectors (2 hybrid + 2 structural) stay on v0.17.2 fixtures until v0.17.5 / v0.17.6.

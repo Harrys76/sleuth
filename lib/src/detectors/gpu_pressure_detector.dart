@@ -273,14 +273,37 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hybrid detector. Both families pinned: '
-            '`raster_dominance` (VM timeline raster > UI × 2.0 sustained) '
-            'and `expensive_gpu_nodes` (tree walk, deep Opacity/ClipPath '
-            'corroborated by raster pressure). Confidence downgrade on '
-            'VM disconnect pinned. Fixtures synthetic, same-author '
-            'provenance. Not runtime-verified against Impeller/Skia '
+        rationale: 'Hybrid detector. v0.17.5 tier-quality audit: VM leg '
+            'feeds raster + UI timeline events through '
+            '`TimelineParser.parse()` into the detector — closes the '
+            'parser-boundary gap. Two families pinned. '
+            '`raster_dominance` (VM): ratio = `_lastRasterUs / _lastUiUs` '
+            'with strict `> 2.0` threshold; critical at `> 4.0`; '
+            '`hasRasterTiming` precondition (`vmConnected && _lastUiUs > 0 '
+            '&& _lastRasterUs > 0`) verified by zero-UI negative control. '
+            '`expensive_gpu_nodes` (structural): subtree-size strict `> 5` '
+            'gate over 4 RenderObject checks (`RenderOpacity` with '
+            'opacity-value short-circuit at 0.0 / 1.0 pinned by 4-axis '
+            'matrix; `RenderClipPath`; `RenderBackdropFilter` with sigma '
+            '3-band — ≤ 2.0 suppressed, (2.0, 10.0] warning highlight, '
+            '> 10.0 critical highlight; `RenderShaderMask`) plus 1 '
+            'widget-level check (`element.widget is ColorFiltered`; '
+            'no public RenderObject type for ColorFiltered). The '
+            '`expensive_gpu_nodes` issue severity is always `warning` — '
+            'the high-sigma "critical" only escalates the corresponding '
+            '`WidgetHighlight` entry. Nested-expense '
+            'subtree-stack arithmetic verified by Opacity-wrapping-'
+            'Opacity test. Confidence correlation: `expensive_gpu_nodes` '
+            'is `likely` only when `hasRasterDominance` true; `possible` '
+            'in 3 sub-cases — vmConnected=false, vmConnected=true with no '
+            'raster, and vmConnected=true with ratio ≤ 2.0. VM-disconnect '
+            'setter removes `raster_dominance` and downgrades '
+            '`expensive_gpu_nodes` confidence in-place. `_vmConnected` '
+            'defaults to false; reproducer setUp explicitly sets true so '
+            'VM-backed tests are not silently routed into structural '
+            'fallback. Not runtime-verified against Impeller/Skia '
             'budgets or externally cited.',
-        reproducerPath: 'test/detectors/gpu_pressure_detector_test.dart',
+        reproducerPath: 'test/validation/gpu_pressure_reproducer_test.dart',
         coveredStableIds: {'raster_dominance', 'expensive_gpu_nodes'},
       );
 }

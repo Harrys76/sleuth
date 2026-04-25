@@ -248,13 +248,36 @@ class ShallowRebuildRiskDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hybrid detector. `shallow_rebuild_risk` pinned via '
-            'real `pumpWidget` tree with shallow StatefulWidget + '
-            'VM-staged high-build-activity data. Framework-widget '
-            'suppression pinned. Fixtures synthetic, same-author '
-            'provenance. Not runtime-verified or externally cited.',
+        rationale: 'Hybrid detector. v0.17.5 tier-quality audit: VM leg '
+            'feeds BUILD timeline events through `TimelineParser.parse()` '
+            'into the detector — closes the parser-boundary gap. Three '
+            'gate states pinned exhaustively in `_evaluate()`: '
+            '(1) `vmConnected && _lastBuildCount > 20` strict + shallow '
+            'Stateful → VM-backed warning; (2) `!vmConnected` → '
+            'structural fallback warning ("VM unavailable" detail); '
+            '(3) `vmConnected && _lastBuildCount ≤ 20` → silent no-fire '
+            '(activity-low branch — a regression that flips the gate to '
+            '`>=` or removes the activity check shows up only in the '
+            'State-3 test). Structural depth threshold default 3 pinned '
+            'at boundary (depth 3 fires inclusive, depth 4 does not). '
+            'Framework-widget allowlist (13 names: Scaffold, '
+            'CupertinoPageScaffold, ScaffoldMessenger, AppBar, Material, '
+            'AnimatedTheme, ScrollConfiguration, ScrollNotificationObserver, '
+            '_ModalScope, Navigator, Overlay, FocusScope, '
+            'FocusTraversalGroup) verified by Navigator-only tree '
+            'producing zero usages. DebugSnapshot confidence upgrade '
+            'consumed in `finalizeScan` → `_evaluate()`, so '
+            '`updateDebugSnapshot` MUST be called BEFORE the scan; '
+            'reproducer pins this ordering. Rate=0 negative case '
+            'verifies the upgrade is gated on `rebuildsPerSecond > 0`. '
+            'VM-disconnect setter clears `_lastBuildCount` and `_issues` '
+            'synchronously (immediate-effect contract). `_vmConnected` '
+            'defaults to false; reproducer setUp explicitly sets true so '
+            'VM-backed tests are not silently routed into the State-2 '
+            'structural fallback. Not runtime-verified or externally '
+            'cited.',
         reproducerPath:
-            'test/detectors/shallow_rebuild_risk_detector_test.dart',
+            'test/validation/shallow_rebuild_risk_reproducer_test.dart',
         coveredStableIds: {'shallow_rebuild_risk'},
       );
 }
