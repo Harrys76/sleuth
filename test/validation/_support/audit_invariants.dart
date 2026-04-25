@@ -1378,6 +1378,7 @@ List<String> checkBracketValidation({
   required num? bracketThreshold,
   required String? bracketUnit,
   double? aboveCeilingMultiplier,
+  double? bracketAtTolerance,
   String? bracketStableId,
   String? bracketSeverityLabel,
   bool requireTraceRecord = false,
@@ -1440,6 +1441,8 @@ List<String> checkBracketValidation({
       aboveFile: resolve(capturePaths[2]),
       threshold: bracketThreshold!,
       unit: bracketUnit!,
+      atTolerance:
+          bracketAtTolerance ?? ProfileCaptureSchema.defaultAtTolerance,
       aboveCeilingMultiplier: aboveCeilingMultiplier ??
           ProfileCaptureSchema.defaultAboveCeilingMultiplier,
       requireDetectorTraceRecord: requireTraceRecord,

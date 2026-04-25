@@ -4,66 +4,60 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:sleuth/sleuth.dart';
 
-/// Capture helper for the planned v0.16.5 `externallyCited` tier raise
-/// on `NetworkMonitorDetector.slow_request` **WARNING tier only**.
+/// Capture helper for the v0.18.0 `runtimeVerified` tier raise on
+/// `NetworkMonitorDetector.slow_request` **WARNING tier only**.
 ///
-/// This screen produces three deterministic profile-mode timeline
-/// captures — below / at / above the detector's 1000 ms slow threshold —
-/// that `ProfileCaptureSchema.validateBracket` will accept. The `above`
-/// preset is deliberately capped well under the 3000 ms critical tier so
-/// the artifact on disk cannot ambiently bracket the critical threshold
-/// (see detector rationale and
-/// `ProfileCaptureSchema.defaultAboveCeilingMultiplier`).
+/// Produces three deterministic profile-mode timeline captures — below
+/// / at / above the detector's 1000 ms slow threshold — that
+/// `ProfileCaptureSchema.validateBracket(... requireDetectorTraceRecord:
+/// true, stableId: 'slow_request', severityLabel: 'warning')` will
+/// accept. The `above` preset stays under the 3000 ms critical tier so
+/// the artifact cannot ambiently bracket the critical threshold.
 ///
-/// This helper is scoped to the warning tier. A critical-tier (3000 ms)
-/// protocol is reserved for a future raise with its own below/at/above
-/// triad recorded inside the critical band with an appropriate
-/// `aboveCeilingMultiplier` on the detector's metadata.
+/// **Procedure (USB iPhone, in-app export — no DevTools needed):**
 ///
-/// Preset sizing rule: the **Above**
-/// preset sits at the midpoint of the acceptable band
-/// `(threshold, threshold × aboveCeilingMultiplier)`, i.e. approximately
-/// `threshold × (1 + aboveCeilingMultiplier) / 2`. At the shipped
-/// warning defaults (`threshold = 1000 ms`, schema
-/// `defaultAboveCeilingMultiplier = 2.0`, ceiling at 2000 ms) the
-/// midpoint is exactly 1500 ms — the shipped **Above (1500 ms)** preset
-/// lands squarely in the middle of `(1000 ms, 2000 ms]` with ~500 ms
-/// headroom against device jitter on either side. When re-tuning (new
-/// `aboveCeilingMultiplier`, new warning threshold), re-derive the
-/// preset from this rule rather than hand-picking a value: an `above`
-/// preset at or just under `threshold × aboveCeilingMultiplier` risks
-/// silent CI rejection if device jitter pushes any single recording
-/// past the ceiling.
-///
-/// Protocol:
-///
-///  1. `fvm flutter run --profile` on a device in the pinned matrix
-///     (v0.16.4: iPhone 12 / iOS 17.5 is the primary recording device).
-///  2. Open DevTools Performance tab, clear timeline.
-///  3. Tap **Below (800 ms)**, wait ~1 s for `scenario.end` marker.
-///  4. DevTools → Performance → Export timeline → save as
-///     `slow_request_below.json` (raw Chrome Trace Event Format).
-///  5. Repeat for **At (1020 ms)** and **Above (1500 ms)**.
-///  6. Wrap each export with the `sleuthMetadata` block described in
-///     `test/validation/captures/README.md` and drop the files under
+///  1. `cd example && fvm flutter run --profile -d "iPhone 12" \
+///        --dart-define=SLEUTH_CAPTURE_MODE=true`. First build attaches
+///     DevTools (FRAME mode for Sleuth — capture won't work yet).
+///  2. Quit `flutter run` (`q`). DevTools detaches.
+///  3. Re-open the app from the iPhone home screen. No DevTools
+///     attached → SleuthController.VmServiceClient connects → VM+
+///     mode active → real `NetworkMonitorDetector` observes HTTP
+///     completions and emits `sleuth.issue.slow_request.warning`
+///     trace records.
+///  4. Navigate to "NetworkMonitor capture helper" → tap a leg
+///     (Below 800 ms, At 1020 ms, Above 1500 ms) → wait for
+///     "tap Export now" log line → tap **Export last leg**.
+///  5. Capture screen calls `Sleuth.exportCaptureJson` which fetches
+///     the VM Timeline, filters to the matching scenario span, wraps
+///     with `sleuthMetadata`, and copies the JSON to the iOS
+///     clipboard. Paste into Notes / Mail / AirDrop note → send to
+///     Mac. One leg at a time — clipboard holds one capture; tap
+///     next leg, paste, repeat.
+///  6. Save each pasted JSON as
+///     `slow_request_<leg>.json` under
 ///     `test/validation/captures/network_monitor/`.
 ///
-/// Why a loopback HTTP server: a real remote would be non-deterministic
-/// (DNS, transit jitter, server-side variance) so bracket magnitudes
-/// would drift between recordings and `validateBracket`'s ±10% at-band
-/// would reject some captures as out-of-band. The loopback server
-/// delays the response by exactly the requested duration, so each
-/// capture lands inside its target bracket on the first try.
+/// **Scenario span timing**: `markScenarioEnd` is intentionally called
+/// AFTER a 200 ms post-completion dwell. The detector's
+/// `_recordIssuesForCapture` emission goes through async callback paths
+/// (frame stats, structural scan, VM poll). Calling `markScenarioEnd`
+/// immediately after the request completes would place the trace event
+/// outside the scenario window. The 200 ms dwell guarantees ~12 frame
+/// stats callbacks fire (60 Hz), at least one of which flushes the
+/// `sleuth.issue.slow_request.warning` event into the trace buffer
+/// with a `ts` strictly inside `[scenario.begin, scenario.end]`.
 ///
-/// Why `Timeline.instantSync` markers: `ProfileCaptureSchema`'s AB-1
-/// cross-check binds the observed-magnitude claim to the
-/// `sleuth.scenario.begin` / `sleuth.scenario.end` instant-event pair
-/// (ph=`i`), not to the min/max timestamp across the whole capture.
-/// Without these markers, a capture containing a 50-second cold-start
-/// warmup would appear to have an observed magnitude of ~50 s, failing
-/// the 100× trace-vs-observed ratio invariant. The markers pin the
-/// scenario span to the request itself.
+/// **Why a loopback HTTP server**: a real remote would be
+/// non-deterministic (DNS, transit jitter, server-side variance) so
+/// bracket magnitudes would drift between recordings and
+/// `validateBracket`'s ±10% at-band would reject some captures. The
+/// loopback server delays the response by exactly the requested
+/// duration, so each capture lands inside its target bracket on the
+/// first try.
 class NetworkMonitorCaptureScreen extends StatefulWidget {
   const NetworkMonitorCaptureScreen({super.key});
 
@@ -78,6 +72,12 @@ class _NetworkMonitorCaptureScreenState
   HttpClient? _client;
   final List<String> _log = [];
   bool _busy = false;
+
+  // Last completed leg state — what the Export button serialises.
+  // Cleared on each new leg request so the operator cannot accidentally
+  // export an out-of-band run from an earlier session.
+  String? _lastCompletedLeg;
+  int? _lastMeasuredMs;
 
   @override
   void initState() {
@@ -164,17 +164,16 @@ class _NetworkMonitorCaptureScreenState
     if (server == null || client == null || _busy) return;
     setState(() {
       _busy = true;
+      _lastCompletedLeg = null;
+      _lastMeasuredMs = null;
       _log.add('[$label] scenario.begin → GET /slow?delay=$delayMs');
     });
 
-    // Scenario span pinned for ProfileCaptureSchema AB-1 cross-check.
-    // ph=`i` (instant) events — `Timeline.instantSync` is the source-of-truth
-    // emitter per `dart:developer/Timeline`.
-    developer.Timeline.instantSync('sleuth.scenario.begin');
-    developer.log(
-      '[sleuth.capture] begin $label (delay=${delayMs}ms)',
-      name: 'sleuth.capture',
-    );
+    // Scenario span via Sleuth public API. Triple-gated on captureMode
+    // so production runs see no extra Timeline traffic.
+    final scenarioName = 'slow_request_$label';
+    Sleuth.markScenarioBegin(scenarioName);
+    final messenger = ScaffoldMessenger.of(context);
 
     var bytes = 0;
     final stopwatch = Stopwatch()..start();
@@ -184,7 +183,7 @@ class _NetworkMonitorCaptureScreenState
       );
       final req = await client.getUrl(uri);
       final resp = await req.close();
-      // Drain response. `await for` (not `.drain()`) per the v0.16.1
+      // Drain response. `await for` (not `.drain()`) per the
       // proxy-onDone limitation documented in NetworkMonitorDetector
       // pipeline — `.drain()` replaces the wrapping `onDone` handler
       // and suppresses `RequestRecord` emission.
@@ -192,36 +191,47 @@ class _NetworkMonitorCaptureScreenState
         bytes += chunk.length;
       }
       stopwatch.stop();
+      final measuredMs = stopwatch.elapsedMilliseconds;
 
-      developer.Timeline.instantSync('sleuth.scenario.end');
-      developer.log(
-        '[sleuth.capture] end $label (${stopwatch.elapsedMilliseconds}ms, ${bytes}B)',
-        name: 'sleuth.capture',
-      );
+      // Post-completion dwell BEFORE markScenarioEnd. `_recordIssuesForCapture`
+      // emits the `sleuth.issue.slow_request.warning` trace event from one
+      // of three async callback paths (structural scan, VM poll, frame
+      // stats) AFTER the request completes. With markScenarioEnd called
+      // immediately, the trace event would land outside the scenario span
+      // and the audit would reject the capture. The 200ms delay guarantees
+      // ~12 frame_stats callbacks fire (60 Hz) — far more than needed for
+      // one of them to flush the issue into the trace buffer with a `ts`
+      // strictly inside [scenario.begin, scenario.end].
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      Sleuth.markScenarioEnd(scenarioName);
 
-      // Post-end dwell: Dart Timeline events buffer on the VM before
-      // DevTools drains them. Exporting immediately after
-      // `scenario.end` fires can miss the event and produce a capture
-      // with only the begin marker — which then fails AB-1. 1.5 s is
-      // conservatively longer than the VM's default drain cadence.
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      // Additional dwell so the VM Timeline buffer drains before
+      // exportCaptureJson reads it. Cheaper than the 1500 ms the
+      // pre-Sleuth.markCaptureIssue procedure used because the trace
+      // event has already been emitted into the ring buffer.
+      await Future<void>.delayed(const Duration(milliseconds: 800));
 
       if (!mounted) return;
       setState(() {
+        _busy = false;
+        _lastCompletedLeg = label;
+        _lastMeasuredMs = measuredMs;
         _log.add(
-          '[$label] scenario.end (${stopwatch.elapsedMilliseconds} ms, $bytes B) — safe to Export',
+          '[$label] scenario.end (${measuredMs}ms, ${bytes}B) — '
+          'tap "Export last leg" to write the wrapped capture.',
         );
       });
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
-          content: Text(
-            '$label OK (${stopwatch.elapsedMilliseconds} ms). Export timeline now.',
-          ),
+          content: Text('$label OK (${measuredMs}ms). Tap Export now.'),
           duration: const Duration(seconds: 4),
         ),
       );
     } catch (e, st) {
-      developer.Timeline.instantSync('sleuth.scenario.end');
+      // On failure still close the scenario so the buffer doesn't
+      // accumulate orphan begins. The audit will reject any export
+      // anyway because the issue trace event is missing.
+      Sleuth.markScenarioEnd(scenarioName);
       developer.log(
         '[sleuth.capture] FAILED $label: $e',
         name: 'sleuth.capture',
@@ -229,9 +239,108 @@ class _NetworkMonitorCaptureScreenState
         stackTrace: st,
       );
       if (!mounted) return;
-      setState(() => _log.add('[$label] FAILED: $e'));
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      setState(() {
+        _busy = false;
+        _log.add('[$label] FAILED: $e');
+      });
+    }
+  }
+
+  /// Composes the wrapped capture JSON for the most recent completed
+  /// leg and copies it to the iOS clipboard. Operator pastes into
+  /// Notes / Mail / AirDrop note → sends to Mac → saves under
+  /// `test/validation/captures/network_monitor/`.
+  Future<void> _exportLastLeg() async {
+    final leg = _lastCompletedLeg;
+    final measured = _lastMeasuredMs;
+    final messenger = ScaffoldMessenger.of(context);
+    if (leg == null || measured == null) {
+      setState(() {
+        _log.add(
+          'Export: no completed leg yet. Tap a leg button and wait '
+          'for "tap Export" before exporting.',
+        );
+      });
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _log.add('[$leg] Export: composing wrapped capture JSON…');
+    });
+    String? json;
+    try {
+      json = await Sleuth.exportCaptureJson(
+        scenario: 'slow_request_$leg',
+        magnitudeMin: (measured - 50).clamp(0, 1 << 30).toInt(),
+        magnitudeObserved: measured,
+        magnitudeMax: measured + 50,
+        unit: 'ms',
+        device: 'iPhone 12',
+        deviceOsVersion: 'iOS 17.5',
+        flutterVersion: '3.41.4',
+        captureCommand:
+            'fvm flutter run --profile -d "iPhone 12" '
+            '--dart-define=SLEUTH_CAPTURE_MODE=true',
+        // NetworkMonitor's slow_request magnitude is the request's
+        // wall-clock duration measured by Stopwatch. There is no
+        // matching named timeline event the schema can derive from,
+        // so pass empty string to skip BUILD-derivation and trust
+        // the caller-supplied value.
+        magnitudeSourceEventName: '',
+      );
+    } catch (e) {
+      json = null;
+      if (mounted) {
+        setState(() {
+          _log.add('[$leg] Export FAILED: $e');
+        });
+      }
+    }
+    if (!mounted) return;
+    if (json == null) {
+      setState(() {
+        _busy = false;
+        _log.add(
+          '[$leg] Export FAILED: returned null. Common causes: VM '
+          'service disconnected (FRAME mode — kill the app from Xcode '
+          'and re-open from the home screen so VM+ mode activates), '
+          'or scenario markers missing from the trace buffer (re-tap '
+          'the leg and Export within 30 s).',
+        );
+      });
+      return;
+    }
+    final jsonText = json;
+    try {
+      await Clipboard.setData(ClipboardData(text: jsonText));
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _log.add(
+          '[$leg] Export OK — wrapped capture '
+          '(${jsonText.length} chars) copied to iOS clipboard.',
+        );
+        _log.add(
+          '[$leg] Paste into Notes / Mail / AirDrop note → send to '
+          'Mac. Save the pasted JSON as '
+          'slow_request_$leg.json under '
+          'test/validation/captures/network_monitor/.',
+        );
+      });
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Capture copied to clipboard. Paste anywhere to share.',
+          ),
+          duration: Duration(seconds: 6),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _log.add('[$leg] Clipboard copy FAILED: $e');
+      });
     }
   }
 
@@ -274,6 +383,12 @@ class _NetworkMonitorCaptureScreenState
                   'In (1000, 2000) warning band; stays under 3000 ms crit',
               enabled: ready && !_busy,
               onTap: () => _runCapture(label: 'above', delayMs: 1500),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _busy ? null : _exportLastLeg,
+              icon: const Icon(Icons.save_alt),
+              label: const Text('Export last leg'),
             ),
             const SizedBox(height: 16),
             const Divider(),

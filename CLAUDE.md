@@ -59,7 +59,9 @@ test/
 
 ## Current state
 
-**v0.17.6** (current) — Ledger distribution: **23/23 `reproducerOnly`, 0/23 `unvalidated`**. No detectors at `runtimeVerified` or `externallyCited`. Tier-quality audit COMPLETE — evidence ships in two within-tier strata (the third "reused unit-test suites" stratum is now empty):
+**v0.18.0** (current) — Ledger distribution: **22/23 `reproducerOnly`, 1/23 `runtimeVerified`, 0/23 `unvalidated`**. `NetworkMonitorDetector.slow_request` (warning tier, 1000 ms threshold) is the first runtimeVerified raise — three on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x) recorded via the new in-app capture procedure (markScenarioBegin/End + Sleuth.exportCaptureJson + iOS clipboard). Phase A capture infrastructure shipped: scenario markers, exportCaptureJson, retainTimeline gate, schemaVersion v1, severity-scoped trace records, above>at invariant, severity-boundary cross-check. v0.18.1 must land `Sleuth.flushTimelineNow()` before any other vmOnly detector raises (HeavyCompute, ShaderJank, MemoryPressure, GpuPressure, PlatformChannel) — they hit the polling-cadence emission-timing constraint NetworkMonitor sidesteps via runtime lifecycle + 200 ms dwell. See `doc/capture_procedure.md` + `doc/validation_ledger.md`.
+
+**v0.17.6** — Ledger distribution: **23/23 `reproducerOnly`, 0/23 `unvalidated`**. No detectors at `runtimeVerified` or `externallyCited`. Tier-quality audit COMPLETE — evidence ships in two within-tier strata (the third "reused unit-test suites" stratum is now empty):
 1. **Parser-boundary exercised** (8 detectors): v0.17.4 ShaderJank, HeavyCompute, PlatformChannel, MemoryPressure (vmOnly batch); v0.17.5 GpuPressure, ShallowRebuildRisk (hybrid batch); v0.17.6 Repaint, Rebuild (final hybrid batch — all paths exercised in one file via cross-harness composition).
 2. **Real `pumpWidget` + `scanTree`** (13 structural detectors, v0.16.3 / v0.17.1 batches).
 

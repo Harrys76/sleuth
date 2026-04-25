@@ -1,3 +1,56 @@
+## 0.18.0
+
+**First `runtimeVerified` tier raise — `NetworkMonitorDetector.slow_request` (warning tier, 1000 ms threshold).** Three real on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x) recorded via the new in-app capture procedure. Distribution: **22 / 23 at `reproducerOnly`, 1 / 23 at `runtimeVerified`, 0 / 23 at `unvalidated`**. Critical tier (3000 ms) stays `reproducerOnly`.
+
+### Capture infrastructure (Phase A)
+
+- `Sleuth.markScenarioBegin(name)` / `Sleuth.markScenarioEnd(name)` — public API emitting `sleuth.scenario.begin` / `sleuth.scenario.end` instant trace events. Triple-gated on `kReleaseMode`, `SleuthConfig.captureMode`, and non-null name; production sessions never emit. Markers pin the scenario span the audit gate uses to scope detector trace records.
+- `Sleuth.exportCaptureJson(...)` — public API composing a wrapped capture JSON from the VM Timeline buffer. Filters events to the matching scenario span by `args.name` (not just by event-name string), derives `expectedMagnitude.observed` from in-span events of the named source (`magnitudeSourceEventName` parameter, defaults `'BUILD'`), wraps with `sleuthMetadata` (schemaVersion `'v1'`). Returns a String the caller writes / shares however they want; library does no file I/O.
+- `VmServiceClient(retainTimeline: true)` — wired automatically when `SleuthConfig.captureMode: true`. The polling loop skips `clearVMTimeline()` so a later `exportCaptureJson` call can still see scenario-span events that the polling loop already processed. Production sessions clear after every poll.
+- `VmServiceClient.fetchRawTimelineEventsJson()` — non-clearing snapshot of the trace buffer, returning Chrome Trace Event Format JSON-encodable maps.
+- `CaptureHelper.recordIssue` + `CaptureHelper.composeIssueEvent` — shared format constants (`capture_event_constants.dart`) define the wire format `sleuth.issue.<stableId>.<severity>` instant events that `_recordIssuesForCapture` emits. The schema parser and emitter route through the same constants; the cross-check round-trip test pins emitter↔parser agreement.
+
+### Schema validation (`profile_capture_schema.dart`)
+
+- `validateBracket(...)` accepts `requireDetectorTraceRecord: true` + `stableId` + `severityLabel` + `atTolerance` parameters. The trace-record gate searches each capture for a `sleuth.issue.<stableId>.<severity>` instant event whose `ts` lies inside the scenario marker span; warning-tier audits reject `.critical` events and vice versa.
+- `schemaVersion: 'v1'` field required in `sleuthMetadata` when `requireDetectorTraceRecord: true`.
+- `above.observed > at.observed` invariant added — schema rejects semantically inverted triads (at/above bands can overlap when atTolerance is wide; the ordering invariant catches the inversion that bracket math alone misses).
+- Severity-scoped trace-record matching — single severity per call, no warning-OR-critical fallback.
+
+### Detector metadata (`detector_metadata.dart`)
+
+- `bracketStableId` + `bracketSeverityLabel` fields — required at `runtimeVerified` so the audit gate can search for the matching trace record.
+- `bracketAtTolerance` field — per-detector at-band relative tolerance. Defaults to schema's 0.10 when null.
+
+### Capture procedure tooling
+
+- `tool/wrap_capture.dart` — CLI for wrapping raw DevTools timeline JSON exports with `sleuthMetadata`. New flags: `--severity-boundary <ms>` (repeatable; refuses captures whose observed/BUILD pair straddles a detector severity threshold), `--force` (override safety checks). BUILD-event cross-check rejects observed/BUILD divergence beyond ±10%. Refuses to clobber existing output, refuses double-wrap, refuses `--input` == `--output`.
+- `example/lib/demos/network_monitor_capture_screen.dart` — drives the capture procedure end-to-end. Loopback HTTP server delivers deterministic delays (800 / 1020 / 1500 ms); operator taps a leg, scenario markers fire, request runs, 200 ms post-completion dwell lets `_recordIssuesForCapture` flush the trace event into the buffer inside the scenario span, then `markScenarioEnd` closes the span. Export button calls `Sleuth.exportCaptureJson` and copies the wrapped JSON to the iOS clipboard. Operator pastes into Notes / Mail / AirDrop note → sends to Mac.
+- `example/lib/main.dart` — `--dart-define=SLEUTH_CAPTURE_MODE=true` enables capture mode. `enableDebugCallbacks` and `enableDeepDebugInstrumentation` are gated off in capture mode so BUILD events arrive as sync `'X'` (with `dur`) instead of async `'b'/'e'` pairs.
+
+### NetworkMonitorDetector tier raise
+
+- `validationMetadata` flipped: `tier: runtimeVerified`, `bracketStableId: 'slow_request'`, `bracketSeverityLabel: 'warning'`, `bracketThreshold: 1000`, `bracketUnit: 'ms'`, `aboveCeilingMultiplier: 2.0` (above-ceiling 2000 ms stays clear of 3000 ms critical), `profileCapturePaths: [3 captures]`, `coveredThresholds: {'slow_request.warning'}`.
+- Three captures at `test/validation/captures/network_monitor/slow_request_{below,at,above}.json`: below 809 ms (sub-threshold, no detector emission), at 1024 ms (in `[1000, 1100]` at-band, 3 trace records inside scenario span), above 1503 ms (in `(1000, 2000]` warning band, 14 trace records inside scenario span).
+
+### Documentation
+
+- `doc/capture_procedure.md` — end-to-end capture procedure for v0.18.0+ runtimeVerified raises. Documents the USB-with-app-relaunch flow needed when DevTools holds the VM service subscription on first launch, the `200 ms post-completion dwell before markScenarioEnd` to land the issue trace event inside the scenario span, the iOS clipboard export, and the multi-leg state-contamination caveat (kill the app and start fresh between sessions if a leg failed or was retried).
+- `doc/validation_ledger.md` — distribution updated to 22/23 reproducerOnly + 1/23 runtimeVerified.
+
+### v0.18.1 hardening (committed)
+
+The current procedure for `runtimeVerified` raises is fragile in three ways. None corrupt the v0.18.0 evidence chain (the three captures verified-valid, audit gate passes, trace records are real detector emissions inside the scenario span), but they limit reproducibility for future captures and other detector raises. v0.18.1 will land:
+
+1. **`Sleuth.flushTimelineNow()` API** — synchronous VM Timeline poll + detector emit + return. Required for all future runtimeVerified raises so issue trace events land inside the scenario span deterministically rather than via the timing-dependent dwell.
+2. **Audit gate dedupe by `args.detectedAtMicros`** — `_recordIssuesForCapture` re-emits every current detector issue on every callback, so a single issue can produce dozens of trace events with identical `detectedAtMicros`. The audit gate will dedupe by that field and require ≥1 unique value created INSIDE the scenario span (proves issue was detected during the span, not just re-emitted there).
+3. **Per-leg detector state reset** — capture screens call `clearRecords()` on the relevant detector before each leg so stale state from prior recordings cannot leak into the next leg's trace.
+4. **Pre-commit / CI audit gate** — runs `validateBracket(... requireDetectorTraceRecord: true)` on every detector's `profileCapturePaths` automatically. Catches tree-state vs. claim drift (the kind of orchestration mistake where `profileCapturePaths` references files that don't actually contain v1-conformant content).
+5. **Multi-leg contamination warning** — capture procedure doc adds explicit "kill the app and start fresh from step 1 if a leg fails or is re-tapped" guidance.
+6. **Re-emission inflation guard** — `_recordIssuesForCapture` will dedupe by issue identity so the VM trace buffer doesn't fill linearly with span duration.
+
+Until v0.18.1 lands, **no other vmOnly detectors should raise to `runtimeVerified`** — HeavyCompute, ShaderJank, MemoryPressure, GpuPressure, and PlatformChannel all hit the polling-cadence emission-timing constraint that the dwell pattern only sidesteps for runtime-lifecycle detectors with naturally long scenario spans (NetworkMonitor's 1+ second HTTP requests). HeavyCompute deferred specifically — see "Deferred to v0.18.1+" section in `doc/capture_procedure.md`.
+
 ## 0.17.6
 
 **Tier-quality audit — hybrid batch (final 2 of 8).** Purpose-rewrote `RepaintDetector` and `RebuildDetector` with hermetic reproducers at `test/validation/{repaint,rebuild}_reproducer_test.dart`. Both detectors are hybrid — VM `processTimelineData` + DebugSnapshot per-widget + structural fallback. Reproducers exercise all paths in one file via cross-harness composition (`vm_reproducer_harness` + `structural_reproducer_harness` imported together; matchers re-exported via `show` so no symbol conflict). Tier unchanged (`reproducerOnly`); evidence strength improved for the final 2 of 8 v0.17.2-batch detectors. Stratum-1 coverage now 8/23 detectors, up from 6/23 at v0.17.5. The "reused unit-test suites" stratum is empty — every detector now either drives a parser/transport boundary, exercises a direct production entrypoint with disclosed skipped hops (MemoryPressure), or pumps a real widget tree (13 structural detectors). Tier-quality audit complete.

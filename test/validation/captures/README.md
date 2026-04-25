@@ -6,6 +6,20 @@ parsed and validated by `ProfileCaptureSchema` (see
 `lib/src/validation/profile_capture_schema.dart`); the audit gate rejects
 any capture that drifts from the schema.
 
+> **v0.18.0+ procedure**: see `doc/capture_procedure.md` for the
+> end-to-end flow that produces a triad accepted by
+> `ProfileCaptureSchema.validateBracket(... requireDetectorTraceRecord:
+> true)`. That doc walks the new requirements (`schemaVersion: "v1"`,
+> scenario markers via `Sleuth.markScenarioBegin/End`, detector trace
+> record inside the scenario span) and the `tool/wrap_capture.dart`
+> CLI that replaces the hand-wrap step described below.
+>
+> The rest of this README documents the v0.16.x procedure and remains
+> the source of truth for the `sleuthMetadata` schema shape, the
+> bracketing rule, and the dormant-gate path
+> (`requireDetectorTraceRecord: false`) that the NetworkMonitor orphan
+> captures still satisfy.
+
 > Hand-written fixtures for `ProfileCaptureSchema` unit tests live under
 > `_fixtures/` with their own provenance README. That directory is not a
 > place to drop real captures — those live here, at the directory root

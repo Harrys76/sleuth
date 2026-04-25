@@ -267,5 +267,261 @@ void main() {
       expect(result.stderr.toString(),
           contains('already contains a `sleuthMetadata` block'));
     });
+
+    // BUILD cross-check: when the captured timeline contains a BUILD
+    // event inside the scenario span, --magnitude-observed must agree
+    // with that event's `dur` within ±10 %. This is what protects the
+    // capture from Stopwatch-vs-BUILD skew on USB-tethered FRAME-mode
+    // recordings — the BUILD is the signal the detector classifies on.
+    Future<File> writeBuildFixture({required int buildDurUs}) async {
+      // BUILD spans the scenario; scenario markers fall inside it.
+      const scenarioBeginUs = 1001000;
+      const scenarioEndUs = 1009000;
+      final buildStartUs = scenarioBeginUs - 500;
+      final events = <Map<String, Object?>>[
+        {
+          'name': 'BUILD',
+          'cat': 'flutter',
+          'ph': 'X',
+          'ts': buildStartUs,
+          'dur': buildDurUs,
+          'pid': 1,
+          'tid': 1,
+        },
+        {
+          'name': 'sleuth.scenario.begin',
+          'cat': 'embedder',
+          'ph': 'i',
+          'ts': scenarioBeginUs,
+          'pid': 1,
+          'tid': 1,
+        },
+        {
+          'name': 'sleuth.scenario.end',
+          'cat': 'embedder',
+          'ph': 'i',
+          'ts': scenarioEndUs,
+          'pid': 1,
+          'tid': 1,
+        },
+        for (int i = 0; i < 10; i++)
+          {
+            'name': 'idle',
+            'cat': 'flutter',
+            'ph': 'X',
+            'ts': scenarioBeginUs + (i * 100),
+            'dur': 50,
+            'pid': 1,
+            'tid': 1,
+          },
+      ];
+      final f = File('${tempDir.path}/build_fixture.json');
+      f.writeAsStringSync(json.encode({'traceEvents': events}));
+      return f;
+    }
+
+    test('accepts when --magnitude-observed matches BUILD ms within ±10 %',
+        () async {
+      final input = await writeBuildFixture(buildDurUs: 10000);
+      final outputPath = '${tempDir.path}/wrapped_match.json';
+      final result = await Process.run('dart', [
+        'tool/wrap_capture.dart',
+        '--input',
+        input.path,
+        '--output',
+        outputPath,
+        '--scenario',
+        'BUILD-match',
+        '--magnitude-min',
+        '8',
+        '--magnitude-observed',
+        '10',
+        '--magnitude-max',
+        '12',
+        '--unit',
+        'ms',
+        '--device',
+        'iPhone 12',
+        '--device-os',
+        'iOS 17.5',
+        '--flutter-version',
+        '3.41.4',
+      ]);
+      expect(result.exitCode, 0,
+          reason: 'BUILD ms 10.0 should match observed 10 ±10%: '
+              'stderr=${result.stderr}');
+    });
+
+    test('rejects when --magnitude-observed disagrees with BUILD ms', () async {
+      final input = await writeBuildFixture(buildDurUs: 10000);
+      final outputPath = '${tempDir.path}/wrapped_skew.json';
+      final result = await Process.run('dart', [
+        'tool/wrap_capture.dart',
+        '--input', input.path,
+        '--output', outputPath,
+        '--scenario', 'BUILD-skew',
+        '--magnitude-min', '6',
+        '--magnitude-observed', '7', // BUILD is 10 ms; 30% drift
+        '--magnitude-max', '8',
+        '--unit', 'ms',
+        '--device', 'iPhone 12',
+        '--device-os', 'iOS 17.5',
+        '--flutter-version', '3.41.4',
+      ]);
+      expect(result.exitCode, isNot(0));
+      expect(result.stderr.toString(),
+          contains('BUILD-event duration inside the scenario span'));
+      expect(result.stderr.toString(), contains('--force'));
+    });
+
+    test('--force overrides BUILD cross-check', () async {
+      final input = await writeBuildFixture(buildDurUs: 10000);
+      final outputPath = '${tempDir.path}/wrapped_forced_skew.json';
+      final result = await Process.run('dart', [
+        'tool/wrap_capture.dart',
+        '--input',
+        input.path,
+        '--output',
+        outputPath,
+        '--scenario',
+        'BUILD-skew-force',
+        '--magnitude-min',
+        '6',
+        '--magnitude-observed',
+        '7',
+        '--magnitude-max',
+        '8',
+        '--unit',
+        'ms',
+        '--device',
+        'iPhone 12',
+        '--device-os',
+        'iOS 17.5',
+        '--flutter-version',
+        '3.41.4',
+        '--force',
+      ]);
+      expect(result.exitCode, 0,
+          reason: '--force must bypass BUILD-cross-check: '
+              'stderr=${result.stderr}');
+    });
+
+    // Severity-boundary cross-check. The ±10% BUILD tolerance is
+    // insufficient near hard severity thresholds (warning=8 ms,
+    // critical=16 ms for HeavyCompute). When the observed/BUILD pair
+    // straddles a boundary, the wrapped capture's claimed severity is
+    // ambiguous and must be rejected.
+    test('accepts when severity boundary not crossed', () async {
+      final input = await writeBuildFixture(buildDurUs: 10000);
+      final outputPath = '${tempDir.path}/wrapped_no_boundary_cross.json';
+      // BUILD=10ms, observed=10ms — both > 8 (warning boundary), both
+      // < 16 (critical boundary). Boundary list [8, 16] supplied.
+      final result = await Process.run('dart', [
+        'tool/wrap_capture.dart',
+        '--input',
+        input.path,
+        '--output',
+        outputPath,
+        '--scenario',
+        'no-boundary-cross',
+        '--magnitude-min',
+        '8',
+        '--magnitude-observed',
+        '10',
+        '--magnitude-max',
+        '12',
+        '--unit',
+        'ms',
+        '--device',
+        'iPhone 12',
+        '--device-os',
+        'iOS 17.5',
+        '--flutter-version',
+        '3.41.4',
+        '--severity-boundary',
+        '8',
+        '--severity-boundary',
+        '16',
+      ]);
+      expect(result.exitCode, 0,
+          reason: 'BUILD/observed both inside (8, 16) should accept: '
+              'stderr=${result.stderr}');
+    });
+
+    test('rejects when observed/BUILD pair straddles severity boundary',
+        () async {
+      // BUILD=16.5ms (would fire `.critical`), observed=15.5ms (would
+      // emit `.warning`). Within ±10% tolerance (delta 1.0 ≤ 1.55) so
+      // the BUILD cross-check passes — but they straddle the
+      // critical boundary at 16, so the severity-boundary check must
+      // refuse.
+      final input = await writeBuildFixture(buildDurUs: 16500);
+      final outputPath = '${tempDir.path}/wrapped_boundary_cross.json';
+      final result = await Process.run('dart', [
+        'tool/wrap_capture.dart',
+        '--input',
+        input.path,
+        '--output',
+        outputPath,
+        '--scenario',
+        'boundary-cross',
+        '--magnitude-min',
+        '14',
+        '--magnitude-observed',
+        '15.5',
+        '--magnitude-max',
+        '17',
+        '--unit',
+        'ms',
+        '--device',
+        'iPhone 12',
+        '--device-os',
+        'iOS 17.5',
+        '--flutter-version',
+        '3.41.4',
+        '--severity-boundary',
+        '8',
+        '--severity-boundary',
+        '16',
+      ]);
+      expect(result.exitCode, isNot(0));
+      expect(
+          result.stderr.toString(), contains('straddle severity boundary 16'));
+      expect(result.stderr.toString(), contains('--force'));
+    });
+
+    test('--force overrides severity-boundary check', () async {
+      final input = await writeBuildFixture(buildDurUs: 16500);
+      final outputPath = '${tempDir.path}/wrapped_boundary_forced.json';
+      final result = await Process.run('dart', [
+        'tool/wrap_capture.dart',
+        '--input',
+        input.path,
+        '--output',
+        outputPath,
+        '--scenario',
+        'boundary-cross-forced',
+        '--magnitude-min',
+        '14',
+        '--magnitude-observed',
+        '15.5',
+        '--magnitude-max',
+        '17',
+        '--unit',
+        'ms',
+        '--device',
+        'iPhone 12',
+        '--device-os',
+        'iOS 17.5',
+        '--flutter-version',
+        '3.41.4',
+        '--severity-boundary',
+        '16',
+        '--force',
+      ]);
+      expect(result.exitCode, 0,
+          reason: '--force must bypass severity-boundary check: '
+              'stderr=${result.stderr}');
+    });
   });
 }

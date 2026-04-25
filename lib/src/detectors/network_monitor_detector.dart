@@ -531,29 +531,44 @@ class NetworkMonitorDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
+        tier: EvidenceTier.runtimeVerified,
         rationale: 'Hermetic reproducer: direct `processRecord` boundary '
             'tests at 999/1000/2999/3000/3001 ms plus a loopback '
             '`HttpServer` exercising the full `SleuthHttpOverrides` → '
             '`_MonitoringHttpClient` → `RequestRecord` → `processRecord` '
-            'pipeline. Tier history: v0.16.1 → `reproducerOnly`; v0.16.4 '
-            'staged `externallyCited` raise REVERTED (above capture at '
-            '3117 ms ambiently bracketed both warning and critical tiers); '
-            'v0.16.5 second staged `externallyCited` raise REVERTED on '
-            'two grounds: (1) NN/g 1.0 s is a UI feedback guideline, not '
-            'a generic HTTP latency threshold; (2) profile captures '
-            'verify scenario marker span only, not detector emission. '
-            'v0.16.7 re-raise (hard deadline — orphan manifest '
-            '`consumeBy: \'0.16.7\'`): replace citation with a generic '
-            'HTTP latency source OR narrow the contract to user-blocking '
-            'requests; extend capture helper to emit '
-            '`sleuth.issue.slow_request.warning` trace record; extend '
-            '`ProfileCaptureSchema.validateBracket` to require it inside '
-            'the scenario window. Critical tier (3000 ms) stays '
-            '`reproducerOnly`. Other families (large_response, '
-            'request_frequency, http_error_spike, high_frequency_same_path) '
-            'implicitly unvalidated.',
+            'pipeline. v0.18.0 raises slow_request WARNING tier '
+            '(threshold 1000 ms) to runtimeVerified with three '
+            'profile-mode captures (iPhone 12 / iOS 17.5 / Flutter '
+            '3.41.x) recorded via the in-app capture procedure: app '
+            'launched in profile mode with --dart-define='
+            'SLEUTH_CAPTURE_MODE=true, then re-opened from home screen '
+            'so SleuthController.VmServiceClient claims the VM service '
+            'subscription (DevTools detached). The capture helper '
+            'screen drives a loopback HTTP request at 800/1020/1500 ms '
+            'delays, brackets the workload in '
+            '`Sleuth.markScenarioBegin/End` markers with a 200 ms '
+            'post-completion dwell so the detector\'s issue trace '
+            'event lands inside the scenario span, then exports the '
+            'wrapped JSON via the iOS clipboard. Critical tier '
+            '(3000 ms) stays reproducerOnly. Other families '
+            '(large_response, request_frequency, http_error_spike, '
+            'high_frequency_same_path) implicitly unvalidated.',
         reproducerPath: 'test/validation/network_monitor_reproducer_test.dart',
+        profileCapturePaths: [
+          'test/validation/captures/network_monitor/slow_request_below.json',
+          'test/validation/captures/network_monitor/slow_request_at.json',
+          'test/validation/captures/network_monitor/slow_request_above.json',
+        ],
+        bracketThreshold: 1000,
+        bracketUnit: 'ms',
+        bracketStableId: 'slow_request',
+        bracketSeverityLabel: 'warning',
+        // Default 2.0 → above-ceiling = 2000 ms, well below the 3000 ms
+        // critical threshold so the above-bracket capture cannot
+        // ambiently bracket the critical tier. Explicit declaration is
+        // required by the audit when `coveredThresholds` is set.
+        aboveCeilingMultiplier: 2.0,
         coveredStableIds: {'slow_request'},
+        coveredThresholds: {'slow_request.warning'},
       );
 }

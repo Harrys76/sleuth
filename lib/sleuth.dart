@@ -452,6 +452,67 @@ class Sleuth {
     Timeline.instantSync('sleuth.scenario.end', arguments: {'name': name});
   }
 
+  /// Composes a `runtimeVerified`-conformant capture JSON for the
+  /// most recent scenario whose `markScenarioBegin` / `markScenarioEnd`
+  /// markers are still in the VM timeline buffer. Used by capture
+  /// procedures where DevTools is unavailable (e.g. re-opened iOS
+  /// profile-mode build with no `flutter run` attached).
+  ///
+  /// Returns null when:
+  /// - Sleuth is not initialized.
+  /// - VM service is disconnected (FRAME mode).
+  /// - The scenario markers are missing from the VM trace buffer.
+  /// - The trace fetch fails for any other reason.
+  ///
+  /// The returned string is the full wrapped capture (Chrome Trace
+  /// `traceEvents` array filtered to the scenario span +
+  /// `sleuthMetadata` block) and can be written directly to a file
+  /// by the caller. The library does NOT do file I/O — example apps
+  /// or capture screens are expected to use `path_provider` (or
+  /// equivalent) to write the result somewhere the operator can
+  /// extract via Xcode device sandbox / `adb pull` / share sheet.
+  ///
+  /// Pre-conditions for an audit-conformant export:
+  /// - The detector pipeline must have fired its issue inside the
+  ///   scenario span — i.e. the VM service is connected and the
+  ///   detector observed its threshold-crossing input. Without that
+  ///   the wrapped capture lacks the required
+  ///   `sleuth.issue.<id>.<severity>` trace record and the schema
+  ///   audit will reject it as "Missing detector trace record."
+  /// - `SleuthConfig.captureMode` must be true so the VM service
+  ///   client retains the trace buffer between polls (otherwise
+  ///   scenario events get cleared before Export can read them).
+  static Future<String?> exportCaptureJson({
+    required String scenario,
+    required num magnitudeMin,
+    required num magnitudeObserved,
+    required num magnitudeMax,
+    required String unit,
+    required String device,
+    required String deviceOsVersion,
+    required String flutterVersion,
+    String? captureCommand,
+    String? captureNotes,
+    String? magnitudeSourceEventName,
+  }) async {
+    if (kReleaseMode) return null;
+    final c = _controller;
+    if (c == null) return null;
+    return c.exportCaptureJson(
+      scenario: scenario,
+      magnitudeMin: magnitudeMin,
+      magnitudeObserved: magnitudeObserved,
+      magnitudeMax: magnitudeMax,
+      magnitudeSourceEventName: magnitudeSourceEventName,
+      unit: unit,
+      device: device,
+      deviceOsVersion: deviceOsVersion,
+      flutterVersion: flutterVersion,
+      captureCommand: captureCommand,
+      captureNotes: captureNotes,
+    );
+  }
+
   /// Export session snapshot for comparison and sharing.
   /// Returns null in release mode, before [wrap], or after overlay disposal.
   static SessionSnapshot? exportSnapshot() => _controller?.exportSnapshot();

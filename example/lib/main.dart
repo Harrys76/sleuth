@@ -15,6 +15,7 @@ import 'demos/font_loading_demo.dart';
 import 'demos/fps_stress_test_demo.dart';
 import 'demos/global_key_demo.dart';
 import 'demos/gpu_pressure_demo.dart';
+import 'demos/heavy_compute_capture_screen.dart';
 import 'demos/heavy_compute_demo.dart';
 import 'demos/high_level_setstate_demo.dart';
 import 'demos/intrinsic_height_demo.dart';
@@ -35,10 +36,19 @@ import 'demos/uncached_image_demo.dart';
 
 void main() {
   Sleuth.init();
+  // Phase A v0.18.0a — capture mode is gated behind a dart-define so
+  // ordinary profile-mode runs see no extra Timeline.instantSync
+  // traffic. Flip it on for the runtimeVerified capture procedure:
+  //   fvm flutter run --profile --dart-define=SLEUTH_CAPTURE_MODE=true
+  // The HeavyCompute / NetworkMonitor capture screens rely on this to
+  // emit `sleuth.scenario.{begin,end}` and
+  // `sleuth.issue.<id>.<severity>` instant events.
+  const captureMode = bool.fromEnvironment('SLEUTH_CAPTURE_MODE');
   runApp(
     Sleuth.track(
       child: const SleuthDemoApp(),
       config: SleuthConfig(
+        captureMode: captureMode,
         aiChat: AiChatAdapter.openAi(
           apiKey: 'ollama', // Ollama ignores this but the field is required
           baseUrl: 'http://localhost:11434',
@@ -66,8 +76,21 @@ void main() {
         // Without either flag the detector has no data to evaluate,
         // so no rebuild issue of any kind will ever surface — including
         // the Rebuild Hotspot (Dashboard) demo.
-        enableDebugCallbacks: true,
-        enableDeepDebugInstrumentation: true,
+        //
+        // **Capture-mode caveat (v0.18.0)**: deep debug instrumentation
+        // flips Flutter's `debugProfileBuildsEnabledUserWidgets`, which
+        // switches BUILD timeline events from sync `X` (with `dur`) to
+        // async `b/e` (no `dur`). `TimelineParser._isBuild` only
+        // registers BUILD as `PhaseEvent` when `ph == 'X'`, so
+        // HeavyComputeDetector goes silent and the
+        // `sleuth.issue.heavy_compute.warning` trace record never
+        // emits — breaking the runtimeVerified capture triad. Disable
+        // deep instrumentation when captureMode is on so BUILD lands
+        // as `X` and the detector observes its work. Capture mode is
+        // a single-purpose run; rebuild-stats UI is not needed during
+        // the procedure.
+        enableDebugCallbacks: !captureMode,
+        enableDeepDebugInstrumentation: !captureMode,
         // Cookbook custom detectors — see example/lib/custom_detectors/.
         // All three are attached to the overlay so the Custom Detector
         // Cookbook demo can exercise them end-to-end.
@@ -159,6 +182,13 @@ class DemoHome extends StatelessWidget {
             subtitle: 'HeavyCompute • FrameTiming detectors',
             color: Colors.purple,
             builder: (_) => const HeavyComputeDemo(),
+          ),
+          _DemoRoute(
+            icon: Icons.videocam,
+            title: 'HeavyCompute Capture Helper (DEFERRED)',
+            subtitle: 'Deferred to v0.18.1+ — see doc/capture_procedure.md',
+            color: Colors.purple,
+            builder: (_) => const HeavyComputeCaptureScreen(),
           ),
         ],
       ),
@@ -293,8 +323,8 @@ class DemoHome extends StatelessWidget {
           ),
           _DemoRoute(
             icon: Icons.videocam,
-            title: 'NetworkMonitor Capture Helper',
-            subtitle: 'v0.16.4 slow_request bracket capture (profile mode)',
+            title: 'NetworkMonitor Capture Helper (v0.18.0)',
+            subtitle: 'slow_request runtimeVerified bracket capture',
             color: Colors.orange,
             builder: (_) => const NetworkMonitorCaptureScreen(),
           ),

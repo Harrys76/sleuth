@@ -32,3 +32,7 @@ migrate_working_dir/
 
 # FVM Version Cache
 .fvm/
+
+# Local workflow artifacts (per-developer, not shared)
+.advanced-adversarial-review/
+.local-tools/

@@ -870,6 +870,27 @@ class ProfileCaptureSchema {
           'provide ambient evidence for an adjacent higher-severity '
           'threshold. File: ${aboveFile.path}');
     }
+    // Monotonic-ordering invariant. With a wide `atTolerance` (e.g.
+    // 0.50 → at-band [threshold, threshold × 1.50]) and the schema's
+    // permissive above-band lower bound (just-above-threshold), an at
+    // capture can land numerically ABOVE an above capture even though
+    // each individually satisfies its own bracket — semantically
+    // inverted but otherwise schema-conformant. Reject the inversion
+    // explicitly. (The `below < at` half is already implied by
+    // `below < threshold ≤ at`, so the only non-trivial check is
+    // `above > at`.)
+    if (aboveObs <= atObs) {
+      throw FormatException(
+          'Bracket violation: $unit "above" observed ($aboveObs) must be '
+          'strictly greater than "at" observed ($atObs). The bracket '
+          'rule expects below < at < above magnitudes; an inverted '
+          'triad provides no ordering evidence about the threshold '
+          'even when each leg individually satisfies its constraint. '
+          'Re-record `above` with a larger magnitude (within the '
+          'above-ceiling) or `at` with a smaller magnitude (within '
+          'the at-band). Files: at=${atFile.path}, '
+          'above=${aboveFile.path}');
+    }
 
     if (requireDetectorTraceRecord) {
       // SchemaVersion gate. Captures recorded under v0.18.0+ declare

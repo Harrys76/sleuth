@@ -781,6 +781,38 @@ void main() {
               (e) => e.message, 'message', contains('Bracket violation'))));
     });
 
+    // Monotonic-ordering invariant: an "at" capture that is numerically
+    // larger than the "above" capture is rejected even when both legs
+    // individually satisfy their per-leg bracket constraints. Use a
+    // wider atTolerance (0.30 → at-band [1000, 1300]) so dormant_above
+    // (observed=1200) fits inside the at-band and dormant_at
+    // (observed=1050) fits inside the above-band — without the wider
+    // tolerance, swapping the fixtures would already trip the per-leg
+    // checks and we couldn't isolate the ordering violation.
+    test('inverted triad (at > above) is rejected by ordering invariant', () {
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: below,
+          atFile: above, // observed=1200, in [1000, 1300] with 0.30 tol
+          aboveFile: at, // observed=1050, > 1000 and ≤ 2000 ceiling
+          threshold: threshold,
+          unit: unit,
+          atTolerance: 0.30,
+        ),
+        throwsA(isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          allOf(
+            contains('Bracket violation'),
+            contains('"above" observed'),
+            contains('strictly greater than "at" observed'),
+            contains('1050'),
+            contains('1200'),
+          ),
+        )),
+      );
+    });
+
     test('missing bracket file surfaces the file path in the error', () {
       final ghost = File('$_fixtureDir/definitely_does_not_exist.json');
       expect(
@@ -1180,74 +1212,47 @@ void main() {
     });
   });
 
-  // -- Backwards-compat smoke for v0.18.0 schema extension --------------
+  // -- NetworkMonitor runtimeVerified live captures (v0.18.0) ----------
   //
-  // The schema extension adds `requireDetectorTraceRecord` (default
-  // false). NetworkMonitor's 3 retained-orphan captures
-  // (`test/validation/captures/network_monitor/*`) predate the
-  // trace-record contract and don't carry `sleuthMetadata.schemaVersion`.
-  // They should still parse cleanly when `requireDetectorTraceRecord:
-  // false` — preserves the dormant orphan claim that re-raises in a
-  // future release.
-  group('NetworkMonitor orphan backwards-compat (v0.18.0 schema extension)',
-      () {
-    test('orphan capture parses without trace-record requirement', () {
-      const orphanPath =
-          'test/validation/captures/network_monitor/slow_request_at.json';
-      final file = File(orphanPath);
-      expect(file.existsSync(), isTrue,
-          reason: 'orphan capture missing — expected at $orphanPath');
-      // Direct parse must succeed (no schemaVersion check at this gate).
-      expect(() => ProfileCaptureSchema.parseFile(file), returnsNormally);
+  // The three captures under `test/validation/captures/network_monitor/`
+  // back `NetworkMonitorDetector.slow_request` warning-tier
+  // `runtimeVerified` evidence. They were produced by the in-app
+  // capture procedure (`Sleuth.markScenarioBegin/End` +
+  // `Sleuth.exportCaptureJson`) on iPhone 12 / iOS 17.5 / Flutter
+  // 3.41.x, with the detector emitting
+  // `sleuth.issue.slow_request.warning` inside the scenario span via
+  // the real `_recordIssuesForCapture` pipeline.
+  group('NetworkMonitor runtimeVerified captures (v0.18.0)', () {
+    File capture(String role) => File(
+        'test/validation/captures/network_monitor/slow_request_$role.json');
+
+    test('all three captures parse cleanly', () {
+      for (final role in const ['below', 'at', 'above']) {
+        final file = capture(role);
+        expect(file.existsSync(), isTrue,
+            reason: 'capture missing — expected at ${file.path}');
+        expect(() => ProfileCaptureSchema.parseFile(file), returnsNormally,
+            reason: '$role capture failed parseFile');
+      }
     });
 
-    test('orphan triad validateBracket succeeds without trace-record gate', () {
-      // requireDetectorTraceRecord defaults false, so the orphan triad
-      // continues to validate even though it carries no trace records.
-      final below = File(
-          'test/validation/captures/network_monitor/slow_request_below.json');
-      final at =
-          File('test/validation/captures/network_monitor/slow_request_at.json');
-      final above = File(
-          'test/validation/captures/network_monitor/slow_request_above.json');
-      expect(
-          below.existsSync() && at.existsSync() && above.existsSync(), isTrue);
+    test('validateBracket succeeds with trace-record gate', () {
+      // The full runtimeVerified contract: schemaVersion: v1, scenario
+      // markers, and a `sleuth.issue.slow_request.warning` event inside
+      // the scenario span on at + above legs (below stays silent).
       expect(
         () => ProfileCaptureSchema.validateBracket(
-          belowFile: below,
-          atFile: at,
-          aboveFile: above,
-          threshold: 1000,
-          unit: 'ms',
-          // requireDetectorTraceRecord intentionally left default-false.
-        ),
-        returnsNormally,
-      );
-    });
-
-    test(
-        'orphan triad validateBracket FAILS when trace-record is required '
-        '(captures predate the contract)', () {
-      final below = File(
-          'test/validation/captures/network_monitor/slow_request_below.json');
-      final at =
-          File('test/validation/captures/network_monitor/slow_request_at.json');
-      final above = File(
-          'test/validation/captures/network_monitor/slow_request_above.json');
-      expect(
-        () => ProfileCaptureSchema.validateBracket(
-          belowFile: below,
-          atFile: at,
-          aboveFile: above,
+          belowFile: capture('below'),
+          atFile: capture('at'),
+          aboveFile: capture('above'),
           threshold: 1000,
           unit: 'ms',
           requireDetectorTraceRecord: true,
           stableId: 'slow_request',
           severityLabel: 'warning',
+          aboveCeilingMultiplier: 2.0,
         ),
-        throwsA(isA<FormatException>()),
-        reason: 'Orphan captures must be re-recorded under the v0.18.0 '
-            'procedure before being claimed by a runtimeVerified detector',
+        returnsNormally,
       );
     });
   });

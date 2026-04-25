@@ -30,6 +30,7 @@ class DetectorMetadata {
     this.parametricFamilies,
     this.coveredThresholds,
     this.aboveCeilingMultiplier,
+    this.bracketAtTolerance,
   });
 
   /// Strongest evidence tier that applies to this detector's numbers.
@@ -189,6 +190,28 @@ class DetectorMetadata {
   /// (e.g. a 1000 ms warning bracket whose `above` must stay under the
   /// 3000 ms critical to avoid dual-use evidence).
   final double? aboveCeilingMultiplier;
+
+  /// For [EvidenceTier.runtimeVerified] and above, the relative tolerance
+  /// applied to the `at` capture's observed magnitude when bracketing
+  /// the threshold. `ProfileCaptureSchema.validateBracket` accepts
+  /// `at.observed` in `[threshold, threshold × (1 + bracketAtTolerance)]`.
+  /// Defaults to 0.10 schema-side when null (a 10 % at-band).
+  ///
+  /// Widen for detectors whose magnitude is hard to land precisely on
+  /// device — HeavyCompute on iPhone exhibits ±60 % thermal/JIT drift
+  /// between calibration and the actual scenario run, so a 10 % band is
+  /// unreachable. Widening to 0.30 yields a [8, 10.4] ms at-band that
+  /// still proves "at threshold" semantics with realistic recording
+  /// noise. Tighten only when the magnitude is naturally stable
+  /// (network latency to a loopback server, fixed-size memory
+  /// allocations, etc.) — a wider band weakens the boundary claim.
+  ///
+  /// Must coexist with [aboveCeilingMultiplier]: the at-upper-bound
+  /// (`threshold × (1 + bracketAtTolerance)`) must remain strictly
+  /// below the above-ceiling (`threshold × aboveCeilingMultiplier`),
+  /// otherwise the at + above bands collapse and the triad is
+  /// unsatisfiable. The schema rejects this at call time.
+  final double? bracketAtTolerance;
 }
 
 /// Mixin that lets a detector declare its validation metadata.

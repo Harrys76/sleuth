@@ -31,6 +31,18 @@
 //                            output file. Without this flag, the tool
 //                            refuses to clobber to prevent accidental
 //                            destruction of a freshly captured trace.
+//                            Also overrides the BUILD-cross-check and
+//                            severity-boundary guards (use sparingly).
+//   --severity-boundary <n>  Optional, repeatable. Detector severity
+//                            threshold in the same unit as
+//                            --magnitude-observed (e.g. 8 and 16 for
+//                            HeavyCompute). When the BUILD ms and the
+//                            user-supplied --magnitude-observed straddle
+//                            ANY of these boundaries, the wrapper
+//                            refuses (a wrapped capture's emitted
+//                            severity could disagree with what the
+//                            detector would have classified on the
+//                            same magnitude). --force overrides.
 
 import 'dart:convert';
 import 'dart:io';
@@ -81,6 +93,70 @@ void main(List<String> args) {
             'the original raw file.');
     exit(2);
   }
+
+  // Cross-check user-supplied --magnitude-observed against the actual
+  // BUILD-event duration recorded inside the scenario span. Detectors
+  // (HeavyComputeDetector, FrameTimingDetector, …) classify on the
+  // BUILD event's `dur`, so the wrapped capture's expectedMagnitude
+  // must reflect THAT signal, not a Stopwatch proxy that wraps a
+  // narrower part of the build phase. Mismatches between the two
+  // produce silently-misclassified captures whose audit-gate trace
+  // record can disagree with what the detector would have emitted on
+  // the same data.
+  //
+  // Skip the check when no BUILD event exists in the scenario span
+  // (older captures, FRAME-mode runs without scenario markers, etc.)
+  // — the schema and audit gate will catch those at validation time.
+  final events = rawJson['traceEvents'] as List;
+  final buildMs = _findScenarioBuildMs(events);
+  if (buildMs != null) {
+    final delta = (buildMs - parsed.magnitudeObserved).abs();
+    final tolerance = parsed.magnitudeObserved * 0.10;
+    if (delta > tolerance && !parsed.force) {
+      stderr.writeln('BUILD-event duration inside the scenario span '
+          '(${buildMs.toStringAsFixed(2)} ms) disagrees with '
+          '--magnitude-observed (${parsed.magnitudeObserved}) by '
+          '${delta.toStringAsFixed(2)} ms — outside ±10 % tolerance. '
+          'The detector classifies on the BUILD event; the wrapped '
+          'capture\'s observed magnitude should match. Either re-record '
+          'with the correct iteration count, pass --magnitude-observed '
+          '${buildMs.toStringAsFixed(1)}, or pass --force to override '
+          '(NOT recommended: the trace record\'s severity may not match '
+          'what the schema audit will accept).');
+      exit(2);
+    }
+    // Severity-boundary check. The ±10% BUILD tolerance is too loose
+    // near hard severity thresholds: e.g. observed=15.0 + BUILD=16.4
+    // passes the percentage check (delta=1.4 ≤ 1.5 tolerance) but the
+    // detector would classify BUILD>16 as `.critical` while a synthetic
+    // record from observed=15 is `.warning`. Refuse when the
+    // observed/BUILD pair straddles ANY user-supplied severity
+    // boundary — the wrapped capture's severity claim can't be
+    // trusted across that boundary regardless of percentage delta.
+    if (!parsed.force) {
+      final lo = buildMs < parsed.magnitudeObserved
+          ? buildMs
+          : parsed.magnitudeObserved.toDouble();
+      final hi = buildMs > parsed.magnitudeObserved
+          ? buildMs
+          : parsed.magnitudeObserved.toDouble();
+      for (final boundary in parsed.severityBoundaries) {
+        if (lo < boundary && boundary <= hi) {
+          stderr.writeln(
+              'BUILD-event duration (${buildMs.toStringAsFixed(2)} ms) and '
+              '--magnitude-observed (${parsed.magnitudeObserved}) straddle '
+              'severity boundary $boundary ${parsed.unit}. '
+              'A capture whose observed/BUILD pair crosses a detector '
+              'severity threshold cannot reliably claim a single '
+              'severity tier — re-record so both magnitudes fall on the '
+              'same side of every boundary, or pass --force to override '
+              '(NOT recommended).');
+          exit(2);
+        }
+      }
+    }
+  }
+
   final wrapped = <String, Object?>{
     ...rawJson,
     'sleuthMetadata': <String, Object?>{
@@ -116,6 +192,109 @@ void main(List<String> args) {
 // the same string as --input" footgun.
 String _canonicalPath(String raw) => File(raw).absolute.path;
 
+// Returns the maximum BUILD-event duration (ms) observed inside the
+// `sleuth.scenario.begin` / `sleuth.scenario.end` span, or null when
+// no scenario span / BUILD event exists. Used to cross-check the
+// user-supplied --magnitude-observed against the signal the detector
+// would actually classify on.
+//
+// Accepts both Chrome-native `ph: 'X'` complete events (Flutter
+// emits these for buildScope when deep instrumentation is OFF) and
+// the synthetic-discarded `ph: 'b'/'e'` async pairs (deep
+// instrumentation ON — captures used for `runtimeVerified` should
+// have it OFF, but parse both forms defensively).
+double? _findScenarioBuildMs(List events) {
+  int? scenarioBeginTs;
+  int? scenarioEndTs;
+  for (final event in events) {
+    if (event is! Map) continue;
+    final name = event['name'];
+    final ph = event['ph'];
+    final ts = event['ts'];
+    if (ts is! num) continue;
+    if (name == 'sleuth.scenario.begin' &&
+        (ph == 'i' || ph == 'I' || ph == 'n')) {
+      scenarioBeginTs = ts.toInt();
+    } else if (name == 'sleuth.scenario.end' &&
+        (ph == 'i' || ph == 'I' || ph == 'n')) {
+      scenarioEndTs = ts.toInt();
+    }
+  }
+  if (scenarioBeginTs == null || scenarioEndTs == null) return null;
+  if (scenarioEndTs <= scenarioBeginTs) return null;
+
+  // Sync `ph: 'X'` BUILD events have ts (start) and dur (microseconds).
+  // The event is "inside the span" if its [ts, ts+dur] interval
+  // overlaps [scenarioBeginTs, scenarioEndTs] — but for the
+  // detector-relevant case the BUILD that runs the workload starts
+  // at-or-before the scenario.begin (the markScenario call is inside
+  // build()) and ends at-or-after scenario.end. We accept any BUILD
+  // whose ts falls in the span OR whose [ts, ts+dur] interval contains
+  // the span entirely.
+  var maxBuildDurUs = 0;
+  for (final event in events) {
+    if (event is! Map) continue;
+    if (event['name'] != 'BUILD') continue;
+    final ph = event['ph'];
+    final ts = event['ts'];
+    if (ts is! num) continue;
+    if (ph == 'X') {
+      final dur = event['dur'];
+      if (dur is! num) continue;
+      final tsInt = ts.toInt();
+      final durInt = dur.toInt();
+      final tsEnd = tsInt + durInt;
+      final inSpan = (tsInt >= scenarioBeginTs && tsInt <= scenarioEndTs) ||
+          (tsEnd >= scenarioBeginTs && tsEnd <= scenarioEndTs) ||
+          (tsInt <= scenarioBeginTs && tsEnd >= scenarioEndTs);
+      if (inSpan && durInt > maxBuildDurUs) maxBuildDurUs = durInt;
+    }
+  }
+  // Async `ph: 'b'/'e'` BUILD pairs — match by `id` / `id2.local` and
+  // compute dur from the timestamp delta. Only used when no `ph: 'X'`
+  // BUILD was found above, since the schema's preferred format is X.
+  if (maxBuildDurUs == 0) {
+    final asyncStarts = <String, int>{};
+    for (final event in events) {
+      if (event is! Map) continue;
+      if (event['name'] != 'BUILD') continue;
+      final ph = event['ph'];
+      final ts = event['ts'];
+      if (ts is! num) continue;
+      final id = _eventCorrelationKey(event);
+      if (id == null) continue;
+      if (ph == 'b') {
+        asyncStarts[id] = ts.toInt();
+      } else if (ph == 'e') {
+        final start = asyncStarts.remove(id);
+        if (start == null) continue;
+        final tsInt = ts.toInt();
+        final durUs = tsInt - start;
+        if (durUs <= 0) continue;
+        final inSpan = (start >= scenarioBeginTs && start <= scenarioEndTs) ||
+            (tsInt >= scenarioBeginTs && tsInt <= scenarioEndTs) ||
+            (start <= scenarioBeginTs && tsInt >= scenarioEndTs);
+        if (inSpan && durUs > maxBuildDurUs) maxBuildDurUs = durUs;
+      }
+    }
+  }
+  if (maxBuildDurUs == 0) return null;
+  return maxBuildDurUs / 1000.0;
+}
+
+String? _eventCorrelationKey(Map event) {
+  final id = event['id'];
+  if (id is String) return id;
+  final id2 = event['id2'];
+  if (id2 is Map) {
+    final local = id2['local'];
+    if (local is String) return local;
+    final global = id2['global'];
+    if (global is String) return global;
+  }
+  return null;
+}
+
 class _Args {
   _Args({
     required this.input,
@@ -129,6 +308,7 @@ class _Args {
     required this.deviceOs,
     required this.flutterVersion,
     required this.force,
+    required this.severityBoundaries,
     this.captureCommand,
     this.captureNotes,
   });
@@ -143,6 +323,7 @@ class _Args {
   final String deviceOs;
   final String flutterVersion;
   final bool force;
+  final List<num> severityBoundaries;
   final String? captureCommand;
   final String? captureNotes;
 }
@@ -159,6 +340,7 @@ _Args _parseArgs(List<String> args) {
       captureNotes;
   num? magnitudeMin, magnitudeObserved, magnitudeMax;
   var force = false;
+  final severityBoundaries = <num>[];
   for (var i = 0; i < args.length; i++) {
     final flag = args[i];
     // Boolean flags consume no value.
@@ -202,6 +384,8 @@ _Args _parseArgs(List<String> args) {
         captureCommand = value;
       case '--capture-notes':
         captureNotes = value;
+      case '--severity-boundary':
+        severityBoundaries.add(num.parse(value));
       default:
         stderr.writeln('Unknown flag: $flag');
         _printUsage();
@@ -237,6 +421,7 @@ _Args _parseArgs(List<String> args) {
     deviceOs: deviceOs!,
     flutterVersion: flutterVersion!,
     force: force,
+    severityBoundaries: List.unmodifiable(severityBoundaries),
     captureCommand: captureCommand,
     captureNotes: captureNotes,
   );

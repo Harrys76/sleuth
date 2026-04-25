@@ -45,7 +45,21 @@ class VmServiceClient {
     this.onExtensionEvent,
     this.onConnectionChanged,
     this.onStartupTimelineEvents,
+    this.retainTimeline = false,
   });
+
+  /// When true, the polling loop does NOT call `clearVMTimeline` after
+  /// each cycle, so raw events accumulate in the VM-side trace buffer
+  /// and remain available to [fetchRawTimelineEventsJson]. Used by
+  /// capture procedures so a later Export call can still see the
+  /// scenario-span events; production sessions leave this false to
+  /// keep the trace buffer bounded.
+  ///
+  /// The VM has its own ring-buffer cap (Dart trace buffer default
+  /// ~5 MB). Long capture sessions still risk silent drop of the
+  /// oldest events; capture screens should call Export within ~30 s
+  /// of `markScenarioEnd`.
+  final bool retainTimeline;
 
   final TimelineDataCallback? onTimelineData;
   final VmEventCallback? onGcEvent;
@@ -342,6 +356,35 @@ class VmServiceClient {
   @visibleForTesting
   Future<void> pollTimelineForTest() => _pollTimeline();
 
+  /// Snapshots the current VM timeline buffer and returns the events
+  /// as raw Chrome Trace Event JSON-encodable maps WITHOUT clearing
+  /// the buffer. Used by the capture-export path so the same events
+  /// can still be processed by the polling loop.
+  ///
+  /// Returns an empty list when the service is disconnected or no
+  /// events are available. Each entry is the same JSON shape Chrome's
+  /// trace-event format uses (`{ph, ts, name, dur, args, ...}`),
+  /// suitable for direct emission into a `traceEvents` array.
+  ///
+  /// Caller is responsible for filtering to a scenario span — the
+  /// returned list contains every event the VM has buffered since the
+  /// last clear (or since service connection if [retainTimeline]).
+  Future<List<Map<String, dynamic>>> fetchRawTimelineEventsJson() async {
+    final service = _service;
+    if (service == null || _disposed || !_connected) return const [];
+    try {
+      final timeline = await service.getVMTimeline();
+      final events = timeline.traceEvents;
+      if (events == null) return const [];
+      return [
+        for (final e in events)
+          if (e.json != null) Map<String, dynamic>.from(e.json!),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<void> _pollTimeline() async {
     if (_service == null || _disposed) return;
 
@@ -364,8 +407,11 @@ class VmServiceClient {
           onTimelineData?.call(parsed);
         }
       }
-      // Clear the timeline buffer to avoid re-processing
-      await _service!.clearVMTimeline();
+      // Clear the timeline buffer to avoid re-processing — unless
+      // capture mode wants the events retained for a later Export.
+      if (!retainTimeline) {
+        await _service!.clearVMTimeline();
+      }
 
       // Poll heap memory (piggybacked on timeline poll, near-zero cost)
       if (_mainIsolateId != null && onHeapSample != null) {

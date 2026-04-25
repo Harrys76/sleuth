@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 
 import 'package:flutter/cupertino.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart';
@@ -534,13 +535,17 @@ class SleuthController {
     // frames while the (potentially slow) VM connection is in progress.
     _frameTiming.start();
 
-    // Connect to VM service
+    // Connect to VM service. Retain the trace buffer when capture
+    // mode is on so a later `exportCaptureJson` call can still see
+    // scenario-span events that the polling loop has already
+    // processed; production sessions clear after every poll.
     final client = VmServiceClient(
       onTimelineData: _onTimelineData,
       onGcEvent: _onGcEvent,
       onHeapSample: _onHeapSample,
       onConnectionChanged: _onVmConnectionChanged,
       onStartupTimelineEvents: _onStartupTimelineEvents,
+      retainTimeline: config.captureMode,
     );
     _vmClient = client;
 
@@ -1226,6 +1231,178 @@ class SleuthController {
 
   /// Export session snapshot as a formatted JSON string.
   String exportSnapshotJson() => exportSnapshot().toJsonString();
+
+  /// Composes a `runtimeVerified`-conformant capture JSON for a
+  /// scenario whose markers are already in the VM timeline buffer.
+  ///
+  /// Used by capture procedures where DevTools is unavailable (e.g.
+  /// re-opened iOS profile-mode build with no `flutter run`
+  /// attached). The returned string is the full wrapped capture
+  /// (Chrome Trace `traceEvents` array + `sleuthMetadata`) and can
+  /// be written directly to a file by the caller (the library does
+  /// not reach into `path_provider`).
+  ///
+  /// Pre-conditions:
+  /// - VM service must be connected ([isVmConnected] true) —
+  ///   otherwise the timeline buffer is unreachable and the method
+  ///   returns null.
+  /// - `markScenarioBegin` and `markScenarioEnd` must have been
+  ///   called for the scenario whose name is supplied; the method
+  ///   finds the most recent matching pair.
+  /// - The detector pipeline must have fired its issue (real
+  ///   `_recordIssuesForCapture` emission inside the scenario
+  ///   span); without that the audit gate will reject the wrapped
+  ///   capture as "Missing detector trace record."
+  ///
+  /// Returns null when VM service is disconnected, the scenario
+  /// markers are missing from the buffer, or the timeline fetch
+  /// fails. Caller is responsible for surfacing the error to the
+  /// operator.
+  Future<String?> exportCaptureJson({
+    required String scenario,
+    required num magnitudeMin,
+    required num magnitudeObserved,
+    required num magnitudeMax,
+    required String unit,
+    required String device,
+    required String deviceOsVersion,
+    required String flutterVersion,
+    String? captureCommand,
+    String? captureNotes,
+    String? magnitudeSourceEventName,
+  }) async {
+    final client = _vmClient;
+    if (client == null || !client.isConnected) return null;
+    final events = await client.fetchRawTimelineEventsJson();
+    if (events.isEmpty) return null;
+    // Locate scenario.begin / scenario.end pair MATCHING the requested
+    // `scenario` name. The buffer may contain multiple legs (Below /
+    // At / Above) recorded back-to-back; without a name match, the
+    // wrapper would silently grab whichever pair happened to be the
+    // numerically latest, then stamp it with the caller-supplied
+    // scenario string. That is silent leg-mislabeling.
+    //
+    // `markScenarioBegin/End` write the scenario name as `args.name`,
+    // so we filter on that. Pair the latest begin with the earliest
+    // following end so a partial recording (begin without end) does
+    // not shadow a complete earlier pair.
+    int? beginTs;
+    int? endTs;
+    final candidates = <(int, String)>[];
+    for (final e in events) {
+      final ph = e['ph'];
+      final name = e['name'];
+      final ts = e['ts'];
+      if (ts is! num) continue;
+      if (ph != 'i' && ph != 'I' && ph != 'n') continue;
+      if (name != 'sleuth.scenario.begin' && name != 'sleuth.scenario.end') {
+        continue;
+      }
+      final args = e['args'];
+      String? markerName;
+      if (args is Map) {
+        final raw = args['name'];
+        if (raw is String) markerName = raw;
+        // traceconv wraps Dart args under 'Dart Arguments' on some
+        // export paths; check both shapes defensively.
+        final dartArgs = args['Dart Arguments'];
+        if (markerName == null && dartArgs is Map) {
+          final inner = dartArgs['name'];
+          if (inner is String) markerName = inner;
+        }
+      }
+      if (markerName != scenario) continue;
+      candidates.add((ts.toInt(), name as String));
+    }
+    candidates.sort((a, b) => a.$1.compareTo(b.$1));
+    for (final c in candidates) {
+      final t = c.$1;
+      final n = c.$2;
+      if (n == 'sleuth.scenario.begin') {
+        beginTs = t;
+        endTs = null;
+      } else if (n == 'sleuth.scenario.end' && beginTs != null) {
+        endTs = t;
+      }
+    }
+    if (beginTs == null || endTs == null) return null;
+    final spanLo = beginTs;
+    final spanHi = endTs;
+    // Filter to scenario span. Include events whose [ts, ts+dur]
+    // interval overlaps the span so the BUILD that wraps the
+    // workload (which starts before scenario.begin because the
+    // marker fires INSIDE build()) is preserved.
+    final filtered = <Map<String, dynamic>>[];
+    for (final e in events) {
+      final ts = e['ts'];
+      if (ts is! num) {
+        // Metadata events without ts — keep (process_name, etc.).
+        filtered.add(e);
+        continue;
+      }
+      final tsInt = ts.toInt();
+      final durRaw = e['dur'];
+      final tsEnd = (durRaw is num) ? tsInt + durRaw.toInt() : tsInt;
+      final inSpan = (tsInt >= spanLo && tsInt <= spanHi) ||
+          (tsEnd >= spanLo && tsEnd <= spanHi) ||
+          (tsInt <= spanLo && tsEnd >= spanHi);
+      if (inSpan) filtered.add(e);
+    }
+    // Derive observed magnitude from a real timeline event when one
+    // exists inside the scenario span. This eliminates the
+    // Stopwatch-vs-detector-signal divergence: callers pass an
+    // approximate `magnitudeObserved` from their own measurement
+    // (Stopwatch around the inner loop), but the wrapped capture's
+    // `expectedMagnitude.observed` should reflect the same signal the
+    // detector classifies on. For HeavyCompute / FrameTiming-style
+    // detectors that's BUILD `dur`. For NetworkMonitor and other
+    // non-BUILD detectors, callers either omit
+    // `magnitudeSourceEventName` (use caller-supplied value) or pass
+    // a different event name whose `dur` is the right signal.
+    var derivedObserved = magnitudeObserved;
+    final sourceEventName = magnitudeSourceEventName ?? 'BUILD';
+    var maxDurUs = 0;
+    if (magnitudeSourceEventName == null ||
+        magnitudeSourceEventName.isNotEmpty) {
+      for (final e in filtered) {
+        if (e['name'] != sourceEventName) continue;
+        if (e['ph'] != 'X') continue;
+        final dur = e['dur'];
+        if (dur is! num) continue;
+        if (dur.toInt() > maxDurUs) maxDurUs = dur.toInt();
+      }
+      if (maxDurUs > 0) {
+        // Convert microseconds to ms for the standard schema unit.
+        final derivedMs = maxDurUs / 1000.0;
+        // Only override when the caller-supplied unit is 'ms'. Other
+        // units (bytes, frames, count) require a different derivation
+        // path the caller must own.
+        if (unit == 'ms') derivedObserved = derivedMs;
+      }
+    }
+
+    final wrapped = <String, dynamic>{
+      'traceEvents': filtered,
+      'sleuthMetadata': <String, dynamic>{
+        'schemaVersion': 'v1',
+        'device': device,
+        'deviceOsVersion': deviceOsVersion,
+        'flutterVersion': flutterVersion,
+        'captureCommand':
+            captureCommand ?? 'fvm flutter run --profile -d <$device>',
+        'scenario': scenario,
+        'expectedMagnitude': <String, dynamic>{
+          'min': magnitudeMin,
+          'observed': derivedObserved,
+          'max': magnitudeMax,
+          'unit': unit,
+        },
+        'captureDate': DateTime.now().toUtc().toIso8601String(),
+        if (captureNotes != null) 'captureNotes': captureNotes,
+      },
+    };
+    return const JsonEncoder.withIndent('  ').convert(wrapped);
+  }
 
   /// Export a human-readable markdown summary suitable for pasting into
   /// Slack, a PR description, or a bug report.

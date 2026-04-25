@@ -291,6 +291,7 @@ void main() {
               bracketThreshold: meta.bracketThreshold,
               bracketUnit: meta.bracketUnit,
               aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+              bracketAtTolerance: meta.bracketAtTolerance,
               bracketStableId: meta.bracketStableId,
               bracketSeverityLabel: meta.bracketSeverityLabel,
               requireTraceRecord: true,
@@ -329,6 +330,7 @@ void main() {
               bracketThreshold: meta.bracketThreshold,
               bracketUnit: meta.bracketUnit,
               aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+              bracketAtTolerance: meta.bracketAtTolerance,
               bracketStableId: meta.bracketStableId,
               bracketSeverityLabel: meta.bracketSeverityLabel,
               requireTraceRecord: true,
@@ -522,24 +524,40 @@ void main() {
           reason: 'NetworkMonitorDetector should be registered by default.');
       expect(nm, isA<DetectorMetadataProvider>());
       final meta = (nm as DetectorMetadataProvider).validationMetadata;
-      expect(meta.tier, EvidenceTier.reproducerOnly,
-          reason: 'v0.16.5 shipped at reproducerOnly — second staged '
-              'externallyCited raise reverted on NN/g semantic mismatch '
-              '+ capture-proves-helper-not-detector grounds.');
+      expect(meta.tier, EvidenceTier.runtimeVerified,
+          reason: 'v0.18.0 raises slow_request warning to runtimeVerified '
+              'with three on-device captures (iPhone 12 / iOS 17.5 / '
+              'Flutter 3.41.x) recorded via the in-app capture procedure '
+              '— `Sleuth.markScenarioBegin/End` brackets the loopback '
+              'HTTP request, the detector emits '
+              '`sleuth.issue.slow_request.warning` inside the scenario '
+              'span via the real `_recordIssuesForCapture` pipeline, '
+              '`Sleuth.exportCaptureJson` wraps the trace and copies it '
+              'to the iOS clipboard for export. Critical tier (3000 ms) '
+              'stays reproducerOnly.');
       expect(meta.reproducerPath,
           equals('test/validation/network_monitor_reproducer_test.dart'));
       expect(meta.citationUrl, isNull,
-          reason: 'No external citation at reproducerOnly tier.');
-      expect(meta.profileCapturePaths, isNull,
-          reason: 'profileCapturePaths is first-class on externallyCited / '
-              'runtimeVerified only — the three capture files on disk are '
-              'retained orphans for v0.16.7 re-raise reuse, tracked in the '
-              'orphan manifest below, not live metadata.');
-      expect(meta.bracketThreshold, isNull);
-      expect(meta.bracketUnit, isNull);
-      expect(meta.coveredThresholds, isNull,
-          reason: 'No severity-scoped claim at reproducerOnly.');
-      expect(meta.aboveCeilingMultiplier, isNull);
+          reason: 'runtimeVerified does not require an external citation; '
+              'evidence is the captured detector behaviour itself.');
+      expect(
+          meta.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/network_monitor/slow_request_below.json',
+            'test/validation/captures/network_monitor/slow_request_at.json',
+            'test/validation/captures/network_monitor/slow_request_above.json',
+          ]),
+          reason: 'Three on-device captures back the runtimeVerified raise.');
+      expect(meta.bracketThreshold, equals(1000));
+      expect(meta.bracketUnit, equals('ms'));
+      expect(meta.bracketStableId, equals('slow_request'));
+      expect(meta.bracketSeverityLabel, equals('warning'));
+      expect(meta.coveredThresholds, equals(const {'slow_request.warning'}),
+          reason: 'Severity-scoped to warning; critical stays reproducerOnly.');
+      expect(meta.aboveCeilingMultiplier, equals(2.0),
+          reason: 'Above bracket sits in (1000, 2000] which is well below '
+              'the 3000 ms critical threshold; explicit declaration '
+              'required by the severity-scoped-coveredThresholds invariant.');
       expect(meta.parametricFamilies, isNull,
           reason: 'NetworkMonitor does not declare parametric families.');
       expect(meta.coveredStableIds, equals(const {'slow_request'}),
@@ -1148,92 +1166,17 @@ void main() {
     // allowlist into the matching detector/component's
     // `profileCapturePaths` in the same PR — the list never grows
     // unbounded.
-    // Typed manifest replaces the freeform `Map<String, String>`
-    // allowlist. Each entry pins device / OS / Flutter / unit /
-    // observed band / consumeBy release / owning claim so the audit
-    // can parse every file on disk and cross-check it against the
-    // manifest, and so expired entries (consumeBy release reached)
-    // fail automatically rather than sitting dormant indefinitely.
-    // v0.16.5 second `externallyCited` raise REVERTED on (a) NN/g 1.0 s
-    // is a UI feedback guideline, not a generic HTTP latency threshold
-    // and (b) profile captures verify scenario marker span only, not
-    // detector emission. Detector metadata nulled `profileCapturePaths`
-    // in the revert, so all three captures become orphans on disk.
-    // Retained — not deleted — because the v0.16.7 re-raise reuses the
-    // on-device recording (re-recording across the Flutter 3.41.4 pin
-    // + iPhone 12 exception is expensive without reason). Manifest
-    // cross-check enforces device / OS / Flutter / unit / observed band.
     //
-    // Extension cap policy: orphan `consumeBy` may extend at most TWICE
-    // before deletion is forced. Original v0.16.5 → v0.16.7 → v0.18.0
-    // (first extension, deferred when v0.16.6 shipped FrameTiming /
-    // ListView raises instead). Now v0.18.0 → v0.19.0 (second
-    // extension, deferred because v0.18.0 ships HeavyCompute as the
-    // first runtimeVerified raise + the capture-helper / schema
-    // infrastructure that NetworkMonitor needs, but the citation
-    // blocker (NN/g rejection) for NetworkMonitor itself remains
-    // unresolved). If v0.19.0 also cannot consume the orphans, they
-    // MUST be deleted from disk and the manifest entries dropped —
-    // perpetual extension is a code smell that defeats the
-    // expired-entry audit.
-    const retainedOrphans = <String, RetainedOrphanEntry>{
-      'test/validation/captures/network_monitor/slow_request_below.json':
-          RetainedOrphanEntry(
-        role: 'below',
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterMajorMinor: '3.41',
-        unit: 'ms',
-        observedMin: 720,
-        observedMax: 900,
-        consumeBy: '0.19.0',
-        owningClaim:
-            'NetworkMonitorDetector.slow_request.warning externallyCited '
-            're-raise (v0.16.7)',
-        rationale: 'Below bracket (812 ms) captured on iPhone 12 / iOS 17.5 / '
-            'Flutter 3.41.4 via the example app NetworkMonitor Capture '
-            'Helper screen. Retained from v0.16.5 revert; v0.16.6 shipped '
-            'FrameTiming + ListView tier raises instead and deferred the '
-            'NetworkMonitor re-raise — wiring now slated for v0.16.7 once '
-            'citation + detector-emission gate blockers are resolved.',
-      ),
-      'test/validation/captures/network_monitor/slow_request_at.json':
-          RetainedOrphanEntry(
-        role: 'at',
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterMajorMinor: '3.41',
-        unit: 'ms',
-        observedMin: 1000,
-        observedMax: 1100,
-        consumeBy: '0.19.0',
-        owningClaim:
-            'NetworkMonitorDetector.slow_request.warning externallyCited '
-            're-raise (v0.16.7)',
-        rationale: 'At bracket (1035 ms, within ±10% of 1000 ms threshold) '
-            'captured on iPhone 12 / iOS 17.5 / Flutter 3.41.4. Retained '
-            'from v0.16.5 revert; v0.16.6 deferred the re-raise so '
-            'reuse shifts to v0.16.7.',
-      ),
-      'test/validation/captures/network_monitor/slow_request_above.json':
-          RetainedOrphanEntry(
-        role: 'above',
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterMajorMinor: '3.41',
-        unit: 'ms',
-        observedMin: 1450,
-        observedMax: 1800,
-        consumeBy: '0.19.0',
-        owningClaim:
-            'NetworkMonitorDetector.slow_request.warning externallyCited '
-            're-raise (v0.16.7)',
-        rationale: 'Above bracket (1515 ms) within `[1000, 2000)` band so the '
-            '`aboveCeilingMultiplier: 2.0` ceiling fires dormantly until '
-            'v0.16.7 wires the raise. Retained from v0.16.5 revert; '
-            'v0.16.6 deferred the re-raise.',
-      ),
-    };
+    // v0.18.0 consumed the prior NetworkMonitor orphans
+    // (slow_request_below.json / slow_request_at.json /
+    // slow_request_above.json) when NetworkMonitorDetector flipped to
+    // `runtimeVerified` for the slow_request warning tier. The three
+    // captures are now referenced by `profileCapturePaths` and exit
+    // the orphan manifest as a result. Empty manifest is intentional;
+    // the audit still walks `test/validation/captures/` and rejects
+    // any committed `.json` that is neither referenced by live
+    // metadata nor allowlisted here.
+    const retainedOrphans = <String, RetainedOrphanEntry>{};
 
     test('no unreferenced captures on disk', () {
       if (!File('pubspec.yaml').existsSync()) {

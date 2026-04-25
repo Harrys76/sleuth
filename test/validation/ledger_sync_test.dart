@@ -157,18 +157,18 @@ void main() {
 
     test(
         'pinned detector-row assertion — NetworkMonitorDetector is on '
-        'the ledger at reproducerOnly (v0.16.5)', () {
+        'the ledger at runtimeVerified (v0.18.0)', () {
       // AB-9: The tier-counts test above is coarse — it proves "N
-      // detectors are at reproducerOnly" but cannot catch a ledger
+      // detectors are at runtimeVerified" but cannot catch a ledger
       // edit that swaps which specific detector holds a given tier
       // without changing the count. Pin the specific row so a silent
       // swap fails loudly.
       //
       // Tier history: v0.16.1 reproducerOnly → v0.16.4 reproducerOnly
       // (externallyCited staged + reverted in same release) → v0.16.5
-      // reproducerOnly (second externallyCited staged + reverted after
-      // advanced-adversarial-review caught NN/g semantic mismatch and
-      // capture-proves-helper-not-detector blockers).
+      // reproducerOnly (second externallyCited staged + reverted) →
+      // v0.18.0 runtimeVerified (slow_request warning tier; three
+      // on-device captures via the in-app capture procedure).
       final ledgerFile = File('doc/validation_ledger.md');
       if (!ledgerFile.existsSync()) {
         markTestSkipped('CWD is not the package root; skipping.');
@@ -181,17 +181,16 @@ void main() {
       final detectorSection =
           source.substring(startOfDetectors, endOfDetectors);
 
-      // Ledger row format is `| Network Monitor | `reproducerOnly` | ...`.
+      // Ledger row format is `| Network Monitor | `runtimeVerified` | ...`.
       // The regex anchors on a table row and the tier cell so a
       // cosmetic rename of the "Notes" column does not false-fail.
       final pinnedRow = RegExp(
-        r'\|\s*Network Monitor\s*\|\s*`reproducerOnly`\s*\|',
+        r'\|\s*Network Monitor\s*\|\s*`runtimeVerified`\s*\|',
       );
       expect(pinnedRow.hasMatch(detectorSection), isTrue,
           reason: 'Ledger must carry a pinned row `| Network Monitor | '
-              '`reproducerOnly` | ...` — a silent tier raise or an '
-              'unreviewed tier swap would otherwise pass the tier-count '
-              'gate.');
+              '`runtimeVerified` | ...` — a silent tier swap would '
+              'otherwise pass the tier-count gate.');
     });
 
     // AB-7: the detector-side gates slice out everything under
