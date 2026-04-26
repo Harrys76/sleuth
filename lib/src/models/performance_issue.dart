@@ -79,6 +79,7 @@ class PerformanceIssue {
     this.interactionContext,
     this.debugModeDisclaimer = false,
     this.detectedAt,
+    this.dedupIdentityMicros,
     this.ancestorChain,
     this.fixEffort,
     this.topAllocators,
@@ -133,8 +134,22 @@ class PerformanceIssue {
   /// Whether this issue's accuracy is reduced in debug mode.
   final bool debugModeDisclaimer;
 
-  /// Wall-clock time when the issue was first detected.
+  /// Wall-clock time when the issue was first detected. Used for
+  /// user-facing displays and snapshot exports.
   final DateTime? detectedAt;
+
+  /// Stable per-source-event identifier (microseconds) for capture-mode
+  /// dedup. Distinct from [detectedAt] which carries wall-clock
+  /// semantics. Detectors observing VM Timeline events derive this
+  /// from `event.timestampUs` (monotonic since system boot — NOT epoch
+  /// micros). When null, capture-mode dedup falls back to
+  /// `detectedAt.microsecondsSinceEpoch`.
+  ///
+  /// Separating dedup identity from wall-clock prevents the v0.18.2
+  /// regression where exporting `detectedAt.toIso8601String()` would
+  /// ship 1970-era timestamps for any detector that overloaded
+  /// detectedAt with monotonic VM time.
+  final int? dedupIdentityMicros;
 
   /// Widget ancestor chain providing source-location context.
   final String? ancestorChain;

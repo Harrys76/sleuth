@@ -185,8 +185,9 @@ class DemoHome extends StatelessWidget {
           ),
           _DemoRoute(
             icon: Icons.videocam,
-            title: 'HeavyCompute Capture Helper (DEFERRED)',
-            subtitle: 'Deferred to v0.18.1+ — see doc/capture_procedure.md',
+            title: 'HeavyCompute Capture Helper',
+            subtitle:
+                'Sleuth.markScenarioBegin/End + flushTimelineNow • runtimeVerified',
             color: Colors.purple,
             builder: (_) => const HeavyComputeCaptureScreen(),
           ),

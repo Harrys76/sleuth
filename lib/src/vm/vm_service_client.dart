@@ -358,10 +358,19 @@ class VmServiceClient {
   /// guarantees that any pending detector emissions have landed before
   /// the awaiter proceeds.
   ///
+  /// **Barrier semantics**: when invoked while a periodic poll is
+  /// already in flight, this call AWAITS the in-flight poll AND THEN
+  /// runs a guaranteed fresh poll cycle before returning. This is
+  /// stronger than the periodic timer's own re-entry guard (which just
+  /// returns immediately on overlap) — capture-flow callers
+  /// (`Sleuth.flushTimelineNow`) need the barrier so the trace event
+  /// for any BUILD that finished AFTER the periodic poll's snapshot
+  /// lands inside the scenario span before `markScenarioEnd`.
+  ///
   /// Used by both test code (deterministic poll) AND the public capture
   /// flow (`Sleuth.flushTimelineNow`). Do NOT remove or rename without
   /// updating both consumers.
-  Future<void> pollTimelineSync() => _pollTimeline();
+  Future<void> pollTimelineSync() => _pollTimeline(forceFresh: true);
 
   /// Deprecated alias retained for one release so existing test code
   /// keeps compiling. New callers must use [pollTimelineSync].
@@ -397,20 +406,30 @@ class VmServiceClient {
     }
   }
 
-  /// Re-entry guard for [_pollTimeline]. The periodic timer
-  /// AND `pollTimelineSync` (driven by `Sleuth.flushTimelineNow`) both
-  /// invoke `_pollTimeline`, so without this flag a capture-flow flush
-  /// landing within the ~50–200 ms `getVMTimeline()` round-trip of the
-  /// periodic poll runs the body twice — wasted VM round-trip, plus a
-  /// `clearVMTimeline()` race outside capture mode that could drop
-  /// events one call cleared before the other call's processing
-  /// finished.
-  bool _pollInFlight = false;
+  /// Tracks the in-flight `_pollTimeline()` call (if any) so concurrent
+  /// callers can either short-circuit (periodic timer — re-entry guard)
+  /// or wait + force a guaranteed-fresh poll (capture-flow
+  /// `pollTimelineSync` — barrier semantics).
+  ///
+  /// Periodic-timer overlap (the original v0.18.1 use case) returns
+  /// immediately to avoid wasted VM round-trips and `clearVMTimeline()`
+  /// races. Capture-flow flush MUST guarantee a fresh observation of
+  /// any BUILD that finished after the in-flight snapshot — otherwise
+  /// the issue trace event lands outside the scenario span.
+  Completer<void>? _pollInFlightCompleter;
 
-  Future<void> _pollTimeline() async {
-    if (_pollInFlight) return;
+  Future<void> _pollTimeline({bool forceFresh = false}) async {
+    if (_pollInFlightCompleter != null) {
+      if (!forceFresh) return;
+      // Capture-flow barrier: wait for the in-flight poll to finish,
+      // then fall through to run a fresh one. The in-flight poll's
+      // snapshot may pre-date the BUILD we want to observe; the fresh
+      // poll guarantees we see post-snapshot events before returning.
+      await _pollInFlightCompleter!.future;
+    }
     if (_service == null || _disposed) return;
-    _pollInFlight = true;
+    final completer = Completer<void>();
+    _pollInFlightCompleter = completer;
     try {
       final timeline = await _service!.getVMTimeline();
       final events = timeline.traceEvents;
@@ -467,7 +486,8 @@ class VmServiceClient {
         unawaited(reconnect());
       }
     } finally {
-      _pollInFlight = false;
+      _pollInFlightCompleter = null;
+      completer.complete();
     }
   }
 

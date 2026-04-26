@@ -113,7 +113,14 @@ void main() {
       expect(data.phaseEvents, isEmpty);
     });
 
-    test('Begin/End events do not produce PhaseEvents', () {
+    test('Begin/End BUILD pairs reconstruct PhaseEvents (iOS profile mode)',
+        () {
+      // iOS profile-mode emits BUILD as B/E pairs instead of `ph: 'X'`
+      // complete events. The parser must reconstruct
+      // `dur = E.ts - B.ts` and feed buildScopes / phaseEvents so that
+      // HeavyComputeDetector + downstream consumers observe BUILDs on
+      // iOS captures the same way they observe X-form BUILDs on
+      // Android / desktop.
       final beginEvent = TimelineEvent.parse({
         'name': 'BUILD',
         'cat': '',
@@ -133,10 +140,34 @@ void main() {
 
       final data = TimelineParser.parse([beginEvent, endEvent]);
 
-      // Build count incremented
+      // Build count incremented (B-side bumps the counter).
       expect(data.buildEventCount, 1);
-      // But no PhaseEvents (only X events produce them)
-      expect(data.phaseEvents, isEmpty);
+      // Reconstructed dur = 4000 - 1000 = 3000us in both buildScopes
+      // and phaseEvents.
+      expect(data.buildScopeDurations, [3000]);
+      expect(data.phaseEvents, hasLength(1));
+      expect(data.phaseEvents.first.phase, TimelinePhase.build);
+      expect(data.phaseEvents.first.durationUs, 3000);
+      expect(data.phaseEvents.first.timestampUs, 1000);
+    });
+
+    test('Begin/End BUILD pairs across threads do not cross-contaminate', () {
+      // Per-tid stack: B on tid 1 must pair with E on tid 1, NOT with
+      // an interleaved E on tid 2. Without per-thread tracking, two
+      // concurrent BUILDs would mismatch and reconstruct wrong durs.
+      final events = [
+        TimelineEvent.parse(
+            {'name': 'BUILD', 'ph': 'B', 'ts': 1000, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse(
+            {'name': 'BUILD', 'ph': 'B', 'ts': 1500, 'tid': 2, 'pid': 1})!,
+        TimelineEvent.parse(
+            {'name': 'BUILD', 'ph': 'E', 'ts': 2000, 'tid': 2, 'pid': 1})!,
+        TimelineEvent.parse(
+            {'name': 'BUILD', 'ph': 'E', 'ts': 5000, 'tid': 1, 'pid': 1})!,
+      ];
+      final data = TimelineParser.parse(events);
+      // tid 1: 5000 - 1000 = 4000us. tid 2: 2000 - 1500 = 500us.
+      expect(data.buildScopeDurations.toSet(), {4000, 500});
     });
 
     test('phaseEvents defaults to empty list', () {

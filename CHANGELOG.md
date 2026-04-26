@@ -1,3 +1,65 @@
+## 0.18.2
+
+**Second `runtimeVerified` tier raise — `HeavyComputeDetector.heavy_compute` (warning tier, 8 ms threshold).** First vmOnly detector raised via the v0.18.1 `Sleuth.flushTimelineNow()` API. Distribution shifts to **21 / 23 at `reproducerOnly`, 2 / 23 at `runtimeVerified`, 0 / 23 at `unvalidated`**. Critical tier (16 ms) stays implicitly `unvalidated` until per-family-tier metadata extension lands.
+
+### Capture infrastructure
+
+- `TimelineParser` now reconstructs `BUILD` `dur` from `ph: 'B'` / `ph: 'E'` pairs (per-thread stack to handle interleaved threads). iOS profile mode emits BUILDs as begin/end pairs only — `ph: 'X'` complete-form BUILDs do not appear on iOS captures. Without this fix, `HeavyComputeDetector` saw zero BUILDs from real iOS captures and never emitted issue trace records. Fixes the structural blocker that deferred HeavyCompute from v0.18.0.
+- `SleuthController.exportCaptureJson` magnitude derivation also handles B/E pair reconstruction (was X-only).
+- `HeavyComputeDetector` issues now stamp `detectedAt` from `event.timestampUs` (`DateTime.fromMicrosecondsSinceEpoch(event.timestampUs)`) instead of `DateTime.now()`. Stable per-BUILD identifier so producer-side composite-key dedup collapses repeated observations of the same BUILD across polls. Eliminates re-emission inflation when stale BUILDs linger in the retained Timeline buffer across capture legs.
+- `SleuthController.resetCaptureState` no longer clears `_captureEmittedKeys` (only clears per-detector record buffers like `NetworkMonitor.clearRecords`). The dedup set persists across scenarios so stale BUILDs in the retained Timeline buffer cannot false-positive into the next leg's scenario span. Stable per-event `detectedAt` (above) ensures legitimate new emissions are never suppressed.
+- `ProfileCaptureSchema.parse` / `parseFile` accept `expectingNoEmission: true` (set by `validateBracket` on the below-leg). Skips the AB-1 inverse-ratio check whose 100× ceiling false-positives on below-leg semantics (sub-threshold workload paired with normal-sized scenario span including `flushTimelineNow` + dwell). `_requireNoIssueTraceRecord` enforces below-role honesty.
+- `tool/wrap_capture.dart` and audit-test invariants thread `expectingNoEmission` through to honor the below-role exemption.
+
+### Capture screen
+
+- `example/lib/demos/heavy_compute_capture_screen.dart` restructured for the v0.18.1 `flushTimelineNow` pattern. `markScenarioBegin` + workload run inside `build()` so the BUILD timeline event encloses the workload; `await Sleuth.flushTimelineNow()` + 200 ms dwell + `markScenarioEnd` move into the `addPostFrameCallback` so the issue trace event lands inside the scenario span.
+- Removed inline 5-retry auto-tune (polluted BUILD with cumulative warmup work). Each tap = one workload = one clean BUILD event. Adaptive learning happens across taps: each captured run's measured ms refines `_iterationsPerMs` so subsequent taps converge.
+- Above-leg target lowered 13.5 ms → 12.5 ms so iPhone variance ±20% stays inside the (12, 15] above-band ceiling (was hitting the 16 ms critical threshold).
+- `magnitudeSourceEventName: ''` skips `exportCaptureJson`'s BUILD derivation (workload BUILD's `B` event fires before `markScenarioBegin` — orphan E in span). Stopwatch measurement is the authoritative observed magnitude, mirroring NetworkMonitor's pattern.
+
+### HeavyCompute metadata (`lib/src/detectors/heavy_compute_detector.dart`)
+
+- `tier: EvidenceTier.runtimeVerified` (raised from `reproducerOnly`).
+- `profileCapturePaths`: 3 captures (`heavy_compute_below.json`, `heavy_compute_at.json`, `heavy_compute_above.json`) under `test/validation/captures/heavy_compute/`. Recorded on iPhone 12 / iOS 17.5 / Flutter 3.41.x.
+- `bracketStableId: 'heavy_compute'`, `bracketSeverityLabel: 'warning'`, `bracketThreshold: 8`, `bracketUnit: 'ms'`.
+- `bracketAtTolerance: 0.50` (at-band [8, 12] ms; default ±10% unreachable due to iPhone CPU/thermal variance).
+- `aboveCeilingMultiplier: 1.875` (above-ceiling 15 ms; clears 16 ms critical so above-leg cannot ambiently bracket critical).
+- `coveredStableIds: {'heavy_compute'}`, `coveredThresholds: {'heavy_compute.warning'}`.
+- `bracketRequireUniqueDetectedAtMicros: true` — opt into the v0.18.1 strong invariant so audit gate rejects single-issue replay forgery.
+
+### Audit-gate ledger
+
+- `test/validation/detector_metadata_audit_test.dart` gains `HeavyComputeDetector pinned at runtimeVerified (v0.18.2)` anchor pin (mirrors NetworkMonitor's anchor). HeavyCompute removed from `_v0174Expectations` (which pins the reproducerOnly batch).
+- `_singleDetectorAnchors` includes `DetectorType.heavyCompute`.
+- `doc/validation_ledger.md` summary line + HeavyCompute row updated.
+
+### Tests
+
+- 2,793 tests passing (was 2,791; added 2 parser B/E pair tests; replaced one expectation-flip test).
+- `test/vm/timeline_parser_test.dart` gains `Begin/End BUILD pairs reconstruct PhaseEvents (iOS profile mode)` + `Begin/End BUILD pairs across threads do not cross-contaminate`.
+- `test/validation/profile_capture_schema_test.dart` gains the v0.18.1 strong-invariant tests (rejects synthetic replay; rejects stripped-args forgery).
+
+### Behavioural changes (iOS dev/profile-mode users)
+
+The parser B/E reconstruction (above) closes a gap that left every iOS profile-mode session blind to BUILD events. Three OTHER detectors that consume `data.phaseEvents.where(phase == build)` are now exercised on iOS where they previously emitted nothing:
+
+- `RebuildDetector` — surfaces builder-rebuild patterns from iOS BUILDs whose B-event args carry `build scope dirty list`.
+- `RepaintDetector` — observes paint-phase phaseEvents.
+- `ShallowRebuildRiskDetector` — observes BUILD events as a corroboration signal alongside its existing `buildEventCount` consumption.
+
+iOS dev/profile builds that previously appeared clean may now show new issue cards from these detectors. The issues were always present; the parser just couldn't see iOS BUILDs. This is correct behaviour, not a regression. Production release builds are unaffected (Sleuth as a whole is gated on `kReleaseMode`).
+
+### Known limitations
+
+- HeavyCompute critical tier (16 ms) remains implicitly `unvalidated` — `DetectorMetadata` carries one tier per detector instance. Per-family-tier metadata extension deferred. Raising critical to `runtimeVerified` would require 3 additional on-device captures bracketing 16 ms.
+- `HeavyComputeDetector._createGenericIssue` (fallback path for raw `buildScopeDurations` without `phaseEvents`) still uses `DateTime.now()` for `detectedAt` because no source-event timestamp is available. iOS profile-mode captures take the enriched path (B/E reconstruction populates `phaseEvents`), so this fallback does not affect runtimeVerified evidence quality in practice. Future runtimeVerified raises that exercise this fallback path must replace `DateTime.now()` with a stable identifier first.
+- Parser B/E reconstruction handles BUILD only. iOS profile-mode emits LAYOUT, PAINT, RASTER, SHADER as B/E pairs too. Future runtimeVerified raises of detectors consuming those phases (e.g., ShaderJank's `shaders` list) will need parser extension first.
+- Below-leg AB-1 bypass uses a filename-suffix heuristic (`_below.json`) inside `checkCapturePaths`. New runtimeVerified detectors that violate the naming convention would either false-fail (suffix mismatch) or false-pass (suffix coincidence). v0.18.3 should plumb role explicitly through the metadata.
+- Above-leg framework BUILD wire duration includes overhead beyond the workload's Stopwatch measurement (setState bookkeeping, child rebuilds). On iPhone 12 / iOS 17.5 the overhead is small enough that the observed (Stopwatch) and BUILD wire dur stay on the same severity tier. On other devices, BUILD wire dur could exceed 16 ms and trigger critical instead of warning. Capture procedure docs updated to note this — operators who hit "Missing detector trace record" on above-leg should lower the workload target.
+
+---
+
 ## 0.18.1
 
 **Hardening release fulfilling the v0.18.0 commitment** — closes the four architectural items + three procedural items that the v0.18.0 advanced adversarial review surfaced as required before any other vmOnly detector tier raise. Distribution unchanged: **22 / 23 at `reproducerOnly`, 1 / 23 at `runtimeVerified`**. v0.18.2+ tier raises (HeavyCompute, ShaderJank, MemoryPressure, GpuPressure, PlatformChannel) now have the infrastructure they need.

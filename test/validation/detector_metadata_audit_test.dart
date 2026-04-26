@@ -145,11 +145,11 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
     {'shader_compilation'},
     null,
   ),
-  DetectorType.heavyCompute: (
-    'test/validation/heavy_compute_reproducer_test.dart',
-    {'heavy_compute'},
-    null,
-  ),
+  // HeavyCompute removed from this anchor block in v0.18.2 — raised
+  // from `reproducerOnly` to `runtimeVerified` (warning tier, 8 ms
+  // threshold). See the dedicated "HeavyComputeDetector pinned at
+  // runtimeVerified (v0.18.2)" anchor below for the replacement
+  // tier-pin assertions.
   DetectorType.platformChannel: (
     'test/validation/platform_channel_reproducer_test.dart',
     {'platform_channel_traffic'},
@@ -194,6 +194,7 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
 const _singleDetectorAnchors = <DetectorType>{
   DetectorType.networkMonitor,
   DetectorType.frameTiming,
+  DetectorType.heavyCompute,
 };
 
 void main() {
@@ -636,6 +637,60 @@ void main() {
                 'mismatch means the externally-cited bracket claims a '
                 'different threshold than the detector actually uses.');
       }
+    });
+
+    test('HeavyComputeDetector pinned at runtimeVerified (v0.18.2)', () {
+      // Anti-tautology anchor for the v0.18.2 raise. HeavyCompute moved
+      // from `reproducerOnly` to `runtimeVerified` (warning tier, 8 ms
+      // threshold) backed by three on-device captures (iPhone 12 /
+      // iOS 17.5 / Flutter 3.41.x) recorded under v0.18.1+ producer-
+      // side dedup with stable per-BUILD `detectedAt` derived from
+      // `event.timestampUs`. Critical tier (16 ms) stays implicitly
+      // unvalidated until per-family-tier metadata extension lands.
+      final BaseDetector? hc = controller.detectorsForAudit
+          .where((d) => d.type == DetectorType.heavyCompute)
+          .cast<BaseDetector?>()
+          .firstWhere((_) => true, orElse: () => null);
+      expect(hc, isNotNull,
+          reason: 'HeavyComputeDetector should be registered by default.');
+      expect(hc, isA<DetectorMetadataProvider>());
+      final meta = (hc as DetectorMetadataProvider).validationMetadata;
+      expect(meta.tier, EvidenceTier.runtimeVerified,
+          reason: 'v0.18.2 raises heavy_compute warning to runtimeVerified '
+              'with three on-device captures backing the bracket. '
+              'flushTimelineNow drives synchronous detector emission '
+              'inside the scenario span.');
+      expect(meta.reproducerPath,
+          equals('test/validation/heavy_compute_reproducer_test.dart'));
+      expect(meta.citationUrl, isNull,
+          reason: 'runtimeVerified does not require an external citation; '
+              'evidence is the captured detector behaviour itself.');
+      expect(
+          meta.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/heavy_compute/heavy_compute_below.json',
+            'test/validation/captures/heavy_compute/heavy_compute_at.json',
+            'test/validation/captures/heavy_compute/heavy_compute_above.json',
+          ]),
+          reason: 'Three on-device captures back the runtimeVerified raise.');
+      expect(meta.bracketThreshold, equals(8));
+      expect(meta.bracketUnit, equals('ms'));
+      expect(meta.bracketStableId, equals('heavy_compute'));
+      expect(meta.bracketSeverityLabel, equals('warning'));
+      expect(meta.bracketAtTolerance, equals(0.50),
+          reason: 'iPhone CPU/thermal variance widens default ±10% band '
+              'unreachable; ±50% gives at-band [8, 12] ms.');
+      expect(meta.aboveCeilingMultiplier, equals(1.875),
+          reason: 'Above-ceiling 15 ms (1.875 × 8) clears the 16 ms '
+              'critical threshold so above-leg cannot ambiently bracket '
+              'critical.');
+      expect(meta.coveredThresholds, equals(const {'heavy_compute.warning'}),
+          reason: 'Severity-scoped to warning; critical (16 ms) stays '
+              'implicitly unvalidated.');
+      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue,
+          reason: 'Captures recorded under v0.18.1+ producer dedup with '
+              'stable per-BUILD detectedAt; opt into the strong invariant '
+              'so audit gate rejects single-issue replay forgery.');
     });
 
     test('FrameTimingDetector pinned at reproducerOnly (v0.16.6)', () {

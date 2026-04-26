@@ -122,7 +122,13 @@ const _warningThresholdMs = 8;
 // below capture as "Unexpected detector trace record". Aim well under.
 const _belowTargetMs = 3.0;
 const _atTargetMs = 10.0;
-const _aboveTargetMs = 13.5;
+// Above target sits in the lower half of the (12, 15] above-band so
+// iPhone variance (±15-20% post-warmup) does not push the captured
+// magnitude past the 15 ms above-ceiling. 12.5 ms target ± 20% =
+// [10.0, 15.0]: low end re-enters at-band (operator retries), high
+// end exactly hits ceiling. Tighter than 13.5 ms which had only 1 ms
+// clearance and OOB'd consistently on iPhone 12.
+const _aboveTargetMs = 12.5;
 
 // Calibration warmup. Big enough that the resulting iterations-per-ms
 // rate is stable, small enough that the screen open delay is invisible.
@@ -241,7 +247,10 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
     try {
       json = await Sleuth.exportCaptureJson(
         scenario: 'heavy_compute_${leg.label}',
-        magnitudeMin: (measured - 1.0).clamp(0.0, double.infinity),
+        // Schema requires expectedMagnitude.min strictly positive
+        // (rejects 0.0). Clamp to a small positive epsilon for the
+        // below-leg whose `measured` may be < 1.0 ms.
+        magnitudeMin: (measured - 1.0).clamp(0.001, double.infinity),
         magnitudeObserved: measured,
         magnitudeMax: measured + 1.0,
         unit: 'ms',
@@ -251,6 +260,17 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
         captureCommand:
             'fvm flutter run --profile -d "iPhone 12" '
             '--dart-define=SLEUTH_CAPTURE_MODE=true',
+        // Skip BUILD-derivation. The workload BUILD's `ph: 'B'` event
+        // fires at frame-start (BEFORE markScenarioBegin emits inside
+        // build()), so it gets filtered out of the wrapped capture
+        // span — leaving an orphan `ph: 'E'` whose paired B isn't in
+        // the JSON. exportCaptureJson's reconstruction would then
+        // pick up some tiny system-BUILD (~200 µs) and override the
+        // operator's Stopwatch measurement with a wrong value. Pass
+        // empty string so derivation is bypassed and `measured`
+        // (Stopwatch around _heavyCompute) is the authoritative
+        // observed magnitude — same workaround NetworkMonitor uses.
+        magnitudeSourceEventName: '',
       );
     } catch (e) {
       json = null;
@@ -317,31 +337,24 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
     final pending = _pendingLeg;
     if (pending != null) {
       _pendingLeg = null;
-      // Auto-tune iteration count BEFORE entering the scenario span.
-      // Single-shot calibration is unreliable on iPhone (JIT phase +
-      // thermal scaling produce ±60% drift between calibration and
-      // scenario runs). Iterate up to 5 times with rate updated from
-      // the prior run's measurement; converges within 2-3 retries.
-      // Auto-tune passes happen OUTSIDE the scenario span, so the
-      // captured span encloses only the final converged run.
-      var rate = _iterationsPerMs ?? _calibrationIterations.toDouble();
-      var iterations = (rate * pending.targetMs).round();
-      var preMeasuredMs = 0.0;
-      final lower = pending.targetMs * 0.92;
-      final upper = pending.targetMs * 1.08;
-      for (var retry = 0; retry < 5; retry++) {
-        final tuneSw = Stopwatch()..start();
-        _heavyCompute(iterations);
-        tuneSw.stop();
-        preMeasuredMs = tuneSw.elapsedMicroseconds / 1000.0;
-        if (preMeasuredMs >= lower && preMeasuredMs <= upper) break;
-        // Update rate from observed throughput, recompute iterations.
-        if (preMeasuredMs > 0) {
-          rate = iterations / preMeasuredMs;
-          iterations = (rate * pending.targetMs).round();
-        }
-      }
-      _iterationsPerMs = rate;
+      // ONE workload per build callback. Earlier versions ran a 5-retry
+      // auto-tune loop INSIDE this build, but that polluted the BUILD
+      // timeline event with ~50 ms of cumulative warmup work and the
+      // captured run consistently drifted past the target band on
+      // iPhone 12 (thermal accumulation pushed observed ms +20-40 %
+      // above the auto-tune's last sampled rate).
+      //
+      // Adaptive learning happens ACROSS taps instead: each captured
+      // run's measured ms updates `_iterationsPerMs` (in the postFrame
+      // callback below) so the NEXT tap uses a refined rate. Operator
+      // typically retries 2-3 times per leg before landing in-band on
+      // a cold CPU; once warm, the rate stabilises.
+      final rate = _iterationsPerMs ?? _calibrationIterations.toDouble();
+      final iterations = (rate * pending.targetMs).round();
+      // markScenarioBegin emits the scenario.begin trace marker AND
+      // (since v0.18.1) auto-resets the producer-side dedup set. Must
+      // happen before the workload so the BUILD event the detector
+      // observes lands inside the scenario span.
       Sleuth.markScenarioBegin('heavy_compute_${pending.label}');
       final sw = Stopwatch()..start();
       _heavyCompute(iterations);
@@ -358,9 +371,14 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       // — the schema audit will reject it as "Missing detector
       // trace record." That is the correct behavior; there is no
       // longer a synthetic-emission fallback.
-      Sleuth.markScenarioEnd('heavy_compute_${pending.label}');
-      // Post-frame: report + dwell so the VM Timeline drains the
-      // scenario-end marker before DevTools export.
+      //
+      // Sequencing note (v0.18.2): markScenarioEnd is deferred to the
+      // postFrame callback below so it lands AFTER the BUILD event
+      // finalizes AND after `await Sleuth.flushTimelineNow()` drives
+      // the synchronous detector emission. Calling markScenarioEnd
+      // here (inside build) would close the scenario span before the
+      // BUILD event ends, putting the issue trace event outside the
+      // span and failing the audit gate.
       // Capture the messenger BEFORE any async gaps so the lint
       // (use_build_context_synchronously) is satisfied — and so a
       // build that disposes the screen mid-dwell doesn't leak a stale
@@ -370,11 +388,39 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       // (NOT the auto-tune ±8% target band — those are the ranges
       // that actually satisfy `ProfileCaptureSchema.validateBracket`):
       //   below:  ms < 8 (sub-threshold guard)
-      //   at:     8 <= ms <= 8.8 (default at-band, atTolerance=0.10)
-      //   above:  8 < ms <= 15 (warning band; aboveCeilingMultiplier=1.875)
+      //   at:     8 <= ms <= 12 (atTolerance=0.50 → [8, 12])
+      //   above:  12 < ms <= 15 (above-ceiling 1.875 × 8 = 15)
       final inBand = pending.isMsInBand(measuredMs);
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
+        // Drive the synchronous VM-poll + detector emission so the
+        // `sleuth.issue.heavy_compute.<severity>` trace event lands
+        // BEFORE markScenarioEnd closes the scenario span. Without
+        // this await, the detector would emit on the next periodic
+        // poll (~500 ms cadence) AFTER the scenario span closes and
+        // the schema audit would reject the capture as "Missing
+        // detector trace record".
+        await Sleuth.flushTimelineNow();
+        // Periodic VM poll could be in-flight when flushTimelineNow
+        // returns; the v0.18.1 `_pollInFlight` guard short-circuits
+        // its second poll, but the first poll's emission could land
+        // microtask-after the await returns. 200 ms dwell absorbs
+        // that race so any pending emission lands inside the span.
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        if (!mounted) return;
+        // Close the scenario span AFTER the flush + dwell so the
+        // emitted issue trace event's timestamp falls strictly inside
+        // [scenario.begin, scenario.end].
+        Sleuth.markScenarioEnd('heavy_compute_${pending.label}');
+        // Adaptive learning: refine the rate from THIS run's actual
+        // throughput so the next tap lands closer to its target. iPhone
+        // CPU thermal state drifts across taps; updating the rate here
+        // (after the captured run, OUTSIDE build) keeps subsequent
+        // build()s clean while the screen converges to the right
+        // iteration count for current device conditions.
+        if (measuredMs > 0) {
+          _iterationsPerMs = iterations / measuredMs;
+        }
         final marker = inBand ? '✓ IN-BAND' : '✗ OUT-OF-BAND';
         setState(() {
           _lastCompletedLeg = inBand ? pending : null;
@@ -383,19 +429,19 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
             '[${pending.label}] $marker — '
             'measured ${measuredMs.toStringAsFixed(2)} ms '
             '(must be ${pending.bandLabel}; '
-            'iterations $iterations)',
+            'iterations $iterations, '
+            'rate ${_iterationsPerMs!.toStringAsFixed(0)}/ms)',
           );
           if (!inBand) {
             _log.add(
               '[${pending.label}] retry: tap ${pending.label} again '
-              'until measured ms lands in ${pending.bandLabel}. '
+              '— rate refined; next tap should land closer to band. '
               'Do NOT export an out-of-band run.',
             );
           }
         });
         // Dwell so the VM Timeline drains the trailing scenario.end
-        // marker + the detector's `sleuth.issue.heavy_compute.*`
-        // emission before the operator taps Export.
+        // marker before the operator taps Export.
         await Future<void>.delayed(const Duration(milliseconds: 1500));
         if (!mounted) return;
         setState(() {

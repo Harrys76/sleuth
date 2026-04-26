@@ -314,14 +314,20 @@ void main() {
       expect(mock.getVMTimelineCalled, isFalse);
     });
 
-    test('pollTimelineSync re-entry guard prevents concurrent _pollTimeline',
+    test('pollTimelineSync barrier waits for in-flight poll then forces fresh',
         () async {
-      // Capture-flow `Sleuth.flushTimelineNow` and the periodic timer
-      // both invoke `_pollTimeline`. Without the `_pollInFlight` guard,
-      // a flush landing within the ~50–200 ms `getVMTimeline()` round-
-      // trip of the periodic poll would run the body twice and waste
-      // a VM round-trip. Verify the guard short-circuits the second
-      // call when the first is mid-flight.
+      // Capture-flow `Sleuth.flushTimelineNow` MUST guarantee a fresh
+      // VM-poll observation before returning, even when a periodic
+      // poll is already in flight. Without barrier semantics, the
+      // periodic poll's snapshot may pre-date the BUILD the capture
+      // flow wants to observe, and the issue trace event lands outside
+      // the scenario span.
+      //
+      // Verifies: two concurrent pollTimelineSync calls produce TWO
+      // getVMTimeline invocations on the mock — the second waits for
+      // the first to complete, then runs fresh. (Previous v0.18.1
+      // behaviour short-circuited the second call; v0.18.2 changes
+      // this to barrier semantics for capture-flow correctness.)
       final mock = _MockVmService();
       mock.timelineResult = Timeline(
         traceEvents: [],
@@ -337,10 +343,10 @@ void main() {
       final second = client.pollTimelineSync();
       await Future.wait([first, second]);
 
-      // Mock counts each getVMTimeline invocation. The guard means the
-      // second call returns immediately without invoking the mock.
-      expect(mock.getVMTimelineCallCount, 1,
-          reason: 'Re-entry guard must short-circuit the second call.');
+      expect(mock.getVMTimelineCallCount, 2,
+          reason: 'Barrier must run a fresh poll after the in-flight one '
+              'completes — capture flow needs guaranteed-fresh observation '
+              'before markScenarioEnd fires.');
       client.dispose();
     });
   });

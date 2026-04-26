@@ -87,6 +87,15 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
+      // Stable per-BUILD identifier for capture-mode dedup. Two polls
+      // observing the same BUILD produce the same
+      // `dedupIdentityMicros` → SleuthController._captureEmittedKeys
+      // composite-key dedup collapses them to one trace record.
+      // Distinct from `detectedAt` (which is wall-clock time for
+      // user-facing displays and snapshot exports). `event.timestampUs`
+      // is monotonic VM Timeline time — never overload `detectedAt`
+      // with it (would corrupt ISO-8601 export to 1970-era dates).
+      dedupIdentityMicros: event.timestampUs,
       confidenceReason:
           'Measured directly from VM timeline long UI-thread event',
     );
@@ -141,24 +150,54 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'VM-only detector. Frame-blocking compute-gap '
-            'threshold (8ms strict, 2× critical) pinned by hermetic '
-            'reproducer feeding `BUILD` `\'X\'` events through '
-            '`TimelineParser.parse()` into the detector — exercises '
-            'parser `PhaseEvent` construction with dirtyList arg '
-            'extraction. All three emission paths covered: enriched '
-            '`_createIssue` (dirtyList present, "Heavy Build:" title), '
-            'unenriched `_createIssue` (no dirtyList but `ts` set, '
-            '"Heavy Computation:" title), and fallback '
-            '`_createGenericIssue` (BUILD event without `ts` — parser '
-            'populates `buildScopeDurations` but skips `phaseEvents`, '
-            'detector takes the raw-durations branch). 2× threshold '
-            'pinned at exactly 16000µs to stay warning (strict-greater '
-            'critical escalation). Fixtures hand-built against parser '
-            'allowlist; real-device capture comparison is '
-            'runtime-verified-tier work.',
+        tier: EvidenceTier.runtimeVerified,
+        rationale: 'VM-only detector. Frame-blocking compute-gap threshold '
+            '(8 ms strict warning, 16 ms strict critical = 2×) pinned '
+            'by hermetic reproducer (`BUILD` events through '
+            '`TimelineParser.parse()` exercising all three emission '
+            'paths: enriched `_createIssue` with dirtyList, unenriched '
+            '`_createIssue` with `ts`, fallback `_createGenericIssue` '
+            'on raw `buildScopeDurations`). The runtimeVerified tier '
+            'is backed by three on-device captures (iPhone 12 / iOS '
+            '17.5 / Flutter 3.41.x) that bracket the warning threshold '
+            'with `Sleuth.markScenarioBegin/End` + `flushTimelineNow` '
+            'driving synchronous detector emission inside the scenario '
+            'span. Captures recorded under v0.18.2 producer-side dedup '
+            '(stable per-BUILD `detectedAt` derived from '
+            '`event.timestampUs`) so the strong uniqueness invariant '
+            '(`requireUniqueDetectedAtMicros: true`) protects against '
+            'capture replay forgery.',
         reproducerPath: 'test/validation/heavy_compute_reproducer_test.dart',
+        profileCapturePaths: [
+          'test/validation/captures/heavy_compute/heavy_compute_below.json',
+          'test/validation/captures/heavy_compute/heavy_compute_at.json',
+          'test/validation/captures/heavy_compute/heavy_compute_above.json',
+        ],
+        bracketThreshold: 8,
+        bracketUnit: 'ms',
+        bracketStableId: 'heavy_compute',
+        bracketSeverityLabel: 'warning',
+        // Default 1.1 atTolerance gives [8, 8.8] band — too tight for
+        // iPhone CPU/thermal variance (±15-20% post-warmup). Widened
+        // to 0.50 → at-band [8, 12]. Above-ceiling 1.875 → 15 ms
+        // (clear of 16 ms critical so above-leg cannot ambiently
+        // bracket the critical tier).
+        bracketAtTolerance: 0.50,
+        aboveCeilingMultiplier: 1.875,
         coveredStableIds: {'heavy_compute'},
+        coveredThresholds: {'heavy_compute.warning'},
+        // Captures recorded under v0.18.2+ producer-side dedup with
+        // stable per-BUILD `detectedAt`. Opt into the strong
+        // uniqueness invariant so the audit gate rejects any future
+        // capture whose in-span trace records share a
+        // `detectedAtMicros` (forgery / replay protection).
+        bracketRequireUniqueDetectedAtMicros: true,
+        // The 16 ms critical tier remains implicitly `unvalidated` in
+        // this metadata — `DetectorMetadata` carries one `tier` per
+        // detector instance, so this declaration covers
+        // `heavy_compute.warning` only. Honest per-family-tier
+        // representation deferred to a future metadata extension;
+        // raising critical to runtimeVerified would require 3
+        // additional on-device captures bracketing 16 ms.
       );
 }

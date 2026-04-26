@@ -48,11 +48,17 @@ class CaptureHelper {
   static CaptureIssueEvent? composeIssueEvent(PerformanceIssue issue) {
     final stableId = issue.stableId;
     if (stableId == null || stableId.isEmpty) return null;
-    // Detectors may emit issues without a `detectedAt` timestamp (legacy
-    // or test fixtures); fall back to "now" so the trace record always
-    // carries a numeric arg the schema parser can range-check against
-    // the scenario span.
-    final detectedAt = issue.detectedAt ?? DateTime.now();
+    // Prefer the detector-supplied dedup identity (monotonic VM event
+    // timestamp) over wall-clock detectedAt. Detectors observing VM
+    // Timeline events (e.g. HeavyCompute) stamp dedupIdentityMicros so
+    // the trace record carries a stable per-source-event identifier
+    // matching SleuthController._captureEmittedKeys composite-key
+    // dedup. Runtime-lifecycle detectors (e.g. NetworkMonitor) leave
+    // it null — we fall back to detectedAt.microsecondsSinceEpoch
+    // which IS the per-occurrence identifier for those detectors
+    // (request completion timestamp).
+    final identityMicros = issue.dedupIdentityMicros ??
+        (issue.detectedAt ?? DateTime.now()).microsecondsSinceEpoch;
     return CaptureIssueEvent(
       name: issueTraceEventName(stableId, issue.severity.name),
       args: <String, String>{
@@ -63,11 +69,8 @@ class CaptureHelper {
         // passed in is forwarded as-is. Pre-encoding keeps the wire
         // format unambiguous and means the schema parser can read
         // `args[issueTraceArgDetectedAtMicros]` as a plain `String`
-        // without type-coercion. If you ever change this to a numeric
-        // type, also update the schema-side reader and re-record the
-        // round-trip fixtures so the cross-check test re-validates.
-        issueTraceArgDetectedAtMicros:
-            detectedAt.microsecondsSinceEpoch.toString(),
+        // without type-coercion.
+        issueTraceArgDetectedAtMicros: identityMicros.toString(),
       },
     );
   }

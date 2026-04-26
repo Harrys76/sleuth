@@ -170,6 +170,13 @@ class TimelineParser {
     final paints = <int>[];
     final rasters = <int>[];
     final shaders = <int>[];
+    // Per-thread stack of unmatched BUILD `ph: 'B'` timestamps. iOS
+    // profile-mode emits BUILD as begin/end pairs (no `ph: 'X'`
+    // complete-form), so `dur` must be reconstructed from the matched
+    // `ph: 'E'` event's `ts`. The stack is keyed by `tid` because B/E
+    // pairs interleave across threads in real captures, and a naive
+    // single-stack reconstruction would mismatch pairs across threads.
+    final pendingBuildBegins = <int, List<Map<String, dynamic>>>{};
     final channels = <TimelineEvent>[];
     final gcs = <TimelineEvent>[];
     final phaseEvents = <PhaseEvent>[];
@@ -249,9 +256,39 @@ class TimelineParser {
           gcs.add(event);
         }
       } else if (ph == 'B' || ph == 'E') {
-        // Begin/End events — count builds
-        if (_isBuild(name) && ph == 'B') {
-          buildCount++;
+        // Begin/End events — iOS profile-mode emits BUILD as B/E pairs
+        // instead of `ph: 'X'` complete events. Track unmatched B
+        // timestamps per-tid so the matching E can reconstruct
+        // `dur = E.ts - B.ts` and feed buildScopes / phaseEvents.
+        if (_isBuild(name)) {
+          final ts = json['ts'] as int?;
+          final tid = json['tid'] as int? ?? 0;
+          if (ph == 'B') {
+            buildCount++;
+            if (ts != null) {
+              (pendingBuildBegins[tid] ??= <Map<String, dynamic>>[]).add(json);
+            }
+          } else {
+            // ph == 'E'
+            final stack = pendingBuildBegins[tid];
+            if (stack != null && stack.isNotEmpty) {
+              final beginJson = stack.removeLast();
+              final beginTs = beginJson['ts'] as int?;
+              if (beginTs != null && ts != null && ts >= beginTs) {
+                final dur = ts - beginTs;
+                buildScopes.add(dur);
+                final args = beginJson['args'] as Map<String, dynamic>?;
+                phaseEvents.add(PhaseEvent(
+                  phase: TimelinePhase.build,
+                  timestampUs: beginTs,
+                  durationUs: dur,
+                  dirtyCount: _parseIntArg(args?['build scope dirty count']),
+                  dirtyList: _parseDirtyList(args?['build scope dirty list']),
+                  scopeContext: args?['scope context']?.toString(),
+                ));
+              }
+            }
+          }
         }
         if (_isGcCategory(cat)) {
           gcs.add(event);

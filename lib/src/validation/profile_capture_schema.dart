@@ -72,7 +72,18 @@ class ProfileCaptureSchema {
   /// `json['sleuthMetadata']`'s container.
   ///
   /// Throws [FormatException] with a precise message on any violation.
-  static Map<String, Object?> parse(List<int> rawBytes) {
+  /// When [expectingNoEmission] is true (set by [validateBracket] for
+  /// the below-leg capture), the inverse-ratio half of the AB-1
+  /// cross-check is skipped. Below-leg semantics intentionally pair a
+  /// tiny `expectedMagnitude.observed` (sub-threshold workload, e.g.
+  /// 0.5 ms) with a normal-sized scenario span (~250 ms including
+  /// flushTimelineNow + dwell), producing inverse-ratios well above
+  /// the 100× ceiling that would otherwise rightly catch fabricated
+  /// at/above captures. Sub-threshold roles have no
+  /// markers-bracket-the-work invariant; the `_requireNoIssueTraceRecord`
+  /// check is what protects below-leg honesty.
+  static Map<String, Object?> parse(List<int> rawBytes,
+      {bool expectingNoEmission = false}) {
     final decoded = _decodeUtf8(rawBytes);
     final normalised = _stripBomAndNormaliseLineEndings(decoded);
 
@@ -119,7 +130,8 @@ class ProfileCaptureSchema {
     _validateCaptureCommandAndScenario(sleuthMetadata);
     _validateExpectedMagnitude(sleuthMetadata);
     _validateCaptureDate(sleuthMetadata);
-    _crossCheckTraceVsObserved(root['traceEvents'] as List, sleuthMetadata);
+    _crossCheckTraceVsObserved(root['traceEvents'] as List, sleuthMetadata,
+        skipInverseRatio: expectingNoEmission);
 
     return sleuthMetadata;
   }
@@ -263,7 +275,8 @@ class ProfileCaptureSchema {
   static const String scenarioEndMarker = 'sleuth.scenario.end';
 
   static void _crossCheckTraceVsObserved(
-      List events, Map<String, Object?> metadata) {
+      List events, Map<String, Object?> metadata,
+      {bool skipInverseRatio = false}) {
     final magnitude = metadata['expectedMagnitude'] as Map<String, Object?>;
     // AGR-1 (Bundle E): these early-returns used to be silent opt-outs
     // that fired on `unit: null`, `unit: 42`, or a novel spelling —
@@ -389,6 +402,7 @@ class ProfileCaptureSchema {
     // warmup, idle dwell, follow-up requests), and the "observed"
     // claim no longer corresponds to what's inside the span. Same
     // ratio ceiling, inverted direction.
+    if (skipInverseRatio) return;
     final inverseRatio = spanMicros / observedMicros;
     if (!inverseRatio.isFinite) {
       throw FormatException(
@@ -681,11 +695,13 @@ class ProfileCaptureSchema {
   }
 
   /// Convenience wrapper that reads a file and calls [parse].
-  static Map<String, Object?> parseFile(File file) {
+  static Map<String, Object?> parseFile(File file,
+      {bool expectingNoEmission = false}) {
     if (!file.existsSync()) {
       throw FormatException('Capture file does not exist: ${file.path}');
     }
-    return parse(file.readAsBytesSync());
+    return parse(file.readAsBytesSync(),
+        expectingNoEmission: expectingNoEmission);
   }
 
   /// Validates a three-capture bracket against [threshold] in [unit].
@@ -1446,7 +1462,14 @@ class ProfileCaptureSchema {
     }
     try {
       final bytes = file.readAsBytesSync();
-      final metadata = parse(bytes);
+      // Below-leg captures pair tiny `expectedMagnitude.observed`
+      // (sub-threshold workload) with normal-sized scenario spans
+      // (workload + flushTimelineNow + dwell). The AB-1 inverse-ratio
+      // half is meant to catch fabricated at/above captures (markers
+      // bracketing unrelated work); for below-role it false-positives.
+      // `_requireNoIssueTraceRecord` is the contract that enforces
+      // below-role honesty.
+      final metadata = parse(bytes, expectingNoEmission: label == 'below');
       // Stash the raw traceEvents on the metadata under a private
       // sentinel key so the trace-record helpers
       // (`_requireIssueTraceRecord`, `_requireNoIssueTraceRecord`)

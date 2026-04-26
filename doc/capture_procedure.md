@@ -99,6 +99,20 @@
 > guarantee. Verify in the detector's reproducer test that every
 > emitted `PerformanceIssue` carries a non-null `detectedAt` before
 > raising the tier.
+>
+> **BUILD wire dur ≠ Stopwatch ms.** For HeavyCompute (and any future
+> detector observing BUILD durations), the framework's BUILD timeline
+> event encloses the entire build callback — workload + setState
+> bookkeeping + child widget rebuilds. Stopwatch around the inner
+> workload measures less. On iPhone 12 / iOS 17.5 the gap is small
+> enough that observed and BUILD wire dur stay on the same severity
+> tier (above-leg target 12.5 ms → BUILD ~13-14 ms < 16 ms critical).
+> On a slower device, BUILD wire dur could exceed the critical
+> threshold (16 ms for HeavyCompute) and the detector emits
+> `.critical` instead of `.warning`. Schema audit looking for
+> `.warning` then fails. If above-leg hits "Missing detector trace
+> record" on a different device, lower the workload target until BUILD
+> wire dur stays under the critical threshold.
 
 End-to-end procedure for producing a `runtimeVerified` capture triad
 that `ProfileCaptureSchema.validateBracket(... requireDetectorTraceRecord:

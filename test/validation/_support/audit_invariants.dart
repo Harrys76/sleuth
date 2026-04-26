@@ -1122,7 +1122,24 @@ List<String> checkCapturePaths({
       continue;
     }
     try {
-      ProfileCaptureSchema.parseFile(file);
+      // Below-leg captures intentionally pair sub-threshold observed
+      // (e.g. 0.5 ms HeavyCompute below) with normal-sized scenario
+      // spans (workload + flushTimelineNow + dwell). Skip the AB-1
+      // inverse-ratio half for files whose name ends `_below.json` —
+      // `_requireNoIssueTraceRecord` is the contract that enforces
+      // below-role honesty (see ProfileCaptureSchema docstring on
+      // `expectingNoEmission`).
+      //
+      // TODO(v0.18.3): replace this filename-suffix heuristic with
+      // explicit role plumbing. A new runtimeVerified detector that
+      // names its below capture differently (e.g.
+      // `slow_request_subthreshold.json`) would silently pass through
+      // the AB-1 inverse-ratio with a sub-threshold observed +
+      // normal-sized span, producing a false-positive failure. The
+      // robust fix is a `role: 'below'|'at'|'above'` field in
+      // `sleuthMetadata` that the schema reads directly.
+      final isBelow = capture.endsWith('_below.json');
+      ProfileCaptureSchema.parseFile(file, expectingNoEmission: isBelow);
     } on FormatException catch (e) {
       failures.add('$label: $capture — ${e.message}');
     }

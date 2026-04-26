@@ -1282,23 +1282,20 @@ class SleuthController {
     }
   }
 
-  /// Clears the producer-side capture-emission dedup set so the next
-  /// scan-leg or scenario can re-emit issues that share keys with a
-  /// prior leg. Also invoked automatically inside [_onScenarioBegin]
-  /// when a scenario name change is observed in the timeline buffer.
+  /// Clears per-detector record buffers that survive across capture
+  /// legs. Auto-invoked by [Sleuth.markScenarioBegin] so a single-
+  /// screen multi-leg flow (Below → At → Above) does not leak leg N's
+  /// internal-buffer records into leg N+1's evaluation.
   ///
-  /// Capture screens that drive multiple legs from a single screen
-  /// session should call this between legs (paired with any
-  /// detector-internal `clearRecords` reset) so leg N's emissions are
-  /// not suppressed by leg N-1's stale dedup keys.
+  /// Does NOT clear [_captureEmittedKeys]. The composite-key dedup set
+  /// must persist across scenarios so stale events lingering in the VM
+  /// Timeline buffer (kept under `retainTimeline=true` for export) do
+  /// not re-emit during the next scenario's flush. Stable per-event
+  /// `detectedAt` (e.g. HeavyComputeDetector uses
+  /// `DateTime.fromMicrosecondsSinceEpoch(event.timestampUs)`) ensures
+  /// each unique source event maps to a unique composite key, so
+  /// legitimate new emissions are never suppressed.
   void resetCaptureState() {
-    _captureEmittedKeys.clear();
-    // Clear per-detector record buffers that survive across legs.
-    // Each runtimeVerified detector that holds an internal record set
-    // (NetworkMonitor's request log; future HeavyCompute / ShaderJank
-    // / MemoryPressure / GpuPressure / PlatformChannel buffers) gets
-    // an entry here so a single-screen multi-leg flow does not leak
-    // leg N's records into leg N+1's emissions.
     _networkMonitor.clearRecords();
   }
 
@@ -1408,12 +1405,36 @@ class SleuthController {
     var maxDurUs = 0;
     if (magnitudeSourceEventName == null ||
         magnitudeSourceEventName.isNotEmpty) {
+      // Per-tid B/E reconstruction. iOS profile-mode emits BUILD as
+      // `ph: 'B'`/'E'` pairs (no `ph: 'X'` complete events), so the
+      // X-only path below would compute maxDurUs = 0 on every iOS
+      // capture and silently fall back to the caller-supplied
+      // Stopwatch magnitude. Track the most-recent unmatched B per
+      // tid; on matching E reconstruct dur = E.ts - B.ts.
+      final pendingBegins = <int, List<int>>{};
       for (final e in filtered) {
         if (e['name'] != sourceEventName) continue;
-        if (e['ph'] != 'X') continue;
-        final dur = e['dur'];
-        if (dur is! num) continue;
-        if (dur.toInt() > maxDurUs) maxDurUs = dur.toInt();
+        final ph = e['ph'];
+        if (ph == 'X') {
+          final dur = e['dur'];
+          if (dur is! num) continue;
+          if (dur.toInt() > maxDurUs) maxDurUs = dur.toInt();
+        } else if (ph == 'B') {
+          final ts = e['ts'];
+          final tid = e['tid'];
+          if (ts is num && tid is num) {
+            (pendingBegins[tid.toInt()] ??= <int>[]).add(ts.toInt());
+          }
+        } else if (ph == 'E') {
+          final ts = e['ts'];
+          final tid = e['tid'];
+          if (ts is! num || tid is! num) continue;
+          final stack = pendingBegins[tid.toInt()];
+          if (stack == null || stack.isEmpty) continue;
+          final beginTs = stack.removeLast();
+          final dur = ts.toInt() - beginTs;
+          if (dur > maxDurUs) maxDurUs = dur;
+        }
       }
       if (maxDurUs > 0) {
         // Convert microseconds to ms for the standard schema unit.
@@ -3462,7 +3483,16 @@ class SleuthController {
         // that have no per-occurrence timestamp.
         final stableId = issue.stableId;
         if (stableId == null) continue;
-        final micros = issue.detectedAt?.microsecondsSinceEpoch ?? 0;
+        // Prefer the detector-supplied dedup identity (monotonic VM
+        // event timestamp) over wall-clock detectedAt. Detectors that
+        // emit from VM Timeline events stamp dedupIdentityMicros so
+        // two polls observing the same event collapse to one emission.
+        // Falls back to detectedAt for runtime-lifecycle detectors
+        // (e.g. NetworkMonitor) whose detectedAt IS the per-occurrence
+        // identifier (request completion timestamp).
+        final micros = issue.dedupIdentityMicros ??
+            issue.detectedAt?.microsecondsSinceEpoch ??
+            0;
         final key = '${d.runtimeType}|$stableId'
             '|${issue.severity.name}|$micros';
         if (!_captureEmittedKeys.add(key)) continue;
