@@ -1,0 +1,10 @@
+# Capture fixtures are byte-pinned (SHA-256 anchor in
+# profile_capture_schema_anchor_test.dart). Disable EOL normalization,
+# diff rendering, and language-specific stats so:
+#   - Windows clones don't shift bytes via CRLF conversion
+#   - PR diffs collapse the file (reviewers don't need to read 36k JSON lines)
+#   - GitHub linguist treats the directory as data, not source
+#
+# IDE auto-format on these files still has to be guarded editor-side;
+# the SHA pin remains the actual safety net.
+test/validation/captures/**/*.json -text -diff linguist-vendored=true

@@ -779,5 +779,69 @@ void main() {
               'escalate to critical.');
       d.dispose();
     });
+
+    test(
+        'request_frequency 5s sliding window: clusters separated by '
+        '>5s do not fire even when total count exceeds limit', () {
+      // Pin the time-window logic, not just count threshold. Two
+      // clusters of 5 records spaced 6s apart sum to 10 records but
+      // peak window holds only 5 → silent below the limit=5 threshold.
+      final d = NetworkMonitorDetector(frequencyLimit: 5, clock: () => fakeNow);
+      addTearDown(d.dispose);
+      RequestRecord recAt(DateTime t) => RequestRecord(
+            url: 'https://example.test/api/${t.microsecond}',
+            method: 'GET',
+            statusCode: 200,
+            durationMs: 100,
+            responseBytes: 1024,
+            startedAt: t,
+          );
+
+      final t0 = DateTime(2026, 1, 1);
+      for (var i = 0; i < 5; i++) {
+        fakeNow = t0;
+        d.processRecord(recAt(t0.add(Duration(microseconds: i))));
+      }
+      // Advance past the 5s sliding window.
+      final t1 = t0.add(const Duration(seconds: 6));
+      for (var i = 0; i < 5; i++) {
+        fakeNow = t1;
+        d.processRecord(recAt(t1.add(Duration(microseconds: i))));
+      }
+      expect(d.issues.where((i) => i.stableId == 'request_frequency'), isEmpty,
+          reason: '5+5 records spread across a 6s gap → peak 5s '
+              'window holds only 5 records, equal to limit, silent.');
+    });
+
+    test(
+        'http_error_spike 5s sliding window: clusters separated by '
+        '>5s do not aggregate', () {
+      final d = NetworkMonitorDetector(clock: () => fakeNow);
+      addTearDown(d.dispose);
+      RequestRecord recAt(DateTime t) => RequestRecord(
+            url: 'https://example.test/api/endpoint',
+            method: 'GET',
+            statusCode: 500,
+            durationMs: 100,
+            responseBytes: 1024,
+            startedAt: t,
+          );
+
+      final t0 = DateTime(2026, 1, 1);
+      // 2 errors at t0 (below the >=3 threshold for any single window).
+      for (var i = 0; i < 2; i++) {
+        fakeNow = t0;
+        d.processRecord(recAt(t0.add(Duration(microseconds: i))));
+      }
+      // 2 more errors 6s later — distinct window from t0 cluster.
+      final t1 = t0.add(const Duration(seconds: 6));
+      for (var i = 0; i < 2; i++) {
+        fakeNow = t1;
+        d.processRecord(recAt(t1.add(Duration(microseconds: i))));
+      }
+      expect(d.issues.where((i) => i.stableId == 'http_error_spike'), isEmpty,
+          reason: '2+2 errors spread across a 6s gap → peak 5s window '
+              'holds only 2 errors, below the >=3 threshold, silent.');
+    });
   });
 }

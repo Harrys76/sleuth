@@ -439,6 +439,18 @@ class VmServiceClient {
   /// 30s is almost certainly never going to pair.
   static const int _pendingBuildBeginsMaxAgeMicros = 30 * 1000 * 1000;
 
+  /// Maximum age (in microseconds) for a `_lastProcessedTsByTid` cursor
+  /// to survive without observing fresh events. Beyond this idle
+  /// window, the cursor is evicted by the post-parse sweep. Long-lived
+  /// sessions with churning thread ids (worker isolates, GC helper
+  /// threads) would otherwise grow the map indefinitely.
+  ///
+  /// Sweep runs only on polls with at least one event (the anchor `ts`
+  /// is the max ts in the batch); fully idle polling sessions retain
+  /// cursors until the next active poll. Worst case is bounded by the
+  /// OS thread limit per process.
+  static const int _cursorMaxIdleMicros = 30 * 1000 * 1000;
+
   /// Per-tid cross-call dedup cursors threaded into
   /// `TimelineParser.parse()` so capture-mode buffer re-reads don't
   /// inflate downstream counters. Cleared in `_cleanup()`.
@@ -545,33 +557,47 @@ class VmServiceClient {
     }
   }
 
-  /// Evict orphan begins from [_pendingBuildBegins]. An orphan is a B
-  /// whose matching E never arrived (e.g. event lost in VM buffer
-  /// overflow, isolate crash mid-build, BUILD aborted). Uses the events'
-  /// own monotonic `ts` as the clock so the sweep is independent of
-  /// wall-clock skew. The anchor ts is the maximum `ts` in this poll's
-  /// batch; any pending B older than the anchor by
-  /// [_pendingBuildBeginsMaxAgeMicros] is evicted.
+  /// Evict orphan begins from [_pendingBuildBegins] and (in non-capture
+  /// polling mode only) stale cursors from [_lastProcessedTsByTid]. Uses
+  /// the events' own monotonic `ts` as the clock so the sweep is
+  /// independent of wall-clock skew. The anchor ts is the maximum `ts`
+  /// in this poll's batch.
   ///
-  /// Begins are stored bottom-to-top in arrival order, so once a stack's
-  /// front entry is fresh enough to keep, every later entry is too —
-  /// the loop can short-circuit. Empty tids are pruned to keep the map
-  /// from accumulating dead keys.
+  /// Pending begins: any B older than anchor by
+  /// [_pendingBuildBeginsMaxAgeMicros] is evicted (matching E was lost
+  /// — VM buffer overflow, isolate crash, etc.). Stack is bottom-to-top
+  /// in arrival order; once the front entry is fresh, every later one
+  /// is too — loop short-circuits. Runs in both modes because
+  /// pending-begins are only populated by un-deduped B events; with
+  /// cursor dedup intact, retained re-reads never reach the push
+  /// branch, so the sweep operates on legitimate orphans only.
+  ///
+  /// Cursors: any tid whose `lastTs` is older than anchor by
+  /// [_cursorMaxIdleMicros] is evicted — but ONLY when
+  /// `retainTimeline=false`. In capture mode the VM buffer is
+  /// intentionally re-read across polls and the cursor is the dedup
+  /// mechanism preventing replay of retained events. Evicting a cursor
+  /// for an idle tid would let its old events pass through the parser
+  /// on the next poll, inflating `buildEventCount` and other
+  /// accumulators. Idle sessions (no events this poll) skip the sweep
+  /// entirely.
   void _sweepStalePendingBegins(List<TimelineEvent> events) {
-    if (_pendingBuildBegins.isEmpty) return;
+    if (_pendingBuildBegins.isEmpty && _lastProcessedTsByTid.isEmpty) {
+      return;
+    }
     var anchorTs = 0;
     for (final event in events) {
       final ts = event.json?['ts'];
       if (ts is int && ts > anchorTs) anchorTs = ts;
     }
     if (anchorTs == 0) return;
-    final cutoff = anchorTs - _pendingBuildBeginsMaxAgeMicros;
+    final pendingCutoff = anchorTs - _pendingBuildBeginsMaxAgeMicros;
     final emptyTids = <int>[];
     for (final entry in _pendingBuildBegins.entries) {
       final stack = entry.value;
       while (stack.isNotEmpty) {
         final ts = stack.first['ts'];
-        if (ts is int && ts < cutoff) {
+        if (ts is int && ts < pendingCutoff) {
           stack.removeAt(0);
         } else {
           break;
@@ -581,6 +607,11 @@ class VmServiceClient {
     }
     for (final tid in emptyTids) {
       _pendingBuildBegins.remove(tid);
+    }
+    if (!retainTimeline) {
+      final cursorCutoff = anchorTs - _cursorMaxIdleMicros;
+      _lastProcessedTsByTid
+          .removeWhere((_, cursor) => cursor.lastTs < cursorCutoff);
     }
   }
 

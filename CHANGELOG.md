@@ -1,3 +1,31 @@
+## 0.19.2
+
+Polish release — clears v0.19.1 known-limitations. No new tier raises, no public API changes, no BREAKING.
+
+### VmServiceClient
+
+- `_sweepStalePendingBegins` now also evicts stale `_lastProcessedTsByTid` cursors **in non-capture polling mode only** (`retainTimeline=false`). Capture mode (`retainTimeline=true`) retains cursors for the session lifetime because the VM buffer is intentionally re-read across polls and the cursor is the dedup mechanism preventing replay of retained events. The pending-begins age sweep stays unconditional in both modes — orphan B is a leak regardless of buffer-retention strategy. Cutoff: `anchorTs - 30s` per the new `_cursorMaxIdleMicros` constant. Idle-poll sessions (no events) skip the sweep — gap documented below.
+
+### Layer-3 NetworkMonitor reproducer tests
+
+- 2 new time-window tests pin `_frequencyWindowMs=5000` boundary semantics:
+  - `request_frequency`: 5+5 records spread across 6s gap → silent (peak window holds 5, equal to limit).
+  - `http_error_spike`: 2+2 errors spread across 6s gap → silent (peak window holds 2, below ≥3 threshold).
+
+### `.gitattributes`
+
+- New `.gitattributes` rule for `test/validation/captures/**/*.json`: `-text -diff linguist-vendored=true`. Prevents Windows-CRLF byte drift, collapses fixture JSONs in PR diffs, marks them as vendored data. SHA pin in `profile_capture_schema_anchor_test.dart` remains the primary safety net against IDE auto-format.
+
+### Verification
+
+- 2,822 tests passing (was 2,818 in v0.19.1; +4 net = +1 cursor sweep + +2 time-window + +1 capture-mode no-evict regression).
+- `fvm flutter analyze` clean.
+
+### Known limitations
+
+- Cursor sweep runs only on polls with at least one event. Sessions that go fully idle for hours retain accumulated cursors until the next active poll. Worst case bounded by OS thread limit (~1024 unique tids per process).
+- `.gitattributes` cannot prevent IDE auto-format on save. SHA pin remains the safety net for the anchor fixture.
+
 ## 0.19.1
 
 Hardening release — capture-mode dedup, reconnect-race fix, audit-gate tightening. No new tier raises, no public API changes, no BREAKING.

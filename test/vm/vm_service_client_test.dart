@@ -482,6 +482,169 @@ void main() {
       client.dispose();
     });
 
+    test(
+        'cursor sweep evicts tids idle past the 30s ceiling so '
+        'long-lived sessions with churning tids do not leak', () async {
+      // Behavioural check: an evicted cursor lets a low-ts event on
+      // that tid pass through (otherwise the watermark would skip it
+      // as ts < lastTs).
+      final received = <ParsedTimelineData>[];
+      final mock = _MockVmService();
+      final client = VmServiceClient(onTimelineData: received.add);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      // Poll 1: tid=1 event at ts=1000. Cursor: tid=1 → lastTs=1000.
+      mock.timelineResult = Timeline(
+        traceEvents: [
+          TimelineEvent.parse({
+            'name': 'Build',
+            'cat': 'flutter',
+            'ph': 'X',
+            'dur': 100,
+            'ts': 1000,
+            'pid': 1,
+            'tid': 1,
+          })!,
+        ],
+        timeOriginMicros: 1000,
+        timeExtentMicros: 100,
+      );
+      await client.pollTimelineSync();
+
+      // Poll 2: tid=2 event at ts=31_000_001 (>30s past ts=1000).
+      // Anchor=31_000_001 → cursor cutoff = 1_000_001 → tid=1 cursor
+      // (lastTs=1000) is evicted.
+      mock.timelineResult = Timeline(
+        traceEvents: [
+          TimelineEvent.parse({
+            'name': 'Build',
+            'cat': 'flutter',
+            'ph': 'X',
+            'dur': 100,
+            'ts': 31000001,
+            'pid': 1,
+            'tid': 2,
+          })!,
+        ],
+        timeOriginMicros: 31000001,
+        timeExtentMicros: 100,
+      );
+      await client.pollTimelineSync();
+
+      // Poll 3: tid=1 event at ts=500 (LESS than the prior cursor's
+      // lastTs=1000). If the cursor was correctly evicted, this event
+      // passes through. If retained, the watermark skips it.
+      mock.timelineResult = Timeline(
+        traceEvents: [
+          TimelineEvent.parse({
+            'name': 'Build',
+            'cat': 'flutter',
+            'ph': 'X',
+            'dur': 50,
+            'ts': 500,
+            'pid': 1,
+            'tid': 1,
+          })!,
+        ],
+        timeOriginMicros: 500,
+        timeExtentMicros: 100,
+      );
+      await client.pollTimelineSync();
+
+      final allDurs = received.expand((p) => p.buildScopeDurations).toList();
+      expect(allDurs, contains(50),
+          reason: 'tid=1 cursor must be evicted by poll 2 sweep so the '
+              'tid=1 ts=500 event in poll 3 is not skipped as stale.');
+      client.dispose();
+    });
+
+    test(
+        'capture mode (retainTimeline=true) does NOT evict cursors — '
+        'retained-buffer re-reads across 30s+ cross-tid gaps stay '
+        'deduped (no replay of old events)', () async {
+      // The cursor map is the dedup mechanism in capture mode because
+      // the VM buffer is intentionally re-read across polls. Evicting
+      // a cursor for a tid idle past the cursor TTL would let the next
+      // poll's re-read of that tid's old events pass through the
+      // parser, inflating buildEventCount and other accumulators.
+      final received = <ParsedTimelineData>[];
+      final mock = _MockVmService();
+      final client = VmServiceClient(
+        retainTimeline: true,
+        onTimelineData: received.add,
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      // Poll 1: tid=1 BUILD at ts=1000.
+      mock.timelineResult = Timeline(
+        traceEvents: [
+          TimelineEvent.parse({
+            'name': 'Build',
+            'cat': 'flutter',
+            'ph': 'X',
+            'dur': 100,
+            'ts': 1000,
+            'pid': 1,
+            'tid': 1,
+          })!,
+        ],
+        timeOriginMicros: 1000,
+        timeExtentMicros: 100,
+      );
+      await client.pollTimelineSync();
+      expect(mock.clearVMTimelineCalled, isFalse,
+          reason: 'retainTimeline=true must not clear the VM buffer.');
+
+      // Poll 2: full retained buffer + new tid=2 event 31s later.
+      // anchorTs=31_000_001; cursorCutoff would be 1_000_001 if the
+      // sweep ran — would evict tid=1 cursor (lastTs=1000). Capture
+      // mode must NOT evict.
+      mock.timelineResult = Timeline(
+        traceEvents: [
+          TimelineEvent.parse({
+            'name': 'Build',
+            'cat': 'flutter',
+            'ph': 'X',
+            'dur': 100,
+            'ts': 1000,
+            'pid': 1,
+            'tid': 1,
+          })!,
+          TimelineEvent.parse({
+            'name': 'Build',
+            'cat': 'flutter',
+            'ph': 'X',
+            'dur': 200,
+            'ts': 31000001,
+            'pid': 1,
+            'tid': 2,
+          })!,
+        ],
+        timeOriginMicros: 1000,
+        timeExtentMicros: 31000000,
+      );
+      await client.pollTimelineSync();
+
+      // Poll 3: same retained buffer once more. tid=1's cursor must
+      // still be present so the re-read of tid=1 ts=1000 stays deduped.
+      // Without the gate, the sweep evicted tid=1 in poll 2 and this
+      // poll re-emits tid=1's BUILD.
+      await client.pollTimelineSync();
+
+      final allDurs = received.expand((p) => p.buildScopeDurations).toList()
+        ..sort();
+      final totalBuildCount =
+          received.fold<int>(0, (sum, p) => sum + p.buildEventCount);
+      expect(allDurs, equals([100, 200]),
+          reason: 'Each BUILD must appear exactly once across 3 polls of '
+              'retained buffer. Cursor eviction in capture mode would '
+              'replay tid=1 ts=1000 → [100, 100, 200] or similar.');
+      expect(totalBuildCount, 2,
+          reason: 'buildEventCount must equal real BUILDs (2). '
+              'Replay would inflate to 3+.');
+      client.dispose();
+    });
+
     test('in-flight poll dropped if dispose runs during getVMTimeline await',
         () async {
       // Pin the generation-fence: an in-flight poll resuming after
