@@ -216,7 +216,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   /// pass, NOT a read of `widget.controller.issuesNotifier.value`. The
   /// notifier may have ticked between the frame the user saw and the
   /// moment their tap arrived; using the live value could anchor the
-  /// freeze to rows the user never saw. (C1 from adversarial review.)
+  /// freeze to rows the user never saw.
   List<PerformanceIssue>? _orderSnapshot;
 
   /// Stable ID of the issue whose highlight checkbox is checked.
@@ -435,7 +435,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     // otherwise the snapshot lingers and a subsequent render would still
     // anchor to a zero-width freeze zone (harmless but the invariant
     // asserted in `applyFreezeZone` would fire). Covers the
-    // all-absorbed-into-downstream case (FS2 from adversarial review).
+    // all-absorbed-into-downstream case.
     if (_expandedIndices.isEmpty && _orderSnapshot != null) {
       _orderSnapshot = null;
       changed = true;
@@ -1184,10 +1184,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                     // the snapshot taken on 0→1 expand reflects what the
                     // user actually saw, NOT a newer value that may have
                     // been published to `issuesNotifier` between the
-                    // frame commit and the tap arriving (C1 from
-                    // adversarial review). Defensive copy is made inside
-                    // the callback so the snapshot outlives this build
-                    // closure without being aliased to the live list.
+                    // frame commit and the tap arriving. Defensive copy
+                    // is made inside the callback so the snapshot
+                    // outlives this build closure without being aliased
+                    // to the live list.
                     final capturedVisibleIssues = visibleIssues;
 
                     return IssueCard(

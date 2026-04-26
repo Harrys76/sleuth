@@ -333,13 +333,10 @@ void main() {
     });
   });
 
-  // -- v0.16.0 C4 + Codex post-impl finding 2 regression --
-  //
-  // fromJson must coerce malformed fields to null / empty list instead of
-  // throwing. Outer shape guards (List/Map/int) landed in v0.16.0;
-  // per-entry hardening of `topAllocators` lands in the post-Codex
-  // hardening pass so one bad AllocationEntry payload can't poison the
-  // whole snapshot deserialization.
+  // fromJson must coerce malformed fields to null / empty list instead
+  // of throwing. Outer shape guards (List/Map/int) plus per-entry
+  // defensive parsing of `topAllocators` so one bad AllocationEntry
+  // payload can't poison the whole snapshot deserialization.
   group('PerformanceIssue.fromJson defensive casts', () {
     Map<String, dynamic> minimalValid() => {
           'severity': 'warning',
@@ -390,8 +387,6 @@ void main() {
       expect(parsed.downstreamIds, equals(['a', 'b']));
     });
 
-    // -- Codex post-impl meta-review finding C3 --
-    //
     // Required enum fields (severity, category, confidence) must
     // survive schema drift: a renamed value or a JS-coerced numeric
     // payload cannot abort the whole snapshot deserialization.
@@ -433,11 +428,9 @@ void main() {
       expect(parsed.fixEffort, isNull);
     });
 
-    // -- v0.16.0 advanced-adversarial-review Blocker 2 --
-    //
     // detectedAt must degrade to null rather than aborting the whole
     // factory when the payload is malformed or non-string. Matches the
-    // Meta-C3 pattern applied to the enum fields.
+    // schema-drift tolerance applied to the enum fields.
     test('tolerates malformed detectedAt ISO string (drops to null)', () {
       // `DateTime.tryParse` accepts out-of-range date components by rolling
       // them over (e.g. '2026-13-45' becomes 2027-02-14), so we use a string

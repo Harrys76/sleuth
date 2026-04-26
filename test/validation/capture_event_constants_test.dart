@@ -152,12 +152,12 @@ void main() {
 
     test('severity mismatch: warning-claim with only `.critical` present fails',
         () async {
-      // Codex round-2 B2 negative test. A capture that only emits
+      // Negative test: a capture that only emits
       // `sleuth.issue.heavy_compute.critical` MUST NOT satisfy a
-      // `severityLabel: 'warning'` audit — the claim is about the
-      // warning bracket (e.g. 8 ms), not the critical bracket (16 ms),
-      // and accepting a `.critical` event would let the audit confirm
-      // the WRONG threshold while looking green.
+      // `severityLabel: 'warning'` audit. The claim is about the
+      // warning bracket (e.g. 8 ms), not the critical bracket (16 ms);
+      // accepting a `.critical` event would let the audit confirm the
+      // WRONG threshold while looking green.
       const stableId = 'heavy_compute';
       // Triad has `.critical` records (severityLabel: 'critical')
       // but the audit asks for `severityLabel: 'warning'`.

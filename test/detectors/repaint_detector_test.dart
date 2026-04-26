@@ -622,11 +622,10 @@ void main() {
   // pins the gate algebra against synthetic chains, the real-widget
   // suite proves the chains we depend on actually exist at runtime.
   // ---------------------------------------------------------------
-  // Rewritten in spec_v0_15_3 hardening pass (post-impl review C5):
-  // the v0.15.3 M1 fixtures populated `ancestorChains` with synthetic
-  // strings that mirrored whatever shape the test author *thought* the
-  // coordinator emitted. With the C1+C3 fix, the detector no longer
-  // looks at chains for ownership at all — it reads
+  // Earlier fixtures populated `ancestorChains` with synthetic strings
+  // mirroring whatever shape the test author *thought* the coordinator
+  // emitted. The detector no longer looks at chains for ownership at
+  // all — it reads
   // `animationOwnedPaintCounts` and `totalAnimationOwnedPaintCount`,
   // which the coordinator populates per-paint via `isAnimationOwnedPaint`
   // (chain + bounded descendant walk) on the live element. So these

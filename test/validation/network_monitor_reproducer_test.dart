@@ -332,13 +332,12 @@ void main() {
       },
     );
 
-    // B2 regression tests (v0.16.1 second triangulation): AB1's Layer 2
-    // covered only happy-path completion and early cancel. Both reviewers
-    // independently flagged that post-listen `sub.onDone(newCb)` /
-    // `sub.onError(newCb)` rebinding, mid-stream response error, and
-    // cancel-before-first-chunk were uncovered — and the first one is the
-    // exact vector by which B1 (the post-listen rebinding bug on
-    // `_MonitoringSubscription`) survived the AB1 regression suite. These
+    // Regression tests for cases beyond happy-path completion and early
+    // cancel: post-listen `sub.onDone(newCb)` / `sub.onError(newCb)`
+    // rebinding, mid-stream response error, and cancel-before-first-chunk.
+    // The post-listen rebinding case is the exact vector by which the
+    // earlier `_MonitoringSubscription` bug survived the prior regression
+    // suite. These
     // tests pin the corrected contract: the proxy owns the inner
     // subscription's terminal handlers permanently; the wrapper's setters
     // mutate stored user callbacks instead of touching `_inner`, so record
@@ -638,58 +637,147 @@ void main() {
       );
     }
 
-    test('large_response fires when responseBytes ≥ largeResponseBytes', () {
-      detector.processRecord(record(responseBytes: 1048576));
-      final large =
-          detector.issues.where((i) => i.stableId == 'large_response').toList();
-      expect(large, hasLength(1),
-          reason: 'large_response must surface for >= 1 MiB responses; '
-              'family declared in coveredStableIds.');
+    // Boundary triads: each family pinned at threshold-1 (silent),
+    // threshold (fires), and 2× threshold (fires + correct severity).
+    // Detector constructed with EXPLICIT threshold values inside each
+    // test so default-drift in the source doesn't silently invalidate
+    // the boundary claim. Source-of-truth operators per family:
+    //   - large_response: `>= largeResponseBytes` (network_monitor_detector.dart:254)
+    //   - request_frequency: `> frequencyLimit` (line 294, 315)
+    //   - http_error_spike: `>= 3` errors (line 340)
+    //   - high_frequency_same_path: `>= _duplicateThreshold` (line 429)
+
+    test('large_response boundary triad pins `>= largeResponseBytes`', () {
+      const limit = 1024;
+      // threshold-1: silent
+      var d = NetworkMonitorDetector(
+          largeResponseBytes: limit, clock: () => fakeNow);
+      d.processRecord(record(responseBytes: limit - 1));
+      expect(d.issues.where((i) => i.stableId == 'large_response'), isEmpty,
+          reason: 'responseBytes < largeResponseBytes must be silent.');
+      d.dispose();
+      // threshold: fires (>= semantics)
+      d = NetworkMonitorDetector(
+          largeResponseBytes: limit, clock: () => fakeNow);
+      d.processRecord(record(responseBytes: limit));
+      final atIssues =
+          d.issues.where((i) => i.stableId == 'large_response').toList();
+      expect(atIssues, hasLength(1),
+          reason: 'responseBytes == largeResponseBytes must fire (>=).');
+      d.dispose();
+      // 2× threshold: fires
+      d = NetworkMonitorDetector(
+          largeResponseBytes: limit, clock: () => fakeNow);
+      d.processRecord(record(responseBytes: limit * 2));
+      expect(
+          d.issues.where((i) => i.stableId == 'large_response'), hasLength(1));
+      d.dispose();
     });
 
-    test('request_frequency fires above the per-second cap', () {
-      // Many records share the frozen fakeNow timestamp so they all fall
-      // inside the rolling-window the detector evaluates. processRecord
-      // triggers _evaluate() so no separate trigger is needed.
-      // Default frequencyLimit is 30 over a 5s window; cross it explicitly.
-      for (var i = 0; i < 35; i++) {
-        detector.processRecord(record(url: 'https://example.test/api/$i'));
+    test('request_frequency boundary triad pins `> frequencyLimit`', () {
+      const limit = 5;
+      // limit records: silent (recordsList.length <= frequencyLimit returns)
+      var d =
+          NetworkMonitorDetector(frequencyLimit: limit, clock: () => fakeNow);
+      for (var i = 0; i < limit; i++) {
+        d.processRecord(record(url: 'https://example.test/api/$i'));
       }
-      final freq = detector.issues
-          .where((i) => i.stableId == 'request_frequency')
-          .toList();
-      expect(freq, isNotEmpty,
-          reason: 'request_frequency must surface above the per-second '
-              'request cap; family declared in coveredStableIds.');
+      expect(d.issues.where((i) => i.stableId == 'request_frequency'), isEmpty,
+          reason: 'recordsList.length == frequencyLimit must be silent (>).');
+      d.dispose();
+      // limit+1: fires (strict greater)
+      d = NetworkMonitorDetector(frequencyLimit: limit, clock: () => fakeNow);
+      for (var i = 0; i < limit + 1; i++) {
+        d.processRecord(record(url: 'https://example.test/api/$i'));
+      }
+      expect(d.issues.where((i) => i.stableId == 'request_frequency'),
+          hasLength(1),
+          reason: 'recordsList.length > frequencyLimit must fire.');
+      d.dispose();
+      // 2× limit: fires
+      d = NetworkMonitorDetector(frequencyLimit: limit, clock: () => fakeNow);
+      for (var i = 0; i < limit * 2; i++) {
+        d.processRecord(record(url: 'https://example.test/api/$i'));
+      }
+      expect(
+          d.issues.where((i) => i.stableId == 'request_frequency'), isNotEmpty);
+      d.dispose();
     });
 
-    test('http_error_spike fires when 5xx ratio exceeds the threshold', () {
-      for (var i = 0; i < 6; i++) {
-        detector.processRecord(record(statusCode: 500));
+    test(
+        'http_error_spike boundary triad pins `>= 3` errors per 5s '
+        'window', () {
+      // 2 errors: silent (errorRecords.length < 3 returns)
+      var d = NetworkMonitorDetector(clock: () => fakeNow);
+      for (var i = 0; i < 2; i++) {
+        d.processRecord(record(statusCode: 500));
       }
-      final errors = detector.issues
-          .where((i) => i.stableId == 'http_error_spike')
-          .toList();
-      expect(errors, isNotEmpty,
-          reason: 'http_error_spike must surface for sustained 5xx '
-              'responses; family declared in coveredStableIds.');
+      expect(d.issues.where((i) => i.stableId == 'http_error_spike'), isEmpty,
+          reason: 'errorRecords.length == 2 must be silent (>= 3).');
+      d.dispose();
+      // 3 errors: fires (>= 3 semantics)
+      d = NetworkMonitorDetector(clock: () => fakeNow);
+      for (var i = 0; i < 3; i++) {
+        d.processRecord(record(statusCode: 500));
+      }
+      expect(
+          d.issues.where((i) => i.stableId == 'http_error_spike'), hasLength(1),
+          reason: 'errorRecords.length == 3 must fire.');
+      d.dispose();
+      // 10 errors: fires + critical (peakCount >= 10 || serverErrors >= 5
+      // → critical)
+      d = NetworkMonitorDetector(clock: () => fakeNow);
+      for (var i = 0; i < 10; i++) {
+        d.processRecord(record(statusCode: 500));
+      }
+      final crit = d.issues.firstWhere((i) => i.stableId == 'http_error_spike');
+      expect(crit.severity, IssueSeverity.critical,
+          reason: 'peakCount >= 10 must escalate to critical.');
+      d.dispose();
     });
 
-    test('high_frequency_same_path fires for repeated identical paths', () {
-      // Same URL repeated above the per-path cap. processRecord triggers
-      // _evaluate() so high_frequency_same_path classification runs.
-      for (var i = 0; i < 12; i++) {
-        detector.processRecord(record());
+    test(
+        'high_frequency_same_path boundary triad pins `>= 3` cluster + '
+        '`>= 10` critical', () {
+      // 2 same-URL records: silent (records.length < _duplicateThreshold
+      // returns)
+      var d = NetworkMonitorDetector(clock: () => fakeNow);
+      for (var i = 0; i < 2; i++) {
+        d.processRecord(record());
       }
-      final samePath = detector.issues
+      expect(
+          d.issues.where((i) =>
+              i.stableId != null &&
+              i.stableId!.startsWith('high_frequency_same_path:')),
+          isEmpty,
+          reason: '2 same-URL records < _duplicateThreshold must be silent.');
+      d.dispose();
+      // 3 same-URL records: fires warning
+      d = NetworkMonitorDetector(clock: () => fakeNow);
+      for (var i = 0; i < 3; i++) {
+        d.processRecord(record());
+      }
+      final warn = d.issues
           .where((i) =>
               i.stableId != null &&
               i.stableId!.startsWith('high_frequency_same_path:'))
           .toList();
-      expect(samePath, isNotEmpty,
-          reason: 'high_frequency_same_path:<fingerprint> must surface '
-              'when the same path bursts; family declared in '
-              'coveredStableIds.');
+      expect(warn, hasLength(1),
+          reason: '3 same-URL records >= _duplicateThreshold must fire.');
+      expect(warn.first.severity, IssueSeverity.warning);
+      d.dispose();
+      // 10 same-URL records: fires critical
+      d = NetworkMonitorDetector(clock: () => fakeNow);
+      for (var i = 0; i < 10; i++) {
+        d.processRecord(record());
+      }
+      final crit = d.issues.firstWhere((i) =>
+          i.stableId != null &&
+          i.stableId!.startsWith('high_frequency_same_path:'));
+      expect(crit.severity, IssueSeverity.critical,
+          reason: 'maxCluster >= _criticalDuplicateThreshold must '
+              'escalate to critical.');
+      d.dispose();
     });
   });
 }

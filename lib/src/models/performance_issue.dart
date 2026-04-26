@@ -274,8 +274,7 @@ class PerformanceIssue {
         // Required enums fall back to neutral defaults on schema drift
         // (renamed value, numeric coercion, missing key) instead of
         // throwing and poisoning the whole snapshot. Matches the
-        // per-entry defensive-cast policy applied to `topAllocators`
-        // (Codex post-impl review finding C3, v0.16.0).
+        // per-entry defensive-cast policy applied to `topAllocators`.
         severity: _tryParseEnum(IssueSeverity.values, json['severity']) ??
             IssueSeverity.warning,
         category: _tryParseEnum(IssueCategory.values, json['category']) ??
@@ -296,9 +295,8 @@ class PerformanceIssue {
         // Guard against FormatException on malformed ISO strings (e.g. a
         // JS consumer stamping a non-ISO date, an IDE MCP re-exporter
         // truncating to date-only, or any hand-crafted payload). Same
-        // schema-drift tolerance as Meta-C3 applied to the enum fields —
-        // drops to null instead of poisoning the whole snapshot
-        // (advanced-adversarial-review Round 3, v0.16.0).
+        // schema-drift tolerance as the enum fields above — drops to
+        // null instead of poisoning the whole snapshot.
         detectedAt: json['detectedAt'] is String
             ? DateTime.tryParse(json['detectedAt'] as String)
             : null,
@@ -310,7 +308,7 @@ class PerformanceIssue {
         // a stringified class name, or a schema drift that renamed a key)
         // would throw and poison the entire deserialization. Wrap each
         // entry in a try/catch and drop offenders instead of failing the
-        // whole snapshot (Codex post-impl review finding 2, v0.16.0).
+        // whole snapshot.
         topAllocators: json['topAllocators'] is List
             ? _tryParseAllocationEntries(json['topAllocators'] as List)
             : null,
@@ -431,8 +429,7 @@ class PerformanceIssue {
 /// `ArgumentError`-as-Exception, parse failures). `StackOverflowError`,
 /// `OutOfMemoryError`, `StateError`, and other `Error` subclasses
 /// propagate because they signal VM instability or genuine programmer
-/// bugs, not payload drift (Codex post-impl meta-review finding C2,
-/// v0.16.0).
+/// bugs, not payload drift.
 List<AllocationEntry>? _tryParseAllocationEntries(List raw) {
   final out = <AllocationEntry>[];
   for (final item in raw) {
@@ -451,8 +448,7 @@ List<AllocationEntry>? _tryParseAllocationEntries(List raw) {
 /// Guarded enum parsing: returns the matching enum value, or null when
 /// `raw` is missing, non-String, or not a legal name. Callers supply a
 /// fallback via `??` for required fields so one renamed value doesn't
-/// poison the whole snapshot (Codex post-impl meta-review finding C3,
-/// v0.16.0).
+/// poison the whole snapshot.
 T? _tryParseEnum<T extends Enum>(List<T> values, Object? raw) {
   if (raw is! String) return null;
   try {

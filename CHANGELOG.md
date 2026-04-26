@@ -1,3 +1,42 @@
+## 0.19.1
+
+Hardening release — capture-mode dedup, reconnect-race fix, audit-gate tightening. No new tier raises, no public API changes, no BREAKING.
+
+### Parser
+
+- `TimelineParser.parse(..., {cursorsByTid})` — new per-tid composite cursor (`TimelineCursor = ({int lastTs, Set<String> seenSignatures})`) that dedups events across calls. Skips re-observed events using `(tid, ts, ph, name, id)` signature so two distinct events sharing `(tid, ts)` (instant events with different names; async pairs with different `id`) coexist correctly. Same-name same-microsecond sync events remain conflated (protocol-indistinguishable).
+- Without this cursor, capture mode (`retainTimeline=true`) re-reads the full retained buffer per poll and inflates `buildEventCount`, `buildScopeDurations`, `gcEvents`, `platformChannelEvents`.
+- `VmServiceClient` threads a long-lived `_lastProcessedTsByTid` map through parse calls. Cleared on `_cleanup()`.
+
+### VmServiceClient
+
+- New `_sessionGeneration` int field bumped at the start of `_cleanup()`. `_pollTimeline` captures the generation at start and re-checks after each await (`getVMTimeline`, `clearVMTimeline`, `getMemoryUsage`) before writing session-shared maps, firing callbacks, or running `_sweepStalePendingBegins`. Without the fence, an in-flight poll resuming after a reconnect could repopulate cleared maps with stale state and evict fresh begins using the prior session's anchor ts.
+
+### Audit gate
+
+- `checkPerStableIdTier` rejects empty `perStableIdTier: {}` as misconfiguration.
+- `DetectorMetadata.perStableIdTier` doc clarifies single-family detectors set base `tier` directly — `perStableIdTier` is for multi-family detectors where a single base tier would over- or under-claim.
+
+### Layer-3 NetworkMonitor reproducer tests
+
+Replaced credit-only tests with boundary triads pinning operator semantics per family with EXPLICIT threshold values (no default reliance):
+
+- `large_response`: `>= largeResponseBytes` at limit-1 / limit / 2×.
+- `request_frequency`: `> frequencyLimit` at limit / limit+1 / 2×limit.
+- `http_error_spike`: `>= 3` → warning, `>= 10` → critical.
+- `high_frequency_same_path`: `>= 3` → warning, `>= 10` → critical.
+
+### Verification
+
+- 2,818 tests passing (was 2,809 in v0.19.0; +9 net).
+- `fvm flutter analyze` clean.
+
+### Known limitations (deferred to v0.20.0+)
+
+- `_lastProcessedTsByTid` grows across session lifetime (one entry per unique `tid` ever observed). Bounded by OS thread limit; ~16KB worst case. Age-based pruning planned.
+- Layer-3 boundary triads use frozen `fakeNow`. Pin COUNT thresholds correctly but don't cover time-window edge cases (records spread beyond `_frequencyWindowMs`).
+- Single-family-detector convention is documented but not audit-enforced.
+
 ## 0.19.0
 
 **Hardening release — four deferred items closed. BREAKING schema change.** No new tier raises.
@@ -137,7 +176,7 @@ iOS dev/profile builds that previously appeared clean may now show new issue car
 
 ## 0.18.1
 
-**Hardening release fulfilling the v0.18.0 commitment** — closes the four architectural items + three procedural items that the v0.18.0 advanced adversarial review surfaced as required before any other vmOnly detector tier raise. Distribution unchanged: **22 / 23 at `reproducerOnly`, 1 / 23 at `runtimeVerified`**. v0.18.2+ tier raises (HeavyCompute, ShaderJank, MemoryPressure, GpuPressure, PlatformChannel) now have the infrastructure they need.
+**Hardening release fulfilling the v0.18.0 commitment** — closes four architectural items + three procedural items required before any other vmOnly detector tier raise. Distribution unchanged: **22 / 23 at `reproducerOnly`, 1 / 23 at `runtimeVerified`**. v0.18.2+ tier raises (HeavyCompute, ShaderJank, MemoryPressure, GpuPressure, PlatformChannel) now have the infrastructure they need.
 
 > **Single-issue replay protection ON by default for NetworkMonitor.** `validateBracket` gains `requireUniqueDetectedAtMicros: true` (opt-in via `DetectorMetadata.bracketRequireUniqueDetectedAtMicros`). NetworkMonitor's triad was re-recorded under v0.18.1 producer-side dedup (3 distinct captures: below 815 ms / 0 records, at 1030 ms / 1 record / 1 unique microsecond, above 1501 ms / 1 record / 1 unique microsecond) and the metadata opts in. The audit gate now rejects any capture replay (N records sharing one `detectedAtMicros`) for NetworkMonitor's `slow_request.warning` claim. v0.18.2+ vmOnly tier raises (HeavyCompute, ShaderJank, etc.) should opt in at metadata-flip time.
 
@@ -365,7 +404,7 @@ All "no-fire" boundary tests use broad `expect(issues, isEmpty)` rather than nar
 
 ### Provenance hardening (CR1 / CR2 / CR3 / CR4 + P3 / P4 / P5 / P8)
 
-Second adversarial-review pass surfaced a sticky-binding leak, whole-subtree taint via descendant scan, name-shadowing of Rule-1 helpers, and over-bound closure parameters on `fold`/`reduce`. The tightened matcher previously only proved `.stableId` is syntactically present; synthetic `class FakeIssue { String stableId; }` still credited. Five rounds of adversarial pushback converged on an 8-point structural provenance model:
+Second hardening pass surfaced a sticky-binding leak, whole-subtree taint via descendant scan, name-shadowing of Rule-1 helpers, and over-bound closure parameters on `fold`/`reduce`. The tightened matcher previously only proved `.stableId` is syntactically present; synthetic `class FakeIssue { String stableId; }` still credited. Converged on an 8-point structural provenance model:
 
 - **Structural receiver-chain walker (`_expressionIsDetectorDerived`)**. Replaces the earlier subtree-containment rule. Walks only through aliasing shapes that preserve detector provenance: `MethodInvocation` (direct required-token construction, or recursion through element-preserving methods on a derived receiver, or producer methods like `scanTree` / `scanFrame` / `issues` on a required-token instance), `InstanceCreationExpression` (required-token type), `PropertyAccess` / `PrefixedIdentifier` / `SimpleIdentifier` (alias lookup), `IndexExpression`, `ParenthesizedExpression`, `AwaitExpression`, `AsExpression`. List literals, map literals, conditionals, binary ops, spread elements, collection-if/for, `map`/`expand`/`followedBy`/`reduce`/`fold`/`whereType`/unknown extension methods → NOT derived.
 - **Full add/remove lifecycle on `detectorBoundIdentifiers`**. `visitVariableDeclaration` + `visitAssignmentExpression` ADD when RHS is structurally derived, REMOVE when not (any assignment operator). Closes the sticky-set leak where `final issue = FakeIssue(...)` after a prior derived binding kept `issue` in the bound set.
@@ -394,7 +433,7 @@ Total regression fixtures added over both hardening passes: 12. New anchors in t
 
 - `DetectorMetadata` is public API; `parametricFamilies` is nullable → pure additive, no backward-compat impact.
 - No serialisation of `DetectorMetadata` exists downstream; no schema versioning needed.
-- Residual risks (LOW): cross-test undeclared-name reuse leaks (real reproducers always declare per-test); unknown iterable extension methods fail-closed (authors migrate to the whitelisted forms); mixed-detector reproducer can theoretically credit wrong detector. All require adversarial authorship; the audit is a CI hygiene gate, not a security boundary.
+- Residual risks (LOW): cross-test undeclared-name reuse leaks (real reproducers always declare per-test); unknown iterable extension methods fail-closed (authors migrate to the whitelisted forms); mixed-detector reproducer can theoretically credit wrong detector. All require deliberate authorship; the audit is a CI hygiene gate, not a security boundary.
 - `fvm flutter analyze` clean, `fvm flutter test` 2,634 tests green.
 
 ## 0.17.2
@@ -816,198 +855,100 @@ harness pattern, and four HEAD bugfixes surfaced during methodology plan review.
 - **Validating the 23 detectors' numbers.** That is the *point* of shipping
   this methodology — v0.16.0 is the contract, v0.16.1+ is the application.
 
-### Post-implementation Codex review (3 fixes)
+### Post-implementation hardening (11 fixes)
 
-A Codex review of the working-tree v0.16.0 diff returned a
-`needs-attention` verdict with three findings. All three landed in this
-release before tag/push:
+Multiple review passes on the v0.16.0 diff folded the following
+robustness fixes into the release:
 
-- **Warmup gate reads monotonic vsync, not per-callback wall clock (Codex
-  finding 1, high).** The initial C1 fix used `DateTime.now()` stamped once
-  per `addTimingsCallback` batch. Flutter can deliver many frames in a single
-  callback — e.g. a cold start with 60+ buffered frames collapsed to one
-  `DateTime.now()` tick — which kept the 3 s gate closed far past the
+- **Warmup gate reads monotonic vsync, not per-callback wall clock.**
+  The initial fix used `DateTime.now()` stamped once per
+  `addTimingsCallback` batch. Flutter can deliver many frames in a
+  single callback — a cold start with 60+ buffered frames collapsed to
+  one `DateTime.now()` tick — keeping the 3 s gate closed far past the
   intended warmup window. `FrameTimingDetector` now tracks
-  `_firstFrameVsyncUs` (engine microseconds from
-  `FrameTiming.vsyncStart`) and measures elapsed warmup against
-  `frames.last.vsyncStartUs - _firstFrameVsyncUs`. Falls back to wall-clock
-  only when `vsyncStartUs` is null (synthetic test frames). New
-  `@visibleForTesting handleTimingsForTest(List<FrameTiming>)` bridge exists
-  to drive the real `_onTimings` pipeline from unit tests. Regression test
-  feeds 200 `FrameTiming`s via the public factory spanning only 500 ms of
-  monotonic time and asserts the gate stays closed.
-- **`PerformanceIssue.fromJson` per-entry allocator hardening (Codex finding
-  2, medium).** The initial C4 guard only checked the outer `topAllocators`
-  List shape; a payload like `{'topAllocators': [{'className': 42}]}` still
-  crashed inside `AllocationEntry.fromJson`'s strict casts. Added
+  `_firstFrameVsyncUs` (from `FrameTiming.vsyncStart`) and measures
+  elapsed warmup against `frames.last.vsyncStartUs - _firstFrameVsyncUs`.
+  Falls back to wall-clock only when `vsyncStartUs` is null (synthetic
+  test frames). New `@visibleForTesting handleTimingsForTest(...)`
+  bridge drives the real `_onTimings` pipeline from unit tests.
+  Regression test feeds 200 `FrameTiming`s spanning 500 ms and asserts
+  the gate stays closed.
+- **`PerformanceIssue.fromJson` per-entry allocator hardening.** The
+  outer `topAllocators` List-shape guard let a payload like
+  `{'topAllocators': [{'className': 42}]}` crash inside
+  `AllocationEntry.fromJson`'s strict casts. Added
   `_tryParseAllocationEntries` helper that wraps each entry parse in
-  try/catch — malformed entries drop silently, valid entries survive
-  alongside them. Regression tests cover the JS-string-coercion case,
-  mixed valid/invalid siblings, stringified `rankingScore`, and
-  mixed-type `downstreamIds`.
-- **Validation API exported from `lib/sleuth.dart` (Codex finding 3,
-  medium).** `EvidenceTier` and `DetectorMetadataProvider` were reachable
-  only via `package:sleuth/src/validation/...` — the headline v0.16.0
-  contract was not importable through the public barrel. Added two
-  `export` lines and a `test/validation/validation_public_api_test.dart`
-  smoke test that imports ONLY `package:sleuth/sleuth.dart` and
-  exercises the enum + mixin so future regressions fail a test instead
-  of shipping a broken barrel.
-
-### Post-Codex meta-review hardening (3 fixes)
-
-A second Codex pass — reviewing the prior review's findings
-themselves (the meta-review) — returned another `needs-attention` verdict
-with three medium/low findings. All three landed in this release:
-
-- **`PerformanceIssue.fromJson` guarded enum parsing (meta-review C3,
-  medium).** Required enum fields (`severity`, `category`, `confidence`)
-  and optional enum fields (`observationSource`, `interactionContext`,
-  `fixEffort`) were still doing raw `IssueSeverity.values.byName(json[…]
-  as String)`. A payload with `severity: 42` (JS coercion) or
-  `severity: 'warn'` (typo / version skew) still aborted the whole
-  snapshot deserialization — the same cross-version failure mode C4 +
-  Codex finding 2 exist to survive, just on different fields. Added a
-  top-level `_tryParseEnum<T>` helper and routed all six enum fields
-  through it. Required fields fall back to neutral defaults
-  (`IssueSeverity.warning`, `IssueCategory.build`,
-  `IssueConfidence.possible`); optional fields drop to null. Six new
-  regression tests cover numeric coercion, renamed/typo values, missing
-  required field, optional rename/coercion.
-- **`_tryParseAllocationEntries` narrowed catch (meta-review C2,
-  medium).** The initial helper used bare `catch (_)`, which swallowed
-  `StackOverflowError`, `OutOfMemoryError`, `StateError`, and other
-  `Error` subclasses that signal VM instability or programmer bugs, not
-  schema drift. Narrowed to `on TypeError catch (_)` + `on Exception
-  catch (_)` — catches the realistic shapes (cast failures on
-  JS-coerced fields, `FormatException` from date/number parsing,
-  `ArgumentError` from byName / range drift) while letting
-  resource-exhaustion and state errors propagate so regressions surface
-  with a stack trace instead of as silent missing allocator data.
-- **`EvidenceTier` ordering fully pinned (meta-review C4, low).** The
-  Codex-3 smoke test asserted only 2 of 4 ordinals (`unvalidated.index ==
-  0` + `externallyCited.index == 3`). A future reorder swapping the two
-  middle values would have passed the test while breaking the
-  docstring's "lowest → highest" contract. Strengthened the test to
-  pin the full name sequence *and* the full ordinal sequence so any
-  rename or reorder of the stable-contract enum fails a test.
-
-### Post-meta triangulated review hardening (2 fixes)
-
-A final dual-reviewer pass (Claude + Codex triangulation, converged in
-4 substantive rounds) agreed on two residual blockers over
-the post-meta tree. Both landed in this release:
-
-- **`DetectorMetadataProvider` API contract clarified (F1, high).**
-  The mixin docstring claimed detectors would "implement this via a
-  static `metadata` field … so the audit test can reflect on types
-  without constructing instances." Dart does not treat static members
-  as part of a class interface — a static field on a mixin subtype is
-  not reachable polymorphically, so the audit-without-construction path
-  is not implementable. Replaced the docstring with the honest contract:
+  try/catch — malformed entries drop silently, valid siblings survive.
+  Regression tests cover JS-string-coercion, mixed valid/invalid,
+  stringified `rankingScore`, and mixed-type `downstreamIds`.
+- **Validation API exported from `lib/sleuth.dart`.** `EvidenceTier`
+  and `DetectorMetadataProvider` were reachable only via
+  `package:sleuth/src/validation/...`. Added the `export` lines and a
+  `test/validation/validation_public_api_test.dart` smoke test that
+  imports ONLY the public barrel.
+- **`PerformanceIssue.fromJson` guarded enum parsing.** Required enum
+  fields (`severity`, `category`, `confidence`) and optional enum
+  fields (`observationSource`, `interactionContext`, `fixEffort`) were
+  doing raw `IssueSeverity.values.byName(...)`. A payload with
+  `severity: 42` (JS coercion) or `severity: 'warn'` (typo) aborted
+  the whole snapshot. Added `_tryParseEnum<T>` helper and routed all
+  six enum fields through it. Required fields fall back to neutral
+  defaults; optional fields drop to null.
+- **`_tryParseAllocationEntries` narrowed catch.** The helper used
+  bare `catch (_)`, swallowing `StackOverflowError`, `OutOfMemoryError`,
+  `StateError`, and other `Error` subclasses signalling VM instability.
+  Narrowed to `on TypeError catch (_)` + `on Exception catch (_)`.
+- **`EvidenceTier` ordering fully pinned.** Smoke test asserted only 2
+  of 4 ordinals. Strengthened to pin the full name sequence + ordinal
+  sequence so any reorder/rename of the stable-contract enum fails.
+- **`DetectorMetadataProvider` API contract clarified.** The mixin
+  docstring claimed detectors would implement via a static `metadata`
+  field "so the audit test can reflect on types without constructing
+  instances." Dart does not treat static members as class interface
+  members; a static field on a mixin subtype is not reachable
+  polymorphically. Replaced docstring with the honest contract:
   `validationMetadata` is an instance getter backed by a `const`
-  literal, the audit walks the `SleuthController`'s registered detector
-  instances (the same construction path the runtime already exercises),
-  and detector constructors must be side-effect-free so the audit can
-  construct them in isolation if needed. No code change — this was a
-  docstring-only fix, but the contract change blocks the audit test's
-  design so it's in this release rather than in v0.16.1.
-- **Stage wrappers profile-safe + detector quarantine (F3, medium).**
-  Prior to this fix, every per-detector try/catch in
-  `_runStructuralScans` used `assert(() { debugPrint(…); return true;
-  }())`. `assert()` is stripped in profile mode — and Sleuth's primary
-  runtime target is profile mode — so a misbehaving detector failed
-  silently with no runtime signal. Additionally, a detector that threw
-  in `prepareScan` (leaving internal state partially initialised) was
-  still called in every subsequent stage
-  (`checkElement`/`afterElement`/`notifyWalkCompleted`/`finalizeScan`),
-  potentially throwing `LateInitializationError` on uninitialised fields
-  or amplifying noise across thousands of visitor invocations in the
-  unified walk. Combined fix in one pass: (1) replaced all seven
-  assert+debugPrint blocks with `FlutterError.reportError(FlutterErrorDetails(…))`
-  which survives profile-mode compilation and integrates with the app's
-  crash reporter and `FlutterError.onError`, and (2) added a per-scan
-  `Set<BaseDetector> failedDetectors` that is populated on any throw
-  and consulted at the top of every subsequent per-detector stage
-  (including inside the visitor closure that runs on every element).
-  Eight new regression tests verify both contracts — five parameterised
-  tests assert `FlutterError.reportError` fires under `library: 'sleuth'`
-  for each stage (`prepareScan`, `checkElement`, `afterElement`,
-  `notifyWalkCompleted`, `finalizeScan`), and three quarantine-behaviour
-  tests verify a detector that throws in `prepareScan` is skipped in all
-  four subsequent stages, a detector that throws in `checkElement` is
-  skipped on every later element, and sibling detectors continue to run
-  in the same scan.
-
-### Post-triangulation round 2-3 hardening (3 fixes)
-
-A second triangulation pass (Codex ↔ Claude) converged in Round 3 on
-three additional blockers that the prior F1 + F3 pass left behind. All
-three landed in this release:
-
-- **Failed detectors still published partial issues/highlights into
-  aggregation (Round 2-3, blocker 1, medium).** The F3 quarantine only
-  suppressed *later* stage callbacks for detectors that threw. Aggregation
-  — `_getAllIssues()` and `_collectHighlights()` — was still spreading
-  `...d.issues` and `...d.highlights` for every detector, including the
-  ones marked failed mid-scan. A detector that committed 49 findings via
-  `SimpleStructuralDetector.report(...)` before throwing on element 50
-  still leaked those partial findings into `issuesNotifier`. Promoted the
-  per-scan `Set<BaseDetector> failedDetectors` local in `_runStructuralScans`
-  to a controller-owned `_lastScanFailedDetectors` field, cleared at the
-  top of each scan, added to on every stage failure (prepareScan,
-  checkElement closure, afterElement closure, notifyWalkCompleted,
-  finalizeScan, legacy scanTree), and consulted at both aggregation
-  sites to filter those detectors' contributions. Two new regression
-  tests: one where a failing detector emits an issue + highlight before
-  throwing mid-walk and asserts neither reaches `issuesNotifier`, and
-  one pairing a failing detector beside a healthy one to guard against
-  an over-aggressive filter that would suppress sibling output.
-- **`PerformanceIssue.fromJson.detectedAt` used unguarded `DateTime.parse`
-  (Round 2-3, blocker 2, low-medium).** Malformed ISO strings or
-  non-string payloads on `detectedAt` threw `FormatException` /
-  `TypeError` and aborted the whole factory — the same single-field
-  snapshot-abort pattern that Meta-C3 + Codex finding 2 hardened the six
-  enum fields and `topAllocators` entries against. Replaced
-  `DateTime.parse(json['detectedAt'] as String)` with
-  `json['detectedAt'] is String ? DateTime.tryParse(...) : null` so a
-  malformed timestamp degrades a single field to null instead of
-  poisoning the whole snapshot. Three regression tests cover an
-  unparseable string, a non-string value, and a valid round-trip.
-- **F3 tests were tautological and masked duplicate-fire regressions
-  (Round 2-3, blocker 3, medium).** `_ScopedErrorCapture` did not
-  forward to `_previous?.call(details)`, which swallowed
-  TestWidgetsFlutterBinding's layout-error reporting and hid any
-  framework errors the test bindings rely on for teardown assertions.
-  The per-stage matchers also used `expect(matching, isNotEmpty)`,
-  which happily passed if a stage accidentally emitted its error two or
-  three times. Fixed both: (1) capture handler now forwards to
-  `_previous?.call(details)` so framework errors still propagate, (2)
-  each per-stage test asserts `matching.length == 1` (catches
-  duplicate-fire) AND `nonMatching` is empty (catches unrelated
-  regressions), and (3) every test that expected a thrown detector
-  error now drains it with `tester.takeException()` so the test binding
-  teardown does not flag it as an unhandled error.
+  literal, the audit walks `SleuthController`'s registered instances,
+  detector constructors must be side-effect-free.
+- **Stage wrappers profile-safe + detector quarantine.** Per-detector
+  try/catch in `_runStructuralScans` used `assert(() { debugPrint(...);
+  return true; }())`. `assert()` is stripped in profile mode (Sleuth's
+  primary runtime target), so a misbehaving detector failed silently.
+  Additionally, a detector that threw in `prepareScan` was still called
+  in every subsequent stage. Combined fix: (1) replaced all seven
+  assert+debugPrint blocks with
+  `FlutterError.reportError(FlutterErrorDetails(...))` which survives
+  profile-mode compilation, and (2) added per-scan
+  `Set<BaseDetector> failedDetectors` consulted at the top of every
+  subsequent per-detector stage. Eight regression tests verify both
+  contracts.
+- **Aggregation filter for failed detectors.** The quarantine only
+  suppressed *later* stage callbacks. Aggregation —
+  `_getAllIssues()` / `_collectHighlights()` — still spread `...d.issues`
+  and `...d.highlights` for every detector. A detector that committed
+  49 findings before throwing on element 50 leaked those into
+  `issuesNotifier`. Promoted the per-scan `failedDetectors` set to a
+  controller-owned field consulted at both aggregation sites.
+- **`PerformanceIssue.fromJson.detectedAt` used unguarded
+  `DateTime.parse`.** Malformed ISO strings or non-string payloads
+  threw and aborted the whole factory. Replaced with `... is String
+  ? DateTime.tryParse(...) : null` so a malformed timestamp degrades
+  a single field to null instead of poisoning the snapshot.
+- **Detector-failure tests tightened.** `_ScopedErrorCapture` now
+  forwards to `_previous?.call(details)` so framework errors still
+  propagate. Per-stage matchers asserted `expect(matching, isNotEmpty)`
+  which passed even if a stage accidentally emitted twice; tightened
+  to `matching.length == 1` AND `nonMatching` is empty. Every test
+  that expects a thrown detector error now drains it with
+  `tester.takeException()`.
 
 ### Notes
 
-- Test count: 2,220 → 2,225 (+2 aggregation-filter regression tests +
-  3 `detectedAt` regression tests; F3 stage-loop tests were rewritten in
-  place rather than added, so their count is unchanged).
+- Test count: 2,220 → 2,225.
 - `fvm flutter analyze` → 0 issues. `fvm flutter test` → all pass.
-- One pre-impl plan review (10 C-findings + 10 F-fixes; C1-C4 + F5 were
-  prerequisite M0 code; C5-C10, F1-F4, F6-F10 shaped the methodology
-  contract in the spec) **plus** one Codex post-impl review that
-  surfaced the first three fixes **plus** one meta-review loop that
-  surfaced the three meta-review hardening fixes **plus** two
-  triangulated (Claude ↔ Codex) passes — the first converged on F1 +
-  F3, the second converged in Round 3 on the aggregation-filter,
-  `detectedAt`, and F3-test-tautology blockers listed above.
-- F2 (`PerformanceIssue.fromJson` enum-drift cascade) was held as a
-  user decision between "ship Path B skip-on-drift now" and "ship
-  Path C docstring + defer cascade fix to v0.17 MCP milestone"; the
-  user chose Path C and the factory now carries an explicit lossy-
-  import scope note pointing v0.17 as the first-class import milestone.
+- F2 (`PerformanceIssue.fromJson` enum-drift cascade) deferred to v0.17
+  MCP milestone; the factory carries an explicit lossy-import scope
+  note pointing at v0.17 as the first-class import milestone.
 
 ## 0.15.5
 
@@ -1707,7 +1648,7 @@ correctness fix, and ShaderJankDetector noise removal.
 
 ## 0.12.2
 
-Post-Codex review hardening — three robustness fixes on the v11 branch.
+Post-review hardening — three robustness fixes on the v11 branch.
 
 ### Fixed
 
@@ -2451,7 +2392,7 @@ v8 roadmap complete (v8.1–v8.5).
 
 - **v8.1 — SetState subtree counting O(N²) → O(N)**: `SetStateScopeDetector` replaced recursive `_computeSubtreeSize` with stack-based post-order accumulation in `afterElement`. Abort-safety via `notifyWalkCompleted` gate — evidence and child snapshots commit only on success. Transactional `_pendingEvidence` staging prevents partial data from aborted scans.
 - **v8.2 — Scaffold scan-root fallback**: `_findVisiblePageContext` three-tier resolution — (1) Material `Scaffold` / `CupertinoPageScaffold`, (2) scaffold-free Navigator path (walks overlay for topmost route-owned onstage entry via `_ModalScope`, identity-hash route-stability gate, TickerMode onstage filter), (3) static app fallback (`NotificationListener`). `ShallowRebuildRiskDetector` + `SetStateScopeDetector` exempted from scaffold-free walk (depth/ratio semantics break). Nested-Navigator guard prevents cross-tab false positives. `refreshHighlights()` uses `_lastScanContext` to avoid route-stability side effects. Previously Cupertino and scaffold-free apps got zero structural detection.
-- **v8.3 — HTTP monitor openUrl leak**: `_MonitoringHttpClient.openUrl()` wraps `_inner.openUrl()` in try/catch. On transport failure (DNS/TLS/connection-refused), emits `RequestRecord(statusCode: -1)`, calls `onRequestEnded`, rethrows. Callback isolation — `onRequestEnded` and `onRecord` run in separate try/catches so a throwing callback can't suppress the other or mask the transport exception. Same isolation on `_MonitoringRequest.close()` and `_MonitoringResponse._emitRecord()`. Survived 4 Codex reviews.
+- **v8.3 — HTTP monitor openUrl leak**: `_MonitoringHttpClient.openUrl()` wraps `_inner.openUrl()` in try/catch. On transport failure (DNS/TLS/connection-refused), emits `RequestRecord(statusCode: -1)`, calls `onRequestEnded`, rethrows. Callback isolation — `onRequestEnded` and `onRecord` run in separate try/catches so a throwing callback can't suppress the other or mask the transport exception. Same isolation on `_MonitoringRequest.close()` and `_MonitoringResponse._emitRecord()`. Hardened across multiple review passes.
 - **v8.4 — Platform channel false positives**: `TimelineParser` classifier replaced `cat.contains('embedder')` fallback with prefix match for real `debugProfilePlatformChannels` events (`Platform Channel send [channel]#[method]`). The embedder fallback incorrectly captured vsync/compositor/input events. Legacy exact names (`platformchannel`, `methodchannel`) preserved as defensive fallback.
 
 ### Changed

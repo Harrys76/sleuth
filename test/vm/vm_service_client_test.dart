@@ -415,6 +415,108 @@ void main() {
               'drop this BUILD.');
       client.dispose();
     });
+
+    test(
+        'capture-mode buffer re-read does not inflate counters across '
+        'polls (E2E watermark dedup)', () async {
+      // Capture mode (`retainTimeline=true`) skips `clearVMTimeline()`
+      // so the VM keeps returning the FULL retained buffer on every
+      // poll. Without per-tid `lastProcessedTsByTid` watermark threaded
+      // through the parser, every prior event is re-processed:
+      //   - `buildEventCount` triples
+      //   - `buildScopeDurations` accumulates duplicates
+      //   - `gcEvents` / `platformChannelEvents` inflate
+      // RebuildDetector reads `data.buildEventCount` raw (no producer
+      // dedup), so this end-to-end test pins that 3 polls of the same
+      // buffer yield each event ONCE per real occurrence — not 3×.
+      final received = <ParsedTimelineData>[];
+      final mock = _MockVmService();
+      mock.timelineResult = Timeline(
+        traceEvents: [
+          TimelineEvent.parse({
+            'name': 'Build',
+            'cat': 'flutter',
+            'ph': 'X',
+            'dur': 1000,
+            'ts': 100000,
+            'pid': 1,
+            'tid': 1,
+          })!,
+          TimelineEvent.parse({
+            'name': 'Build',
+            'cat': 'flutter',
+            'ph': 'X',
+            'dur': 1500,
+            'ts': 200000,
+            'pid': 1,
+            'tid': 1,
+          })!,
+        ],
+        timeOriginMicros: 100000,
+        timeExtentMicros: 100000,
+      );
+      final client = VmServiceClient(
+        retainTimeline: true,
+        onTimelineData: received.add,
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      // Three polls of the SAME buffer (simulates capture-mode re-read).
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+
+      expect(mock.clearVMTimelineCalled, isFalse,
+          reason: 'retainTimeline=true must skip clearVMTimeline.');
+      // Aggregate across all onTimelineData callbacks.
+      final allDurs = received.expand((p) => p.buildScopeDurations).toList();
+      final totalBuildCount =
+          received.fold<int>(0, (sum, p) => sum + p.buildEventCount);
+      expect(allDurs, equals([1000, 1500]),
+          reason: '2 real BUILDs across 3 polls must yield 2 dur entries '
+              '(not 6). Watermark dedup must skip re-observed events.');
+      expect(totalBuildCount, 2,
+          reason: 'buildEventCount must equal real BUILDs (2), not 3× '
+              '(6). RebuildDetector consumes this raw and would '
+              'false-positive without the watermark.');
+      client.dispose();
+    });
+
+    test('in-flight poll dropped if dispose runs during getVMTimeline await',
+        () async {
+      // Pin the generation-fence: an in-flight poll resuming after
+      // dispose must not fire onTimelineData with stale data.
+      final received = <ParsedTimelineData>[];
+      final mock = _MockVmService();
+      mock.timelineResult = Timeline(
+        traceEvents: [
+          TimelineEvent.parse({
+            'name': 'Build',
+            'cat': 'flutter',
+            'ph': 'X',
+            'dur': 1000,
+            'ts': 100000,
+            'pid': 1,
+            'tid': 1,
+          })!,
+        ],
+        timeOriginMicros: 100000,
+        timeExtentMicros: 1000,
+      );
+      mock.getVMTimelineDelay = const Duration(milliseconds: 80);
+
+      final client = VmServiceClient(onTimelineData: received.add);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      final pollFuture = client.pollTimelineSync();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      client.dispose();
+      await pollFuture;
+
+      expect(received, isEmpty,
+          reason: 'Stale poll resuming after dispose must not fire '
+              'onTimelineData.');
+    });
   });
 
   // =========================================================================

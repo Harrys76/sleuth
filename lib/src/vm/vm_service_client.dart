@@ -439,6 +439,17 @@ class VmServiceClient {
   /// 30s is almost certainly never going to pair.
   static const int _pendingBuildBeginsMaxAgeMicros = 30 * 1000 * 1000;
 
+  /// Per-tid cross-call dedup cursors threaded into
+  /// `TimelineParser.parse()` so capture-mode buffer re-reads don't
+  /// inflate downstream counters. Cleared in `_cleanup()`.
+  final Map<int, TimelineCursor> _lastProcessedTsByTid = {};
+
+  /// Bumped in `_cleanup()`. `_pollTimeline` captures this at start and
+  /// re-checks after each await; a generation change means a reconnect
+  /// or dispose ran during the await, so the poll drops its results
+  /// instead of mutating session-shared state or firing callbacks.
+  int _sessionGeneration = 0;
+
   Future<void> _pollTimeline({bool forceFresh = false}) async {
     if (_pollInFlightCompleter != null) {
       if (!forceFresh) return;
@@ -449,10 +460,13 @@ class VmServiceClient {
       await _pollInFlightCompleter!.future;
     }
     if (_service == null || _disposed) return;
+    final myGen = _sessionGeneration;
     final completer = Completer<void>();
     _pollInFlightCompleter = completer;
     try {
       final timeline = await _service!.getVMTimeline();
+      // Drop stale poll if reconnect/dispose ran during the await.
+      if (myGen != _sessionGeneration || _disposed) return;
       final events = timeline.traceEvents;
       if (events != null && events.isNotEmpty) {
         // One-shot: extract engine startup events before clearing the buffer.
@@ -468,6 +482,7 @@ class VmServiceClient {
         final parsed = TimelineParser.parse(
           events,
           pendingBuildBegins: _pendingBuildBegins,
+          cursorsByTid: _lastProcessedTsByTid,
         );
         if (parsed.hasData) {
           onTimelineData?.call(parsed);
@@ -490,12 +505,14 @@ class VmServiceClient {
       // map's growth; `_cleanup()` clears it on dispose.
       if (!retainTimeline) {
         await _service!.clearVMTimeline();
+        if (myGen != _sessionGeneration || _disposed) return;
       }
 
       // Poll heap memory (piggybacked on timeline poll, near-zero cost)
       if (_mainIsolateId != null && onHeapSample != null) {
         try {
           final mem = await _service!.getMemoryUsage(_mainIsolateId!);
+          if (myGen != _sessionGeneration || _disposed) return;
           onHeapSample?.call(HeapSample(
             heapUsage: mem.heapUsage ?? 0,
             heapCapacity: mem.heapCapacity ?? 0,
@@ -593,7 +610,11 @@ class VmServiceClient {
   }
 
   void _cleanup() {
+    // Bump generation before clearing so any in-flight `_pollTimeline`
+    // detects the change at its next fence check and drops stale results.
+    _sessionGeneration++;
     _pendingBuildBegins.clear();
+    _lastProcessedTsByTid.clear();
     _pollTimer?.cancel();
     _pollTimer = null;
     _controlWebServerTimer?.cancel();

@@ -1804,6 +1804,21 @@ void main() {
       }
     });
 
+    test('empty perStableIdTier map is rejected as misconfiguration', () {
+      // Empty map is functionally equivalent to null but signals
+      // in-progress edits or copy-paste errors. Reject explicitly.
+      final failures = checkPerStableIdTier(
+        label: 'x',
+        tier: EvidenceTier.reproducerOnly,
+        perStableIdTier: const {},
+        coveredStableIds: const {'foo'},
+        bracketStableId: null,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.first, contains('empty map'));
+      expect(failures.first, contains('use null instead'));
+    });
+
     test('perStableIdTier key absent from coveredStableIds is rejected', () {
       final failures = checkPerStableIdTier(
         label: 'x',

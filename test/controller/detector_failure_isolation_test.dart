@@ -112,8 +112,7 @@ class _FailingDetector extends BaseDetector {
 /// (`_previous?.call(details)`) so TestWidgetsFlutterBinding can still see
 /// errors the test did not originate — without the forward, unrelated
 /// framework errors (layout overflow, offstage assertions) would be
-/// swallowed silently, hiding regressions in a separate failure mode
-/// (advanced-adversarial-review Round 3, v0.16.0).
+/// swallowed silently, hiding regressions in a separate failure mode.
 class _ScopedErrorCapture {
   _ScopedErrorCapture() : _previous = FlutterError.onError {
     FlutterError.onError = (FlutterErrorDetails details) {
@@ -151,8 +150,7 @@ void main() {
           errors.restore();
         }
 
-        // Advanced-adversarial-review Round 3 convergence: strict dual
-        // assertion replaces the loose `isNotEmpty` check.
+        // Strict dual assertion (replaces the loose `isNotEmpty` check).
         //
         // (a) `matching.length == 1` — exactly one sleuth-library error
         //     for this stage. A regression that fires a duplicate from
@@ -234,9 +232,9 @@ void main() {
           reason: 'Quarantined — finalizeScan is also skipped so a '
               'half-initialised detector does not emit garbage issues.');
 
-      // `_ScopedErrorCapture` now forwards to the binding's handler so
-      // non-sleuth regressions stay visible (advanced-adversarial-review
-      // Round 3). Drain the one sleuth StateError so teardown succeeds.
+      // `_ScopedErrorCapture` forwards to the binding's handler so
+      // non-sleuth regressions stay visible. Drain the one sleuth
+      // StateError so teardown succeeds.
       expect(tester.takeException(), isA<StateError>());
 
       controller.dispose();
@@ -308,19 +306,16 @@ void main() {
     });
   });
 
-  group(
-      'v0.16.0 F3 — aggregation filter drops partial output from failed '
-      'detectors (advanced-adversarial-review Round 3)', () {
+  group('aggregation filter drops partial output from failed detectors', () {
     testWidgets(
         'checkElement throw mid-walk → issues committed before throw do '
         'NOT leak into issuesNotifier', (tester) async {
-      // This test guards against the Round-2 agreed blocker: the F3
-      // quarantine stopped later-stage callbacks but aggregation
-      // (_getAllIssues / _collectHighlights) still spread the failed
-      // detector's `.issues` / `.highlights` into the public stream. A
+      // The quarantine stops later-stage callbacks, but aggregation
+      // (_getAllIssues / _collectHighlights) must also drop the failed
+      // detector's `.issues` / `.highlights` from the public stream. A
       // SimpleStructuralDetector-style detector that reports findings
-      // during checkElement and then throws had already committed partial
-      // output; publishing it defeated the quarantine's purpose.
+      // during checkElement and then throws has already committed partial
+      // output; publishing it would defeat the quarantine's purpose.
       //
       // The emitting detector below appends an issue + a highlight on
       // its first checkElement call, then throws on its second. Without
@@ -355,8 +350,7 @@ void main() {
         isEmpty,
         reason: 'Aggregation filter must drop partial issues a quarantined '
             'detector committed before throwing. If this test fails, the '
-            'F3 quarantine is leaky and the fix from '
-            'advanced-adversarial-review Round 3 has regressed.',
+            'quarantine is leaky.',
       );
 
       final leakedHighlights = controller.highlightsNotifier.value.items

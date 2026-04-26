@@ -103,7 +103,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   // [FrameTiming.vsyncStart]) of the first frame observed by the detector.
   // Measured against `frames.last.vsyncStartUs` — both are derived from the
   // engine clock, so batched callback delivery no longer collapses elapsed
-  // time to zero (Codex post-impl review finding 1, v0.16.0).
+  // time to zero.
   int? _firstFrameVsyncUs;
 
   // -- Raster cache trend thresholds --
@@ -173,8 +173,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   /// Test-only bridge into the real `addTimingsCallback` pipeline so
   /// callers can feed `List<FrameTiming>` batches through the exact code
   /// path the engine uses. Validates that batched delivery (one callback
-  /// with many frames) no longer collapses the warmup duration gate
-  /// (Codex post-impl review finding 1).
+  /// with many frames) no longer collapses the warmup duration gate.
   @visibleForTesting
   void handleTimingsForTest(List<FrameTiming> timings) => _onTimings(timings);
 

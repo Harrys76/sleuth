@@ -1292,10 +1292,10 @@ void main() {
       }
     });
 
-    // Codex round-2 B3 — when requireTraceRecord is true the gate
-    // must reject runtimeVerified metadata that omits bracketStableId
-    // or bracketSeverityLabel (without those, the schema cannot prove
-    // the detector fired at the claimed severity).
+    // When requireTraceRecord is true the gate must reject
+    // runtimeVerified metadata that omits bracketStableId or
+    // bracketSeverityLabel — without those, the schema cannot prove the
+    // detector fired at the claimed severity.
     test(
         'checkBracketValidation with requireTraceRecord rejects '
         'missing bracketStableId / bracketSeverityLabel', () {

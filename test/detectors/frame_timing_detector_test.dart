@@ -782,15 +782,15 @@ void main() {
                 'evaluation runs from frame 1');
       });
 
-      // Codex post-impl review finding 1: the wall-clock fallback path
-      // uses `DateTime.now()` which is stamped once per callback batch,
-      // not once per frame. A real cold start can deliver 60+ frames in a
-      // single `addTimingsCallback` invocation — if the gate read batch
-      // wall time instead of per-frame vsync, a 500 ms monotonic-timestamp
+      // The wall-clock fallback path uses `DateTime.now()` which is
+      // stamped once per callback batch, not once per frame. A real
+      // cold start can deliver 60+ frames in a single
+      // `addTimingsCallback` invocation — if the gate read batch wall
+      // time instead of per-frame vsync, a 500 ms monotonic-timestamp
       // batch would look like 0 ms elapsed and keep suppressing jank.
       test(
           'batched FrameTiming delivery uses monotonic vsync for elapsed '
-          'time (C-Codex-1 regression)', () {
+          'time', () {
         final detector = FrameTimingDetector(
           warmupFrameCount: 0,
           warmupDuration: const Duration(seconds: 3),

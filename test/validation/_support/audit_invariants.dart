@@ -1390,6 +1390,13 @@ List<String> checkPerStableIdTier({
   required String? bracketStableId,
 }) {
   if (perStableIdTier == null) return const [];
+  if (perStableIdTier.isEmpty) {
+    return [
+      '$label: perStableIdTier is an empty map — declare at least one '
+          'family raise or use null instead. Empty map is functionally '
+          'a no-op and signals an in-progress edit or copy-paste error.',
+    ];
+  }
   final failures = <String>[];
   for (final entry in perStableIdTier.entries) {
     if (coveredStableIds == null || !coveredStableIds.contains(entry.key)) {
@@ -1458,11 +1465,11 @@ List<String> checkBracketValidation({
     failures.add('$label: missing bracketUnit (e.g. "ms", "bytes", "frames") '
         '— required alongside bracketThreshold');
   }
-  // Codex round-2 B3 — runtimeVerified detector tier raises must prove
-  // the detector actually fired AT THE CLAIMED SEVERITY. Without
-  // bracketStableId + bracketSeverityLabel the schema cannot search
-  // for the trace record. Components (e.g. ProfileCaptureSchema itself)
-  // do not emit issue records, so they pass requireTraceRecord: false.
+  // runtimeVerified detector tier raises must prove the detector
+  // actually fired AT THE CLAIMED SEVERITY. Without bracketStableId +
+  // bracketSeverityLabel the schema cannot search for the trace
+  // record. Components (e.g. ProfileCaptureSchema itself) do not emit
+  // issue records, so they pass requireTraceRecord: false.
   if (requireTraceRecord) {
     if (bracketStableId == null || bracketStableId.trim().isEmpty) {
       failures.add('$label: missing bracketStableId — runtimeVerified/'

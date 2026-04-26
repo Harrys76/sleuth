@@ -249,6 +249,213 @@ void main() {
       // Stack size should now be 99 (was 100 after cap, popped 1).
       expect(pending[1]?.length, 99);
     });
+
+    test(
+        'cursorsByTid watermark skips re-observed events across '
+        'parse calls (capture-mode buffer re-read dedup)', () {
+      final cursors = <int, TimelineCursor>{};
+      final batch1 = [
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'X',
+          'dur': 100,
+          'ts': 1000,
+          'tid': 1,
+          'pid': 1
+        })!,
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'X',
+          'dur': 200,
+          'ts': 2000,
+          'tid': 1,
+          'pid': 1
+        })!,
+      ];
+      final data1 = TimelineParser.parse(batch1, cursorsByTid: cursors);
+      expect(data1.buildScopeDurations, [100, 200]);
+      expect(data1.buildEventCount, 2);
+      expect(cursors[1]?.lastTs, 2000);
+
+      // Re-read same buffer (capture mode poll 2): both events should
+      // be skipped — same signature at ts < lastTs and at ts == lastTs.
+      final data2 = TimelineParser.parse(batch1, cursorsByTid: cursors);
+      expect(data2.buildScopeDurations, isEmpty,
+          reason: 'Re-read events with same signature must be skipped.');
+      expect(data2.buildEventCount, 0);
+
+      // Add a new event past the watermark + re-read prior buffer:
+      // only the new event lands.
+      final batch3 = [
+        ...batch1,
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'X',
+          'dur': 300,
+          'ts': 3000,
+          'tid': 1,
+          'pid': 1
+        })!,
+      ];
+      final data3 = TimelineParser.parse(batch3, cursorsByTid: cursors);
+      expect(data3.buildScopeDurations, [300],
+          reason: 'Only the new ts=3000 event passes.');
+      expect(cursors[1]?.lastTs, 3000);
+    });
+
+    test(
+        'cursor dedup covers gcEvents and platformChannelEvents '
+        '(not just BUILDs)', () {
+      final cursors = <int, TimelineCursor>{};
+      final batch = [
+        TimelineEvent.parse({
+          'name': 'GC',
+          'cat': 'GC',
+          'ph': 'X',
+          'dur': 100,
+          'ts': 1000,
+          'tid': 1,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'Platform Channel send foo',
+          'cat': 'Dart',
+          'ph': 'b',
+          'ts': 2000,
+          'tid': 1,
+          'pid': 1,
+          'id': '0x1',
+        })!,
+      ];
+      final data1 = TimelineParser.parse(batch, cursorsByTid: cursors);
+      expect(data1.gcEvents, hasLength(1));
+      expect(data1.platformChannelEvents, hasLength(1));
+
+      final data2 = TimelineParser.parse(batch, cursorsByTid: cursors);
+      expect(data2.gcEvents, isEmpty,
+          reason: 'GC events must dedup like BUILD events.');
+      expect(data2.platformChannelEvents, isEmpty,
+          reason: 'Platform channel events must dedup like BUILD events.');
+    });
+
+    test(
+        'cursor is per-tid (event on tid=2 not blocked by tid=1 '
+        'watermark)', () {
+      final cursors = <int, TimelineCursor>{};
+      TimelineParser.parse([
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'X',
+          'dur': 100,
+          'ts': 5000,
+          'tid': 1,
+          'pid': 1
+        })!,
+      ], cursorsByTid: cursors);
+      expect(cursors[1]?.lastTs, 5000);
+      expect(cursors[2], isNull);
+
+      final data = TimelineParser.parse([
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'X',
+          'dur': 50,
+          'ts': 1000,
+          'tid': 2,
+          'pid': 1
+        })!,
+      ], cursorsByTid: cursors);
+      expect(data.buildScopeDurations, [50],
+          reason: 'Per-tid cursor; cross-tid traffic unaffected.');
+    });
+
+    test('events without `ts` (M metadata events) bypass the cursor', () {
+      final cursors = <int, TimelineCursor>{};
+      final batch = [
+        TimelineEvent.parse({
+          'name': 'process_name',
+          'ph': 'M',
+          'tid': 1,
+          'pid': 1,
+          'args': {'name': 'sleuth_test'}
+        })!,
+      ];
+      final data = TimelineParser.parse(batch, cursorsByTid: cursors);
+      expect(data.buildScopeDurations, isEmpty);
+      expect(cursors, isEmpty,
+          reason: 'M events without ts must not advance the cursor.');
+    });
+
+    test('same-tid same-ts events with different signatures both pass', () {
+      // Distinct events sharing (tid, ts) but differing in (ph, name, id)
+      // must not conflate.
+      final cursors = <int, TimelineCursor>{};
+      TimelineParser.parse([
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'X',
+          'dur': 100,
+          'ts': 5000,
+          'tid': 1,
+          'pid': 1
+        })!,
+      ], cursorsByTid: cursors);
+      expect(cursors[1]?.lastTs, 5000);
+
+      final data = TimelineParser.parse([
+        TimelineEvent.parse({
+          'name': 'BUILD',
+          'ph': 'X',
+          'dur': 100,
+          'ts': 5000,
+          'tid': 1,
+          'pid': 1
+        })!,
+        TimelineEvent.parse({
+          'name': 'frame',
+          'cat': 'Embedder',
+          'ph': 'i',
+          'ts': 5000,
+          'tid': 1,
+          'pid': 1,
+          's': 'p',
+        })!,
+      ], cursorsByTid: cursors);
+      expect(data.buildScopeDurations, isEmpty,
+          reason: 'Re-read BUILD with same signature must be skipped.');
+      expect(cursors[1]?.seenSignatures.length, 2,
+          reason: 'Cursor must track both signatures at the same ts.');
+    });
+
+    test(
+        'async events with different `id` at same (tid, ts) both pass '
+        '(id-based signature distinguishes them)', () {
+      final cursors = <int, TimelineCursor>{};
+      final batch = [
+        TimelineEvent.parse({
+          'name': 'Platform Channel send foo#bar',
+          'cat': 'Dart',
+          'ph': 'b',
+          'ts': 5000,
+          'tid': 1,
+          'pid': 1,
+          'id': '0x1',
+        })!,
+        TimelineEvent.parse({
+          'name': 'Platform Channel send foo#bar',
+          'cat': 'Dart',
+          'ph': 'b',
+          'ts': 5000,
+          'tid': 1,
+          'pid': 1,
+          'id': '0x2',
+        })!,
+      ];
+      final data = TimelineParser.parse(batch, cursorsByTid: cursors);
+      expect(data.platformChannelEvents, hasLength(2),
+          reason: 'Two async events with same name+ts but different id '
+              'must both pass; signature includes id.');
+    });
   });
 
   group('TimelineParser enrichment args', () {

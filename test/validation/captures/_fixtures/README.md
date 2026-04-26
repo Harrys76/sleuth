@@ -34,8 +34,9 @@ date and the detector scenario it was recorded for. Keep the anchor's
 ## Why an anchor at all
 
 Hand-written fixtures that mirror a validator's assumptions are a
-confirmation-bias machine — see `adversarial-review` Tactic 9. A single
-committed export that came from the real producer (or, in v0.16.2,
-is a shape-faithful approximation locked against schema drift) proves
-the schema accepts real-world input, not just inputs the schema author
+confirmation-bias machine: the test passes because the fixture author
+encoded the validator's expectation, not because the validator handles
+real-world input. A single committed export from the real producer (or
+a shape-faithful approximation locked against schema drift) proves the
+schema accepts real-world input, not just inputs the schema author
 designed around.

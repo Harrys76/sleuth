@@ -19,10 +19,10 @@
 // - Elapsed-time correctness across drains.
 // - `canonicalizeTypeName` unit coverage for deny-list, regex, generics.
 //
-// **tearDown isolation (resolves v1 adversarial C6):** every test
-// `setUp` captures `FlutterTimeline.debugCollectionEnabled`, and every
-// `tearDown` drains the buffer and restores the flag to its prior value
-// so static-buffer state cannot spill across tests.
+// **tearDown isolation:** every test `setUp` captures
+// `FlutterTimeline.debugCollectionEnabled`, and every `tearDown` drains
+// the buffer and restores the flag to its prior value so static-buffer
+// state cannot spill across tests.
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';

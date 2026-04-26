@@ -74,6 +74,14 @@ class ParsedTimelineData {
 /// - `PAINT` / `PAINT (root)` (v3.13+), `Paint` (v2.x)
 ///
 /// Falls back to thread ID classification when names don't match known patterns.
+
+/// Per-tid cross-call dedup cursor for [TimelineParser.parse]. `lastTs`
+/// is the max `ts` observed for the thread in a prior call;
+/// `seenSignatures` holds the `(ph, name, id)` signatures of events at
+/// that exact `lastTs`, so distinct events sharing a microsecond are
+/// not conflated.
+typedef TimelineCursor = ({int lastTs, Set<String> seenSignatures});
+
 class TimelineParser {
   TimelineParser._();
 
@@ -172,16 +180,22 @@ class TimelineParser {
   /// loss or VM service buffer overflow).
   static const int _pendingBuildBeginsCapPerTid = 100;
 
-  /// Parse a list of raw timeline events into [ParsedTimelineData].
+  /// Parse raw timeline events into [ParsedTimelineData].
   ///
   /// [pendingBuildBegins] carries unmatched BUILD `ph: 'B'` events
-  /// across `parse()` calls so iOS B/E pairs straddling poll boundaries
-  /// reconstruct correctly. When omitted, each call gets a fresh map
-  /// (preserves backward-compat for direct callers — only the
-  /// VmServiceClient polling path persists state across batches).
+  /// across calls so iOS B/E pairs straddling poll boundaries
+  /// reconstruct correctly. Null = fresh per call.
+  ///
+  /// [cursorsByTid] is a per-thread cross-call dedup cursor; events
+  /// with `ts < cursor.lastTs`, or with `ts == cursor.lastTs` and a
+  /// signature already in `cursor.seenSignatures`, are skipped.
+  /// Signature is `'$ph|$name|${id ?? ""}'`. Skipped for events without
+  /// `ts` (metadata `M` events). Null = fresh per call. Caller clears
+  /// the map on session reset.
   static ParsedTimelineData parse(
     List<TimelineEvent> events, {
     Map<int, List<Map<String, dynamic>>>? pendingBuildBegins,
+    Map<int, TimelineCursor>? cursorsByTid,
   }) {
     final buildScopes = <int>[];
     final layouts = <int>[];
@@ -196,6 +210,7 @@ class TimelineParser {
     // single-stack reconstruction would mismatch pairs across threads.
     final pendingBuilds =
         pendingBuildBegins ?? <int, List<Map<String, dynamic>>>{};
+    final cursors = cursorsByTid ?? <int, TimelineCursor>{};
     final channels = <TimelineEvent>[];
     final gcs = <TimelineEvent>[];
     final phaseEvents = <PhaseEvent>[];
@@ -209,6 +224,38 @@ class TimelineParser {
       final ph = json['ph'] as String? ?? '';
       final dur = json['dur'] as int?;
       final cat = json['cat'] as String? ?? '';
+
+      // Cross-call dedup: skip events already observed in a prior parse
+      // call. Uses the event's own monotonic `ts` (microseconds since
+      // process boot) as the per-tid watermark — drift-free across
+      // wall-clock skews. Skipped for events without `ts` (metadata
+      // events like process_name / thread_name); those are passed
+      // through every call but never accumulated into output buckets,
+      // so re-processing is a no-op.
+      //
+      // Signature uses `(ph, name, id)` so two distinct events sharing
+      // `(tid, ts)` (e.g. instant events with different names at the
+      // same microsecond, or async pairs with the same name but
+      // different `id`) are NOT conflated.
+      final ts = json['ts'];
+      if (ts is int) {
+        final tid = json['tid'] as int? ?? 0;
+        final id = json['id'];
+        final signature = '$ph|$name|${id ?? ''}';
+        final cursor = cursors[tid];
+        if (cursor != null) {
+          if (ts < cursor.lastTs) continue;
+          if (ts == cursor.lastTs &&
+              cursor.seenSignatures.contains(signature)) {
+            continue;
+          }
+        }
+        if (cursor == null || ts > cursor.lastTs) {
+          cursors[tid] = (lastTs: ts, seenSignatures: {signature});
+        } else {
+          cursor.seenSignatures.add(signature);
+        }
+      }
 
       // Complete duration events (ph == 'X') have a 'dur' field
       if (ph == 'X' && dur != null) {
@@ -330,6 +377,11 @@ class TimelineParser {
         }
       }
     }
+
+    // Cursor advances happen inline at the parse-loop entry (per-event
+    // mutation of `cursors[tid]`), so no separate commit step is
+    // needed here. The caller-supplied `cursorsByTid` map was updated
+    // in place via the same reference.
 
     return ParsedTimelineData(
       buildScopeDurations: buildScopes,

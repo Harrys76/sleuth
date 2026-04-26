@@ -332,12 +332,12 @@ void main() {
     });
 
     testWidgets(
-        'F5 regression: pin icon stays within card bounds at 300dp with all '
+        'pin icon stays within card bounds at 300dp with all '
         'header badges present', (tester) async {
-      // F5 from v0.15.5 adversarial review: a long title truncated with
-      // ellipsis plus confidence badge, pin icon, JANK badge, "↳ N"
-      // downstream badge, and Checkbox can squeeze the pin out of the
-      // card bounds on a 300dp wide card (the default overlay width).
+      // A long title truncated with ellipsis plus confidence badge, pin
+      // icon, JANK badge, "↳ N" downstream badge, and Checkbox can
+      // squeeze the pin out of the card bounds on a 300dp wide card
+      // (the default overlay width).
       //
       // This test pumps the exact combinatorial tail and asserts that
       // the pin icon's rect is fully contained inside its ancestor Card.

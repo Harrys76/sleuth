@@ -1,19 +1,13 @@
-// Guards Codex post-impl review finding 3: the v0.16.0 validation
-// methodology infrastructure (`EvidenceTier`, `DetectorMetadata`,
-// `DetectorMetadataProvider`) must be reachable through the public
+// Guards that the validation methodology infrastructure
+// (`EvidenceTier`, `DetectorMetadata`, `DetectorMetadataProvider`,
+// `ComponentMetadata`, `ComponentMetadataProvider`,
+// `ProfileCaptureSchema`) is reachable through the public
 // `package:sleuth/sleuth.dart` barrel. Shipping these under `src/`
-// without exporting them makes the headline 0.16.0 contract unusable
+// without exporting them makes the methodology contract unusable
 // unless callers reach into `package:sleuth/src/...`.
 //
-// v0.16.2 extends this guard (CODEX-R4-2) to the component surface
-// (`ComponentMetadata`, `ComponentMetadataProvider`) and the capture
-// schema (`ProfileCaptureSchema`) — the audit gate for non-detector
-// components relies on all three being reachable without a `src/`
-// import, and `ProfileCaptureSchema` is what downstream forks run their
-// own captures through.
-//
-// This test imports ONLY the public barrel — adding it back as a direct
-// `src/` import would silently mask a missing export.
+// This test imports ONLY the public barrel — adding it back as a
+// direct `src/` import would silently mask a missing export.
 
 import 'dart:io';
 
@@ -29,9 +23,9 @@ void main() {
       expect(EvidenceTier.externallyCited.index, 3);
     });
 
-    // Codex post-impl meta-review finding C4: pin the full ordinal +
-    // name sequence so any reorder or rename of the stable-contract
-    // enum fails a test instead of shipping silently.
+    // Pin the full ordinal + name sequence so any reorder or rename of
+    // the stable-contract enum fails a test instead of shipping
+    // silently.
     test('EvidenceTier ordering is pinned weakest-to-strongest', () {
       expect(
         EvidenceTier.values.map((t) => t.name).toList(),

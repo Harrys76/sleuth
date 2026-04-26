@@ -197,6 +197,18 @@ class DetectorMetadata {
   /// - When bracket fields are set, the `bracketStableId` must have an
   ///   effective tier of `runtimeVerified` or stronger; otherwise the
   ///   bracket evidence is unmoored from any family it claims to validate.
+  /// - The map must be non-empty when non-null. An empty map is
+  ///   functionally a no-op and rejected as misconfiguration (signals
+  ///   an in-progress edit or copy-paste error).
+  ///
+  /// **Convention for single-family detectors**: a detector that emits
+  /// exactly one family does NOT need [perStableIdTier]. Set [tier] to
+  /// the family's true evidence level directly. The pattern exists for
+  /// detectors with multiple families where a single base tier would
+  /// over- or under-claim. Single-family detectors using base-tier
+  /// raises (e.g. `tier: EvidenceTier.runtimeVerified` covering one
+  /// stableId) are correct and audit-clean — no perStableIdTier
+  /// indirection required.
   final Map<String, EvidenceTier>? perStableIdTier;
 
   /// Severity-scoped evidence boundaries for detectors that emit multiple
