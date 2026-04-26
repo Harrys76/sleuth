@@ -353,6 +353,7 @@ class PerformanceIssue {
     InteractionContext? interactionContext,
     bool? debugModeDisclaimer,
     DateTime? detectedAt,
+    int? dedupIdentityMicros,
     String? ancestorChain,
     FixEffort? fixEffort,
     List<AllocationEntry>? topAllocators,
@@ -379,6 +380,12 @@ class PerformanceIssue {
       interactionContext: interactionContext ?? this.interactionContext,
       debugModeDisclaimer: debugModeDisclaimer ?? this.debugModeDisclaimer,
       detectedAt: detectedAt ?? this.detectedAt,
+      // Preserve stable per-source-event identity through clones.
+      // MemoryPressure's `enrichHeapGrowingIssue` re-clones the issue
+      // to attach top-allocator data — without this propagation the
+      // clone silently drops the dedup identity, breaking capture-mode
+      // composite-key dedup for any subsequent emission.
+      dedupIdentityMicros: dedupIdentityMicros ?? this.dedupIdentityMicros,
       ancestorChain: ancestorChain ?? this.ancestorChain,
       fixEffort: fixEffort ?? this.fixEffort,
       topAllocators: topAllocators ?? this.topAllocators,

@@ -20,6 +20,7 @@ import 'demos/heavy_compute_demo.dart';
 import 'demos/high_level_setstate_demo.dart';
 import 'demos/intrinsic_height_demo.dart';
 import 'demos/keepalive_demo.dart';
+import 'demos/memory_pressure_capture_screen.dart';
 import 'demos/memory_pressure_demo.dart';
 import 'demos/nested_scroll_demo.dart';
 import 'demos/network_monitor_capture_screen.dart';
@@ -299,6 +300,14 @@ class DemoHome extends StatelessWidget {
             subtitle: 'MemoryPressure detector (VM-only)',
             color: Colors.purple,
             builder: (_) => const MemoryPressureDemo(),
+          ),
+          _DemoRoute(
+            icon: Icons.videocam,
+            title: 'MemoryPressure Capture Helper',
+            subtitle:
+                'Sleuth.markScenarioBegin/End • heap_growing runtimeVerified',
+            color: Colors.purple,
+            builder: (_) => const MemoryPressureCaptureScreen(),
           ),
           _DemoRoute(
             icon: Icons.all_inclusive,

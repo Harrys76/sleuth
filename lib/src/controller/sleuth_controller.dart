@@ -192,6 +192,16 @@ class SleuthController {
   // Allocation enrichment
   DateTime? _lastAllocationEnrichmentTime;
 
+  // Bumped on every `resetCaptureState()` (i.e. every `markScenarioBegin`)
+  // and on `dispose()`. Captured at the start of fire-and-forget async
+  // enrichment work and re-checked after each await before write-back to
+  // detector state. Without this token, a `_enrichWithAllocationProfile`
+  // launched in scenario N can complete after scenario N+1 has begun and
+  // repopulate `MemoryPressureDetector._lastTopAllocators` with stale
+  // prior-scenario data — corrupting the next heap_growing emission's
+  // allocator attribution.
+  int _captureGeneration = 0;
+
   // -- Fix A: frameStatsNotifier throttle --
   //
   // FrameTimingDetector fires _onFrameStats on every presented frame (~60 Hz),
@@ -1283,6 +1293,39 @@ class SleuthController {
     }
   }
 
+  /// Narrow the VM timeline stream allowlist to the minimum required
+  /// for scenario-bound capture procedures. Disables Embedder + GC
+  /// timeline streams (high-volume per-frame paint/raster/build/GC
+  /// events) and keeps Dart only — enough to retain
+  /// `sleuth.scenario.{begin,end}` markers and detector
+  /// `sleuth.issue.*.<severity>` trace events.
+  ///
+  /// Call from capture screens BEFORE long allocation phases that
+  /// would otherwise saturate the default ~50k-event ring buffer.
+  /// Restoring the full allowlist via [resumeAllTimelineStreams]
+  /// after the scenario ends is the caller's responsibility.
+  ///
+  /// Detector pipeline integrity: MemoryPressureDetector reads heap
+  /// samples from `getMemoryUsage()` (an RPC, not the timeline) and
+  /// GC events from `EventStreams.kGC` (a streaming subscription, not
+  /// the timeline) — narrowing the timeline streams does NOT affect
+  /// either. HeavyComputeDetector relies on Dart-side BUILD events
+  /// (`Dart` stream — kept). NetworkMonitorDetector is HTTP-overrides-
+  /// driven (no timeline dependency).
+  Future<void> suspendNonEssentialTimelineStreams() async {
+    final client = _vmClient;
+    if (client == null || !client.isConnected) return;
+    await client.setTimelineStreams(const ['Dart']);
+  }
+
+  /// Restores the full VM timeline stream allowlist. Counterpart to
+  /// [suspendNonEssentialTimelineStreams].
+  Future<void> resumeAllTimelineStreams() async {
+    final client = _vmClient;
+    if (client == null || !client.isConnected) return;
+    await client.setTimelineStreams(const ['Dart', 'Embedder', 'GC']);
+  }
+
   /// Clears per-detector record buffers that survive across capture
   /// legs. Auto-invoked by [Sleuth.markScenarioBegin] so a single-
   /// screen multi-leg flow (Below → At → Above) does not leak leg N's
@@ -1297,7 +1340,20 @@ class SleuthController {
   /// each unique source event maps to a unique composite key, so
   /// legitimate new emissions are never suppressed.
   void resetCaptureState() {
+    // Bump the capture generation so any in-flight fire-and-forget
+    // async enrichment from the prior scenario discards its results
+    // before writing back to detector state.
+    _captureGeneration++;
     _networkMonitor.clearRecords();
+    // Clear MemoryPressureDetector's rolling windows so the next
+    // scenario's heap_growing regression starts fresh on scenario
+    // allocation only. Without this, pre-scenario flat heap samples
+    // remain in `_heapSamples` (capacity 60, 30s window) and dilute
+    // the regression slope below the threshold even when the scenario
+    // allocator rate is well above it. Capture-mode is the only
+    // caller of this method, so production live-monitoring sessions
+    // are unaffected.
+    _memoryPressure.reset();
   }
 
   Future<String?> exportCaptureJson({
@@ -1322,9 +1378,24 @@ class SleuthController {
               '${ProfileCaptureSchema.allowedRoles.toList()..sort()}');
     }
     final client = _vmClient;
-    if (client == null || !client.isConnected) return null;
+    if (client == null || !client.isConnected) {
+      debugPrint(
+        'Sleuth.exportCaptureJson($scenario): null return — VM service '
+        'client ${client == null ? "not initialised" : "disconnected"}. '
+        'Capture mode requires wireless debug or simulator (VM+). '
+        'USB-tethered FRAME mode will not work.',
+      );
+      return null;
+    }
     final events = await client.fetchRawTimelineEventsJson();
-    if (events.isEmpty) return null;
+    if (events.isEmpty) {
+      debugPrint(
+        'Sleuth.exportCaptureJson($scenario): null return — VM service '
+        'returned 0 timeline events. Either the buffer was just cleared '
+        'or the VM service handshake is incomplete.',
+      );
+      return null;
+    }
     // Locate scenario.begin / scenario.end pair MATCHING the requested
     // `scenario` name. The buffer may contain multiple legs (Below /
     // At / Above) recorded back-to-back; without a name match, the
@@ -1375,7 +1446,28 @@ class SleuthController {
         endTs = t;
       }
     }
-    if (beginTs == null || endTs == null) return null;
+    if (beginTs == null || endTs == null) {
+      final scenarioMarkersInBuffer = events
+          .where((e) =>
+              e['name'] == 'sleuth.scenario.begin' ||
+              e['name'] == 'sleuth.scenario.end')
+          .length;
+      debugPrint(
+        'Sleuth.exportCaptureJson($scenario): null return — scenario '
+        'markers not found (begin=$beginTs, end=$endTs). '
+        '$scenarioMarkersInBuffer scenario markers exist in buffer but '
+        'none match scenario name "$scenario". Causes: (1) '
+        'captureMode is OFF — verify SleuthConfig(captureMode: true) '
+        'AND `--dart-define=SLEUTH_CAPTURE_MODE=true` was passed at '
+        'launch (the example app reads the dart-define into the config '
+        'at runApp time; an in-process flag flip will NOT take '
+        'effect — fully kill and re-launch). (2) Scenario name '
+        'mismatch between markScenarioBegin/End and exportCaptureJson '
+        'arguments. (3) VM trace ring buffer overflowed and rolled the '
+        'markers off — long allocation phases may saturate the buffer.',
+      );
+      return null;
+    }
     final spanLo = beginTs;
     final spanHi = endTs;
     // Filter to scenario span. Include events whose [ts, ts+dur]
@@ -3008,21 +3100,29 @@ class SleuthController {
     final client = _vmClient;
     if (client == null) return;
 
+    // Capture the generation at launch. Each await below re-checks
+    // against the current value; a `resetCaptureState()` call (i.e.
+    // a new scenario.begin) bumps the generation so this enrichment's
+    // late results are discarded before they can write stale prior-
+    // scenario allocators back to `MemoryPressureDetector`.
+    final myGeneration = _captureGeneration;
+    bool generationStale() => _captureGeneration != myGeneration;
+
     try {
       // Phase 1: establish baseline (reset accumulators)
       await client.getAllocationProfile(reset: true);
-      if (_disposed) return;
+      if (_disposed || generationStale()) return;
 
       // Brief delay to accumulate meaningful deltas
       await Future<void>.delayed(const Duration(milliseconds: 300));
-      if (_disposed) return;
+      if (_disposed || generationStale()) return;
 
       // Phase 2: get delta since reset
       final profile = await client.getAllocationProfile(reset: true);
-      if (_disposed || profile == null) return;
+      if (_disposed || profile == null || generationStale()) return;
 
       final entries = _extractTopAllocators(profile);
-      if (entries.isEmpty) return;
+      if (entries.isEmpty || generationStale()) return;
 
       // Re-emit memory pressure issues with enrichment
       _memoryPressure.enrichHeapGrowingIssue(entries);

@@ -1390,6 +1390,9 @@ class ProfileCaptureSchema {
     // Counts
     'frames', 'requests', 'gcevents', 'paints', 'rebuilds', 'builds',
     'events',
+    // Rates (size-per-time) — used by MemoryPressureDetector.heap_growing
+    // (slope), and any future detector measuring throughput.
+    'bytes/sec',
   };
 
   static void _validateCaptureDate(Map<String, Object?> metadata) {

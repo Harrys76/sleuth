@@ -1,3 +1,39 @@
+## 0.19.3
+
+`MemoryPressureDetector.heap_growing` raised to **runtimeVerified** via `perStableIdTier`. Distribution: **21/23 reproducerOnly base, 2/23 effective runtimeVerified families** (HeavyCompute.heap_compute base, MemoryPressure.heap_growing per-family). Other 3 MemoryPressure families (gc_pressure, heap_near_capacity, native_memory_growing) stay base reproducerOnly. No BREAKING. New public API: `Sleuth.suspendNonEssentialTimelineStreams()` + `Sleuth.resumeAllTimelineStreams()` for capture procedures that need to suppress Embedder/GC stream churn during long allocation phases.
+
+### MemoryPressureDetector
+
+- **`heap_growing` warning tier** (slope > 512 KB/s sustained ≥ 10 s) raised from reproducerOnly to **runtimeVerified** via `DetectorMetadata.perStableIdTier` extension. Three on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x) at below (314 KB/s sub-threshold), at (574 KB/s in-band), above (825 KB/s) bracket bands recorded via the new `MemoryPressureCaptureScreen`. `bracketAtTolerance: 0.50` → at-band [512000, 768000]; `aboveCeilingMultiplier: 2.0` → above-band ceiling 1024000. `bracketRequireUniqueDetectedAtMicros: true` enforces single-issue replay protection.
+- `vmConnected = false` setter clears all identity-bearing session state (heap samples, sustained-growth start, native-growth start, capacity rolling window, first-sample marker, GC sliding window). Without this cleanup, `_sustainedGrowthStart` survived disconnect and the first post-reconnect `heap_growing` emission carried a `dedupIdentityMicros` derived from a prior-session timestamp, corrupting producer-side composite-key dedup.
+- `heap_growing` `PerformanceIssue` carries `dedupIdentityMicros = _sustainedGrowthStart.microsecondsSinceEpoch`. Stable per-trigger identity across all polls during one sustained-growth episode → SleuthController composite-key dedup collapses N polls to one trace record.
+
+### Capture infrastructure
+
+- **New public API: `Sleuth.suspendNonEssentialTimelineStreams()` / `Sleuth.resumeAllTimelineStreams()`** narrow the VM timeline stream allowlist to `Dart` only during scenario spans. Disables Embedder + GC streams (high-volume per-frame paint/raster/build/GC events) so the default ~50k-event ring buffer cannot overflow during 30 s+ allocation phases that would otherwise roll scenario markers off mid-leg. MemoryPressure detector observes heap via `getMemoryUsage` RPC and GC via `EventStreams.kGC` subscription — both independent of timeline streams, so narrowing is safe. Triple-gated on `kReleaseMode + captureMode`.
+- `SleuthController.resetCaptureState()` (called by `Sleuth.markScenarioBegin`) now also calls `_memoryPressure.reset()` so the detector's regression window starts fresh on scenario allocation only — pre-scenario flat samples would otherwise dilute the slope below threshold even when the allocator rate is well above it.
+- `ProfileCaptureSchema.approvedUnits` extended with `bytes/sec` (size-per-time rate unit) for heap_growing's slope axis.
+- `lib/sleuth.dart:443-457` doc-impl drift fix: comment on `markScenarioBegin` no longer claims it clears the producer-side dedup set (it does not — the set persists across scenarios by design; only per-detector record buffers reset).
+
+### Example app — capture infrastructure
+
+- **New `MemoryPressureCaptureScreen`** under `example/lib/demos/`. Adapted from `HeavyComputeCaptureScreen` for wall-clock-bound `heap_growing`: 30 s sustained allocation (fills detector regression window with ramp samples) + 600 ms pre-end dwell (heap-poll lands issue inside scenario span) + 800 ms post-end dwell (VM-service buffer flush before `exportCaptureJson` reads). Calibration retry budget 5 per leg. Stream narrowing during scenario via the new Sleuth API. Stash-then-export pattern: `exportCaptureJson` runs immediately after `markScenarioEnd` while markers still in buffer. Post-capture validator parses the wrapped JSON and rejects exports with unexpected `sleuth.issue.heap_growing.warning` count inside the scenario span.
+- `SleuthController.exportCaptureJson` adds debugPrint diagnostics at each null-return path (VM client null/disconnected, empty events, scenario markers not found) so capture-procedure failures pinpoint root cause without source dives.
+
+### PerformanceIssue.copyWith
+
+- Added `int? dedupIdentityMicros` parameter (silent-drop bug fix). `MemoryPressureDetector.enrichHeapGrowingIssue` calls `copyWith` to attach top-allocator data; without this propagation the clone nullified the dedup identity, breaking capture-mode dedup for any subsequent emission against the same trigger.
+
+### Verification
+
+- 2,828 tests passing (was 2,822 in v0.19.2; +6 net = +2 memory_pressure reproducer + +3 PerformanceIssue copyWith + +1 detector_metadata_audit anchor block).
+- `fvm flutter analyze` clean.
+
+### Known limitations
+
+- A scenario where `_sustainedGrowthStart` resets mid-allocation (slope dip + resume) can emit ≥ 2 trace records with distinct dedup identities. The capture-screen post-validator catches this and rejects the export. Automated detector-side window-break suppression deferred — would require a hysteresis layer between slope-cross and `_sustainedGrowthStart` reset, surfacing a separate verification surface.
+- The `heap_growing` capture procedure narrows VM timeline streams to `Dart` only during scenarios, masking Embedder/GC events from any concurrent debugger / DevTools session for the ~31 s leg duration. Restored automatically post-scenario.
+
 ## 0.19.2
 
 Polish release — clears v0.19.1 known-limitations. No new tier raises, no public API changes, no BREAKING.

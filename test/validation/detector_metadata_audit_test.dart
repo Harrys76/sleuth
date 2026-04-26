@@ -155,16 +155,13 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
     {'platform_channel_traffic'},
     null,
   ),
-  DetectorType.memoryPressure: (
-    'test/validation/memory_pressure_reproducer_test.dart',
-    {
-      'gc_pressure',
-      'heap_growing',
-      'heap_near_capacity',
-      'native_memory_growing',
-    },
-    null,
-  ),
+  // MemoryPressureDetector lifted out of the v0.17.4 reproducerOnly batch
+  // in v0.19.3 — its `heap_growing` family raised to runtimeVerified via
+  // perStableIdTier with three on-device captures. Other 3 families
+  // (gc_pressure, heap_near_capacity, native_memory_growing) remain at
+  // base reproducerOnly. See the dedicated `MemoryPressureDetector
+  // pinned at runtimeVerified for heap_growing (v0.19.3)` anchor block
+  // below for the per-family-tier invariants.
   DetectorType.gpuPressure: (
     'test/validation/gpu_pressure_reproducer_test.dart',
     {'raster_dominance', 'expensive_gpu_nodes'},
@@ -195,6 +192,7 @@ const _singleDetectorAnchors = <DetectorType>{
   DetectorType.networkMonitor,
   DetectorType.frameTiming,
   DetectorType.heavyCompute,
+  DetectorType.memoryPressure,
 };
 
 void main() {
@@ -737,6 +735,110 @@ void main() {
           reason: 'Captures recorded under v0.18.1+ producer dedup with '
               'stable per-BUILD detectedAt; opt into the strong invariant '
               'so audit gate rejects single-issue replay forgery.');
+    });
+
+    test(
+        'MemoryPressureDetector pinned at runtimeVerified for heap_growing '
+        '(v0.19.3)', () {
+      // Anti-tautology anchor: heap_growing raised from base reproducerOnly
+      // to runtimeVerified via perStableIdTier (warning tier, 512 KB/s
+      // sustained ≥10s) backed by three on-device captures (iPhone 12 /
+      // iOS 17.5 / Flutter 3.41.x). Other 3 families (gc_pressure,
+      // heap_near_capacity, native_memory_growing) stay at base
+      // reproducerOnly — each requires a separate capture campaign with
+      // multi-axis brackets the current single-bracket schema cannot
+      // express.
+      final BaseDetector? mp = controller.detectorsForAudit
+          .where((d) => d.type == DetectorType.memoryPressure)
+          .cast<BaseDetector?>()
+          .firstWhere((_) => true, orElse: () => null);
+      expect(mp, isNotNull,
+          reason: 'MemoryPressureDetector should be registered by default.');
+      expect(mp, isA<DetectorMetadataProvider>());
+      final meta = (mp as DetectorMetadataProvider).validationMetadata;
+      expect(meta.tier, EvidenceTier.reproducerOnly,
+          reason: 'Base tier stays reproducerOnly — heap_growing raise '
+              'lives in perStableIdTier so unraised families are not '
+              'mechanically over-claimed at runtimeVerified.');
+      expect(
+          meta.perStableIdTier?['heap_growing'], EvidenceTier.runtimeVerified,
+          reason: 'v0.19.3 raises heap_growing warning via on-device '
+              'captures; the raise lives in perStableIdTier so the audit '
+              'gate routes off effectiveMaxTier.');
+      expect(
+          meta.effectiveTierFor('heap_growing'), EvidenceTier.runtimeVerified);
+      expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified,
+          reason: 'effectiveMaxTier drives the audit switch; must surface '
+              'runtimeVerified so profileCapturePaths/bracketThreshold '
+              'continue to be enforced.');
+      expect(meta.reproducerPath,
+          equals('test/validation/memory_pressure_reproducer_test.dart'));
+      expect(meta.citationUrl, isNull);
+      expect(
+          meta.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/memory_pressure/heap_growing_below.json',
+            'test/validation/captures/memory_pressure/heap_growing_at.json',
+            'test/validation/captures/memory_pressure/heap_growing_above.json',
+          ]),
+          reason: 'Three on-device captures back the heap_growing raise.');
+      expect(meta.bracketThreshold, equals(512000));
+      expect(meta.bracketUnit, equals('bytes/sec'));
+      expect(meta.bracketStableId, equals('heap_growing'));
+      expect(meta.bracketSeverityLabel, equals('warning'));
+      expect(meta.bracketAtTolerance, equals(0.50),
+          reason: 'iPhone GC variance widens band; ±50% gives at-band '
+              '[512000, 768000] bytes/sec.');
+      expect(meta.aboveCeilingMultiplier, equals(2.0),
+          reason: 'heap_growing has only a warning tier (no critical), so '
+              'above-ceiling 2.0× threshold has no critical-tier collision '
+              'risk; explicit declaration required by the severity-scoped-'
+              'coveredThresholds invariant.');
+      expect(meta.coveredThresholds, equals(const {'heap_growing.warning'}),
+          reason: 'Severity-scoped to warning; the only severity '
+              'heap_growing emits at.');
+      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue,
+          reason: 'Captures recorded with dedupIdentityMicros derived from '
+              '_sustainedGrowthStart.microsecondsSinceEpoch; opt into the '
+              'strong invariant so audit gate rejects sustained-window-'
+              'break forgery (multiple trace records inside one scenario '
+              'span with distinct identities).');
+      expect(
+          meta.coveredStableIds,
+          equals(const {
+            'gc_pressure',
+            'heap_growing',
+            'heap_near_capacity',
+            'native_memory_growing',
+          }),
+          reason: 'All four emitted families covered by the layer-2 '
+              'reproducer; perStableIdTier raises only heap_growing.');
+
+      // Prose-drift guard. heap_growing currently emits ONLY warning
+      // severity in the detector code (no critical branch). A future
+      // PR that adds a critical-tier raise must include its own bracket
+      // triad + capture campaign — not piggyback on the warning raise's
+      // evidence. This guard rejects rationale prose claiming a
+      // critical-tier raise without the corresponding metadata
+      // (coveredThresholds entry).
+      final stripped =
+          meta.rationale.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
+      final collapsed = stripped.replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+      final claimsHeapGrowingCritical =
+          collapsed.contains('heap_growing.critical') ||
+              collapsed.contains('heap_growing critical');
+      expect(claimsHeapGrowingCritical, isFalse,
+          reason: 'Rationale prose claims a heap_growing critical-tier '
+              'raise. Critical cannot piggyback on the warning raise — '
+              'add coveredThresholds entry + dedicated capture triad, or '
+              'remove the prose claim.');
+      final hasCriticalThresholdEntry =
+          (meta.coveredThresholds ?? const <String>{})
+              .contains('heap_growing.critical');
+      expect(hasCriticalThresholdEntry, isFalse,
+          reason: 'heap_growing.critical not yet a covered threshold; '
+              'detector emits only warning severity. Adding this entry '
+              'requires a critical-tier capture campaign + bracket triad.');
     });
 
     test('FrameTimingDetector pinned at reproducerOnly (v0.16.6)', () {

@@ -385,6 +385,34 @@ class VmServiceClient {
   /// Caller is responsible for filtering to a scenario span — the
   /// returned list contains every event the VM has buffered since the
   /// last clear (or since service connection if [retainTimeline]).
+  /// Narrow or restore the VM timeline stream allowlist at runtime. Used
+  /// by capture procedures to suppress Embedder/GC stream churn during
+  /// long allocation phases that would otherwise overflow the VM trace
+  /// ring buffer and roll scenario markers off mid-leg. Pass
+  /// `['Dart']` to keep only Dart-side Timeline events (scenario
+  /// markers, issue trace events). Pass `['Dart', 'Embedder', 'GC']` to
+  /// restore the default allowlist.
+  Future<void> setTimelineStreams(List<String> streams) async {
+    final service = _service;
+    if (service == null || _disposed || !_connected) return;
+    try {
+      await service.setVMTimelineFlags(streams);
+    } catch (e) {
+      // Stream-flag updates are best-effort; capture procedures fall
+      // back to the existing stream set if the call fails. Surface the
+      // failure via debugPrint so capture-procedure operators can
+      // distinguish "stream-narrow failed" from the downstream
+      // "scenario markers not found" symptom that ring-buffer overflow
+      // would produce.
+      debugPrint(
+        'VmServiceClient.setTimelineStreams($streams): RPC failed: $e. '
+        'Capture procedures fall back to existing stream set; ring-'
+        'buffer overflow is likely if scenario duration > ~5 s with '
+        'Embedder/GC streams enabled.',
+      );
+    }
+  }
+
   Future<List<Map<String, dynamic>>> fetchRawTimelineEventsJson() async {
     final service = _service;
     if (service == null || _disposed || !_connected) return const [];

@@ -473,6 +473,85 @@ the common case. Cold-launch covers cases where the VM service
 state itself is wedged (e.g. after a thermal throttle, after a
 crashed background isolate, after a dropped USB wireless link).
 
+## MemoryPressure heap_growing capture (v0.19.3)
+
+`MemoryPressureDetector.heap_growing` differs from HeavyCompute and
+NetworkMonitor in two structural ways:
+
+1. **Wall-clock-bound emission.** The detector requires a regression
+   slope > 512 KB/s sustained ≥ 10 s across `_heapSamples` (60-entry
+   queue × 500 ms heap-poll cadence = 30 s window). `flushTimelineNow`
+   cannot collapse the sustained window — wall-clock IS the
+   rate-limiting axis.
+2. **VM trace ring buffer overflow risk.** 30 s of heavy allocation
+   under default Dart + Embedder + GC streams generates tens of
+   thousands of paint/raster/frame/GC events and overflows the
+   ~50k-event ring buffer mid-leg, rolling scenario markers off
+   before `exportCaptureJson` can read them. The capture screen
+   **narrows VM timeline streams to `Dart` only** during the scenario
+   span via the new `Sleuth.suspendNonEssentialTimelineStreams()`
+   API (restored at scenario end).
+
+**Procedure (uses `example/lib/demos/memory_pressure_capture_screen.dart`):**
+
+1. Launch wireless debug:
+   ```bash
+   cd example && fvm flutter run --profile -d "iPhone 12" \
+     --dart-define=SLEUTH_CAPTURE_MODE=true
+   ```
+   (USB-tethered profile mode does NOT work — VM service port not
+   routed. Wireless debug or simulator only.)
+2. Wait ≥ 5 s after app launch (lets MemoryPressure detector's 3 s
+   warmup elapse).
+3. Navigate: Memory & GC → MemoryPressure Capture Helper.
+4. Tap **Calibrate** (1 s allocation warmup pins `_bytesPerMs`).
+5. Per leg (Below / At / Above):
+   - Tap leg button.
+   - Allocation runs ~30 s + 600 ms pre-end dwell + 800 ms post-end
+     dwell. Total ~31.5 s per attempt.
+   - Watch for `[<leg>] capture stashed (~1.2 MB chars)` log line —
+     success path; `Sleuth.exportCaptureJson` already composed the
+     wrapped JSON immediately after `markScenarioEnd`.
+   - Tap **Export last leg** → post-capture validator parses stashed
+     JSON, verifies expected `sleuth.issue.heap_growing.warning`
+     count inside scenario span (0 for below, 1 for at/above), copies
+     to iOS clipboard on pass.
+6. Paste clipboard contents into Notes / Mail / AirDrop → send to Mac.
+   Save as `heap_growing_${leg}.json` under
+   `test/validation/captures/memory_pressure/`.
+7. Repeat for 3 legs.
+
+**Common failures + diagnostic:**
+
+`Sleuth.exportCaptureJson(...)` logs the exact null-return path via
+`debugPrint`. Check `flutter run` terminal OR Mac Console.app filtered
+by `Sleuth.exportCaptureJson`:
+
+| debugPrint message | Cause | Fix |
+|---|---|---|
+| `VM service client {not initialised\|disconnected}` | VM service dropped (wireless flap, iOS auto-lock backgrounded) | Disable iOS auto-lock; full kill + relaunch |
+| `VM service returned 0 timeline events` | VM-service plumbing failure | Restart device; verify wireless debug pairing |
+| `scenario markers not found (begin=null, end=null)` | Ring buffer overflow rolled markers off | Stream-narrowing should prevent this; if it persists, lengthen post-end dwell or split allocation phase |
+
+**Validator-rejected exports** (Export REJECTED — expected 1 found 0):
+
+- **Count 0 (detector did not fire):** regression slope diluted below
+  512 KB/s threshold by pre-scenario flat samples in `_heapSamples`
+  window. **Fix already wired:** `markScenarioBegin` calls
+  `_memoryPressure.reset()` so the regression starts fresh on
+  scenario allocation. If still 0, calibration drift produced too-low
+  rate — recalibrate and retry leg.
+- **Count ≥ 2 (sustained window broke):** slope dipped below
+  threshold mid-leg then resumed. Each `_sustainedGrowthStart` reset
+  emits a new trace record with distinct dedup identity. Retry the
+  leg.
+
+**iOS auto-lock during 30 s legs.** Default Settings → Display &
+Brightness → Auto-Lock often defaults to 30 s — exactly the leg
+duration. Set to **Never** during capture session; restore after.
+Without this, the screen auto-locks mid-leg, app may background, VM
+service connection drops.
+
 ## Cheat sheet — required sleuthMetadata fields (v0.18.0)
 
 `tool/wrap_capture.dart` produces this shape automatically:

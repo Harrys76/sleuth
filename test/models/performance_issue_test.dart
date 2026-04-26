@@ -469,4 +469,36 @@ void main() {
       expect(InteractionContext.navigating.displayName, 'route transition');
     });
   });
+
+  group('PerformanceIssue dedupIdentityMicros', () {
+    const base = PerformanceIssue(
+      severity: IssueSeverity.warning,
+      category: IssueCategory.memory,
+      confidence: IssueConfidence.likely,
+      title: 'Test Issue',
+      detail: 'detail',
+      fixHint: 'fix',
+    );
+
+    test('defaults to null', () {
+      expect(base.dedupIdentityMicros, isNull);
+    });
+
+    test(
+        'preserved through copyWith when not overridden — protects '
+        'producer-side dedup when enrichment clones the issue', () {
+      final withIdentity = base.copyWith(dedupIdentityMicros: 1234567890);
+      final enriched = withIdentity.copyWith(title: 'Enriched');
+      expect(enriched.dedupIdentityMicros, 1234567890,
+          reason: 'Cloning to attach enrichment must NOT silently drop '
+              'the dedup identity — capture-mode composite-key dedup '
+              'depends on it.');
+    });
+
+    test('overridden through copyWith when explicitly passed', () {
+      final withIdentity = base.copyWith(dedupIdentityMicros: 100);
+      final replaced = withIdentity.copyWith(dedupIdentityMicros: 200);
+      expect(replaced.dedupIdentityMicros, 200);
+    });
+  });
 }

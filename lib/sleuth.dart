@@ -440,11 +440,16 @@ class Sleuth {
     if (kReleaseMode) return;
     final c = _controller;
     if (c == null || !c.config.captureMode) return;
-    // Clear the producer-side dedup set so this scenario can re-emit
-    // issues that share keys with a prior scenario. Without this, a
-    // multi-leg flow (Below → At → Above on one screen) would suppress
-    // legitimate emissions in legs N+1 whose composite keys collide
-    // with leg N's residue.
+    // Reset per-detector record buffers (NetworkMonitor; future
+    // runtimeVerified detectors that hold scenario-bounded state) so a
+    // multi-leg flow on one screen does not leak leg N records into
+    // leg N+1. Note: this does NOT clear the producer-side composite-
+    // key dedup set — that set must persist across scenarios so stale
+    // events in the retainTimeline=true VM buffer cannot re-emit on
+    // the next scenario's flush. Stable per-event identity (e.g.
+    // dedupIdentityMicros derived from event.timestampUs) ensures
+    // every legitimate new emission still maps to a unique composite
+    // key. See SleuthController.resetCaptureState for the full rationale.
     c.resetCaptureState();
     Timeline.instantSync('sleuth.scenario.begin', arguments: {'name': name});
   }
@@ -484,6 +489,38 @@ class Sleuth {
     final c = _controller;
     if (c == null || !c.config.captureMode) return;
     await c.flushTimelineNow(timeout: timeout);
+  }
+
+  /// Narrows the VM timeline stream allowlist to `Dart` only for the
+  /// duration of a long-running scenario. Disables Embedder + GC
+  /// streams (high-volume per-frame paint/raster/build/GC events) so
+  /// the default ~50k-event ring buffer cannot overflow during 10s+
+  /// allocation phases. Required for the MemoryPressure heap_growing
+  /// capture procedure where the 30s sustained-allocation phase would
+  /// otherwise roll scenario.begin off the buffer before
+  /// [exportCaptureJson] can read it.
+  ///
+  /// MUST be paired with [resumeAllTimelineStreams] after the scenario
+  /// completes — otherwise subsequent live-monitoring sessions see
+  /// degraded timeline coverage.
+  ///
+  /// No-op in release mode AND when [SleuthConfig.captureMode] is
+  /// false. Production app sessions never narrow streams.
+  static Future<void> suspendNonEssentialTimelineStreams() async {
+    if (kReleaseMode) return;
+    final c = _controller;
+    if (c == null || !c.config.captureMode) return;
+    await c.suspendNonEssentialTimelineStreams();
+  }
+
+  /// Restores the full VM timeline stream allowlist
+  /// (`['Dart', 'Embedder', 'GC']`). Counterpart to
+  /// [suspendNonEssentialTimelineStreams].
+  static Future<void> resumeAllTimelineStreams() async {
+    if (kReleaseMode) return;
+    final c = _controller;
+    if (c == null || !c.config.captureMode) return;
+    await c.resumeAllTimelineStreams();
   }
 
   /// Composes a `runtimeVerified`-conformant capture JSON for the

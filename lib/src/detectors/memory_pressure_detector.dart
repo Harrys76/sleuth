@@ -12,6 +12,16 @@ import '../utils/fix_hint_builder.dart';
 ///
 /// **VM-Only Detector** — monitors GC frequency, heap growth rate via
 /// linear regression over a rolling window, and heap capacity usage.
+///
+/// **Capture-mode timing.** Calling [reset] (auto-invoked by
+/// `Sleuth.markScenarioBegin` via `SleuthController.resetCaptureState`)
+/// clears `_heapSamples`, `_firstHeapSampleTime`, and
+/// `_sustainedGrowthStart`, so the heap-trend evaluation window starts
+/// fresh on every scenario. Effective first-fire latency post-reset:
+/// ~3 s warmup + ~2 s sample-accumulation (4-sample minimum) + slope-
+/// cross + 10 s sustained = ~14-15 s of scenario allocation before the
+/// first `heap_growing` issue can fire. Capture procedures should
+/// allocate ≥30 s for comfortable margin.
 class MemoryPressureDetector extends BaseDetector
     with DetectorMetadataProvider {
   MemoryPressureDetector({
@@ -107,24 +117,37 @@ class MemoryPressureDetector extends BaseDetector
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
-  /// Clear the GC sliding window on VM disconnect.
+  /// Clear all session state on VM disconnect.
   ///
-  /// The window tracks completed GC cycles over the last 10 s. When the VM
-  /// service disconnects, any in-flight timer or reconnection delay can let
-  /// pre-disconnect events leak across into a post-reconnect window,
-  /// inflating the rate calculation with stale samples and triggering
-  /// `gc_pressure` on a freshly reconnected app that hasn't actually done
-  /// any GC yet. Clearing on disconnect guarantees the next reconnect
-  /// starts with a clean 10 s window.
+  /// Without this cleanup, in-flight timers or reconnection delays let
+  /// pre-disconnect samples leak into a post-reconnect window:
+  /// - GC sliding window inflates rate, triggering `gc_pressure` on a
+  ///   freshly reconnected app that has not actually GC'd yet.
+  /// - Heap samples preserve a slope from the prior session, causing
+  ///   `heap_growing` to fire on the first post-reconnect sample.
+  /// - `_sustainedGrowthStart` survives, so a heap_growing issue emitted
+  ///   post-reconnect carries a `dedupIdentityMicros` derived from a
+  ///   prior-session timestamp — corrupting the producer-side dedup
+  ///   composite key and the runtimeVerified audit trail.
   ///
-  /// Also re-runs `_evaluate()` so a stale `gc_pressure` issue emitted
-  /// just before the disconnect is removed from `_issues` immediately,
-  /// rather than lingering in the UI until the next GC event or heap
-  /// sample arrives (which may be never on a failed-reconnect path).
+  /// Clearing every identity-bearing field on disconnect guarantees the
+  /// next reconnect starts fresh: warmup re-runs, dedup identities are
+  /// freshly derived, capacity-window guards do not pre-charge with
+  /// stale over-threshold samples.
+  ///
+  /// `_evaluate()` runs after the clear so any stale issue still in
+  /// `_issues` is removed from the UI immediately, rather than lingering
+  /// until the next GC event or heap sample arrives (which may be never
+  /// on a failed-reconnect path).
   @override
   set vmConnected(bool value) {
     if (!value) {
       _gcWindow.clear();
+      _heapSamples.clear();
+      _capacityWindow.clear();
+      _sustainedGrowthStart = null;
+      _sustainedNativeGrowthStart = null;
+      _firstHeapSampleTime = null;
       _evaluate();
     }
     super.vmConnected = value;
@@ -290,6 +313,16 @@ class MemoryPressureDetector extends BaseDetector
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: _clock(),
+          // Stable per-trigger identity for capture-mode producer-side
+          // dedup. `_sustainedGrowthStart` is set once when the slope
+          // first crosses threshold (above) and persists until the slope
+          // drops below, so multiple polls during one sustained-growth
+          // episode emit issues with the same `dedupIdentityMicros` →
+          // the controller's composite-key dedup collapses them to a
+          // single trace record. A scenario that observes ≥2 records
+          // with distinct identities means the sustained window broke
+          // and re-engaged — capture-procedure validator catches that.
+          dedupIdentityMicros: _sustainedGrowthStart!.microsecondsSinceEpoch,
           topAllocators: _lastTopAllocators,
           confidenceReason: 'Heap trend analysis + sustained growth regression',
         ));
@@ -496,6 +529,30 @@ class MemoryPressureDetector extends BaseDetector
             'sustained ≥10s). Null-rssBytes (web) and zero-heap / '
             'zero-capacity null-coalesce edges asserted non-emitting.\n'
             '\n'
+            'v0.19.3 raises `heap_growing` (warning tier, 512 KB/s '
+            'sustained ≥10 s) to runtimeVerified via `perStableIdTier`, '
+            'backed by three on-device captures (iPhone 12 / iOS 17.5 / '
+            'Flutter 3.41.x) recorded via the in-app capture procedure: '
+            '`MemoryPressureCaptureScreen` calibrates an allocation-loop '
+            'rate, narrows VM timeline streams to `Dart` only (so 30 s '
+            'of heavy allocation does not overflow the ring buffer), '
+            'drives a 30 s sustained-allocation phase inside '
+            '`Sleuth.markScenarioBegin/End` with a 600 ms pre-end dwell '
+            '(detector emission landing) and 800 ms post-end dwell '
+            '(VM-service buffer flush), then exports the wrapped JSON '
+            'via the iOS clipboard. `markScenarioBegin` resets the '
+            'detector window so the regression slope is computed on '
+            'scenario allocation only — pre-scenario flat samples '
+            'would otherwise dilute slope below threshold. Producer-'
+            'side dedup keys on `_sustainedGrowthStart.microsecondsSinceEpoch` '
+            'for stable per-trigger identity → '
+            '`requireUniqueDetectedAtMicros: true` locks single-issue '
+            'replay protection. Other 3 families (`gc_pressure`, '
+            '`heap_near_capacity`, `native_memory_growing`) stay '
+            'reproducerOnly — each requires a separate capture campaign '
+            'with multi-axis brackets the current single-bracket schema '
+            'cannot express.\n'
+            '\n'
             'Three upstream hops disclosed as skipped: (1) '
             '`VmServiceClient.getMemoryUsage` repacks '
             '`vm_service.MemoryUsage` into `HeapSample` with `null → 0` '
@@ -514,14 +571,29 @@ class MemoryPressureDetector extends BaseDetector
             'TimelineParser\'s `gcEvents` list is NOT used by this '
             'detector (it over-counts GC sub-phase events 5–15× per '
             'cycle); that design choice is verified at the controller '
-            'boundary, not here. Real-device capture comparison is '
-            'runtime-verified-tier work.',
+            'boundary, not here.',
         reproducerPath: 'test/validation/memory_pressure_reproducer_test.dart',
+        profileCapturePaths: [
+          'test/validation/captures/memory_pressure/heap_growing_below.json',
+          'test/validation/captures/memory_pressure/heap_growing_at.json',
+          'test/validation/captures/memory_pressure/heap_growing_above.json',
+        ],
+        bracketThreshold: 512000,
+        bracketUnit: 'bytes/sec',
+        bracketStableId: 'heap_growing',
+        bracketSeverityLabel: 'warning',
+        bracketAtTolerance: 0.50,
+        aboveCeilingMultiplier: 2.0,
         coveredStableIds: {
           'gc_pressure',
           'heap_growing',
           'heap_near_capacity',
           'native_memory_growing',
         },
+        perStableIdTier: {
+          'heap_growing': EvidenceTier.runtimeVerified,
+        },
+        coveredThresholds: {'heap_growing.warning'},
+        bracketRequireUniqueDetectedAtMicros: true,
       );
 }

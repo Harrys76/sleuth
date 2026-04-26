@@ -23,6 +23,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sleuth/src/detectors/memory_pressure_detector.dart';
 import 'package:sleuth/src/models/heap_sample.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 import '_helpers/vm_reproducer_harness.dart';
 
@@ -215,6 +216,99 @@ void main() {
           now = now.add(const Duration(milliseconds: 500));
         }
         expect(detector.issues, isEmpty);
+      });
+    });
+
+    group('producer-side dedup identity (heap_growing)', () {
+      test(
+          'heap_growing issue carries dedupIdentityMicros derived from '
+          '_sustainedGrowthStart (stable across polls during one episode)', () {
+        // Drive sustained 600 KB/s growth across 25 samples (12.5 s wall).
+        // First slope-cross sets `_sustainedGrowthStart` once; subsequent
+        // polls during the same sustained window must emit issues sharing
+        // that timestamp as dedup identity.
+        final identitiesObserved = <int>{};
+        for (var i = 0; i < 25; i++) {
+          detector.processHeapSample(HeapSample(
+            heapUsage: i * 300000,
+            heapCapacity: 100 * 1024 * 1024,
+            externalUsage: 0,
+            timestamp: now,
+          ));
+          final issue = detector.issues
+              .where((it) => it.stableId == 'heap_growing')
+              .cast<PerformanceIssue?>()
+              .firstWhere((_) => true, orElse: () => null);
+          if (issue != null) {
+            expect(issue.dedupIdentityMicros, isNotNull);
+            identitiesObserved.add(issue.dedupIdentityMicros!);
+          }
+          now = now.add(const Duration(milliseconds: 500));
+        }
+
+        expect(detector.issues, hasStableId('heap_growing'));
+        // Across the entire sustained-growth episode, every emitted
+        // heap_growing issue must share the same dedup identity → the
+        // controller's composite-key dedup collapses N polls to one
+        // trace record.
+        expect(identitiesObserved, hasLength(1),
+            reason: 'Sustained-growth episode must emit ONE distinct dedup '
+                'identity; multiple distinct identities indicate '
+                '_sustainedGrowthStart reset mid-episode.');
+      });
+    });
+
+    group('vmConnected disconnect cleanup', () {
+      test(
+          'vmConnected = false clears all identity-bearing state '
+          '(heap samples, sustained-growth start, capacity window, '
+          'first-sample marker, GC window) so post-reconnect cannot '
+          'carry stale dedupIdentityMicros from the prior session', () {
+        // Establish sustained growth in session A.
+        for (var i = 0; i < 25; i++) {
+          detector.processHeapSample(HeapSample(
+            heapUsage: i * 300000,
+            heapCapacity: 100 * 1024 * 1024,
+            externalUsage: 0,
+            timestamp: now,
+          ));
+          now = now.add(const Duration(milliseconds: 500));
+        }
+        expect(detector.issues, hasStableId('heap_growing'));
+        final priorIdentity = detector.issues
+            .firstWhere((i) => i.stableId == 'heap_growing')
+            .dedupIdentityMicros;
+        expect(priorIdentity, isNotNull);
+
+        // Disconnect — every identity-bearing field must clear.
+        detector.vmConnected = false;
+        expect(detector.issues, isEmpty,
+            reason: 'Disconnect re-runs _evaluate; cleared state means '
+                'no issue can survive');
+        // Heap-sample window cleared: heapSamples getter is empty.
+        expect(detector.heapSamples, isEmpty);
+
+        // Reconnect after a 10s simulated delay. Drive a fresh sustained-
+        // growth episode in session B starting from a clean window.
+        detector.vmConnected = true;
+        now = now.add(const Duration(seconds: 10));
+        for (var i = 0; i < 25; i++) {
+          detector.processHeapSample(HeapSample(
+            heapUsage: i * 300000,
+            heapCapacity: 100 * 1024 * 1024,
+            externalUsage: 0,
+            timestamp: now,
+          ));
+          now = now.add(const Duration(milliseconds: 500));
+        }
+        expect(detector.issues, hasStableId('heap_growing'));
+        final newIdentity = detector.issues
+            .firstWhere((i) => i.stableId == 'heap_growing')
+            .dedupIdentityMicros;
+        expect(newIdentity, isNotNull);
+        expect(newIdentity, isNot(equals(priorIdentity)),
+            reason: 'Session B identity must derive from a fresh '
+                '_sustainedGrowthStart, not survive from session A');
       });
     });
   });
