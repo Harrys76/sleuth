@@ -244,6 +244,18 @@ void main() {
               'rejected: $failures');
     });
 
+    // CI audit gate for runtimeVerified `profileCapturePaths`. The
+    // `checkBracketValidation(... requireTraceRecord: true)` invocation
+    // inside the runtimeVerified / externallyCited branches below IS
+    // the gate the v0.18.0 hardening commitment relies on. Every PR
+    // that touches a runtimeVerified detector's metadata or its
+    // capture artefacts re-runs `validateBracket` against the captures
+    // on disk, so tree-state vs claim drift fails CI before merge.
+    //
+    // Removing or weakening these `checkBracketValidation` calls
+    // defeats v0.18.0+ runtimeVerified evidence guarantees. See the
+    // accompanying "audit gate is wired for every runtimeVerified
+    // detector" regression-guard test below for the structural pin.
     test('tier-appropriate fields are populated', () {
       final failures = <String>[];
       for (final d in controller.detectorsForAudit) {
@@ -295,6 +307,8 @@ void main() {
               bracketStableId: meta.bracketStableId,
               bracketSeverityLabel: meta.bracketSeverityLabel,
               requireTraceRecord: true,
+              requireUniqueDetectedAtMicros:
+                  meta.bracketRequireUniqueDetectedAtMicros,
             ));
             break;
           case EvidenceTier.externallyCited:
@@ -334,6 +348,8 @@ void main() {
               bracketStableId: meta.bracketStableId,
               bracketSeverityLabel: meta.bracketSeverityLabel,
               requireTraceRecord: true,
+              requireUniqueDetectedAtMicros:
+                  meta.bracketRequireUniqueDetectedAtMicros,
             ));
             break;
         }
@@ -916,6 +932,59 @@ void main() {
           reason: 'These anchored DetectorTypes are no longer registered on '
               'the controller — remove the stale anchor allowlist entry: '
               '$stale');
+    });
+
+    test('audit gate is wired for every runtimeVerified detector', () {
+      // Regression guard for the v0.18.0 hardening commitment. If a
+      // refactor of `tier-appropriate fields are populated` ever drops
+      // the `checkBracketValidation(... requireTraceRecord: true)`
+      // invocation from the runtimeVerified branch, this test fails so
+      // the gap is caught at PR review instead of allowing a forged
+      // `runtimeVerified` claim to slip through unverified.
+      final runtimeVerifiedDetectors = <String>[];
+      for (final d in controller.detectorsForAudit) {
+        if (d is! DetectorMetadataProvider) continue;
+        final meta = (d as DetectorMetadataProvider).validationMetadata;
+        if (meta.tier != EvidenceTier.runtimeVerified) continue;
+        runtimeVerifiedDetectors.add(d.runtimeType.toString());
+        expect(meta.profileCapturePaths, isNotNull,
+            reason: '${d.runtimeType}: runtimeVerified detector must declare '
+                'profileCapturePaths so the CI audit gate can run '
+                'validateBracket against the captures on disk.');
+        expect(meta.profileCapturePaths!.length, 3,
+            reason: '${d.runtimeType}: runtimeVerified evidence requires the '
+                'below/at/above triad — the audit gate iterates all three '
+                'and the trace-record check applies to the at + above legs.');
+        expect(meta.bracketStableId, isNotNull,
+            reason: '${d.runtimeType}: runtimeVerified detector must declare '
+                'bracketStableId so the audit gate knows which '
+                'sleuth.issue.<id>.<severity> trace record to require.');
+        expect(meta.bracketSeverityLabel, isNotNull,
+            reason: '${d.runtimeType}: runtimeVerified detector must declare '
+                'bracketSeverityLabel — a `.critical` event does not '
+                'satisfy a `warning`-tier audit and vice versa.');
+        // Replay protection (v0.18.1+): runtimeVerified captures recorded
+        // under producer-side dedup must opt into the strong uniqueness
+        // invariant. Without this assertion a future tier raise could
+        // ship runtimeVerified with replay protection silently OFF —
+        // the audit gate would still accept N records sharing one
+        // `detectedAtMicros`. Pin the opt-in here so the strongest new
+        // hardening guarantee cannot regress unnoticed.
+        expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue,
+            reason: '${d.runtimeType}: runtimeVerified detector must opt '
+                'into bracketRequireUniqueDetectedAtMicros: true. The '
+                'audit gate then rejects any capture whose in-span trace '
+                'records are inflated (single-issue replay). v0.18.0 '
+                'captures recorded before producer dedup landed must be '
+                're-recorded under v0.18.1+ before opting in.');
+      }
+      // Sanity: the v0.18.x ledger has at least NetworkMonitor at this
+      // tier. If this list is empty the regression guard is vacuous.
+      expect(runtimeVerifiedDetectors, isNotEmpty,
+          reason: 'No runtimeVerified detectors found. Either every '
+              'detector regressed to a lower tier (real bug — investigate) '
+              'or the audit walker is broken (delete this test if the '
+              'tier was intentionally retired).');
     });
   });
 

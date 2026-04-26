@@ -570,5 +570,22 @@ class NetworkMonitorDetector extends BaseDetector
         aboveCeilingMultiplier: 2.0,
         coveredStableIds: {'slow_request'},
         coveredThresholds: {'slow_request.warning'},
+        // Other emitted families (large_response, request_frequency,
+        // http_error_spike, high_frequency_same_path) have reproducer-
+        // test coverage in `test/validation/network_monitor_reproducer_test.dart`
+        // but are implicitly `unvalidated` in the metadata ledger
+        // because DetectorMetadata carries one `tier` per detector
+        // instance — the model cannot express "1 family at
+        // runtimeVerified + 4 at reproducerOnly" under one detector.
+        // Honest representation deferred to a future per-family-tier
+        // metadata extension; raising the other 4 to runtimeVerified
+        // would otherwise require 12 additional on-device captures
+        // (4 scenarios × below/at/above triad).
+        // Captures recorded under v0.18.1+ producer-side dedup, so
+        // every in-span trace record carries a distinct
+        // `detectedAtMicros`. Opting in locks single-issue replay
+        // protection on the audit gate (see ProfileCaptureSchema
+        // `requireUniqueDetectedAtMicros`).
+        bracketRequireUniqueDetectedAtMicros: true,
       );
 }

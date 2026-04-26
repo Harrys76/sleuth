@@ -1382,6 +1382,7 @@ List<String> checkBracketValidation({
   String? bracketStableId,
   String? bracketSeverityLabel,
   bool requireTraceRecord = false,
+  bool requireUniqueDetectedAtMicros = false,
   String? repoRoot,
 }) {
   if (tier != EvidenceTier.runtimeVerified &&
@@ -1446,6 +1447,7 @@ List<String> checkBracketValidation({
       aboveCeilingMultiplier: aboveCeilingMultiplier ??
           ProfileCaptureSchema.defaultAboveCeilingMultiplier,
       requireDetectorTraceRecord: requireTraceRecord,
+      requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
       stableId: bracketStableId,
       severityLabel: bracketSeverityLabel,
     );

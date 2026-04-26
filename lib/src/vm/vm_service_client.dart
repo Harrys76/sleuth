@@ -352,9 +352,21 @@ class VmServiceClient {
     );
   }
 
-  /// Test-only: run one poll cycle without the periodic timer.
-  @visibleForTesting
-  Future<void> pollTimelineForTest() => _pollTimeline();
+  /// Run one poll cycle synchronously without waiting for the periodic
+  /// timer. The returned Future completes after the timeline buffer has
+  /// been drained AND `onTimelineData` has fired, so awaiting this
+  /// guarantees that any pending detector emissions have landed before
+  /// the awaiter proceeds.
+  ///
+  /// Used by both test code (deterministic poll) AND the public capture
+  /// flow (`Sleuth.flushTimelineNow`). Do NOT remove or rename without
+  /// updating both consumers.
+  Future<void> pollTimelineSync() => _pollTimeline();
+
+  /// Deprecated alias retained for one release so existing test code
+  /// keeps compiling. New callers must use [pollTimelineSync].
+  @Deprecated('Use pollTimelineSync — same semantics, public name.')
+  Future<void> pollTimelineForTest() => pollTimelineSync();
 
   /// Snapshots the current VM timeline buffer and returns the events
   /// as raw Chrome Trace Event JSON-encodable maps WITHOUT clearing
@@ -385,9 +397,20 @@ class VmServiceClient {
     }
   }
 
-  Future<void> _pollTimeline() async {
-    if (_service == null || _disposed) return;
+  /// Re-entry guard for [_pollTimeline]. The periodic timer
+  /// AND `pollTimelineSync` (driven by `Sleuth.flushTimelineNow`) both
+  /// invoke `_pollTimeline`, so without this flag a capture-flow flush
+  /// landing within the ~50–200 ms `getVMTimeline()` round-trip of the
+  /// periodic poll runs the body twice — wasted VM round-trip, plus a
+  /// `clearVMTimeline()` race outside capture mode that could drop
+  /// events one call cleared before the other call's processing
+  /// finished.
+  bool _pollInFlight = false;
 
+  Future<void> _pollTimeline() async {
+    if (_pollInFlight) return;
+    if (_service == null || _disposed) return;
+    _pollInFlight = true;
     try {
       final timeline = await _service!.getVMTimeline();
       final events = timeline.traceEvents;
@@ -443,6 +466,8 @@ class VmServiceClient {
         // Fire-and-forget is intentional — reconnect runs in background
         unawaited(reconnect());
       }
+    } finally {
+      _pollInFlight = false;
     }
   }
 

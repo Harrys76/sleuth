@@ -31,6 +31,7 @@ class DetectorMetadata {
     this.coveredThresholds,
     this.aboveCeilingMultiplier,
     this.bracketAtTolerance,
+    this.bracketRequireUniqueDetectedAtMicros = false,
   });
 
   /// Strongest evidence tier that applies to this detector's numbers.
@@ -212,6 +213,21 @@ class DetectorMetadata {
   /// otherwise the at + above bands collapse and the triad is
   /// unsatisfiable. The schema rejects this at call time.
   final double? bracketAtTolerance;
+
+  /// Opt-in stronger schema check (since v0.18.1): when true, every
+  /// in-span `sleuth.issue.<stableId>.<severity>` trace record in the
+  /// at + above captures must carry a distinct `detectedAtMicros` arg.
+  /// Rejects single-issue replay (N records all stamped with one
+  /// microsecond) and pre-v0.18.1 capture binaries that lacked
+  /// producer-side dedup.
+  ///
+  /// Default `false` so v0.18.0-recorded captures (which inflate
+  /// naturally because their producer did not yet dedupe) keep
+  /// passing the standard `requireDetectorTraceRecord` check.
+  /// runtimeVerified raises whose captures were recorded under
+  /// v0.18.1+ producer dedup should set this to `true` to lock in
+  /// the strong evidence guarantee.
+  final bool bracketRequireUniqueDetectedAtMicros;
 }
 
 /// Mixin that lets a detector declare its validation metadata.

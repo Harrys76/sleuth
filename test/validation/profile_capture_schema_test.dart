@@ -1255,6 +1255,126 @@ void main() {
         returnsNormally,
       );
     });
+
+    test('strong uniqueness invariant passes on v0.18.1 captures', () {
+      // v0.18.1 captures were recorded under producer-side dedup, so
+      // every in-span trace record carries a distinct
+      // `detectedAtMicros`. The strong invariant must accept them.
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: capture('below'),
+          atFile: capture('at'),
+          aboveFile: capture('above'),
+          threshold: 1000,
+          unit: 'ms',
+          requireDetectorTraceRecord: true,
+          requireUniqueDetectedAtMicros: true,
+          stableId: 'slow_request',
+          severityLabel: 'warning',
+          aboveCeilingMultiplier: 2.0,
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('strong invariant rejects replay with detectedAtMicros stripped', () {
+      // Forgery defense: the strong invariant must not be bypassable by
+      // replaying one record N times AND deleting the
+      // `args.detectedAtMicros` field from every copy. A presence-only
+      // check (uniqueDetectedAtMicros.isNotEmpty) would silently accept
+      // such forgeries because the unique-set stays empty. The fix
+      // requires count_unique == count_records, which fails when
+      // matchCount=N but the unique-set is empty (0 != N).
+      final strippedAt = File('test/validation/captures/_fixtures/'
+          'slow_request_at_replayed_stripped.json');
+      if (!strippedAt.existsSync()) {
+        final source = json.decode(capture('at').readAsStringSync())
+            as Map<String, dynamic>;
+        final events = (source['traceEvents'] as List).cast<dynamic>();
+        final original = events.firstWhere((e) =>
+            e is Map &&
+            (e['name'] as String)
+                .startsWith('sleuth.issue.slow_request.warning'));
+        // Strip args.detectedAtMicros from the original AND every clone.
+        final stripped = Map<String, dynamic>.from(original as Map);
+        if (stripped['args'] is Map) {
+          stripped['args'] = Map<String, dynamic>.from(stripped['args'] as Map)
+            ..remove('detectedAtMicros');
+        }
+        final originalIdx = events.indexOf(original);
+        events[originalIdx] = stripped;
+        for (var i = 0; i < 4; i++) {
+          events.add(Map<String, dynamic>.from(stripped));
+        }
+        strippedAt.parent.createSync(recursive: true);
+        strippedAt.writeAsStringSync(json.encode(source));
+      }
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: capture('below'),
+          atFile: strippedAt,
+          aboveFile: capture('above'),
+          threshold: 1000,
+          unit: 'ms',
+          requireDetectorTraceRecord: true,
+          requireUniqueDetectedAtMicros: true,
+          stableId: 'slow_request',
+          severityLabel: 'warning',
+          aboveCeilingMultiplier: 2.0,
+        ),
+        throwsA(isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('Inflated detector trace records'),
+        )),
+      );
+    });
+
+    test('strong uniqueness invariant rejects synthetic replay capture', () {
+      // Negative test: synthesise a capture whose at.json has been
+      // hand-edited to replay one slow_request.warning record N times
+      // (all sharing one `detectedAtMicros`). Strong invariant must
+      // reject. Uses the v0.18.1 below + above captures unchanged so
+      // only the at-leg's replay defeats the invariant.
+      final replayedAt = File(
+          'test/validation/captures/_fixtures/slow_request_at_replayed.json');
+      if (!replayedAt.existsSync()) {
+        // Construct on first run from the real at-capture.
+        final source = json.decode(capture('at').readAsStringSync())
+            as Map<String, dynamic>;
+        final events = (source['traceEvents'] as List).cast<dynamic>();
+        // Find the one slow_request.warning record and clone it 4 more
+        // times with the same `detectedAtMicros` — the replay shape.
+        final original = events.firstWhere((e) =>
+            e is Map &&
+            (e['name'] as String)
+                .startsWith('sleuth.issue.slow_request.warning'));
+        for (var i = 0; i < 4; i++) {
+          events.add(Map<String, dynamic>.from(original as Map));
+        }
+        replayedAt.parent.createSync(recursive: true);
+        replayedAt.writeAsStringSync(json.encode(source));
+      }
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: capture('below'),
+          atFile: replayedAt,
+          aboveFile: capture('above'),
+          threshold: 1000,
+          unit: 'ms',
+          requireDetectorTraceRecord: true,
+          requireUniqueDetectedAtMicros: true,
+          stableId: 'slow_request',
+          severityLabel: 'warning',
+          aboveCeilingMultiplier: 2.0,
+        ),
+        throwsA(isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('Inflated detector trace records'),
+        )),
+      );
+    });
   });
 }
 

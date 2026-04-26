@@ -716,6 +716,7 @@ class ProfileCaptureSchema {
     bool requireDetectorTraceRecord = false,
     String? stableId,
     String? severityLabel,
+    bool requireUniqueDetectedAtMicros = false,
   }) {
     if (requireDetectorTraceRecord && (stableId == null || stableId.isEmpty)) {
       throw const FormatException(
@@ -915,9 +916,13 @@ class ProfileCaptureSchema {
       // capture is sub-threshold by definition — the detector did not
       // fire — so absence is expected and verified separately.
       _requireIssueTraceRecord(at, atFile, stableId!,
-          severityLabel: severityLabel!, context: 'at capture');
+          severityLabel: severityLabel!,
+          context: 'at capture',
+          requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros);
       _requireIssueTraceRecord(above, aboveFile, stableId,
-          severityLabel: severityLabel, context: 'above capture');
+          severityLabel: severityLabel,
+          context: 'above capture',
+          requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros);
       _requireNoIssueTraceRecord(below, belowFile, stableId,
           severityLabel: severityLabel, context: 'below capture');
     }
@@ -939,6 +944,7 @@ class ProfileCaptureSchema {
     String stableId, {
     required String severityLabel,
     required String context,
+    bool requireUniqueDetectedAtMicros = false,
   }) {
     final traceEvents = metadata['_rawTraceEvents'] as List?;
     if (traceEvents == null) {
@@ -949,11 +955,13 @@ class ProfileCaptureSchema {
       final root = json.decode(_decodeUtf8(raw)) as Map<String, Object?>;
       final events = root['traceEvents'] as List;
       _checkIssueTraceRecordPresent(
-          events, stableId, severityLabel, file, context);
+          events, stableId, severityLabel, file, context,
+          requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros);
       return;
     }
     _checkIssueTraceRecordPresent(
-        traceEvents, stableId, severityLabel, file, context);
+        traceEvents, stableId, severityLabel, file, context,
+        requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros);
   }
 
   static void _checkIssueTraceRecordPresent(
@@ -961,10 +969,13 @@ class ProfileCaptureSchema {
     String stableId,
     String severityLabel,
     File file,
-    String context,
-  ) {
+    String context, {
+    bool requireUniqueDetectedAtMicros = false,
+  }) {
     final (beginTs, endTs) = _scenarioSpan(events, file);
     final expected = 'sleuth.issue.$stableId.$severityLabel';
+    var matchCount = 0;
+    final uniqueDetectedAtMicros = <String>{};
     for (final event in events) {
       if (event is! Map) continue;
       final ph = event['ph'];
@@ -973,19 +984,63 @@ class ProfileCaptureSchema {
       final ts = event['ts'];
       if (ts is! num) continue;
       final tsInt = ts.toInt();
-      if (tsInt >= beginTs && tsInt <= endTs) {
-        return; // Found a matching record inside the scenario span.
+      if (tsInt < beginTs || tsInt > endTs) continue;
+      matchCount++;
+      // Producer side stamps `detectedAtMicros` on each emission via
+      // CaptureHelper.composeIssueEvent. Track the unique-value set so
+      // the uniqueness invariant below catches single-issue replay
+      // (N records all with the same `detectedAtMicros` — would pass
+      // a presence-only check).
+      final args = event['args'];
+      if (args is Map) {
+        final m = args['detectedAtMicros'];
+        if (m is String && m.isNotEmpty) {
+          uniqueDetectedAtMicros.add(m);
+        } else if (m is num) {
+          uniqueDetectedAtMicros.add(m.toString());
+        }
       }
     }
-    throw FormatException(
-        'Missing detector trace record in $context: expected an instant '
-        'event named "$expected" with `ts` inside the scenario span '
-        '[$beginTs, $endTs] (the work window between '
-        'sleuth.scenario.begin and sleuth.scenario.end). A '
-        '`runtimeVerified` capture must contain proof the detector '
-        'fired AT THE CLAIMED SEVERITY during the captured scenario; '
-        'a `.critical` event does not satisfy a `warning`-tier audit '
-        'and vice versa. File: ${file.path}');
+    if (matchCount == 0) {
+      throw FormatException(
+          'Missing detector trace record in $context: expected an instant '
+          'event named "$expected" with `ts` inside the scenario span '
+          '[$beginTs, $endTs] (the work window between '
+          'sleuth.scenario.begin and sleuth.scenario.end). A '
+          '`runtimeVerified` capture must contain proof the detector '
+          'fired AT THE CLAIMED SEVERITY during the captured scenario; '
+          'a `.critical` event does not satisfy a `warning`-tier audit '
+          'and vice versa. File: ${file.path}');
+    }
+    // Uniqueness invariant (opt-in via requireUniqueDetectedAtMicros).
+    // Producer-side dedup (SleuthController._captureEmittedKeys, v0.18.1+)
+    // guarantees that every emitted issue trace event carries a distinct
+    // `detectedAtMicros`. The audit gate enables this when validating
+    // captures recorded under v0.18.1+ binaries; legacy v0.18.0 captures
+    // (where re-emission inflation is expected) keep the presence-only
+    // check by leaving the flag false.
+    //
+    // The check has two prongs against forgery: (a) every matched event
+    // MUST carry a parseable `detectedAtMicros` arg, and (b) the count
+    // of unique values MUST equal the match count. Without prong (a) a
+    // forger could replay one event N times and strip the arg from
+    // every copy — `uniqueDetectedAtMicros` stays empty and a
+    // presence-only "is the arg there?" check would silently pass.
+    if (requireUniqueDetectedAtMicros) {
+      if (uniqueDetectedAtMicros.length != matchCount) {
+        throw FormatException(
+            'Inflated detector trace records in $context: expected each '
+            '"$expected" event to carry a unique, parseable '
+            '`detectedAtMicros` arg (producer-side dedup invariant). '
+            'Found $matchCount records but only '
+            '${uniqueDetectedAtMicros.length} distinct '
+            '`detectedAtMicros` value(s) inside the scenario span. This '
+            'indicates either capture replay/forgery (N records '
+            'replayed from one, possibly with the arg stripped) or a '
+            'pre-v0.18.1 capture binary without producer dedup. '
+            'Re-record with v0.18.1+ to refresh. File: ${file.path}');
+      }
+    }
   }
 
   static void _requireNoIssueTraceRecord(

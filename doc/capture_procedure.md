@@ -46,43 +46,59 @@
 >
 > ---
 >
-> ### Deferred to v0.18.1+: HeavyCompute
+> ### vmOnly detectors (HeavyCompute, ShaderJank, MemoryPressure, GpuPressure, PlatformChannel)
 >
-> HeavyCompute defers because of two unrelated problems on iPhone 12:
+> v0.18.1 ships `Sleuth.flushTimelineNow()` — the synchronous VM-poll
+> + emission flush that NetworkMonitor sidestepped via runtime
+> lifecycle + 200 ms dwell. Use this pattern for any vmOnly detector
+> raise from v0.18.2 onwards:
 >
-> 1. **Magnitude variance defeats narrow at/above bands.** iPhone CPU
->    governor + thermal scaling produces ±25–60 % per-scenario
->    variance for the sin/cos workload. The schema's at-band
->    `[threshold, threshold × (1 + atTolerance)]` cannot be hit
->    reliably even with widened `atTolerance: 0.50`. NetworkMonitor's
->    loopback HTTP latency is deterministic ± 5 ms, sidestepping this
->    problem entirely.
+> ```dart
+> Sleuth.markScenarioBegin('heavy_compute_above');
+> await runHeavyWorkload();
+> await Sleuth.flushTimelineNow(); // forces VM poll + emit before next line
+> Sleuth.markScenarioEnd('heavy_compute_above');
+> ```
 >
-> 2. **vmOnly emission timing post-dates short scenario spans.**
->    HeavyCompute is `DetectorLifecycle.vmOnly` — issues are created
->    only when `_onTimelineData` fires after a VM service poll
->    (default cadence ~1 s). The `Timeline.instantSync` emission of
->    the `sleuth.issue.heavy_compute.<severity>` trace record happens
->    AT POLL TIME, which is up to ~1 s after the workload completes
->    inside the scenario span. Schema validation requires the issue's
->    `ts` to fall inside `[scenario.begin, scenario.end]`. For typical
->    scenario spans (10–50 ms), the issue's emission lands AFTER
->    `scenario.end`. Schema rejects every capture.
+> Without `await Sleuth.flushTimelineNow()`, the issue trace record
+> would be emitted on the next VM poll tick (~500 ms cadence) which
+> typically post-dates `scenario.end` by hundreds of milliseconds. The
+> schema audit then rejects the capture as "Missing detector trace
+> record."
 >
-> Fix path for HeavyCompute (planned v0.18.1+):
-> - Add public `Sleuth.flushTimelineNow()` API that synchronously
->   polls + processes the VM Timeline before returning.
-> - Update procedure: `markScenarioBegin → workload → flushTimelineNow
->   → markScenarioEnd`. The synchronous flush forces the detector to
->   observe the workload's BUILD event and emit the issue trace
->   record BEFORE `markScenarioEnd` fires.
-> - Same architectural fix unblocks ShaderJank, MemoryPressure,
->   GpuPressure, PlatformChannel for future runtimeVerified raises.
+> **One flush is not always enough.** Detectors with cumulative-evidence
+> state machines (e.g. an emission that requires N consecutive BUILD
+> events crossing threshold) may need multiple `flushTimelineNow`
+> calls during the workload OR a longer scenario span. Confirm by
+> inspecting the captured trace before claiming `runtimeVerified`:
+> the `sleuth.issue.<id>.<severity>` event's `ts` must fall strictly
+> inside `[scenario.begin, scenario.end]`. If it consistently lands
+> after `scenario.end` despite the flush, the detector emits from
+> something other than a single VM poll callback (frame_stats,
+> microtask, cumulative N-poll evaluation) — capture the workload
+> fragment that triggers emission and adjust the procedure.
 >
-> Until that ships, the `HeavyCompute Capture Helper` screen in the
-> example app is non-functional for `runtimeVerified` — the export
-> path will produce a capture missing the `sleuth.issue.heavy_compute.*`
-> trace record and the schema audit will reject it.
+> **`flushTimelineNow` timeout is cooperative, not preemptive.** The
+> `{Duration? timeout}` parameter wraps the await with `Future.timeout`
+> but does NOT cancel the underlying VM round-trip. On TimeoutException
+> the inner work continues; treat the exception as "capture failed,
+> wait for steady state then retry," not "abort and retry immediately."
+>
+> One additional gotcha specific to HeavyCompute on iPhone:
+> per-scenario CPU/thermal variance can be ±25–60 %, defeating
+> narrow at/above bands even with `atTolerance: 0.50`. The detector
+> author may need to widen the at-band tolerance OR pick a workload
+> with deterministic timing. NetworkMonitor's loopback HTTP latency
+> is the cleanest reference (deterministic ± 5 ms).
+>
+> **`detectedAt` MUST be stamped at first detection.** The producer-side
+> dedup composite key includes `issue.detectedAt.microsecondsSinceEpoch`
+> with `0` as the fallback for null. A detector that emits multiple
+> distinct issues per scenario with null `detectedAt` collapses them
+> all to one emission, breaking the runtimeVerified evidence
+> guarantee. Verify in the detector's reproducer test that every
+> emitted `PerformanceIssue` carries a non-null `detectedAt` before
+> raising the tier.
 
 End-to-end procedure for producing a `runtimeVerified` capture triad
 that `ProfileCaptureSchema.validateBracket(... requireDetectorTraceRecord:
@@ -400,6 +416,48 @@ Common failure modes:
 | `Missing detector trace record in at capture` | The detector didn't fire during the captured scenario. Check `--dart-define=SLEUTH_CAPTURE_MODE=true` was set, the at-target ms was actually exceeded (it's strict-greater for HeavyCompute), and the scenario span was long enough to bracket the issue emission. |
 | `Unexpected detector trace record in below capture` | The below leg captured a measurement above the threshold. Re-record with a smaller target (the calibration may have been off; recalibrate). |
 | `Bracket violation: ms 'above' observed (X) exceeds ceiling (Y)` | The above leg ran longer than `threshold × aboveCeilingMultiplier`. Re-record with a smaller target or widen `aboveCeilingMultiplier` (only if doing so doesn't bracket an adjacent severity tier). |
+| `Inflated detector trace records in <leg> capture: expected each event to carry a unique detectedAtMicros arg` | The capture contains N records sharing fewer than N distinct `detectedAtMicros` values inside the scenario span. Producer-side dedup (v0.18.1+) stamps a unique value per emission, so this shape indicates either capture replay/forgery OR a pre-v0.18.1 binary without the dedup guard. Re-record on v0.18.1 or later. |
+
+### Multi-leg recovery (only when needed)
+
+`Sleuth.markScenarioBegin` automatically resets producer-side
+capture state (the dedup-emission set AND per-detector record
+buffers like `NetworkMonitor.clearRecords`) so a single-screen
+multi-leg flow (Below → At → Above on one screen) does not leak
+leg N records into leg N+1 emissions. **You should not need to
+restart the app between legs.**
+
+The auto-reset only fires when capture mode is enabled (the same
+`SleuthConfig.captureMode` gate that controls `markScenarioBegin`
+emission). Production app sessions skip the reset because they
+also skip the scenario marker emission entirely.
+
+> **`clearRecords` side effects to be aware of.** The auto-reset
+> calls `NetworkMonitorDetector.clearRecords()` which (a) stamps
+> a sentinel timestamp so any in-flight HTTP request started BEFORE
+> `markScenarioBegin` gets dropped on completion, (b) clears the
+> in-flight request map, and (c) cancels the frequency-evaluation
+> timer (rebuilt by the next request). For the standard capture
+> pattern (markScenarioBegin → fire workload → markScenarioEnd)
+> this is correct. **If your capture procedure issues a warmup
+> probe BEFORE markScenarioBegin and expects the probe's record
+> in the capture, the warmup record will be dropped.** Move the
+> warmup AFTER `markScenarioBegin` or skip the auto-reset by
+> calling the underlying primitives manually.
+
+If a leg shows OUT-OF-BAND or "Missing detector trace record"
+*despite* using v0.18.1+ and following the procedure above:
+
+1. Note which leg failed and its observed magnitude.
+2. Kill the app from the iOS app switcher (full background swipe-up).
+3. Cold-launch from the home screen icon (re-establishes VM+ mode).
+4. Re-tap from leg 1 in order.
+
+Cold-launch is a fallback only. It is not a substitute for the
+v0.18.1 producer dedup + scenario-begin reset hooks — those handle
+the common case. Cold-launch covers cases where the VM service
+state itself is wedged (e.g. after a thermal throttle, after a
+crashed background isolate, after a dropped USB wireless link).
 
 ## Cheat sheet — required sleuthMetadata fields (v0.18.0)
 

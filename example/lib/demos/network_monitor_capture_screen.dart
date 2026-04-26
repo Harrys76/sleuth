@@ -171,6 +171,13 @@ class _NetworkMonitorCaptureScreenState
 
     // Scenario span via Sleuth public API. Triple-gated on captureMode
     // so production runs see no extra Timeline traffic.
+    //
+    // markScenarioBegin auto-resets the producer-side capture-emission
+    // dedup set AND per-detector record buffers (NetworkMonitor +
+    // future runtimeVerified detectors). No explicit clearRecords call
+    // is needed here — the leg-boundary contract is owned by
+    // markScenarioBegin so a multi-leg flow on this screen cannot leak
+    // leg N records into leg N+1 emissions.
     final scenarioName = 'slow_request_$label';
     Sleuth.markScenarioBegin(scenarioName);
     final messenger = ScaffoldMessenger.of(context);

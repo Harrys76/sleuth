@@ -1,3 +1,45 @@
+## 0.18.1
+
+**Hardening release fulfilling the v0.18.0 commitment** — closes the four architectural items + three procedural items that the v0.18.0 advanced adversarial review surfaced as required before any other vmOnly detector tier raise. Distribution unchanged: **22 / 23 at `reproducerOnly`, 1 / 23 at `runtimeVerified`**. v0.18.2+ tier raises (HeavyCompute, ShaderJank, MemoryPressure, GpuPressure, PlatformChannel) now have the infrastructure they need.
+
+> **Single-issue replay protection ON by default for NetworkMonitor.** `validateBracket` gains `requireUniqueDetectedAtMicros: true` (opt-in via `DetectorMetadata.bracketRequireUniqueDetectedAtMicros`). NetworkMonitor's triad was re-recorded under v0.18.1 producer-side dedup (3 distinct captures: below 815 ms / 0 records, at 1030 ms / 1 record / 1 unique microsecond, above 1501 ms / 1 record / 1 unique microsecond) and the metadata opts in. The audit gate now rejects any capture replay (N records sharing one `detectedAtMicros`) for NetworkMonitor's `slow_request.warning` claim. v0.18.2+ vmOnly tier raises (HeavyCompute, ShaderJank, etc.) should opt in at metadata-flip time.
+
+### Public API
+
+- `Sleuth.flushTimelineNow({Duration? timeout})` — synchronous VM-timeline poll + drain of any pending detector issue-record emissions before the returned Future completes. Caller MUST `await`. Designed for the vmOnly capture procedure: `markScenarioBegin → workload → await flushTimelineNow → markScenarioEnd` so vmOnly detector traces (HeavyCompute, ShaderJank, MemoryPressure, GpuPressure, PlatformChannel) land inside the scenario span instead of post-dating it on the next 500 ms poll tick. Triple-gated like `markScenarioBegin/End`; production sessions pay zero overhead. Optional `timeout` parameter throws `TimeoutException` on unresponsive VM.
+
+### Internal contracts
+
+- `SleuthController._recordIssuesForCapture` now dedupes emissions by composite key `'<detectorRuntimeType>|<stableId>|<severity>|<detectedAtMicros>'`. Without dedup, the VM polling cadence (~500 ms) re-emits the same issue at every poll tick within a single scenario span, producing inflated trace records that defeat downstream uniqueness analysis. Dedup set cleared by `markScenarioBegin` AND by the new `SleuthController.resetCaptureState()` method (called automatically inside `markScenarioBegin`).
+- `SleuthController.resetCaptureState()` — clears the dedup set AND per-detector record buffers (`NetworkMonitor.clearRecords`, plus equivalents for future runtimeVerified detectors). Multi-leg capture flows (Below → At → Above on a single screen) no longer leak leg N records into leg N+1 emissions; `markScenarioBegin` invokes this automatically so screens following the standard pattern get the reset for free.
+- `VmServiceClient.pollTimelineSync()` — public name for the previously test-only `pollTimelineForTest`. Capture procedure depends on this synchronously. The `pollTimelineForTest` alias is retained as `@Deprecated` for one release for existing test-code callers.
+
+### Schema validation (`profile_capture_schema.dart`)
+
+- `validateBracket` gains optional `requireUniqueDetectedAtMicros: true` parameter (default `false`). When enabled, every in-span `sleuth.issue.<stableId>.<severity>` instant event in the at + above captures must carry a distinct `detectedAtMicros` arg. Rejects single-issue replay (N records all stamped with one microsecond) AND emission inflation from binaries lacking the producer dedup. Failure message names the file and the inflation count for direct re-recording guidance.
+- `DetectorMetadata.bracketRequireUniqueDetectedAtMicros` (default `false`) — per-detector opt-in for the strong invariant. Audit test plumbs the flag through `checkBracketValidation` → `validateBracket`. NetworkMonitor opts in starting v0.18.1; v0.18.2+ tier raises should opt in at metadata-flip time once their captures are recorded under producer dedup.
+
+### Captures
+
+- NetworkMonitor `slow_request_{below,at,above}.json` re-recorded on v0.18.1 binary (iPhone 12 / iOS 17.5 / Flutter 3.41.x). Producer dedup yields 0 / 1 / 1 records respectively, each with a unique `detectedAtMicros`. Magnitudes: below 815 ms (sub-1000 ms threshold), at 1030 ms (in [1000, 1100] band), above 1501 ms (in (1000, 2000] above-ceiling).
+
+### Audit gate documentation
+
+- `test/validation/detector_metadata_audit_test.dart` — explicit comment block above `tier-appropriate fields are populated` documenting that the `checkBracketValidation(... requireTraceRecord: true)` invocation IS the v0.18.0 hardening commitment item 4 ("CI audit gate against tree-state vs claim drift"). New regression-guard test (`audit gate is wired for every runtimeVerified detector`) structurally pins the expectation so a future refactor that drops `validateBracket` from the runtimeVerified branch fails CI before merge.
+
+### Capture procedure docs (`doc/capture_procedure.md`)
+
+- HeavyCompute deferred section replaced with the v0.18.1 vmOnly pattern using `flushTimelineNow`.
+- New "Multi-leg recovery" subsection — `markScenarioBegin` auto-resets producer state, so contributors following the procedure should NOT need to kill-and-restart between legs. Cold-launch documented as a fallback only, for VM-service-wedged states (thermal throttle, crashed background isolate, dropped USB wireless link).
+- Common failure modes table extended with the inflation-rejection diagnostic.
+
+### Deferred to v0.18.2+
+
+- **Pre-commit hook**: the v0.18.0 CHANGELOG cited "pre-commit/CI audit gate." The CI audit gate is now in place (steps above) and runs on every PR via `fvm flutter test`; the local pre-commit variant adds friction without catching anything CI does not, so it is deferred. Re-evaluate if drift incidents recur.
+- (none — Step 7 NetworkMonitor recapture + strong-invariant opt-in landed in v0.18.1; see "Captures" above.)
+
+---
+
 ## 0.18.0
 
 **First `runtimeVerified` tier raise — `NetworkMonitorDetector.slow_request` (warning tier, 1000 ms threshold).** Three real on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x) recorded via the new in-app capture procedure. Distribution: **22 / 23 at `reproducerOnly`, 1 / 23 at `runtimeVerified`, 0 / 23 at `unvalidated`**. Critical tier (3000 ms) stays `reproducerOnly`.

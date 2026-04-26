@@ -1258,6 +1258,50 @@ class SleuthController {
   /// markers are missing from the buffer, or the timeline fetch
   /// fails. Caller is responsible for surfacing the error to the
   /// operator.
+  /// Forces a synchronous VM-timeline poll AND drains any pending
+  /// detector issue-record emissions before the returned Future
+  /// completes. Public entry: [Sleuth.flushTimelineNow].
+  ///
+  /// Implementation note: [VmServiceClient.pollTimelineSync] awaits
+  /// the buffer fetch then synchronously invokes the
+  /// `onTimelineData` callback (which routes to [_onTimelineData] →
+  /// [_recordIssuesForCapture]) before its Future completes. So
+  /// awaiting that Future is sufficient — emissions land before this
+  /// method returns.
+  ///
+  /// No-op when VM client is missing or disconnected (capture-mode
+  /// is gated upstream in [Sleuth.flushTimelineNow]).
+  Future<void> flushTimelineNow({Duration? timeout}) async {
+    final client = _vmClient;
+    if (client == null || !client.isConnected) return;
+    final pollFuture = client.pollTimelineSync();
+    if (timeout == null) {
+      await pollFuture;
+    } else {
+      await pollFuture.timeout(timeout);
+    }
+  }
+
+  /// Clears the producer-side capture-emission dedup set so the next
+  /// scan-leg or scenario can re-emit issues that share keys with a
+  /// prior leg. Also invoked automatically inside [_onScenarioBegin]
+  /// when a scenario name change is observed in the timeline buffer.
+  ///
+  /// Capture screens that drive multiple legs from a single screen
+  /// session should call this between legs (paired with any
+  /// detector-internal `clearRecords` reset) so leg N's emissions are
+  /// not suppressed by leg N-1's stale dedup keys.
+  void resetCaptureState() {
+    _captureEmittedKeys.clear();
+    // Clear per-detector record buffers that survive across legs.
+    // Each runtimeVerified detector that holds an internal record set
+    // (NetworkMonitor's request log; future HeavyCompute / ShaderJank
+    // / MemoryPressure / GpuPressure / PlatformChannel buffers) gets
+    // an entry here so a single-screen multi-leg flow does not leak
+    // leg N's records into leg N+1's emissions.
+    _networkMonitor.clearRecords();
+  }
+
   Future<String?> exportCaptureJson({
     required String scenario,
     required num magnitudeMin,
@@ -3400,10 +3444,38 @@ class SleuthController {
     for (final d in _detectors) {
       if (failedDetectors.contains(d)) continue;
       for (final issue in d.issues) {
+        // Composite-key dedup: VM timeline polls every 500 ms, so the
+        // same logical issue is observed across multiple polls within
+        // a single scenario span. Without dedup the same record is
+        // emitted N times, producing inflation that defeats the schema
+        // uniqueness invariant (validateBracket requires
+        // count_unique_detectedAtMicros == count_records on at/above).
+        //
+        // Detector runtimeType is included so two distinct detectors
+        // that happen to observe issues at the same microsecond stay
+        // distinguishable (e.g. NetworkMonitor.slow_request and
+        // NetworkMonitor.large_response stamped during the same poll).
+        //
+        // Issues with null detectedAt fall back to a `0` slot — they
+        // collapse to a single emission per (detector, stableId,
+        // severity), which is the right behaviour for sentinel issues
+        // that have no per-occurrence timestamp.
+        final stableId = issue.stableId;
+        if (stableId == null) continue;
+        final micros = issue.detectedAt?.microsecondsSinceEpoch ?? 0;
+        final key = '${d.runtimeType}|$stableId'
+            '|${issue.severity.name}|$micros';
+        if (!_captureEmittedKeys.add(key)) continue;
         CaptureHelper.recordIssue(issue, captureMode: config.captureMode);
       }
     }
   }
+
+  /// Producer-side dedup set for the capture-mode emission path. Each
+  /// entry is `'<detectorRuntimeType>|<stableId>|<severity>|<micros>'`.
+  /// Cleared by [resetCaptureState] (called explicitly by capture
+  /// screens between legs) and by the scenario-begin observer.
+  final Set<String> _captureEmittedKeys = <String>{};
 
   // -- Debug instrumentation helpers --
 

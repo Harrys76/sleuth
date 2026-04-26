@@ -313,6 +313,36 @@ void main() {
       await client.pollTimelineForTest();
       expect(mock.getVMTimelineCalled, isFalse);
     });
+
+    test('pollTimelineSync re-entry guard prevents concurrent _pollTimeline',
+        () async {
+      // Capture-flow `Sleuth.flushTimelineNow` and the periodic timer
+      // both invoke `_pollTimeline`. Without the `_pollInFlight` guard,
+      // a flush landing within the ~50–200 ms `getVMTimeline()` round-
+      // trip of the periodic poll would run the body twice and waste
+      // a VM round-trip. Verify the guard short-circuits the second
+      // call when the first is mid-flight.
+      final mock = _MockVmService();
+      mock.timelineResult = Timeline(
+        traceEvents: [],
+        timeOriginMicros: 0,
+        timeExtentMicros: 0,
+      );
+      mock.getVMTimelineDelay = const Duration(milliseconds: 50);
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      final first = client.pollTimelineSync();
+      // Second call lands while first is awaiting getVMTimeline.
+      final second = client.pollTimelineSync();
+      await Future.wait([first, second]);
+
+      // Mock counts each getVMTimeline invocation. The guard means the
+      // second call returns immediately without invoking the mock.
+      expect(mock.getVMTimelineCallCount, 1,
+          reason: 'Re-entry guard must short-circuit the second call.');
+      client.dispose();
+    });
   });
 
   // =========================================================================
@@ -560,6 +590,8 @@ class _MockVmService implements VmService {
   bool clearVMTimelineCalled = false;
   bool getMemoryUsageCalled = false;
   bool getVMCalled = false;
+  int getVMTimelineCallCount = 0;
+  Duration? getVMTimelineDelay;
 
   Timeline? timelineResult;
   Object? getVMTimelineThrows;
@@ -580,6 +612,10 @@ class _MockVmService implements VmService {
     int? timeExtentMicros,
   }) async {
     getVMTimelineCalled = true;
+    getVMTimelineCallCount++;
+    if (getVMTimelineDelay != null) {
+      await Future<void>.delayed(getVMTimelineDelay!);
+    }
     if (getVMTimelineThrows != null) throw getVMTimelineThrows!;
     return timelineResult ??
         Timeline(traceEvents: [], timeOriginMicros: 0, timeExtentMicros: 0);

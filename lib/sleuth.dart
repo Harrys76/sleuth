@@ -440,6 +440,12 @@ class Sleuth {
     if (kReleaseMode) return;
     final c = _controller;
     if (c == null || !c.config.captureMode) return;
+    // Clear the producer-side dedup set so this scenario can re-emit
+    // issues that share keys with a prior scenario. Without this, a
+    // multi-leg flow (Below → At → Above on one screen) would suppress
+    // legitimate emissions in legs N+1 whose composite keys collide
+    // with leg N's residue.
+    c.resetCaptureState();
     Timeline.instantSync('sleuth.scenario.begin', arguments: {'name': name});
   }
 
@@ -450,6 +456,34 @@ class Sleuth {
     final c = _controller;
     if (c == null || !c.config.captureMode) return;
     Timeline.instantSync('sleuth.scenario.end', arguments: {'name': name});
+  }
+
+  /// Forces a synchronous VM-timeline poll AND drains any pending
+  /// detector issue-record emissions before the returned Future
+  /// completes. Call this BETWEEN [markScenarioBegin] and
+  /// [markScenarioEnd] so vmOnly detector traces (HeavyCompute,
+  /// ShaderJank, MemoryPressure, GpuPressure, PlatformChannel) land
+  /// inside the scenario span instead of post-dating it on the next
+  /// 500 ms poll tick.
+  ///
+  /// The caller MUST `await` this call. Without `await`, the poll +
+  /// emission may not complete before [markScenarioEnd] fires, the
+  /// trace record lands outside the span, and
+  /// `ProfileCaptureSchema.validateBracket` rejects the capture.
+  ///
+  /// No-op (returns immediately) in release mode AND when
+  /// [SleuthConfig.captureMode] is false. Production app sessions
+  /// pay zero overhead.
+  ///
+  /// [timeout] guards against an unresponsive VM service. When
+  /// non-null and the poll exceeds the duration, the returned Future
+  /// completes with a `TimeoutException` — caller should treat this
+  /// as a failed capture and retry.
+  static Future<void> flushTimelineNow({Duration? timeout}) async {
+    if (kReleaseMode) return;
+    final c = _controller;
+    if (c == null || !c.config.captureMode) return;
+    await c.flushTimelineNow(timeout: timeout);
   }
 
   /// Composes a `runtimeVerified`-conformant capture JSON for the

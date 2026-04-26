@@ -119,4 +119,25 @@ void main() {
       expect(result.hasData, false);
     });
   });
+
+  group('Sleuth.flushTimelineNow (v0.18.1)', () {
+    test('returns immediately when no controller is registered', () async {
+      // Cold state: no Sleuth.track(...) call has registered a controller.
+      // The public API must return without throwing or hanging.
+      final sw = Stopwatch()..start();
+      await Sleuth.flushTimelineNow();
+      sw.stop();
+      expect(sw.elapsedMilliseconds, lessThan(50),
+          reason: 'flushTimelineNow with no controller must noop fast — '
+              'production sessions hit this path every poll-cadence tick.');
+    });
+
+    test('accepts a timeout parameter without controller side effects',
+        () async {
+      // Verifies the public-API signature is the contract we shipped.
+      // With no controller registered the timeout is irrelevant — the
+      // gate returns before ever building a timeout future.
+      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 1));
+    });
+  });
 }
