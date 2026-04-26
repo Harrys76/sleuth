@@ -1,16 +1,102 @@
 {
   "traceEvents": [
-    {"ph": "M", "name": "process_name", "pid": 1, "tid": 0, "args": {"name": "sleuth_neg"}},
-    {"ph": "M", "name": "thread_name", "pid": 1, "tid": 39, "args": {"name": "1.ui"}},
-    {"ph": "M", "name": "thread_name", "pid": 1, "tid": 40, "args": {"name": "1.raster"}},
-    {"ph": "X", "cat": "Dart", "name": "BUILD", "pid": 1, "tid": 39, "ts": 100, "dur": 50},
-    {"ph": "X", "cat": "Dart", "name": "LAYOUT", "pid": 1, "tid": 39, "ts": 150, "dur": 30},
-    {"ph": "X", "cat": "Dart", "name": "PAINT", "pid": 1, "tid": 39, "ts": 180, "dur": 20},
-    {"ph": "B", "cat": "Dart", "name": "frame", "pid": 1, "tid": 39, "ts": 200},
-    {"ph": "E", "cat": "Dart", "name": "frame", "pid": 1, "tid": 39, "ts": 300},
-    {"ph": "i", "cat": "Embedder", "name": "ShaderCompile", "pid": 1, "tid": 40, "ts": 320, "s": "t"},
-    {"ph": "b", "cat": "Dart", "name": "PlatformChannel", "pid": 1, "tid": 39, "id": "0x1", "ts": 330},
-    {"ph": "e", "cat": "Dart", "name": "PlatformChannel", "pid": 1, "tid": 39, "id": "0x1", "ts": 340}
+    {
+      "ph": "M",
+      "name": "process_name",
+      "pid": 1,
+      "tid": 0,
+      "args": {
+        "name": "sleuth_neg"
+      }
+    },
+    {
+      "ph": "M",
+      "name": "thread_name",
+      "pid": 1,
+      "tid": 39,
+      "args": {
+        "name": "1.ui"
+      }
+    },
+    {
+      "ph": "M",
+      "name": "thread_name",
+      "pid": 1,
+      "tid": 40,
+      "args": {
+        "name": "1.raster"
+      }
+    },
+    {
+      "ph": "X",
+      "cat": "Dart",
+      "name": "BUILD",
+      "pid": 1,
+      "tid": 39,
+      "ts": 100,
+      "dur": 50
+    },
+    {
+      "ph": "X",
+      "cat": "Dart",
+      "name": "LAYOUT",
+      "pid": 1,
+      "tid": 39,
+      "ts": 150,
+      "dur": 30
+    },
+    {
+      "ph": "X",
+      "cat": "Dart",
+      "name": "PAINT",
+      "pid": 1,
+      "tid": 39,
+      "ts": 180,
+      "dur": 20
+    },
+    {
+      "ph": "B",
+      "cat": "Dart",
+      "name": "frame",
+      "pid": 1,
+      "tid": 39,
+      "ts": 200
+    },
+    {
+      "ph": "E",
+      "cat": "Dart",
+      "name": "frame",
+      "pid": 1,
+      "tid": 39,
+      "ts": 300
+    },
+    {
+      "ph": "i",
+      "cat": "Embedder",
+      "name": "ShaderCompile",
+      "pid": 1,
+      "tid": 40,
+      "ts": 320,
+      "s": "t"
+    },
+    {
+      "ph": "b",
+      "cat": "Dart",
+      "name": "PlatformChannel",
+      "pid": 1,
+      "tid": 39,
+      "id": "0x1",
+      "ts": 330
+    },
+    {
+      "ph": "e",
+      "cat": "Dart",
+      "name": "PlatformChannel",
+      "pid": 1,
+      "tid": 39,
+      "id": "0x1",
+      "ts": 340
+    }
   ],
   "sleuthMetadata": {
     "deviceOsVersion": "iOS 17.6.1",
@@ -22,6 +108,7 @@
       "observed": 1000,
       "max": 1100
     },
-    "captureDate": "2026-04-18T14:40:00Z"
+    "captureDate": "2026-04-18T14:40:00Z",
+    "role": "at"
   }
 }

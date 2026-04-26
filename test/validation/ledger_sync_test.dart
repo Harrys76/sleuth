@@ -157,7 +157,8 @@ void main() {
 
     test(
         'pinned detector-row assertion — NetworkMonitorDetector is on '
-        'the ledger at runtimeVerified (v0.18.0)', () {
+        'the ledger at reproducerOnly with slow_request raised via '
+        'perStableIdTier (v0.19.0)', () {
       // AB-9: The tier-counts test above is coarse — it proves "N
       // detectors are at runtimeVerified" but cannot catch a ledger
       // edit that swaps which specific detector holds a given tier
@@ -168,7 +169,11 @@ void main() {
       // (externallyCited staged + reverted in same release) → v0.16.5
       // reproducerOnly (second externallyCited staged + reverted) →
       // v0.18.0 runtimeVerified (slow_request warning tier; three
-      // on-device captures via the in-app capture procedure).
+      // on-device captures via the in-app capture procedure) →
+      // v0.19.0 base reproducerOnly + perStableIdTier raise of
+      // slow_request to runtimeVerified (per-family-tier extension
+      // so the four other emitted families stop being mechanically
+      // over-claimed).
       final ledgerFile = File('doc/validation_ledger.md');
       if (!ledgerFile.existsSync()) {
         markTestSkipped('CWD is not the package root; skipping.');
@@ -181,16 +186,25 @@ void main() {
       final detectorSection =
           source.substring(startOfDetectors, endOfDetectors);
 
-      // Ledger row format is `| Network Monitor | `runtimeVerified` | ...`.
-      // The regex anchors on a table row and the tier cell so a
-      // cosmetic rename of the "Notes" column does not false-fail.
+      // Pin both halves of the v0.18.3 representation: the row's tier
+      // cell must show the base tier, and the row's Notes cell must
+      // declare the perStableIdTier raise. A silent edit removing the
+      // raise (which would put NetworkMonitor's slow_request claim back
+      // into base-tier territory and re-introduce the over-claim of the
+      // four other families) fails on the second match.
       final pinnedRow = RegExp(
-        r'\|\s*Network Monitor\s*\|\s*`runtimeVerified`\s*\|',
+        r'\|\s*Network Monitor\s*\|\s*`reproducerOnly`\s*\|',
       );
       expect(pinnedRow.hasMatch(detectorSection), isTrue,
           reason: 'Ledger must carry a pinned row `| Network Monitor | '
-              '`runtimeVerified` | ...` — a silent tier swap would '
+              '`reproducerOnly` | ...` — a silent tier swap would '
               'otherwise pass the tier-count gate.');
+      expect(detectorSection,
+          contains('perStableIdTier{slow_request: runtimeVerified}'),
+          reason: 'Ledger Notes column for NetworkMonitor must declare '
+              'the perStableIdTier raise of slow_request — this is the '
+              'evidence that the runtimeVerified bracket is still being '
+              'enforced after the v0.18.3 base-tier drop.');
     });
 
     // AB-7: the detector-side gates slice out everything under

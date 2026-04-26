@@ -5,21 +5,27 @@
       "name": "process_name",
       "pid": 1,
       "tid": 0,
-      "args": {"name": "sleuth_example"}
+      "args": {
+        "name": "sleuth_example"
+      }
     },
     {
       "ph": "M",
       "name": "thread_name",
       "pid": 1,
       "tid": 39,
-      "args": {"name": "1.ui"}
+      "args": {
+        "name": "1.ui"
+      }
     },
     {
       "ph": "M",
       "name": "thread_name",
       "pid": 1,
       "tid": 40,
-      "args": {"name": "1.raster"}
+      "args": {
+        "name": "1.raster"
+      }
     },
     {
       "ph": "i",
@@ -116,14 +122,14 @@
   "displayTimeUnit": "ns",
   "systemTraceEvents": "",
   "otherData": {
-    "version": "Flutter DevTools (anchor fixture — see _fixtures/README.md)"
+    "version": "Flutter DevTools (anchor fixture \u2014 see _fixtures/README.md)"
   },
   "sleuthMetadata": {
     "device": "iPhone 13 mini",
     "deviceOsVersion": "iOS 17.6.1",
     "flutterVersion": "3.41.4",
     "captureCommand": "fvm flutter run --profile --device-id iPhone13mini",
-    "scenario": "NetworkMonitor slow_request Layer 2 loopback scenario — 1250ms slow response delay",
+    "scenario": "NetworkMonitor slow_request Layer 2 loopback scenario \u2014 1250ms slow response delay",
     "expectedMagnitude": {
       "min": 1100,
       "observed": 1250,
@@ -132,6 +138,7 @@
     },
     "captureDate": "2026-04-18T14:32:00Z",
     "notes": "Shape anchor for ProfileCaptureSchema grounding. Provenance tracked in _fixtures/README.md.",
-    "provenance": "shape-faithful synthetic — hand-authored to exercise every required schema field against real DevTools Chrome Trace Event Format; not a real device recording. See _fixtures/README.md."
+    "provenance": "shape-faithful synthetic \u2014 hand-authored to exercise every required schema field against real DevTools Chrome Trace Event Format; not a real device recording. See _fixtures/README.md.",
+    "role": "at"
   }
 }

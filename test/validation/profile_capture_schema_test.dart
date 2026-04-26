@@ -755,7 +755,14 @@ void main() {
           returnsNormally);
     });
 
-    test('swapping below and above produces a bracket violation', () {
+    test(
+        'swapping below and above slots fails the role-vs-label check '
+        '(authoritative role enforcement)', () {
+      // The role-vs-label assertion in `_parseOrThrowWithLabel` fires
+      // before the bracket-ordering check. A capture with role='above'
+      // placed in the below-slot is rejected immediately so a
+      // mis-rolled triad cannot suppress the AB-1 inverse-ratio bypass
+      // by occupying the wrong slot.
       expect(
           () => ProfileCaptureSchema.validateBracket(
                 belowFile: above,
@@ -765,15 +772,33 @@ void main() {
                 unit: unit,
               ),
           throwsA(isA<FormatException>().having(
-              (e) => e.message, 'message', contains('Bracket violation'))));
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('Bracket "below" slot'),
+                contains('"above"'),
+                contains('positional bracket label and the stored role '
+                    'must match'),
+              ))));
     });
 
-    test('at fixture above +10% tolerance is rejected', () {
+    test('at fixture above +10% tolerance is rejected', () async {
+      // Build a programmatic triad whose roles match their slots but
+      // whose at-leg observed exceeds the +10% tolerance, isolating the
+      // tolerance check from the role-vs-label assertion.
+      final tmp = await Directory.systemTemp.createTemp('sleuth_at_tolerance_');
+      addTearDown(() => tmp.delete(recursive: true));
+      final belowF =
+          _writeRoleCapture(tmp, 'below.json', role: 'below', observed: 800);
+      final atF = _writeRoleCapture(tmp, 'at.json',
+          role: 'at', observed: 1200); // > 1000 * 1.10 = 1100 ceiling
+      final aboveF =
+          _writeRoleCapture(tmp, 'above.json', role: 'above', observed: 1500);
       expect(
           () => ProfileCaptureSchema.validateBracket(
-                belowFile: below,
-                atFile: above,
-                aboveFile: above,
+                belowFile: belowF,
+                atFile: atF,
+                aboveFile: aboveF,
                 threshold: threshold,
                 unit: unit,
               ),
@@ -781,20 +806,31 @@ void main() {
               (e) => e.message, 'message', contains('Bracket violation'))));
     });
 
-    // Monotonic-ordering invariant: an "at" capture that is numerically
-    // larger than the "above" capture is rejected even when both legs
+    // Monotonic-ordering invariant: an "at" capture numerically larger
+    // than the "above" capture is rejected even when both legs
     // individually satisfy their per-leg bracket constraints. Use a
-    // wider atTolerance (0.30 → at-band [1000, 1300]) so dormant_above
-    // (observed=1200) fits inside the at-band and dormant_at
-    // (observed=1050) fits inside the above-band — without the wider
-    // tolerance, swapping the fixtures would already trip the per-leg
-    // checks and we couldn't isolate the ordering violation.
-    test('inverted triad (at > above) is rejected by ordering invariant', () {
+    // wider atTolerance (0.30 → at-band [1000, 1300]) so the at-leg's
+    // observed=1200 fits the at-band AND the above-leg's observed=1050
+    // fits the above-band — without the wider tolerance, the
+    // out-of-order values would already trip per-leg checks and we
+    // couldn't isolate the ordering violation. Build programmatic
+    // triads whose roles match their slots so the role-vs-label
+    // assertion doesn't fire first.
+    test('inverted triad (at > above) is rejected by ordering invariant',
+        () async {
+      final tmp =
+          await Directory.systemTemp.createTemp('sleuth_inverted_triad_');
+      addTearDown(() => tmp.delete(recursive: true));
+      final belowF =
+          _writeRoleCapture(tmp, 'below.json', role: 'below', observed: 800);
+      final atF = _writeRoleCapture(tmp, 'at.json', role: 'at', observed: 1200);
+      final aboveF =
+          _writeRoleCapture(tmp, 'above.json', role: 'above', observed: 1050);
       expect(
         () => ProfileCaptureSchema.validateBracket(
-          belowFile: below,
-          atFile: above, // observed=1200, in [1000, 1300] with 0.30 tol
-          aboveFile: at, // observed=1050, > 1000 and ≤ 2000 ceiling
+          belowFile: belowF,
+          atFile: atF,
+          aboveFile: aboveF,
           threshold: threshold,
           unit: unit,
           atTolerance: 0.30,
@@ -808,6 +844,45 @@ void main() {
             contains('strictly greater than "at" observed'),
             contains('1050'),
             contains('1200'),
+          ),
+        )),
+      );
+    });
+
+    test(
+        'mis-rolled at-leg (role="below" in at-slot) fails the '
+        'role-vs-label check before any bracket math', () async {
+      // Direct regression for the v0.19.0 audit-bypass: a real at-leg
+      // capture whose `metadata.role` was hand-edited to `'below'`
+      // would otherwise silently disable the AB-1 inverse-ratio bypass
+      // (parse() reads role and skips the inverse-ratio half) while
+      // being audited in the at-slot. The role-vs-label assertion in
+      // `_parseOrThrowWithLabel` rejects this triad with a clear error
+      // naming the discrepancy.
+      final tmp = await Directory.systemTemp.createTemp('sleuth_misrole_');
+      addTearDown(() => tmp.delete(recursive: true));
+      final belowF =
+          _writeRoleCapture(tmp, 'below.json', role: 'below', observed: 800);
+      final atF = _writeRoleCapture(tmp, 'at.json',
+          role: 'below', observed: 1050); // mis-rolled
+      final aboveF =
+          _writeRoleCapture(tmp, 'above.json', role: 'above', observed: 1500);
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: belowF,
+          atFile: atF,
+          aboveFile: aboveF,
+          threshold: threshold,
+          unit: unit,
+        ),
+        throwsA(isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          allOf(
+            contains('Bracket "at" slot'),
+            contains('"below"'),
+            contains('positional bracket label and the stored role '
+                'must match'),
           ),
         )),
       );
@@ -1391,6 +1466,7 @@ Map<String, Object?> _validMetadata() => <String, Object?>{
         'unit': 'ms',
       },
       'captureDate': '2026-04-18T16:00:00Z',
+      'role': 'at',
     };
 
 List<Map<String, Object?>> _validTraceEvents() => [
@@ -1656,4 +1732,96 @@ class _FakeDetectorMetadataProvider with DetectorMetadataProvider {
         profileCapturePaths: capturePaths,
         coveredStableIds: const {'dormant_gate_fake'},
       );
+}
+
+/// Writes a synthetic capture file with the given [role] and observed
+/// magnitude. Used by `validateBracket` tests that need triads where
+/// each leg's `sleuthMetadata.role` matches its bracket slot but the
+/// observed values can be tuned to violate downstream invariants
+/// (ordering, tolerance, etc.) in isolation. Trace events span exactly
+/// `observed * 1000` µs so AB-1 ratio = 1.0 and the inverse-ratio
+/// half passes for at/above roles regardless of the bracket-violation
+/// being exercised.
+File _writeRoleCapture(
+  Directory dir,
+  String filename, {
+  required String role,
+  required int observed,
+}) {
+  final spanMicros = observed * 1000;
+  final metadata = <String, Object?>{
+    'device': 'iPhone 13 mini',
+    'deviceOsVersion': 'iOS 17.6.1',
+    'flutterVersion': '3.41.4',
+    'captureCommand': 'fvm flutter run --profile',
+    'scenario': 'synthetic role-vs-label test triad',
+    'expectedMagnitude': {
+      'min': observed - 100,
+      'observed': observed,
+      'max': observed + 100,
+      'unit': 'ms',
+    },
+    'captureDate': '2026-04-26T00:00:00Z',
+    'role': role,
+  };
+  final traceEvents = <Map<String, Object?>>[
+    {
+      'ph': 'M',
+      'name': 'process_name',
+      'pid': 1,
+      'tid': 0,
+      'args': {'name': 'test'}
+    },
+    {
+      'ph': 'M',
+      'name': 'thread_name',
+      'pid': 1,
+      'tid': 39,
+      'args': {'name': '1.ui'}
+    },
+    {
+      'ph': 'M',
+      'name': 'thread_name',
+      'pid': 1,
+      'tid': 40,
+      'args': {'name': '1.raster'}
+    },
+    {
+      'ph': 'i',
+      'cat': 'Sleuth',
+      'name': 'sleuth.scenario.begin',
+      'pid': 1,
+      'tid': 39,
+      'ts': 100,
+      's': 'p',
+    },
+    {
+      'ph': 'i',
+      'cat': 'Sleuth',
+      'name': 'sleuth.scenario.end',
+      'pid': 1,
+      'tid': 39,
+      'ts': 100 + spanMicros,
+      's': 'p',
+    },
+    // 5 work-phase events to clear the schema's minWorkPhaseEvents=3
+    // floor without skewing the bracket math.
+    for (var i = 0; i < 5; i++)
+      {
+        'ph': 'X',
+        'cat': 'flutter',
+        'name': 'idle',
+        'pid': 1,
+        'tid': 39,
+        'ts': 200 + i * 100,
+        'dur': 50,
+      },
+  ];
+  final body = jsonEncode({
+    'traceEvents': traceEvents,
+    'sleuthMetadata': metadata,
+  });
+  final file = File('${dir.path}/$filename');
+  file.writeAsStringSync(body);
+  return file;
 }

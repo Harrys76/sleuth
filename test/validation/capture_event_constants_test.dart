@@ -309,7 +309,14 @@ Future<File> _writeCapture(
   required String severityLabel,
   required bool emitTraceRecord,
   bool omitSchemaVersion = false,
+  String? role,
 }) async {
+  final resolvedRole = role ??
+      (filename.startsWith('below')
+          ? 'below'
+          : filename.startsWith('above')
+              ? 'above'
+              : 'at');
   // Hand-construct a minimal-conformant capture. The JSON has the
   // structure ProfileCaptureSchema requires: traceEvents array with
   // ≥3 work-phase events + scenario markers, plus the sleuthMetadata
@@ -375,6 +382,7 @@ Future<File> _writeCapture(
       'deviceOsVersion': 'iOS 17.5',
       'flutterVersion': '3.41.4',
       'captureCommand': 'fvm flutter run --profile',
+      'role': resolvedRole,
       'scenario': 'round-trip test for $stableId',
       'expectedMagnitude': <String, Object?>{
         'min': observed - 1,

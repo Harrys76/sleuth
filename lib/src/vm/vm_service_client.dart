@@ -372,11 +372,6 @@ class VmServiceClient {
   /// updating both consumers.
   Future<void> pollTimelineSync() => _pollTimeline(forceFresh: true);
 
-  /// Deprecated alias retained for one release so existing test code
-  /// keeps compiling. New callers must use [pollTimelineSync].
-  @Deprecated('Use pollTimelineSync — same semantics, public name.')
-  Future<void> pollTimelineForTest() => pollTimelineSync();
-
   /// Snapshots the current VM timeline buffer and returns the events
   /// as raw Chrome Trace Event JSON-encodable maps WITHOUT clearing
   /// the buffer. Used by the capture-export path so the same events
@@ -418,6 +413,32 @@ class VmServiceClient {
   /// the issue trace event lands outside the scenario span.
   Completer<void>? _pollInFlightCompleter;
 
+  /// Per-thread stack of unmatched BUILD `ph: 'B'` events carried
+  /// across `_pollTimeline()` invocations. iOS profile-mode emits BUILD
+  /// as B/E pairs (not `ph: 'X'` complete-form); when a poll boundary
+  /// falls between B (batch N) and E (batch N+1), this state lets
+  /// `TimelineParser.parse()` reconstruct `dur = E.ts - B.ts` on the
+  /// next call.
+  ///
+  /// Survives `clearVMTimeline()` because the matching E for a B observed
+  /// in batch N is emitted by Flutter AFTER the clear and lands in
+  /// batch N+1's fresh buffer — it is not discarded by the VM along with
+  /// the cleared events. Without surviving the clear, every poll-boundary
+  /// BUILD on iOS profile mode would silently drop in the default
+  /// live-monitoring path. Cleared only on `dispose()`/`_cleanup()`. Stale
+  /// entries (B with no matching E within the idle window) are evicted by
+  /// the age sweep in `_pollTimeline` using the events' own monotonic
+  /// `ts` (microseconds since process boot) to avoid wall-clock drift.
+  final Map<int, List<Map<String, dynamic>>> _pendingBuildBegins = {};
+
+  /// Maximum age (in microseconds) for an unmatched BUILD `ph: 'B'` event
+  /// to remain in [_pendingBuildBegins]. Beyond this, the entry is treated
+  /// as orphan (its matching E was lost — VM buffer overflow, isolate
+  /// crash mid-build, etc.) and evicted. 30s is conservative: a real
+  /// BUILD typically completes in <16ms; anything pending longer than
+  /// 30s is almost certainly never going to pair.
+  static const int _pendingBuildBeginsMaxAgeMicros = 30 * 1000 * 1000;
+
   Future<void> _pollTimeline({bool forceFresh = false}) async {
     if (_pollInFlightCompleter != null) {
       if (!forceFresh) return;
@@ -444,13 +465,29 @@ class VmServiceClient {
           }
         }
 
-        final parsed = TimelineParser.parse(events);
+        final parsed = TimelineParser.parse(
+          events,
+          pendingBuildBegins: _pendingBuildBegins,
+        );
         if (parsed.hasData) {
           onTimelineData?.call(parsed);
         }
+        // Evict orphan begins (B with no matching E within the idle
+        // window). Compares event-relative monotonic `ts` so the sweep
+        // is drift-free across wall-clock skews. Skipped when the batch
+        // has no anchor ts to measure against.
+        _sweepStalePendingBegins(events);
       }
-      // Clear the timeline buffer to avoid re-processing — unless
-      // capture mode wants the events retained for a later Export.
+      // Clear the VM's timeline ring buffer to avoid re-processing the
+      // same events on the next poll — unless capture mode wants them
+      // retained for a later Export.
+      //
+      // `_pendingBuildBegins` deliberately survives this clear: the
+      // matching E for a B observed in this batch is emitted by Flutter
+      // AFTER the clear call and lands in the next batch's fresh buffer,
+      // so the carry-over is required for cross-batch reconstruction in
+      // the default live-monitoring path. The age sweep above bounds the
+      // map's growth; `_cleanup()` clears it on dispose.
       if (!retainTimeline) {
         await _service!.clearVMTimeline();
       }
@@ -491,6 +528,45 @@ class VmServiceClient {
     }
   }
 
+  /// Evict orphan begins from [_pendingBuildBegins]. An orphan is a B
+  /// whose matching E never arrived (e.g. event lost in VM buffer
+  /// overflow, isolate crash mid-build, BUILD aborted). Uses the events'
+  /// own monotonic `ts` as the clock so the sweep is independent of
+  /// wall-clock skew. The anchor ts is the maximum `ts` in this poll's
+  /// batch; any pending B older than the anchor by
+  /// [_pendingBuildBeginsMaxAgeMicros] is evicted.
+  ///
+  /// Begins are stored bottom-to-top in arrival order, so once a stack's
+  /// front entry is fresh enough to keep, every later entry is too —
+  /// the loop can short-circuit. Empty tids are pruned to keep the map
+  /// from accumulating dead keys.
+  void _sweepStalePendingBegins(List<TimelineEvent> events) {
+    if (_pendingBuildBegins.isEmpty) return;
+    var anchorTs = 0;
+    for (final event in events) {
+      final ts = event.json?['ts'];
+      if (ts is int && ts > anchorTs) anchorTs = ts;
+    }
+    if (anchorTs == 0) return;
+    final cutoff = anchorTs - _pendingBuildBeginsMaxAgeMicros;
+    final emptyTids = <int>[];
+    for (final entry in _pendingBuildBegins.entries) {
+      final stack = entry.value;
+      while (stack.isNotEmpty) {
+        final ts = stack.first['ts'];
+        if (ts is int && ts < cutoff) {
+          stack.removeAt(0);
+        } else {
+          break;
+        }
+      }
+      if (stack.isEmpty) emptyTids.add(entry.key);
+    }
+    for (final tid in emptyTids) {
+      _pendingBuildBegins.remove(tid);
+    }
+  }
+
   /// Resolve the main (non-system) isolate ID for memory polling.
   Future<String?> _resolveMainIsolateId() async {
     try {
@@ -517,6 +593,7 @@ class VmServiceClient {
   }
 
   void _cleanup() {
+    _pendingBuildBegins.clear();
     _pollTimer?.cancel();
     _pollTimer = null;
     _controlWebServerTimer?.cancel();

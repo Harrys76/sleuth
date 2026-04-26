@@ -531,7 +531,7 @@ class NetworkMonitorDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.runtimeVerified,
+        tier: EvidenceTier.reproducerOnly,
         rationale: 'Hermetic reproducer: direct `processRecord` boundary '
             'tests at 999/1000/2999/3000/3001 ms plus a loopback '
             '`HttpServer` exercising the full `SleuthHttpOverrides` → '
@@ -568,19 +568,25 @@ class NetworkMonitorDetector extends BaseDetector
         // ambiently bracket the critical tier. Explicit declaration is
         // required by the audit when `coveredThresholds` is set.
         aboveCeilingMultiplier: 2.0,
-        coveredStableIds: {'slow_request'},
-        coveredThresholds: {'slow_request.warning'},
-        // Other emitted families (large_response, request_frequency,
-        // http_error_spike, high_frequency_same_path) have reproducer-
-        // test coverage in `test/validation/network_monitor_reproducer_test.dart`
-        // but are implicitly `unvalidated` in the metadata ledger
-        // because DetectorMetadata carries one `tier` per detector
-        // instance — the model cannot express "1 family at
-        // runtimeVerified + 4 at reproducerOnly" under one detector.
-        // Honest representation deferred to a future per-family-tier
-        // metadata extension; raising the other 4 to runtimeVerified
-        // would otherwise require 12 additional on-device captures
+        coveredStableIds: {
+          'slow_request',
+          'large_response',
+          'request_frequency',
+          'http_error_spike',
+          'high_frequency_same_path',
+        },
+        // v0.18.3 per-family-tier extension: base tier
+        // `reproducerOnly` captures the four reproducer-validated
+        // families (large_response, request_frequency, http_error_spike,
+        // high_frequency_same_path) honestly. perStableIdTier raises
+        // `slow_request` to runtimeVerified — backed by the three
+        // on-device captures listed in profileCapturePaths. Pre-v0.18.3
+        // the model forced the whole detector tag to `runtimeVerified`,
+        // mechanically over-claiming the four unraised families. Raising
+        // them too would require 12 additional on-device captures
         // (4 scenarios × below/at/above triad).
+        perStableIdTier: {'slow_request': EvidenceTier.runtimeVerified},
+        coveredThresholds: {'slow_request.warning'},
         // Captures recorded under v0.18.1+ producer-side dedup, so
         // every in-span trace record carries a distinct
         // `detectedAtMicros`. Opting in locks single-issue replay

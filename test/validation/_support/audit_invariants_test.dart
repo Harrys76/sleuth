@@ -1789,6 +1789,118 @@ void main() {
     });
   });
 
+  group('checkPerStableIdTier', () {
+    test('null perStableIdTier is a no-op regardless of base tier', () {
+      for (final t in EvidenceTier.values) {
+        expect(
+            checkPerStableIdTier(
+              label: 'x',
+              tier: t,
+              perStableIdTier: null,
+              coveredStableIds: null,
+              bracketStableId: null,
+            ),
+            isEmpty);
+      }
+    });
+
+    test('perStableIdTier key absent from coveredStableIds is rejected', () {
+      final failures = checkPerStableIdTier(
+        label: 'x',
+        tier: EvidenceTier.reproducerOnly,
+        perStableIdTier: const {'foo': EvidenceTier.runtimeVerified},
+        coveredStableIds: const {'bar'},
+        bracketStableId: 'foo',
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.first, contains('not in coveredStableIds'));
+    });
+
+    test('perStableIdTier value below base tier is rejected', () {
+      final failures = checkPerStableIdTier(
+        label: 'x',
+        tier: EvidenceTier.runtimeVerified,
+        perStableIdTier: const {'foo': EvidenceTier.reproducerOnly},
+        coveredStableIds: const {'foo'},
+        bracketStableId: null,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.first, contains('BELOW base tier'));
+    });
+
+    test(
+        'bracketStableId without runtimeVerified+ effective tier is '
+        'rejected (regression guard for v0.18.3 audit-bypass)', () {
+      // Reproduces the C1 audit-bypass: a hypothetical detector at base
+      // unvalidated with a perStableIdTier raise targeting an unrelated
+      // family — the bracket fields would otherwise validate against
+      // captures while the bracketStableId family stays at unvalidated.
+      final failures = checkPerStableIdTier(
+        label: 'x',
+        tier: EvidenceTier.unvalidated,
+        perStableIdTier: const {'unrelated': EvidenceTier.runtimeVerified},
+        coveredStableIds: const {'unrelated', 'bracket_target'},
+        bracketStableId: 'bracket_target',
+      );
+      expect(failures, isNotEmpty);
+      expect(
+          failures.any((f) => f.contains('effective tier unvalidated')), isTrue,
+          reason: 'bracketStableId effective tier must be runtimeVerified+ '
+              'or the bracket evidence is unmoored from any raised family.');
+    });
+
+    test('valid raise (NetworkMonitor pattern) passes', () {
+      expect(
+          checkPerStableIdTier(
+            label: 'x',
+            tier: EvidenceTier.reproducerOnly,
+            perStableIdTier: const {
+              'slow_request': EvidenceTier.runtimeVerified
+            },
+            coveredStableIds: const {
+              'slow_request',
+              'large_response',
+              'request_frequency',
+              'http_error_spike',
+              'high_frequency_same_path',
+            },
+            bracketStableId: 'slow_request',
+          ),
+          isEmpty);
+    });
+
+    test('externallyCited per-family raise passes when key declared', () {
+      expect(
+          checkPerStableIdTier(
+            label: 'x',
+            tier: EvidenceTier.reproducerOnly,
+            perStableIdTier: const {
+              'slow_request': EvidenceTier.externallyCited
+            },
+            coveredStableIds: const {'slow_request'},
+            bracketStableId: 'slow_request',
+          ),
+          isEmpty);
+    });
+
+    test('multiple invalid entries surface multiple failures', () {
+      final failures = checkPerStableIdTier(
+        label: 'x',
+        tier: EvidenceTier.runtimeVerified,
+        perStableIdTier: const {
+          'undeclared': EvidenceTier.externallyCited,
+          'declared_but_lower': EvidenceTier.reproducerOnly,
+        },
+        coveredStableIds: const {'declared_but_lower'},
+        bracketStableId: null,
+      );
+      expect(failures.length, greaterThanOrEqualTo(2));
+      expect(
+          failures.any((f) => f.contains('not in coveredStableIds')), isTrue);
+      expect(failures.any((f) => f.contains('BELOW base tier')), isTrue);
+    });
+  });
+
   group('checkRationale', () {
     test('rejects empty', () {
       expect(checkRationale('x', ''), isNotEmpty);
@@ -1973,6 +2085,7 @@ void main() {
             'unit': unit,
           },
           'captureDate': '2026-04-18T16:00:00Z',
+          'role': 'at',
         };
 
     List<Map<String, Object?>> validTraceEvents() => [

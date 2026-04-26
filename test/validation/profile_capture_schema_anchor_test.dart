@@ -76,4 +76,4 @@ void main() {
 /// `shasum -a 256 test/validation/captures/_fixtures/anchor_devtools_export.json`
 /// and paste the new digest here.
 const String _expectedAnchorSha256 =
-    'b8cfcc6ffa825f7710722f5e3d79696aace223dc4a687a18951fe1227a1366c3';
+    'c6d63ce6ae6c8fdbb85ab2f2c8e7a2398b82a6d2f21aac7d6e7706707a447f85';

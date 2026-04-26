@@ -1122,24 +1122,11 @@ List<String> checkCapturePaths({
       continue;
     }
     try {
-      // Below-leg captures intentionally pair sub-threshold observed
-      // (e.g. 0.5 ms HeavyCompute below) with normal-sized scenario
-      // spans (workload + flushTimelineNow + dwell). Skip the AB-1
-      // inverse-ratio half for files whose name ends `_below.json` —
-      // `_requireNoIssueTraceRecord` is the contract that enforces
-      // below-role honesty (see ProfileCaptureSchema docstring on
-      // `expectingNoEmission`).
-      //
-      // TODO(v0.18.3): replace this filename-suffix heuristic with
-      // explicit role plumbing. A new runtimeVerified detector that
-      // names its below capture differently (e.g.
-      // `slow_request_subthreshold.json`) would silently pass through
-      // the AB-1 inverse-ratio with a sub-threshold observed +
-      // normal-sized span, producing a false-positive failure. The
-      // robust fix is a `role: 'below'|'at'|'above'` field in
-      // `sleuthMetadata` that the schema reads directly.
-      final isBelow = capture.endsWith('_below.json');
-      ProfileCaptureSchema.parseFile(file, expectingNoEmission: isBelow);
+      // v0.18.3: schema-driven role plumbing replaces the filename-suffix
+      // heuristic. ProfileCaptureSchema.parseFile reads
+      // `sleuthMetadata.role` directly and applies AB-1 inverse-ratio
+      // bypass when role == 'below'. No filename inspection here.
+      ProfileCaptureSchema.parseFile(file);
     } on FormatException catch (e) {
       failures.add('$label: $capture — ${e.message}');
     }
@@ -1375,6 +1362,60 @@ List<String> checkSeverityScopedCeiling({
     ];
   }
   return const [];
+}
+
+/// Validates the `perStableIdTier` per-family raise contract.
+///
+/// Fires whenever [perStableIdTier] is non-null, regardless of base
+/// [tier]. This independence is load-bearing: a base-`unvalidated`
+/// detector that uses `perStableIdTier` to claim runtimeVerified
+/// evidence on a single family would otherwise bypass every audit gate
+/// scoped on `meta.tier != unvalidated`. With this helper, the
+/// per-family raise contract is enforced even when the surrounding
+/// "covered stable IDs must be declared" gate is dormant.
+///
+/// Invariants:
+///   1. Every key in [perStableIdTier] must be in [coveredStableIds].
+///      Parametric families don't get per-family raises.
+///   2. Every value must be `>= tier` (raises only, never downgrades).
+///   3. When [bracketStableId] is set, its effective tier (with raise
+///      applied) must be `runtimeVerified` or stronger; otherwise the
+///      bracket evidence is unmoored from the family it claims to
+///      validate.
+List<String> checkPerStableIdTier({
+  required String label,
+  required EvidenceTier tier,
+  required Map<String, EvidenceTier>? perStableIdTier,
+  required Set<String>? coveredStableIds,
+  required String? bracketStableId,
+}) {
+  if (perStableIdTier == null) return const [];
+  final failures = <String>[];
+  for (final entry in perStableIdTier.entries) {
+    if (coveredStableIds == null || !coveredStableIds.contains(entry.key)) {
+      failures.add('$label: perStableIdTier key "${entry.key}" is not '
+          'in coveredStableIds. Per-family raises target a specific '
+          'stableId; declare the family in coveredStableIds first.');
+    }
+    if (entry.value.index < tier.index) {
+      failures.add('$label: perStableIdTier["${entry.key}"] = '
+          '${entry.value.name} is BELOW base tier ${tier.name}. '
+          'Overrides raise only — base tier is the per-family minimum. '
+          'Lower the base tier instead of downgrading a single family.');
+    }
+  }
+  if (bracketStableId != null) {
+    final bracketEffective = perStableIdTier[bracketStableId] ?? tier;
+    if (bracketEffective.index < EvidenceTier.runtimeVerified.index) {
+      failures.add('$label: bracketStableId "$bracketStableId" has '
+          'effective tier ${bracketEffective.name} but bracket fields '
+          '(profileCapturePaths/bracketThreshold) require the targeted '
+          'family to be runtimeVerified or stronger. Either drop the '
+          'bracket fields or add a perStableIdTier entry raising the '
+          'family.');
+    }
+  }
+  return failures;
 }
 
 /// CODEX-R1-2: Invariant wiring the audit gate to

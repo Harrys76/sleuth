@@ -247,6 +247,7 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
     try {
       json = await Sleuth.exportCaptureJson(
         scenario: 'heavy_compute_${leg.label}',
+        role: leg.label, // 'below' | 'at' | 'above' (matches leg's label enum)
         // Schema requires expectedMagnitude.min strictly positive
         // (rejects 0.0). Clamp to a small positive epsilon for the
         // below-leg whose `measured` may be < 1.0 ms.

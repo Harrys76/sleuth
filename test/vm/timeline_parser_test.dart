@@ -174,6 +174,81 @@ void main() {
       final data = ParsedTimelineData();
       expect(data.phaseEvents, isEmpty);
     });
+
+    test('Begin/End BUILD pairs reconstruct across consecutive parse() calls',
+        () {
+      // iOS profile-mode poll boundary: B in batch N, E in batch N+1.
+      // Without cross-batch state the orphan E in batch 2 cannot pair
+      // and dur info is lost forever. With shared pendingBuildBegins,
+      // batch 2's parse() consumes the carry-over B and reconstructs.
+      final pending = <int, List<Map<String, dynamic>>>{};
+
+      // Batch 1: only the B event.
+      final batch1 = [
+        TimelineEvent.parse(
+            {'name': 'BUILD', 'ph': 'B', 'ts': 1000, 'tid': 1, 'pid': 1})!,
+      ];
+      final data1 = TimelineParser.parse(batch1, pendingBuildBegins: pending);
+      expect(data1.buildScopeDurations, isEmpty,
+          reason: 'No E yet → no reconstruction in batch 1.');
+
+      // Batch 2: only the matching E event. Should reconstruct.
+      final batch2 = [
+        TimelineEvent.parse(
+            {'name': 'BUILD', 'ph': 'E', 'ts': 5000, 'tid': 1, 'pid': 1})!,
+      ];
+      final data2 = TimelineParser.parse(batch2, pendingBuildBegins: pending);
+      expect(data2.buildScopeDurations, [4000],
+          reason: 'Cross-batch E pairs with batch-1 B: 5000 - 1000 = 4000.');
+    });
+
+    test('default pendingBuildBegins is fresh per call (backward-compat)', () {
+      // Direct callers (32 existing test sites) pass no
+      // pendingBuildBegins. Each call must allocate fresh state so
+      // batch-1 orphan B does NOT leak into batch-2's reconstruction.
+      final batch1 = [
+        TimelineEvent.parse(
+            {'name': 'BUILD', 'ph': 'B', 'ts': 1000, 'tid': 1, 'pid': 1})!,
+      ];
+      TimelineParser.parse(batch1);
+      final batch2 = [
+        TimelineEvent.parse(
+            {'name': 'BUILD', 'ph': 'E', 'ts': 5000, 'tid': 1, 'pid': 1})!,
+      ];
+      final data2 = TimelineParser.parse(batch2);
+      expect(data2.buildScopeDurations, isEmpty,
+          reason: 'No shared state → orphan E from batch 2 cannot '
+              'reconstruct without batch-1 B.');
+    });
+
+    test('Per-tid stack overflow drops oldest at cap=100', () {
+      // Cap protects against unbounded growth from sustained orphan B
+      // emission (e.g. event loss, VM service buffer overflow). After
+      // 101 unmatched B events on one tid, the FIRST B is dropped.
+      final pending = <int, List<Map<String, dynamic>>>{};
+      // Emit 101 unmatched B events (no matching E for any).
+      final manyBegins = [
+        for (var i = 0; i < 101; i++)
+          TimelineEvent.parse({
+            'name': 'BUILD',
+            'ph': 'B',
+            'ts': 1000 + i,
+            'tid': 1,
+            'pid': 1,
+          })!,
+      ];
+      TimelineParser.parse(manyBegins, pendingBuildBegins: pending);
+      // Now match the LATEST B (ts=1100) → should reconstruct dur=10000-1100.
+      final endLatest = [
+        TimelineEvent.parse(
+            {'name': 'BUILD', 'ph': 'E', 'ts': 10000, 'tid': 1, 'pid': 1})!,
+      ];
+      final data = TimelineParser.parse(endLatest, pendingBuildBegins: pending);
+      // LIFO pop → matches ts=1100 (last B that was kept). dur = 8900.
+      expect(data.buildScopeDurations, [10000 - 1100]);
+      // Stack size should now be 99 (was 100 after cap, popped 1).
+      expect(pending[1]?.length, 99);
+    });
   });
 
   group('TimelineParser enrichment args', () {

@@ -174,6 +174,7 @@ void main(List<String> args) {
         'unit': parsed.unit,
       },
       'captureDate': DateTime.now().toUtc().toIso8601String(),
+      'role': parsed.role,
       if (parsed.captureNotes != null) 'captureNotes': parsed.captureNotes,
     },
   };
@@ -300,6 +301,7 @@ class _Args {
     required this.input,
     required this.output,
     required this.scenario,
+    required this.role,
     required this.magnitudeMin,
     required this.magnitudeObserved,
     required this.magnitudeMax,
@@ -315,6 +317,7 @@ class _Args {
   final String input;
   final String output;
   final String scenario;
+  final String role;
   final num magnitudeMin;
   final num magnitudeObserved;
   final num magnitudeMax;
@@ -332,6 +335,7 @@ _Args _parseArgs(List<String> args) {
   String? input,
       output,
       scenario,
+      role,
       unit,
       device,
       deviceOs,
@@ -384,6 +388,8 @@ _Args _parseArgs(List<String> args) {
         captureCommand = value;
       case '--capture-notes':
         captureNotes = value;
+      case '--role':
+        role = value;
       case '--severity-boundary':
         severityBoundaries.add(num.parse(value));
       default:
@@ -409,10 +415,37 @@ _Args _parseArgs(List<String> args) {
     _printUsage();
     exit(2);
   }
+  // Default-derive role from filename suffix when --role not passed.
+  // Backward-compat for existing scripts/CI invoking wrap_capture
+  // without the new flag. Recognizes `*_below.json`, `*_at.json`,
+  // `*_above.json`. Fail with explicit error if filename has no
+  // recognizable suffix AND --role was not passed.
+  if (role == null) {
+    final base = output!.split('/').last.toLowerCase();
+    if (base.endsWith('_below.json')) {
+      role = 'below';
+    } else if (base.endsWith('_at.json')) {
+      role = 'at';
+    } else if (base.endsWith('_above.json')) {
+      role = 'above';
+    } else {
+      stderr
+          .writeln('--role not passed AND output filename "$base" does not end '
+              'with _below.json / _at.json / _above.json. Pass --role '
+              'explicitly: --role below|at|above.');
+      exit(2);
+    }
+  }
+  if (!const {'below', 'at', 'above'}.contains(role)) {
+    stderr.writeln('--role must be exactly one of: below, at, above '
+        '(case-sensitive). Got: "$role".');
+    exit(2);
+  }
   return _Args(
     input: input!,
     output: output!,
     scenario: scenario!,
+    role: role,
     magnitudeMin: magnitudeMin!,
     magnitudeObserved: magnitudeObserved!,
     magnitudeMax: magnitudeMax!,

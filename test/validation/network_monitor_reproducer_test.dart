@@ -603,4 +603,93 @@ void main() {
       },
     );
   });
+
+  // Layer 3 (v0.18.3): per-family credit for the four reproducerOnly
+  // families NetworkMonitor emits beyond `slow_request`. The detector
+  // metadata's `coveredStableIds` declares all five; the audit's
+  // reproducer walker requires each declared family to appear as an
+  // AST-credited literal in this file. These tests exercise each family
+  // through `processRecord` so the literals are detector-derived
+  // assertions, not bare strings.
+  group('NetworkMonitorDetector — Layer 3: other emitted families', () {
+    late NetworkMonitorDetector detector;
+    late DateTime fakeNow;
+
+    setUp(() {
+      fakeNow = DateTime(2026, 1, 1);
+      detector = NetworkMonitorDetector(clock: () => fakeNow);
+    });
+
+    tearDown(() => detector.dispose());
+
+    RequestRecord record({
+      String url = 'https://example.test/api/endpoint',
+      int durationMs = 100,
+      int responseBytes = 1024,
+      int statusCode = 200,
+    }) {
+      return RequestRecord(
+        url: url,
+        method: 'GET',
+        statusCode: statusCode,
+        durationMs: durationMs,
+        responseBytes: responseBytes,
+        startedAt: fakeNow,
+      );
+    }
+
+    test('large_response fires when responseBytes ≥ largeResponseBytes', () {
+      detector.processRecord(record(responseBytes: 1048576));
+      final large =
+          detector.issues.where((i) => i.stableId == 'large_response').toList();
+      expect(large, hasLength(1),
+          reason: 'large_response must surface for >= 1 MiB responses; '
+              'family declared in coveredStableIds.');
+    });
+
+    test('request_frequency fires above the per-second cap', () {
+      // Many records share the frozen fakeNow timestamp so they all fall
+      // inside the rolling-window the detector evaluates. processRecord
+      // triggers _evaluate() so no separate trigger is needed.
+      // Default frequencyLimit is 30 over a 5s window; cross it explicitly.
+      for (var i = 0; i < 35; i++) {
+        detector.processRecord(record(url: 'https://example.test/api/$i'));
+      }
+      final freq = detector.issues
+          .where((i) => i.stableId == 'request_frequency')
+          .toList();
+      expect(freq, isNotEmpty,
+          reason: 'request_frequency must surface above the per-second '
+              'request cap; family declared in coveredStableIds.');
+    });
+
+    test('http_error_spike fires when 5xx ratio exceeds the threshold', () {
+      for (var i = 0; i < 6; i++) {
+        detector.processRecord(record(statusCode: 500));
+      }
+      final errors = detector.issues
+          .where((i) => i.stableId == 'http_error_spike')
+          .toList();
+      expect(errors, isNotEmpty,
+          reason: 'http_error_spike must surface for sustained 5xx '
+              'responses; family declared in coveredStableIds.');
+    });
+
+    test('high_frequency_same_path fires for repeated identical paths', () {
+      // Same URL repeated above the per-path cap. processRecord triggers
+      // _evaluate() so high_frequency_same_path classification runs.
+      for (var i = 0; i < 12; i++) {
+        detector.processRecord(record());
+      }
+      final samePath = detector.issues
+          .where((i) =>
+              i.stableId != null &&
+              i.stableId!.startsWith('high_frequency_same_path:'))
+          .toList();
+      expect(samePath, isNotEmpty,
+          reason: 'high_frequency_same_path:<fingerprint> must surface '
+              'when the same path bursts; family declared in '
+              'coveredStableIds.');
+    });
+  });
 }

@@ -28,6 +28,7 @@ class DetectorMetadata {
     this.bracketSeverityLabel,
     this.coveredStableIds,
     this.parametricFamilies,
+    this.perStableIdTier,
     this.coveredThresholds,
     this.aboveCeilingMultiplier,
     this.bracketAtTolerance,
@@ -166,6 +167,38 @@ class DetectorMetadata {
   ///   entry fails the metadata gate.
   final Set<String>? parametricFamilies;
 
+  /// Per-family evidence-tier overrides (since v0.18.3). Lets a detector
+  /// honestly declare a mixed-tier ledger: e.g. `NetworkMonitor` covers 5
+  /// stable IDs (`slow_request`, `large_response`, `request_frequency`,
+  /// `http_error_spike`, `high_frequency_same_path`) of which only
+  /// `slow_request.warning` is backed by on-device captures. Without this
+  /// field the metadata model forced an all-or-nothing choice: either
+  /// over-claim by tagging the whole detector `runtimeVerified`, or
+  /// under-claim by holding the whole detector at `reproducerOnly`.
+  ///
+  /// Semantics:
+  /// - The detector's [tier] field is the *base* (minimum) tier — every
+  ///   covered family is at least at [tier].
+  /// - Each entry in [perStableIdTier] *raises* a specific family above
+  ///   the base. Effective per-family tier = `perStableIdTier[id] ?? tier`.
+  /// - The audit gate's tier-specific field requirements
+  ///   (`profileCapturePaths`, `bracketThreshold`, `bracketStableId`,
+  ///   etc.) trigger off the *effective max tier* across all declared
+  ///   families, so a detector that raises one family to
+  ///   `runtimeVerified` still has to provide its capture triad.
+  ///
+  /// Audit invariants enforced when non-null:
+  /// - Every key must be present in [coveredStableIds] (parametric family
+  ///   declarations are not eligible for per-family raises since they
+  ///   describe a literal-prefix family, not a single stableId).
+  /// - Every value must be `>= tier` — entries are raises only, never
+  ///   downgrades. A downgrade would conflict with the base-as-minimum
+  ///   semantics and is rejected at audit time.
+  /// - When bracket fields are set, the `bracketStableId` must have an
+  ///   effective tier of `runtimeVerified` or stronger; otherwise the
+  ///   bracket evidence is unmoored from any family it claims to validate.
+  final Map<String, EvidenceTier>? perStableIdTier;
+
   /// Severity-scoped evidence boundaries for detectors that emit multiple
   /// severity tiers on the same stable ID. Entries use the form
   /// `<stableId>.<severity>` (e.g. `'slow_request.warning'`). When null,
@@ -228,6 +261,30 @@ class DetectorMetadata {
   /// v0.18.1+ producer dedup should set this to `true` to lock in
   /// the strong evidence guarantee.
   final bool bracketRequireUniqueDetectedAtMicros;
+
+  /// Returns the effective evidence tier for a specific stable ID,
+  /// applying any [perStableIdTier] override on top of the detector's
+  /// base [tier]. Returns [tier] when no override is set.
+  EvidenceTier effectiveTierFor(String stableId) =>
+      perStableIdTier?[stableId] ?? tier;
+
+  /// The strongest effective tier across the base [tier] and all
+  /// [perStableIdTier] entries. Drives the audit gate's
+  /// tier-specific field-presence requirements when [perStableIdTier]
+  /// is set: a detector at base `reproducerOnly` that raises one family
+  /// to `runtimeVerified` must still satisfy the runtimeVerified
+  /// field-presence checks (`profileCapturePaths`, `bracketThreshold`,
+  /// etc.).
+  EvidenceTier get effectiveMaxTier {
+    var max = tier;
+    final overrides = perStableIdTier;
+    if (overrides != null) {
+      for (final t in overrides.values) {
+        if (t.index > max.index) max = t;
+      }
+    }
+    return max;
+  }
 }
 
 /// Mixin that lets a detector declare its validation metadata.

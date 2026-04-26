@@ -278,6 +278,7 @@ class _NetworkMonitorCaptureScreenState
     try {
       json = await Sleuth.exportCaptureJson(
         scenario: 'slow_request_$leg',
+        role: leg, // 'below' | 'at' | 'above' (matches the screen's leg labels)
         magnitudeMin: (measured - 50).clamp(0, 1 << 30).toInt(),
         magnitudeObserved: measured,
         magnitudeMax: measured + 50,

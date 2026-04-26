@@ -47,7 +47,16 @@ class ProfileCaptureSchema {
     'scenario',
     'expectedMagnitude',
     'captureDate',
+    'role',
   };
+
+  /// Allowed values for `sleuthMetadata.role` — exact, case-sensitive
+  /// allowlist. Replaces the v0.18.2 filename-suffix heuristic for
+  /// below-leg detection. Strict union enforcement: typos like
+  /// 'Below', 'BELOW', 'sub' fail fast at parse time so audit-side
+  /// role-driven logic can rely on the value being exactly one of
+  /// these three strings.
+  static const Set<String> allowedRoles = {'below', 'at', 'above'};
 
   /// Pinned device → approved OS versions map. Reference-device policy is
   /// documented in `doc/reference_devices.md`. The matrix rotates once per
@@ -72,18 +81,17 @@ class ProfileCaptureSchema {
   /// `json['sleuthMetadata']`'s container.
   ///
   /// Throws [FormatException] with a precise message on any violation.
-  /// When [expectingNoEmission] is true (set by [validateBracket] for
-  /// the below-leg capture), the inverse-ratio half of the AB-1
-  /// cross-check is skipped. Below-leg semantics intentionally pair a
-  /// tiny `expectedMagnitude.observed` (sub-threshold workload, e.g.
-  /// 0.5 ms) with a normal-sized scenario span (~250 ms including
-  /// flushTimelineNow + dwell), producing inverse-ratios well above
-  /// the 100× ceiling that would otherwise rightly catch fabricated
-  /// at/above captures. Sub-threshold roles have no
-  /// markers-bracket-the-work invariant; the `_requireNoIssueTraceRecord`
-  /// check is what protects below-leg honesty.
-  static Map<String, Object?> parse(List<int> rawBytes,
-      {bool expectingNoEmission = false}) {
+  ///
+  /// The inverse-ratio half of the AB-1 cross-check is skipped when the
+  /// capture's `sleuthMetadata.role` is `'below'`. Below-leg semantics
+  /// intentionally pair a tiny `expectedMagnitude.observed`
+  /// (sub-threshold workload, e.g. 0.5 ms) with a normal-sized scenario
+  /// span (~250 ms including flushTimelineNow + dwell), producing
+  /// inverse-ratios well above the 100× ceiling that would otherwise
+  /// rightly catch fabricated at/above captures. Sub-threshold roles
+  /// have no markers-bracket-the-work invariant; the
+  /// `_requireNoIssueTraceRecord` check protects below-leg honesty.
+  static Map<String, Object?> parse(List<int> rawBytes) {
     final decoded = _decodeUtf8(rawBytes);
     final normalised = _stripBomAndNormaliseLineEndings(decoded);
 
@@ -130,8 +138,24 @@ class ProfileCaptureSchema {
     _validateCaptureCommandAndScenario(sleuthMetadata);
     _validateExpectedMagnitude(sleuthMetadata);
     _validateCaptureDate(sleuthMetadata);
+    final role = sleuthMetadata['role'];
+    if (role is! String || !allowedRoles.contains(role)) {
+      throw FormatException(
+          'Invalid `sleuthMetadata.role`: ${role == null ? 'null' : '"$role"'}. '
+          'Must be exactly one of ${allowedRoles.toList()..sort()} '
+          '(case-sensitive). Below-leg AB-1 inverse-ratio bypass is '
+          'driven by this field — typos default to enforcement and '
+          'will surface as false-positive failures.');
+    }
+    // Below-leg semantics: sub-threshold workload paired with normal-
+    // sized scenario span (workload + flushTimelineNow + dwell). The
+    // AB-1 inverse-ratio half false-positives on this shape — its 100×
+    // ceiling is meant to catch fabricated at/above captures
+    // (markers bracketing unrelated work). _requireNoIssueTraceRecord
+    // is the actual contract for below-role honesty.
+    final isBelowRole = role == 'below';
     _crossCheckTraceVsObserved(root['traceEvents'] as List, sleuthMetadata,
-        skipInverseRatio: expectingNoEmission);
+        skipInverseRatio: isBelowRole);
 
     return sleuthMetadata;
   }
@@ -695,13 +719,11 @@ class ProfileCaptureSchema {
   }
 
   /// Convenience wrapper that reads a file and calls [parse].
-  static Map<String, Object?> parseFile(File file,
-      {bool expectingNoEmission = false}) {
+  static Map<String, Object?> parseFile(File file) {
     if (!file.existsSync()) {
       throw FormatException('Capture file does not exist: ${file.path}');
     }
-    return parse(file.readAsBytesSync(),
-        expectingNoEmission: expectingNoEmission);
+    return parse(file.readAsBytesSync());
   }
 
   /// Validates a three-capture bracket against [threshold] in [unit].
@@ -1462,14 +1484,26 @@ class ProfileCaptureSchema {
     }
     try {
       final bytes = file.readAsBytesSync();
-      // Below-leg captures pair tiny `expectedMagnitude.observed`
-      // (sub-threshold workload) with normal-sized scenario spans
-      // (workload + flushTimelineNow + dwell). The AB-1 inverse-ratio
-      // half is meant to catch fabricated at/above captures (markers
-      // bracketing unrelated work); for below-role it false-positives.
-      // `_requireNoIssueTraceRecord` is the contract that enforces
-      // below-role honesty.
-      final metadata = parse(bytes, expectingNoEmission: label == 'below');
+      // `parse()` reads `sleuthMetadata.role` to drive the AB-1
+      // inverse-ratio bypass for below-role captures (sub-threshold
+      // workload paired with normal-sized scenario span). The role
+      // field is the canonical signal — no shim needed here.
+      final metadata = parse(bytes);
+      // Cross-check that the file's stored role matches the positional
+      // bracket slot it was passed into. Without this, a mis-rolled
+      // capture (e.g. a file with `metadata.role: 'below'` placed in
+      // the at-slot) silently disables the inverse-ratio check while
+      // being audited in the wrong bracket position. Presence of the
+      // role field is enforced upstream in `parse()`; correctness of
+      // the triad mapping is enforced here.
+      final storedRole = metadata['role'];
+      if (storedRole != label) {
+        throw FormatException('Bracket "$label" slot received a capture whose '
+            '`sleuthMetadata.role` is "$storedRole" — the positional '
+            'bracket label and the stored role must match. Either '
+            'pass this file to the "$storedRole" slot or correct the '
+            'role field in the capture.');
+      }
       // Stash the raw traceEvents on the metadata under a private
       // sentinel key so the trace-record helpers
       // (`_requireIssueTraceRecord`, `_requireNoIssueTraceRecord`)

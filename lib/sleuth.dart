@@ -518,6 +518,7 @@ class Sleuth {
   ///   scenario events get cleared before Export can read them).
   static Future<String?> exportCaptureJson({
     required String scenario,
+    required String role,
     required num magnitudeMin,
     required num magnitudeObserved,
     required num magnitudeMax,
@@ -534,6 +535,7 @@ class Sleuth {
     if (c == null) return null;
     return c.exportCaptureJson(
       scenario: scenario,
+      role: role,
       magnitudeMin: magnitudeMin,
       magnitudeObserved: magnitudeObserved,
       magnitudeMax: magnitudeMax,

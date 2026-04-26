@@ -163,20 +163,39 @@ class TimelineParser {
     return s.split(', ');
   }
 
+  /// Maximum unmatched BUILD `ph: 'B'` events retained per thread.
+  /// Beyond this, the OLDEST unmatched B is dropped on each new B.
+  /// Conservative ceiling — typical iPhone Flutter app emits <60 BUILDs
+  /// per second per thread (60 FPS), so 100 entries = >1.5 s buffer of
+  /// unmatched begins. Capping prevents unbounded growth when a session
+  /// produces orphan B events (B without matching E — e.g. due to event
+  /// loss or VM service buffer overflow).
+  static const int _pendingBuildBeginsCapPerTid = 100;
+
   /// Parse a list of raw timeline events into [ParsedTimelineData].
-  static ParsedTimelineData parse(List<TimelineEvent> events) {
+  ///
+  /// [pendingBuildBegins] carries unmatched BUILD `ph: 'B'` events
+  /// across `parse()` calls so iOS B/E pairs straddling poll boundaries
+  /// reconstruct correctly. When omitted, each call gets a fresh map
+  /// (preserves backward-compat for direct callers — only the
+  /// VmServiceClient polling path persists state across batches).
+  static ParsedTimelineData parse(
+    List<TimelineEvent> events, {
+    Map<int, List<Map<String, dynamic>>>? pendingBuildBegins,
+  }) {
     final buildScopes = <int>[];
     final layouts = <int>[];
     final paints = <int>[];
     final rasters = <int>[];
     final shaders = <int>[];
-    // Per-thread stack of unmatched BUILD `ph: 'B'` timestamps. iOS
+    // Per-thread stack of unmatched BUILD `ph: 'B'` events. iOS
     // profile-mode emits BUILD as begin/end pairs (no `ph: 'X'`
     // complete-form), so `dur` must be reconstructed from the matched
     // `ph: 'E'` event's `ts`. The stack is keyed by `tid` because B/E
     // pairs interleave across threads in real captures, and a naive
     // single-stack reconstruction would mismatch pairs across threads.
-    final pendingBuildBegins = <int, List<Map<String, dynamic>>>{};
+    final pendingBuilds =
+        pendingBuildBegins ?? <int, List<Map<String, dynamic>>>{};
     final channels = <TimelineEvent>[];
     final gcs = <TimelineEvent>[];
     final phaseEvents = <PhaseEvent>[];
@@ -266,11 +285,17 @@ class TimelineParser {
           if (ph == 'B') {
             buildCount++;
             if (ts != null) {
-              (pendingBuildBegins[tid] ??= <Map<String, dynamic>>[]).add(json);
+              final stack = pendingBuilds[tid] ??= <Map<String, dynamic>>[];
+              stack.add(json);
+              // Drop oldest unmatched begin if cap exceeded — prevents
+              // unbounded growth under sustained orphan-B emission.
+              if (stack.length > _pendingBuildBeginsCapPerTid) {
+                stack.removeAt(0);
+              }
             }
           } else {
             // ph == 'E'
-            final stack = pendingBuildBegins[tid];
+            final stack = pendingBuilds[tid];
             if (stack != null && stack.isNotEmpty) {
               final beginJson = stack.removeLast();
               final beginTs = beginJson['ts'] as int?;

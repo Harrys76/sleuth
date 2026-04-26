@@ -264,7 +264,12 @@ void main() {
         final meta = (d as DetectorMetadataProvider).validationMetadata;
         final label = '${d.runtimeType} (tier=${meta.tier.name})';
 
-        switch (meta.tier) {
+        // Audit walks effective max tier so a detector with a per-family
+        // raise (e.g. base reproducerOnly + perStableIdTier{id:
+        // runtimeVerified}) still satisfies the runtimeVerified field
+        // requirements. When perStableIdTier is null, this collapses to
+        // meta.tier.
+        switch (meta.effectiveMaxTier) {
           case EvidenceTier.unvalidated:
             break;
           case EvidenceTier.reproducerOnly:
@@ -280,7 +285,7 @@ void main() {
             }
             failures.addAll(checkCoveredThresholds(
               label: label,
-              tier: meta.tier,
+              tier: meta.effectiveMaxTier,
               coveredThresholds: meta.coveredThresholds,
               coveredStableIds: meta.coveredStableIds,
               parametricFamilies: meta.parametricFamilies,
@@ -288,18 +293,18 @@ void main() {
             ));
             failures.addAll(checkSeverityScopedCeiling(
               label: label,
-              tier: meta.tier,
+              tier: meta.effectiveMaxTier,
               coveredThresholds: meta.coveredThresholds,
               aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
             ));
             failures.addAll(checkBracketCount(
               label: label,
-              tier: meta.tier,
+              tier: meta.effectiveMaxTier,
               capturePaths: meta.profileCapturePaths,
             ));
             failures.addAll(checkBracketValidation(
               label: label,
-              tier: meta.tier,
+              tier: meta.effectiveMaxTier,
               capturePaths: meta.profileCapturePaths,
               bracketThreshold: meta.bracketThreshold,
               bracketUnit: meta.bracketUnit,
@@ -321,7 +326,7 @@ void main() {
             }
             failures.addAll(checkCoveredThresholds(
               label: label,
-              tier: meta.tier,
+              tier: meta.effectiveMaxTier,
               coveredThresholds: meta.coveredThresholds,
               coveredStableIds: meta.coveredStableIds,
               parametricFamilies: meta.parametricFamilies,
@@ -329,18 +334,18 @@ void main() {
             ));
             failures.addAll(checkSeverityScopedCeiling(
               label: label,
-              tier: meta.tier,
+              tier: meta.effectiveMaxTier,
               coveredThresholds: meta.coveredThresholds,
               aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
             ));
             failures.addAll(checkBracketCount(
               label: label,
-              tier: meta.tier,
+              tier: meta.effectiveMaxTier,
               capturePaths: meta.profileCapturePaths,
             ));
             failures.addAll(checkBracketValidation(
               label: label,
-              tier: meta.tier,
+              tier: meta.effectiveMaxTier,
               capturePaths: meta.profileCapturePaths,
               bracketThreshold: meta.bracketThreshold,
               bracketUnit: meta.bracketUnit,
@@ -363,23 +368,29 @@ void main() {
               checkCitationUrl(label, meta.citationUrl, required: false));
         }
 
-        // Any tier stronger than `unvalidated` must pin the set of stable
-        // IDs its evidence covers. `coveredStableIds` and
+        // Any effective tier stronger than `unvalidated` must pin the set
+        // of stable IDs its evidence covers. `coveredStableIds` and
         // `parametricFamilies` are peer namespaces — at least one must be
         // non-empty, entries are trim/empty validated, and overlap
         // between the two is rejected so a single literal can't discharge
-        // two obligations.
-        if (meta.tier != EvidenceTier.unvalidated) {
-          final covered = meta.coveredStableIds;
-          final parametric = meta.parametricFamilies;
+        // two obligations. Gate uses `effectiveMaxTier` (not base `tier`)
+        // so a base-`unvalidated` detector that raises one family via
+        // `perStableIdTier` still has to declare its stable IDs — closes
+        // the audit-bypass where perStableIdTier could mint runtimeVerified
+        // evidence on an otherwise-unvalidated detector with no covered
+        // family declarations.
+        final covered = meta.coveredStableIds;
+        final parametric = meta.parametricFamilies;
+        if (meta.effectiveMaxTier != EvidenceTier.unvalidated) {
           final hasCovered = covered != null && covered.isNotEmpty;
           final hasParametric = parametric != null && parametric.isNotEmpty;
           if (!hasCovered && !hasParametric) {
             failures.add('$label: missing coveredStableIds AND '
-                'parametricFamilies — tier > unvalidated must declare at '
-                'least one non-empty namespace of stable IDs the evidence '
-                'covers (exact / `<family>:<param>` in coveredStableIds, or '
-                '`<family>_<typeName>` prefix in parametricFamilies)');
+                'parametricFamilies — effective tier > unvalidated must '
+                'declare at least one non-empty namespace of stable IDs '
+                'the evidence covers (exact / `<family>:<param>` in '
+                'coveredStableIds, or `<family>_<typeName>` prefix in '
+                'parametricFamilies)');
           }
           if (covered != null) {
             for (final id in covered) {
@@ -435,6 +446,21 @@ void main() {
             }
           }
         }
+
+        // perStableIdTier — per-family raise overrides. Runs
+        // independently of the base-tier guard above so a detector at
+        // base `unvalidated` cannot use perStableIdTier to bypass
+        // field-presence validation. The accompanying `effectiveMaxTier`
+        // switch routes to the raised tier's branch and runs the
+        // bracket / capture-path checks; this block enforces the
+        // per-family raise contract itself via checkPerStableIdTier.
+        failures.addAll(checkPerStableIdTier(
+          label: label,
+          tier: meta.tier,
+          perStableIdTier: meta.perStableIdTier,
+          coveredStableIds: meta.coveredStableIds,
+          bracketStableId: meta.bracketStableId,
+        ));
       }
       expect(failures, isEmpty, reason: 'Tier invariants violated: $failures');
     });
@@ -541,17 +567,27 @@ void main() {
           reason: 'NetworkMonitorDetector should be registered by default.');
       expect(nm, isA<DetectorMetadataProvider>());
       final meta = (nm as DetectorMetadataProvider).validationMetadata;
-      expect(meta.tier, EvidenceTier.runtimeVerified,
-          reason: 'v0.18.0 raises slow_request warning to runtimeVerified '
-              'with three on-device captures (iPhone 12 / iOS 17.5 / '
-              'Flutter 3.41.x) recorded via the in-app capture procedure '
-              '— `Sleuth.markScenarioBegin/End` brackets the loopback '
-              'HTTP request, the detector emits '
-              '`sleuth.issue.slow_request.warning` inside the scenario '
-              'span via the real `_recordIssuesForCapture` pipeline, '
-              '`Sleuth.exportCaptureJson` wraps the trace and copies it '
-              'to the iOS clipboard for export. Critical tier (3000 ms) '
-              'stays reproducerOnly.');
+      expect(meta.tier, EvidenceTier.reproducerOnly,
+          reason: 'v0.18.3 per-family-tier extension: base tier drops to '
+              'reproducerOnly so the four unraised families '
+              '(large_response, request_frequency, http_error_spike, '
+              'high_frequency_same_path) are no longer mechanically '
+              'over-claimed at runtimeVerified. The slow_request raise '
+              'lives in perStableIdTier.');
+      expect(
+          meta.perStableIdTier?['slow_request'], EvidenceTier.runtimeVerified,
+          reason: 'v0.18.0 raises slow_request warning via on-device '
+              'captures; v0.18.3 moves the raise into perStableIdTier '
+              'so the over-claim of the other four families is fixed.');
+      expect(
+          meta.effectiveTierFor('slow_request'), EvidenceTier.runtimeVerified,
+          reason: 'Effective tier per family must surface runtimeVerified '
+              'for slow_request; the audit gate routes off effectiveMaxTier '
+              'so the bracket fields still trigger their checks.');
+      expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified,
+          reason: 'effectiveMaxTier drives the audit switch; must remain '
+              'runtimeVerified after the v0.18.3 base-tier drop so '
+              'profileCapturePaths/bracketThreshold continue to be enforced.');
       expect(meta.reproducerPath,
           equals('test/validation/network_monitor_reproducer_test.dart'));
       expect(meta.citationUrl, isNull,
@@ -577,9 +613,19 @@ void main() {
               'required by the severity-scoped-coveredThresholds invariant.');
       expect(meta.parametricFamilies, isNull,
           reason: 'NetworkMonitor does not declare parametric families.');
-      expect(meta.coveredStableIds, equals(const {'slow_request'}),
-          reason: 'Reproducer still covers the `slow_request` family; '
-              'preserved from v0.16.1.');
+      expect(
+          meta.coveredStableIds,
+          equals(const {
+            'slow_request',
+            'large_response',
+            'request_frequency',
+            'http_error_spike',
+            'high_frequency_same_path',
+          }),
+          reason: 'v0.18.3: coveredStableIds expanded to all five emitted '
+              'families since the base tier (reproducerOnly) honestly '
+              'covers them via the layer-2 reproducer. perStableIdTier '
+              'raises only slow_request to runtimeVerified.');
 
       // L2 negative assertion (v0.16.5). Dormant at reproducerOnly.
       // Fires when a re-raise populates `coveredThresholds`: a diff that

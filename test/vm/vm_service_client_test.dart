@@ -279,7 +279,7 @@ void main() {
       );
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
 
       // Timeline data should be parsed and forwarded
       // (may be empty if the mock event isn't recognized by TimelineParser)
@@ -299,7 +299,7 @@ void main() {
       final client = VmServiceClient();
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
       expect(mock.clearVMTimelineCalled, isTrue);
       client.dispose();
     });
@@ -310,7 +310,7 @@ void main() {
       client.setServiceForTest(mock, isolateId: 'isolate-1');
       client.dispose();
 
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
       expect(mock.getVMTimelineCalled, isFalse);
     });
 
@@ -349,6 +349,72 @@ void main() {
               'before markScenarioEnd fires.');
       client.dispose();
     });
+
+    test(
+        'cross-batch BUILD reconstruction survives clearVMTimeline on '
+        'default !retainTimeline polling path', () async {
+      // iOS profile mode emits BUILD as `ph: 'B'` / `ph: 'E'` pairs
+      // instead of `ph: 'X'` complete-form. When a poll boundary falls
+      // between the B and the E, the parser needs `_pendingBuildBegins`
+      // to carry the unmatched B from batch N into batch N+1 so dur can
+      // be reconstructed. The matching E is emitted by Flutter AFTER
+      // `clearVMTimeline()` and lands in the next batch's fresh buffer
+      // — clearing `_pendingBuildBegins` on every poll would drop every
+      // poll-boundary BUILD silently.
+      final received = <ParsedTimelineData>[];
+      final mock = _MockVmService();
+      // Batch 1: BUILD begin only (no matching end in this batch).
+      mock.timelineResult = Timeline(
+        traceEvents: [
+          TimelineEvent.parse({
+            'name': 'Build',
+            'cat': 'flutter',
+            'ph': 'B',
+            'ts': 100000,
+            'pid': 1,
+            'tid': 1,
+          })!,
+        ],
+        timeOriginMicros: 100000,
+        timeExtentMicros: 1000,
+      );
+      final client = VmServiceClient(onTimelineData: received.add);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+      expect(mock.clearVMTimelineCalled, isTrue,
+          reason: 'Default !retainTimeline path must clear VM buffer.');
+      expect(received.expand((p) => p.buildScopeDurations), isEmpty,
+          reason: 'Batch 1 has B without E; no dur reconstructed yet.');
+
+      // Batch 2: matching BUILD end. The B from batch 1 must still be
+      // in `_pendingBuildBegins` for reconstruction to work.
+      mock.clearVMTimelineCalled = false;
+      mock.timelineResult = Timeline(
+        traceEvents: [
+          TimelineEvent.parse({
+            'name': 'Build',
+            'cat': 'flutter',
+            'ph': 'E',
+            'ts': 105000,
+            'pid': 1,
+            'tid': 1,
+          })!,
+        ],
+        timeOriginMicros: 105000,
+        timeExtentMicros: 1000,
+      );
+
+      await client.pollTimelineSync();
+      final allBuildDurs =
+          received.expand((p) => p.buildScopeDurations).toList();
+      expect(allBuildDurs, equals([5000]),
+          reason: 'Cross-batch reconstruction must emit dur = E.ts - B.ts '
+              '(5000 us) on the default polling path. Wiping '
+              '_pendingBuildBegins on clearVMTimeline would silently '
+              'drop this BUILD.');
+      client.dispose();
+    });
   });
 
   // =========================================================================
@@ -374,7 +440,7 @@ void main() {
       );
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
 
       expect(receivedSamples, hasLength(1));
       expect(receivedSamples.first.heapUsage, 50000000);
@@ -394,7 +460,7 @@ void main() {
       final client = VmServiceClient();
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
 
       // getMemoryUsage should NOT be called
       expect(mock.getMemoryUsageCalled, isFalse);
@@ -416,7 +482,7 @@ void main() {
       );
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
 
       expect(receivedSamples, hasLength(1));
       expect(receivedSamples.first.heapUsage, 0);
@@ -469,7 +535,7 @@ void main() {
       );
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
 
       // No sample emitted (SentinelException path re-resolves isolate)
       expect(receivedSamples, isEmpty);
@@ -493,7 +559,7 @@ void main() {
       );
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
 
       // No sample emitted, but no crash
       expect(receivedSamples, isEmpty);
@@ -537,7 +603,7 @@ void main() {
       client.setServiceForTest(mock, isolateId: 'isolate-1');
       expect(client.isConnected, isTrue);
 
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
 
       expect(client.isConnected, isFalse);
       expect(connectionChanges, [false]);
@@ -555,7 +621,7 @@ void main() {
       client.setServiceForTest(mock, isolateId: 'isolate-1');
       client.dispose();
 
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
 
       expect(connectionChanges, isEmpty);
     });
@@ -572,10 +638,10 @@ void main() {
 
       // First poll: triggers error → onConnectionChanged(false) → reconnect()
       // reconnect() calls _cleanup() which sets _service = null
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
 
       // Second poll: _service is null (cleaned up by reconnect) → early return
-      await client.pollTimelineForTest();
+      await client.pollTimelineSync();
 
       // Only one callback fired
       expect(connectionChanges, [false]);

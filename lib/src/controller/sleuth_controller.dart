@@ -10,6 +10,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:vm_service/vm_service.dart' show AllocationProfile, Event;
 
+import '../validation/profile_capture_schema.dart';
 import '../ui/floating_issues_card.dart';
 import '../ui/highlight_overlay.dart';
 import '../ui/trigger_button.dart';
@@ -1301,6 +1302,7 @@ class SleuthController {
 
   Future<String?> exportCaptureJson({
     required String scenario,
+    required String role,
     required num magnitudeMin,
     required num magnitudeObserved,
     required num magnitudeMax,
@@ -1312,6 +1314,13 @@ class SleuthController {
     String? captureNotes,
     String? magnitudeSourceEventName,
   }) async {
+    if (!ProfileCaptureSchema.allowedRoles.contains(role)) {
+      throw ArgumentError.value(
+          role,
+          'role',
+          'Must be exactly one of '
+              '${ProfileCaptureSchema.allowedRoles.toList()..sort()}');
+    }
     final client = _vmClient;
     if (client == null || !client.isConnected) return null;
     final events = await client.fetchRawTimelineEventsJson();
@@ -1463,6 +1472,7 @@ class SleuthController {
           'unit': unit,
         },
         'captureDate': DateTime.now().toUtc().toIso8601String(),
+        'role': role,
         if (captureNotes != null) 'captureNotes': captureNotes,
       },
     };

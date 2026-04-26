@@ -1,3 +1,78 @@
+## 0.19.0
+
+**Hardening release — four deferred items closed. BREAKING schema change.** No new tier raises.
+
+### BREAKING — `sleuthMetadata.role` is now a required capture field
+
+`ProfileCaptureSchema.parse` / `parseFile` / `validateBracket` reject any capture whose
+`sleuthMetadata` block lacks a `role` key set to `'below'`, `'at'`, or `'above'`. Pre-v0.19.0
+capture files fail with `Missing required sleuthMetadata key: "role"`. The minor version bump
+signals this break per pre-1.0 SemVer convention.
+
+**Migration:** for each pre-v0.19.0 capture, add a `"role"` field to its `sleuthMetadata` block
+matching the capture's bracket leg. The `tool/wrap_capture.dart` CLI accepts `--role` (or
+falls back to filename suffix `_below.json` / `_at.json` / `_above.json`) so re-running the
+wrap step regenerates a v0.19.0-compliant capture. The 6 in-tree production captures + 9
+fixtures + anchor were backfilled in this release.
+
+### Detector ledger
+
+The detector ledger summary shifts from **21 / 23 at `reproducerOnly` + 2 / 23 at
+`runtimeVerified`** to **22 / 23 at `reproducerOnly` + 1 / 23 at `runtimeVerified`** because
+`NetworkMonitorDetector`'s *base* tier dropped from `runtimeVerified` to `reproducerOnly` —
+the on-device evidence for `slow_request` is preserved via the new `perStableIdTier` raise
+(effective tier per family is unchanged), but the four other emitted families
+(`large_response`, `request_frequency`, `http_error_spike`, `high_frequency_same_path`) are
+no longer mechanically over-claimed by the detector-level tag. `HeavyComputeDetector`
+(single-family) keeps its base `runtimeVerified` tag.
+
+### Parser cross-batch BUILD reconstruction (`lib/src/vm/timeline_parser.dart`, `lib/src/vm/vm_service_client.dart`)
+
+- `TimelineParser.parse(events, {pendingBuildBegins})` now optionally takes a per-tid pending-begins
+  map and threads it across poll batches, so a `BUILD ph: 'B'` in poll N is reconstructed against
+  its `BUILD ph: 'E'` in poll N+1. Without this, every poll boundary that fell mid-build dropped
+  one BUILD on the floor.
+- `VmServiceClient` carries a `_pendingBuildBegins: Map<int, List<Map<String, dynamic>>>` instance
+  field across `_pollTimeline()` invocations and clears it on `clearVMTimeline()` and `_cleanup()`
+  so a polled-then-cleared timeline cannot leak begins into the next session.
+- Per-tid cap of 100 (oldest-drop) prevents an unbounded begin from leaking memory if its end never
+  arrives. Three new tests in `test/vm/timeline_parser_test.dart`: cross-batch reconstruction,
+  fresh-default backward-compat (32 existing callers unchanged), cap overflow.
+
+### Structural role plumbing (replaces filename-suffix heuristic)
+
+- `Sleuth.exportCaptureJson` and `SleuthController.exportCaptureJson` take a required `role`
+  parameter (`'below' | 'at' | 'above'`). The role is emitted into `sleuthMetadata.role` as a
+  first-class structural field — no more filename-suffix sniffing.
+- `ProfileCaptureSchema.parse` / `parseFile` enforce the role union and read the AB-1 inverse-ratio
+  bypass directly from `sleuthMetadata.role == 'below'`. The `expectingNoEmission` shim from v0.18.2
+  remains for the audit-test path; the schema now also accepts the role-driven equivalent so callers
+  can drop the explicit shim.
+- `tool/wrap_capture.dart` adds a `--role` CLI flag with filename-derived fallback (`_below.json` /
+  `_at.json` / `_above.json`) so existing capture workflows keep working.
+- `test/validation/_support/audit_invariants.dart` removed the `_below.json` filename heuristic and
+  the TODO marker — `checkCapturePaths` now relies on the role field in metadata.
+- 9 _fixtures captures + 6 production captures (heavy_compute / network_monitor below/at/above)
+  backfilled with explicit `role` field. Anchor-fixture SHA pin updated to match the new bytes.
+
+### Per-family-tier metadata (`lib/src/validation/detector_metadata.dart`)
+
+- `DetectorMetadata.perStableIdTier: Map<String, EvidenceTier>?` lets a detector raise specific
+  families above the base tier. Effective per-family tier is `perStableIdTier[id] ?? tier`;
+  `effectiveMaxTier` drives the audit gate's tier-specific field-presence checks.
+- New audit invariants: keys must be in `coveredStableIds`; values must be `>= tier` (raises only,
+  never downgrades); when bracket fields are set, the `bracketStableId`'s effective tier must be
+  `runtimeVerified` or stronger.
+- `NetworkMonitorDetector` is the first user. Base tier drops to `reproducerOnly`;
+  `perStableIdTier: {'slow_request': EvidenceTier.runtimeVerified}` preserves the on-device
+  evidence guarantee. `coveredStableIds` now lists all five emitted families honestly. Layer 3
+  reproducer tests credit the four newly declared families via AST-provable string literals.
+
+### Removed
+
+- `VmServiceClient.pollTimelineForTest` deprecated alias removed (long-dead testing-only
+  symbol — all callers migrated to `pollTimelineSync`).
+
 ## 0.18.2
 
 **Second `runtimeVerified` tier raise — `HeavyComputeDetector.heavy_compute` (warning tier, 8 ms threshold).** First vmOnly detector raised via the v0.18.1 `Sleuth.flushTimelineNow()` API. Distribution shifts to **21 / 23 at `reproducerOnly`, 2 / 23 at `runtimeVerified`, 0 / 23 at `unvalidated`**. Critical tier (16 ms) stays implicitly `unvalidated` until per-family-tier metadata extension lands.
