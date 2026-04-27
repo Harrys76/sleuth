@@ -1,3 +1,28 @@
+## 0.19.5
+
+Parser-hardening release. No tier raises. Distribution unchanged from v0.19.4: **20/23 reproducerOnly base, 3/23 effective runtimeVerified families** (HeavyCompute.heavy_compute base + MemoryPressure.heap_growing per-family + PlatformChannel.platform_channel_traffic base). No BREAKING, no public API changes.
+
+### TimelineParser — B/E reconstruction extended to LAYOUT, PAINT, raster
+
+iOS profile mode (Impeller) emits LAYOUT, PAINT, and raster events as nested `B`/`E` pairs with no `X`-form complete events (`LAYOUT (root)` wraps `LAYOUT`; `PAINT (root)` wraps `PAINT`; raster trio `GPURasterizer::Draw` → `Rasterizer::DoDraw` → `Rasterizer::DrawToSurfaces` nests on the raster thread). Pre-v0.19.5 the parser dropped these silently. v0.19.5 extends the v0.18.2 BUILD reconstruction pattern via shared `_reconstructPhaseBE` helper with **stack-drain-empty outermost-only emission** — a duration is credited only when the popped E closes the outermost scope per thread, so nested same-phase scopes do not double-count. Skia X-form path unchanged.
+
+- New `_pendingPhaseBeginsCapPerTid = 100` cap (mirrors BUILD's). `VmServiceClient` carries three new pending-begins maps (`_pendingLayoutBegins`, `_pendingPaintBegins`, `_pendingRasterBegins`) threaded through `TimelineParser.parse()`, cleared in `_cleanup()`, swept via shared `_evictStaleBegins` helper at the existing 30-second age cutoff.
+- 9 new parser tests pin: single-pair `dur` reconstruction per phase, outermost-only emission for nested pairs, cross-batch reconstruction, per-tid isolation, X-form backward-compat.
+- On-device verification (iPhone 12 / iOS 17.5 / Flutter 3.41.x): 155 frames over 3 s with averaged outermost-raster `dur` ≈ 2.12 ms/frame.
+
+### Sleuth — new diagnostic accessor
+
+`Sleuth.diagnoseCaptureState()` returns `(initialized, captureMode, vmConnected)` for capture-mode tooling to surface specific environmental state without requiring Console.app or `flutter run` terminal access.
+
+### GpuPressure raster_dominance raise — attempted, not shipped
+
+A `raster_dominance` runtimeVerified raise was investigated and not shipped. Three structural blockers documented in `doc/validation_ledger.md`: (1) the `_lastRasterUs / _lastUiUs > 2.0` ratio axis is unforceable on iOS profile mode given steady-state UI cost ~3-5 ms/frame vs single-filter raster ~2 ms/frame; (2) `ProfileCaptureSchema._crossCheckTraceVsObserved` skips for non-time units, so a `'ratio'` bracket has no independent schema witness; (3) `processTimelineData` overwrite-not-accumulate splices raster numerator and UI denominator across different polls. Future raster-related raise needs an absolute-ms axis and single-poll-snapshot detector evaluation. Detector stays at `reproducerOnly`.
+
+### Verification
+
+- 2,844 tests passing (+9 net from v0.19.4 = parser B/E reconstruction tests).
+- `fvm flutter analyze` clean.
+
 ## 0.19.4
 
 `PlatformChannelDetector.platform_channel_traffic` raised to **runtimeVerified** (base-tier raise — single-family detector, HeavyCompute pattern). Distribution: **20/23 reproducerOnly base, 3/23 effective runtimeVerified families** (HeavyCompute.heavy_compute base, MemoryPressure.heap_growing per-family, PlatformChannel.platform_channel_traffic base). Frequency axis only — the 8 ms cumulative-duration axis and 41 calls/sec critical tier remain implicitly reproducerOnly. No BREAKING, no public API changes.

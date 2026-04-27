@@ -491,6 +491,39 @@ class Sleuth {
     await c.flushTimelineNow(timeout: timeout);
   }
 
+  /// Diagnostic snapshot of capture-mode preconditions. Capture screens
+  /// call this on `exportCaptureJson` null-return to surface the exact
+  /// environmental state to the operator without requiring Console.app
+  /// or `flutter run` terminal access. None of the values are
+  /// load-bearing for the audit pipeline — purely diagnostic.
+  ///
+  /// Returns:
+  /// - `initialized`: `Sleuth.init()` has been called and the controller
+  ///   is constructed. False = `init()` was skipped or `kReleaseMode`
+  ///   stripped Sleuth out.
+  /// - `captureMode`: `SleuthConfig.captureMode` is true on the live
+  ///   controller. False = `markScenarioBegin/End`, `flushTimelineNow`,
+  ///   and `exportCaptureJson` are all no-ops (capture markers never
+  ///   reach the buffer, export returns null with "scenario markers
+  ///   not found"). Most common cause: `--dart-define=SLEUTH_CAPTURE_MODE
+  ///   =true` not passed at launch.
+  /// - `vmConnected`: VM service client is connected (VM+ mode active).
+  ///   False = FRAME mode (DevTools / `flutter run` owns the VM service)
+  ///   so `exportCaptureJson` returns null with "VM service client
+  ///   disconnected".
+  static ({bool initialized, bool captureMode, bool vmConnected})
+      diagnoseCaptureState() {
+    final c = _controller;
+    if (c == null) {
+      return (initialized: false, captureMode: false, vmConnected: false);
+    }
+    return (
+      initialized: true,
+      captureMode: c.config.captureMode,
+      vmConnected: c.isVmConnected,
+    );
+  }
+
   /// Narrows the VM timeline stream allowlist to `Dart` only for the
   /// duration of a long-running scenario. Disables Embedder + GC
   /// streams (high-volume per-frame paint/raster/build/GC events) so

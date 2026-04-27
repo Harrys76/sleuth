@@ -459,12 +459,27 @@ class VmServiceClient {
   /// `ts` (microseconds since process boot) to avoid wall-clock drift.
   final Map<int, List<Map<String, dynamic>>> _pendingBuildBegins = {};
 
+  /// Per-tid stacks of unmatched LAYOUT / PAINT / raster `ph: 'B'`
+  /// events. iOS profile mode (Impeller backend) emits these phases
+  /// as nested B/E pairs with no `X`-form complete events; the parser
+  /// reconstructs durations from matching pairs and credits only the
+  /// outermost scope per frame. Survive `clearVMTimeline()` for the
+  /// same cross-batch reasoning as `_pendingBuildBegins`. Cleared in
+  /// `_cleanup()`; stale begins evicted by the age sweep.
+  final Map<int, List<Map<String, dynamic>>> _pendingLayoutBegins = {};
+  final Map<int, List<Map<String, dynamic>>> _pendingPaintBegins = {};
+  final Map<int, List<Map<String, dynamic>>> _pendingRasterBegins = {};
+
   /// Maximum age (in microseconds) for an unmatched BUILD `ph: 'B'` event
   /// to remain in [_pendingBuildBegins]. Beyond this, the entry is treated
   /// as orphan (its matching E was lost — VM buffer overflow, isolate
   /// crash mid-build, etc.) and evicted. 30s is conservative: a real
   /// BUILD typically completes in <16ms; anything pending longer than
   /// 30s is almost certainly never going to pair.
+  ///
+  /// Same cutoff applied to [_pendingLayoutBegins] / [_pendingPaintBegins]
+  /// / [_pendingRasterBegins] — those phases also complete in <16ms in
+  /// any healthy frame, so 30s is a safe orphan ceiling.
   static const int _pendingBuildBeginsMaxAgeMicros = 30 * 1000 * 1000;
 
   /// Maximum age (in microseconds) for a `_lastProcessedTsByTid` cursor
@@ -522,6 +537,9 @@ class VmServiceClient {
         final parsed = TimelineParser.parse(
           events,
           pendingBuildBegins: _pendingBuildBegins,
+          pendingLayoutBegins: _pendingLayoutBegins,
+          pendingPaintBegins: _pendingPaintBegins,
+          pendingRasterBegins: _pendingRasterBegins,
           cursorsByTid: _lastProcessedTsByTid,
         );
         if (parsed.hasData) {
@@ -610,7 +628,11 @@ class VmServiceClient {
   /// accumulators. Idle sessions (no events this poll) skip the sweep
   /// entirely.
   void _sweepStalePendingBegins(List<TimelineEvent> events) {
-    if (_pendingBuildBegins.isEmpty && _lastProcessedTsByTid.isEmpty) {
+    if (_pendingBuildBegins.isEmpty &&
+        _pendingLayoutBegins.isEmpty &&
+        _pendingPaintBegins.isEmpty &&
+        _pendingRasterBegins.isEmpty &&
+        _lastProcessedTsByTid.isEmpty) {
       return;
     }
     var anchorTs = 0;
@@ -620,12 +642,31 @@ class VmServiceClient {
     }
     if (anchorTs == 0) return;
     final pendingCutoff = anchorTs - _pendingBuildBeginsMaxAgeMicros;
+    _evictStaleBegins(_pendingBuildBegins, pendingCutoff);
+    _evictStaleBegins(_pendingLayoutBegins, pendingCutoff);
+    _evictStaleBegins(_pendingPaintBegins, pendingCutoff);
+    _evictStaleBegins(_pendingRasterBegins, pendingCutoff);
+    if (!retainTimeline) {
+      final cursorCutoff = anchorTs - _cursorMaxIdleMicros;
+      _lastProcessedTsByTid
+          .removeWhere((_, cursor) => cursor.lastTs < cursorCutoff);
+    }
+  }
+
+  /// Drop entries older than [cutoffTs] from the head of each per-tid
+  /// stack, then prune empty tid entries. Shared body for the BUILD /
+  /// LAYOUT / PAINT / raster pending-begins sweep.
+  static void _evictStaleBegins(
+    Map<int, List<Map<String, dynamic>>> pending,
+    int cutoffTs,
+  ) {
+    if (pending.isEmpty) return;
     final emptyTids = <int>[];
-    for (final entry in _pendingBuildBegins.entries) {
+    for (final entry in pending.entries) {
       final stack = entry.value;
       while (stack.isNotEmpty) {
         final ts = stack.first['ts'];
-        if (ts is int && ts < pendingCutoff) {
+        if (ts is int && ts < cutoffTs) {
           stack.removeAt(0);
         } else {
           break;
@@ -634,12 +675,7 @@ class VmServiceClient {
       if (stack.isEmpty) emptyTids.add(entry.key);
     }
     for (final tid in emptyTids) {
-      _pendingBuildBegins.remove(tid);
-    }
-    if (!retainTimeline) {
-      final cursorCutoff = anchorTs - _cursorMaxIdleMicros;
-      _lastProcessedTsByTid
-          .removeWhere((_, cursor) => cursor.lastTs < cursorCutoff);
+      pending.remove(tid);
     }
   }
 
@@ -673,6 +709,9 @@ class VmServiceClient {
     // detects the change at its next fence check and drops stale results.
     _sessionGeneration++;
     _pendingBuildBegins.clear();
+    _pendingLayoutBegins.clear();
+    _pendingPaintBegins.clear();
+    _pendingRasterBegins.clear();
     _lastProcessedTsByTid.clear();
     _pollTimer?.cancel();
     _pollTimer = null;

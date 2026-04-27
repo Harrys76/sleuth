@@ -250,6 +250,257 @@ void main() {
       expect(pending[1]?.length, 99);
     });
 
+    // -- LAYOUT / PAINT / raster B/E reconstruction (v0.19.5) --------------
+    // iOS profile mode (Impeller backend, observed Flutter 3.41.x /
+    // iOS 17.5) emits LAYOUT, PAINT, and raster phases as nested B/E
+    // pairs with no `X`-form complete events. Parser reconstructs
+    // durations from matching pairs and credits ONLY the outermost
+    // scope per frame so nested LAYOUT/PAINT/raster scopes do not
+    // double-count.
+
+    test('LAYOUT B/E pair reconstructs single dur (iOS profile mode)', () {
+      final events = [
+        TimelineEvent.parse(
+            {'name': 'LAYOUT', 'ph': 'B', 'ts': 1000, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse(
+            {'name': 'LAYOUT', 'ph': 'E', 'ts': 4000, 'tid': 1, 'pid': 1})!,
+      ];
+      final data = TimelineParser.parse(events);
+      expect(data.flushLayoutDurations, [3000]);
+      expect(data.phaseEvents, hasLength(1));
+      expect(data.phaseEvents.first.phase, TimelinePhase.layout);
+      expect(data.phaseEvents.first.durationUs, 3000);
+    });
+
+    test('Nested LAYOUT (root) wrapping LAYOUT credits only outermost', () {
+      // Real Impeller iOS sequence: outer LAYOUT (root) opens, inner
+      // LAYOUT opens, inner closes, outer closes. Crediting both pairs
+      // would double-count. Only the outermost (LAYOUT (root) close
+      // when stack drains) contributes a duration.
+      final events = [
+        TimelineEvent.parse({
+          'name': 'LAYOUT (root)',
+          'ph': 'B',
+          'ts': 1000,
+          'tid': 1,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse(
+            {'name': 'LAYOUT', 'ph': 'B', 'ts': 1100, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse(
+            {'name': 'LAYOUT', 'ph': 'E', 'ts': 1900, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse({
+          'name': 'LAYOUT (root)',
+          'ph': 'E',
+          'ts': 2000,
+          'tid': 1,
+          'pid': 1,
+        })!,
+      ];
+      final data = TimelineParser.parse(events);
+      // Outermost LAYOUT (root) dur = 2000 - 1000 = 1000us. Inner
+      // LAYOUT B/E pair pops without emitting (stack still holds the
+      // outer B at pop time).
+      expect(data.flushLayoutDurations, [1000]);
+      expect(data.phaseEvents, hasLength(1));
+    });
+
+    test('PAINT B/E pair reconstructs single dur', () {
+      final events = [
+        TimelineEvent.parse(
+            {'name': 'PAINT', 'ph': 'B', 'ts': 2000, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse(
+            {'name': 'PAINT', 'ph': 'E', 'ts': 5000, 'tid': 1, 'pid': 1})!,
+      ];
+      final data = TimelineParser.parse(events);
+      expect(data.flushPaintDurations, [3000]);
+      expect(data.phaseEvents.first.phase, TimelinePhase.paint);
+    });
+
+    test('Nested PAINT (root) wrapping PAINT credits only outermost', () {
+      final events = [
+        TimelineEvent.parse({
+          'name': 'PAINT (root)',
+          'ph': 'B',
+          'ts': 100,
+          'tid': 1,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse(
+            {'name': 'PAINT', 'ph': 'B', 'ts': 200, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse(
+            {'name': 'PAINT', 'ph': 'E', 'ts': 800, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse({
+          'name': 'PAINT (root)',
+          'ph': 'E',
+          'ts': 900,
+          'tid': 1,
+          'pid': 1,
+        })!,
+      ];
+      final data = TimelineParser.parse(events);
+      expect(data.flushPaintDurations, [800]); // 900 - 100
+    });
+
+    test('Raster B/E pair reconstructs single dur', () {
+      final events = [
+        TimelineEvent.parse({
+          'name': 'GPURasterizer::Draw',
+          'ph': 'B',
+          'ts': 5000,
+          'tid': 7,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'GPURasterizer::Draw',
+          'ph': 'E',
+          'ts': 7100,
+          'tid': 7,
+          'pid': 1,
+        })!,
+      ];
+      final data = TimelineParser.parse(events);
+      expect(data.rasterDurations, [2100]);
+      expect(data.phaseEvents.first.phase, TimelinePhase.raster);
+    });
+
+    test(
+        'Nested raster trio (Impeller iOS) credits only outermost '
+        'scope per frame', () {
+      // Real Impeller iOS sequence on the raster thread:
+      //   GPURasterizer::Draw B
+      //     Rasterizer::DoDraw B
+      //       (would also wrap Rasterizer::DrawToSurfaces — the parser
+      //        only matches names in `_rasterNames`, so DrawToSurfaces
+      //        is ignored entirely; pairing is between the two known
+      //        names below.)
+      //     Rasterizer::DoDraw E
+      //   GPURasterizer::Draw E
+      // Crediting both pairs would double-count. The stack-drain-empty
+      // rule emits only when the outermost E pops to empty.
+      final events = [
+        TimelineEvent.parse({
+          'name': 'GPURasterizer::Draw',
+          'ph': 'B',
+          'ts': 1000,
+          'tid': 7,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'Rasterizer::DoDraw',
+          'ph': 'B',
+          'ts': 1100,
+          'tid': 7,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'Rasterizer::DoDraw',
+          'ph': 'E',
+          'ts': 1900,
+          'tid': 7,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'GPURasterizer::Draw',
+          'ph': 'E',
+          'ts': 2000,
+          'tid': 7,
+          'pid': 1,
+        })!,
+      ];
+      final data = TimelineParser.parse(events);
+      // Outermost only: 2000 - 1000 = 1000us. Inner DoDraw pop does
+      // not emit because the stack still holds the outer Draw B.
+      expect(data.rasterDurations, [1000]);
+      expect(data.phaseEvents, hasLength(1));
+    });
+
+    test('Raster B/E reconstructs across consecutive parse() calls', () {
+      // Poll-boundary case: B in batch 1, E in batch 2. Without
+      // shared pendingRasterBegins the orphan E in batch 2 cannot pair.
+      final pending = <int, List<Map<String, dynamic>>>{};
+      final batch1 = [
+        TimelineEvent.parse({
+          'name': 'GPURasterizer::Draw',
+          'ph': 'B',
+          'ts': 1000,
+          'tid': 7,
+          'pid': 1,
+        })!,
+      ];
+      final data1 = TimelineParser.parse(batch1, pendingRasterBegins: pending);
+      expect(data1.rasterDurations, isEmpty);
+
+      final batch2 = [
+        TimelineEvent.parse({
+          'name': 'GPURasterizer::Draw',
+          'ph': 'E',
+          'ts': 4000,
+          'tid': 7,
+          'pid': 1,
+        })!,
+      ];
+      final data2 = TimelineParser.parse(batch2, pendingRasterBegins: pending);
+      expect(data2.rasterDurations, [3000]);
+    });
+
+    test(
+        'Per-tid LAYOUT / PAINT / raster stacks do not cross-contaminate '
+        'across threads', () {
+      // Two LAYOUTs in flight concurrently on different threads. Each
+      // E must pair with the B from its own tid.
+      final events = [
+        TimelineEvent.parse(
+            {'name': 'LAYOUT', 'ph': 'B', 'ts': 1000, 'tid': 1, 'pid': 1})!,
+        TimelineEvent.parse(
+            {'name': 'LAYOUT', 'ph': 'B', 'ts': 1500, 'tid': 2, 'pid': 1})!,
+        TimelineEvent.parse(
+            {'name': 'LAYOUT', 'ph': 'E', 'ts': 2000, 'tid': 2, 'pid': 1})!,
+        TimelineEvent.parse(
+            {'name': 'LAYOUT', 'ph': 'E', 'ts': 5000, 'tid': 1, 'pid': 1})!,
+      ];
+      final data = TimelineParser.parse(events);
+      expect(data.flushLayoutDurations.toSet(), {4000, 500});
+    });
+
+    test(
+        'X-form LAYOUT / PAINT / raster events still flow through '
+        'unchanged (Skia / Android backward-compat)', () {
+      // Skia X-form path is the historical contract for non-Impeller
+      // captures and synthetic test fixtures. Reconstruction must not
+      // alter that path.
+      final events = [
+        TimelineEvent.parse({
+          'name': 'LAYOUT',
+          'ph': 'X',
+          'dur': 1500,
+          'ts': 100,
+          'tid': 1,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'PAINT',
+          'ph': 'X',
+          'dur': 2500,
+          'ts': 1700,
+          'tid': 1,
+          'pid': 1,
+        })!,
+        TimelineEvent.parse({
+          'name': 'GPURasterizer::Draw',
+          'ph': 'X',
+          'dur': 3500,
+          'ts': 4300,
+          'tid': 7,
+          'pid': 1,
+        })!,
+      ];
+      final data = TimelineParser.parse(events);
+      expect(data.flushLayoutDurations, [1500]);
+      expect(data.flushPaintDurations, [2500]);
+      expect(data.rasterDurations, [3500]);
+    });
+
     test(
         'cursorsByTid watermark skips re-observed events across '
         'parse calls (capture-mode buffer re-read dedup)', () {

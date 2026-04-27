@@ -659,6 +659,32 @@ the cross-check is skipped per-record (backward compatible). Future
 re-captures under v0.19.5+ binaries carry the arg and exercise the
 check.
 
+## GpuPressure raster_dominance — runtimeVerified blocked
+
+A `runtimeVerified` raise of `GpuPressureDetector.raster_dominance` is
+not viable on the current detector implementation. Three structural
+blockers, any of which alone is sufficient to disqualify the ratio
+bracket:
+
+1. **Ratio axis unforceable on iOS profile mode.** Steady-state UI cost
+   ~3-5 ms/frame vs single-filter raster ~2 ms/frame produces ratio
+   ~0.5; clearing `> 2.0` threshold requires a 6+ stacked-filter
+   workload, and the above-band would still be flaky under iOS
+   scheduling jitter.
+2. **No independent schema witness.** `ProfileCaptureSchema._crossCheckTraceVsObserved`
+   skips for non-time units (the trace cannot certify a ratio).
+   A `'ratio'` bracket compared against detector-emitted
+   `observedRasterRatio` is self-certifying.
+3. **Detector splices across polls.** `processTimelineData` updates
+   `_lastRasterUs` and `_lastUiUs` independently (each only when its
+   field is non-empty), so ratios computed in `_evaluate` can pair a
+   fresh raster numerator with a stale UI denominator from a prior
+   poll.
+
+Future raster-related raises should target an absolute-duration axis
+(engages AB-1 cross-check) and require detector logic that evaluates
+on a single-poll snapshot rather than last-seen fields.
+
 ## Cheat sheet — required sleuthMetadata fields (v0.18.0)
 
 `tool/wrap_capture.dart` produces this shape automatically:

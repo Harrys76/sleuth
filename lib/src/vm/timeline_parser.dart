@@ -180,11 +180,72 @@ class TimelineParser {
   /// loss or VM service buffer overflow).
   static const int _pendingBuildBeginsCapPerTid = 100;
 
+  /// Per-tid cap for unmatched LAYOUT / PAINT / raster `ph: 'B'`
+  /// begins. Same conservative ceiling as BUILD — typical iPhone
+  /// emits one outermost LAYOUT/PAINT/raster scope per frame plus a
+  /// handful of nested children, so 100 entries comfortably covers
+  /// >1.5 s of pending begins per thread under sustained 60 FPS.
+  static const int _pendingPhaseBeginsCapPerTid = 100;
+
+  /// Push-or-pop a per-tid B/E begins stack for a phase event,
+  /// invoking [onOutermost] only when the pop drains the stack EMPTY
+  /// — i.e. the popped E closed the outermost scope on this thread.
+  /// This is the shared body for LAYOUT / PAINT / raster
+  /// reconstruction; nested scopes (`LAYOUT (root)` wrapping
+  /// `LAYOUT`, raster trio nesting) push without emitting a duration
+  /// so the outer scope's E is the only one that contributes to the
+  /// duration list. Nesting is detected at the per-tid stack level so
+  /// no name comparison is required.
+  static void _reconstructPhaseBE({
+    required Map<String, dynamic> json,
+    required String ph,
+    required Map<int, List<Map<String, dynamic>>> pending,
+    required void Function(
+      Map<String, dynamic> beginJson,
+      int beginTs,
+      int dur,
+    ) onOutermost,
+  }) {
+    final ts = json['ts'] as int?;
+    final tid = json['tid'] as int? ?? 0;
+    if (ph == 'B') {
+      if (ts == null) return;
+      final stack = pending[tid] ??= <Map<String, dynamic>>[];
+      stack.add(json);
+      if (stack.length > _pendingPhaseBeginsCapPerTid) {
+        stack.removeAt(0);
+      }
+    } else {
+      // ph == 'E'
+      final stack = pending[tid];
+      if (stack == null || stack.isEmpty) return;
+      final beginJson = stack.removeLast();
+      final beginTs = beginJson['ts'] as int?;
+      if (beginTs == null || ts == null || ts < beginTs) return;
+      if (stack.isNotEmpty) return; // not outermost — skip emission
+      onOutermost(beginJson, beginTs, ts - beginTs);
+    }
+  }
+
   /// Parse raw timeline events into [ParsedTimelineData].
   ///
   /// [pendingBuildBegins] carries unmatched BUILD `ph: 'B'` events
   /// across calls so iOS B/E pairs straddling poll boundaries
   /// reconstruct correctly. Null = fresh per call.
+  ///
+  /// [pendingLayoutBegins], [pendingPaintBegins], [pendingRasterBegins]
+  /// extend the same cross-batch reconstruction to LAYOUT, PAINT, and
+  /// raster events. iOS profile mode (Impeller backend, observed on
+  /// Flutter 3.41.x / iOS 17.5) emits these phases as nested `B`/`E`
+  /// pairs with no `X`-form complete events: `LAYOUT (root)` wraps
+  /// `LAYOUT`, `PAINT (root)` wraps `PAINT`, and the raster trio
+  /// (`GPURasterizer::Draw` → `Rasterizer::DoDraw` →
+  /// `Rasterizer::DrawToSurfaces`) nests on the raster thread.
+  /// Counting every popped pair would double-count nested scopes;
+  /// instead a duration is emitted only when the per-tid stack drains
+  /// EMPTY after the pop, crediting only the outermost scope per
+  /// frame. Skia X-form emissions continue through the unchanged X
+  /// branch above. Null = fresh per call.
   ///
   /// [cursorsByTid] is a per-thread cross-call dedup cursor; events
   /// with `ts < cursor.lastTs`, or with `ts == cursor.lastTs` and a
@@ -195,6 +256,9 @@ class TimelineParser {
   static ParsedTimelineData parse(
     List<TimelineEvent> events, {
     Map<int, List<Map<String, dynamic>>>? pendingBuildBegins,
+    Map<int, List<Map<String, dynamic>>>? pendingLayoutBegins,
+    Map<int, List<Map<String, dynamic>>>? pendingPaintBegins,
+    Map<int, List<Map<String, dynamic>>>? pendingRasterBegins,
     Map<int, TimelineCursor>? cursorsByTid,
   }) {
     final buildScopes = <int>[];
@@ -210,6 +274,12 @@ class TimelineParser {
     // single-stack reconstruction would mismatch pairs across threads.
     final pendingBuilds =
         pendingBuildBegins ?? <int, List<Map<String, dynamic>>>{};
+    final pendingLayouts =
+        pendingLayoutBegins ?? <int, List<Map<String, dynamic>>>{};
+    final pendingPaints =
+        pendingPaintBegins ?? <int, List<Map<String, dynamic>>>{};
+    final pendingRasters =
+        pendingRasterBegins ?? <int, List<Map<String, dynamic>>>{};
     final cursors = cursorsByTid ?? <int, TimelineCursor>{};
     final channels = <TimelineEvent>[];
     final gcs = <TimelineEvent>[];
@@ -322,10 +392,24 @@ class TimelineParser {
           gcs.add(event);
         }
       } else if (ph == 'B' || ph == 'E') {
-        // Begin/End events — iOS profile-mode emits BUILD as B/E pairs
-        // instead of `ph: 'X'` complete events. Track unmatched B
-        // timestamps per-tid so the matching E can reconstruct
-        // `dur = E.ts - B.ts` and feed buildScopes / phaseEvents.
+        // Begin/End events — iOS profile-mode emits BUILD / LAYOUT /
+        // PAINT / raster as B/E pairs instead of `ph: 'X'` complete
+        // events. Track unmatched B timestamps per-tid so the matching
+        // E can reconstruct `dur = E.ts - B.ts` and feed the phase
+        // duration lists / phaseEvents.
+        //
+        // BUILD reconstruction: every B/E pair contributes a duration
+        // (BUILDs do not nest meaningfully on iOS — `_isBuild` matches
+        // only the bare `BUILD` name, not `BUILD (root)` or similar).
+        //
+        // LAYOUT / PAINT / raster reconstruction: nested begin/end
+        // pairs DO occur on iOS Impeller (`LAYOUT (root)` wraps
+        // `LAYOUT`; raster trio nests on the raster thread). To avoid
+        // double-counting nested scopes the duration is emitted only
+        // when the per-tid stack drains EMPTY after the pop — i.e. we
+        // credit the OUTERMOST scope per frame, matching the
+        // single-duration accounting that Skia X-form emissions
+        // produce.
         if (_isBuild(name)) {
           final ts = json['ts'] as int?;
           final tid = json['tid'] as int? ?? 0;
@@ -361,6 +445,54 @@ class TimelineParser {
               }
             }
           }
+        } else if (_isLayout(name)) {
+          _reconstructPhaseBE(
+            json: json,
+            ph: ph,
+            pending: pendingLayouts,
+            onOutermost: (beginJson, beginTs, dur) {
+              layouts.add(dur);
+              final args = beginJson['args'] as Map<String, dynamic>?;
+              phaseEvents.add(PhaseEvent(
+                phase: TimelinePhase.layout,
+                timestampUs: beginTs,
+                durationUs: dur,
+                dirtyCount: _parseIntArg(args?['dirty count']),
+                dirtyList: _parseDirtyList(args?['dirty list']),
+              ));
+            },
+          );
+        } else if (_isPaint(name)) {
+          _reconstructPhaseBE(
+            json: json,
+            ph: ph,
+            pending: pendingPaints,
+            onOutermost: (beginJson, beginTs, dur) {
+              paints.add(dur);
+              final args = beginJson['args'] as Map<String, dynamic>?;
+              phaseEvents.add(PhaseEvent(
+                phase: TimelinePhase.paint,
+                timestampUs: beginTs,
+                durationUs: dur,
+                dirtyCount: _parseIntArg(args?['dirty count']),
+                dirtyList: _parseDirtyList(args?['dirty list']),
+              ));
+            },
+          );
+        } else if (_rasterNames.contains(name)) {
+          _reconstructPhaseBE(
+            json: json,
+            ph: ph,
+            pending: pendingRasters,
+            onOutermost: (beginJson, beginTs, dur) {
+              rasters.add(dur);
+              phaseEvents.add(PhaseEvent(
+                phase: TimelinePhase.raster,
+                timestampUs: beginTs,
+                durationUs: dur,
+              ));
+            },
+          );
         }
         if (_isGcCategory(cat)) {
           gcs.add(event);
