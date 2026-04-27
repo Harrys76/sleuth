@@ -1354,6 +1354,21 @@ class SleuthController {
     // caller of this method, so production live-monitoring sessions
     // are unaffected.
     _memoryPressure.reset();
+    // Clear PlatformChannelDetector's evaluation window + cooldown
+    // counter so the next scenario's first overload window emits
+    // fresh instead of being suppressed by a leftover cooldown
+    // drain from a prior leg. The detector's cooldown semantics
+    // (suppress new emissions for 3 cycles after a fire to collapse
+    // sustained overloads to one trace record per cooldown window)
+    // turn cross-scenario state survival into active suppression of
+    // the new leg's emission — combined with controller-level
+    // composite-key dedup on the retained issue, that produces zero
+    // in-span trace records on a back-to-back leg.
+    for (final detector in _detectors) {
+      if (detector is PlatformChannelDetector) {
+        detector.reset();
+      }
+    }
   }
 
   Future<String?> exportCaptureJson({

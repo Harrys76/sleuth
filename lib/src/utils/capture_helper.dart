@@ -59,19 +59,32 @@ class CaptureHelper {
     // (request completion timestamp).
     final identityMicros = issue.dedupIdentityMicros ??
         (issue.detectedAt ?? DateTime.now()).microsecondsSinceEpoch;
+    final args = <String, String>{
+      // Flutter's Timeline arg encoding accepts `Map<String, Object?>`
+      // and serialises each value via `toString()` exactly once on
+      // its way to the engine. Pre-stringifying here therefore does
+      // NOT produce a doubly-quoted value (`'"123"'`) — a String
+      // passed in is forwarded as-is. Pre-encoding keeps the wire
+      // format unambiguous and means the schema parser can read
+      // `args[issueTraceArgDetectedAtMicros]` as a plain `String`
+      // without type-coercion.
+      issueTraceArgDetectedAtMicros: identityMicros.toString(),
+    };
+    // Detector-supplied extra args (e.g. `observedCount` from
+    // PlatformChannelDetector) merge after the dedup identity. The
+    // reserved `detectedAtMicros` key cannot be overridden — keeping
+    // it managed exclusively by the helper prevents detectors from
+    // accidentally clobbering the dedup identity contract.
+    final extra = issue.extraTraceArgs;
+    if (extra != null && extra.isNotEmpty) {
+      for (final entry in extra.entries) {
+        if (entry.key == issueTraceArgDetectedAtMicros) continue;
+        args[entry.key] = entry.value;
+      }
+    }
     return CaptureIssueEvent(
       name: issueTraceEventName(stableId, issue.severity.name),
-      args: <String, String>{
-        // Flutter's Timeline arg encoding accepts `Map<String, Object?>`
-        // and serialises each value via `toString()` exactly once on
-        // its way to the engine. Pre-stringifying here therefore does
-        // NOT produce a doubly-quoted value (`'"123"'`) — a String
-        // passed in is forwarded as-is. Pre-encoding keeps the wire
-        // format unambiguous and means the schema parser can read
-        // `args[issueTraceArgDetectedAtMicros]` as a plain `String`
-        // without type-coercion.
-        issueTraceArgDetectedAtMicros: identityMicros.toString(),
-      },
+      args: args,
     );
   }
 

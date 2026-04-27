@@ -552,6 +552,113 @@ duration. Set to **Never** during capture session; restore after.
 Without this, the screen auto-locks mid-leg, app may background, VM
 service connection drops.
 
+## PlatformChannel platform_channel_traffic capture (v0.19.4)
+
+`PlatformChannelDetector.platform_channel_traffic` differs from both
+HeavyCompute and MemoryPressure in three structural ways:
+
+1. **Short scenario span (~3.2 s).** The detector evaluates on a
+   1 s window boundary; the capture screen runs ~1.5 s of method
+   calls + 1500 ms post-allocation dwell + 200 ms barrier. The
+   1500 ms dwell covers three detector poll cycles (500 ms cadence)
+   plus emission landing margin so the trace record reliably lands
+   inside the scenario span even when the eval boundary falls late
+   in the allocation phase. No stream narrowing needed — the span
+   stays well inside ring-buffer capacity even with default Dart
+   + Embedder + GC streams enabled.
+2. **Parallel `Future.wait` batches (NOT sequential awaits).** iOS
+   `MethodChannel` round-trip latency is ~12-25 ms over USB and
+   30-80 ms over wireless. Sequential awaits would cap the
+   effective send rate at ~12-80 calls/sec, making the above-band
+   target (35 calls/sec) unreachable on wireless. The capture
+   screen fires K parallel `invokeMethod` Futures per 200 ms tick
+   so per-tick cost ≈ slowest single round-trip.
+3. **`debugProfilePlatformChannels` framework flag.** Real
+   `MethodChannel.invokeMethod` calls only emit `Platform Channel
+   send …` timeline events when this top-level Flutter flag is
+   true. The capture screen sets it per-leg in try/finally so the
+   flag does not leak into post-leg live monitoring (which would
+   pollute every subsequent unrelated channel call with timeline
+   events at full rate).
+
+**Procedure (uses `example/lib/demos/platform_channel_capture_screen.dart`):**
+
+1. Launch wireless debug:
+   ```bash
+   cd example && fvm flutter run --profile -d "iPhone 12" \
+     --dart-define=SLEUTH_CAPTURE_MODE=true
+   ```
+   (USB-tethered profile mode does NOT work — same VM-service
+   constraint as MemoryPressure.)
+2. Wait ≥ 3 s after app launch (lets VM service connection settle).
+3. Navigate: Network & I/O → PlatformChannel Capture Helper (v0.19.4).
+4. Per leg (Below / At / Above) — no calibration phase, the rate is
+   set directly by the batch geometry:
+   - Tap leg button.
+   - Method calls run for 1.5 s + 1500 ms post-allocation dwell +
+     200 ms barrier. Total ~3.2 s per attempt.
+   - Watch for `[<leg>] capture stashed` log line — success path;
+     `Sleuth.exportCaptureJson` already composed the wrapped JSON
+     immediately after `markScenarioEnd`.
+   - Tap **Export last leg** → post-capture validator parses
+     stashed JSON, verifies expected
+     `sleuth.issue.platform_channel_traffic.warning` count inside
+     scenario span (0 for below, 1 for at/above), copies to iOS
+     clipboard on pass.
+5. Paste clipboard contents into Notes / Mail / AirDrop → send to
+   Mac. Save as `platform_channel_traffic_${leg}.json` under
+   `test/validation/captures/platform_channel/`.
+6. Repeat for 3 legs.
+
+**Bands (tied to v0.19.4 metadata: threshold=20, atTolerance=0.50,
+aboveCeilingMultiplier=1.95):**
+
+- below: 1 ≤ calls/sec ≤ 19 (sub-threshold; detector silent;
+  schema requires magnitudeMin > 0 so bpsMin=1, not 0)
+- at: 20 ≤ calls/sec ≤ 30 (atTolerance 0.50 → [T, 1.5×T])
+- above: 31 ≤ calls/sec ≤ 39 (above-ceiling 39 strictly under 41-
+  call critical-escalation boundary so above-leg cannot ambiently
+  bracket the critical tier)
+
+**Validator-rejected exports** (Export REJECTED — expected 1 found 0):
+
+- **Count 0 (detector did not fire):** likely cause is parser
+  dropped channel events because `debugProfilePlatformChannels`
+  was not enabled — verify the framework flag is true at leg
+  start (the capture screen sets it in try/finally; manual flips
+  during leg run are the only way this can be wrong). Secondary
+  cause: iOS coalesced parallel calls and rate stayed below
+  20/sec — recheck batch geometry.
+- **Count ≥ 2 (cooldown failed):** scenario span extended into a
+  second 1 s evaluation cycle and the cooldown counter did not
+  suppress. Retry the leg.
+
+**Channel reuse.** The capture screen invokes
+`MethodChannel('sleuth_demo_channel').invokeMethod('ping')`. The
+channel and handler are registered at app launch in
+`example/ios/Runner/AppDelegate.swift:21-25` (handler returns
+`result(nil)` for every call). No new native code needed.
+
+**Fixture provenance.** The three checked-in v0.19.4 captures under
+`test/validation/captures/platform_channel/` were recorded under
+the prior 800 ms dwell (scenario spans ~2.43-2.50 s in the trace
+events). Schema validation passes either way — the bracket math
+checks magnitude against threshold, not span duration. Future
+re-captures under the 1500 ms dwell produce ~3.2 s spans without
+breaking the audit gate. The dwell extension was added after the
+initial capture set landed because the at-leg's first capture had
+only 43 ms scenario-end headroom; re-recording for cosmetic span
+alignment is unnecessary as long as schema validation continues
+to pass.
+
+**Pre-v0.19.5 captures and the observed-axis cross-check.** v0.19.5
+introduces a detector-observed axis cross-check
+(`expectedMagnitude.observed` vs trace-event `args.observedCount`,
+±25% tolerance). v0.19.4 captures lack the `observedCount` arg and
+the cross-check is skipped per-record (backward compatible). Future
+re-captures under v0.19.5+ binaries carry the arg and exercise the
+check.
+
 ## Cheat sheet — required sleuthMetadata fields (v0.18.0)
 
 `tool/wrap_capture.dart` produces this shape automatically:

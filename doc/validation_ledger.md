@@ -29,8 +29,8 @@ adding a new tier requires a semver major bump:
 
 ## Ledger
 
-**Summary:** **22 / 23 at `reproducerOnly`, 1 / 23 at `runtimeVerified`, 0 / 23 at `unvalidated`**
-as of v0.19.0. The detector-row tier reflects each detector's *base*
+**Summary:** **21 / 23 at `reproducerOnly`, 2 / 23 at `runtimeVerified`, 0 / 23 at `unvalidated`**
+as of v0.19.4. The detector-row tier reflects each detector's *base*
 tier; per-family raises live in `DetectorMetadata.perStableIdTier` and
 are shown in the row's Notes column. NetworkMonitor's base tier dropped
 from `runtimeVerified` to `reproducerOnly` in v0.19.0 with the
@@ -40,17 +40,29 @@ per-family-tier extension — `slow_request` still ships at
 emitted families (`large_response`, `request_frequency`,
 `http_error_spike`, `high_frequency_same_path`) are no longer
 mechanically over-claimed. HeavyCompute remains `runtimeVerified`
-(single-family detector — base tier stays).
+(single-family detector — base tier stays). MemoryPressure adds a
+v0.19.3 per-family raise (`heap_growing` warning tier) so its
+effective runtimeVerified-family count is 1 even though base tier
+stays `reproducerOnly`. PlatformChannel raises base tier to
+`runtimeVerified` in v0.19.4 (single-family detector — HeavyCompute
+pattern).
 v0.18.0 introduced the slow_request raise; v0.18.2 added
 `HeavyComputeDetector.heavy_compute` (warning tier,
-8 ms threshold) — second runtimeVerified raise, enabled by v0.18.1's
-`Sleuth.flushTimelineNow()` driving synchronous detector emission
-inside the scenario span. NetworkMonitor ships three on-device
-captures — three
-on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x) recorded
-via the in-app capture procedure with the detector emitting
-`sleuth.issue.slow_request.warning` inside the scenario span via the
-real `_recordIssuesForCapture` pipeline. No detectors at
+8 ms threshold) — second base-tier runtimeVerified raise, enabled
+by v0.18.1's `Sleuth.flushTimelineNow()` driving synchronous detector
+emission inside the scenario span. v0.19.4 raised
+`PlatformChannelDetector.platform_channel_traffic` (warning tier,
+20 calls/sec frequency axis) backed by three on-device captures
+(iPhone 12 / iOS 17.5 / Flutter 3.41.x) recorded under v0.19.4
+producer-side dedup with stable per-window `dedupIdentityMicros`.
+The detector also got true cooldown semantics in v0.19.4 — sustained
+overload now collapses to one trace record per cooldown window
+(was one per evaluation cycle, breaking multi-second scenario
+brackets). NetworkMonitor ships three on-device captures (iPhone 12
+/ iOS 17.5 / Flutter 3.41.x) recorded via the in-app capture
+procedure with the detector emitting
+`sleuth.issue.slow_request.warning` inside the scenario span via
+the real `_recordIssuesForCapture` pipeline. No detectors at
 `externallyCited`.
 
 **Evidence not uniform across the 23.** Reproducers ship in two
@@ -122,7 +134,7 @@ Flutter 3.41.4) stay on disk as retained orphans with
 |---|---|---|---|
 | Shader Jank | `reproducerOnly` | [`shader_jank_reproducer_test.dart`](../test/validation/shader_jank_reproducer_test.dart) | v0.17.4 tier-quality audit: feeds raw `List<TimelineEvent>` through `TimelineParser.parse()` into the detector (VM → parser → detector boundary exercised). 100 ms inclusive threshold + 2× critical + Impeller-zero suppression + shader-name variants (`ShaderCompilation`, `Pipeline::Create`, lowercase). `coveredStableIds = {'shader_compilation'}`. Fixtures hand-built against parser allowlist; real-device capture comparison is runtimeVerified-tier work. |
 | Heavy Compute | `runtimeVerified` | [`heavy_compute_reproducer_test.dart`](../test/validation/heavy_compute_reproducer_test.dart) | v0.17.4 tier-quality audit pinned the reproducer (8 ms strict threshold + 2× critical, all three emission paths exercised). v0.18.2 raises warning tier (8 ms) to `runtimeVerified` with three on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x) recorded under v0.18.1+ producer-side dedup with stable per-BUILD `detectedAt` (`DateTime.fromMicrosecondsSinceEpoch(event.timestampUs)`). v0.18.2 also extends `TimelineParser` to reconstruct BUILD `dur` from `ph: 'B'`/'E'` pairs (iOS profile mode emits B/E only — X-form BUILDs don't exist on iOS). The `flushTimelineNow` API drives synchronous detector emission inside the scenario span; `bracketAtTolerance: 0.50` (at-band [8, 12] ms) absorbs iPhone CPU/thermal variance, `aboveCeilingMultiplier: 1.875` (above-ceiling 15 ms) clears the 16 ms critical tier. Captures: [`heavy_compute_below.json`](../test/validation/captures/heavy_compute/heavy_compute_below.json), [`heavy_compute_at.json`](../test/validation/captures/heavy_compute/heavy_compute_at.json), [`heavy_compute_above.json`](../test/validation/captures/heavy_compute/heavy_compute_above.json). `coveredThresholds = {'heavy_compute.warning'}`. Critical tier (16 ms) stays implicitly unvalidated until per-family-tier metadata extension. |
-| Platform Channel | `reproducerOnly` | [`platform_channel_reproducer_test.dart`](../test/validation/platform_channel_reproducer_test.dart) | v0.17.4 tier-quality audit: feeds channel events through `TimelineParser.parse()` into the detector. Two parser-accepted phase+name shapes covered — lowercase async `'b'` with `Platform Channel send ` prefix (real `debugProfilePlatformChannels` output via `TimelineTask`) and sync `'X'` with `MethodChannel` name. Uppercase sync `'B'` async-shaped events asserted non-emitting — the canonical format-boundary trap for channel observers. Parser accepts 9 channel-shape variants (6 sync-name + 3 async-prefix casings); other 7 (`PlatformChannel`, `platformchannel`, `Platform_Channel`, `platform_channel`, `methodchannel`, `Platform Channel Send ` prefix, `platform channel send ` prefix) are implicitly uncovered at this tier. Both emission axes pinned independently: (a) >20/sec frequency strict + 2× critical at 41 calls + 40 calls held at warning (critical-escalation inequality), (b) >8000µs cumulative duration per window strict (7998/8000/8001µs via sync `'X'` events with 3 calls — duration axis isolated from frequency). `coveredStableIds = {'platform_channel_traffic'}`. |
+| Platform Channel | `runtimeVerified` | [`platform_channel_reproducer_test.dart`](../test/validation/platform_channel_reproducer_test.dart) | v0.17.4 tier-quality audit pinned the reproducer (both axes through `TimelineParser.parse()`). v0.19.4 raises `platform_channel_traffic` warning tier (frequency axis: > 20 calls / 1 s evaluation window) to `runtimeVerified` with three on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x) recorded under v0.19.4 producer-side dedup with stable per-window `dedupIdentityMicros = _windowStart.microsecondsSinceEpoch`. Two parser-accepted phase+name shapes covered in the reproducer — lowercase async `'b'` with `Platform Channel send ` prefix (real `debugProfilePlatformChannels` output via `TimelineTask`) and sync `'X'` with `MethodChannel` name. The capture screen sets `debugProfilePlatformChannels = true` per leg in try/finally so real `MethodChannel.invokeMethod('ping')` calls flow through the lowercase async path; channel reuses the existing `sleuth_demo_channel` registered in `example/ios/Runner/AppDelegate.swift` (handler returns nil). Uppercase sync `'B'` async-shaped events asserted non-emitting — the canonical format-boundary trap for channel observers. Parser accepts 9 channel-shape variants (6 sync-name + 3 async-prefix casings); other 7 are implicitly uncovered at this tier. Both detector axes pinned in the reproducer: (a) >20/sec frequency strict + 2× critical at 41 calls + 40 calls held at warning (critical-escalation inequality), (b) >8000µs cumulative duration per window strict (7998/8000/8001µs via sync `'X'` events). v0.19.4 also fixed cooldown semantics — sustained overload now suppresses fresh emission during the 3-cycle drain after a fire (retains prior `_lastEmittedIssue` with original dedup identity), so multi-second scenario brackets collapse to one trace record per cooldown window. `bracketAtTolerance: 0.50` (at-band [20, 30] calls/sec) absorbs iOS scheduling jitter; `aboveCeilingMultiplier: 1.95` (above-band ceiling 39 calls/sec) clears the 41-call critical-escalation boundary so the above-leg cannot ambiently bracket the critical tier. Captures: [`platform_channel_traffic_below.json`](../test/validation/captures/platform_channel/platform_channel_traffic_below.json), [`platform_channel_traffic_at.json`](../test/validation/captures/platform_channel/platform_channel_traffic_at.json), [`platform_channel_traffic_above.json`](../test/validation/captures/platform_channel/platform_channel_traffic_above.json). `coveredThresholds = {'platform_channel_traffic.warning'}`. Critical tier (41 calls/sec, `> 2× threshold`) AND the 8 ms cumulative-duration axis stay implicitly `reproducerOnly` — neither has a checked-in capture bracket. `coveredStableIds = {'platform_channel_traffic'}`. |
 | Memory Pressure | `reproducerOnly` | [`memory_pressure_reproducer_test.dart`](../test/validation/memory_pressure_reproducer_test.dart) | v0.17.4 tier-quality audit: 4 families pinned at detector entrypoints (`processHeapSample` + `recordGcCycle`). Threshold triads — `gc_pressure` (>5 cycles / 10 s sliding window), `heap_growing` (slope >512 KB/s sustained ≥10 s), `heap_near_capacity` (>80% AND 4-of-5 samples AND correlated `heap_growing`), `native_memory_growing` (RSS-heap gap >1 MB/s sustained ≥10 s). Null-`rssBytes` (web) + zero-heap + zero-capacity null-coalesce edges asserted non-emitting. **Three upstream hops disclosed as skipped**: (1) `VmServiceClient.getMemoryUsage` repack with `null → 0` fallback (zero-coalesce edge exercised; repack itself is not); (2) `EventStreams.kGC → _onGcEvent → recordGcCycle` is the authoritative per-cycle signal and is called directly, bypassing the VM-service stream plumbing — `TimelineParser.gcEvents` over-counts sub-phase events 5–15× and is NOT used by this detector; (3) `VmServiceClient._readRssBytes() → ProcessInfo.currentRss` is the OS-level RSS collection boundary that sources `HeapSample.rssBytes` and therefore gates `native_memory_growing` — reproducer injects `rssBytes` directly so the null-rssBytes edge (web / unusual embeddings) is exercised but the `ProcessInfo` call and its try/catch are not. `coveredStableIds = {'gc_pressure', 'heap_growing', 'heap_near_capacity', 'native_memory_growing'}`. |
 | Repaint | `reproducerOnly` | [`repaint_reproducer_test.dart`](../test/validation/repaint_reproducer_test.dart) | v0.17.6 tier-quality audit: cross-harness reproducer feeds raw `List<TimelineEvent>` PAINT events through `TimelineParser.parse()` AND mounts real widget trees via `pumpWidget` for the per-widget + structural legs in one file. All 3 families pinned with strict triads — `excessive_repaint` (VM aggregate, strict `> 30/sec`: 30 → no fire, 31 → warning, 61 → critical), `excessive_repaint_debug` (aggregate-debug residual, `>= 30/sec`: 29/30/61), and parametric `repaint_debug_<typeName>` (per-widget residual rate, `>= 30/sec`: 29/30/61). **Gate B animation-owned suppression** pinned with broad `expect(issues, isEmpty)` so a regression cannot leak through any of the three emission paths simultaneously. **Reconnect-flush** pinned (cold-init false→true stages `_pendingVmWindowCount=0`, prior issues cleared on first post-reconnect evaluate). **Highlights** pinned for severity correlation and `_maxHighlightsPerType=3` cap (5 instances → 3 highlights). `coveredStableIds = {'excessive_repaint', 'excessive_repaint_debug'}`, `parametricFamilies = {'repaint_debug'}`. |
 

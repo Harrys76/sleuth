@@ -150,11 +150,14 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
   // threshold). See the dedicated "HeavyComputeDetector pinned at
   // runtimeVerified (v0.18.2)" anchor below for the replacement
   // tier-pin assertions.
-  DetectorType.platformChannel: (
-    'test/validation/platform_channel_reproducer_test.dart',
-    {'platform_channel_traffic'},
-    null,
-  ),
+  // PlatformChannelDetector removed from this anchor block in v0.19.4 —
+  // base tier raised from `reproducerOnly` to `runtimeVerified` (warning
+  // tier, 20 calls/sec frequency axis) backed by three on-device
+  // captures. The 41 calls/sec critical tier and the 8 ms cumulative-
+  // duration axis remain implicitly reproducerOnly. See the dedicated
+  // `PlatformChannelDetector pinned at runtimeVerified (v0.19.4)`
+  // anchor block below for the tier-pin assertions + critical-tier and
+  // duration-axis prose-drift guards.
   // MemoryPressureDetector lifted out of the v0.17.4 reproducerOnly batch
   // in v0.19.3 — its `heap_growing` family raised to runtimeVerified via
   // perStableIdTier with three on-device captures. Other 3 families
@@ -193,6 +196,7 @@ const _singleDetectorAnchors = <DetectorType>{
   DetectorType.frameTiming,
   DetectorType.heavyCompute,
   DetectorType.memoryPressure,
+  DetectorType.platformChannel,
 };
 
 void main() {
@@ -313,6 +317,8 @@ void main() {
               requireTraceRecord: true,
               requireUniqueDetectedAtMicros:
                   meta.bracketRequireUniqueDetectedAtMicros,
+              observedAxisArgKey: meta.observedAxisArgKey,
+              observedAxisTolerance: meta.observedAxisTolerance,
             ));
             break;
           case EvidenceTier.externallyCited:
@@ -354,6 +360,8 @@ void main() {
               requireTraceRecord: true,
               requireUniqueDetectedAtMicros:
                   meta.bracketRequireUniqueDetectedAtMicros,
+              observedAxisArgKey: meta.observedAxisArgKey,
+              observedAxisTolerance: meta.observedAxisTolerance,
             ));
             break;
         }
@@ -839,6 +847,163 @@ void main() {
           reason: 'heap_growing.critical not yet a covered threshold; '
               'detector emits only warning severity. Adding this entry '
               'requires a critical-tier capture campaign + bracket triad.');
+    });
+
+    test('PlatformChannelDetector pinned at runtimeVerified (v0.19.4)', () {
+      // Anti-tautology anchor for the v0.19.4 raise. PlatformChannel
+      // moved from `reproducerOnly` to `runtimeVerified` (warning tier,
+      // 20 calls/sec frequency axis) backed by three on-device captures
+      // (iPhone 12 / iOS 17.5 / Flutter 3.41.x) recorded under v0.19.4
+      // producer-side dedup with stable per-window dedupIdentityMicros
+      // derived from `_windowStart.microsecondsSinceEpoch`. Critical
+      // tier (41 calls/sec) AND the 8 ms cumulative-duration axis stay
+      // implicitly reproducerOnly — neither has a checked-in capture
+      // bracket. The above-band ceiling 1.95× → 39 calls/sec stays
+      // strictly under the 41-call critical-escalation boundary so the
+      // above-leg cannot ambiently bracket the critical tier.
+      final BaseDetector? pc = controller.detectorsForAudit
+          .where((d) => d.type == DetectorType.platformChannel)
+          .cast<BaseDetector?>()
+          .firstWhere((_) => true, orElse: () => null);
+      expect(pc, isNotNull,
+          reason: 'PlatformChannelDetector should be registered by default.');
+      expect(pc, isA<DetectorMetadataProvider>());
+      final meta = (pc as DetectorMetadataProvider).validationMetadata;
+      expect(meta.tier, EvidenceTier.runtimeVerified,
+          reason: 'v0.19.4 raises platform_channel_traffic warning to '
+              'runtimeVerified with three on-device captures backing the '
+              'frequency-axis bracket. debugProfilePlatformChannels=true '
+              'per-leg routes real MethodChannel.invokeMethod calls '
+              'through the parser-accepted lowercase async path.');
+      expect(meta.reproducerPath,
+          equals('test/validation/platform_channel_reproducer_test.dart'));
+      expect(meta.citationUrl, isNull,
+          reason: 'runtimeVerified does not require an external citation; '
+              'evidence is the captured detector behaviour itself.');
+      expect(
+          meta.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/platform_channel/'
+                'platform_channel_traffic_below.json',
+            'test/validation/captures/platform_channel/'
+                'platform_channel_traffic_at.json',
+            'test/validation/captures/platform_channel/'
+                'platform_channel_traffic_above.json',
+          ]),
+          reason: 'Three on-device captures back the runtimeVerified raise.');
+      expect(meta.bracketThreshold, equals(20));
+      expect(meta.bracketUnit, equals('events'));
+      expect(meta.bracketStableId, equals('platform_channel_traffic'));
+      expect(meta.bracketSeverityLabel, equals('warning'));
+      expect(meta.bracketAtTolerance, equals(0.50),
+          reason: 'iOS scheduling jitter on platform-channel send path '
+              'widens default ±10% band unreachable; ±50% gives at-band '
+              '[20, 30] calls/sec.');
+      expect(meta.aboveCeilingMultiplier, equals(1.95),
+          reason: 'Above-ceiling 39 calls/sec (1.95 × 20) stays strictly '
+              'under the 41-call (>20×2) critical-escalation boundary so '
+              'above-leg cannot ambiently bracket the critical tier.');
+      expect(meta.coveredThresholds,
+          equals(const {'platform_channel_traffic.warning'}),
+          reason: 'Severity-scoped to warning; critical (41 calls/sec) '
+              'stays implicitly reproducerOnly.');
+      expect(meta.coveredStableIds, equals(const {'platform_channel_traffic'}),
+          reason: 'Single-family detector — only platform_channel_traffic.');
+      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue,
+          reason: 'Captures recorded with dedupIdentityMicros derived from '
+              '_windowStart.microsecondsSinceEpoch; opt into the strong '
+              'invariant so audit gate rejects single-issue replay '
+              'forgery and multi-fire-window forgery.');
+
+      // Prose-drift guards. Two implicit-tier axes must NOT be claimed
+      // as bracketed by captures without backing metadata:
+      //   (1) critical tier (41 calls/sec, 2× threshold).
+      //   (2) duration axis (8 ms cumulative per 1 s window).
+      // Either claim without metadata is the same anti-tautology trap
+      // the heap_growing.critical guard catches.
+      //
+      // Positive structural assertion (not substring match):
+      //   - If rationale claims captures bracket the critical tier OR
+      //     the duration axis, `coveredThresholds` MUST contain the
+      //     corresponding entry, OR `bracketUnit` must match the axis.
+      //   - Substring-only guards miss plausible drift like
+      //     "captures bracket the critical band" (no
+      //     `platform_channel_traffic` qualifier). Positive check
+      //     ensures any "captured-bracket" claim has matching metadata.
+      final stripped =
+          meta.rationale.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
+      final collapsed = stripped.replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+
+      // Phrase fragments that indicate a CAPTURED-bracket claim
+      // (vs. an explicit "reproducer-pinned" or "implicitly
+      // reproducer-only" admission). When present together with the
+      // axis name, escalate to positive metadata check.
+      const capturedBracketPhrases = [
+        'captures bracket the',
+        'captures back the',
+        'captured bracket',
+        'on-device capture brackets the',
+        'three captures back',
+        'profile bracket',
+        'is runtime-verified',
+        'is runtime verified',
+      ];
+
+      bool mentions(List<String> phrases) => phrases.any(collapsed.contains);
+
+      // Critical-tier guard (positive).
+      final claimsCriticalCaptured = mentions(capturedBracketPhrases) &&
+          (collapsed.contains('critical tier') ||
+              collapsed.contains('critical band') ||
+              collapsed.contains('critical threshold') ||
+              collapsed.contains('41 calls/sec') ||
+              collapsed.contains('2× threshold') ||
+              collapsed.contains('platform_channel_traffic.critical'));
+      final hasCriticalThresholdEntry =
+          (meta.coveredThresholds ?? const <String>{})
+              .contains('platform_channel_traffic.critical');
+      if (claimsCriticalCaptured) {
+        expect(hasCriticalThresholdEntry, isTrue,
+            reason: 'Rationale claims captures bracket the critical tier '
+                'but `coveredThresholds` does not include '
+                '`platform_channel_traffic.critical`. Add the threshold '
+                'entry + capture triad bracketing 41 calls/sec, or rewrite '
+                'the prose to explicitly say the critical tier remains '
+                'reproducer-pinned.');
+      }
+      // Independent of prose: critical-threshold metadata entry must
+      // not appear unless a critical-tier capture campaign exists.
+      // Currently no such captures → entry must remain absent.
+      expect(hasCriticalThresholdEntry, isFalse,
+          reason: 'platform_channel_traffic.critical not yet a covered '
+              'threshold. Adding this entry requires a critical-tier '
+              'capture campaign bracketing 41 calls/sec.');
+
+      // Duration-axis guard (positive).
+      final claimsDurationAxisCaptured = mentions(capturedBracketPhrases) &&
+          (collapsed.contains('duration axis') ||
+              collapsed.contains('cumulative duration') ||
+              collapsed.contains('cumulative-duration') ||
+              collapsed.contains('8 ms cumulative') ||
+              collapsed.contains('8000 us') ||
+              collapsed.contains('8000us') ||
+              collapsed.contains('8000µs'));
+      final bracketUnitIsDuration = const {
+        'ms',
+        'us',
+        'µs',
+        's',
+        'ns',
+      }.contains(meta.bracketUnit);
+      if (claimsDurationAxisCaptured) {
+        expect(bracketUnitIsDuration, isTrue,
+            reason: 'Rationale claims captures bracket the duration axis '
+                'but `bracketUnit` (${meta.bracketUnit}) is not a duration '
+                'unit. Either record a duration-axis capture triad '
+                '(unit: ms / us) and update bracket fields, or rewrite '
+                'the prose to explicitly say the duration axis remains '
+                'reproducer-pinned.');
+      }
     });
 
     test('FrameTimingDetector pinned at reproducerOnly (v0.16.6)', () {

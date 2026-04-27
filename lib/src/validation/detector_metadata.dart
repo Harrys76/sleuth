@@ -33,6 +33,8 @@ class DetectorMetadata {
     this.aboveCeilingMultiplier,
     this.bracketAtTolerance,
     this.bracketRequireUniqueDetectedAtMicros = false,
+    this.observedAxisArgKey,
+    this.observedAxisTolerance = 0.25,
   });
 
   /// Strongest evidence tier that applies to this detector's numbers.
@@ -273,6 +275,31 @@ class DetectorMetadata {
   /// v0.18.1+ producer dedup should set this to `true` to lock in
   /// the strong evidence guarantee.
   final bool bracketRequireUniqueDetectedAtMicros;
+
+  /// Trace-event arg key holding the detector-observed axis value,
+  /// stamped by the detector via [PerformanceIssue.extraTraceArgs] (e.g.
+  /// `'observedCount'` for PlatformChannelDetector's frequency axis).
+  /// When non-null, the audit gate cross-checks the capture's
+  /// `expectedMagnitude.observed` (a SEND-side estimate computed by
+  /// the capture-helper screen) against this trace-event arg using
+  /// [observedAxisTolerance], rejecting captures whose send-side and
+  /// detector-observed magnitudes diverge enough to cross a bracket
+  /// band boundary. Null when the detector does not export a
+  /// cross-checkable observed value (most non-frequency detectors).
+  ///
+  /// Backward compatibility: pre-v0.19.5 captures recorded before
+  /// detectors started exporting observed-axis values lack the arg
+  /// and the cross-check is skipped per-record. The metadata setting
+  /// stays harmless for legacy captures.
+  final String? observedAxisArgKey;
+
+  /// Tolerance for the [observedAxisArgKey] cross-check, expressed as
+  /// a fraction of `expectedMagnitude.observed` (e.g. `0.25` allows
+  /// observed within ±25% of expected). Default `0.25` absorbs iOS
+  /// `MethodChannel` coalescing variance plus parser dedup slack.
+  /// Tighten when device variance is known to be smaller; loosen for
+  /// hot/throttled devices.
+  final double observedAxisTolerance;
 
   /// Returns the effective evidence tier for a specific stable ID,
   /// applying any [perStableIdTier] override on top of the detector's

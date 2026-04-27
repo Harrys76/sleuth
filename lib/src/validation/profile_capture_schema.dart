@@ -755,6 +755,8 @@ class ProfileCaptureSchema {
     String? stableId,
     String? severityLabel,
     bool requireUniqueDetectedAtMicros = false,
+    String? observedAxisArgKey,
+    double observedAxisTolerance = 0.25,
   }) {
     if (requireDetectorTraceRecord && (stableId == null || stableId.isEmpty)) {
       throw const FormatException(
@@ -956,11 +958,17 @@ class ProfileCaptureSchema {
       _requireIssueTraceRecord(at, atFile, stableId!,
           severityLabel: severityLabel!,
           context: 'at capture',
-          requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros);
+          requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
+          observedAxisArgKey: observedAxisArgKey,
+          observedAxisExpected: atObs,
+          observedAxisTolerance: observedAxisTolerance);
       _requireIssueTraceRecord(above, aboveFile, stableId,
           severityLabel: severityLabel,
           context: 'above capture',
-          requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros);
+          requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
+          observedAxisArgKey: observedAxisArgKey,
+          observedAxisExpected: aboveObs,
+          observedAxisTolerance: observedAxisTolerance);
       _requireNoIssueTraceRecord(below, belowFile, stableId,
           severityLabel: severityLabel, context: 'below capture');
     }
@@ -983,6 +991,9 @@ class ProfileCaptureSchema {
     required String severityLabel,
     required String context,
     bool requireUniqueDetectedAtMicros = false,
+    String? observedAxisArgKey,
+    num? observedAxisExpected,
+    double observedAxisTolerance = 0.25,
   }) {
     final traceEvents = metadata['_rawTraceEvents'] as List?;
     if (traceEvents == null) {
@@ -994,12 +1005,18 @@ class ProfileCaptureSchema {
       final events = root['traceEvents'] as List;
       _checkIssueTraceRecordPresent(
           events, stableId, severityLabel, file, context,
-          requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros);
+          requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
+          observedAxisArgKey: observedAxisArgKey,
+          observedAxisExpected: observedAxisExpected,
+          observedAxisTolerance: observedAxisTolerance);
       return;
     }
     _checkIssueTraceRecordPresent(
         traceEvents, stableId, severityLabel, file, context,
-        requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros);
+        requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
+        observedAxisArgKey: observedAxisArgKey,
+        observedAxisExpected: observedAxisExpected,
+        observedAxisTolerance: observedAxisTolerance);
   }
 
   static void _checkIssueTraceRecordPresent(
@@ -1009,11 +1026,15 @@ class ProfileCaptureSchema {
     File file,
     String context, {
     bool requireUniqueDetectedAtMicros = false,
+    String? observedAxisArgKey,
+    num? observedAxisExpected,
+    double observedAxisTolerance = 0.25,
   }) {
     final (beginTs, endTs) = _scenarioSpan(events, file);
     final expected = 'sleuth.issue.$stableId.$severityLabel';
     var matchCount = 0;
     final uniqueDetectedAtMicros = <String>{};
+    final observedAxisValues = <num>[];
     for (final event in events) {
       if (event is! Map) continue;
       final ph = event['ph'];
@@ -1036,6 +1057,15 @@ class ProfileCaptureSchema {
           uniqueDetectedAtMicros.add(m);
         } else if (m is num) {
           uniqueDetectedAtMicros.add(m.toString());
+        }
+        if (observedAxisArgKey != null) {
+          final axis = args[observedAxisArgKey];
+          if (axis is String && axis.isNotEmpty) {
+            final parsed = num.tryParse(axis);
+            if (parsed != null) observedAxisValues.add(parsed);
+          } else if (axis is num) {
+            observedAxisValues.add(axis);
+          }
         }
       }
     }
@@ -1077,6 +1107,50 @@ class ProfileCaptureSchema {
             'replayed from one, possibly with the arg stripped) or a '
             'pre-v0.18.1 capture binary without producer dedup. '
             'Re-record with v0.18.1+ to refresh. File: ${file.path}');
+      }
+    }
+    // Detector-observed-axis cross-check (opt-in via observedAxisArgKey).
+    // Captures' `expectedMagnitude.observed` is a SEND-side estimate
+    // computed by the capture helper screen (e.g.
+    // `totalCallsSent / elapsedSec`). Detectors stamp their authoritative
+    // observed axis value (e.g. `_recentCallCount` for PlatformChannel)
+    // into the trace event args so the audit gate can confirm the two
+    // numbers agree within tolerance. Without this, iOS coalescing or
+    // dropped `b` events could produce a capture where the operator
+    // reports an `at`-band send rate but the detector actually saw an
+    // `above`-band count — bracket bands would silently misalign.
+    //
+    // Backward compatible: pre-v0.19.5 captures (recorded before
+    // detectors started exporting `observedCount`) have no matching arg
+    // and the cross-check is skipped. Captures recorded under v0.19.5+
+    // carry the arg and exercise the check.
+    if (observedAxisArgKey != null &&
+        observedAxisExpected != null &&
+        observedAxisValues.isNotEmpty) {
+      _requireFinitePositive(observedAxisExpected, 'observedAxisExpected');
+      _requireFiniteNonNegative(observedAxisTolerance, 'observedAxisTolerance');
+      // Use the maximum observed value across in-span trace records
+      // (under cooldown semantics, only one record fires per scenario,
+      // but the helper stays correct under multi-fire scenarios that
+      // pass the uniqueness invariant — picking max bounds the worst
+      // discrepancy a forger could hide).
+      final observed = observedAxisValues
+          .reduce((a, b) => a.toDouble() > b.toDouble() ? a : b);
+      final lower = observedAxisExpected * (1 - observedAxisTolerance);
+      final upper = observedAxisExpected * (1 + observedAxisTolerance);
+      if (observed < lower || observed > upper) {
+        throw FormatException(
+            'Detector-observed axis cross-check failed in $context: '
+            'capture\'s `expectedMagnitude.observed` ($observedAxisExpected) '
+            'and trace-record `args["$observedAxisArgKey"]` ($observed) '
+            'diverge beyond ±${(observedAxisTolerance * 100).toStringAsFixed(0)}% '
+            '(allowed band [$lower, $upper]). The capture screen reports a '
+            'send-side estimate; the trace record carries the detector-'
+            'observed value. A divergence this wide indicates iOS '
+            'coalescing, dropped events, or a mislabeled bracket leg — '
+            'the operator may have reported an `at`-band send rate while '
+            'the detector saw an above-band count (or vice versa). '
+            'Re-record the leg. File: ${file.path}');
       }
     }
   }

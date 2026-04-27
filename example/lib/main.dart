@@ -27,6 +27,7 @@ import 'demos/network_monitor_capture_screen.dart';
 import 'demos/network_stress_demo.dart';
 import 'demos/non_lazy_list_demo.dart';
 import 'demos/opacity_zero_demo.dart';
+import 'demos/platform_channel_capture_screen.dart';
 import 'demos/platform_channel_demo.dart';
 import 'demos/rebuild_hotspot_demo.dart';
 import 'demos/repaint_boundary_demo.dart';
@@ -344,6 +345,14 @@ class DemoHome extends StatelessWidget {
             subtitle: 'PlatformChannel detector (>20/sec)',
             color: Colors.blueGrey,
             builder: (_) => const PlatformChannelDemo(),
+          ),
+          _DemoRoute(
+            icon: Icons.videocam,
+            title: 'PlatformChannel Capture Helper (v0.19.4)',
+            subtitle:
+                'platform_channel_traffic runtimeVerified bracket capture',
+            color: Colors.blueGrey,
+            builder: (_) => const PlatformChannelCaptureScreen(),
           ),
           _DemoRoute(
             icon: Icons.font_download,

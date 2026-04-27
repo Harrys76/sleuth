@@ -59,6 +59,240 @@ void main() {
       expect(detector.issues.first.severity, IssueSeverity.critical);
     });
 
+    test(
+        'consecutive overloads during cooldown retain prior issue identity '
+        '(do not emit fresh issue per window)', () {
+      // First window: 25 events → warning, sets cooldown = 3,
+      // stamps dedupIdentityMicros = _windowStart at fire time.
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 25),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, hasLength(1));
+      final firstFireIdentity = detector.issues.first.dedupIdentityMicros;
+      expect(firstFireIdentity, isNotNull);
+
+      // Subsequent windows ALSO exceed threshold. Cooldown semantics
+      // suppress fresh emission and retain the prior issue so the
+      // controller's composite-key dedup collapses sustained-overload
+      // re-records to a single trace event per cooldown window.
+      for (var i = 0; i < 3; i++) {
+        detector.processTimelineData(
+          platformChannelData(channelEventCount: 25),
+        );
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        detector.processTimelineData(emptyTimelineData());
+        expect(detector.issues, hasLength(1),
+            reason: 'cooldown cycle $i: issue retained');
+        expect(detector.issues.first.dedupIdentityMicros, firstFireIdentity,
+            reason: 'cooldown cycle $i: dedup identity preserved across '
+                'suppressed cycles so composite-key dedup collapses '
+                'consecutive overloads to one trace record');
+      }
+
+      // After cooldown drains, next overload re-fires with FRESH
+      // dedup identity (new _windowStart microsecond stamp).
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 25),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, hasLength(1));
+      expect(
+          detector.issues.first.dedupIdentityMicros, isNot(firstFireIdentity),
+          reason: 'post-cooldown re-fire stamps a new dedup identity from '
+              'the new _windowStart so the controller emits a second '
+              'trace record (not a duplicate of the prior fire).');
+    });
+
+    test(
+        'emitted issue carries extraTraceArgs with observedCount and '
+        'cumulativeDurationUs', () {
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 25),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, hasLength(1));
+      final issue = detector.issues.first;
+      expect(issue.extraTraceArgs, isNotNull);
+      expect(issue.extraTraceArgs!['observedCount'], '25',
+          reason: 'observedCount mirrors _recentCallCount at fire-time so '
+              'the audit gate can cross-check the capture\'s send-side '
+              'magnitude against the parser-observed count.');
+      expect(issue.extraTraceArgs!['cumulativeDurationUs'], isNotNull,
+          reason: 'cumulativeDurationUs exported alongside observedCount '
+              'so a future duration-axis raise can cross-check the '
+              'duration band without a second metadata extension.');
+    });
+
+    test(
+        'severity escalation breaks through cooldown — warning then critical '
+        'emits fresh critical issue with new dedup identity', () {
+      // Window 1: 25 events → warning fires, cooldown = 3, identity stamped.
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 25),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+      final warningIdentity = detector.issues.first.dedupIdentityMicros;
+      expect(warningIdentity, isNotNull);
+
+      // Window 2 (cooldown still active at 3): 45 events → would-be
+      // CRITICAL (> 2× threshold = > 40). Escalation exception bypasses
+      // suppression, emits fresh critical with NEW dedup identity so the
+      // controller's composite-key dedup records a second trace event
+      // (live monitoring sees the escalation in real time instead of
+      // holding stale warning UI for 3 cycles).
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 45),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical,
+          reason: 'Escalation through cooldown must surface the critical '
+              'severity, not retain the prior warning.');
+      expect(detector.issues.first.dedupIdentityMicros, isNot(warningIdentity),
+          reason: 'Escalated critical fire must stamp a new dedup identity '
+              'so the controller does not collapse it to the prior warning '
+              'trace record.');
+
+      // Window 3: 50 events → still critical. Cooldown active again (just
+      // reset to 3 by escalation), prior was critical → severity matches
+      // → suppressed, retains prior critical issue identity.
+      final escalatedIdentity = detector.issues.first.dedupIdentityMicros;
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 50),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+      expect(detector.issues.first.dedupIdentityMicros, escalatedIdentity,
+          reason: 'Sustained critical (no escalation step) is suppressed '
+              'by cooldown — retains escalated identity, no fresh fire.');
+    });
+
+    test(
+        'severity de-escalation breaks through cooldown — critical then '
+        'warning emits fresh warning with new dedup identity', () {
+      // Window 1: 50 events → critical fires, cooldown = 3.
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 50),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+      final criticalIdentity = detector.issues.first.dedupIdentityMicros;
+      expect(criticalIdentity, isNotNull);
+
+      // Window 2 (cooldown still active): 25 events → would-be WARNING.
+      // Severity mismatch with retained critical → fresh warning emits
+      // with new dedup identity so live monitoring surfaces the
+      // de-escalation immediately instead of holding stale critical UI
+      // for up to 3 cycles.
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 25),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.warning,
+          reason: 'De-escalation through cooldown must surface the '
+              'warning severity, not retain stale critical.');
+      expect(detector.issues.first.dedupIdentityMicros, isNot(criticalIdentity),
+          reason: 'De-escalated warning fire must stamp a new dedup '
+              'identity so the controller records a second trace event.');
+    });
+
+    test(
+        'severity oscillation under cooldown emits fresh issues for each '
+        'mismatch boundary (W → C → W → C)', () {
+      // Window 1: warning (25 events).
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 25),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+      final id1 = detector.issues.first.dedupIdentityMicros;
+
+      // Window 2: critical (50 events). Mismatch → fresh.
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 50),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+      final id2 = detector.issues.first.dedupIdentityMicros;
+      expect(id2, isNot(id1));
+
+      // Window 3: warning (25 events). Mismatch → fresh.
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 25),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues.first.severity, IssueSeverity.warning);
+      final id3 = detector.issues.first.dedupIdentityMicros;
+      expect(id3, isNot(id2));
+
+      // Window 4: critical (50 events). Mismatch → fresh.
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 50),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+      final id4 = detector.issues.first.dedupIdentityMicros;
+      expect(id4, isNot(id3));
+
+      expect({id1, id2, id3, id4}.length, 4,
+          reason: 'Oscillating severity must produce 4 distinct dedup '
+              'identities so the controller emits 4 separate trace records.');
+    });
+
+    test('reset() clears all per-scenario state for back-to-back capture legs',
+        () {
+      // Leg 1: fire warning, set cooldown=3.
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 25),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, hasLength(1));
+      final leg1Identity = detector.issues.first.dedupIdentityMicros;
+
+      // Mid-leg-1 cooldown is active. Operator taps leg 2 → reset
+      // clears window/cooldown/last-issue state. The next overload
+      // window must fire fresh (not be suppressed by leftover cooldown
+      // and dedup-blocked by the retained identity).
+      detector.reset();
+      expect(detector.issues, isEmpty,
+          reason: 'reset() clears retained issue list.');
+
+      // Leg 2: fire warning at the same severity. Without reset(), the
+      // retained leg-1 _lastEmittedIssue would have severity=warning,
+      // cooldown>0 → severity-mismatch rule says equal → SUPPRESS,
+      // retain leg-1 identity. With reset(), cooldown=0 + last-issue
+      // null → falls past cooldown gate → fresh emit with NEW identity.
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 25),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.dedupIdentityMicros, isNot(leg1Identity),
+          reason: 'reset() makes the next leg\'s fire stamp a fresh '
+              'dedup identity, so the controller\'s composite-key dedup '
+              'does not collapse it to the prior leg\'s trace record.');
+    });
+
     test('window reset clears issues after cooldown expires', () {
       // First window: 25 events → warning, sets cooldown = 3
       detector.processTimelineData(

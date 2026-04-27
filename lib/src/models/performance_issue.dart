@@ -80,6 +80,7 @@ class PerformanceIssue {
     this.debugModeDisclaimer = false,
     this.detectedAt,
     this.dedupIdentityMicros,
+    this.extraTraceArgs,
     this.ancestorChain,
     this.fixEffort,
     this.topAllocators,
@@ -150,6 +151,17 @@ class PerformanceIssue {
   /// ship 1970-era timestamps for any detector that overloaded
   /// detectedAt with monotonic VM time.
   final int? dedupIdentityMicros;
+
+  /// Detector-supplied extra args merged into the capture-mode trace
+  /// event. Used by detectors that want to expose their authoritative
+  /// observed value (e.g. `_recentCallCount` for PlatformChannel) so
+  /// the audit-gate can cross-check the operator's reported magnitude
+  /// against what the detector actually saw at fire time. Values are
+  /// strings because Flutter's `Timeline.instantSync` arg encoding
+  /// stringifies every value once on its way to the engine. When null,
+  /// no extra args are merged (default for detectors without an
+  /// observed-value boundary worth pinning).
+  final Map<String, String>? extraTraceArgs;
 
   /// Widget ancestor chain providing source-location context.
   final String? ancestorChain;
@@ -354,6 +366,7 @@ class PerformanceIssue {
     bool? debugModeDisclaimer,
     DateTime? detectedAt,
     int? dedupIdentityMicros,
+    Map<String, String>? extraTraceArgs,
     String? ancestorChain,
     FixEffort? fixEffort,
     List<AllocationEntry>? topAllocators,
@@ -386,6 +399,7 @@ class PerformanceIssue {
       // clone silently drops the dedup identity, breaking capture-mode
       // composite-key dedup for any subsequent emission.
       dedupIdentityMicros: dedupIdentityMicros ?? this.dedupIdentityMicros,
+      extraTraceArgs: extraTraceArgs ?? this.extraTraceArgs,
       ancestorChain: ancestorChain ?? this.ancestorChain,
       fixEffort: fixEffort ?? this.fixEffort,
       topAllocators: topAllocators ?? this.topAllocators,
