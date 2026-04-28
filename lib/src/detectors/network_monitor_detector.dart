@@ -266,6 +266,7 @@ class NetworkMonitorDetector extends BaseDetector
     final (hint, effort) = FixHintBuilder.largeResponse(
       worstUrl: largeRecords.isNotEmpty ? largeRecords.first.url : null,
     );
+    final detectedAt = _clock();
     _issues.add(PerformanceIssue(
       stableId: 'large_response',
       severity: IssueSeverity.warning,
@@ -281,7 +282,9 @@ class NetworkMonitorDetector extends BaseDetector
           'in buffer.',
       fixHint: hint,
       fixEffort: effort,
-      detectedAt: _clock(),
+      detectedAt: detectedAt,
+      dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
+      extraTraceArgs: {'observedResponseBytes': worstBytes.toString()},
       confidenceReason: 'Measured directly from HTTP interception',
     ));
   }
@@ -315,6 +318,7 @@ class NetworkMonitorDetector extends BaseDetector
     if (peakCount <= frequencyLimit) return;
 
     final (hint, effort) = FixHintBuilder.requestFrequency();
+    final detectedAt = _clock();
     _issues.add(PerformanceIssue(
       stableId: 'request_frequency',
       severity: IssueSeverity.warning,
@@ -326,7 +330,9 @@ class NetworkMonitorDetector extends BaseDetector
           'Threshold: $frequencyLimit/5s.',
       fixHint: hint,
       fixEffort: effort,
-      detectedAt: _clock(),
+      detectedAt: detectedAt,
+      dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
+      extraTraceArgs: {'observedRequestCount': peakCount.toString()},
       confidenceReason: 'Measured directly from HTTP interception',
     ));
   }
@@ -536,23 +542,30 @@ class NetworkMonitorDetector extends BaseDetector
             'tests at 999/1000/2999/3000/3001 ms plus a loopback '
             '`HttpServer` exercising the full `SleuthHttpOverrides` → '
             '`_MonitoringHttpClient` → `RequestRecord` → `processRecord` '
-            'pipeline. v0.18.0 raises slow_request WARNING tier '
-            '(threshold 1000 ms) to runtimeVerified with three '
-            'profile-mode captures (iPhone 12 / iOS 17.5 / Flutter '
-            '3.41.x) recorded via the in-app capture procedure: app '
-            'launched in profile mode with --dart-define='
-            'SLEUTH_CAPTURE_MODE=true, then re-opened from home screen '
-            'so SleuthController.VmServiceClient claims the VM service '
-            'subscription (DevTools detached). The capture helper '
-            'screen drives a loopback HTTP request at 800/1020/1500 ms '
-            'delays, brackets the workload in '
-            '`Sleuth.markScenarioBegin/End` markers with a 200 ms '
-            'post-completion dwell so the detector\'s issue trace '
-            'event lands inside the scenario span, then exports the '
-            'wrapped JSON via the iOS clipboard. Critical tier '
-            '(3000 ms) stays reproducerOnly. Other families '
-            '(large_response, request_frequency, http_error_spike, '
-            'high_frequency_same_path) implicitly unvalidated.',
+            'pipeline. Three families ship at runtimeVerified backed by '
+            'on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x): '
+            'slow_request (1000 ms warning), large_response (1 MB warning), '
+            'and request_frequency (>30 req per 5 s sliding window '
+            'warning). Captures driven by the in-app capture helper '
+            'screen via a loopback HTTP server; mode toggle selects '
+            'family. slow_request scenarios delay the response to '
+            '800/1020/1500 ms; large_response returns sized payloads '
+            '(800 KB / 1.05 MB / 1.5 MB); request_frequency spreads N '
+            'parallel requests across a 5.5 s scenario span with '
+            '`Sleuth.suspendNonEssentialTimelineStreams` to prevent '
+            'ring-buffer overflow on the longer span. Each leg brackets '
+            'the workload in `Sleuth.markScenarioBegin/End` markers with '
+            'a 200 ms post-completion dwell so detector trace events '
+            'land inside the scenario span, then exports the wrapped '
+            'JSON via the iOS clipboard. request_frequency uses '
+            '`atTolerance: 0.50` (at-band [30, 45]) to absorb iOS '
+            'scheduling jitter on Dart `HttpClient` request dispatch; '
+            'multiple in-span emissions per scenario carry distinct '
+            '`detectedAtMicros` and a monotone-growing `peakCount` that '
+            'the audit-gate MAX reduction picks. Critical tier '
+            '(slow_request 3000 ms) and the two unraised families '
+            '(http_error_spike, high_frequency_same_path) stay '
+            'reproducerOnly.',
         reproducerPath: 'test/validation/network_monitor_reproducer_test.dart',
         profileCapturePaths: [
           'test/validation/captures/network_monitor/slow_request_below.json',
@@ -575,17 +588,11 @@ class NetworkMonitorDetector extends BaseDetector
           'http_error_spike',
           'high_frequency_same_path',
         },
-        // v0.18.3 per-family-tier extension: base tier
-        // `reproducerOnly` captures the four reproducer-validated
-        // families (large_response, request_frequency, http_error_spike,
-        // high_frequency_same_path) honestly. perStableIdTier raises
-        // `slow_request` to runtimeVerified — backed by the three
-        // on-device captures listed in profileCapturePaths. Pre-v0.18.3
-        // the model forced the whole detector tag to `runtimeVerified`,
-        // mechanically over-claiming the four unraised families. Raising
-        // them too would require 12 additional on-device captures
-        // (4 scenarios × below/at/above triad).
-        perStableIdTier: {'slow_request': EvidenceTier.runtimeVerified},
+        perStableIdTier: {
+          'slow_request': EvidenceTier.runtimeVerified,
+          'large_response': EvidenceTier.runtimeVerified,
+          'request_frequency': EvidenceTier.runtimeVerified,
+        },
         coveredThresholds: {'slow_request.warning'},
         // Captures recorded under v0.18.1+ producer-side dedup, so
         // every in-span trace record carries a distinct
@@ -593,5 +600,43 @@ class NetworkMonitorDetector extends BaseDetector
         // protection on the audit gate (see ProfileCaptureSchema
         // `requireUniqueDetectedAtMicros`).
         bracketRequireUniqueDetectedAtMicros: true,
+        additionalBrackets: [
+          BracketSpec(
+            stableId: 'large_response',
+            severityLabel: 'warning',
+            threshold: 1048576,
+            unit: 'bytes',
+            coveredThresholds: {'large_response.warning'},
+            profileCapturePaths: [
+              'test/validation/captures/network_monitor/large_response_below.json',
+              'test/validation/captures/network_monitor/large_response_at.json',
+              'test/validation/captures/network_monitor/large_response_above.json',
+            ],
+            atTolerance: 0.10,
+            aboveCeilingMultiplier: 2.0,
+            observedAxisArgKey: 'observedResponseBytes',
+            requireUniqueDetectedAtMicros: true,
+            requireDetectorTraceRecord: true,
+          ),
+          BracketSpec(
+            stableId: 'request_frequency',
+            severityLabel: 'warning',
+            threshold: 30,
+            unit: 'events',
+            coveredThresholds: {'request_frequency.warning'},
+            profileCapturePaths: [
+              'test/validation/captures/network_monitor/request_frequency_below.json',
+              'test/validation/captures/network_monitor/request_frequency_at.json',
+              'test/validation/captures/network_monitor/request_frequency_above.json',
+            ],
+            // iOS scheduling jitter on Dart HttpClient request dispatch
+            // makes ±10% unreachable; ±50% gives at-band [30, 45].
+            atTolerance: 0.50,
+            aboveCeilingMultiplier: 2.0,
+            observedAxisArgKey: 'observedRequestCount',
+            requireUniqueDetectedAtMicros: true,
+            requireDetectorTraceRecord: true,
+          ),
+        ],
       );
 }

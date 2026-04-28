@@ -705,6 +705,55 @@ void main() {
     });
 
     test(
+        'large_response stamps observedResponseBytes + dedupIdentityMicros '
+        'on extraTraceArgs', () {
+      const limit = 1024;
+      const worst = 4096;
+      final d = NetworkMonitorDetector(
+          largeResponseBytes: limit, clock: () => fakeNow);
+      d.processRecord(record(responseBytes: limit + 100));
+      d.processRecord(record(responseBytes: worst));
+      d.processRecord(record(responseBytes: limit + 200));
+      final issue = d.issues.firstWhere((i) => i.stableId == 'large_response');
+      expect(issue.extraTraceArgs, isNotNull,
+          reason: 'large_response must stamp extraTraceArgs.');
+      expect(issue.extraTraceArgs!['observedResponseBytes'],
+          equals(worst.toString()),
+          reason: 'observedResponseBytes must be the worst (max) byte count.');
+      expect(issue.dedupIdentityMicros, isNotNull,
+          reason: 'dedupIdentityMicros must be set for the audit-gate '
+              'strong uniqueness invariant.');
+      expect(issue.dedupIdentityMicros,
+          equals(issue.detectedAt!.microsecondsSinceEpoch),
+          reason: 'dedupIdentityMicros derives from detectedAt; reuses the '
+              'same instant so audit-gate cross-check sees a stable identity.');
+      d.dispose();
+    });
+
+    test(
+        'request_frequency stamps observedRequestCount + dedupIdentityMicros '
+        'on extraTraceArgs', () {
+      const limit = 5;
+      final d =
+          NetworkMonitorDetector(frequencyLimit: limit, clock: () => fakeNow);
+      for (var i = 0; i < limit + 3; i++) {
+        d.processRecord(record(url: 'https://example.test/api/$i'));
+      }
+      final issue =
+          d.issues.firstWhere((i) => i.stableId == 'request_frequency');
+      expect(issue.extraTraceArgs, isNotNull,
+          reason: 'request_frequency must stamp extraTraceArgs.');
+      expect(issue.extraTraceArgs!['observedRequestCount'],
+          equals((limit + 3).toString()),
+          reason: 'observedRequestCount must equal the peak 5-second '
+              'window count (8 records inside one window here).');
+      expect(issue.dedupIdentityMicros, isNotNull);
+      expect(issue.dedupIdentityMicros,
+          equals(issue.detectedAt!.microsecondsSinceEpoch));
+      d.dispose();
+    });
+
+    test(
         'http_error_spike boundary triad pins `>= 3` errors per 5s '
         'window', () {
       // 2 errors: silent (errorRecords.length < 3 returns)

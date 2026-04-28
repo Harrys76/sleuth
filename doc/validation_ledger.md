@@ -1,22 +1,27 @@
 # Detector Validation Ledger
 
-_Last updated: v0.19.8 (2026-04-28)_
+_Last updated: v0.19.9 (2026-04-28)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
 heuristics, and where to find it.
 
-**v0.19.8 schema note.** `DetectorMetadata` gains an optional
+**v0.19.9 multi-axis raise.** `NetworkMonitorDetector` extends
+`perStableIdTier` with two more runtimeVerified entries —
+`large_response.warning` (1 MiB, bytes axis) and `request_frequency.warning`
+(30 events / 5 s window, events axis) — backed by `additionalBrackets`
+carrying one `BracketSpec` per axis. Six new on-device captures land
+alongside the existing slow_request triad. Effective runtimeVerified-family
+count grows to 7 across 4 multi-family detectors.
+
+**v0.19.8 schema note.** `DetectorMetadata` gained an optional
 `additionalBrackets: List<BracketSpec>?` field for detectors whose
 runtimeVerified evidence covers more than one independent observable on the
-same family (e.g. PlatformChannel frequency + cumulative-duration axes on
-`platform_channel_traffic`). Each `BracketSpec` is a self-contained per-axis
-declaration carrying its own threshold, capture triad, and observed-axis
-cross-check. The audit gate runs `validateBracket` once per spec (top-level
-canonical bracket + each `additionalBrackets` entry). Existing single-axis
-runtimeVerified raises keep `additionalBrackets == null` and the field is
-implicit. v0.19.8 ships schema only; v0.19.9+ uses it for the first
-multi-axis raise.
+same family. Each `BracketSpec` is a self-contained per-axis declaration
+carrying its own threshold, capture triad, and observed-axis cross-check.
+The audit gate runs `validateBracket` once per spec (top-level canonical
+bracket + each `additionalBrackets` entry). Existing single-axis
+runtimeVerified raises keep `additionalBrackets == null`.
 
 The ledger is enforced by
 [`test/validation/detector_metadata_audit_test.dart`](../test/validation/detector_metadata_audit_test.dart),
@@ -41,23 +46,26 @@ adding a new tier requires a semver major bump:
 
 ## Ledger
 
-**Summary:** **21 / 23 at `reproducerOnly`, 2 / 23 at `runtimeVerified`, 0 / 23 at `unvalidated`**
-as of v0.19.4. The detector-row tier reflects each detector's *base*
+**Summary:** **20 / 23 at `reproducerOnly` base, 3 / 23 at `runtimeVerified` base, 0 / 23 at `unvalidated`**
+as of v0.19.9. The detector-row tier reflects each detector's *base*
 tier; per-family raises live in `DetectorMetadata.perStableIdTier` and
-are shown in the row's Notes column. NetworkMonitor's base tier dropped
-from `runtimeVerified` to `reproducerOnly` in v0.19.0 with the
-per-family-tier extension — `slow_request` still ships at
-`runtimeVerified` via
-`perStableIdTier{slow_request: runtimeVerified}`, but the four other
-emitted families (`large_response`, `request_frequency`,
-`http_error_spike`, `high_frequency_same_path`) are no longer
-mechanically over-claimed. HeavyCompute remains `runtimeVerified`
-(single-family detector — base tier stays). MemoryPressure adds a
-v0.19.3 per-family raise (`heap_growing` warning tier) so its
-effective runtimeVerified-family count is 1 even though base tier
-stays `reproducerOnly`. PlatformChannel raises base tier to
-`runtimeVerified` in v0.19.4 (single-family detector — HeavyCompute
-pattern).
+are shown in the row's Notes column. **Effective runtimeVerified-family
+count: 7** across 4 multi-family detectors —
+`NetworkMonitor.{slow_request, large_response, request_frequency}`,
+`MemoryPressure.heap_growing`, `FrameTiming.jank_detected`,
+`HeavyCompute.heavy_compute` (single-family base raise),
+`PlatformChannel.platform_channel_traffic` (single-family base raise).
+NetworkMonitor's base tier dropped from `runtimeVerified` to
+`reproducerOnly` in v0.19.0; v0.18.0 raised `slow_request` via
+`perStableIdTier`; v0.19.9 raises `large_response` and
+`request_frequency` via the same mechanism backed by
+`additionalBrackets`. The two still-unraised families
+(`http_error_spike`, `high_frequency_same_path`) stay at base
+`reproducerOnly`. HeavyCompute remains base `runtimeVerified`
+(single-family — HeavyCompute pattern). MemoryPressure stays base
+`reproducerOnly` with a v0.19.3 `heap_growing` per-family raise.
+PlatformChannel raises base tier to `runtimeVerified` in v0.19.4
+(single-family — HeavyCompute pattern).
 v0.18.0 introduced the slow_request raise; v0.18.2 added
 `HeavyComputeDetector.heavy_compute` (warning tier,
 8 ms threshold) — second base-tier runtimeVerified raise, enabled

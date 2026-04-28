@@ -7,15 +7,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
-/// Capture helper for the v0.18.0 `runtimeVerified` tier raise on
-/// `NetworkMonitorDetector.slow_request` **WARNING tier only**.
+/// Capture helper for the runtimeVerified tier raise on three
+/// `NetworkMonitorDetector` warning families:
 ///
-/// Produces three deterministic profile-mode timeline captures — below
-/// / at / above the detector's 1000 ms slow threshold — that
-/// `ProfileCaptureSchema.validateBracket(... requireDetectorTraceRecord:
-/// true, stableId: 'slow_request', severityLabel: 'warning')` will
-/// accept. The `above` preset stays under the 3000 ms critical tier so
-/// the artifact cannot ambiently bracket the critical threshold.
+/// - `slow_request.warning` (v0.18.0, 1000 ms threshold) — original
+///   purpose; flow preserved byte-for-byte.
+/// - `large_response.warning` (v0.19.9, 1 MB threshold) — new.
+/// - `request_frequency.warning` (v0.19.9, > 30 req per 5 s window) —
+///   new.
+///
+/// All three legs export a wrapped capture JSON to the iOS clipboard.
+/// Operator pastes into Notes / Mail / AirDrop → sends to Mac → saves
+/// under `test/validation/captures/network_monitor/<family>_<leg>.json`.
 ///
 /// **Procedure (USB iPhone, in-app export — no DevTools needed):**
 ///
@@ -26,38 +29,29 @@ import 'package:sleuth/sleuth.dart';
 ///  3. Re-open the app from the iPhone home screen. No DevTools
 ///     attached → SleuthController.VmServiceClient connects → VM+
 ///     mode active → real `NetworkMonitorDetector` observes HTTP
-///     completions and emits `sleuth.issue.slow_request.warning`
-///     trace records.
-///  4. Navigate to "NetworkMonitor capture helper" → tap a leg
-///     (Below 800 ms, At 1020 ms, Above 1500 ms) → wait for
-///     "tap Export now" log line → tap **Export last leg**.
-///  5. Capture screen calls `Sleuth.exportCaptureJson` which fetches
-///     the VM Timeline, filters to the matching scenario span, wraps
-///     with `sleuthMetadata`, and copies the JSON to the iOS
-///     clipboard. Paste into Notes / Mail / AirDrop note → send to
-///     Mac. One leg at a time — clipboard holds one capture; tap
-///     next leg, paste, repeat.
-///  6. Save each pasted JSON as
-///     `slow_request_<leg>.json` under
-///     `test/validation/captures/network_monitor/`.
+///     completions and emits the three target trace records.
+///  4. Navigate to "NetworkMonitor capture helper" → pick a mode →
+///     tap a leg → wait for "tap Export now" log line → tap **Export
+///     last leg**.
 ///
-/// **Scenario span timing**: `markScenarioEnd` is intentionally called
-/// AFTER a 200 ms post-completion dwell. The detector's
-/// `_recordIssuesForCapture` emission goes through async callback paths
-/// (frame stats, structural scan, VM poll). Calling `markScenarioEnd`
-/// immediately after the request completes would place the trace event
-/// outside the scenario window. The 200 ms dwell guarantees ~12 frame
-/// stats callbacks fire (60 Hz), at least one of which flushes the
-/// `sleuth.issue.slow_request.warning` event into the trace buffer
-/// with a `ts` strictly inside `[scenario.begin, scenario.end]`.
+/// **Mode-specific timing**: scenario span and post-completion dwell
+/// differ by family because the trace event's `ts` lands at different
+/// points in the detection cycle:
+///
+/// - slow_request: 1 request, 200 ms dwell + 800 ms drain barrier.
+/// - large_response: 1 request, 200 ms dwell + 800 ms drain barrier.
+/// - request_frequency: N parallel requests, 5.5 s scenario span (covers
+///   the detector's 5 s sliding window plus headroom), 800 ms post-end
+///   drain barrier. Wraps with `Sleuth.suspendNonEssentialTimelineStreams`
+///   so the longer span doesn't overflow the VM ring buffer.
 ///
 /// **Why a loopback HTTP server**: a real remote would be
 /// non-deterministic (DNS, transit jitter, server-side variance) so
-/// bracket magnitudes would drift between recordings and
-/// `validateBracket`'s ±10% at-band would reject some captures. The
-/// loopback server delays the response by exactly the requested
-/// duration, so each capture lands inside its target bracket on the
-/// first try.
+/// bracket magnitudes would drift between recordings and audit's
+/// at-band would reject some captures. The loopback server delays the
+/// response by exactly the requested duration AND returns exactly the
+/// requested byte count, so each capture lands inside its target
+/// bracket on the first try.
 class NetworkMonitorCaptureScreen extends StatefulWidget {
   const NetworkMonitorCaptureScreen({super.key});
 
@@ -66,18 +60,36 @@ class NetworkMonitorCaptureScreen extends StatefulWidget {
       _NetworkMonitorCaptureScreenState();
 }
 
+enum _CaptureMode {
+  slowRequest('slow_request', 'Slow request (ms)'),
+  largeResponse('large_response', 'Large response (bytes)'),
+  requestFrequency('request_frequency', 'Request frequency (events/5s)');
+
+  const _CaptureMode(this.stableId, this.label);
+
+  final String stableId;
+  final String label;
+}
+
 class _NetworkMonitorCaptureScreenState
     extends State<NetworkMonitorCaptureScreen> {
   HttpServer? _server;
   HttpClient? _client;
   final List<String> _log = [];
   bool _busy = false;
+  _CaptureMode _mode = _CaptureMode.slowRequest;
 
   // Last completed leg state — what the Export button serialises.
   // Cleared on each new leg request so the operator cannot accidentally
   // export an out-of-band run from an earlier session.
   String? _lastCompletedLeg;
+  _CaptureMode? _lastCompletedMode;
+  // slow_request: ms wall-clock from Stopwatch.
   int? _lastMeasuredMs;
+  // large_response: bytes received from the loopback response.
+  int? _lastObservedBytes;
+  // request_frequency: count of records sent inside the scenario span.
+  int? _lastObservedCount;
 
   @override
   void initState() {
@@ -87,19 +99,11 @@ class _NetworkMonitorCaptureScreenState
 
   @override
   void dispose() {
-    // v0.16.4 post-review MED-3: fire-and-forget `close()` without `await`
-    // is safe here because `dispose` cannot be async, but we still want
-    // the close to actually run before the State is collected. Assign to
-    // `unawaited` so the analyzer doesn't flag it, and mark the fields
-    // null so stray late callbacks after dispose short-circuit.
     final client = _client;
     final server = _server;
     _client = null;
     _server = null;
     client?.close(force: true);
-    // `HttpServer.close(force: true)` returns a Future; fire-and-forget
-    // is the only option from a sync `dispose`. The loopback socket is
-    // process-scoped so the OS reclaims it either way.
     unawaited(server?.close(force: true) ?? Future<void>.value());
     super.dispose();
   }
@@ -114,20 +118,35 @@ class _NetworkMonitorCaptureScreenState
       );
       server.listen(
         (HttpRequest req) async {
-          // v0.16.4 post-review MED-3: wrap the per-request handler in a
-          // try/catch. A client that disconnects mid-delay (app reload,
-          // user back-navigation) throws on `req.response.close()`; the
+          // A client that disconnects mid-delay (app reload, user
+          // back-navigation) throws on `req.response.close()`; the
           // default behaviour unwinds into the unhandled stream onError
           // and the log surface tells the user nothing. Catch + log so
           // an unexpected recording failure is visible in-screen.
           try {
             final delayMs =
                 int.tryParse(req.uri.queryParameters['delay'] ?? '') ?? 0;
+            final bytes =
+                int.tryParse(req.uri.queryParameters['bytes'] ?? '') ?? 0;
             if (delayMs > 0) {
               await Future<void>.delayed(Duration(milliseconds: delayMs));
             }
             req.response.headers.contentType = ContentType.json;
-            req.response.write(jsonEncode({'ok': true, 'delayMs': delayMs}));
+            if (bytes > 0) {
+              // Pad the JSON envelope to land at exactly `bytes` total
+              // response size. Bracket math relies on the on-wire byte
+              // count matching the requested target, so the padding
+              // pattern must be deterministic and the envelope size
+              // accounted for.
+              const envelopeOverhead = 32;
+              final padLen = (bytes - envelopeOverhead).clamp(0, bytes);
+              final padding = List.filled(padLen, 0x41).map((b) {
+                return String.fromCharCode(b);
+              }).join();
+              req.response.write(jsonEncode({'pad': padding}));
+            } else {
+              req.response.write(jsonEncode({'ok': true, 'delayMs': delayMs}));
+            }
             await req.response.close();
           } catch (e) {
             if (!mounted) return;
@@ -155,7 +174,15 @@ class _NetworkMonitorCaptureScreenState
     }
   }
 
-  Future<void> _runCapture({
+  void _resetLastLeg() {
+    _lastCompletedLeg = null;
+    _lastCompletedMode = null;
+    _lastMeasuredMs = null;
+    _lastObservedBytes = null;
+    _lastObservedCount = null;
+  }
+
+  Future<void> _runSlowRequestCapture({
     required String label,
     required int delayMs,
   }) async {
@@ -164,25 +191,14 @@ class _NetworkMonitorCaptureScreenState
     if (server == null || client == null || _busy) return;
     setState(() {
       _busy = true;
-      _lastCompletedLeg = null;
-      _lastMeasuredMs = null;
+      _resetLastLeg();
       _log.add('[$label] scenario.begin → GET /slow?delay=$delayMs');
     });
 
-    // Scenario span via Sleuth public API. Triple-gated on captureMode
-    // so production runs see no extra Timeline traffic.
-    //
-    // markScenarioBegin auto-resets the producer-side capture-emission
-    // dedup set AND per-detector record buffers (NetworkMonitor +
-    // future runtimeVerified detectors). No explicit clearRecords call
-    // is needed here — the leg-boundary contract is owned by
-    // markScenarioBegin so a multi-leg flow on this screen cannot leak
-    // leg N records into leg N+1 emissions.
     final scenarioName = 'slow_request_$label';
     Sleuth.markScenarioBegin(scenarioName);
     final messenger = ScaffoldMessenger.of(context);
 
-    var bytes = 0;
     final stopwatch = Stopwatch()..start();
     try {
       final uri = Uri.parse(
@@ -194,34 +210,34 @@ class _NetworkMonitorCaptureScreenState
       // proxy-onDone limitation documented in NetworkMonitorDetector
       // pipeline — `.drain()` replaces the wrapping `onDone` handler
       // and suppresses `RequestRecord` emission.
+      var bytes = 0;
       await for (final chunk in resp) {
         bytes += chunk.length;
       }
       stopwatch.stop();
       final measuredMs = stopwatch.elapsedMilliseconds;
 
-      // Post-completion dwell BEFORE markScenarioEnd. `_recordIssuesForCapture`
-      // emits the `sleuth.issue.slow_request.warning` trace event from one
-      // of three async callback paths (structural scan, VM poll, frame
-      // stats) AFTER the request completes. With markScenarioEnd called
-      // immediately, the trace event would land outside the scenario span
-      // and the audit would reject the capture. The 200ms delay guarantees
-      // ~12 frame_stats callbacks fire (60 Hz) — far more than needed for
-      // one of them to flush the issue into the trace buffer with a `ts`
-      // strictly inside [scenario.begin, scenario.end].
+      // Post-completion dwell BEFORE markScenarioEnd. The detector
+      // emits the trace event from one of three async callback paths
+      // (structural scan, VM poll, frame stats) AFTER the request
+      // completes. With markScenarioEnd called immediately, the trace
+      // event would land outside the scenario span and audit would
+      // reject. The 200 ms delay guarantees ~12 frame stats callbacks
+      // fire (60 Hz) — far more than needed for one to flush the
+      // issue into the trace buffer with a `ts` strictly inside
+      // [scenario.begin, scenario.end].
       await Future<void>.delayed(const Duration(milliseconds: 200));
       Sleuth.markScenarioEnd(scenarioName);
 
       // Additional dwell so the VM Timeline buffer drains before
-      // exportCaptureJson reads it. Cheaper than the 1500 ms the
-      // pre-Sleuth.markCaptureIssue procedure used because the trace
-      // event has already been emitted into the ring buffer.
+      // exportCaptureJson reads it.
       await Future<void>.delayed(const Duration(milliseconds: 800));
 
       if (!mounted) return;
       setState(() {
         _busy = false;
         _lastCompletedLeg = label;
+        _lastCompletedMode = _CaptureMode.slowRequest;
         _lastMeasuredMs = measuredMs;
         _log.add(
           '[$label] scenario.end (${measuredMs}ms, ${bytes}B) — '
@@ -235,10 +251,179 @@ class _NetworkMonitorCaptureScreenState
         ),
       );
     } catch (e, st) {
-      // On failure still close the scenario so the buffer doesn't
-      // accumulate orphan begins. The audit will reject any export
-      // anyway because the issue trace event is missing.
       Sleuth.markScenarioEnd(scenarioName);
+      developer.log(
+        '[sleuth.capture] FAILED $label: $e',
+        name: 'sleuth.capture',
+        error: e,
+        stackTrace: st,
+      );
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _log.add('[$label] FAILED: $e');
+      });
+    }
+  }
+
+  Future<void> _runLargeResponseCapture({
+    required String label,
+    required int responseBytes,
+  }) async {
+    final server = _server;
+    final client = _client;
+    if (server == null || client == null || _busy) return;
+    setState(() {
+      _busy = true;
+      _resetLastLeg();
+      _log.add('[$label] scenario.begin → GET /sized?bytes=$responseBytes');
+    });
+
+    final scenarioName = 'large_response_$label';
+    Sleuth.markScenarioBegin(scenarioName);
+    final messenger = ScaffoldMessenger.of(context);
+
+    var bytes = 0;
+    try {
+      final uri = Uri.parse(
+        'http://127.0.0.1:${server.port}/sized?bytes=$responseBytes',
+      );
+      final req = await client.getUrl(uri);
+      final resp = await req.close();
+      await for (final chunk in resp) {
+        bytes += chunk.length;
+      }
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      Sleuth.markScenarioEnd(scenarioName);
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _lastCompletedLeg = label;
+        _lastCompletedMode = _CaptureMode.largeResponse;
+        _lastObservedBytes = bytes;
+        _log.add(
+          '[$label] scenario.end (${bytes}B observed, target '
+          '${responseBytes}B) — tap "Export last leg" to write the '
+          'wrapped capture.',
+        );
+      });
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '$label OK (${(bytes / 1024).toStringAsFixed(1)} KB). Tap Export now.',
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e, st) {
+      Sleuth.markScenarioEnd(scenarioName);
+      developer.log(
+        '[sleuth.capture] FAILED $label: $e',
+        name: 'sleuth.capture',
+        error: e,
+        stackTrace: st,
+      );
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _log.add('[$label] FAILED: $e');
+      });
+    }
+  }
+
+  Future<void> _runRequestFrequencyCapture({
+    required String label,
+    required int requestCount,
+  }) async {
+    final server = _server;
+    final client = _client;
+    if (server == null || client == null || _busy) return;
+    setState(() {
+      _busy = true;
+      _resetLastLeg();
+      _log.add(
+        '[$label] scenario.begin → $requestCount× GET /ping over 4 s '
+        '(scenario span 5.5 s)',
+      );
+    });
+
+    final scenarioName = 'request_frequency_$label';
+    // Stream narrowing: scenario span is 5.5 s + 800 ms barrier ≈ 6.3 s.
+    // Default Dart + Embedder + GC + raster streams generate tens of
+    // thousands of events that overflow the ~50k-event VM ring buffer,
+    // potentially rolling the scenario.begin marker off before
+    // exportCaptureJson reads it. Restrict to Dart-only for the span.
+    Sleuth.suspendNonEssentialTimelineStreams();
+    Sleuth.markScenarioBegin(scenarioName);
+    final messenger = ScaffoldMessenger.of(context);
+
+    var observedCount = 0;
+    final scenarioStart = DateTime.now();
+    try {
+      // Spread the N requests over ~4 seconds so they all land inside
+      // the same 5-second sliding window the detector observes. A
+      // batch issued within one tick risks the detector's window
+      // tracking only the spike instant, not the steady-state.
+      const requestSpreadMs = 4000;
+      final intervalMs = (requestSpreadMs / requestCount).round();
+      final futures = <Future<void>>[];
+      for (var i = 0; i < requestCount; i++) {
+        await Future<void>.delayed(Duration(milliseconds: intervalMs));
+        futures.add(() async {
+          final uri = Uri.parse('http://127.0.0.1:${server.port}/ping?seq=$i');
+          final req = await client.getUrl(uri);
+          final resp = await req.close();
+          await for (final _ in resp) {}
+        }());
+      }
+      await Future.wait(futures);
+      observedCount = requestCount;
+
+      // Total scenario span target ≥ 5.5 s. If batches finished early
+      // (small intervalMs, fast loopback) pad the remaining time to
+      // ensure the detector's 5 s window has fully elapsed and
+      // emission has fired inside the span.
+      final elapsed = DateTime.now().difference(scenarioStart).inMilliseconds;
+      const minScenarioMs = 5500;
+      if (elapsed < minScenarioMs) {
+        await Future<void>.delayed(
+          Duration(milliseconds: minScenarioMs - elapsed),
+        );
+      }
+
+      // Post-completion dwell — same 200 ms + 800 ms pattern as
+      // slow_request. Detector's _frequencyTimer fires every 5 s; the
+      // dwell guarantees one tick lands inside the span.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      Sleuth.markScenarioEnd(scenarioName);
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+
+      Sleuth.resumeAllTimelineStreams();
+
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _lastCompletedLeg = label;
+        _lastCompletedMode = _CaptureMode.requestFrequency;
+        _lastObservedCount = observedCount;
+        _log.add(
+          '[$label] scenario.end ($observedCount requests sent across '
+          '${DateTime.now().difference(scenarioStart).inMilliseconds}ms) '
+          '— tap "Export last leg" to write the wrapped capture.',
+        );
+      });
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('$label OK ($observedCount sent). Tap Export now.'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e, st) {
+      Sleuth.markScenarioEnd(scenarioName);
+      Sleuth.resumeAllTimelineStreams();
       developer.log(
         '[sleuth.capture] FAILED $label: $e',
         name: 'sleuth.capture',
@@ -259,9 +444,9 @@ class _NetworkMonitorCaptureScreenState
   /// `test/validation/captures/network_monitor/`.
   Future<void> _exportLastLeg() async {
     final leg = _lastCompletedLeg;
-    final measured = _lastMeasuredMs;
+    final mode = _lastCompletedMode;
     final messenger = ScaffoldMessenger.of(context);
-    if (leg == null || measured == null) {
+    if (leg == null || mode == null) {
       setState(() {
         _log.add(
           'Export: no completed leg yet. Tap a leg button and wait '
@@ -270,30 +455,67 @@ class _NetworkMonitorCaptureScreenState
       });
       return;
     }
+    final scenarioName = '${mode.stableId}_$leg';
+    final (
+      int magnitudeMin,
+      int magnitudeObserved,
+      int magnitudeMax,
+      String unit,
+    )
+    magnitude;
+    switch (mode) {
+      case _CaptureMode.slowRequest:
+        final ms = _lastMeasuredMs;
+        if (ms == null) {
+          setState(() => _log.add('Export: missing slow_request ms.'));
+          return;
+        }
+        magnitude = ((ms - 50).clamp(0, 1 << 30), ms, ms + 50, 'ms');
+      case _CaptureMode.largeResponse:
+        final bytes = _lastObservedBytes;
+        if (bytes == null) {
+          setState(() => _log.add('Export: missing large_response bytes.'));
+          return;
+        }
+        magnitude = (
+          (bytes - 1024).clamp(0, 1 << 30),
+          bytes,
+          bytes + 1024,
+          'bytes',
+        );
+      case _CaptureMode.requestFrequency:
+        final count = _lastObservedCount;
+        if (count == null) {
+          setState(() => _log.add('Export: missing request_frequency count.'));
+          return;
+        }
+        magnitude = ((count - 2).clamp(0, 1 << 30), count, count + 2, 'events');
+    }
+
     setState(() {
       _busy = true;
       _log.add('[$leg] Export: composing wrapped capture JSON…');
     });
+
     String? json;
     try {
       json = await Sleuth.exportCaptureJson(
-        scenario: 'slow_request_$leg',
-        role: leg, // 'below' | 'at' | 'above' (matches the screen's leg labels)
-        magnitudeMin: (measured - 50).clamp(0, 1 << 30).toInt(),
-        magnitudeObserved: measured,
-        magnitudeMax: measured + 50,
-        unit: 'ms',
+        scenario: scenarioName,
+        role: leg, // 'below' | 'at' | 'above'
+        magnitudeMin: magnitude.$1,
+        magnitudeObserved: magnitude.$2,
+        magnitudeMax: magnitude.$3,
+        unit: magnitude.$4,
         device: 'iPhone 12',
         deviceOsVersion: 'iOS 17.5',
         flutterVersion: '3.41.4',
         captureCommand:
             'fvm flutter run --profile -d "iPhone 12" '
             '--dart-define=SLEUTH_CAPTURE_MODE=true',
-        // NetworkMonitor's slow_request magnitude is the request's
-        // wall-clock duration measured by Stopwatch. There is no
-        // matching named timeline event the schema can derive from,
-        // so pass empty string to skip BUILD-derivation and trust
-        // the caller-supplied value.
+        // Magnitude is measured directly from request observations
+        // (Stopwatch ms, response bytes, peak count). No matching
+        // named timeline event the schema can derive from, so pass
+        // empty string to skip BUILD-derivation.
         magnitudeSourceEventName: '',
       );
     } catch (e) {
@@ -330,8 +552,7 @@ class _NetworkMonitorCaptureScreenState
         );
         _log.add(
           '[$leg] Paste into Notes / Mail / AirDrop note → send to '
-          'Mac. Save the pasted JSON as '
-          'slow_request_$leg.json under '
+          'Mac. Save the pasted JSON as $scenarioName.json under '
           'test/validation/captures/network_monitor/.',
         );
       });
@@ -362,36 +583,29 @@ class _NetworkMonitorCaptureScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Records profile-mode captures for slow_request WARNING-tier '
-              'bracketing (1000 ms threshold). Above preset stays inside '
-              '[1000, 2000) so the artifact cannot ambiently bracket the '
-              '3000 ms critical tier. See class docstring for the full '
-              'recording protocol.',
-              style: TextStyle(fontSize: 13),
+            DropdownButtonFormField<_CaptureMode>(
+              initialValue: _mode,
+              decoration: const InputDecoration(
+                labelText: 'Capture mode',
+                border: OutlineInputBorder(),
+              ),
+              items: _CaptureMode.values.map((m) {
+                return DropdownMenuItem(value: m, child: Text(m.label));
+              }).toList(),
+              onChanged: _busy
+                  ? null
+                  : (m) {
+                      if (m == null) return;
+                      setState(() {
+                        _mode = m;
+                        _resetLastLeg();
+                      });
+                    },
             ),
+            const SizedBox(height: 12),
+            Text(_modeBlurb(_mode), style: const TextStyle(fontSize: 13)),
             const SizedBox(height: 16),
-            _CaptureButton(
-              label: 'Below (800 ms) — passes',
-              subtitle: 'Under 1000 ms slow threshold',
-              enabled: ready && !_busy,
-              onTap: () => _runCapture(label: 'below', delayMs: 800),
-            ),
-            const SizedBox(height: 8),
-            _CaptureButton(
-              label: 'At (1020 ms) — warning',
-              subtitle: 'In [1000, 1100] at-band (±10% tolerance)',
-              enabled: ready && !_busy,
-              onTap: () => _runCapture(label: 'at', delayMs: 1020),
-            ),
-            const SizedBox(height: 8),
-            _CaptureButton(
-              label: 'Above (1500 ms) — warning',
-              subtitle:
-                  'In (1000, 2000) warning band; stays under 3000 ms crit',
-              enabled: ready && !_busy,
-              onTap: () => _runCapture(label: 'above', delayMs: 1500),
-            ),
+            ..._buildLegButtons(ready),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: _busy ? null : _exportLastLeg,
@@ -426,6 +640,108 @@ class _NetworkMonitorCaptureScreenState
         ),
       ),
     );
+  }
+
+  String _modeBlurb(_CaptureMode mode) {
+    switch (mode) {
+      case _CaptureMode.slowRequest:
+        return 'slow_request WARNING tier (1000 ms threshold). Above '
+            'preset stays inside [1000, 2000) so the artifact cannot '
+            'ambiently bracket the 3000 ms critical tier.';
+      case _CaptureMode.largeResponse:
+        return 'large_response WARNING tier (1 MB threshold). No '
+            'critical tier on this family — above-leg ceiling is '
+            '2.0× threshold (2 MB).';
+      case _CaptureMode.requestFrequency:
+        return 'request_frequency WARNING tier (> 30 req per 5 s '
+            'sliding window). At-band [30, 45] (atTolerance 0.50 '
+            'absorbs iOS scheduling jitter on Dart HttpClient). '
+            'Above-ceiling 60 (2.0×) — no critical tier.';
+    }
+  }
+
+  List<Widget> _buildLegButtons(bool ready) {
+    switch (_mode) {
+      case _CaptureMode.slowRequest:
+        return [
+          _CaptureButton(
+            label: 'Below (800 ms) — passes',
+            subtitle: 'Under 1000 ms slow threshold',
+            enabled: ready && !_busy,
+            onTap: () => _runSlowRequestCapture(label: 'below', delayMs: 800),
+          ),
+          const SizedBox(height: 8),
+          _CaptureButton(
+            label: 'At (1020 ms) — warning',
+            subtitle: 'In [1000, 1100] at-band (10% tolerance)',
+            enabled: ready && !_busy,
+            onTap: () => _runSlowRequestCapture(label: 'at', delayMs: 1020),
+          ),
+          const SizedBox(height: 8),
+          _CaptureButton(
+            label: 'Above (1500 ms) — warning',
+            subtitle: 'In (1000, 2000) warning band; stays under 3000 ms crit',
+            enabled: ready && !_busy,
+            onTap: () => _runSlowRequestCapture(label: 'above', delayMs: 1500),
+          ),
+        ];
+      case _CaptureMode.largeResponse:
+        return [
+          _CaptureButton(
+            label: 'Below (800 KB) — passes',
+            subtitle: 'Under 1 MB large_response threshold',
+            enabled: ready && !_busy,
+            onTap: () => _runLargeResponseCapture(
+              label: 'below',
+              responseBytes: 800 * 1024,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _CaptureButton(
+            label: 'At (1.05 MB) — warning',
+            subtitle: 'In [1 MB, 1.1 MB] at-band (10% tolerance)',
+            enabled: ready && !_busy,
+            onTap: () =>
+                _runLargeResponseCapture(label: 'at', responseBytes: 1101000),
+          ),
+          const SizedBox(height: 8),
+          _CaptureButton(
+            label: 'Above (1.5 MB) — warning',
+            subtitle: 'In (1 MB, 2 MB) above-band; ceiling 2 MB (2.0×)',
+            enabled: ready && !_busy,
+            onTap: () => _runLargeResponseCapture(
+              label: 'above',
+              responseBytes: 1572864,
+            ),
+          ),
+        ];
+      case _CaptureMode.requestFrequency:
+        return [
+          _CaptureButton(
+            label: 'Below (25 req) — passes',
+            subtitle: 'Under 30-req/5s frequency threshold',
+            enabled: ready && !_busy,
+            onTap: () =>
+                _runRequestFrequencyCapture(label: 'below', requestCount: 25),
+          ),
+          const SizedBox(height: 8),
+          _CaptureButton(
+            label: 'At (38 req) — warning',
+            subtitle: 'In [30, 45] at-band (50% tolerance for iOS jitter)',
+            enabled: ready && !_busy,
+            onTap: () =>
+                _runRequestFrequencyCapture(label: 'at', requestCount: 38),
+          ),
+          const SizedBox(height: 8),
+          _CaptureButton(
+            label: 'Above (52 req) — warning',
+            subtitle: 'In (45, 60] above-band; ceiling 60 (2.0×)',
+            enabled: ready && !_busy,
+            onTap: () =>
+                _runRequestFrequencyCapture(label: 'above', requestCount: 52),
+          ),
+        ];
+    }
   }
 }
 

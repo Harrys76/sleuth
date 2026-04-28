@@ -796,6 +796,50 @@ which produces a different jank/percentile distribution at the same
 spin-loop calibration. The screen rejects non-60 Hz devices in pre-flight
 so the captures stay comparable across runs.
 
+## NetworkMonitor large_response + request_frequency capture (v0.19.9)
+
+Two more families raise to runtimeVerified through `additionalBrackets`,
+both recorded via `NetworkMonitorCaptureScreen` with a mode dropdown.
+
+**large_response (bytes axis).** Loopback `HttpServer` dispatches sized
+payloads via `?bytes=N`. Threshold 1 MiB; atTolerance 0.10 (deterministic
+loopback bytes); aboveCeilingMultiplier 2.0 → ceiling 2 MiB << 5 MiB
+critical:
+
+| Leg | Bytes target | Lands in |
+|---|---|---|
+| Below | ~800 KiB | < 1 MiB (silent) |
+| At | ~1.05 MiB | [1 MiB, 1.1 MiB] |
+| Above | ~1.5 MiB | (1 MiB, 2 MiB], > at_observed |
+
+Detector exports `extraTraceArgs.observedResponseBytes` =
+content-length; audit gate cross-checks against capture magnitude.
+
+**request_frequency (events axis).** `Future.wait` parallel batches
+drive the trailing-5 s window count above 30. Threshold 30; atTolerance
+0.50 (iOS scheduling jitter; mirrors v0.19.4 PlatformChannel);
+aboveCeilingMultiplier 2.0 → ceiling 60:
+
+| Leg | Target rate | Peak count |
+|---|---|---|
+| Below | ~3 req/s | < 30 (silent) |
+| At | ~7 req/s | [30, 45] |
+| Above | ~10 req/s | (30, 60], > at_observed |
+
+Detector emits warning severity only (no critical tier today). Schema
+filters trace records by event-name match
+(`sleuth.issue.<stableId>.<severity>`), so a future critical raise
+scopes correctly without metadata change.
+
+5.5 s scenario span + 800 ms post-end barrier overflows timeline ring
+buffer under load — wrap the leg with
+`Sleuth.suspendNonEssentialTimelineStreams()` /
+`resumeAllTimelineStreams()` to narrow streams to `Dart` only.
+
+Both emissions export their observed axis to `extraTraceArgs` and
+stamp `dedupIdentityMicros` (matches v0.18.1+ producer-dedup contract
+required by `requireUniqueDetectedAtMicros: true`).
+
 ## GpuPressure raster_dominance — runtimeVerified blocked
 
 A `runtimeVerified` raise of `GpuPressureDetector.raster_dominance` is

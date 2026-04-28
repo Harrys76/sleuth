@@ -1,3 +1,17 @@
+## 0.19.9
+
+First multi-axis runtimeVerified raise via the v0.19.8 `additionalBrackets` schema. `NetworkMonitorDetector` raises 2 more families through `perStableIdTier`: `large_response.warning` (1 MiB, bytes axis) and `request_frequency.warning` (30 events / 5 s window, events axis). `slow_request.warning` from v0.18.0 unchanged. Distribution: **20/23 reproducerOnly base, 6/23 effective runtimeVerified families** (7 effective family raises across 4 multi-family detectors). No BREAKING; no public API changes.
+
+- `perStableIdTier`: 3 entries at `runtimeVerified` (slow_request, large_response, request_frequency). `http_error_spike` and `high_frequency_same_path` stay at base `reproducerOnly`.
+- `additionalBrackets[0]` — `large_response`: threshold 1048576 bytes, atTolerance 0.10 (deterministic loopback bytes), aboveCeilingMultiplier 2.0 (above-band ceiling 2 MiB << 5 MiB critical), `observedAxisArgKey: 'observedResponseBytes'`.
+- `additionalBrackets[1]` — `request_frequency`: threshold 30 events, atTolerance 0.50 (iOS scheduling jitter; mirrors v0.19.4 PlatformChannel), aboveCeilingMultiplier 2.0 (ceiling 60, narrowed at audit time by `above > at_observed`), `observedAxisArgKey: 'observedRequestCount'`. Detector emits warning severity only; schema event-name severity filter would scope a future critical raise without metadata change.
+- Both specs: `requireUniqueDetectedAtMicros: true`, `requireDetectorTraceRecord: true`. `large_response` and `request_frequency` emissions stamp `dedupIdentityMicros` and export the observed-axis value to `extraTraceArgs` so the audit gate cross-checks capture-side magnitude against detector-recorded value.
+- Capture screen: mode dropdown (slowRequest / largeResponse / requestFrequency); loopback `HttpServer` with `?delay=N` and `?bytes=N` query params; `Sleuth.suspendNonEssentialTimelineStreams()` for the 5.5 s frequency span.
+- Six new on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x) at `test/validation/captures/network_monitor/{large_response,request_frequency}_{below,at,above}.json`.
+- NetworkMonitor anchor pins all 3 `perStableIdTier` raises and both BracketSpec entries with full field literals. 2 new reproducer tests for `extraTraceArgs` shape.
+
+2,881 tests passing (+2 net from v0.19.8). `fvm flutter analyze` clean.
+
 ## 0.19.8
 
 Schema extension for detectors with 2+ runtimeVerified evidence axes on the same family. No tier raises; no public API breaks; captureSchemaVersion unchanged. Distribution unchanged from v0.19.7: **20/23 reproducerOnly base, 4/23 effective runtimeVerified families**. v0.19.9+ uses the new field for the first multi-axis raise (PlatformChannel duration axis, NetworkMonitor / MemoryPressure non-canonical families).

@@ -490,16 +490,19 @@ void main() {
               'the controller or delete the file. Missing: $missing');
     });
 
-    test('NetworkMonitorDetector pinned at reproducerOnly (v0.16.5)', () {
-      // Anti-tautology anchor. v0.16.5's second `externallyCited` raise
-      // REVERTED on two grounds: (1) NN/g 1.0 s is a UI feedback
-      // guideline, not a generic HTTP latency threshold; (2) profile
-      // captures verify scenario marker span only, not detector emission.
-      // Tier history: v0.16.1 reproducerOnly → v0.16.4 reproducerOnly
-      // (externallyCited staged+reverted) → v0.16.5 reproducerOnly
-      // (second externallyCited staged+reverted). L2 negative assertion
-      // + mechanism-4 prose-drift guard below stay wired so the v0.16.7
-      // re-raise cannot silently regress.
+    test('NetworkMonitorDetector pinned at reproducerOnly (v0.19.9)', () {
+      // Anti-tautology anchor. v0.16.5 history retained for context: two
+      // `externallyCited` raises staged+reverted (NN/g 1.0 s is a UI
+      // feedback guideline, not a generic HTTP latency threshold; profile
+      // captures verified scenario marker span only, not detector emission).
+      // v0.18.0 introduced runtimeVerified slow_request; v0.18.3 moved
+      // the raise into perStableIdTier so the four unraised families
+      // were no longer mechanically over-claimed.
+      // v0.19.9: extends perStableIdTier to 3 families (slow_request +
+      // large_response + request_frequency at runtimeVerified) and
+      // populates additionalBrackets with one BracketSpec per axis-2/-3
+      // family. The L2 negative assertion + mechanism-4 prose-drift guard
+      // stay wired so future critical-tier claims cannot silently regress.
       final BaseDetector? nm = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.networkMonitor)
           .cast<BaseDetector?>()
@@ -509,22 +512,39 @@ void main() {
       expect(nm, isA<DetectorMetadataProvider>());
       final meta = (nm as DetectorMetadataProvider).validationMetadata;
       expect(meta.tier, EvidenceTier.reproducerOnly,
-          reason: 'v0.18.3 per-family-tier extension: base tier drops to '
-              'reproducerOnly so the four unraised families '
-              '(large_response, request_frequency, http_error_spike, '
-              'high_frequency_same_path) are no longer mechanically '
-              'over-claimed at runtimeVerified. The slow_request raise '
-              'lives in perStableIdTier.');
+          reason: 'Base tier stays reproducerOnly. The 3 raised families '
+              'live in perStableIdTier so the two still-unraised families '
+              '(http_error_spike, high_frequency_same_path) are not '
+              'mechanically over-claimed at runtimeVerified.');
       expect(
           meta.perStableIdTier?['slow_request'], EvidenceTier.runtimeVerified,
-          reason: 'v0.18.0 raises slow_request warning via on-device '
-              'captures; v0.18.3 moves the raise into perStableIdTier '
-              'so the over-claim of the other four families is fixed.');
+          reason: 'v0.18.0 slow_request raise; canonical bracket axis.');
+      expect(
+          meta.perStableIdTier?['large_response'], EvidenceTier.runtimeVerified,
+          reason: 'v0.19.9 raises large_response warning via on-device '
+              'captures on the bytes axis; backed by additionalBrackets[0].');
+      expect(meta.perStableIdTier?['request_frequency'],
+          EvidenceTier.runtimeVerified,
+          reason: 'v0.19.9 raises request_frequency warning via on-device '
+              'captures on the events-per-window axis; backed by '
+              'additionalBrackets[1].');
       expect(
           meta.effectiveTierFor('slow_request'), EvidenceTier.runtimeVerified,
           reason: 'Effective tier per family must surface runtimeVerified '
               'for slow_request; the audit gate routes off effectiveMaxTier '
               'so the bracket fields still trigger their checks.');
+      expect(meta.effectiveTierFor('large_response'),
+          EvidenceTier.runtimeVerified);
+      expect(meta.effectiveTierFor('request_frequency'),
+          EvidenceTier.runtimeVerified);
+      expect(meta.effectiveTierFor('http_error_spike'),
+          EvidenceTier.reproducerOnly,
+          reason: 'http_error_spike stays at base reproducerOnly; not '
+              'covered by any BracketSpec.');
+      expect(meta.effectiveTierFor('high_frequency_same_path'),
+          EvidenceTier.reproducerOnly,
+          reason: 'high_frequency_same_path stays at base reproducerOnly; '
+              'not covered by any BracketSpec.');
       expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified,
           reason: 'effectiveMaxTier drives the audit switch; must remain '
               'runtimeVerified after the v0.18.3 base-tier drop so '
@@ -624,12 +644,96 @@ void main() {
                 'mismatch means the externally-cited bracket claims a '
                 'different threshold than the detector actually uses.');
       }
-      expect(meta.additionalBrackets, isNull,
-          reason: 'NetworkMonitor brackets only slow_request.warning. The '
-              'other 4 emitted families (large_response, request_frequency, '
-              'http_error_spike, high_frequency_same_path) stay base '
-              'reproducerOnly. Future multi-family raises would populate '
-              'additionalBrackets with one BracketSpec per raised family.');
+      // v0.19.9: additionalBrackets pin. Two BracketSpec entries cover
+      // the bytes axis (large_response.warning) and the events-per-window
+      // axis (request_frequency.warning) raised in this release. Each
+      // spec's coveredThresholds, threshold, unit, and provenance fields
+      // are pinned literally so a future diff that drops or rewires a
+      // spec must update this anchor.
+      expect(meta.additionalBrackets, isNotNull);
+      expect(meta.additionalBrackets, hasLength(2),
+          reason: 'v0.19.9 declares exactly two additional axes: bytes '
+              '(large_response) and events (request_frequency). '
+              'http_error_spike and high_frequency_same_path stay at '
+              'base reproducerOnly until they have their own captures.');
+
+      final largeSpec = meta.additionalBrackets!
+          .firstWhere((s) => s.stableId == 'large_response');
+      expect(largeSpec.severityLabel, equals('warning'));
+      expect(largeSpec.threshold, equals(1048576),
+          reason: '1 MiB warning threshold tracks NetworkMonitorDetector\'s '
+              'largeResponseBytes default.');
+      expect(largeSpec.unit, equals('bytes'));
+      expect(
+          largeSpec.coveredThresholds, equals(const {'large_response.warning'}),
+          reason: 'Severity-scoped to warning; critical stays '
+              'reproducerOnly.');
+      expect(
+          largeSpec.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/network_monitor/large_response_below.json',
+            'test/validation/captures/network_monitor/large_response_at.json',
+            'test/validation/captures/network_monitor/large_response_above.json',
+          ]));
+      expect(largeSpec.atTolerance, equals(0.10),
+          reason: 'Bytes axis is deterministic on loopback HTTP; default '
+              '±10% band is reachable.');
+      expect(largeSpec.aboveCeilingMultiplier, equals(2.0),
+          reason: 'Above-band ceiling 2 MiB is well below the 5 MiB '
+              'critical threshold.');
+      expect(largeSpec.observedAxisArgKey, equals('observedResponseBytes'));
+      expect(largeSpec.requireUniqueDetectedAtMicros, isTrue);
+      expect(largeSpec.requireDetectorTraceRecord, isTrue,
+          reason: 'BracketSpec defaults requireDetectorTraceRecord to true; '
+              'audit gate enforces presence of detector trace record per '
+              'spec.');
+
+      final freqSpec = meta.additionalBrackets!
+          .firstWhere((s) => s.stableId == 'request_frequency');
+      expect(freqSpec.severityLabel, equals('warning'));
+      expect(freqSpec.threshold, equals(30),
+          reason: 'NetworkMonitorDetector frequency warning threshold is '
+              '30 requests per 5s sliding window; raise pins the same '
+              'value to prevent silent drift.');
+      expect(freqSpec.unit, equals('events'));
+      expect(freqSpec.coveredThresholds,
+          equals(const {'request_frequency.warning'}),
+          reason: 'Severity-scoped to warning; 50/window critical stays '
+              'reproducerOnly.');
+      expect(
+          freqSpec.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/network_monitor/request_frequency_below.json',
+            'test/validation/captures/network_monitor/request_frequency_at.json',
+            'test/validation/captures/network_monitor/request_frequency_above.json',
+          ]));
+      expect(freqSpec.atTolerance, equals(0.50),
+          reason: 'iOS scheduling jitter widens the band; mirrors '
+              'PlatformChannel frequency axis (v0.19.4).');
+      expect(freqSpec.aboveCeilingMultiplier, equals(2.0),
+          reason: 'Above-band ceiling 60 for the warning tier. '
+              'NetworkMonitorDetector emits request_frequency at warning '
+              'severity only — there is no critical emission today. The '
+              'schema filters trace records by event-name match '
+              '(`sleuth.issue.<stableId>.<severity>`) so a future '
+              'detector update that adds critical-severity emission '
+              'would correctly scope warning-only events into this '
+              'bracket without metadata change.');
+      expect(freqSpec.observedAxisArgKey, equals('observedRequestCount'));
+      expect(freqSpec.requireUniqueDetectedAtMicros, isTrue);
+      expect(freqSpec.requireDetectorTraceRecord, isTrue);
+
+      // Cross-spec uniqueness: stableId + observedAxisArgKey tuples must
+      // not collide. `checkAdditionalBrackets` enforces this in the
+      // walker, but the anchor pins it explicitly so a future diff that
+      // shares an arg key across specs is caught here too.
+      final pairs = meta.additionalBrackets!
+          .map((s) => '${s.stableId}|${s.observedAxisArgKey ?? ''}')
+          .toSet();
+      expect(pairs, hasLength(2),
+          reason: '(stableId, observedAxisArgKey) tuples must be unique '
+              'across additionalBrackets so each axis maps to exactly '
+              'one capture triad.');
     });
 
     test('HeavyComputeDetector pinned at runtimeVerified (v0.18.2)', () {
