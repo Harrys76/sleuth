@@ -80,6 +80,52 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   /// Consumed by [_evaluateVmData] and cleared unconditionally in [_evaluate].
   List<String>? _stagedEnrichedNames;
 
+  /// Last observed rebuilds-per-second count from the VM-backed
+  /// `_evaluateVmData` path. Updated unconditionally on every call —
+  /// sub-threshold buffers (no warning fire) still expose detector-
+  /// measured evidence so capture-mode operators export the same axis
+  /// the audit gate classifies on.
+  // _evaluateVmData rewrites this on every call and resetCaptureState
+  // clears it on session boundaries; cannot be final.
+  // ignore: prefer_final_fields
+  int _lastObservedRebuildRate = 0;
+
+  /// Detector-measured rebuilds-per-second from the most recent
+  /// VM-backed evaluation. Capture-mode operators read this for
+  /// sub-threshold legs where no warning event fires. A separate
+  /// `Sleuth.flushTimelineNow()` barrier drives the VM-poll →
+  /// `processTimelineData` → `_evaluateVmData` chain that updates
+  /// this getter; no detector-side flush API needed.
+  int get lastObservedRebuildRate => _lastObservedRebuildRate;
+
+  /// Capture-mode session-boundary reset hook called from
+  /// `SleuthController.resetCaptureState()` (auto-invoked by
+  /// `Sleuth.markScenarioBegin`). Clears the VM-path window state so
+  /// leg N+1's measured rate reflects ONLY leg-N+1 activity:
+  ///   - `_lastObservedRebuildRate`: prior leg's peak read.
+  ///   - `_buildEventCount`: accumulator that would otherwise carry
+  ///     pre-scenario BUILD events into the first window stage.
+  ///   - `_pendingVmWindowCount`: staged-but-unconsumed window count
+  ///     from a window that closed before scenario start.
+  ///   - `_pendingEnrichedNames` / `_stagedEnrichedNames`: parallel
+  ///     dirty-widget staging for the same window.
+  ///   - `_windowStart`: re-anchored to scenario-begin time so the
+  ///     next window stage fires exactly 1 s after leg start, not
+  ///     1 s from app-construction time.
+  ///
+  /// `_pendingDebugSnapshot` and `_widgetRebuildCounts` are NOT
+  /// touched — those drive the structural-fallback path, managed by
+  /// the existing `prepareScan` lifecycle. Clearing them would
+  /// change behavior for non-capture detector paths.
+  void resetCaptureState() {
+    _lastObservedRebuildRate = 0;
+    _buildEventCount = 0;
+    _pendingVmWindowCount = null;
+    _pendingEnrichedNames.clear();
+    _stagedEnrichedNames = null;
+    _windowStart = _clock();
+  }
+
   /// Current VM connectivity — set by the controller.
   /// Clears VM staging on disconnect; issues are repopulated on next _evaluate.
   bool get vmConnected => _vmConnected;
@@ -403,6 +449,11 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   /// uses them for dirty-widget attribution. Otherwise falls back to
   /// structural tree scan context.
   void _evaluateVmData(int buildCount, [List<String>? enrichedNames]) {
+    // Update detector-measured rate BEFORE the threshold gate so
+    // sub-threshold buffers still expose the value to capture-mode
+    // operators. The threshold gate below skips emission only —
+    // the field is the source of truth for the bracket axis.
+    _lastObservedRebuildRate = buildCount;
     if (buildCount <= rebuildsPerSecThreshold) return;
 
     String detailSuffix;
@@ -432,6 +483,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       buildCount: buildCount,
     );
 
+    final detectedAt = DateTime.now();
     _issues.add(PerformanceIssue(
       stableId: 'rebuild_activity',
       severity: buildCount > rebuildsPerSecThreshold * 3
@@ -444,7 +496,9 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       fixHint: hint,
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
-      detectedAt: DateTime.now(),
+      detectedAt: detectedAt,
+      dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
+      extraTraceArgs: {'observedRebuildRate': buildCount.toString()},
       confidenceReason: 'Measured directly from VM timeline build count',
     ));
   }
@@ -547,25 +601,35 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hybrid detector. All three families pinned: '
-            '`stateful_density` (public-named StatefulWidget density; '
-            'framework/private filtered), `rebuild_activity` '
-            '(VM-timeline rebuild-rate — warning at '
-            '`> rebuildsPerSecThreshold` default 10/sec, critical at '
-            '`> 3×` = 30/sec; reproducer pins 11 → warning, 31 → '
-            'critical), and parametric `rebuild_debug_<typeName>` '
-            '(declared via `parametricFamilies` since v0.17.3 — '
-            'concrete `rebuild_debug_MyWidget` credits via `_` '
-            'separator matcher). VM → TimelineParser → detector '
-            'boundary exercised since v0.17.6 via cross-harness '
-            'reproducer (raw `List<TimelineEvent>` through '
-            '`parseAndAssertShape` + real `pumpWidget` for the '
-            'structural-fallback leg). Builder-widget 3× threshold '
-            'multiplier proven with paired non-builder/builder fixture '
-            'at identical rate=25. Source-mode '
+        rationale: 'Hybrid detector. Three families: `stateful_density` '
+            '(public-named StatefulWidget density; framework/private '
+            'filtered), `rebuild_activity` (VM-timeline rebuild-rate — '
+            'warning at `> rebuildsPerSecThreshold` default 10/sec, '
+            'critical at `> 3×` = 30/sec; reproducer pins 11 → warning, '
+            '31 → critical), and parametric `rebuild_debug_<typeName>` '
+            '(declared via `parametricFamilies` since v0.17.3 — concrete '
+            '`rebuild_debug_MyWidget` credits via `_` separator '
+            'matcher). VM → TimelineParser → detector boundary '
+            'exercised via cross-harness reproducer (raw '
+            '`List<TimelineEvent>` through `parseAndAssertShape` + real '
+            '`pumpWidget` for the structural-fallback leg). Builder-'
+            'widget 3× threshold multiplier proven with paired non-'
+            'builder/builder fixture at identical rate=25. Source-mode '
             '`RebuildCountSource.flutterTimeline` per-type suppression '
-            'pinned (KDD-5 inflations). Fixtures synthetic, same-author '
-            'provenance. Not runtime-verified or externally cited.',
+            'pinned. v0.19.11 ships the producer infrastructure for a '
+            'future `rebuild_activity.warning` runtimeVerified raise: '
+            'detector exports `observedRebuildRate` to `extraTraceArgs` '
+            'and stamps `dedupIdentityMicros` on every emission; '
+            '`lastObservedRebuildRate` getter exposes the rate '
+            'unconditionally (sub-threshold buffers update the field '
+            'before the emission gate) so capture-mode operators read '
+            'detector-measured evidence; `Sleuth.rebuildDetector` + '
+            'barrel-export wire the public API; `RebuildActivityCapture'
+            'Screen` drives Ticker-gated setState at calibrated rates '
+            'on a non-builder StatefulWidget. Tier raise pending three '
+            'on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x) '
+            'on the warning axis; metadata flips to perStableIdTier + '
+            'bracket fields once captures land.',
         reproducerPath: 'test/validation/rebuild_reproducer_test.dart',
         coveredStableIds: {'stateful_density', 'rebuild_activity'},
         parametricFamilies: {'rebuild_debug'},

@@ -30,6 +30,7 @@ import 'demos/non_lazy_list_demo.dart';
 import 'demos/opacity_zero_demo.dart';
 import 'demos/platform_channel_capture_screen.dart';
 import 'demos/platform_channel_demo.dart';
+import 'demos/rebuild_activity_capture_screen.dart';
 import 'demos/rebuild_hotspot_demo.dart';
 import 'demos/repaint_boundary_demo.dart';
 import 'demos/repaint_stress_demo.dart';
@@ -361,6 +362,14 @@ class DemoHome extends StatelessWidget {
             subtitle: 'jank_detected runtimeVerified bracket capture (60Hz)',
             color: Colors.indigo,
             builder: (_) => const FrameTimingCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.refresh,
+            title: 'RebuildActivity Capture Helper (v0.19.11)',
+            subtitle:
+                'rebuild_activity runtimeVerified bracket capture (Ticker setState)',
+            color: Colors.teal,
+            builder: (_) => const RebuildActivityCaptureScreen(),
           ),
           _DemoRoute(
             icon: Icons.font_download,

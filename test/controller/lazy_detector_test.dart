@@ -21,9 +21,9 @@ void main() {
       );
       controller.initializeDetectorsForTest();
 
-      // 3 typed detectors (frameTiming, memoryPressure, networkMonitor)
-      // are always constructed. Only rebuild from the factory map is enabled.
-      // Total: frameTiming + memoryPressure + networkMonitor + rebuild = 4.
+      // 4 typed detectors (frameTiming, memoryPressure, networkMonitor,
+      // rebuild) are always constructed. enabledDetectors restricts only
+      // factory-map detectors. Total: 4 typed + 0 factory = 4.
       expect(controller.detectorCountForTest, 4);
 
       controller.dispose();
@@ -35,7 +35,7 @@ void main() {
       final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
-      // 3 typed + 20 factory = 23 total.
+      // 4 typed + 19 factory = 23 total.
       expect(controller.detectorCountForTest, 23);
 
       controller.dispose();
@@ -54,11 +54,11 @@ void main() {
         ),
       );
       controller.initializeDetectorsForTest();
-      expect(controller.detectorCountForTest, 3); // 3 typed only
+      expect(controller.detectorCountForTest, 4); // 4 typed only
 
       // Enable opacity at runtime.
       controller.enableDetector(DetectorType.opacity);
-      expect(controller.detectorCountForTest, 4);
+      expect(controller.detectorCountForTest, 5);
 
       // Verify it participates in a scan.
       controller.runTreeScanForTest(context);
@@ -79,10 +79,10 @@ void main() {
         ),
       );
       controller.initializeDetectorsForTest();
-      expect(controller.detectorCountForTest, 4); // 3 typed + opacity
+      expect(controller.detectorCountForTest, 5); // 4 typed + opacity
 
       controller.disableDetector(DetectorType.opacity);
-      expect(controller.detectorCountForTest, 3); // opacity removed
+      expect(controller.detectorCountForTest, 4); // opacity removed
 
       controller.dispose();
     });
@@ -124,8 +124,8 @@ void main() {
       );
       controller.initializeDetectorsForTest();
 
-      // 3 typed + 0 factory + 1 custom = 4.
-      expect(controller.detectorCountForTest, 4);
+      // 4 typed + 0 factory + 1 custom = 5.
+      expect(controller.detectorCountForTest, 5);
 
       controller.dispose();
     });

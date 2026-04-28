@@ -1,29 +1,25 @@
+## 0.19.11
+
+`RebuildDetector` capture-pipeline plumbing for a future `rebuild_activity.warning` runtimeVerified raise. No tier change; metadata flips once three on-device captures land. Distribution unchanged from v0.19.10.
+
+- Detector: `lastObservedRebuildRate` getter (field-write precedes threshold gate); `resetCaptureState()` clears 5 VM-window fields + re-anchors `_windowStart`; `rebuild_activity` emission stamps `dedupIdentityMicros` + `observedRebuildRate` in `extraTraceArgs`.
+- Public API (non-breaking): `Sleuth.rebuildDetector` getter; `RebuildDetector` barrel-exported.
+- Capture screen `rebuild_activity_capture_screen.dart` (NEW): Stopwatch-throttled Ticker drives setState on plain StatefulWidget at 5/15/20 per sec; refresh-rate-independent (60/90/120 Hz). Plain Stateful avoids builder-widget 3× threshold multiplier.
+- Controller: `RebuildDetector` promoted to typed field (4 typed + 19 factory = 23). `resetCaptureState` chains into detector's reset.
+- Tests: 4 detector + 1 reproducer grep guard (forbids `60 / leg.targetRebuildRate`, requires `1000 / leg.targetRebuildRate`).
+
+2,893 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.10
 
-NetworkMonitor capture-pipeline hardening. No tier raises, no BREAKING. Distribution unchanged from v0.19.9 (20/23 reproducerOnly base, 6/23 effective runtimeVerified families). Closes producer asymmetry on `request_frequency` below-leg — detector now exposes its windowed peak so capture-mode operators export detector-measured evidence instead of the operator's plan. Schema-level cross-check on below-leg axis stays absent (would need new info-level trace event or sleuthMetadata field); deferred.
+NetworkMonitor capture-pipeline hardening. No tier change. Distribution unchanged from v0.19.9. Closes `request_frequency` below-leg producer asymmetry — detector exposes windowed peak so operators export detector-measured evidence.
 
-- Detector (`network_monitor_detector.dart`):
-  - `int get lastObservedPeakCount` — peak from trailing 5 s sliding window, always-on, O(buffer-cap=200) bounded.
-  - `void flushFrequencyEvaluation()` — peak-only recompute (NO issue emission). Idempotent across repeat calls; emission stays gated to `_evaluateFrequency` so duplicate `request_frequency` issues cannot leak into capture trace records.
-  - `clearRecords()` resets peak — capture-mode session boundaries do not inherit leg N evidence into leg N+1.
-- Public API (non-breaking):
-  - `Sleuth.networkMonitor` getter exposes `NetworkMonitorDetector` instance (null in release mode or before `Sleuth.init`).
-  - `NetworkMonitorDetector` exported from `lib/sleuth.dart` barrel.
-  - `Sleuth.exportCaptureJson` + `SleuthController.exportCaptureJson` accept optional `bracketStableId` + `bracketSeverityLabel`. When set, refuses export (debugPrint diagnostic + null return) if at/above legs lack the matching `sleuth.issue.<stableId>.<severity>` event in span, or if below-leg contains one. Mirrors schema's per-leg trace-record contract client-side. Whitespace trimmed before composing event name.
-- Capture screen (`network_monitor_capture_screen.dart`):
-  - `_runRequestFrequencyCapture` reads `Sleuth.networkMonitor?.lastObservedPeakCount` after `flushFrequencyEvaluation()` (replaces the prior `observedCount = requestCount` plan-not-measured pattern). Refuses leg with operator-facing error when `Sleuth.networkMonitor` is null. Calls `Sleuth.flushTimelineNow(timeout: 2s)` between the peak read and `markScenarioEnd` so detector emissions drain into the VM trace buffer before the scenario closes.
-  - `_exportLastLeg` threads `bracketStableId: mode.stableId` + `bracketSeverityLabel: 'warning'` so the client-side validator runs.
-  - `large_response` envelope-overhead constant 32 → 10 (actual `{"pad":""}` wrapper). Recorded value is still wire-summed; only affects operator-side leg-targeting precision.
-- Tests:
-  - 5 detector tests for `lastObservedPeakCount` semantics: sub-threshold peak (no warning), at-threshold peak + extraTraceArgs parity, peak stability across re-flush, `clearRecords` reset, perf-budget (100 evals on full 200-record buffer < 250 ms).
-  - Dedicated test pins `flushFrequencyEvaluation` does NOT emit duplicate `request_frequency` issues on at-threshold buffer (3 flushes, issue count stays at baseline).
-  - Producer-wiring grep test scans `example/lib/demos/` recursively, forbids `observedCount = requestCount` regex, requires `lastObservedPeakCount` + `flushFrequencyEvaluation()` in capture-screen runner. Catches a future refactor that reverts to plan-not-measured.
+- Detector: `lastObservedPeakCount` getter (always-on, O(200) bounded); `flushFrequencyEvaluation()` peak-only recompute (idempotent, no emission); `clearRecords()` resets peak.
+- Public API (non-breaking): `Sleuth.networkMonitor` getter; `NetworkMonitorDetector` barrel-exported. `Sleuth.exportCaptureJson` accepts optional `bracketStableId` + `bracketSeverityLabel` — refuses export when at/above legs lack matching `sleuth.issue.<stableId>.<severity>` event in span, or below contains one.
+- Capture screen `network_monitor_capture_screen.dart`: reads `lastObservedPeakCount` after `flushFrequencyEvaluation()`; calls `Sleuth.flushTimelineNow(timeout: 2s)` before `markScenarioEnd`. `large_response` envelope constant 32 → 10.
+- Tests: 5 detector + 1 dedup + 1 producer-wiring grep.
 
-Existing v0.19.9 captures remain valid (schema unchanged). Re-recording `request_frequency_below.json` is optional refresh.
-
-2,888 tests passing (+7 net from v0.19.9). `fvm flutter analyze` clean.
-
-2,888 tests passing (+5 net from v0.19.9 baseline of 2,883). `fvm flutter analyze` clean.
+Existing v0.19.9 captures remain valid. 2,888 tests passing. `fvm flutter analyze` clean.
 
 ## 0.19.9
 

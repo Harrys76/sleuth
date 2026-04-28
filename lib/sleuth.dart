@@ -61,6 +61,7 @@ import 'package:flutter/widgets.dart';
 import 'src/controller/sleuth_controller.dart';
 import 'src/detectors/network_monitor_detector.dart'
     show NetworkMonitorDetector;
+import 'src/detectors/rebuild_detector.dart' show RebuildDetector;
 import 'src/models/fix_verification_result.dart';
 import 'src/models/route_session.dart';
 import 'src/models/session_snapshot.dart';
@@ -98,6 +99,7 @@ export 'src/models/fix_verification_result.dart'
 export 'src/network/request_record.dart';
 export 'src/detectors/network_monitor_detector.dart'
     show NetworkMonitorDetector;
+export 'src/detectors/rebuild_detector.dart' show RebuildDetector;
 export 'src/utils/fix_hint_builder.dart';
 export 'src/utils/session_markdown_exporter.dart';
 export 'src/models/startup_metrics.dart';
@@ -504,6 +506,17 @@ class Sleuth {
   static NetworkMonitorDetector? get networkMonitor {
     if (kReleaseMode) return null;
     return _controller?.networkMonitor;
+  }
+
+  /// Public accessor for the [RebuildDetector] instance. Capture
+  /// screens read [RebuildDetector.lastObservedRebuildRate] after
+  /// driving a Ticker scenario and `await Sleuth.flushTimelineNow()`
+  /// so the wrapped magnitude reflects detector-measured rebuilds-per-
+  /// second rather than the operator's plan. Returns null when
+  /// [Sleuth] has not been initialised or in release mode.
+  static RebuildDetector? get rebuildDetector {
+    if (kReleaseMode) return null;
+    return _controller?.rebuildDetector;
   }
 
   /// Diagnostic snapshot of capture-mode preconditions. Capture screens

@@ -1060,6 +1060,98 @@ void main() {
       expect(issue.observationSource, ObservationSource.debugCallback);
     });
   });
+
+  // -----------------------------------------------------------------
+  // lastObservedRebuildRate — capture-mode operator pathway
+  // -----------------------------------------------------------------
+  group('lastObservedRebuildRate (v0.19.11)', () {
+    late RebuildDetector detector;
+    late DateTime fakeNow;
+
+    setUp(() {
+      fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
+      detector = RebuildDetector(clock: () => fakeNow);
+      detector.vmConnected = true;
+    });
+
+    test('field-write happens BEFORE threshold gate (sub-threshold)', () {
+      // 5/sec is below the default rebuildsPerSecThreshold=10 — no
+      // warning fires, but capture-mode operators still need the
+      // detector-measured rate so the bracket triad's below-leg
+      // exports detector evidence rather than the operator's plan.
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highBuildActivityData(buildCount: 5));
+      detector.evaluateNow();
+      expect(detector.issues, isEmpty,
+          reason: '5 ≤ threshold (10) — no warning fires');
+      expect(detector.lastObservedRebuildRate, 5,
+          reason: 'Field-write must precede the emission gate so '
+              'sub-threshold buffers expose the value to capture tooling.');
+    });
+
+    test('at-threshold writes peak + emission carries arg parity', () {
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highBuildActivityData(buildCount: 14));
+      detector.evaluateNow();
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+      expect(issue.severity, IssueSeverity.warning);
+      expect(issue.dedupIdentityMicros, isNotNull,
+          reason: 'capture-mode requires producer-side stable identity');
+      expect(issue.extraTraceArgs?['observedRebuildRate'], '14',
+          reason: 'audit gate cross-checks expectedMagnitude.observed '
+              'against this trace-event arg via observedAxisArgKey');
+      expect(detector.lastObservedRebuildRate, 14,
+          reason: 'getter and trace arg must agree (same source)');
+    });
+
+    test('resetCaptureState clears peak', () {
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highBuildActivityData(buildCount: 25));
+      detector.evaluateNow();
+      expect(detector.lastObservedRebuildRate, 25);
+      detector.resetCaptureState();
+      expect(detector.lastObservedRebuildRate, 0,
+          reason: 'capture-mode session boundaries (markScenarioBegin '
+              'auto-reset) must clear stale peak so leg N+1 does not '
+              'inherit leg N evidence.');
+    });
+
+    test(
+        'resetCaptureState realigns window so first staged count after '
+        'scenario start contains only scenario events', () {
+      // Pre-scenario: 7 BUILD events accumulate into _buildEventCount
+      // mid-window (200 ms after construction; window has not closed).
+      fakeNow = fakeNow.add(const Duration(milliseconds: 200));
+      detector.processTimelineData(highBuildActivityData(buildCount: 7));
+      // No window has closed yet — _buildEventCount holds 7, no
+      // staged value to consume.
+      expect(detector.lastObservedRebuildRate, 0);
+
+      // markScenarioBegin fires (simulated): resetCaptureState
+      // re-anchors _windowStart and clears the contaminated
+      // accumulator.
+      detector.resetCaptureState();
+
+      // Scenario activity: 9 events 600 ms after scenario start; then
+      // advance 500 ms more to cross the 1 s window boundary so the
+      // next processTimelineData stages a count.
+      fakeNow = fakeNow.add(const Duration(milliseconds: 600));
+      detector.processTimelineData(highBuildActivityData(buildCount: 9));
+      fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+      // Tick past the 1 s window boundary; staging happens here.
+      detector.processTimelineData(highBuildActivityData(buildCount: 0));
+      detector.evaluateNow();
+
+      expect(detector.lastObservedRebuildRate, 9,
+          reason: 'staged window must contain ONLY post-scenarioBegin '
+              'events (9), not the pre-scenario 7 accumulated before '
+              'resetCaptureState. If the field reads 16, the reset did '
+              'not clear _buildEventCount; if it reads 0, the window '
+              'never closed because _windowStart was not re-anchored '
+              'to scenario-begin time.');
+    });
+  });
 }
 
 class TestStatefulWidget extends StatefulWidget {

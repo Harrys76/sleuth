@@ -36,6 +36,7 @@
 // single call (no helper needed beyond the inline pattern).
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -650,6 +651,97 @@ void main() {
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, isEmpty);
       });
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Producer-wiring guard (v0.19.11)
+  // ----------------------------------------------------------------
+  // The schema's per-leg invariants leave below-leg's axis unchecked
+  // (silent leg has no warning event to cross-check against), so a
+  // producer that exports `targetRebuildRate` (planned) instead of
+  // `lastObservedRebuildRate` (detector-measured) silently certifies
+  // a sub-threshold value the detector never observed. Pin the
+  // producer's source-of-truth here so a refactor that reverts to
+  // plan-not-measured fails CI.
+  group('producer-wiring guard (v0.19.11)', () {
+    test('rebuild_activity capture reads detector peak, not target rate', () {
+      // Search recursively under example/lib/demos/ so a future
+      // restructure that splits the runner into a separate file
+      // doesn't silently break this contract test.
+      final demosDir = Directory('example/lib/demos');
+      expect(demosDir.existsSync(), isTrue,
+          reason: 'example/lib/demos/ must exist to enforce the contract');
+      final dartFiles = demosDir
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'));
+      File? runnerFile;
+      String? runnerSrc;
+      for (final f in dartFiles) {
+        final src = f.readAsStringSync();
+        // Match the runner via a unique scenario-name literal that
+        // could not occur outside a rebuild_activity capture flow.
+        // Combined-predicate forms (just `rebuild_activity_` + scenario
+        // markers) could match unrelated demo files that happen to
+        // mention rebuild_activity in a comment AND drive scenarios.
+        if (src.contains("rebuild_activity_\${leg.label}") ||
+            src.contains("'rebuild_activity_'") ||
+            src.contains('rebuild_activity_below') ||
+            src.contains('rebuild_activity_at') ||
+            src.contains('rebuild_activity_above')) {
+          runnerFile = f;
+          runnerSrc = src;
+          break;
+        }
+      }
+      expect(runnerFile, isNotNull,
+          reason: 'rebuild_activity capture runner not found anywhere '
+              'under example/lib/demos/. Either restore the runner or '
+              'update this contract test if the capture flow has been '
+              'restructured.');
+      final src = runnerSrc!;
+      expect(
+        RegExp(r'observedRate\s*=\s*[a-zA-Z_]*[Tt]argetRebuildRate\s*;')
+            .hasMatch(src),
+        isFalse,
+        reason: 'rebuild_activity capture must NOT export the planned '
+            'target rate. Use Sleuth.rebuildDetector?.lastObservedRebuildRate '
+            'so below-leg evidence reflects what the detector measured. '
+            'Found in: ${runnerFile!.path}',
+      );
+      expect(src.contains('lastObservedRebuildRate'), isTrue,
+          reason: 'rebuild_activity runner must read '
+              'Sleuth.rebuildDetector?.lastObservedRebuildRate as the '
+              'source of expectedMagnitude.observed. '
+              'Found in: ${runnerFile.path}');
+      expect(src.contains('Sleuth.flushTimelineNow('), isTrue,
+          reason: 'capture runner must call Sleuth.flushTimelineNow() '
+              'between Ticker stop and markScenarioEnd so detector '
+              'emissions drain into the VM trace buffer before the '
+              'scenario closes. Found in: ${runnerFile.path}');
+      // Refresh-rate independence guard. The frame-modulus pattern
+      // `60 / leg.targetRebuildRate` was retired because Ticker fires
+      // at the device vsync rate — on a 120 Hz device the modulus
+      // produces 2× the labeled target rate, pushing the above-leg
+      // into the critical-tier band (>30/sec) and out of the
+      // warning bracket the audit gate checks against.
+      expect(
+        RegExp(r'60\s*/\s*leg\.targetRebuildRate').hasMatch(src),
+        isFalse,
+        reason: 'capture runner must NOT use 60 Hz frame-modulus '
+            'pacing — it produces 2× target rate on 120 Hz devices. '
+            'Use time-based throttling (`1000 / leg.targetRebuildRate` '
+            'ms interval). Found in: ${runnerFile.path}',
+      );
+      expect(
+        RegExp(r'1000\s*[/~]\s*/?\s*leg\.targetRebuildRate').hasMatch(src),
+        isTrue,
+        reason: 'capture runner must use time-based throttling: '
+            'compute intervalMs from `1000 / leg.targetRebuildRate` '
+            'and gate setState on Stopwatch elapsedMilliseconds. '
+            'Found in: ${runnerFile.path}',
+      );
     });
   });
 }

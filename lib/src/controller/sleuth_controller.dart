@@ -155,6 +155,7 @@ class SleuthController {
   late final FrameTimingDetector _frameTiming;
   late final MemoryPressureDetector _memoryPressure;
   late final NetworkMonitorDetector _networkMonitor;
+  late final RebuildDetector _rebuildDetector;
 
   // HTTP override proxy (not a detector)
   SleuthHttpOverrides? _httpOverrides;
@@ -718,6 +719,10 @@ class SleuthController {
       largeResponseBytes: config.largeResponseThresholdBytes,
     )..isEnabled = enabled.contains(DetectorType.networkMonitor);
 
+    _rebuildDetector =
+        RebuildDetector(rebuildsPerSecThreshold: config.rebuildThreshold)
+          ..isEnabled = enabled.contains(DetectorType.rebuild);
+
     // Factory map for non-typed detectors. Only detectors present in
     // [enabledDetectors] are constructed — saves buffer allocations and
     // reduces the unified walk iteration count (M6: lazy initialization).
@@ -734,8 +739,6 @@ class SleuthController {
                 config.platformChannelDurationThresholdMs * 1000,
           ),
       DetectorType.repaint: RepaintDetector.new,
-      DetectorType.rebuild: () =>
-          RebuildDetector(rebuildsPerSecThreshold: config.rebuildThreshold),
       DetectorType.setStateScope: () => SetStateScopeDetector(
             dirtyRatioThreshold:
                 config.thresholds.setStateScopeOwnershipPercent,
@@ -781,6 +784,7 @@ class SleuthController {
         if (enabled.contains(entry.key)) entry.value()..isEnabled = true,
       _memoryPressure,
       _networkMonitor,
+      _rebuildDetector,
       // Custom detectors.
       //
       // Default: enabled. A custom detector with a non-null [key] that
@@ -835,6 +839,10 @@ class SleuthController {
       _networkMonitor.isEnabled = true;
       return;
     }
+    if (type == DetectorType.rebuild) {
+      _rebuildDetector.isEnabled = true;
+      return;
+    }
     // Defer list mutation if we're mid-iteration.
     if (_isIteratingDetectors) {
       _pendingDetectorMutations.add(() => enableDetector(type));
@@ -868,6 +876,10 @@ class SleuthController {
     }
     if (type == DetectorType.networkMonitor) {
       _networkMonitor.isEnabled = false;
+      return;
+    }
+    if (type == DetectorType.rebuild) {
+      _rebuildDetector.isEnabled = false;
       return;
     }
     // Defer list mutation if we're mid-iteration.
@@ -1086,6 +1098,13 @@ class SleuthController {
   /// sub-threshold legs so the wrapped magnitude reflects detector
   /// measurement rather than the operator's plan.
   NetworkMonitorDetector get networkMonitor => _networkMonitor;
+
+  /// Public accessor for capture-mode tooling — capture screens read
+  /// [RebuildDetector.lastObservedRebuildRate] after driving a Ticker
+  /// scenario and an `await Sleuth.flushTimelineNow()` barrier so the
+  /// exported magnitude reflects the detector-measured rebuilds-per-
+  /// second rate rather than the operator's plan.
+  RebuildDetector get rebuildDetector => _rebuildDetector;
 
   /// Exposes [_lastScanContext] so tests can verify a scan went down the
   /// happy path (non-null) vs. the navigating sentinel path (null). Without
@@ -1385,6 +1404,10 @@ class SleuthController {
     // `_emissionSeq` is preserved by design (see FrameTimingDetector.reset
     // doc) so multi-leg flows cannot collide `dedupIdentityMicros`.
     _frameTiming.reset();
+    // Clear RebuildDetector's per-session counters + last-observed peak
+    // so the next scenario reads detector-measured rate from leg-N's
+    // workload only.
+    _rebuildDetector.resetCaptureState();
   }
 
   Future<String?> exportCaptureJson({
