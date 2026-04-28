@@ -44,6 +44,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart'
     show
+        BracketSpec,
         DetectorMetadata,
         DetectorMetadataProvider,
         EvidenceTier,
@@ -285,41 +286,7 @@ void main() {
                 meta.reproducerPath!.trim().isEmpty) {
               failures.add('$label: missing reproducerPath');
             }
-            failures.addAll(checkCoveredThresholds(
-              label: label,
-              tier: meta.effectiveMaxTier,
-              coveredThresholds: meta.coveredThresholds,
-              coveredStableIds: meta.coveredStableIds,
-              parametricFamilies: meta.parametricFamilies,
-              bracketThreshold: meta.bracketThreshold,
-            ));
-            failures.addAll(checkSeverityScopedCeiling(
-              label: label,
-              tier: meta.effectiveMaxTier,
-              coveredThresholds: meta.coveredThresholds,
-              aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
-            ));
-            failures.addAll(checkBracketCount(
-              label: label,
-              tier: meta.effectiveMaxTier,
-              capturePaths: meta.profileCapturePaths,
-            ));
-            failures.addAll(checkBracketValidation(
-              label: label,
-              tier: meta.effectiveMaxTier,
-              capturePaths: meta.profileCapturePaths,
-              bracketThreshold: meta.bracketThreshold,
-              bracketUnit: meta.bracketUnit,
-              aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
-              bracketAtTolerance: meta.bracketAtTolerance,
-              bracketStableId: meta.bracketStableId,
-              bracketSeverityLabel: meta.bracketSeverityLabel,
-              requireTraceRecord: true,
-              requireUniqueDetectedAtMicros:
-                  meta.bracketRequireUniqueDetectedAtMicros,
-              observedAxisArgKey: meta.observedAxisArgKey,
-              observedAxisTolerance: meta.observedAxisTolerance,
-            ));
+            failures.addAll(runRuntimeTierAudit(label: label, meta: meta));
             break;
           case EvidenceTier.externallyCited:
             failures.addAll(
@@ -328,41 +295,7 @@ void main() {
                 meta.reproducerPath!.trim().isEmpty) {
               failures.add('$label: missing reproducerPath');
             }
-            failures.addAll(checkCoveredThresholds(
-              label: label,
-              tier: meta.effectiveMaxTier,
-              coveredThresholds: meta.coveredThresholds,
-              coveredStableIds: meta.coveredStableIds,
-              parametricFamilies: meta.parametricFamilies,
-              bracketThreshold: meta.bracketThreshold,
-            ));
-            failures.addAll(checkSeverityScopedCeiling(
-              label: label,
-              tier: meta.effectiveMaxTier,
-              coveredThresholds: meta.coveredThresholds,
-              aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
-            ));
-            failures.addAll(checkBracketCount(
-              label: label,
-              tier: meta.effectiveMaxTier,
-              capturePaths: meta.profileCapturePaths,
-            ));
-            failures.addAll(checkBracketValidation(
-              label: label,
-              tier: meta.effectiveMaxTier,
-              capturePaths: meta.profileCapturePaths,
-              bracketThreshold: meta.bracketThreshold,
-              bracketUnit: meta.bracketUnit,
-              aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
-              bracketAtTolerance: meta.bracketAtTolerance,
-              bracketStableId: meta.bracketStableId,
-              bracketSeverityLabel: meta.bracketSeverityLabel,
-              requireTraceRecord: true,
-              requireUniqueDetectedAtMicros:
-                  meta.bracketRequireUniqueDetectedAtMicros,
-              observedAxisArgKey: meta.observedAxisArgKey,
-              observedAxisTolerance: meta.observedAxisTolerance,
-            ));
+            failures.addAll(runRuntimeTierAudit(label: label, meta: meta));
             break;
         }
 
@@ -466,6 +399,8 @@ void main() {
           perStableIdTier: meta.perStableIdTier,
           coveredStableIds: meta.coveredStableIds,
           bracketStableId: meta.bracketStableId,
+          additionalBrackets: meta.additionalBrackets,
+          topLevelCoveredThresholds: meta.coveredThresholds,
         ));
       }
       expect(failures, isEmpty, reason: 'Tier invariants violated: $failures');
@@ -689,6 +624,12 @@ void main() {
                 'mismatch means the externally-cited bracket claims a '
                 'different threshold than the detector actually uses.');
       }
+      expect(meta.additionalBrackets, isNull,
+          reason: 'NetworkMonitor brackets only slow_request.warning. The '
+              'other 4 emitted families (large_response, request_frequency, '
+              'http_error_spike, high_frequency_same_path) stay base '
+              'reproducerOnly. Future multi-family raises would populate '
+              'additionalBrackets with one BracketSpec per raised family.');
     });
 
     test('HeavyComputeDetector pinned at runtimeVerified (v0.18.2)', () {
@@ -743,6 +684,10 @@ void main() {
           reason: 'Captures recorded under v0.18.1+ producer dedup with '
               'stable per-BUILD detectedAt; opt into the strong invariant '
               'so audit gate rejects single-issue replay forgery.');
+      expect(meta.additionalBrackets, isNull,
+          reason: 'HeavyCompute brackets a single axis (8 ms warning); no '
+              'additional axes declared. Multi-axis raises (e.g. critical '
+              'tier on the same family) would populate additionalBrackets.');
     });
 
     test(
@@ -847,6 +792,11 @@ void main() {
           reason: 'heap_growing.critical not yet a covered threshold; '
               'detector emits only warning severity. Adding this entry '
               'requires a critical-tier capture campaign + bracket triad.');
+      expect(meta.additionalBrackets, isNull,
+          reason: 'heap_growing brackets a single axis (slope bytes/sec); '
+              'other 3 families (gc_pressure, heap_near_capacity, '
+              'native_memory_growing) stay base reproducerOnly. Multi-axis '
+              'raises across families would populate additionalBrackets.');
     });
 
     test('PlatformChannelDetector pinned at runtimeVerified (v0.19.4)', () {
@@ -1004,6 +954,11 @@ void main() {
                 'the prose to explicitly say the duration axis remains '
                 'reproducer-pinned.');
       }
+      expect(meta.additionalBrackets, isNull,
+          reason: 'PlatformChannel currently brackets only the frequency '
+              'axis (20 calls/sec). The 8 ms cumulative-duration axis stays '
+              'implicitly reproducerOnly — a future raise of that axis '
+              'would populate additionalBrackets with a second BracketSpec.');
     });
 
     test(
@@ -1123,6 +1078,11 @@ void main() {
       expect(() => FrameTimingDetector(captureMode: true), returnsNormally,
           reason: 'captureMode constructor surface must remain wired; the '
               'in-app capture screen depends on it short-circuiting warmup.');
+      expect(meta.additionalBrackets, isNull,
+          reason: 'jank_detected brackets a single axis (jankPercent). '
+              'sustained_jank (severeCount-based critical) and the cache '
+              'families stay implicitly reproducerOnly; raising any of them '
+              'would populate additionalBrackets with a second BracketSpec.');
     });
 
     test('v0.17.1 structural batch pinned at reproducerOnly', () {
@@ -1691,10 +1651,24 @@ void main() {
           if (d is! DetectorMetadataProvider) continue;
           final meta = (d as DetectorMetadataProvider).validationMetadata;
           final paths = meta.profileCapturePaths;
-          if (paths == null) continue;
-          for (final pth in paths) {
-            if (pth.trim().isEmpty) continue;
-            referencedPaths.add(pth);
+          if (paths != null) {
+            for (final pth in paths) {
+              if (pth.trim().isEmpty) continue;
+              referencedPaths.add(pth);
+            }
+          }
+          // additionalBrackets capture paths must also be walked or the
+          // first multi-axis raise lands triad files that the orphan
+          // audit rejects as unreferenced. Iterates each spec; null /
+          // empty handled implicitly.
+          final extras = meta.additionalBrackets;
+          if (extras != null) {
+            for (final spec in extras) {
+              for (final pth in spec.profileCapturePaths) {
+                if (pth.trim().isEmpty) continue;
+                referencedPaths.add(pth);
+              }
+            }
           }
         }
         final failures = checkCaptureOrphans(
@@ -1760,8 +1734,329 @@ void main() {
               'declaration, (b) update the manifest entry to match '
               'the true recording, (c) consume the capture in its '
               'owning claim, or (d) remove the file + manifest entry '
-              'together if the milestone was skipped. Failures: '
+              'together if the multi-release was skipped. Failures: '
               '$failures');
+    });
+  });
+
+  group('Multi-axis audit pipeline (v0.19.8)', () {
+    // Calls the SAME factored helper sequence the production walker
+    // runs (`runRuntimeTierAudit`) so any drift in walker wiring fails
+    // CI here even when no shipped detector populates additionalBrackets.
+    // Adds checkPerStableIdTier (walker calls it outside the tier
+    // switch) so the E2E group covers the full multi-axis verification
+    // path.
+    //
+    // `repoRoot` points at a tempdir without `pubspec.yaml` so file-
+    // system helpers (`checkBracketValidation`,
+    // `checkAdditionalCapturePaths`, `checkAdditionalBracketValidation`)
+    // early-return. Structural checks (covered-thresholds, severity-
+    // scoped-ceiling, bracket-count, structural per-spec, cross-spec
+    // collision, path overlap) still run on synthetic metadata.
+    late Directory tempRoot;
+    setUpAll(() {
+      tempRoot = Directory.systemTemp.createTempSync('sleuth_e2e_audit_root_');
+    });
+    tearDownAll(() {
+      if (tempRoot.existsSync()) tempRoot.deleteSync(recursive: true);
+    });
+
+    List<String> walkRuntimeVerifiedHelpers(DetectorMetadata meta) {
+      const label = 'FakeMultiAxisDetector';
+      final failures = <String>[
+        ...runRuntimeTierAudit(
+          label: label,
+          meta: meta,
+          repoRoot: tempRoot.path,
+        ),
+        ...checkPerStableIdTier(
+          label: label,
+          tier: meta.tier,
+          perStableIdTier: meta.perStableIdTier,
+          coveredStableIds: meta.coveredStableIds,
+          bracketStableId: meta.bracketStableId,
+          additionalBrackets: meta.additionalBrackets,
+          topLevelCoveredThresholds: meta.coveredThresholds,
+        ),
+      ];
+      return failures;
+    }
+
+    BracketSpec mkSpec({
+      String stableId = 'foo',
+      String severityLabel = 'warning',
+      String? argKey,
+      List<String>? paths,
+      double? aboveCeilingMultiplier = 1.5,
+      Set<String>? coveredThresholds,
+    }) =>
+        BracketSpec(
+          stableId: stableId,
+          severityLabel: severityLabel,
+          threshold: 8,
+          unit: 'ms',
+          coveredThresholds: coveredThresholds ?? {'$stableId.$severityLabel'},
+          profileCapturePaths: paths ??
+              const [
+                'test/validation/captures/x/below.json',
+                'test/validation/captures/x/at.json',
+                'test/validation/captures/x/above.json',
+              ],
+          observedAxisArgKey: argKey,
+          aboveCeilingMultiplier: aboveCeilingMultiplier,
+        );
+
+    DetectorMetadata mkMeta({
+      Set<String>? coveredStableIds,
+      Set<String>? coveredThresholds,
+      Map<String, EvidenceTier>? perStableIdTier,
+      List<BracketSpec>? additionalBrackets,
+      String? bracketStableId = 'foo',
+      String? observedAxisArgKey = 'observedCount',
+    }) =>
+        DetectorMetadata(
+          tier: EvidenceTier.reproducerOnly,
+          rationale: 'fake rationale that is long enough to satisfy gate.',
+          reproducerPath: 'test/validation/fake.dart',
+          bracketStableId: bracketStableId,
+          bracketSeverityLabel: 'warning',
+          bracketThreshold: 20,
+          bracketUnit: 'events',
+          aboveCeilingMultiplier: 1.5,
+          observedAxisArgKey: observedAxisArgKey,
+          coveredStableIds: coveredStableIds ?? const {'foo'},
+          coveredThresholds: coveredThresholds ?? const {'foo.warning'},
+          perStableIdTier: perStableIdTier,
+          additionalBrackets: additionalBrackets,
+          profileCapturePaths: const [
+            'test/validation/captures/canonical/below.json',
+            'test/validation/captures/canonical/at.json',
+            'test/validation/captures/canonical/above.json',
+          ],
+        );
+
+    test('properly-configured multi-axis metadata passes structural helpers',
+        () {
+      final meta = mkMeta(
+        coveredStableIds: const {'foo', 'bar'},
+        coveredThresholds: const {'foo.warning', 'bar.warning'},
+        perStableIdTier: const {
+          'foo': EvidenceTier.runtimeVerified,
+          'bar': EvidenceTier.runtimeVerified,
+        },
+        additionalBrackets: [
+          mkSpec(stableId: 'bar', argKey: 'cumulativeDurationUs'),
+        ],
+      );
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(failures, isEmpty,
+          reason: 'A correctly-shaped multi-axis declaration must clear '
+              'the structural helpers (no collision, every raised family '
+              'covered by canonical bracket OR additionalBrackets spec). '
+              'Failures: $failures');
+    });
+
+    test('cross-spec collision in additionalBrackets surfaces failure', () {
+      final meta = mkMeta(
+        additionalBrackets: [
+          mkSpec(stableId: 'foo', argKey: 'observedCount'),
+        ],
+      );
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(failures.any((f) => f.contains('cross-spec collision')), isTrue,
+          reason: 'top-level (spec #0) and additionalBrackets[0] both target '
+              '("foo", "observedCount") and must collide.');
+    });
+
+    test('mixed-mode: top-level + spec with distinct argKeys passes', () {
+      final meta = mkMeta(
+        additionalBrackets: [
+          mkSpec(stableId: 'foo', argKey: 'cumulativeDurationUs'),
+        ],
+      );
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(failures, isEmpty,
+          reason: 'Same stableId with distinct argKeys is the intended '
+              'multi-axis pattern. Failures: $failures');
+    });
+
+    test('perStableIdTier raise without bracket coverage surfaces failure', () {
+      final meta = mkMeta(
+        coveredStableIds: const {'foo', 'unmoored'},
+        coveredThresholds: const {'foo.warning'},
+        perStableIdTier: const {
+          'foo': EvidenceTier.runtimeVerified,
+          'unmoored': EvidenceTier.runtimeVerified,
+        },
+        additionalBrackets: null,
+      );
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(
+          failures.any((f) =>
+              f.contains('"unmoored"') &&
+              f.contains('no coveredThresholds entry')),
+          isTrue,
+          reason: 'A runtimeVerified raise on "unmoored" not covered by any '
+              'coveredThresholds entry must fail. Failures: $failures');
+    });
+
+    test('perStableIdTier raise covered ONLY by additionalBrackets passes', () {
+      // Exercises the audit-walker wiring that proves coverage through
+      // coveredThresholds (not stableId match). Spec covers "bar" via
+      // its own coveredThresholds; canonical bracket points at "foo".
+      final meta = mkMeta(
+        coveredStableIds: const {'foo', 'bar'},
+        coveredThresholds: const {'foo.warning'},
+        perStableIdTier: const {
+          'foo': EvidenceTier.runtimeVerified,
+          'bar': EvidenceTier.runtimeVerified,
+        },
+        additionalBrackets: [
+          mkSpec(stableId: 'bar', argKey: 'observedSlope'),
+        ],
+      );
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(failures, isEmpty,
+          reason: 'A spec whose coveredThresholds contains "bar.warning" '
+              'must satisfy the perStableIdTier coverage rule for "bar" '
+              'even when canonical bracket targets a different family. '
+              'Failures: $failures');
+    });
+
+    test(
+        'spec.coveredThresholds with cross-family entry rejected (drift '
+        'guard)', () {
+      // Spec declares stableId='bar' but its coveredThresholds claims
+      // foo.warning — the schema field that exists for severity-scoping
+      // must align with the spec's own family, not silently overclaim.
+      final meta = mkMeta(
+        coveredStableIds: const {'foo', 'bar'},
+        coveredThresholds: const {'foo.warning'},
+        perStableIdTier: const {
+          'foo': EvidenceTier.runtimeVerified,
+          'bar': EvidenceTier.runtimeVerified,
+        },
+        additionalBrackets: [
+          mkSpec(
+            stableId: 'bar',
+            argKey: 'observedSlope',
+            coveredThresholds: const {'foo.warning'},
+          ),
+        ],
+      );
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(
+          failures.any((f) =>
+              f.contains('coveredThresholds entry') &&
+              f.contains('does not match spec.stableId')),
+          isTrue,
+          reason: 'Cross-family coveredThresholds entry must fail. '
+              'Failures: $failures');
+    });
+
+    test('spec.coveredThresholds with malformed entry rejected', () {
+      final meta = mkMeta(
+        additionalBrackets: [
+          mkSpec(
+            stableId: 'foo',
+            argKey: 'cumulativeDurationUs',
+            coveredThresholds: const {'foo.warn'},
+          ),
+        ],
+      );
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(
+          failures.any((f) =>
+              f.contains('unrecognised severity') && f.contains('"warn"')),
+          isTrue,
+          reason: 'Severity typo must be rejected. Failures: $failures');
+    });
+
+    test('empty additionalBrackets list rejected by structural helper', () {
+      final meta = mkMeta(additionalBrackets: const <BracketSpec>[]);
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(failures.any((f) => f.contains('empty list')), isTrue,
+          reason: 'Encode "no additional axes" as null, not [].');
+    });
+
+    test('per-spec wrong-length profileCapturePaths surfaces failure', () {
+      final meta = mkMeta(
+        additionalBrackets: [
+          mkSpec(
+            stableId: 'foo',
+            argKey: 'cumulativeDurationUs',
+            paths: const ['only/one.json'],
+          ),
+        ],
+      );
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(
+          failures.any(
+              (f) => f.contains('profileCapturePaths must contain exactly 3')),
+          isTrue,
+          reason: 'A spec with 1 path must fail the structural check.');
+    });
+
+    test(
+        'per-spec aboveCeilingMultiplier null with severity-scoped scope '
+        'surfaces failure', () {
+      final meta = mkMeta(
+        additionalBrackets: [
+          mkSpec(
+            stableId: 'foo',
+            argKey: 'cumulativeDurationUs',
+            aboveCeilingMultiplier: null,
+          ),
+        ],
+      );
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(
+          failures.any((f) =>
+              f.contains('additionalBrackets[0]') &&
+              f.contains('explicit aboveCeilingMultiplier')),
+          isTrue,
+          reason: 'Severity-scoped spec with null aboveCeilingMultiplier '
+              'must fail to prevent default-2.0 inheritance. Failures: '
+              '$failures');
+    });
+
+    test('capture-path overlap between top-level and spec surfaces failure',
+        () {
+      final meta = mkMeta(
+        coveredStableIds: const {'foo', 'bar'},
+        coveredThresholds: const {'foo.warning', 'bar.warning'},
+        additionalBrackets: [
+          mkSpec(
+            stableId: 'bar',
+            argKey: 'observedSlope',
+            paths: const [
+              'test/validation/captures/canonical/below.json',
+              'test/validation/captures/canonical/at.json',
+              'test/validation/captures/canonical/above.json',
+            ],
+          ),
+        ],
+      );
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(
+          failures.any((f) =>
+              f.contains('capture path') && f.contains('shared between')),
+          isTrue,
+          reason: 'Spec sharing canonical triad must fail path-overlap '
+              'check. Failures: $failures');
+    });
+
+    test('whitespace argKey collision detected after canonicalization', () {
+      final meta = mkMeta(
+        observedAxisArgKey: 'observedCount',
+        additionalBrackets: [
+          mkSpec(stableId: 'foo', argKey: '  observedCount  '),
+        ],
+      );
+      final failures = walkRuntimeVerifiedHelpers(meta);
+      expect(failures.any((f) => f.contains('cross-spec collision')), isTrue,
+          reason: 'Whitespace-padded argKey must canonicalize and collide '
+              'with same stableId+argKey on top-level. Failures: $failures');
     });
   });
 }

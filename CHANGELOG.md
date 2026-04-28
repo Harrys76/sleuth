@@ -1,3 +1,17 @@
+## 0.19.8
+
+Schema extension for detectors with 2+ runtimeVerified evidence axes on the same family. No tier raises; no public API breaks; captureSchemaVersion unchanged. Distribution unchanged from v0.19.7: **20/23 reproducerOnly base, 4/23 effective runtimeVerified families**. v0.19.9+ uses the new field for the first multi-axis raise (PlatformChannel duration axis, NetworkMonitor / MemoryPressure non-canonical families).
+
+- New `BracketSpec` const class + `DetectorMetadata.additionalBrackets: List<BracketSpec>?`. Empty list rejected. Top-level fields treated as logical spec #0 for cross-spec checks.
+- `ProfileCaptureSchema._validateOneBracket` is the shared body. Public `validateBracket(...)` preserved via synthetic-spec wrapper (error text byte-for-byte identical to v0.19.7). New `validateBracketSpec(BracketSpec, {File...})` is the spec-driven entry.
+- `runRuntimeTierAudit` in `audit_invariants.dart` runs the full per-tier helper chain (`checkCoveredThresholds` → `checkSeverityScopedCeiling` → `checkBracketCount` → `checkBracketValidation` → `checkAdditionalBrackets` → `checkAdditionalCapturePaths` → `checkAdditionalBracketValidation`). Both audit-walker switch branches (`runtimeVerified`, `externallyCited`) and the synthetic E2E pipeline test call this same function so wiring is verified by CI even when no shipped detector populates `additionalBrackets`.
+- Per-spec audit checks on `additionalBrackets[*]`: repo-containment + existence + schema-parse on capture paths; `coveredThresholds` entries validated as `<stableId>.<severity>` matching `spec.stableId`/`spec.severityLabel` (severity ∈ `{warning, critical, info}`); cross-spec uniqueness on canonicalised `(stableId, observedAxisArgKey)`; capture-path disjointness across canonical + all specs (via `path.canonicalize`); severity-scoped `coveredThresholds` requires explicit `aboveCeilingMultiplier` (no default-2.0 inheritance).
+- `checkPerStableIdTier` proves coverage through `coveredThresholds` entries — a runtimeVerified family in `perStableIdTier` requires a matching `<familyId>.<severity>` entry in either canonical `coveredThresholds` or some `BracketSpec.coveredThresholds`. StableId match alone is no longer sufficient.
+- Orphan-capture-audit walks `meta.additionalBrackets?.expand((s) => s.profileCapturePaths)`.
+- 5 detector anchor blocks pin `additionalBrackets isNull`.
+
+29 new tests cover: per-spec required-fields, empty-list rejection, cross-spec collision matrix, mixed-mode collision, synthetic-spec error-text equivalence (NaN, below-violation, at-band overflow), perStableIdTier coverage rule, stableId-vs-coveredThresholds mismatch rejection, severity-typo rejection, capture-path overlap detection, per-spec severity-scoped ceiling, end-to-end pipeline group on synthetic metadata. 2,879 tests passing (+29 net from v0.19.7). `fvm flutter analyze` clean.
+
 ## 0.19.7
 
 `FrameTimingDetector.jank_detected` raised to **runtimeVerified** via `perStableIdTier`. Warning tier only; critical (`sustained_jank`) and cache-family stableIds stay implicitly reproducerOnly. Distribution: **20/23 reproducerOnly base, 4/23 effective runtimeVerified families**.

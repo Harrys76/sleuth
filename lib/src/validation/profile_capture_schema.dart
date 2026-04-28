@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'capture_event_constants.dart';
+import 'detector_metadata.dart' show BracketSpec;
 
 /// Schema + validator for Sleuth profile-mode captures.
 ///
@@ -759,6 +760,70 @@ class ProfileCaptureSchema {
     double observedAxisTolerance = 0.25,
     String observedAxisReduction = 'max',
   }) {
+    _validateOneBracket(
+      BracketSpec(
+        stableId: stableId ?? '',
+        severityLabel: severityLabel ?? '',
+        threshold: threshold,
+        unit: unit,
+        coveredThresholds: const <String>{},
+        profileCapturePaths: const <String>[],
+        atTolerance: atTolerance,
+        aboveCeilingMultiplier: aboveCeilingMultiplier,
+        observedAxisArgKey: observedAxisArgKey,
+        observedAxisTolerance: observedAxisTolerance,
+        observedAxisReduction: observedAxisReduction,
+        requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
+        requireDetectorTraceRecord: requireDetectorTraceRecord,
+      ),
+      belowFile: belowFile,
+      atFile: atFile,
+      aboveFile: aboveFile,
+    );
+  }
+
+  /// Spec-driven bracket validation entry point. Audit-side iteration over
+  /// `DetectorMetadata.additionalBrackets` calls this once per spec; the
+  /// public `validateBracket(...)` is preserved for existing test/audit
+  /// call sites that pass named args.
+  ///
+  /// Behavior is identical to `validateBracket` — same error messages,
+  /// same numeric checks, same trace-record search. The only difference
+  /// is the call shape: spec-driven instead of named-args.
+  static void validateBracketSpec(
+    BracketSpec spec, {
+    required File belowFile,
+    required File atFile,
+    required File aboveFile,
+  }) {
+    _validateOneBracket(
+      spec,
+      belowFile: belowFile,
+      atFile: atFile,
+      aboveFile: aboveFile,
+    );
+  }
+
+  static void _validateOneBracket(
+    BracketSpec spec, {
+    required File belowFile,
+    required File atFile,
+    required File aboveFile,
+  }) {
+    final stableId = spec.stableId.isEmpty ? null : spec.stableId;
+    final severityLabel =
+        spec.severityLabel.isEmpty ? null : spec.severityLabel;
+    final threshold = spec.threshold;
+    final unit = spec.unit;
+    final atTolerance = spec.atTolerance ?? defaultAtTolerance;
+    final aboveCeilingMultiplier =
+        spec.aboveCeilingMultiplier ?? defaultAboveCeilingMultiplier;
+    final requireDetectorTraceRecord = spec.requireDetectorTraceRecord;
+    final requireUniqueDetectedAtMicros = spec.requireUniqueDetectedAtMicros;
+    final observedAxisArgKey = spec.observedAxisArgKey;
+    final observedAxisTolerance = spec.observedAxisTolerance;
+    final observedAxisReduction = spec.observedAxisReduction;
+
     if (requireDetectorTraceRecord && (stableId == null || stableId.isEmpty)) {
       throw const FormatException(
           '`validateBracket` was called with requireDetectorTraceRecord: true '

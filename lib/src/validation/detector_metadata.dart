@@ -1,5 +1,127 @@
 import 'evidence_tier.dart';
 
+/// One bracket axis declaration for a detector's runtimeVerified evidence.
+///
+/// Carries the same per-axis data the top-level bracket fields on
+/// [DetectorMetadata] do — `stableId`, `severityLabel`, threshold, unit,
+/// at-tolerance, above-ceiling, capture triad, observed-axis cross-check
+/// settings, and per-axis schema strictness flags — but as a self-contained
+/// const value so a single detector can declare more than one independent
+/// bracket via [DetectorMetadata.additionalBrackets].
+///
+/// The audit gate validates each spec independently by calling
+/// `ProfileCaptureSchema.validateBracket` once per spec (top-level and each
+/// [DetectorMetadata.additionalBrackets] entry); see the field-level docs
+/// on [DetectorMetadata.additionalBrackets] for the cross-spec invariants
+/// (uniqueness on `(stableId, observedAxisArgKey)`, perStableIdTier
+/// coverage, orphan-audit iteration).
+class BracketSpec {
+  const BracketSpec({
+    required this.stableId,
+    required this.severityLabel,
+    required this.threshold,
+    required this.unit,
+    required this.coveredThresholds,
+    required this.profileCapturePaths,
+    this.atTolerance,
+    this.aboveCeilingMultiplier,
+    this.observedAxisArgKey,
+    this.observedAxisTolerance = 0.25,
+    this.observedAxisReduction = 'max',
+    this.requireUniqueDetectedAtMicros = false,
+    this.requireDetectorTraceRecord = true,
+  });
+
+  /// The stable issue ID this spec brackets (e.g.
+  /// `'platform_channel_traffic'`). The capture triad's at + above legs
+  /// must contain a `sleuth.issue.<stableId>.<severityLabel>` trace
+  /// record when [requireDetectorTraceRecord] is true.
+  final String stableId;
+
+  /// Severity label (`'warning'` or `'critical'`) the bracket targets.
+  /// Same wire-format string as `IssueSeverity.<label>.name`.
+  final String severityLabel;
+
+  /// Numeric threshold the capture triad brackets — `below.observed <
+  /// threshold`, `at.observed` in `[threshold, threshold × (1 +
+  /// atTolerance)]`, `above.observed > threshold` (and below the
+  /// `aboveCeilingMultiplier` ceiling).
+  final num threshold;
+
+  /// Unit label for [threshold] (must be in
+  /// `ProfileCaptureSchema.approvedUnits`, e.g. `'ms'`, `'bytes/sec'`,
+  /// `'percent'`).
+  final String unit;
+
+  /// `<stableId>.<severity>` entries this spec is the bracket evidence
+  /// for. Used by the audit gate's perStableIdTier-coverage check: every
+  /// runtimeVerified family in `DetectorMetadata.perStableIdTier` must
+  /// appear in either the canonical [DetectorMetadata.coveredThresholds]
+  /// or in some spec's [coveredThresholds].
+  final Set<String> coveredThresholds;
+
+  /// Repo-relative paths to the three capture files (below / at /
+  /// above) backing this spec. Always exactly 3 entries — the audit
+  /// gate's [BracketSpec.profileCapturePaths] iteration enforces it.
+  final List<String> profileCapturePaths;
+
+  /// Relative tolerance on the at-leg's observed magnitude. Defaults
+  /// schema-side to 0.10 when null (10% at-band). Same semantics as
+  /// [DetectorMetadata.bracketAtTolerance].
+  final double? atTolerance;
+
+  /// Upper-bound multiplier on the above-leg's observed magnitude.
+  /// Defaults schema-side to 2.0 when null. Same semantics as
+  /// [DetectorMetadata.aboveCeilingMultiplier].
+  final double? aboveCeilingMultiplier;
+
+  /// Trace-event arg key the audit gate cross-checks against the
+  /// capture's `expectedMagnitude.observed`. Null skips the cross-check.
+  /// Same semantics as [DetectorMetadata.observedAxisArgKey]. Two specs
+  /// declared on the same [stableId] must use distinct argKeys (or one
+  /// must be null) — the cross-spec uniqueness invariant on the
+  /// `(stableId, argKey)` tuple is what lets multiple bracket axes
+  /// coexist on a single family without double-counting trace events.
+  final String? observedAxisArgKey;
+
+  /// Tolerance for the [observedAxisArgKey] cross-check. Same semantics
+  /// as [DetectorMetadata.observedAxisTolerance]. Default 0.25.
+  final double observedAxisTolerance;
+
+  /// Reduction strategy when multiple in-span trace records carry
+  /// [observedAxisArgKey]. Same values as
+  /// [DetectorMetadata.observedAxisReduction]: `'max'` (default,
+  /// monotone-per-emission axes) or `'last'` (windowed-aggregate axes).
+  final String observedAxisReduction;
+
+  /// When true, every in-span `sleuth.issue.<stableId>.<severity>` trace
+  /// record in the at + above captures must carry a distinct
+  /// `detectedAtMicros` arg. Same semantics as
+  /// [DetectorMetadata.bracketRequireUniqueDetectedAtMicros]. Default
+  /// false; flip to true for v0.18.1+ captures recorded under
+  /// producer-side dedup.
+  final bool requireUniqueDetectedAtMicros;
+
+  /// When true, the at + above captures must contain at least one
+  /// `sleuth.issue.<stableId>.<severityLabel>` trace record inside the
+  /// scenario span. Default true — proves the detector actually fired
+  /// for the captured scenario, closing the bracket-without-emission
+  /// gap. Set false only for axes whose trace evidence is provided by
+  /// the canonical bracket alone (rare; the multi-axis pattern usually
+  /// produces independent emissions per axis).
+  ///
+  /// **Default differs from `ProfileCaptureSchema.validateBracket(...)`**
+  /// (defaults `false`). The named-arg public API kept its v0.18.0
+  /// contract for backward compat; the `BracketSpec` constructor opts
+  /// into the stronger default because every multi-axis spec ships at
+  /// runtimeVerified, where a bracket-without-emission would be
+  /// over-claimed evidence. When wiring tests against pre-v0.18.0
+  /// fixtures (no `sleuthMetadata.schemaVersion`), pass
+  /// `requireDetectorTraceRecord: false` explicitly or the schemaVersion
+  /// gate fires before any other validation.
+  final bool requireDetectorTraceRecord;
+}
+
 /// Metadata describing how a detector's threshold or heuristic was validated.
 ///
 /// Each detector is expected to expose a [DetectorMetadata] describing the
@@ -36,6 +158,7 @@ class DetectorMetadata {
     this.observedAxisArgKey,
     this.observedAxisTolerance = 0.25,
     this.observedAxisReduction = 'max',
+    this.additionalBrackets,
   });
 
   /// Strongest evidence tier that applies to this detector's numbers.
@@ -329,6 +452,52 @@ class DetectorMetadata {
   /// pin the chosen reduction per detector so a future drift cannot
   /// silently change semantics.
   final String observedAxisReduction;
+
+  /// Additional bracket axes for detectors whose runtimeVerified evidence
+  /// covers more than one independent observable. The top-level bracket
+  /// fields ([bracketStableId], [bracketThreshold], [bracketUnit], etc.)
+  /// describe the canonical bracket; each entry in [additionalBrackets]
+  /// describes a parallel axis with its own threshold, capture triad, and
+  /// validation rules.
+  ///
+  /// Use cases:
+  /// - `PlatformChannelDetector` runs both a frequency axis (calls/sec) and
+  ///   a cumulative-duration axis (ms/window) on the same stableId. Each
+  ///   axis is bracketed independently; both must pass for the raise to
+  ///   stand.
+  /// - `NetworkMonitorDetector` covers five families (`slow_request`,
+  ///   `large_response`, `request_frequency`, `http_error_spike`,
+  ///   `high_frequency_same_path`); a future raise of multiple families
+  ///   declares one canonical bracket plus one [BracketSpec] per
+  ///   additional family.
+  ///
+  /// Audit invariants enforced when non-null:
+  /// - Empty list rejected — encode missing additional axes as null, not
+  ///   `[]`. An empty list signals an in-progress edit or copy-paste error.
+  /// - Each spec has its own three-capture triad, validated by
+  ///   `ProfileCaptureSchema.validateBracket` independently. The audit
+  ///   gate calls validateBracket once per spec (top-level + each entry).
+  /// - Cross-spec uniqueness on `(stableId, observedAxisArgKey)` tuples
+  ///   spans the union of {top-level, additionalBrackets[*]}. Top-level
+  ///   is treated as logical spec #0; additionalBrackets[i] as spec #(i+1).
+  ///   Two specs with the same (stableId, argKey) are rejected — the same
+  ///   trace event would be double-counted across brackets. Two specs
+  ///   with the same stableId but different argKeys are accepted (the
+  ///   intended multi-axis pattern).
+  /// - Every runtimeVerified family declared via [perStableIdTier] must
+  ///   be covered either by the canonical bracket (via [coveredThresholds])
+  ///   OR by some [BracketSpec] whose [BracketSpec.coveredThresholds]
+  ///   contains the matching `<stableId>.<severity>` entry. Audit fails
+  ///   when a perStableIdTier raise is unmoored from any bracket evidence.
+  /// - All capture paths (top-level [profileCapturePaths] +
+  ///   `additionalBrackets[*].profileCapturePaths`) are walked by the
+  ///   orphan-capture-audit so a stray file under
+  ///   `test/validation/captures/` not referenced from any spec is
+  ///   rejected.
+  ///
+  /// Default null preserves v0.19.7 behavior — every existing detector
+  /// keeps a single canonical bracket and the field is implicit.
+  final List<BracketSpec>? additionalBrackets;
 
   /// Returns the effective evidence tier for a specific stable ID,
   /// applying any [perStableIdTier] override on top of the detector's

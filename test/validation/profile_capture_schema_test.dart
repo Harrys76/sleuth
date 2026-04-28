@@ -1451,6 +1451,196 @@ void main() {
       );
     });
   });
+
+  group('validateBracketSpec (v0.19.8 schema extension)', () {
+    const threshold = 1000;
+    const unit = 'ms';
+    final below = _fx('dormant_bracket_below.json');
+    final at = _fx('dormant_bracket_at.json');
+    final above = _fx('dormant_bracket_above.json');
+
+    BracketSpec mkSpec() => const BracketSpec(
+          stableId: 'dormant_bracket',
+          severityLabel: 'warning',
+          threshold: threshold,
+          unit: unit,
+          coveredThresholds: {'dormant_bracket.warning'},
+          profileCapturePaths: <String>[],
+          requireDetectorTraceRecord: false,
+        );
+
+    test('valid bracket via spec entrypoint succeeds', () {
+      expect(
+          () => ProfileCaptureSchema.validateBracketSpec(
+                mkSpec(),
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+              ),
+          returnsNormally);
+    });
+
+    test('synthetic-spec error text byte-for-byte identical (F2 preservation)',
+        () async {
+      // Build a bracket-violation triad and run BOTH entrypoints. The
+      // refactor extracted `_validateOneBracket(BracketSpec, ...)` as the
+      // shared body, so error messages must match byte-for-byte between
+      // (a) public validateBracket(named-args) and (b) validateBracketSpec.
+      // Drift here breaks every existing test pinned on string-match.
+      final tmp = await Directory.systemTemp.createTemp('sleuth_spec_eq_');
+      addTearDown(() => tmp.delete(recursive: true));
+      final belowF =
+          _writeRoleCapture(tmp, 'below.json', role: 'below', observed: 800);
+      final atF = _writeRoleCapture(tmp, 'at.json',
+          role: 'at', observed: 1200); // > 1100 at-band ceiling
+      final aboveF =
+          _writeRoleCapture(tmp, 'above.json', role: 'above', observed: 1500);
+
+      String? msgFromNamedArgs;
+      try {
+        ProfileCaptureSchema.validateBracket(
+          belowFile: belowF,
+          atFile: atF,
+          aboveFile: aboveF,
+          threshold: threshold,
+          unit: unit,
+        );
+      } on FormatException catch (e) {
+        msgFromNamedArgs = e.message;
+      }
+
+      String? msgFromSpec;
+      try {
+        ProfileCaptureSchema.validateBracketSpec(
+          const BracketSpec(
+            stableId: '',
+            severityLabel: '',
+            threshold: threshold,
+            unit: unit,
+            coveredThresholds: <String>{},
+            profileCapturePaths: <String>[],
+            requireDetectorTraceRecord: false,
+          ),
+          belowFile: belowF,
+          atFile: atF,
+          aboveFile: aboveF,
+        );
+      } on FormatException catch (e) {
+        msgFromSpec = e.message;
+      }
+
+      expect(msgFromNamedArgs, isNotNull);
+      expect(msgFromSpec, equals(msgFromNamedArgs),
+          reason: 'synthetic-spec wrapper must produce byte-identical '
+              'error text. Drift would break every existing string-match '
+              'assertion in the audit + reproducer test suite.');
+    });
+
+    test('per-spec iteration: 2 specs both validate independently', () {
+      final s1 = mkSpec();
+      final s2 = mkSpec();
+      expect(
+          () => ProfileCaptureSchema.validateBracketSpec(
+                s1,
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+              ),
+          returnsNormally);
+      expect(
+          () => ProfileCaptureSchema.validateBracketSpec(
+                s2,
+                belowFile: below,
+                atFile: at,
+                aboveFile: above,
+              ),
+          returnsNormally);
+    });
+
+    test(
+        'NaN threshold rejection: error text byte-for-byte identical across '
+        'both entrypoints', () {
+      String? msgFromNamedArgs;
+      try {
+        ProfileCaptureSchema.validateBracket(
+          belowFile: below,
+          atFile: at,
+          aboveFile: above,
+          threshold: double.nan,
+          unit: unit,
+        );
+      } on FormatException catch (e) {
+        msgFromNamedArgs = e.message;
+      }
+      String? msgFromSpec;
+      try {
+        ProfileCaptureSchema.validateBracketSpec(
+          BracketSpec(
+            stableId: '',
+            severityLabel: '',
+            threshold: double.nan,
+            unit: unit,
+            coveredThresholds: const <String>{},
+            profileCapturePaths: const <String>[],
+            requireDetectorTraceRecord: false,
+          ),
+          belowFile: below,
+          atFile: at,
+          aboveFile: above,
+        );
+      } on FormatException catch (e) {
+        msgFromSpec = e.message;
+      }
+      expect(msgFromNamedArgs, isNotNull);
+      expect(msgFromSpec, equals(msgFromNamedArgs));
+    });
+
+    test(
+        'below-not-below-threshold rejection: error text byte-for-byte '
+        'identical across both entrypoints', () async {
+      final tmp =
+          await Directory.systemTemp.createTemp('sleuth_below_violation_');
+      addTearDown(() => tmp.delete(recursive: true));
+      final belowF = _writeRoleCapture(tmp, 'below.json',
+          role: 'below', observed: 1100); // >= threshold = violation
+      final atF = _writeRoleCapture(tmp, 'at.json', role: 'at', observed: 1050);
+      final aboveF =
+          _writeRoleCapture(tmp, 'above.json', role: 'above', observed: 1500);
+      String? msgFromNamedArgs;
+      try {
+        ProfileCaptureSchema.validateBracket(
+          belowFile: belowF,
+          atFile: atF,
+          aboveFile: aboveF,
+          threshold: threshold,
+          unit: unit,
+        );
+      } on FormatException catch (e) {
+        msgFromNamedArgs = e.message;
+      }
+      String? msgFromSpec;
+      try {
+        ProfileCaptureSchema.validateBracketSpec(
+          const BracketSpec(
+            stableId: '',
+            severityLabel: '',
+            threshold: threshold,
+            unit: unit,
+            coveredThresholds: <String>{},
+            profileCapturePaths: <String>[],
+            requireDetectorTraceRecord: false,
+          ),
+          belowFile: belowF,
+          atFile: atF,
+          aboveFile: aboveF,
+        );
+      } on FormatException catch (e) {
+        msgFromSpec = e.message;
+      }
+      expect(msgFromNamedArgs, isNotNull);
+      expect(msgFromSpec, equals(msgFromNamedArgs));
+    });
+  });
 }
 
 Map<String, Object?> _validMetadata() => <String, Object?>{

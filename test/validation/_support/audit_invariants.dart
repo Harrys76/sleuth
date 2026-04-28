@@ -35,7 +35,8 @@ import 'package:analyzer/dart/analysis/utilities.dart' as dart_parse;
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:path/path.dart' as p;
-import 'package:sleuth/sleuth.dart' show EvidenceTier, ProfileCaptureSchema;
+import 'package:sleuth/sleuth.dart'
+    show BracketSpec, DetectorMetadata, EvidenceTier, ProfileCaptureSchema;
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -1388,6 +1389,8 @@ List<String> checkPerStableIdTier({
   required Map<String, EvidenceTier>? perStableIdTier,
   required Set<String>? coveredStableIds,
   required String? bracketStableId,
+  List<BracketSpec>? additionalBrackets,
+  Set<String>? topLevelCoveredThresholds,
 }) {
   if (perStableIdTier == null) return const [];
   if (perStableIdTier.isEmpty) {
@@ -1420,6 +1423,346 @@ List<String> checkPerStableIdTier({
           'family to be runtimeVerified or stronger. Either drop the '
           'bracket fields or add a perStableIdTier entry raising the '
           'family.');
+    }
+  }
+  // Every runtimeVerified-or-stronger family in perStableIdTier must
+  // be backed by bracket evidence proven through coveredThresholds —
+  // not stableId match alone. Coverage is satisfied when EITHER the
+  // canonical coveredThresholds set OR some additionalBrackets[*]
+  // spec's coveredThresholds set contains an entry of the form
+  // `<familyId>.<severity>`. Stableid-only matching let a spec with
+  // `stableId: 'X'` and `coveredThresholds: {'Y.warning'}` falsely
+  // satisfy a perStableIdTier['X'] raise — the schema field that
+  // exists for severity-scoping was effectively dead data.
+  bool coveredViaThresholds(Set<String> thresholds, String familyId) {
+    final prefix = '$familyId.';
+    return thresholds.any((e) => e.trim().startsWith(prefix));
+  }
+
+  for (final entry in perStableIdTier.entries) {
+    if (entry.value.index < EvidenceTier.runtimeVerified.index) continue;
+    final familyId = entry.key;
+    final canonicalCovers = topLevelCoveredThresholds != null &&
+        coveredViaThresholds(topLevelCoveredThresholds, familyId);
+    final specCovers = additionalBrackets
+            ?.any((s) => coveredViaThresholds(s.coveredThresholds, familyId)) ??
+        false;
+    if (!canonicalCovers && !specCovers) {
+      final canonicalThresholds =
+          topLevelCoveredThresholds?.toList() ?? const [];
+      final specStableIds =
+          additionalBrackets?.map((s) => s.stableId).toList() ?? const [];
+      failures.add('$label: perStableIdTier["$familyId"] = '
+          '${entry.value.name} but no coveredThresholds entry of the form '
+          '"$familyId.<severity>" exists in canonical bracket '
+          '(coveredThresholds=$canonicalThresholds) or any additionalBrackets '
+          'spec (stableIds=$specStableIds). A runtimeVerified raise must be '
+          'backed by an explicit severity-scoped covered-threshold entry — '
+          'declare "$familyId.<severity>" in the canonical coveredThresholds '
+          'or in a BracketSpec.coveredThresholds for this family.');
+    }
+  }
+  return failures;
+}
+
+/// Validates `DetectorMetadata.additionalBrackets` (since v0.19.8). Each
+/// entry is an independent bracket axis with its own threshold, capture
+/// triad, and observed-axis cross-check — used when a single detector
+/// emits more than one runtimeVerified-quality observable on the same
+/// stableId (e.g. PlatformChannel frequency + cumulative-duration).
+///
+/// Audit checks performed here:
+///
+///   * Empty list rejected. Encode "no additional axes" as null. An
+///     empty list signals an in-progress edit or copy-paste error.
+///   * Per-spec required-field structural checks (non-empty stableId /
+///     severityLabel / unit, non-empty coveredThresholds, exactly 3
+///     entries in profileCapturePaths).
+///   * Cross-spec uniqueness on the `(stableId, observedAxisArgKey)`
+///     tuple, spanning the union of {top-level (logical spec #0),
+///     additionalBrackets[i] (spec #(i+1))}. Two specs with the same
+///     stableId AND argKey would double-count the same trace event.
+///     Two specs with the same stableId but different argKeys are
+///     accepted (the intended multi-axis pattern).
+List<String> checkAdditionalBrackets({
+  required String label,
+  required List<BracketSpec>? additionalBrackets,
+  String? topLevelStableId,
+  String? topLevelObservedAxisArgKey,
+  List<String>? topLevelCapturePaths,
+}) {
+  if (additionalBrackets == null) return const [];
+  if (additionalBrackets.isEmpty) {
+    return [
+      '$label: additionalBrackets is an empty list — encode "no additional '
+          'axes" as null, not []. An empty list signals an in-progress edit '
+          'or copy-paste error.',
+    ];
+  }
+  final failures = <String>[];
+  for (var i = 0; i < additionalBrackets.length; i++) {
+    final spec = additionalBrackets[i];
+    final ctx = '$label.additionalBrackets[$i]';
+    final specStableTrim = spec.stableId.trim();
+    final specSevTrim = spec.severityLabel.trim();
+    if (specStableTrim.isEmpty) {
+      failures.add('$ctx: stableId is empty — every spec must name the '
+          'family it brackets');
+    }
+    if (specSevTrim.isEmpty) {
+      failures.add('$ctx: severityLabel is empty — must be "warning" or '
+          '"critical" matching the threshold the bracket validates');
+    }
+    if (spec.unit.trim().isEmpty) {
+      failures.add('$ctx: unit is empty — required alongside threshold');
+    }
+    if (spec.coveredThresholds.isEmpty) {
+      failures.add('$ctx: coveredThresholds is empty — declare the scoped '
+          'thresholds this spec covers (e.g. {"<id>.warning"})');
+    }
+    // Per-spec coveredThresholds content validation. Each entry must be
+    // `<stableId>.<severity>` with a known severity tag, AND its
+    // stableId/severity must match the spec's own (a BracketSpec is
+    // single-family + single-severity by construction). Without this,
+    // a spec can declare coverage for a different family — leaving the
+    // perStableIdTier coverage proof unmoored from the actual bracket.
+    for (final raw in spec.coveredThresholds) {
+      final entry = raw.trim();
+      if (entry.isEmpty) {
+        failures.add('$ctx: coveredThresholds contains an empty/whitespace '
+            'entry');
+        continue;
+      }
+      final parts = entry.split('.');
+      if (parts.length != 2) {
+        failures.add('$ctx: coveredThresholds entry "$entry" must be '
+            '"<stableId>.<severity>" with exactly one separator (got '
+            '${parts.length - 1} dots)');
+        continue;
+      }
+      final eStableId = parts[0];
+      final eSeverity = parts[1];
+      if (eStableId.isEmpty) {
+        failures.add('$ctx: coveredThresholds entry "$entry" has an empty '
+            'stableId prefix before "."');
+        continue;
+      }
+      if (eSeverity.isEmpty) {
+        failures.add('$ctx: coveredThresholds entry "$entry" has an empty '
+            'severity suffix after "."');
+        continue;
+      }
+      if (!knownSeverityTags.contains(eSeverity)) {
+        failures.add('$ctx: coveredThresholds entry "$entry" uses '
+            'unrecognised severity "$eSeverity" (must be one of '
+            '$knownSeverityTags) — typo or non-canonical tag');
+        continue;
+      }
+      if (specStableTrim.isNotEmpty && eStableId != specStableTrim) {
+        failures.add('$ctx: coveredThresholds entry "$entry" stableId '
+            '"$eStableId" does not match spec.stableId "$specStableTrim". '
+            'A BracketSpec is single-family — declare coverage for the '
+            'same family the spec brackets.');
+        continue;
+      }
+      if (specSevTrim.isNotEmpty && eSeverity != specSevTrim) {
+        failures.add('$ctx: coveredThresholds entry "$entry" severity '
+            '"$eSeverity" does not match spec.severityLabel "$specSevTrim". '
+            'A BracketSpec is single-severity — declare coverage for the '
+            'same severity the spec brackets.');
+        continue;
+      }
+    }
+    if (spec.profileCapturePaths.length != 3) {
+      failures.add('$ctx: profileCapturePaths must contain exactly 3 entries '
+          '(below / at / above), got ${spec.profileCapturePaths.length}: '
+          '${spec.profileCapturePaths}');
+    }
+    // Severity-scoped ceiling guard. When the spec covers a severity-
+    // scoped (dotted) threshold, aboveCeilingMultiplier must be set
+    // explicitly — inheriting the schema default 2.0 may ambient-bracket
+    // the adjacent severity tier on families with sub-2× spacing.
+    final hasDottedThreshold =
+        spec.coveredThresholds.any((e) => e.contains('.'));
+    if (hasDottedThreshold && spec.aboveCeilingMultiplier == null) {
+      failures.add('$ctx: severity-scoped coveredThresholds requires an '
+          'explicit aboveCeilingMultiplier — the schema default (2.0) may '
+          'ambient-bracket the adjacent severity tier on families spaced '
+          'closer than 2×. Pick a multiplier that keeps the above-leg '
+          'strictly under the next tier\'s threshold.');
+    }
+  }
+
+  // Cross-spec uniqueness: top-level treated as logical spec #0, each
+  // additionalBrackets[i] as spec #(i+1). Canonicalize stableId and
+  // observedAxisArgKey via trim before tuple construction so whitespace
+  // variants ("foo" vs "foo ") and blank-vs-null argKey variants do not
+  // become distinct keys that mask collisions.
+  String? canonical(String? raw) {
+    if (raw == null) return null;
+    final t = raw.trim();
+    return t.isEmpty ? null : t;
+  }
+
+  final seen = <(String, String?), String>{};
+  final tlStable = canonical(topLevelStableId);
+  final tlArg = canonical(topLevelObservedAxisArgKey);
+  if (tlStable != null) {
+    seen[(tlStable, tlArg)] = 'top-level (spec #0)';
+  }
+  for (var i = 0; i < additionalBrackets.length; i++) {
+    final spec = additionalBrackets[i];
+    final specStable = canonical(spec.stableId);
+    if (specStable == null) continue;
+    final specArg = canonical(spec.observedAxisArgKey);
+    final key = (specStable, specArg);
+    final priorLabel = seen[key];
+    final currLabel = 'additionalBrackets[$i] (spec #${i + 1})';
+    if (priorLabel != null) {
+      final argKeyDisplay = specArg == null
+          ? 'null (no cross-check on either spec)'
+          : '"$specArg"';
+      final reason = specArg == null
+          ? 'redundant — both specs validate the same trace event '
+              'name without an observed-axis cross-check to distinguish '
+              'them. Pick distinct stableIds OR set observedAxisArgKey '
+              'on at least one spec to disambiguate'
+          : 'would double-count the same trace event with the same '
+              'observed-axis arg. Use distinct observedAxisArgKeys '
+              '(or null on one) when bracketing multiple axes on the '
+              'same stableId';
+      failures.add('$label: cross-spec collision on (stableId="$specStable", '
+          'observedAxisArgKey=$argKeyDisplay) '
+          '— $priorLabel and $currLabel $reason.');
+    } else {
+      seen[key] = currLabel;
+    }
+  }
+
+  // Capture-path disjointness across canonical bracket and all
+  // additionalBrackets. Two specs sharing the same triad files cannot
+  // independently certify two axes — even with distinct argKeys, if
+  // the audit doesn't enforce path disjointness the "evidence" reduces
+  // to one set of captures claiming two runtimeVerified axes.
+  final pathOwners = <String, String>{};
+  void recordPath(String raw, String owner) {
+    if (raw.trim().isEmpty) return;
+    final canonicalPath = p.canonicalize(raw);
+    final priorOwner = pathOwners[canonicalPath];
+    if (priorOwner != null && priorOwner != owner) {
+      failures.add('$label: capture path "$raw" is shared between '
+          '$priorOwner and $owner. Each axis must have its own triad '
+          '— path overlap defeats the independence claim.');
+    } else {
+      pathOwners[canonicalPath] = owner;
+    }
+  }
+
+  if (topLevelCapturePaths != null) {
+    for (final raw in topLevelCapturePaths) {
+      recordPath(raw, 'top-level (spec #0)');
+    }
+  }
+  for (var i = 0; i < additionalBrackets.length; i++) {
+    final spec = additionalBrackets[i];
+    final owner = 'additionalBrackets[$i] (spec #${i + 1})';
+    for (final raw in spec.profileCapturePaths) {
+      recordPath(raw, owner);
+    }
+  }
+
+  return failures;
+}
+
+/// Repo-containment + existence + parse contract for every capture
+/// path in `additionalBrackets[*].profileCapturePaths`. Mirrors the
+/// canonical-bracket rules in [checkCapturePaths] so a future
+/// multi-axis raise cannot certify runtimeVerified evidence with files
+/// that escape the repo, are missing, or fail schema parse — the same
+/// failure modes the canonical artifact contract catches.
+List<String> checkAdditionalCapturePaths({
+  required String label,
+  required List<BracketSpec>? additionalBrackets,
+  String? repoRoot,
+}) {
+  if (additionalBrackets == null || additionalBrackets.isEmpty) {
+    return const [];
+  }
+  final rootDirPath = repoRoot ?? Directory.current.path;
+  if (!File(p.join(rootDirPath, 'pubspec.yaml')).existsSync()) {
+    return const [];
+  }
+  final failures = <String>[];
+  for (var i = 0; i < additionalBrackets.length; i++) {
+    final spec = additionalBrackets[i];
+    final ctx = '$label.additionalBrackets[$i] (spec #${i + 1})';
+    for (final capture in spec.profileCapturePaths) {
+      if (capture.trim().isEmpty) continue;
+      if (!isPathInsideRepo(capture, repoRoot: rootDirPath)) {
+        failures
+            .add('$ctx: profileCapturePath escapes the repo root: $capture');
+        continue;
+      }
+      final file =
+          File(p.isAbsolute(capture) ? capture : p.join(rootDirPath, capture));
+      if (!file.existsSync()) {
+        failures.add('$ctx: profileCapturePath does not exist: $capture');
+        continue;
+      }
+      try {
+        ProfileCaptureSchema.parseFile(file);
+      } on FormatException catch (e) {
+        failures.add('$ctx: $capture — ${e.message}');
+      }
+    }
+  }
+  return failures;
+}
+
+/// Validates each entry in `additionalBrackets` against
+/// `ProfileCaptureSchema.validateBracketSpec`. Iterates AFTER any
+/// canonical [checkBracketValidation] call — both must pass for a
+/// multi-axis runtimeVerified raise.
+///
+/// [additionalBrackets] is expected to have already passed
+/// [checkAdditionalBrackets] (length 3 paths, non-empty fields,
+/// cross-spec uniqueness) AND [checkAdditionalCapturePaths] (repo
+/// containment + parse). This helper focuses on the file-level
+/// bracketing rule (below < threshold ≤ at ≤ at-band-upper, above >
+/// threshold ≤ above-ceiling, trace-record presence).
+List<String> checkAdditionalBracketValidation({
+  required String label,
+  required EvidenceTier effectiveMaxTier,
+  required List<BracketSpec>? additionalBrackets,
+  String? repoRoot,
+}) {
+  if (additionalBrackets == null || additionalBrackets.isEmpty) {
+    return const [];
+  }
+  if (effectiveMaxTier != EvidenceTier.runtimeVerified &&
+      effectiveMaxTier != EvidenceTier.externallyCited) {
+    return const [];
+  }
+  final rootDirPath = repoRoot ?? Directory.current.path;
+  if (!File(p.join(rootDirPath, 'pubspec.yaml')).existsSync()) {
+    return const [];
+  }
+  File resolve(String raw) =>
+      File(p.isAbsolute(raw) ? raw : p.join(rootDirPath, raw));
+  final failures = <String>[];
+  for (var i = 0; i < additionalBrackets.length; i++) {
+    final spec = additionalBrackets[i];
+    if (spec.profileCapturePaths.length != 3) continue;
+    try {
+      ProfileCaptureSchema.validateBracketSpec(
+        spec,
+        belowFile: resolve(spec.profileCapturePaths[0]),
+        atFile: resolve(spec.profileCapturePaths[1]),
+        aboveFile: resolve(spec.profileCapturePaths[2]),
+      );
+    } on FormatException catch (e) {
+      failures.add('$label.additionalBrackets[$i] (spec #${i + 1}): bracket '
+          'validation failed — ${e.message}');
     }
   }
   return failures;
@@ -1529,6 +1872,82 @@ List<String> checkBracketValidation({
 /// Walks [capturesRoot] for every committed `.json` capture and
 /// returns a failure entry for any file
 /// that is neither declared in some detector/component's
+/// Composite audit for the runtimeVerified / externallyCited helper
+/// chain. Single source of truth so the production audit walker and
+/// the synthetic E2E pipeline test exercise the SAME helper sequence
+/// — drift between the two surfaces was the gap that let the
+/// schema-extension wiring ship without the full per-spec checks.
+///
+/// Caller invokes once per detector at runtimeVerified / externallyCited
+/// effective tier. Returns a flat `List<String>` of failure messages —
+/// no exceptions thrown for individual helper failures so the caller
+/// can accumulate and present all problems in one pass.
+///
+/// Branch-specific concerns (citation URL for externallyCited,
+/// reproducerPath presence) stay in the walker since they don't share
+/// the per-spec helper sequence.
+List<String> runRuntimeTierAudit({
+  required String label,
+  required DetectorMetadata meta,
+  String? repoRoot,
+}) {
+  final failures = <String>[];
+  failures.addAll(checkCoveredThresholds(
+    label: label,
+    tier: meta.effectiveMaxTier,
+    coveredThresholds: meta.coveredThresholds,
+    coveredStableIds: meta.coveredStableIds,
+    parametricFamilies: meta.parametricFamilies,
+    bracketThreshold: meta.bracketThreshold,
+  ));
+  failures.addAll(checkSeverityScopedCeiling(
+    label: label,
+    tier: meta.effectiveMaxTier,
+    coveredThresholds: meta.coveredThresholds,
+    aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+  ));
+  failures.addAll(checkBracketCount(
+    label: label,
+    tier: meta.effectiveMaxTier,
+    capturePaths: meta.profileCapturePaths,
+  ));
+  failures.addAll(checkBracketValidation(
+    label: label,
+    tier: meta.effectiveMaxTier,
+    capturePaths: meta.profileCapturePaths,
+    bracketThreshold: meta.bracketThreshold,
+    bracketUnit: meta.bracketUnit,
+    aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+    bracketAtTolerance: meta.bracketAtTolerance,
+    bracketStableId: meta.bracketStableId,
+    bracketSeverityLabel: meta.bracketSeverityLabel,
+    requireTraceRecord: true,
+    requireUniqueDetectedAtMicros: meta.bracketRequireUniqueDetectedAtMicros,
+    observedAxisArgKey: meta.observedAxisArgKey,
+    observedAxisTolerance: meta.observedAxisTolerance,
+    repoRoot: repoRoot,
+  ));
+  failures.addAll(checkAdditionalBrackets(
+    label: label,
+    additionalBrackets: meta.additionalBrackets,
+    topLevelStableId: meta.bracketStableId,
+    topLevelObservedAxisArgKey: meta.observedAxisArgKey,
+    topLevelCapturePaths: meta.profileCapturePaths,
+  ));
+  failures.addAll(checkAdditionalCapturePaths(
+    label: label,
+    additionalBrackets: meta.additionalBrackets,
+    repoRoot: repoRoot,
+  ));
+  failures.addAll(checkAdditionalBracketValidation(
+    label: label,
+    effectiveMaxTier: meta.effectiveMaxTier,
+    additionalBrackets: meta.additionalBrackets,
+    repoRoot: repoRoot,
+  ));
+  return failures;
+}
+
 /// `profileCapturePaths` nor explicitly allowlisted.
 ///
 /// Motivation: v0.16.4 reverted `NetworkMonitorDetector` from a staged

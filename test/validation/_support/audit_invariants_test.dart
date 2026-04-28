@@ -26,7 +26,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:sleuth/sleuth.dart' show EvidenceTier;
+import 'package:sleuth/sleuth.dart' show BracketSpec, EvidenceTier;
 
 import 'audit_invariants.dart';
 
@@ -1880,6 +1880,7 @@ void main() {
               'high_frequency_same_path',
             },
             bracketStableId: 'slow_request',
+            topLevelCoveredThresholds: const {'slow_request.warning'},
           ),
           isEmpty);
     });
@@ -1894,6 +1895,7 @@ void main() {
             },
             coveredStableIds: const {'slow_request'},
             bracketStableId: 'slow_request',
+            topLevelCoveredThresholds: const {'slow_request.warning'},
           ),
           isEmpty);
     });
@@ -2416,6 +2418,236 @@ void main() {
       expect(failures, hasLength(2));
       expect(failures.any((f) => f.contains('a.json')), isTrue);
       expect(failures.any((f) => f.contains('missing.json')), isTrue);
+    });
+  });
+
+  group('checkAdditionalBrackets (v0.19.8 schema extension)', () {
+    BracketSpec mkSpec({
+      String stableId = 'platform_channel_traffic',
+      String severityLabel = 'warning',
+      num threshold = 8,
+      String unit = 'ms',
+      Set<String>? coveredThresholds,
+      List<String>? profileCapturePaths,
+      String? observedAxisArgKey,
+      double? aboveCeilingMultiplier = 1.5,
+      String pathTag = 'x',
+    }) =>
+        BracketSpec(
+          stableId: stableId,
+          severityLabel: severityLabel,
+          threshold: threshold,
+          unit: unit,
+          coveredThresholds: coveredThresholds ?? {'$stableId.$severityLabel'},
+          profileCapturePaths: profileCapturePaths ??
+              [
+                'test/validation/captures/$pathTag/below.json',
+                'test/validation/captures/$pathTag/at.json',
+                'test/validation/captures/$pathTag/above.json',
+              ],
+          observedAxisArgKey: observedAxisArgKey,
+          aboveCeilingMultiplier: aboveCeilingMultiplier,
+        );
+
+    test('null is a no-op', () {
+      final failures = checkAdditionalBrackets(
+        label: 'X',
+        additionalBrackets: null,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('empty list is rejected', () {
+      final failures = checkAdditionalBrackets(
+        label: 'X',
+        additionalBrackets: const <BracketSpec>[],
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('empty list'));
+    });
+
+    test('per-spec required-field structural failures surface', () {
+      final spec = BracketSpec(
+        stableId: '',
+        severityLabel: '',
+        threshold: 8,
+        unit: '',
+        coveredThresholds: const <String>{},
+        profileCapturePaths: const ['only/one.json'],
+      );
+      final failures = checkAdditionalBrackets(
+        label: 'X',
+        additionalBrackets: [spec],
+      );
+      expect(failures.any((f) => f.contains('stableId is empty')), isTrue);
+      expect(failures.any((f) => f.contains('severityLabel is empty')), isTrue);
+      expect(failures.any((f) => f.contains('unit is empty')), isTrue);
+      expect(failures.any((f) => f.contains('coveredThresholds is empty')),
+          isTrue);
+      expect(
+          failures.any((f) => f.contains('profileCapturePaths must contain')),
+          isTrue);
+    });
+
+    test('cross-spec collision rejected on identical (stableId, argKey)', () {
+      final s1 = mkSpec(observedAxisArgKey: 'observedCount');
+      final s2 = mkSpec(observedAxisArgKey: 'observedCount');
+      final failures = checkAdditionalBrackets(
+        label: 'X',
+        additionalBrackets: [s1, s2],
+      );
+      expect(failures.any((f) => f.contains('cross-spec collision')), isTrue);
+    });
+
+    test('same stableId with distinct argKeys is accepted (multi-axis)', () {
+      final s1 = mkSpec(observedAxisArgKey: 'observedCount', pathTag: 'a');
+      final s2 = mkSpec(
+        observedAxisArgKey: 'cumulativeDurationUs',
+        pathTag: 'b',
+      );
+      final failures = checkAdditionalBrackets(
+        label: 'X',
+        additionalBrackets: [s1, s2],
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('mixed-mode: top-level (spec #0) and additionalBrackets[0] collide',
+        () {
+      final extra = mkSpec(observedAxisArgKey: 'a');
+      final failures = checkAdditionalBrackets(
+        label: 'X',
+        additionalBrackets: [extra],
+        topLevelStableId: 'platform_channel_traffic',
+        topLevelObservedAxisArgKey: 'a',
+      );
+      expect(
+          failures.any(
+              (f) => f.contains('top-level (spec #0)') && f.contains('#1')),
+          isTrue);
+    });
+
+    test('mixed-mode: top-level + additionalBrackets distinct argKeys accept',
+        () {
+      final extra = mkSpec(observedAxisArgKey: 'b');
+      final failures = checkAdditionalBrackets(
+        label: 'X',
+        additionalBrackets: [extra],
+        topLevelStableId: 'platform_channel_traffic',
+        topLevelObservedAxisArgKey: 'a',
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('three specs: only the colliding pair is reported', () {
+      final s1 = mkSpec(observedAxisArgKey: 'a', pathTag: 'p1');
+      final s2 = mkSpec(observedAxisArgKey: 'b', pathTag: 'p2');
+      final s3 = mkSpec(observedAxisArgKey: 'a', pathTag: 'p3');
+      final failures = checkAdditionalBrackets(
+        label: 'X',
+        additionalBrackets: [s1, s2, s3],
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('#1'));
+      expect(failures.single, contains('#3'));
+    });
+  });
+
+  group('checkPerStableIdTier additionalBrackets coverage (v0.19.8)', () {
+    test('runtimeVerified raise covered by canonical coveredThresholds passes',
+        () {
+      final failures = checkPerStableIdTier(
+        label: 'X',
+        tier: EvidenceTier.reproducerOnly,
+        perStableIdTier: const {'foo': EvidenceTier.runtimeVerified},
+        coveredStableIds: const {'foo'},
+        bracketStableId: 'foo',
+        topLevelCoveredThresholds: const {'foo.warning'},
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('runtimeVerified raise covered by additionalBrackets passes', () {
+      final spec = BracketSpec(
+        stableId: 'bar',
+        severityLabel: 'warning',
+        threshold: 8,
+        unit: 'ms',
+        coveredThresholds: const {'bar.warning'},
+        profileCapturePaths: const [
+          'test/validation/captures/y/below.json',
+          'test/validation/captures/y/at.json',
+          'test/validation/captures/y/above.json',
+        ],
+      );
+      final failures = checkPerStableIdTier(
+        label: 'X',
+        tier: EvidenceTier.reproducerOnly,
+        perStableIdTier: const {
+          'foo': EvidenceTier.runtimeVerified,
+          'bar': EvidenceTier.runtimeVerified,
+        },
+        coveredStableIds: const {'foo', 'bar'},
+        bracketStableId: 'foo',
+        additionalBrackets: [spec],
+        topLevelCoveredThresholds: const {'foo.warning'},
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('runtimeVerified raise without coveredThresholds entry is rejected',
+        () {
+      final failures = checkPerStableIdTier(
+        label: 'X',
+        tier: EvidenceTier.reproducerOnly,
+        perStableIdTier: const {
+          'foo': EvidenceTier.runtimeVerified,
+          'unmoored': EvidenceTier.runtimeVerified,
+        },
+        coveredStableIds: const {'foo', 'unmoored'},
+        bracketStableId: 'foo',
+        additionalBrackets: null,
+        topLevelCoveredThresholds: const {'foo.warning'},
+      );
+      expect(failures.any((f) => f.contains('"unmoored"')), isTrue);
+      expect(
+          failures.any((f) => f.contains('no coveredThresholds entry of the '
+              'form "unmoored.<severity>"')),
+          isTrue);
+    });
+
+    test(
+        'spec with mismatched stableId vs coveredThresholds does not cover '
+        'perStableIdTier raise (drift guard)', () {
+      // Spec declares stableId='X' but coveredThresholds={'Y.warning'} —
+      // it does NOT cover a perStableIdTier raise on 'X' anymore (the
+      // schema field is now load-bearing).
+      final spec = BracketSpec(
+        stableId: 'X',
+        severityLabel: 'warning',
+        threshold: 8,
+        unit: 'ms',
+        coveredThresholds: const {'Y.warning'},
+        profileCapturePaths: const [
+          'a.json',
+          'b.json',
+          'c.json',
+        ],
+      );
+      final failures = checkPerStableIdTier(
+        label: 'L',
+        tier: EvidenceTier.reproducerOnly,
+        perStableIdTier: const {'X': EvidenceTier.runtimeVerified},
+        coveredStableIds: const {'X'},
+        bracketStableId: null,
+        additionalBrackets: [spec],
+        topLevelCoveredThresholds: null,
+      );
+      expect(failures.any((f) => f.contains('"X"')), isTrue);
+      expect(
+          failures.any((f) => f.contains('no coveredThresholds entry of the '
+              'form "X.<severity>"')),
+          isTrue);
     });
   });
 }

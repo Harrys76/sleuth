@@ -409,6 +409,80 @@ DetectorMetadata get validationMetadata => const DetectorMetadata(
 `runtimeVerified` since v0.18.0. Without them the audit fails with a
 precise error before reaching `validateBracket`.
 
+### Multi-axis raises (v0.19.8+)
+
+When a single family needs more than one runtimeVerified-quality axis
+(e.g. PlatformChannel `platform_channel_traffic` runs both a frequency
+axis in calls/sec AND a cumulative-duration axis in ms/window), declare
+the canonical axis via the top-level fields and additional axes via
+`additionalBrackets: [BracketSpec(...), ...]`. `BracketSpec` is exported
+from the public barrel — import alongside `DetectorMetadata` and
+`EvidenceTier`:
+
+```dart
+import 'package:sleuth/sleuth.dart';
+
+DetectorMetadata get validationMetadata => const DetectorMetadata(
+      tier: EvidenceTier.runtimeVerified,
+      rationale: '...',
+      reproducerPath: 'test/validation/platform_channel_reproducer_test.dart',
+      // Canonical axis — frequency.
+      profileCapturePaths: [
+        'test/validation/captures/platform_channel/platform_channel_traffic_below.json',
+        'test/validation/captures/platform_channel/platform_channel_traffic_at.json',
+        'test/validation/captures/platform_channel/platform_channel_traffic_above.json',
+      ],
+      bracketStableId: 'platform_channel_traffic',
+      bracketSeverityLabel: 'warning',
+      bracketThreshold: 20,
+      bracketUnit: 'events',
+      bracketAtTolerance: 0.50,
+      aboveCeilingMultiplier: 1.95,
+      observedAxisArgKey: 'observedCount',
+      coveredStableIds: {'platform_channel_traffic'},
+      coveredThresholds: {'platform_channel_traffic.warning'},
+      // Second axis — cumulative duration. Same family, distinct argKey.
+      additionalBrackets: [
+        BracketSpec(
+          stableId: 'platform_channel_traffic',
+          severityLabel: 'warning',
+          threshold: 8,
+          unit: 'ms',
+          coveredThresholds: {'platform_channel_traffic.warning'},
+          profileCapturePaths: [
+            'test/validation/captures/platform_channel/'
+                'platform_channel_duration_below.json',
+            'test/validation/captures/platform_channel/'
+                'platform_channel_duration_at.json',
+            'test/validation/captures/platform_channel/'
+                'platform_channel_duration_above.json',
+          ],
+          atTolerance: 0.30,
+          aboveCeilingMultiplier: 2.0,
+          observedAxisArgKey: 'cumulativeDurationUs',
+          requireUniqueDetectedAtMicros: true,
+          requireDetectorTraceRecord: true,
+        ),
+      ],
+    );
+```
+
+Audit invariants enforced:
+
+- Cross-spec uniqueness on `(stableId, observedAxisArgKey)`. The example
+  above is accepted because the two specs share a stableId but use
+  distinct argKeys (`observedCount` vs `cumulativeDurationUs`). Two
+  specs with the same `(stableId, argKey)` would double-count the same
+  trace event and are rejected.
+- Empty `additionalBrackets: []` is rejected. Encode "no additional
+  axes" as `null` (or omit the field).
+- Each spec's `profileCapturePaths` must contain exactly 3 entries
+  (below / at / above), validated by `validateBracketSpec` independently.
+- Every runtimeVerified family declared via `perStableIdTier` must be
+  covered by either the canonical bracket OR a `BracketSpec.stableId`
+  match — a `perStableIdTier` raise without bracket evidence fails
+  audit.
+
 ## 7. Run the audit
 
 ```
