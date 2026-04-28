@@ -222,6 +222,40 @@ void main() {
         hasLength(1),
       );
     });
+
+    // Parallel-emission semantics: when both gates are true (severeCount
+    // >= 3 AND jankPercent > 15) BOTH stableIds fire. Pre-v0.19.6 used
+    // `if/else if` which suppressed `jank_detected` whenever
+    // `sustained_jank` fired — on devices with ambient severeCount >= 3
+    // that made warning-tier signal structurally unreachable, blocking
+    // runtimeVerified bracket captures. Overlap fixture pins the
+    // parallel-emission contract so a future regression to mutual
+    // exclusion is caught.
+    test('overlap (severe + jank both gates true) — both stableIds fire', () {
+      // 5 severe frames (>33ms) AND remaining 15 frames at 20ms
+      // (jank but not severe). Total 20 frames: severeCount=5
+      // (>=3 critical gate) AND jankCount=20 (jankPercent=100%, >15
+      // warning gate). Both gates satisfied — both stableIds fire
+      // concurrently.
+      for (var i = 0; i < 5; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 50));
+      }
+      for (var i = 5; i < 20; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 20));
+      }
+
+      final sustained =
+          detector.issues.where((i) => i.stableId == 'sustained_jank');
+      final jankDetected =
+          detector.issues.where((i) => i.stableId == 'jank_detected');
+      expect(sustained, hasLength(1),
+          reason: 'severeCount >= 3 → sustained_jank.critical fires');
+      expect(jankDetected, hasLength(1),
+          reason: 'jankPercent > 15 → jank_detected.warning fires '
+              'concurrently (Option B parallel emission)');
+      expect(sustained.first.severity, IssueSeverity.critical);
+      expect(jankDetected.first.severity, IssueSeverity.warning);
+    });
   });
 
   group('FrameTimingDetector reproducer — raster_cache_thrashing', () {
@@ -563,6 +597,154 @@ void main() {
       expect(buffer.latest, isNotNull);
       expect(buffer.windowSampleCount, 0);
       expect(buffer.actualFps, 0);
+    });
+  });
+
+  // -- v0.19.6 — runtimeVerified raise plumbing --
+  // These four groups pin the structural plumbing that supports the
+  // `jank_detected` perStableIdTier raise: capture-mode warmup short-circuit,
+  // emission-seq monotonicity (audit-gate uniqueness invariant), reset()
+  // semantics with `_emissionSeq` preservation, and `extraTraceArgs` shape.
+  group('FrameTimingDetector v0.19.6 — captureMode warmup short-circuit', () {
+    test(
+        'captureMode=true bypasses 3 s warmup — fires on synthetic frames '
+        'without elapsing warmupDuration', () {
+      final detector = FrameTimingDetector(captureMode: true);
+      addTearDown(detector.dispose);
+      // Inject 3 jank + 16 normal at a timestamp 0 baseline. With captureMode
+      // OFF the default 3 s warmupDuration would suppress this entirely.
+      for (var i = 0; i < 3; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 17));
+      }
+      for (var i = 3; i < 19; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+      }
+      expect(
+        detector.issues.where((i) => i.stableId == 'jank_detected'),
+        hasLength(1),
+        reason: 'captureMode short-circuits warmup',
+      );
+    });
+
+    test(
+        'captureMode=false preserves warmupDuration suppression — synthetic '
+        'frames at default 3 s gate stay silent', () {
+      final detector = FrameTimingDetector(); // captureMode=false default
+      addTearDown(detector.dispose);
+      for (var i = 0; i < 3; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 17));
+      }
+      for (var i = 3; i < 19; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+      }
+      expect(detector.issues, isEmpty,
+          reason: 'default warmup gate suppresses');
+    });
+  });
+
+  group('FrameTimingDetector v0.19.6 — extraTraceArgs shape', () {
+    test(
+        'jank_detected emission carries observedJankCount, '
+        'observedJankPercent, observedWorstFrameMs, bufferSize as String args',
+        () {
+      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+      addTearDown(detector.dispose);
+      for (var i = 0; i < 3; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 22));
+      }
+      for (var i = 3; i < 19; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+      }
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
+      expect(issue.extraTraceArgs, isNotNull);
+      expect(
+          issue.extraTraceArgs!.keys,
+          containsAll(<String>{
+            'observedJankCount',
+            'observedJankPercent',
+            'observedWorstFrameMs',
+            'bufferSize',
+          }));
+      // Per Timeline arg-encoding contract values are stringified.
+      for (final v in issue.extraTraceArgs!.values) {
+        expect(v, isA<String>());
+      }
+      expect(int.parse(issue.extraTraceArgs!['observedJankCount']!), 3);
+      expect(int.parse(issue.extraTraceArgs!['bufferSize']!), 19);
+      // Worst frame must reflect the 22 ms injected jank.
+      final worstMs =
+          double.parse(issue.extraTraceArgs!['observedWorstFrameMs']!);
+      expect(worstMs, closeTo(22.0, 0.5));
+    });
+  });
+
+  group('FrameTimingDetector v0.19.6 — _emissionSeq monotonicity', () {
+    test(
+        'back-to-back evaluations across multiple emissions produce '
+        'STRICTLY-INCREASING dedupIdentityMicros (audit-gate uniqueness '
+        'invariant)', () {
+      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+      addTearDown(detector.dispose);
+
+      final identities = <int>[];
+      for (var leg = 0; leg < 5; leg++) {
+        // Each cycle: clear + repopulate to force a fresh _evaluateJank
+        // emission. Without the +(_emissionSeq++) tie-breaker the same
+        // microsecond clock could collide across consecutive evaluations.
+        detector.reset();
+        for (var i = 0; i < 3; i++) {
+          detector.addFrameForTest(
+              makeStats(frameNumber: i + leg * 100, totalMs: 17));
+        }
+        for (var i = 3; i < 19; i++) {
+          detector.addFrameForTest(
+              makeStats(frameNumber: i + leg * 100, totalMs: 10));
+        }
+        final issue =
+            detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
+        expect(issue.dedupIdentityMicros, isNotNull);
+        identities.add(issue.dedupIdentityMicros!);
+      }
+      // Strictly increasing across legs — `_emissionSeq` MUST persist
+      // through `reset()` so the audit-gate uniqueness invariant holds.
+      for (var i = 1; i < identities.length; i++) {
+        expect(identities[i], greaterThan(identities[i - 1]),
+            reason: 'identities should strictly increase across reset()s');
+      }
+    });
+  });
+
+  group('FrameTimingDetector v0.19.6 — reset() semantics', () {
+    test('reset clears buffer, issues, warmup anchors, cache-trend counters',
+        () {
+      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+      addTearDown(detector.dispose);
+      for (var i = 0; i < 3; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 17));
+      }
+      for (var i = 3; i < 19; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+      }
+      expect(detector.frameBuffer.frames, isNotEmpty);
+      expect(detector.issues, isNotEmpty);
+
+      detector.reset();
+
+      expect(detector.frameBuffer.frames, isEmpty, reason: 'buffer cleared');
+      expect(detector.issues, isEmpty, reason: 'issues cleared');
+      // Re-priming after reset must work — warmup anchors cleared.
+      for (var i = 0; i < 3; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 17));
+      }
+      for (var i = 3; i < 19; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+      }
+      expect(
+        detector.issues.where((i) => i.stableId == 'jank_detected'),
+        hasLength(1),
+        reason: 'detector functional after reset',
+      );
     });
   });
 }

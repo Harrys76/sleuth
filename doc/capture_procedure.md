@@ -659,6 +659,69 @@ the cross-check is skipped per-record (backward compatible). Future
 re-captures under v0.19.5+ binaries carry the arg and exercise the
 check.
 
+## FrameTiming jank_detected capture (v0.19.6 plumbing — staged for v0.19.7)
+
+`FrameTimingDetector` is a `runtime`-lifecycle detector — it ingests
+frames via `SchedulerBinding.addTimingsCallback`, NOT VM Timeline events.
+Detector emission timing for the audit gate's `requireTraceRecord`
+invariant is gated on `_recordIssuesForCapture` running over the
+runtime-detector's ephemeral `_issues[]`. Two paths reach that:
+
+* scan loop tick (`scanInterval` cadence) — non-deterministic relative
+  to scenario span boundaries.
+* `Sleuth.flushTimelineNow()` — deterministic; flush also iterates ALL
+  detectors regardless of lifecycle and calls
+  `_recordIssuesForCapture(const <BaseDetector>{})`
+  (`SleuthController` line 2806, batch path; line 2990, flush path).
+
+The capture screen MUST call `flushTimelineNow()` immediately before
+`markScenarioEnd` so the runtime-detector's per-frame emission lands
+inside the scenario span deterministically.
+
+### Capture-mode warmup short-circuit
+
+`FrameTimingDetector` defaults to `warmupDuration: Duration(seconds: 3)`
+which suppresses jank evaluation during app warmup (shader compilation,
+route init, Dart VM JIT). A 4-second bracket scenario inside that gate
+would observe the buffer's post-warmup tail only and miss the calibrated
+jank window.
+
+v0.19.6 adds `FrameTimingDetector.captureMode` plumbed from
+`SleuthConfig.captureMode`. When the config flag is `true`,
+`_isPastWarmup()` short-circuits to `true` regardless of
+`warmupDuration` / `warmupFrameCount`. Never engaged in production app
+sessions — the dart-define gate makes the wiring explicit.
+
+### Per-leg sequence (FrameTimingCaptureScreen)
+
+```
+markScenarioBegin(name)                          // resets buffer + warmup
+└── injects spin-loop UI-thread workload (Ticker) immediately, no warmup wait
+└── 4 s scenario span elapses (240-frame buffer fills to capacity)
+└── injector.stop()
+└── 200 ms frame-settle barrier
+└── Sleuth.flushTimelineNow()                    // drains _issues[] via _recordIssuesForCapture
+markScenarioEnd(name)
+└── 800 ms post-end barrier (mirrors MemoryPressure proven pattern)
+exportCaptureJson(...)                           // compose-then-stash
+└── post-leg validator: ≥1 jank_detected.warning
+                       AND zero sustained_jank.critical (severe co-fire would invalidate axis)
+```
+
+Critical-co-fire suppression: above-leg spin (8 ms) plus baseline
+~16 ms = ~24 ms worst-frame, well under the 33 ms severe threshold.
+Hard cap on retry-bumped spin (11 ms) keeps the worst-frame budget
+from drifting into severe territory.
+
+### 60 Hz pre-flight
+
+The bracket axis (jank-frames in 240-frame buffer) is calibrated against
+the iPhone 12 / iPhone SE 60 Hz frame budget (16.67 ms). On 120 Hz
+devices (iPhone 12 Pro, iPad Pro, Pixel 8 Pro) the budget is 8.33 ms,
+which produces a different jank/percentile distribution at the same
+spin-loop calibration. The screen rejects non-60 Hz devices in pre-flight
+so the captures stay comparable across runs.
+
 ## GpuPressure raster_dominance — runtimeVerified blocked
 
 A `runtimeVerified` raise of `GpuPressureDetector.raster_dominance` is

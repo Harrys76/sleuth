@@ -757,6 +757,7 @@ class ProfileCaptureSchema {
     bool requireUniqueDetectedAtMicros = false,
     String? observedAxisArgKey,
     double observedAxisTolerance = 0.25,
+    String observedAxisReduction = 'max',
   }) {
     if (requireDetectorTraceRecord && (stableId == null || stableId.isEmpty)) {
       throw const FormatException(
@@ -961,14 +962,16 @@ class ProfileCaptureSchema {
           requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
           observedAxisArgKey: observedAxisArgKey,
           observedAxisExpected: atObs,
-          observedAxisTolerance: observedAxisTolerance);
+          observedAxisTolerance: observedAxisTolerance,
+          observedAxisReduction: observedAxisReduction);
       _requireIssueTraceRecord(above, aboveFile, stableId,
           severityLabel: severityLabel,
           context: 'above capture',
           requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
           observedAxisArgKey: observedAxisArgKey,
           observedAxisExpected: aboveObs,
-          observedAxisTolerance: observedAxisTolerance);
+          observedAxisTolerance: observedAxisTolerance,
+          observedAxisReduction: observedAxisReduction);
       _requireNoIssueTraceRecord(below, belowFile, stableId,
           severityLabel: severityLabel, context: 'below capture');
     }
@@ -994,6 +997,7 @@ class ProfileCaptureSchema {
     String? observedAxisArgKey,
     num? observedAxisExpected,
     double observedAxisTolerance = 0.25,
+    String observedAxisReduction = 'max',
   }) {
     final traceEvents = metadata['_rawTraceEvents'] as List?;
     if (traceEvents == null) {
@@ -1008,7 +1012,8 @@ class ProfileCaptureSchema {
           requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
           observedAxisArgKey: observedAxisArgKey,
           observedAxisExpected: observedAxisExpected,
-          observedAxisTolerance: observedAxisTolerance);
+          observedAxisTolerance: observedAxisTolerance,
+          observedAxisReduction: observedAxisReduction);
       return;
     }
     _checkIssueTraceRecordPresent(
@@ -1016,7 +1021,8 @@ class ProfileCaptureSchema {
         requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
         observedAxisArgKey: observedAxisArgKey,
         observedAxisExpected: observedAxisExpected,
-        observedAxisTolerance: observedAxisTolerance);
+        observedAxisTolerance: observedAxisTolerance,
+        observedAxisReduction: observedAxisReduction);
   }
 
   static void _checkIssueTraceRecordPresent(
@@ -1029,12 +1035,18 @@ class ProfileCaptureSchema {
     String? observedAxisArgKey,
     num? observedAxisExpected,
     double observedAxisTolerance = 0.25,
+    String observedAxisReduction = 'max',
   }) {
     final (beginTs, endTs) = _scenarioSpan(events, file);
     final expected = 'sleuth.issue.$stableId.$severityLabel';
     var matchCount = 0;
     final uniqueDetectedAtMicros = <String>{};
-    final observedAxisValues = <num>[];
+    // Track (ts, value) pairs so the reduction strategy can branch on
+    // 'max' (default) or 'last' (highest-ts) — required for windowed-
+    // aggregate observables on rolling buffers (e.g. FrameTimingDetector
+    // jankPercent over a 240-frame buffer is non-monotone as the buffer
+    // grows and slides).
+    final observedAxisSamples = <({int ts, num value})>[];
     for (final event in events) {
       if (event is! Map) continue;
       final ph = event['ph'];
@@ -1060,11 +1072,14 @@ class ProfileCaptureSchema {
         }
         if (observedAxisArgKey != null) {
           final axis = args[observedAxisArgKey];
+          num? parsedAxis;
           if (axis is String && axis.isNotEmpty) {
-            final parsed = num.tryParse(axis);
-            if (parsed != null) observedAxisValues.add(parsed);
+            parsedAxis = num.tryParse(axis);
           } else if (axis is num) {
-            observedAxisValues.add(axis);
+            parsedAxis = axis;
+          }
+          if (parsedAxis != null) {
+            observedAxisSamples.add((ts: tsInt, value: parsedAxis));
           }
         }
       }
@@ -1126,16 +1141,29 @@ class ProfileCaptureSchema {
     // carry the arg and exercise the check.
     if (observedAxisArgKey != null &&
         observedAxisExpected != null &&
-        observedAxisValues.isNotEmpty) {
+        observedAxisSamples.isNotEmpty) {
       _requireFinitePositive(observedAxisExpected, 'observedAxisExpected');
       _requireFiniteNonNegative(observedAxisTolerance, 'observedAxisTolerance');
-      // Use the maximum observed value across in-span trace records
-      // (under cooldown semantics, only one record fires per scenario,
-      // but the helper stays correct under multi-fire scenarios that
-      // pass the uniqueness invariant — picking max bounds the worst
-      // discrepancy a forger could hide).
-      final observed = observedAxisValues
-          .reduce((a, b) => a.toDouble() > b.toDouble() ? a : b);
+      // Reduction strategy: 'max' (default) for monotone-per-emission
+      // axes (NetworkMonitor.slow_request duration, MemoryPressure.heap_growing
+      // slope) and cooldown-collapsing detectors (PlatformChannel,
+      // single-fire-per-scenario). 'last' (highest-ts) for windowed-
+      // aggregate axes whose observable is non-monotone as the buffer
+      // grows and slides — e.g. FrameTimingDetector.jank_detected percent
+      // over a rolling 240-frame buffer where early small-sample-size
+      // ratios spike high before settling.
+      late num observed;
+      switch (observedAxisReduction) {
+        case 'last':
+          observedAxisSamples.sort((a, b) => a.ts.compareTo(b.ts));
+          observed = observedAxisSamples.last.value;
+          break;
+        case 'max':
+        default:
+          observed = observedAxisSamples
+              .map((s) => s.value)
+              .reduce((a, b) => a.toDouble() > b.toDouble() ? a : b);
+      }
       final lower = observedAxisExpected * (1 - observedAxisTolerance);
       final upper = observedAxisExpected * (1 + observedAxisTolerance);
       if (observed < lower || observed > upper) {
@@ -1467,6 +1495,13 @@ class ProfileCaptureSchema {
     // Rates (size-per-time) — used by MemoryPressureDetector.heap_growing
     // (slope), and any future detector measuring throughput.
     'bytes/sec',
+    // Ratios — used by FrameTimingDetector.jank_detected (jankPercent
+    // observation over rolling 240-frame buffer; denominator-independent
+    // axis under v0.19.6+ percent-axis bracket convention). Skips AB-1
+    // time-unit cross-check (a trace cannot certify a percent), but
+    // participates in observedAxisArgKey + observedAxisReduction='last'
+    // cross-check.
+    'percent',
   };
 
   static void _validateCaptureDate(Map<String, Object?> metadata) {

@@ -1,3 +1,35 @@
+## 0.19.7
+
+`FrameTimingDetector.jank_detected` raised to **runtimeVerified** via `perStableIdTier`. Warning tier only; critical (`sustained_jank`) and cache-family stableIds stay implicitly reproducerOnly. Distribution: **20/23 reproducerOnly base, 4/23 effective runtimeVerified families**.
+
+Three on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x) at `test/validation/captures/frame_timing/jank_detected_{below,at,above}.json` bracket the rounded `jankPercent > 15` gate on a denominator-independent percent axis. Below leg silent; at/above legs each carry 49 emissions with `observedJankPercent` 24% / 28% LAST in span at full 240-frame buffer.
+
+Metadata:
+
+- `bracketThreshold: 16` — detector rounds `jankPercent` to int + uses strict `> 15`, so first reachable observed value is 16. Setting threshold=15 would accept captures the detector cannot emit.
+- `bracketUnit: 'percent'`, `bracketAtTolerance: 0.50` (at-band [16, 24]), `aboveCeilingMultiplier: 1.85` (above-band (24, 29.6]).
+- `observedAxisArgKey: 'observedJankPercent'`, `observedAxisReduction: 'last'`. jankPercent over a rolling buffer is non-monotone — MAX picks early small-sample-size transient instead of operator-intended steady-state band.
+- `bracketRequireUniqueDetectedAtMicros: true`. `coveredThresholds: {jank_detected.warning}`.
+
+2,850 tests passing. `fvm flutter analyze` clean.
+
+## 0.19.6
+
+Structural prerequisites for the v0.19.7 `jank_detected.warning` runtimeVerified raise. No tier raises this release. Distribution unchanged from v0.19.5: **20/23 reproducerOnly base, 3/23 effective runtimeVerified families**. No BREAKING; no public API changes.
+
+Detector:
+
+- `FrameTimingDetector.captureMode` ctor flag (from `SleuthConfig.captureMode`) short-circuits `_isPastWarmup()` so a bracket scenario fits inside one screen interaction without waiting out the 3 s warmup gate. Default `false`.
+- `_evaluateJank` switched from `if/else if` to `if/if`. When both gates fire (severeCount ≥ 3 AND jankPercent > 15), BOTH stableIds emit concurrently. The prior `else if` made warning-tier signal unreachable on devices with ambient severeCount ≥ 3. Other runtimeVerified+ detectors already emit parallel multi-stableId issues; IssueRanker composite-score ordering handles it.
+- `jank_detected` emission stamps `dedupIdentityMicros = DateTime.now().microsecondsSinceEpoch + (_emissionSeq++)`. `extraTraceArgs` exports `observedJankCount`, `observedJankPercent`, `observedWorstFrameMs`, `bufferSize`.
+- `FrameTimingDetector.reset()` clears buffer + `_issues` + warmup anchors (preserves `_emissionSeq`); auto-invoked by `SleuthController.resetCaptureState()`.
+
+Schema: `DetectorMetadata.observedAxisReduction: 'max' | 'last'` (default `'max'`). `'last'` is required for non-monotone windowed-aggregate observables (jankPercent over rolling buffer). `'percent'` added to `ProfileCaptureSchema.approvedUnits`.
+
+New `FrameTimingCaptureScreen` example demo: 60 Hz pre-flight, captureMode pre-flight, rate-based UI-thread injector via `Ticker` (spins 18 ms on every Nth animation frame matched to leg's target jankPercent — below 0%, at 20%, above 27%), 6 s scenario span with per-leg `Sleuth.suspendNonEssentialTimelineStreams()`, validator extracts LAST in-span `jank_detected.warning` emission's `observedJankPercent` and rejects when its `bufferSize` arg < 180 frames.
+
+6 new reproducer tests pin captureMode warmup short-circuit, `extraTraceArgs` shape, `_emissionSeq` monotonicity across `reset()`, reset semantics, parallel-emission overlap fixture. 2,850 tests passing (+6 net from v0.19.5). `fvm flutter analyze` clean.
+
 ## 0.19.5
 
 Parser-hardening release. No tier raises. Distribution unchanged from v0.19.4: **20/23 reproducerOnly base, 3/23 effective runtimeVerified families** (HeavyCompute.heavy_compute base + MemoryPressure.heap_growing per-family + PlatformChannel.platform_channel_traffic base). No BREAKING, no public API changes.

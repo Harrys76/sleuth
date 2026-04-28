@@ -22,6 +22,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     this.fpsTarget = 60,
     this.warmupFrameCount = 0,
     this.warmupDuration = _defaultWarmupDuration,
+    this.captureMode = false,
     this.onFrameStats,
   })  : warningThresholdMs = warningThresholdMs ??
             _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 1),
@@ -71,6 +72,14 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   /// detector observes, not app-launch time.
   final Duration warmupDuration;
 
+  /// Capture-mode short-circuit. When `true`, [_isPastWarmup] returns
+  /// `true` immediately regardless of [warmupDuration] / [warmupFrameCount].
+  /// Set via `SleuthConfig.captureMode` and plumbed by `SleuthController` so
+  /// in-app capture screens can bracket the `jank_detected.warning` axis
+  /// inside a 4 s scenario span without waiting out the 3 s warmup.
+  /// Default `false` — never engaged in normal app sessions.
+  final bool captureMode;
+
   final void Function(FrameStatsBuffer buffer)? onFrameStats;
 
   // Fixed 240 so `actualFpsRaw` reports the true device rate regardless of
@@ -83,6 +92,14 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   bool _isEnabled = true;
   int _frameNumber = 0;
   TimingsCallback? _callback;
+
+  // Instance-monotonic emission counter. Combined with wall-clock micros at
+  // emission time to form `dedupIdentityMicros`, so back-to-back evaluations
+  // of `_evaluateJank` (which rewrites `_issues` every frame callback)
+  // produce DISTINCT identities even if `DateTime.now().microsecondsSinceEpoch`
+  // collides under coarse system-clock granularity. Preserved across
+  // [reset] so multi-leg capture flows cannot collide identities.
+  int _emissionSeq = 0;
 
   // -- Warmup suppression --
   // First ~3 seconds of monitoring produce jank from shader compilation,
@@ -188,6 +205,10 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   /// Dart in a single callback. Falls back to wall-clock `timestamp` only
   /// when the frame lacks `vsyncStartUs` (synthetic test frames).
   bool _isPastWarmup() {
+    // Capture-mode short-circuit: bracket captures inject jank inside a
+    // bounded scenario span and cannot afford the 3 s warmup. Plumbed via
+    // `SleuthConfig.captureMode`. Never engaged in production app code.
+    if (captureMode) return true;
     if (_totalFramesSeen < warmupFrameCount) return false;
     if (warmupDuration > Duration.zero) {
       final frames = _buffer.frames;
@@ -295,6 +316,21 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   /// Only report jank as an issue when it's a sustained pattern:
   /// - Critical: ≥3 severe jank frames (>33ms) in the last 60 frames
   /// - Warning: >15% of recent frames are janky (>16ms)
+  ///
+  /// **Parallel emission semantics (v0.19.6+).** When both gates are
+  /// satisfied (severeCount ≥ 3 AND jankPercent > 15), BOTH stableIds
+  /// fire concurrently. Each describes an independent aspect of the
+  /// same observation: `sustained_jank` reports the count of severe
+  /// frames; `jank_detected` reports the proportion of janky frames.
+  /// Pre-v0.19.6 the detector used `if/else if` and hid `jank_detected`
+  /// behind `sustained_jank` whenever both gates fired — but on devices
+  /// with ambient severe jank rate ≥ 3 the warning-tier signal was
+  /// then structurally unreachable, blocking runtimeVerified bracket
+  /// captures. Other detectors at runtimeVerified+ tier (NetworkMonitor,
+  /// MemoryPressure, HeavyCompute, PlatformChannel) already produce
+  /// concurrent multi-stableId emissions; the UI handles this via
+  /// IssueRanker composite-score ordering (severity weight 100 keeps
+  /// critical above warning regardless).
   void _evaluateJank() {
     _issues.removeWhere(
         (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected');
@@ -337,8 +373,15 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
       );
-    } else if (jankPercent > 15) {
+    }
+    if (jankPercent > 15) {
       final (hint2, effort2) = FixHintBuilder.jankDetected();
+      final worstMs = worst.effectiveTotalDuration.inMicroseconds / 1000.0;
+      // Wall-clock micros plus an instance-monotonic counter so back-to-back
+      // emissions never collide under coarse `DateTime.now()` granularity.
+      // The audit gate's `bracketRequireUniqueDetectedAtMicros: true`
+      // invariant requires distinct `detectedAtMicros` per record.
+      final identity = DateTime.now().microsecondsSinceEpoch + (_emissionSeq++);
       _issues.add(
         PerformanceIssue(
           stableId: 'jank_detected',
@@ -351,7 +394,18 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           detail: '${_buildDetail(worst)}\n${bottleneck.summary}',
           fixHint: hint2,
           fixEffort: effort2,
-          detectedAt: DateTime.now(),
+          detectedAt: DateTime.fromMicrosecondsSinceEpoch(identity),
+          dedupIdentityMicros: identity,
+          // Detector-observed axis values exported into trace event args so
+          // the audit-gate can cross-check the operator's `magnitudeObserved`
+          // (operator-typed claim) against what the detector actually saw at
+          // fire time. Stringified per Timeline arg-encoding contract.
+          extraTraceArgs: {
+            'observedJankCount': jankCount.toString(),
+            'observedJankPercent': jankPercent.toStringAsFixed(2),
+            'observedWorstFrameMs': worstMs.toStringAsFixed(2),
+            'bufferSize': frames.length.toString(),
+          },
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
       );
@@ -594,6 +648,30 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     _lastTimelineData = null;
   }
 
+  /// Capture-mode reset hook. Clears all per-leg state — buffer, ephemeral
+  /// `_issues`, warmup anchors, cache-trend counters — so back-to-back
+  /// scenario legs cannot leak frames or counters from prior runs.
+  ///
+  /// **Preserves [_emissionSeq] across reset by design.** The audit gate's
+  /// `bracketRequireUniqueDetectedAtMicros: true` invariant requires every
+  /// emitted record across the session to carry a distinct `detectedAtMicros`;
+  /// resetting the counter would risk identity collisions when two legs
+  /// fire emissions at the same wall-clock microsecond. Does NOT call
+  /// [_stopListening] — the timings callback stays installed.
+  void reset() {
+    _buffer.clear();
+    _issues.clear();
+    _totalFramesSeen = 0;
+    _frameNumber = 0;
+    _firstFrameTimestamp = null;
+    _firstFrameVsyncUs = null;
+    _consecutiveThrashingFrames = 0;
+    _consecutiveGrowthFrames = 0;
+    _consecutiveZeroCacheFrames = 0;
+    _impellerDetected = false;
+    _lastTimelineData = null;
+  }
+
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
@@ -604,6 +682,27 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           'raster_cache_thrashing',
           'raster_cache_growing',
         },
+        // jank_detected raised to runtimeVerified via perStableIdTier.
+        // Other 3 stableIds stay implicit reproducerOnly.
+        perStableIdTier: {
+          'jank_detected': EvidenceTier.runtimeVerified,
+        },
+        profileCapturePaths: [
+          'test/validation/captures/frame_timing/jank_detected_below.json',
+          'test/validation/captures/frame_timing/jank_detected_at.json',
+          'test/validation/captures/frame_timing/jank_detected_above.json',
+        ],
+        bracketStableId: 'jank_detected',
+        bracketSeverityLabel: 'warning',
+        bracketThreshold: 16,
+        bracketUnit: 'percent',
+        bracketAtTolerance: 0.50,
+        aboveCeilingMultiplier: 1.85,
+        coveredThresholds: {'jank_detected.warning'},
+        observedAxisArgKey: 'observedJankPercent',
+        observedAxisTolerance: 0.25,
+        observedAxisReduction: 'last',
+        bracketRequireUniqueDetectedAtMicros: true,
         rationale: 'Four stableIds pinned by hermetic reproducer: '
             '`sustained_jank` (≥3 severe frames in a 60-frame window), '
             '`jank_detected` (>15% jank frames, ≥5-frame sample), '
@@ -629,7 +728,23 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
             '1-s window anchored on latest `rasterFinishUs`) and '
             '`throughputFps` (latency-derived capacity) are exposed as '
             'distinct metrics. StableId coverage unchanged — FPS semantics '
-            'are orthogonal to jank classification.',
+            'are orthogonal to jank classification. '
+            'v0.19.6 lands the capture-mode plumbing for a future '
+            '`jank_detected.warning` `runtimeVerified` raise: '
+            '`SleuthConfig(captureMode: true)` short-circuits the 3 s '
+            'warmup gate; emission carries an instance-monotonic '
+            '`dedupIdentityMicros` (wall-clock micros + `_emissionSeq` '
+            'tie-breaker, preserved across `reset()` so multi-leg capture '
+            'flows cannot collide identities); detector-observed axis '
+            'values (`observedJankCount`, `observedJankPercent`, '
+            '`observedWorstFrameMs`, `bufferSize`) are exported into '
+            'trace event args so a future audit-gate cross-check can '
+            'validate operator claim against detector observation. The '
+            'tier raise itself is deferred until three on-device captures '
+            '(iPhone 12 / iOS 17.5 / Flutter 3.41.x, 60 Hz) land at '
+            '`test/validation/captures/frame_timing/jank_detected_'
+            '{below,at,above}.json` bracketing 36 jank-frames in a '
+            'steady-state 240-frame buffer.',
       );
 }
 

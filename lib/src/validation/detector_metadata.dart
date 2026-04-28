@@ -35,6 +35,7 @@ class DetectorMetadata {
     this.bracketRequireUniqueDetectedAtMicros = false,
     this.observedAxisArgKey,
     this.observedAxisTolerance = 0.25,
+    this.observedAxisReduction = 'max',
   });
 
   /// Strongest evidence tier that applies to this detector's numbers.
@@ -300,6 +301,34 @@ class DetectorMetadata {
   /// Tighten when device variance is known to be smaller; loosen for
   /// hot/throttled devices.
   final double observedAxisTolerance;
+
+  /// Reduction strategy for selecting a single observed value when
+  /// [observedAxisArgKey] cross-check finds multiple in-span trace
+  /// records.
+  ///
+  /// Values:
+  /// - `'max'` (default): pick the maximum across all in-span records.
+  ///   Sound for monotone-per-emission axes (e.g.
+  ///   `NetworkMonitorDetector.slow_request` per-request duration ms,
+  ///   `MemoryPressureDetector.heap_growing` regression slope) and for
+  ///   detectors with cooldown semantics that collapse to one fire per
+  ///   scenario (`PlatformChannelDetector` frequency,
+  ///   `MemoryPressureDetector.heap_growing` sustained-window).
+  /// - `'last'`: pick the highest-`ts` (last) in-span record. Required
+  ///   for windowed-aggregate axes whose observable is non-monotone as
+  ///   the buffer grows and slides — e.g.
+  ///   `FrameTimingDetector.jank_detected` percent-jank-frames over a
+  ///   rolling 240-frame buffer. Early small-sample-size ratios can
+  ///   spike high, settle lower as the buffer fills, then drift down on
+  ///   eviction; MAX picks the early transient instead of the
+  ///   operator-intended steady-state band.
+  ///
+  /// Default `'max'` preserves the v0.19.5 behavior of every existing
+  /// runtimeVerified detector. Opt into `'last'` only for windowed-
+  /// aggregate observables. The accompanying audit-anchor test should
+  /// pin the chosen reduction per detector so a future drift cannot
+  /// silently change semantics.
+  final String observedAxisReduction;
 
   /// Returns the effective evidence tier for a specific stable ID,
   /// applying any [perStableIdTier] override on top of the detector's

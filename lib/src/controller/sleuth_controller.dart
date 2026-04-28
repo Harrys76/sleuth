@@ -701,6 +701,7 @@ class SleuthController {
       fpsTarget: config.fpsTarget,
       warmupFrameCount: config.frameTimingWarmupFrameCount,
       warmupDuration: config.frameTimingWarmupDuration,
+      captureMode: config.captureMode,
       onFrameStats: _onFrameStats,
     )..isEnabled = enabled.contains(DetectorType.frameTiming);
 
@@ -1369,6 +1370,14 @@ class SleuthController {
         detector.reset();
       }
     }
+    // Clear FrameTimingDetector's frame buffer + ephemeral _issues so the
+    // back-to-back capture leg's `jankPercent` window starts on scenario
+    // frames only. Pre-scenario non-jank frames carried over from a prior
+    // leg dilute the percent below the >15 gate; without this reset the
+    // at-leg observes ~5% jankPercent instead of the calibrated ~21%.
+    // `_emissionSeq` is preserved by design (see FrameTimingDetector.reset
+    // doc) so multi-leg flows cannot collide `dedupIdentityMicros`.
+    _frameTiming.reset();
   }
 
   Future<String?> exportCaptureJson({

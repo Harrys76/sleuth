@@ -13,6 +13,7 @@ import 'demos/custom_detector_cookbook_demo.dart';
 import 'demos/custom_painter_demo.dart';
 import 'demos/font_loading_demo.dart';
 import 'demos/fps_stress_test_demo.dart';
+import 'demos/frame_timing_capture_screen.dart';
 import 'demos/global_key_demo.dart';
 import 'demos/gpu_pressure_demo.dart';
 import 'demos/heavy_compute_capture_screen.dart';
@@ -353,6 +354,13 @@ class DemoHome extends StatelessWidget {
                 'platform_channel_traffic runtimeVerified bracket capture',
             color: Colors.blueGrey,
             builder: (_) => const PlatformChannelCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.videocam,
+            title: 'FrameTiming Capture Helper (v0.19.6)',
+            subtitle: 'jank_detected runtimeVerified bracket capture (60Hz)',
+            color: Colors.indigo,
+            builder: (_) => const FrameTimingCaptureScreen(),
           ),
           _DemoRoute(
             icon: Icons.font_download,

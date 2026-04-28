@@ -108,9 +108,15 @@ void main() {
       expect(detector.issues, isEmpty);
     });
 
-    test('critical when >=3 severe jank frames', () {
+    test('critical when >=3 severe jank frames (parallel-emission v0.19.6)',
+        () {
       addGoodFrames(10);
-      // 3 severe frames (>33ms)
+      // 3 severe frames (>33ms). Severe frames also satisfy the
+      // jankPercent > 15 gate (3/13 = 23% janky), so under the v0.19.6
+      // parallel-emission semantics BOTH stableIds fire concurrently.
+      // Pre-v0.19.6 the detector used `if/else if` and suppressed
+      // jank_detected — but on devices with ambient severeCount >= 3
+      // that made warning-tier signal structurally unreachable.
       for (var i = 0; i < 3; i++) {
         detector.addFrameForTest(makeFrame(
           uiMs: 40,
@@ -119,9 +125,27 @@ void main() {
         ));
       }
 
-      expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.severity, IssueSeverity.critical);
-      expect(detector.issues.first.title, contains('Sustained Jank'));
+      expect(detector.issues, hasLength(2),
+          reason: 'parallel emission: both sustained_jank and jank_detected '
+              'fire when both gates true');
+      expect(
+        detector.issues
+            .where((i) => i.stableId == 'sustained_jank')
+            .map((i) => i.severity),
+        equals([IssueSeverity.critical]),
+      );
+      expect(
+        detector.issues
+            .where((i) => i.stableId == 'jank_detected')
+            .map((i) => i.severity),
+        equals([IssueSeverity.warning]),
+      );
+      // Existing assertion shape: at least one issue carries the
+      // "Sustained Jank" prefix in title.
+      expect(
+        detector.issues.any((i) => i.title.contains('Sustained Jank')),
+        isTrue,
+      );
     });
 
     test('issue confidence is confirmed', () {

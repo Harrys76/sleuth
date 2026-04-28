@@ -1006,17 +1006,19 @@ void main() {
       }
     });
 
-    test('FrameTimingDetector pinned at reproducerOnly (v0.16.6)', () {
-      // Anti-tautology anchor (B30). v0.16.6 raises FrameTimingDetector
-      // unvalidated → reproducerOnly with four stableIds pinned by the
-      // hermetic reproducer at `test/validation/frame_timing_reproducer_test.dart`:
-      // `sustained_jank`, `jank_detected`, `raster_cache_thrashing`,
-      // `raster_cache_growing`. All extended-claim fields (citationUrl /
-      // profileCapturePaths / bracketThreshold / bracketUnit /
-      // coveredThresholds / aboveCeilingMultiplier) MUST remain null —
-      // none of them are load-bearing at reproducerOnly, and a future
-      // externallyCited raise populates them deliberately. Pinning every
-      // field blocks silent drift in either direction.
+    test(
+        'FrameTimingDetector pinned: base reproducerOnly + jank_detected '
+        'runtimeVerified via perStableIdTier (v0.19.7)', () {
+      // Anti-tautology anchor. Base tier stays reproducerOnly — the
+      // v0.16.6 hermetic reproducer still backs `sustained_jank`,
+      // `raster_cache_thrashing`, `raster_cache_growing`, and the
+      // non-bracketed evaluation paths of `jank_detected`. v0.19.7 layers
+      // a perStableIdTier raise on `jank_detected.warning` only, backed
+      // by three on-device captures (iPhone 12 / iOS 17.5 / Flutter
+      // 3.41.x) bracketing the rounded `jankPercent > 15` gate. First
+      // reachable observed value is 16 (37/240=15.4 rounds to 15 → no
+      // fire; 38/240=15.83 rounds to 16 → fires), so bracketThreshold=16
+      // aligns the audit contract with detector reality.
       final BaseDetector? ft = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.frameTiming)
           .cast<BaseDetector?>()
@@ -1025,24 +1027,84 @@ void main() {
           reason: 'FrameTimingDetector should be registered by default.');
       expect(ft, isA<DetectorMetadataProvider>());
       final meta = (ft as DetectorMetadataProvider).validationMetadata;
+
+      // Base tier stays reproducerOnly.
       expect(meta.tier, EvidenceTier.reproducerOnly,
-          reason: 'v0.16.6 raised FrameTimingDetector to reproducerOnly via '
-              'a hermetic reproducer bypassing warmup and exercising both '
-              'synthetic FrameStats and real-pipeline FrameTiming paths.');
+          reason: 'v0.19.7 raises jank_detected via perStableIdTier; the '
+              'base detector tier stays reproducerOnly so the other 3 '
+              'stableIds and non-bracketed jank_detected paths remain '
+              'reproducer-pinned.');
       expect(meta.reproducerPath,
           equals('test/validation/frame_timing_reproducer_test.dart'));
       expect(meta.citationUrl, isNull,
-          reason: 'No external citation at reproducerOnly tier.');
-      expect(meta.profileCapturePaths, isNull,
-          reason: 'profileCapturePaths is first-class on externallyCited / '
-              'runtimeVerified only.');
-      expect(meta.bracketThreshold, isNull);
-      expect(meta.bracketUnit, isNull);
-      expect(meta.coveredThresholds, isNull,
-          reason: 'No severity-scoped claim at reproducerOnly.');
-      expect(meta.aboveCeilingMultiplier, isNull);
+          reason: 'runtimeVerified does not require an external citation; '
+              'evidence is the captured detector behaviour itself.');
+
+      // perStableIdTier raise — single-family.
+      expect(meta.perStableIdTier,
+          equals(const {'jank_detected': EvidenceTier.runtimeVerified}),
+          reason: 'v0.19.7 raises ONLY jank_detected.warning; the other 3 '
+              'stableIds stay implicitly reproducerOnly.');
+      expect(
+          meta.effectiveTierFor('jank_detected'), EvidenceTier.runtimeVerified,
+          reason:
+              'effectiveTierFor must reflect the perStableIdTier override.');
+      expect(
+          meta.effectiveTierFor('sustained_jank'), EvidenceTier.reproducerOnly,
+          reason: 'sustained_jank stays at base reproducerOnly tier.');
+
+      // Three on-device captures.
+      expect(
+          meta.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/frame_timing/jank_detected_below.json',
+            'test/validation/captures/frame_timing/jank_detected_at.json',
+            'test/validation/captures/frame_timing/jank_detected_above.json',
+          ]),
+          reason: 'Three on-device captures back the runtimeVerified raise '
+              'on jank_detected.warning.');
+
+      // Bracket axis — denominator-independent jankPercent.
+      expect(meta.bracketStableId, equals('jank_detected'));
+      expect(meta.bracketSeverityLabel, equals('warning'),
+          reason: 'Trace-record check matches the bracket axis (jankPercent '
+              'gate fires at warning severity); a sustained_jank.critical '
+              'event must NOT satisfy the warning audit.');
+      expect(meta.bracketThreshold, equals(16),
+          reason: 'Detector rounds jankPercent to int + uses strict > 15. '
+              'First reachable observed value is 16 — bracketThreshold=15 '
+              'would accept a 15.x% capture the detector cannot emit.');
+      expect(meta.bracketUnit, equals('percent'),
+          reason: 'Denominator-independent axis — robust to buffer underfill '
+              'on rate-based jank injection. AB-1 cross-check skips for '
+              'non-time units; the percent axis is certified instead via '
+              'observedAxisArgKey.');
+      expect(meta.bracketAtTolerance, equals(0.50),
+          reason: 'Wide ±50% band absorbs frame-delivery jitter. '
+              'At-band [16, 24].');
+      expect(meta.aboveCeilingMultiplier, equals(1.85),
+          reason: 'Above-band (24, 29.6]; ceiling stays well under any '
+              'critical co-fire boundary.');
+      expect(meta.coveredThresholds, equals(const {'jank_detected.warning'}),
+          reason: 'Severity-scoped to warning; critical (sustained_jank, '
+              'severeCount >= 3) stays implicitly reproducerOnly.');
+      expect(meta.observedAxisArgKey, equals('observedJankPercent'),
+          reason: 'Audit gate cross-checks operator-claimed magnitude '
+              'against detector-emitted observedJankPercent within ±25%.');
+      expect(meta.observedAxisTolerance, equals(0.25));
+      expect(meta.observedAxisReduction, equals('last'),
+          reason: 'jankPercent over a rolling buffer is non-monotone — '
+              'early small-sample-size ratios spike high before settling. '
+              'MAX picks early transient instead of operator-intended '
+              'steady-state band; LAST picks terminal observation.');
+      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue,
+          reason: 'Captures recorded with `_emissionSeq` tie-broken '
+              'dedupIdentityMicros; opt into the strong invariant so audit '
+              'gate rejects single-issue replay forgery.');
       expect(meta.parametricFamilies, isNull,
           reason: 'FrameTiming does not declare parametric families.');
+
+      // Coverage of the 4 stableIds is unchanged.
       expect(
           meta.coveredStableIds,
           equals(const {
@@ -1054,12 +1116,13 @@ void main() {
           reason: 'v0.16.6 pins exactly four FrameTiming stableIds. Any '
               'addition or removal must land alongside a reproducer change.');
 
-      // Constructor side-effect check: the audit walks real controller
-      // detectors, so FrameTimingDetector must be constructible without
-      // side effects (matches the v0.16.0 F1 fix).
+      // Constructor side-effect check.
       expect(() => FrameTimingDetector(), returnsNormally,
           reason: 'FrameTimingDetector() must be side-effect-free so the '
               'audit can construct it in isolation.');
+      expect(() => FrameTimingDetector(captureMode: true), returnsNormally,
+          reason: 'captureMode constructor surface must remain wired; the '
+              'in-app capture screen depends on it short-circuiting warmup.');
     });
 
     test('v0.17.1 structural batch pinned at reproducerOnly', () {
