@@ -133,12 +133,14 @@ class _NetworkMonitorCaptureScreenState
             }
             req.response.headers.contentType = ContentType.json;
             if (bytes > 0) {
-              // Pad the JSON envelope to land at exactly `bytes` total
-              // response size. Bracket math relies on the on-wire byte
-              // count matching the requested target, so the padding
-              // pattern must be deterministic and the envelope size
-              // accounted for.
-              const envelopeOverhead = 32;
+              // Pad the JSON envelope toward the requested `bytes`
+              // total. Wrapper `{"pad":"…"}` adds 10 bytes around
+              // the padding, so target ≈ requested - 10. The capture
+              // pipeline records actual wire-summed bytes (not the
+              // request target) so this approximation only affects
+              // operator-side leg-targeting precision; the recorded
+              // evidence is always wire-measured.
+              const envelopeOverhead = 10;
               final padLen = (bytes - envelopeOverhead).clamp(0, bytes);
               final padding = List.filled(padLen, 0x41).map((b) {
                 return String.fromCharCode(b);
@@ -380,7 +382,6 @@ class _NetworkMonitorCaptureScreenState
         }());
       }
       await Future.wait(futures);
-      observedCount = requestCount;
 
       // Total scenario span target ≥ 5.5 s. If batches finished early
       // (small intervalMs, fast loopback) pad the remaining time to
@@ -394,10 +395,45 @@ class _NetworkMonitorCaptureScreenState
         );
       }
 
-      // Post-completion dwell — same 200 ms + 800 ms pattern as
-      // slow_request. Detector's _frequencyTimer fires every 5 s; the
-      // dwell guarantees one tick lands inside the span.
+      // Post-completion dwell pattern (200 ms + barrier + 800 ms).
+      //
+      // flushFrequencyEvaluation only updates the detector's peak
+      // getter — issue emission lives in the periodic + processRecord-
+      // driven _evaluate path. For at/above legs the warning trace
+      // events are already written during the workload via
+      // _recordIssuesForCapture from the controller's scan loop. The
+      // explicit Sleuth.flushTimelineNow() below is the deterministic
+      // VM-poll barrier used by HeavyCompute / FrameTiming captures —
+      // it guarantees pending detector emissions are drained into the
+      // VM trace buffer before markScenarioEnd closes the span.
       await Future<void>.delayed(const Duration(milliseconds: 200));
+      final monitor = Sleuth.networkMonitor;
+      if (monitor == null) {
+        Sleuth.markScenarioEnd(scenarioName);
+        Sleuth.resumeAllTimelineStreams();
+        if (!mounted) return;
+        setState(() {
+          _busy = false;
+          _log.add(
+            '[$label] FAILED: Sleuth.networkMonitor is null. '
+            'Verify Sleuth.init() ran with captureMode=true and '
+            '--dart-define=SLEUTH_CAPTURE_MODE=true.',
+          );
+        });
+        return;
+      }
+      monitor.flushFrequencyEvaluation();
+      // Read the detector-measured peak AFTER the flush. Below-leg
+      // (sub-threshold) has no warning event for the schema's
+      // observedAxisArgKey cross-check to pin against, so the
+      // exported magnitude must come from the same axis the detector
+      // classifies on rather than the operator's planned send count.
+      observedCount = monitor.lastObservedPeakCount;
+      // Drain detector emissions into the VM trace buffer before the
+      // scenario closes. Without this, the LAST in-span emission can
+      // land in trace records with a `ts` after markScenarioEnd, and
+      // the audit gate filters it out for ts > spanHi.
+      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
       Sleuth.markScenarioEnd(scenarioName);
       await Future<void>.delayed(const Duration(milliseconds: 800));
 
@@ -517,6 +553,14 @@ class _NetworkMonitorCaptureScreenState
         // named timeline event the schema can derive from, so pass
         // empty string to skip BUILD-derivation.
         magnitudeSourceEventName: '',
+        // Client-side mirror of the schema's per-leg trace-record
+        // contract: at/above must contain the matching issue event
+        // in span; below must contain none. Refused exports surface
+        // a debugPrint diagnostic before JSON hits the clipboard so
+        // operators see the failure mode without waiting for
+        // test-time audit rejection.
+        bracketStableId: mode.stableId,
+        bracketSeverityLabel: 'warning',
       );
     } catch (e) {
       json = null;

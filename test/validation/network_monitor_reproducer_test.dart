@@ -892,5 +892,67 @@ void main() {
           reason: '2+2 errors spread across a 6s gap → peak 5s window '
               'holds only 2 errors, below the >=3 threshold, silent.');
     });
+
+    // ----------------------------------------------------------------
+    // Producer-wiring guard
+    // ----------------------------------------------------------------
+    // The schema's per-leg invariants leave the below-leg's axis
+    // unchecked (silent leg has no trace event to cross-check
+    // against), so a producer that exports `requestCount` (planned
+    // send count) instead of the detector's measured peak silently
+    // certifies a sub-threshold value the detector never observed.
+    // Pin the producer's source-of-truth here so a refactor that
+    // reverts to plan-not-measured fails CI.
+    test(
+        'producer-wiring: request_frequency capture reads detector peak, '
+        'not requestCount', () {
+      // Search the example/lib/demos/ tree for the runner so a future
+      // refactor that splits the capture-screen file (e.g. extracts
+      // each runner into its own file) does not silently break this
+      // contract test. The contract is "wherever the request_frequency
+      // runner lives, it MUST read lastObservedPeakCount and call
+      // flushFrequencyEvaluation()" — not "lives in this exact file".
+      final demosDir = Directory('example/lib/demos');
+      expect(demosDir.existsSync(), isTrue,
+          reason: 'example/lib/demos/ must exist to enforce the contract');
+      final dartFiles = demosDir
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'));
+      File? runnerFile;
+      String? runnerSrc;
+      for (final f in dartFiles) {
+        final src = f.readAsStringSync();
+        if (src.contains('_runRequestFrequencyCapture') ||
+            src.contains('_CaptureMode.requestFrequency')) {
+          runnerFile = f;
+          runnerSrc = src;
+          break;
+        }
+      }
+      expect(runnerFile, isNotNull,
+          reason: 'request_frequency capture runner not found anywhere '
+              'under example/lib/demos/. Either restore the runner or '
+              'update this contract test if the capture flow has been '
+              'restructured.');
+      final src = runnerSrc!;
+      expect(
+        RegExp(r'observedCount\s*=\s*requestCount\s*;').hasMatch(src),
+        isFalse,
+        reason: 'request_frequency capture must NOT export the planned send '
+            'count. Use Sleuth.networkMonitor?.lastObservedPeakCount after '
+            'flushFrequencyEvaluation() so below-leg evidence reflects '
+            'what the detector measured. Found in: ${runnerFile!.path}',
+      );
+      expect(src.contains('lastObservedPeakCount'), isTrue,
+          reason: 'request_frequency runner must read '
+              'Sleuth.networkMonitor?.lastObservedPeakCount as the source '
+              'of expectedMagnitude.observed. Found in: ${runnerFile.path}');
+      expect(src.contains('flushFrequencyEvaluation()'), isTrue,
+          reason: 'capture runner must call flushFrequencyEvaluation() '
+              'before reading lastObservedPeakCount so peak compute is '
+              'deterministic regardless of timer phase. '
+              'Found in: ${runnerFile.path}');
+    });
   });
 }

@@ -81,6 +81,31 @@ class NetworkMonitorDetector extends BaseDetector
   bool _isEnabled = true;
   Timer? _frequencyTimer;
 
+  /// Last observed peak count from the trailing 5 s sliding window.
+  /// Computed on every `_evaluateFrequency` call regardless of whether
+  /// the count crosses [frequencyLimit] — capture-mode tooling reads
+  /// this so the below-leg's exported magnitude reflects what the
+  /// detector measured rather than the operator's plan.
+  // _evaluateFrequency rewrites this on every tick and clearRecords
+  // resets it on session boundaries; cannot be final.
+  // ignore: prefer_final_fields
+  int _lastObservedPeakCount = 0;
+
+  /// Detector-measured peak count from the most recent
+  /// [_evaluateFrequency] call. Capture-mode operators export this
+  /// for sub-threshold legs where no warning event fires.
+  int get lastObservedPeakCount => _lastObservedPeakCount;
+
+  /// Recomputes [lastObservedPeakCount] without emitting any
+  /// `request_frequency` issue. Capture screens call this before
+  /// reading the peak getter so the operator's export pathway is
+  /// decoupled from the periodic `_frequencyTimer` phase. Idempotent —
+  /// repeated calls with the same buffer yield the same peak value
+  /// and do NOT append duplicate issues to `_issues` (issue emission
+  /// is owned by [_evaluateFrequency], which only runs from the scan
+  /// pipeline's `_evaluate` wrapper that clears `_issues` first).
+  void flushFrequencyEvaluation() => _recomputeFrequencyPeak();
+
   /// Records with `startedAt` before this timestamp are from a previous page
   /// and are silently dropped by [processRecord]. Set by [clearRecords] on
   /// route transitions.
@@ -181,6 +206,7 @@ class NetworkMonitorDetector extends BaseDetector
     _activeRequests.clear();
     _frequencyTimer?.cancel();
     _frequencyTimer = null;
+    _lastObservedPeakCount = 0;
   }
 
   /// Clear and rebuild all issues from current buffer state.
@@ -289,32 +315,40 @@ class NetworkMonitorDetector extends BaseDetector
     ));
   }
 
-  void _evaluateFrequency() {
+  /// Pure peak recompute — updates [_lastObservedPeakCount] only,
+  /// never appends to `_issues`. Issue emission is owned by
+  /// [_evaluateFrequency]. Split so [flushFrequencyEvaluation]
+  /// (capture-mode tooling) can refresh the peak getter without
+  /// minting duplicate `request_frequency` issues each call. _records
+  /// is capped at _bufferCapacity (200), so the window scan is O(200)
+  /// bounded.
+  void _recomputeFrequencyPeak() {
     // Cancels are excluded from frequency classification — a prefetch
     // that the caller aborts is not evidence of a noisy endpoint.
     final recordsList =
         _records.where((r) => !r.cancelled).toList(growable: false);
-    if (recordsList.length <= frequencyLimit) return;
-
-    // Find the peak 5-second window across the entire buffer.
-    // This keeps the spike visible while evidence remains in the buffer,
-    // rather than vanishing after the 5-second detection window.
-    // Buffer is cleared on route transitions via clearRecords().
     int peakCount = 0;
-    int left = 0;
-    for (var right = 0; right < recordsList.length; right++) {
-      while (left < right &&
-          recordsList[right]
-                  .startedAt
-                  .difference(recordsList[left].startedAt)
-                  .inMilliseconds >
-              _frequencyWindowMs) {
-        left++;
+    if (recordsList.isNotEmpty) {
+      int left = 0;
+      for (var right = 0; right < recordsList.length; right++) {
+        while (left < right &&
+            recordsList[right]
+                    .startedAt
+                    .difference(recordsList[left].startedAt)
+                    .inMilliseconds >
+                _frequencyWindowMs) {
+          left++;
+        }
+        final windowSize = right - left + 1;
+        if (windowSize > peakCount) peakCount = windowSize;
       }
-      final windowSize = right - left + 1;
-      if (windowSize > peakCount) peakCount = windowSize;
     }
+    _lastObservedPeakCount = peakCount;
+  }
 
+  void _evaluateFrequency() {
+    _recomputeFrequencyPeak();
+    final peakCount = _lastObservedPeakCount;
     if (peakCount <= frequencyLimit) return;
 
     final (hint, effort) = FixHintBuilder.requestFrequency();

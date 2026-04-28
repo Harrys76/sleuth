@@ -1,3 +1,30 @@
+## 0.19.10
+
+NetworkMonitor capture-pipeline hardening. No tier raises, no BREAKING. Distribution unchanged from v0.19.9 (20/23 reproducerOnly base, 6/23 effective runtimeVerified families). Closes producer asymmetry on `request_frequency` below-leg — detector now exposes its windowed peak so capture-mode operators export detector-measured evidence instead of the operator's plan. Schema-level cross-check on below-leg axis stays absent (would need new info-level trace event or sleuthMetadata field); deferred.
+
+- Detector (`network_monitor_detector.dart`):
+  - `int get lastObservedPeakCount` — peak from trailing 5 s sliding window, always-on, O(buffer-cap=200) bounded.
+  - `void flushFrequencyEvaluation()` — peak-only recompute (NO issue emission). Idempotent across repeat calls; emission stays gated to `_evaluateFrequency` so duplicate `request_frequency` issues cannot leak into capture trace records.
+  - `clearRecords()` resets peak — capture-mode session boundaries do not inherit leg N evidence into leg N+1.
+- Public API (non-breaking):
+  - `Sleuth.networkMonitor` getter exposes `NetworkMonitorDetector` instance (null in release mode or before `Sleuth.init`).
+  - `NetworkMonitorDetector` exported from `lib/sleuth.dart` barrel.
+  - `Sleuth.exportCaptureJson` + `SleuthController.exportCaptureJson` accept optional `bracketStableId` + `bracketSeverityLabel`. When set, refuses export (debugPrint diagnostic + null return) if at/above legs lack the matching `sleuth.issue.<stableId>.<severity>` event in span, or if below-leg contains one. Mirrors schema's per-leg trace-record contract client-side. Whitespace trimmed before composing event name.
+- Capture screen (`network_monitor_capture_screen.dart`):
+  - `_runRequestFrequencyCapture` reads `Sleuth.networkMonitor?.lastObservedPeakCount` after `flushFrequencyEvaluation()` (replaces the prior `observedCount = requestCount` plan-not-measured pattern). Refuses leg with operator-facing error when `Sleuth.networkMonitor` is null. Calls `Sleuth.flushTimelineNow(timeout: 2s)` between the peak read and `markScenarioEnd` so detector emissions drain into the VM trace buffer before the scenario closes.
+  - `_exportLastLeg` threads `bracketStableId: mode.stableId` + `bracketSeverityLabel: 'warning'` so the client-side validator runs.
+  - `large_response` envelope-overhead constant 32 → 10 (actual `{"pad":""}` wrapper). Recorded value is still wire-summed; only affects operator-side leg-targeting precision.
+- Tests:
+  - 5 detector tests for `lastObservedPeakCount` semantics: sub-threshold peak (no warning), at-threshold peak + extraTraceArgs parity, peak stability across re-flush, `clearRecords` reset, perf-budget (100 evals on full 200-record buffer < 250 ms).
+  - Dedicated test pins `flushFrequencyEvaluation` does NOT emit duplicate `request_frequency` issues on at-threshold buffer (3 flushes, issue count stays at baseline).
+  - Producer-wiring grep test scans `example/lib/demos/` recursively, forbids `observedCount = requestCount` regex, requires `lastObservedPeakCount` + `flushFrequencyEvaluation()` in capture-screen runner. Catches a future refactor that reverts to plan-not-measured.
+
+Existing v0.19.9 captures remain valid (schema unchanged). Re-recording `request_frequency_below.json` is optional refresh.
+
+2,888 tests passing (+7 net from v0.19.9). `fvm flutter analyze` clean.
+
+2,888 tests passing (+5 net from v0.19.9 baseline of 2,883). `fvm flutter analyze` clean.
+
 ## 0.19.9
 
 First multi-axis runtimeVerified raise via the v0.19.8 `additionalBrackets` schema. `NetworkMonitorDetector` raises 2 more families through `perStableIdTier`: `large_response.warning` (1 MiB, bytes axis) and `request_frequency.warning` (30 events / 5 s window, events axis). `slow_request.warning` from v0.18.0 unchanged. Distribution: **20/23 reproducerOnly base, 6/23 effective runtimeVerified families** (7 effective family raises across 4 multi-family detectors). No BREAKING; no public API changes.

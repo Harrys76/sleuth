@@ -59,6 +59,8 @@ import 'package:flutter/scheduler.dart' show FrameTiming, SchedulerBinding;
 import 'package:flutter/widgets.dart';
 
 import 'src/controller/sleuth_controller.dart';
+import 'src/detectors/network_monitor_detector.dart'
+    show NetworkMonitorDetector;
 import 'src/models/fix_verification_result.dart';
 import 'src/models/route_session.dart';
 import 'src/models/session_snapshot.dart';
@@ -94,6 +96,8 @@ export 'src/models/widget_heat_map_entry.dart';
 export 'src/models/fix_verification_result.dart'
     show FixVerificationResult, FixVerificationStatus, IssueVerificationEntry;
 export 'src/network/request_record.dart';
+export 'src/detectors/network_monitor_detector.dart'
+    show NetworkMonitorDetector;
 export 'src/utils/fix_hint_builder.dart';
 export 'src/utils/session_markdown_exporter.dart';
 export 'src/models/startup_metrics.dart';
@@ -491,6 +495,17 @@ class Sleuth {
     await c.flushTimelineNow(timeout: timeout);
   }
 
+  /// Public accessor for the [NetworkMonitorDetector] instance. Capture
+  /// screens read [NetworkMonitorDetector.lastObservedPeakCount] and
+  /// call [NetworkMonitorDetector.flushFrequencyEvaluation] before
+  /// exporting sub-threshold legs so the wrapped magnitude reflects
+  /// detector measurement rather than the operator's plan. Returns
+  /// null when [Sleuth] has not been initialised or in release mode.
+  static NetworkMonitorDetector? get networkMonitor {
+    if (kReleaseMode) return null;
+    return _controller?.networkMonitor;
+  }
+
   /// Diagnostic snapshot of capture-mode preconditions. Capture screens
   /// call this on `exportCaptureJson` null-return to surface the exact
   /// environmental state to the operator without requiring Console.app
@@ -599,6 +614,8 @@ class Sleuth {
     String? captureCommand,
     String? captureNotes,
     String? magnitudeSourceEventName,
+    String? bracketStableId,
+    String? bracketSeverityLabel,
   }) async {
     if (kReleaseMode) return null;
     final c = _controller;
@@ -616,6 +633,8 @@ class Sleuth {
       flutterVersion: flutterVersion,
       captureCommand: captureCommand,
       captureNotes: captureNotes,
+      bracketStableId: bracketStableId,
+      bracketSeverityLabel: bracketSeverityLabel,
     );
   }
 

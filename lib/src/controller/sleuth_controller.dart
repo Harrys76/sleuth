@@ -1080,6 +1080,13 @@ class SleuthController {
   @visibleForTesting
   NetworkMonitorDetector get networkMonitorForTest => _networkMonitor;
 
+  /// Public accessor for capture-mode tooling — capture screens read
+  /// [NetworkMonitorDetector.lastObservedPeakCount] and call
+  /// [NetworkMonitorDetector.flushFrequencyEvaluation] before exporting
+  /// sub-threshold legs so the wrapped magnitude reflects detector
+  /// measurement rather than the operator's plan.
+  NetworkMonitorDetector get networkMonitor => _networkMonitor;
+
   /// Exposes [_lastScanContext] so tests can verify a scan went down the
   /// happy path (non-null) vs. the navigating sentinel path (null). Without
   /// this, a test that asserts "buffer cleared after tab switch" cannot
@@ -1393,6 +1400,8 @@ class SleuthController {
     String? captureCommand,
     String? captureNotes,
     String? magnitudeSourceEventName,
+    String? bracketStableId,
+    String? bracketSeverityLabel,
   }) async {
     if (!ProfileCaptureSchema.allowedRoles.contains(role)) {
       throw ArgumentError.value(
@@ -1494,6 +1503,65 @@ class SleuthController {
     }
     final spanLo = beginTs;
     final spanHi = endTs;
+    // Bracket emission cross-check (opt-in via bracketStableId +
+    // bracketSeverityLabel). Mirrors `_requireNoIssueTraceRecord`
+    // (below) and `_checkIssueTraceRecordPresent` (at/above) from
+    // ProfileCaptureSchema so capture-mode operators see refusals
+    // BEFORE writing JSON to the clipboard, instead of the audit
+    // gate rejecting the artefact at test-time on a different
+    // machine. Skipped when either field is null — preserves
+    // backward compatibility with callers that don't yet declare
+    // their bracket contract at export time.
+    if (bracketStableId != null &&
+        bracketStableId.trim().isNotEmpty &&
+        bracketSeverityLabel != null &&
+        bracketSeverityLabel.trim().isNotEmpty) {
+      // Trim whitespace before composing the expected name so callers
+      // passing accidentally-padded literals (`'  request_frequency '`)
+      // don't silently bypass the validator via a name-mismatch with
+      // every real trace event.
+      final expectedName =
+          'sleuth.issue.${bracketStableId.trim()}.${bracketSeverityLabel.trim()}';
+      var inSpanIssueCount = 0;
+      for (final e in events) {
+        final ph = e['ph'];
+        final name = e['name'];
+        final ts = e['ts'];
+        if (ts is! num) continue;
+        if (ph != 'i' && ph != 'I' && ph != 'n') continue;
+        if (name != expectedName) continue;
+        final tsInt = ts.toInt();
+        if (tsInt >= spanLo && tsInt <= spanHi) inSpanIssueCount++;
+      }
+      if (role == 'below') {
+        if (inSpanIssueCount > 0) {
+          debugPrint(
+            'Sleuth.exportCaptureJson($scenario): null return — '
+            'role="below" must contain ZERO "$expectedName" events '
+            'in scenario span [$spanLo, $spanHi]; found '
+            '$inSpanIssueCount. Re-record below the threshold or '
+            'pick a smaller magnitude. The detector should not '
+            'fire at sub-threshold input.',
+          );
+          return null;
+        }
+      } else {
+        if (inSpanIssueCount == 0) {
+          debugPrint(
+            'Sleuth.exportCaptureJson($scenario): null return — '
+            'role="$role" must contain at least one "$expectedName" '
+            'event in scenario span [$spanLo, $spanHi]; found 0. '
+            'Causes: (1) detector did not fire (workload below '
+            'threshold despite operator intent); (2) emission fell '
+            'outside the scenario span (timer phase issue — extend '
+            'span or call detector\'s flushXxx hook before '
+            'markScenarioEnd); (3) capture-mode dedup recorded the '
+            'event but timeline buffer rolled it off (overflow).',
+          );
+          return null;
+        }
+      }
+    }
     // Filter to scenario span. Include events whose [ts, ts+dur]
     // interval overlaps the span so the BUILD that wraps the
     // workload (which starts before scenario.begin because the

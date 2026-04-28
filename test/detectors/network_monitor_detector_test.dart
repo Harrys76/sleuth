@@ -927,5 +927,146 @@ void main() {
       expect(dupIssues, hasLength(1),
           reason: 'HEAD is idempotent — duplicates should be flagged');
     });
+
+    // ---------------------------------------------------------------
+    // lastObservedPeakCount — capture-mode operator pathway
+    // ---------------------------------------------------------------
+
+    test('lastObservedPeakCount tracks sub-threshold peak (no warning)', () {
+      // 25 records spread across ~4 s — all fall inside the 5 s
+      // sliding window. Detector must not fire warning (≤30) but
+      // peak getter must surface the measured value so the
+      // capture-mode operator's below-leg export reflects detector
+      // observation rather than the operator's plan.
+      final base = fakeNow;
+      for (int i = 0; i < 25; i++) {
+        detector.processRecord(makeRecord(
+          url: 'http://127.0.0.1/ping?seq=$i',
+          startedAt: base.add(Duration(milliseconds: i * 160)),
+        ));
+      }
+      final freq = detector.issues
+          .where((i) => i.stableId == 'request_frequency')
+          .toList();
+      expect(freq, isEmpty,
+          reason: '25 records ≤ frequencyLimit (30) — must not fire warning');
+      expect(detector.lastObservedPeakCount, 25,
+          reason: 'Peak compute always-on so capture-mode operators read '
+              'detector-measured value for sub-threshold legs.');
+    });
+
+    test('lastObservedPeakCount matches at-threshold peak with warning fired',
+        () {
+      final base = fakeNow;
+      for (int i = 0; i < 38; i++) {
+        detector.processRecord(makeRecord(
+          url: 'http://127.0.0.1/ping?seq=$i',
+          startedAt: base.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final freq = detector.issues
+          .where((i) => i.stableId == 'request_frequency')
+          .toList();
+      expect(freq, hasLength(1), reason: '38 records > 30 — warning must fire');
+      expect(detector.lastObservedPeakCount, 38);
+      // Trace-event arg matches the getter — same source.
+      final argRaw = freq.single.extraTraceArgs?['observedRequestCount'];
+      expect(int.parse(argRaw!), detector.lastObservedPeakCount);
+    });
+
+    test('flushFrequencyEvaluation forces synchronous peak compute', () {
+      final base = fakeNow;
+      for (int i = 0; i < 10; i++) {
+        detector.processRecord(makeRecord(
+          url: 'http://127.0.0.1/ping',
+          startedAt: base.add(Duration(milliseconds: i * 200)),
+        ));
+      }
+      expect(detector.lastObservedPeakCount, 10);
+      // Re-flush — same buffer, same peak.
+      detector.flushFrequencyEvaluation();
+      expect(detector.lastObservedPeakCount, 10);
+    });
+
+    test(
+        'flushFrequencyEvaluation does not append duplicate '
+        'request_frequency issues on at-threshold buffer', () {
+      // Seed an at-threshold buffer (38 > limit=30). The driving
+      // processRecord chain emits exactly one request_frequency issue
+      // (the most recent _evaluate clears _issues then adds one).
+      // Repeated flushFrequencyEvaluation calls must NOT mint
+      // additional issues — the public flush API is peak-only.
+      final base = fakeNow;
+      for (int i = 0; i < 38; i++) {
+        detector.processRecord(makeRecord(
+          url: 'http://127.0.0.1/ping?seq=$i',
+          startedAt: base.add(Duration(milliseconds: i * 100)),
+        ));
+      }
+      final baseline = detector.issues
+          .where((i) => i.stableId == 'request_frequency')
+          .length;
+      expect(baseline, 1,
+          reason: 'driving _evaluate clears + emits exactly one issue');
+
+      // Three explicit flushes — peak compute idempotent and side-
+      // effect free for issue emission.
+      detector.flushFrequencyEvaluation();
+      detector.flushFrequencyEvaluation();
+      detector.flushFrequencyEvaluation();
+
+      expect(detector.lastObservedPeakCount, 38,
+          reason: 'peak unchanged across flushes');
+      final after = detector.issues
+          .where((i) => i.stableId == 'request_frequency')
+          .length;
+      expect(after, baseline,
+          reason: 'flushFrequencyEvaluation must not emit duplicate '
+              'request_frequency issues — capture-mode operators '
+              'export trace records by detectedAtMicros, so duplicate '
+              'in-process issues with fresh dedup keys would inflate '
+              'capture-file trace event counts and break N+1 '
+              'producer-dedup invariants.');
+    });
+
+    test('clearRecords resets lastObservedPeakCount to 0', () {
+      final base = fakeNow;
+      for (int i = 0; i < 25; i++) {
+        detector.processRecord(makeRecord(
+          startedAt: base.add(Duration(milliseconds: i * 160)),
+        ));
+      }
+      expect(detector.lastObservedPeakCount, 25);
+      detector.clearRecords();
+      expect(detector.lastObservedPeakCount, 0,
+          reason: 'Capture-mode session boundaries (markScenarioBegin auto-'
+              'reset) must clear stale peak so leg N+1 does not inherit '
+              'leg N evidence.');
+    });
+
+    test('peak compute O(buffer-cap) perf budget', () {
+      // _records is capped at _bufferCapacity = 200; peak compute runs
+      // every timer tick. Pathological: full buffer, all in window.
+      // Budget: 100 evaluations under 250 ms (mean ~2.5 ms/tick on
+      // contended CI runners). The point is to prove O(buffer-cap)
+      // bounded — well under the 5 s timer cadence so production
+      // sessions do not regress — not to police µs-precision in CI.
+      final base = fakeNow;
+      for (int i = 0; i < 200; i++) {
+        detector.processRecord(makeRecord(
+          startedAt: base.add(Duration(milliseconds: i * 20)),
+        ));
+      }
+      final stopwatch = Stopwatch()..start();
+      for (int i = 0; i < 100; i++) {
+        detector.flushFrequencyEvaluation();
+      }
+      stopwatch.stop();
+      expect(stopwatch.elapsedMilliseconds, lessThan(250),
+          reason: 'Always-on peak compute on full 200-record buffer must '
+              'stay well under timer cadence (5 s) so production '
+              'sessions do not regress. Budget allows ~2.5 ms/tick to '
+              'accommodate slow CI runners.');
+    });
   });
 }

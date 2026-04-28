@@ -840,6 +840,25 @@ Both emissions export their observed axis to `extraTraceArgs` and
 stamp `dedupIdentityMicros` (matches v0.18.1+ producer-dedup contract
 required by `requireUniqueDetectedAtMicros: true`).
 
+**v0.19.10+ producer pattern.** request_frequency below-leg's
+`expectedMagnitude.observed` reads from
+`Sleuth.networkMonitor.lastObservedPeakCount` after
+`flushFrequencyEvaluation()` (peak-only recompute, idempotent — issue
+emission stays gated to the controller's `_evaluate` path, so repeat
+flushes cannot mint duplicate trace records). Schema's
+`_requireNoIssueTraceRecord` leaves the below-leg axis unchecked, so
+plan-not-measured was a silent-evidence-quality gap; the producer
+now closes it client-side.
+
+Capture screen also calls `Sleuth.flushTimelineNow(timeout: 2s)`
+between the peak read and `markScenarioEnd` so pending detector
+emissions drain into the VM trace buffer before the scenario closes
+(matches the HeavyCompute / FrameTiming barrier pattern). And passes
+`bracketStableId` + `bracketSeverityLabel` to
+`Sleuth.exportCaptureJson` so a missing or unexpected in-span
+emission is refused with a debugPrint diagnostic before JSON hits
+the clipboard.
+
 ## GpuPressure raster_dominance — runtimeVerified blocked
 
 A `runtimeVerified` raise of `GpuPressureDetector.raster_dominance` is
