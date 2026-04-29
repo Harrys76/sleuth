@@ -166,6 +166,15 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
   // base reproducerOnly. See the dedicated `MemoryPressureDetector
   // pinned at runtimeVerified for heap_growing (v0.19.3)` anchor block
   // below for the per-family-tier invariants.
+  // RebuildDetector lifted out of the v0.17.4 reproducerOnly batch in
+  // v0.19.12 — `rebuild_activity` family raised to runtimeVerified via
+  // perStableIdTier with three on-device captures bracketing 11
+  // BUILDs/sec under baseline-subtraction (capture-mode operator
+  // measures ambient inline before each leg and calls
+  // `setBaseline(int)`). Other family `stateful_density` remains at
+  // base reproducerOnly. See the dedicated `RebuildDetector pinned at
+  // runtimeVerified for rebuild_activity (v0.19.12)` anchor block
+  // below for the per-family-tier + bracket-field invariants.
   DetectorType.gpuPressure: (
     'test/validation/gpu_pressure_reproducer_test.dart',
     {'raster_dominance', 'expensive_gpu_nodes'},
@@ -175,11 +184,6 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
     'test/validation/repaint_reproducer_test.dart',
     {'excessive_repaint', 'excessive_repaint_debug'},
     {'repaint_debug'},
-  ),
-  DetectorType.rebuild: (
-    'test/validation/rebuild_reproducer_test.dart',
-    {'stateful_density', 'rebuild_activity'},
-    {'rebuild_debug'},
   ),
   DetectorType.shallowRebuildRisk: (
     'test/validation/shallow_rebuild_risk_reproducer_test.dart',
@@ -198,6 +202,7 @@ const _singleDetectorAnchors = <DetectorType>{
   DetectorType.heavyCompute,
   DetectorType.memoryPressure,
   DetectorType.platformChannel,
+  DetectorType.rebuild,
 };
 
 void main() {
@@ -901,6 +906,104 @@ void main() {
               'other 3 families (gc_pressure, heap_near_capacity, '
               'native_memory_growing) stay base reproducerOnly. Multi-axis '
               'raises across families would populate additionalBrackets.');
+    });
+
+    test(
+        'RebuildDetector pinned at runtimeVerified for rebuild_activity '
+        '(v0.19.12)', () {
+      // Anti-tautology anchor: rebuild_activity raised from base
+      // reproducerOnly to runtimeVerified via perStableIdTier (warning
+      // tier, 11 BUILDs/sec under baseline-subtraction) backed by three
+      // on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x).
+      // Other family `stateful_density` stays at base reproducerOnly.
+      // Captures use the detector's adjusted (raw - baseline) BUILD
+      // count so iOS profile-mode framework ambient (~10–15/sec from
+      // Material animations) does not inflate the magnitude.
+      final BaseDetector? rb = controller.detectorsForAudit
+          .where((d) => d.type == DetectorType.rebuild)
+          .cast<BaseDetector?>()
+          .firstWhere((_) => true, orElse: () => null);
+      expect(rb, isNotNull,
+          reason: 'RebuildDetector should be registered by default.');
+      expect(rb, isA<DetectorMetadataProvider>());
+      final meta = (rb as DetectorMetadataProvider).validationMetadata;
+      expect(meta.tier, EvidenceTier.reproducerOnly,
+          reason: 'Base tier stays reproducerOnly — rebuild_activity raise '
+              'lives in perStableIdTier so stateful_density is not '
+              'mechanically over-claimed at runtimeVerified.');
+      expect(meta.perStableIdTier?['rebuild_activity'],
+          EvidenceTier.runtimeVerified,
+          reason: 'v0.19.12 raises rebuild_activity warning via on-device '
+              'captures; the raise lives in perStableIdTier so the audit '
+              'gate routes off effectiveMaxTier.');
+      expect(meta.effectiveTierFor('rebuild_activity'),
+          EvidenceTier.runtimeVerified);
+      expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified);
+      expect(meta.reproducerPath,
+          equals('test/validation/rebuild_reproducer_test.dart'));
+      expect(meta.citationUrl, isNull);
+      expect(
+          meta.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/rebuild_detector/below.json',
+            'test/validation/captures/rebuild_detector/at.json',
+            'test/validation/captures/rebuild_detector/above.json',
+          ]));
+      expect(meta.bracketThreshold, equals(11),
+          reason: 'Detector gate is `buildCount > 10` (default '
+              'rebuildsPerSecThreshold); first integer firing is 11.');
+      expect(meta.bracketUnit, equals('rebuilds'));
+      expect(meta.bracketStableId, equals('rebuild_activity'));
+      expect(meta.bracketSeverityLabel, equals('warning'));
+      expect(meta.bracketAtTolerance, equals(0.65),
+          reason: 'at-band [11, 18.15]; wider than v0.19.7 jank (0.50) '
+              'because Material framework noise plus baseline-subtraction '
+              'jitter widens variance even with `setBaseline` applied.');
+      expect(meta.aboveCeilingMultiplier, equals(2.7),
+          reason: 'above-band ceiling 11 × 2.7 = 29.7 strictly under the '
+              '`> threshold * 3 = 30` critical-tier fire boundary so the '
+              'above leg cannot ambiently bracket critical. The 2.7 '
+              'multiplier (vs 2.5) gives re-record headroom: window '
+              'variance on this metric is ±3-4 units, so a tighter '
+              'ceiling rejects on day-to-day noise. 0.3 unit margin to '
+              'critical is intentional.');
+      expect(meta.observedAxisArgKey, equals('observedRebuildRate'),
+          reason: 'Detector stamps `extraTraceArgs.observedRebuildRate` '
+              '(the adjusted, baseline-subtracted value) on every '
+              'rebuild_activity emission for the schema cross-check.');
+      expect(meta.observedAxisReduction, equals('max'),
+          reason: 'Multiple in-span emissions per leg (one per 1s window '
+              'crossing threshold); max-reduction picks the worst signal '
+              'rather than the tail-off final window.');
+      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
+      expect(meta.coveredThresholds, equals(const {'rebuild_activity.warning'}),
+          reason: 'Severity-scoped to warning. Critical (`> 30 BUILDs/sec`) '
+              'is the same family but a separate raise — would need its '
+              'own capture triad.');
+      expect(meta.coveredStableIds,
+          equals(const {'stateful_density', 'rebuild_activity'}),
+          reason: 'Both layer-2 reproducer-covered families; '
+              'perStableIdTier raises only rebuild_activity.');
+      expect(meta.parametricFamilies, equals(const {'rebuild_debug'}),
+          reason: 'Parametric `rebuild_debug_<typeName>` family '
+              'unchanged — debug-callback path stays at base '
+              'reproducerOnly.');
+      expect(meta.additionalBrackets, isNull,
+          reason: 'rebuild_activity brackets a single axis (rebuilds/sec); '
+              'multi-axis raises would populate additionalBrackets.');
+
+      // Prose-drift guard. Critical cannot piggyback on the warning raise.
+      final stripped =
+          meta.rationale.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
+      final collapsed = stripped.replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+      final claimsRebuildCritical =
+          collapsed.contains('rebuild_activity.critical') ||
+              collapsed.contains('rebuild_activity critical');
+      expect(claimsRebuildCritical, isFalse,
+          reason: 'Rationale prose claims a rebuild_activity critical-tier '
+              'raise. Critical cannot piggyback on the warning raise — '
+              'add coveredThresholds entry + dedicated capture triad, or '
+              'remove the prose claim.');
     });
 
     test('PlatformChannelDetector pinned at runtimeVerified (v0.19.4)', () {

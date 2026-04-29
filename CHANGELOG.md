@@ -1,3 +1,16 @@
+## 0.19.12
+
+`RebuildDetector.rebuild_activity.warning` raised to **runtimeVerified** via `perStableIdTier`. First raise requiring baseline subtraction: iOS profile-mode framework activity emits ~10–15 BUILDs/sec ambient, exceeding the default 10/sec threshold. Distribution: **20/23 reproducerOnly base, 7/23 effective runtimeVerified families**.
+
+- Detector: `setBaseline(int)` + `baselineRebuildRate` + `peakObservedRebuildRate` getters. `_evaluateVmData` subtracts baseline before threshold gate, severity, and `extraTraceArgs.observedRebuildRate`. Default 0 → no-op subtraction → live monitoring unchanged. `vmConnected = false` clears baseline so capture-mode subtraction cannot leak into post-reconnect live monitoring. `FixHintBuilder` receives raw `buildCount` so user-facing prose reflects total observed activity, not internal baseline-corrected.
+- Bracket params: `bracketThreshold: 11`, `bracketAtTolerance: 0.65` (at-band [11, 18.15]), `aboveCeilingMultiplier: 2.7` (ceiling 29.7 strictly under critical 30), `observedAxisArgKey: 'observedRebuildRate'`, `observedAxisReduction: 'max'`, `bracketRequireUniqueDetectedAtMicros: true`.
+- Capture screen: inline baseline measurement per leg (3s idle scenario before pulse phase) keeps subtraction current with overlay state. `_Pulse` widget uses const `SizedBox.shrink` child for 1-BUILD-per-tick semantics. `dispose()` calls `setBaseline(0)` to release pollution.
+- 3 on-device captures at `test/validation/captures/rebuild_detector/{below,at,above}.json` (iPhone 12 / iOS 17.5 / Flutter 3.41.x).
+- Anchor: lifted out of `_v0174Expectations` batch into dedicated runtimeVerified anchor with 12 explicit pin assertions.
+- Tests: 7 new detector tests (baseline + peak + vmConnected reset + critical-tier baseline-correction); regression test pins `_legs` ↔ committed JSON `expectedMagnitude.min/max` coherence + schemaVersion=v1; capture-shape pin asserts exactly 1 begin/end marker per JSON.
+
+2,903 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.11
 
 `RebuildDetector` capture-pipeline plumbing for a future `rebuild_activity.warning` runtimeVerified raise. No tier change; metadata flips once three on-device captures land. Distribution unchanged from v0.19.10.

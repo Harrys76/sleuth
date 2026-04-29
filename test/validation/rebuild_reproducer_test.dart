@@ -36,6 +36,7 @@
 // single call (no helper needed beyond the inline pattern).
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
@@ -742,6 +743,116 @@ void main() {
             'and gate setState on Stopwatch elapsedMilliseconds. '
             'Found in: ${runnerFile.path}',
       );
+    });
+
+    // Helper ↔ evidence coherence guard. The capture screen's `_legs`
+    // constants declare the operator-side expected magnitude band
+    // (rateMin..rateMax). Each capture JSON records what the
+    // operator-screen exported as the leg's band. Re-recording from
+    // the helper at this revision must reproduce committed bounds —
+    // otherwise the audit gate validates evidence the current helper
+    // cannot recreate. Drift between the surfaces (hand-patched JSON,
+    // helper edits without re-record) silently breaks re-record.
+    test(
+      'committed capture expectedMagnitude.min/max match capture screen '
+      '_legs constants (re-record reproducibility contract)',
+      () {
+        final captureDir = Directory(
+          'test/validation/captures/rebuild_detector',
+        );
+        if (!captureDir.existsSync()) {
+          markTestSkipped('rebuild_detector captures not present.');
+          return;
+        }
+        final screenSrc = File(
+          'example/lib/demos/rebuild_activity_capture_screen.dart',
+        ).readAsStringSync();
+        final legPattern = RegExp(
+          r"_Leg\(\s*label:\s*'(\w+)'\s*,\s*targetRebuildRate:\s*\d+\s*,\s*"
+          r'rateMin:\s*(\d+)\s*,\s*rateMax:\s*(\d+)\s*\)',
+        );
+        final legBounds = <String, ({int min, int max})>{};
+        for (final m in legPattern.allMatches(screenSrc)) {
+          legBounds[m.group(1)!] = (
+            min: int.parse(m.group(2)!),
+            max: int.parse(m.group(3)!),
+          );
+        }
+        expect(legBounds.length, 3,
+            reason: '_legs in capture screen must declare exactly 3 '
+                'legs (below, at, above). Found ${legBounds.length}.');
+        for (final leg in const ['below', 'at', 'above']) {
+          final f = File('${captureDir.path}/$leg.json');
+          if (!f.existsSync()) continue;
+          final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+          final em = (j['sleuthMetadata'] as Map)['expectedMagnitude'] as Map;
+          final captureMin = em['min'] as int;
+          final captureMax = em['max'] as int;
+          final helperBounds = legBounds[leg]!;
+          expect(captureMin, equals(helperBounds.min),
+              reason: 'Drift: $leg.json expectedMagnitude.min=$captureMin '
+                  'but _legs.$leg.rateMin=${helperBounds.min}. Either the '
+                  'helper was edited without re-recording the capture, or '
+                  'capture metadata was hand-patched inconsistently with '
+                  'the helper.');
+          expect(captureMax, equals(helperBounds.max),
+              reason: 'Drift: $leg.json expectedMagnitude.max=$captureMax '
+                  'but _legs.$leg.rateMax=${helperBounds.max}.');
+          expect((j['sleuthMetadata'] as Map)['schemaVersion'], 'v1',
+              reason: '$leg.json must declare schemaVersion=v1. A '
+                  'schema bump invalidates these captures and requires '
+                  're-record + this anchor update.');
+        }
+      },
+    );
+
+    // Capture-shape invariant: the rebuild capture runner emits TWO
+    // scenario-marker pairs per leg (one for the inline baseline
+    // measurement, one for the workload). `Sleuth.exportCaptureJson`
+    // must filter trace events to a single scenario span, leaving
+    // exactly ONE begin + ONE end pair in each capture JSON. The
+    // schema rejects multi-pair captures (`profile_capture_schema.dart`
+    // enforces `=1` markers); a regression in exportCaptureJson that
+    // dropped the span-overlap filter would silently invalidate every
+    // rebuild capture. Pin the count here so the contract is asserted
+    // by data, not by reading the export source.
+    test(
+        'rebuild capture JSONs contain exactly 1 scenario.begin + 1 '
+        'scenario.end pair (exportCaptureJson span-filter contract)', () {
+      final captureDir = Directory(
+        'test/validation/captures/rebuild_detector',
+      );
+      if (!captureDir.existsSync()) {
+        markTestSkipped(
+          'rebuild_detector captures not present; v0.19.12 raise not '
+          'recorded.',
+        );
+        return;
+      }
+      for (final leg in const ['below', 'at', 'above']) {
+        final f = File('${captureDir.path}/$leg.json');
+        if (!f.existsSync()) continue;
+        final json = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+        final events = (json['traceEvents'] as List).cast<Map>();
+        final begins =
+            events.where((e) => e['name'] == 'sleuth.scenario.begin').length;
+        final ends =
+            events.where((e) => e['name'] == 'sleuth.scenario.end').length;
+        expect(begins, equals(1),
+            reason: '$leg.json must contain exactly 1 '
+                '`sleuth.scenario.begin` marker after exportCaptureJson '
+                'span-filtering. Found $begins. The capture runner emits '
+                '2 begin markers per leg (baseline + workload); '
+                'exportCaptureJson must drop the baseline pair via '
+                'scenario-span ts overlap filtering. A regression that '
+                'kept all events would land both pairs in the JSON and '
+                'fail schema parse with "exactly one begin/end" — but '
+                'the test would only catch it after the audit gate '
+                'rejected. This pin catches it on the capture file.');
+        expect(ends, equals(1),
+            reason: '$leg.json must contain exactly 1 '
+                '`sleuth.scenario.end` marker. Found $ends.');
+      }
     });
   });
 }

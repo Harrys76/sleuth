@@ -59,12 +59,13 @@ test/
 
 ## Current state
 
-**v0.19.11** (current) — `RebuildDetector` capture-pipeline plumbing for a future `rebuild_activity.warning` runtimeVerified raise. Detector exposes `lastObservedRebuildRate` (field-write precedes threshold gate); `resetCaptureState()` clears 5 VM-window fields + re-anchors `_windowStart`. `rebuild_activity` emission stamps `dedupIdentityMicros` + `observedRebuildRate` in `extraTraceArgs`. Public API: `Sleuth.rebuildDetector` getter; `RebuildDetector` barrel-exported (4 typed + 19 factory = 23). New `RebuildActivityCaptureScreen` drives Stopwatch-throttled Ticker setState on plain StatefulWidget at 5/15/20 per sec — refresh-rate-independent (60/90/120 Hz). Plain Stateful avoids builder-widget 3× threshold multiplier. Distribution unchanged from v0.19.10. 2,893 tests passing. `fvm flutter analyze` clean.
+**v0.19.12** (current) — `RebuildDetector.rebuild_activity.warning` raised to **runtimeVerified** via `perStableIdTier`. First raise requiring baseline subtraction: `setBaseline(int)` + `peakObservedRebuildRate` API. iOS profile-mode framework activity emits ~10–15 BUILDs/sec ambient that would otherwise saturate the 10/sec threshold. Default baseline=0 → live monitoring unchanged. `vmConnected=false` clears baseline so capture-mode subtraction cannot leak into post-reconnect live monitoring. Bracket: threshold 11, atTolerance 0.65, aboveCeilingMultiplier 2.7 (ceiling 29.7 strictly under critical 30), reduction='max'. Three on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x). Capture screen: per-leg inline baseline (3s idle scenario before pulse), `_Pulse` widget with const child for 1-BUILD-per-tick, `dispose()` releases baseline. RebuildDetector lifted into dedicated runtimeVerified anchor with 12 pin assertions; new tests pin `_legs` ↔ JSON metadata coherence + schemaVersion. 2,903 tests passing. `fvm flutter analyze` clean.
 
-**Distribution (current)**: 20/23 reproducerOnly base, 6/23 effective runtimeVerified families (slow_request, large_response, request_frequency, heap_growing, platform_channel_traffic, jank_detected; HeavyCompute single-family at base runtimeVerified).
+**Distribution (current)**: 20/23 reproducerOnly base, 7/23 effective runtimeVerified families (slow_request, large_response, request_frequency, heap_growing, platform_channel_traffic, jank_detected, rebuild_activity; HeavyCompute single-family at base runtimeVerified).
 
 ### Recent releases (one-line)
 
+- **v0.19.11** — `RebuildDetector` capture-pipeline plumbing (lastObservedRebuildRate, resetCaptureState VM-window clear, dedupIdentityMicros + extraTraceArgs); RebuildActivityCaptureScreen demo.
 - **v0.19.10** — NetworkMonitor capture hardening; `lastObservedPeakCount` + `flushFrequencyEvaluation()`; `bracketStableId`/`bracketSeverityLabel` in `exportCaptureJson`.
 - **v0.19.9** — `additionalBrackets` schema; `large_response.warning` + `request_frequency.warning` runtimeVerified raises.
 - **v0.19.8** — `BracketSpec` const class + `additionalBrackets` field; per-spec audit (capture paths, coveredThresholds, cross-spec uniqueness).

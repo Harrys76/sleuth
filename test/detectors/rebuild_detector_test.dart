@@ -1152,6 +1152,158 @@ void main() {
               'to scenario-begin time.');
     });
   });
+
+  // ----------------------------------------------------------------
+  // baselineRebuildRate — ambient-floor subtraction for capture mode
+  // ----------------------------------------------------------------
+  // The detector counts every BUILD timeline event regardless of source.
+  // On iOS profile mode, Material framework alone emits ~10–15 BUILDs/sec
+  // ambient (Scaffold animations, theme inheritance, navigator
+  // transitions). Without baseline subtraction, that ambient exceeds
+  // the default 10/sec threshold and below-leg silence is unachievable
+  // for the runtimeVerified bracket. Live-monitoring users do NOT set a
+  // baseline (default 0 → no-op subtraction); capture-mode operators
+  // measure baseline once and call setBaseline() before workload runs.
+  group('baselineRebuildRate (v0.19.12)', () {
+    late DateTime fakeNow;
+    late RebuildDetector detector;
+
+    setUp(() {
+      fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
+      detector = RebuildDetector(
+        rebuildsPerSecThreshold: 10,
+        clock: () => fakeNow,
+      );
+      detector.vmConnected = true;
+    });
+
+    test('default baseline is 0 — preserves live-monitoring semantics', () {
+      expect(detector.baselineRebuildRate, 0,
+          reason: 'Default must be 0. Any non-zero default would break '
+              'live monitoring by silently shifting the threshold.');
+
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highBuildActivityData(buildCount: 14));
+      detector.evaluateNow();
+
+      expect(detector.lastObservedRebuildRate, 14,
+          reason: 'With baseline=0, observed rate must be raw count. '
+              'Subtraction must be a no-op.');
+      expect(detector.issues, isNotEmpty,
+          reason: 'Raw 14 > threshold 10 → warning fires (default '
+              'live-monitoring behavior unchanged).');
+    });
+
+    test('setBaseline subtracts ambient before threshold gate', () {
+      detector.setBaseline(10);
+
+      // Raw 14 - baseline 10 = 4 → below threshold → silent.
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highBuildActivityData(buildCount: 14));
+      detector.evaluateNow();
+      expect(detector.lastObservedRebuildRate, 4,
+          reason: 'Field exposes adjusted (raw-baseline), not raw.');
+      expect(detector.issues, isEmpty,
+          reason: 'Adjusted 4 ≤ threshold 10 → no warning.');
+
+      // Raw 25 - baseline 10 = 15 → above threshold → fires warning.
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highBuildActivityData(buildCount: 25));
+      detector.evaluateNow();
+      expect(detector.lastObservedRebuildRate, 15);
+      final warning = detector.issues
+          .where((i) => i.stableId == 'rebuild_activity')
+          .toList();
+      expect(warning, hasLength(1));
+      expect(warning.first.severity, IssueSeverity.warning);
+      expect(warning.first.extraTraceArgs?['observedRebuildRate'], '15',
+          reason: 'extraTraceArgs must carry adjusted value so audit '
+              'gate cross-checks observed magnitude against the same '
+              'value the bracket-band schema validates.');
+    });
+
+    test('setBaseline negative input clamps to 0', () {
+      detector.setBaseline(-5);
+      expect(detector.baselineRebuildRate, 0);
+    });
+
+    test('critical-tier escalation also baseline-corrected', () {
+      detector.setBaseline(10);
+
+      // Raw 35 - baseline 10 = 25 → > 10 (warning) but ≤ 30 (not
+      // critical). Severity stays warning — not falsely escalated by
+      // raw count.
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highBuildActivityData(buildCount: 35));
+      detector.evaluateNow();
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+      expect(issue.severity, IssueSeverity.warning,
+          reason: 'Critical tier (`> threshold * 3 = 30`) must compare '
+              'adjusted (25), not raw (35). Otherwise users with high '
+              'ambient would see critical fires from below-warning-tier '
+              'user signal.');
+    });
+
+    test('resetCaptureState does NOT clear baseline', () {
+      detector.setBaseline(10);
+      detector.resetCaptureState();
+      expect(detector.baselineRebuildRate, 10,
+          reason: 'Baseline reflects ambient framework noise — stable '
+              'across capture-mode legs in the same session. Clearing '
+              'it would force a re-measurement for every leg, which '
+              'doubles capture time without benefit.');
+    });
+
+    test(
+      'vmConnected=false clears baseline so capture-mode subtraction '
+      'cannot leak into post-reconnect live monitoring',
+      () {
+        detector.setBaseline(15);
+        expect(detector.baselineRebuildRate, 15);
+        detector.vmConnected = false;
+        expect(detector.baselineRebuildRate, 0,
+            reason: 'VM disconnect is the implicit end of a capture '
+                'session. A baseline left set after disconnect would '
+                'silently suppress real rebuild storms in the '
+                '(threshold, threshold+baseline] band when VM '
+                'reconnects (DevTools attach/detach, app backgrounding, '
+                'debugger reattach).');
+        detector.vmConnected = true;
+        expect(detector.baselineRebuildRate, 0,
+            reason: 'Reconnect must not restore stale baseline.');
+      },
+    );
+
+    test(
+        'peakObservedRebuildRate tracks max-adjusted across staged '
+        'windows; reset clears it', () {
+      // Three windows: adjusted = 12, 18, 14 (raw - baseline 0).
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highBuildActivityData(buildCount: 12));
+      detector.evaluateNow();
+      expect(detector.peakObservedRebuildRate, 12);
+
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highBuildActivityData(buildCount: 18));
+      detector.evaluateNow();
+      expect(detector.peakObservedRebuildRate, 18,
+          reason: 'Peak must update when a higher window arrives.');
+
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highBuildActivityData(buildCount: 14));
+      detector.evaluateNow();
+      expect(detector.peakObservedRebuildRate, 18,
+          reason: 'Peak must NOT regress when a lower window arrives.');
+      expect(detector.lastObservedRebuildRate, 14,
+          reason: 'lastObservedRebuildRate tracks last; peak tracks max.');
+
+      detector.resetCaptureState();
+      expect(detector.peakObservedRebuildRate, 0,
+          reason: 'Peak must clear with the rest of the per-session '
+              'state at scenario boundaries.');
+    });
+  });
 }
 
 class TestStatefulWidget extends StatefulWidget {

@@ -195,6 +195,13 @@ class DemoHome extends StatelessWidget {
             color: Colors.purple,
             builder: (_) => const HeavyComputeCaptureScreen(),
           ),
+          _DemoRoute(
+            icon: Icons.refresh,
+            title: 'RebuildActivity Capture Helper',
+            subtitle: 'rebuild_activity runtimeVerified bracket capture',
+            color: Colors.teal,
+            builder: (_) => const RebuildActivityCaptureScreen(),
+          ),
         ],
       ),
 
@@ -259,6 +266,13 @@ class DemoHome extends StatelessWidget {
             subtitle: 'Heavy compute + GPU blur every frame',
             color: Colors.red,
             builder: (_) => const FpsStressTestDemo(),
+          ),
+          _DemoRoute(
+            icon: Icons.videocam,
+            title: 'FrameTiming Capture Helper',
+            subtitle: 'jank_detected runtimeVerified bracket capture (60Hz)',
+            color: Colors.indigo,
+            builder: (_) => const FrameTimingCaptureScreen(),
           ),
         ],
       ),
@@ -355,21 +369,6 @@ class DemoHome extends StatelessWidget {
                 'platform_channel_traffic runtimeVerified bracket capture',
             color: Colors.blueGrey,
             builder: (_) => const PlatformChannelCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.videocam,
-            title: 'FrameTiming Capture Helper (v0.19.6)',
-            subtitle: 'jank_detected runtimeVerified bracket capture (60Hz)',
-            color: Colors.indigo,
-            builder: (_) => const FrameTimingCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.refresh,
-            title: 'RebuildActivity Capture Helper (v0.19.11)',
-            subtitle:
-                'rebuild_activity runtimeVerified bracket capture (Ticker setState)',
-            color: Colors.teal,
-            builder: (_) => const RebuildActivityCaptureScreen(),
           ),
           _DemoRoute(
             icon: Icons.font_download,
