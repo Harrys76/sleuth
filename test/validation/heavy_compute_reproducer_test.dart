@@ -182,6 +182,176 @@ void main() {
       });
     });
 
+    group(
+        'critical-tier band coverage (additionalBrackets) — '
+        'every magnitude in the bracket band must emit .critical', () {
+      // Companion to the critical-tier `additionalBrackets` raise on
+      // the detector. The schema validates per-leg observed magnitude
+      // lands in the band, but the detector itself must also emit
+      // `.critical` (not `.warning`, not silent) at every point in
+      // that band — otherwise the bracket evidence is unmoored from
+      // detector behaviour. Cases span the at-band, the schema seam at
+      // 25.6/25.7 ms (atTolerance=0.60), and the above-ceiling:
+      //
+      //   - 18000µs sits at the at-band target (mid [16, 25.6])
+      //   - 24000µs sits inside the at-band (mid-upper)
+      //   - 24001µs sits above the prior 0.50-tolerance seam but still
+      //     inside the current 0.60-tolerance at-band
+      //   - 25600µs sits exactly at the schema's 0.60 at-band upper edge
+      //   - 25601µs is the first above-band magnitude (schema-side
+      //     boundary at threshold × (1 + 0.60))
+      //   - 30000µs sits at the above-ceiling (1.875 × 16)
+      //   - 30001µs proves there is no super-critical tier above
+      //     (`.critical` is the maximum severity HeavyCompute can emit;
+      //     a future "super critical" tier would surface as a regression
+      //     in this assertion).
+
+      test('18000µs (at-band target) emits .critical', () {
+        final events = [
+          buildEvent(name: 'BUILD', ph: 'X', dur: 18000, ts: 1000),
+        ];
+        final parsed = parseAndAssertShape(events, (
+          buildEventCount: 1,
+          buildScopeCount: 1,
+          layoutCount: 0,
+          paintCount: 0,
+          rasterCount: 0,
+          shaderCount: 0,
+          channelCount: 0,
+          gcCount: 0,
+          phaseEventCount: 1,
+        ));
+        detector.processTimelineData(parsed);
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.severity.name, 'critical');
+      });
+
+      test('24000µs (at-band mid-upper) stays .critical', () {
+        final events = [
+          buildEvent(name: 'BUILD', ph: 'X', dur: 24000, ts: 1000),
+        ];
+        final parsed = parseAndAssertShape(events, (
+          buildEventCount: 1,
+          buildScopeCount: 1,
+          layoutCount: 0,
+          paintCount: 0,
+          rasterCount: 0,
+          shaderCount: 0,
+          channelCount: 0,
+          gcCount: 0,
+          phaseEventCount: 1,
+        ));
+        detector.processTimelineData(parsed);
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.severity.name, 'critical');
+      });
+
+      test(
+          '24001µs (above prior 0.50 seam, inside 0.60 at-band) stays .critical',
+          () {
+        final events = [
+          buildEvent(name: 'BUILD', ph: 'X', dur: 24001, ts: 1000),
+        ];
+        final parsed = parseAndAssertShape(events, (
+          buildEventCount: 1,
+          buildScopeCount: 1,
+          layoutCount: 0,
+          paintCount: 0,
+          rasterCount: 0,
+          shaderCount: 0,
+          channelCount: 0,
+          gcCount: 0,
+          phaseEventCount: 1,
+        ));
+        detector.processTimelineData(parsed);
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.severity.name, 'critical');
+      });
+
+      test('25600µs (schema 0.60 at-band upper edge) stays .critical', () {
+        final events = [
+          buildEvent(name: 'BUILD', ph: 'X', dur: 25600, ts: 1000),
+        ];
+        final parsed = parseAndAssertShape(events, (
+          buildEventCount: 1,
+          buildScopeCount: 1,
+          layoutCount: 0,
+          paintCount: 0,
+          rasterCount: 0,
+          shaderCount: 0,
+          channelCount: 0,
+          gcCount: 0,
+          phaseEventCount: 1,
+        ));
+        detector.processTimelineData(parsed);
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.severity.name, 'critical');
+      });
+
+      test(
+        '25601µs (first above the schema 0.60 at-upper) stays .critical',
+        () {
+          final events = [
+            buildEvent(name: 'BUILD', ph: 'X', dur: 25601, ts: 1000),
+          ];
+          final parsed = parseAndAssertShape(events, (
+            buildEventCount: 1,
+            buildScopeCount: 1,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 0,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          ));
+          detector.processTimelineData(parsed);
+          expect(detector.issues, hasLength(1));
+          expect(detector.issues.first.severity.name, 'critical');
+        },
+      );
+
+      test('30000µs (above-ceiling 1.875×16) stays .critical', () {
+        final events = [
+          buildEvent(name: 'BUILD', ph: 'X', dur: 30000, ts: 1000),
+        ];
+        final parsed = parseAndAssertShape(events, (
+          buildEventCount: 1,
+          buildScopeCount: 1,
+          layoutCount: 0,
+          paintCount: 0,
+          rasterCount: 0,
+          shaderCount: 0,
+          channelCount: 0,
+          gcCount: 0,
+          phaseEventCount: 1,
+        ));
+        detector.processTimelineData(parsed);
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.severity.name, 'critical');
+      });
+
+      test('30001µs (above above-ceiling) still .critical (no super tier)', () {
+        final events = [
+          buildEvent(name: 'BUILD', ph: 'X', dur: 30001, ts: 1000),
+        ];
+        final parsed = parseAndAssertShape(events, (
+          buildEventCount: 1,
+          buildScopeCount: 1,
+          layoutCount: 0,
+          paintCount: 0,
+          rasterCount: 0,
+          shaderCount: 0,
+          channelCount: 0,
+          gcCount: 0,
+          phaseEventCount: 1,
+        ));
+        detector.processTimelineData(parsed);
+        expect(detector.issues, hasLength(1));
+        expect(detector.issues.first.severity.name, 'critical');
+      });
+    });
+
     group('fallback emission path (_createGenericIssue, no PhaseEvent)', () {
       // Parser only creates a PhaseEvent when the BUILD 'X' event carries
       // a `ts` field. Events without `ts` populate `buildScopeDurations`

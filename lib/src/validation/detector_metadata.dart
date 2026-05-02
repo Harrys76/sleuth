@@ -13,8 +13,8 @@ import 'evidence_tier.dart';
 /// `ProfileCaptureSchema.validateBracket` once per spec (top-level and each
 /// [DetectorMetadata.additionalBrackets] entry); see the field-level docs
 /// on [DetectorMetadata.additionalBrackets] for the cross-spec invariants
-/// (uniqueness on `(stableId, observedAxisArgKey)`, perStableIdTier
-/// coverage, orphan-audit iteration).
+/// (uniqueness on `(stableId, severityLabel, observedAxisArgKey)`,
+/// perStableIdTier coverage, orphan-audit iteration).
 class BracketSpec {
   const BracketSpec({
     required this.stableId,
@@ -78,10 +78,13 @@ class BracketSpec {
   /// Trace-event arg key the audit gate cross-checks against the
   /// capture's `expectedMagnitude.observed`. Null skips the cross-check.
   /// Same semantics as [DetectorMetadata.observedAxisArgKey]. Two specs
-  /// declared on the same [stableId] must use distinct argKeys (or one
-  /// must be null) — the cross-spec uniqueness invariant on the
-  /// `(stableId, argKey)` tuple is what lets multiple bracket axes
-  /// coexist on a single family without double-counting trace events.
+  /// declared on the same `(stableId, severityLabel)` must use distinct
+  /// argKeys (or one must be null) — the cross-spec uniqueness invariant
+  /// on the `(stableId, severityLabel, argKey)` tuple is what lets
+  /// multiple bracket axes coexist on a single family + severity without
+  /// double-counting trace events. Specs that differ on `severityLabel`
+  /// validate disjoint `sleuth.issue.<id>.<severity>` events and never
+  /// collide regardless of argKey (canonical tier-stack raise pattern).
   final String? observedAxisArgKey;
 
   /// Tolerance for the [observedAxisArgKey] cross-check. Same semantics
@@ -477,13 +480,18 @@ class DetectorMetadata {
   /// - Each spec has its own three-capture triad, validated by
   ///   `ProfileCaptureSchema.validateBracket` independently. The audit
   ///   gate calls validateBracket once per spec (top-level + each entry).
-  /// - Cross-spec uniqueness on `(stableId, observedAxisArgKey)` tuples
-  ///   spans the union of {top-level, additionalBrackets[*]}. Top-level
-  ///   is treated as logical spec #0; additionalBrackets[i] as spec #(i+1).
-  ///   Two specs with the same (stableId, argKey) are rejected — the same
-  ///   trace event would be double-counted across brackets. Two specs
-  ///   with the same stableId but different argKeys are accepted (the
-  ///   intended multi-axis pattern).
+  /// - Cross-spec uniqueness on `(stableId, severityLabel, argKey)`
+  ///   tuples spans the union of {top-level, additionalBrackets[*]}.
+  ///   Top-level is treated as logical spec #0; additionalBrackets[i]
+  ///   as spec #(i+1). Two specs with the same (stableId, severityLabel,
+  ///   argKey) are rejected — the same trace event
+  ///   `sleuth.issue.<stableId>.<severity>` would be double-counted
+  ///   across brackets with the same observed-axis arg. Two specs that
+  ///   differ on argKey are accepted (multi-axis pattern). Two specs
+  ///   that differ on severityLabel are also accepted — they validate
+  ///   disjoint trace events (warning vs critical), which is the
+  ///   canonical tier-stack raise (e.g. `heavy_compute.warning` +
+  ///   `heavy_compute.critical` brackets on a single family).
   /// - Every runtimeVerified family declared via [perStableIdTier] must
   ///   be covered either by the canonical bracket (via [coveredThresholds])
   ///   OR by some [BracketSpec] whose [BracketSpec.coveredThresholds]

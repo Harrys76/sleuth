@@ -1478,16 +1478,24 @@ List<String> checkPerStableIdTier({
 ///   * Per-spec required-field structural checks (non-empty stableId /
 ///     severityLabel / unit, non-empty coveredThresholds, exactly 3
 ///     entries in profileCapturePaths).
-///   * Cross-spec uniqueness on the `(stableId, observedAxisArgKey)`
-///     tuple, spanning the union of {top-level (logical spec #0),
-///     additionalBrackets[i] (spec #(i+1))}. Two specs with the same
-///     stableId AND argKey would double-count the same trace event.
-///     Two specs with the same stableId but different argKeys are
-///     accepted (the intended multi-axis pattern).
+///   * Cross-spec uniqueness on the
+///     `(stableId, severityLabel, observedAxisArgKey)` tuple, spanning the
+///     union of {top-level (logical spec #0), additionalBrackets[i] (spec
+///     #(i+1))}. Two specs with the same stableId, severity AND argKey
+///     would double-count the same trace event
+///     (`sleuth.issue.[stableId].[severity]` instances stamped with the
+///     same axis arg). Two specs
+///     with the same stableId but different argKeys are accepted (the
+///     intended multi-axis pattern). Two specs with the same stableId +
+///     argKey but different severityLabels are also accepted — they
+///     validate disjoint trace events (`sleuth.issue.<id>.warning` vs
+///     `sleuth.issue.<id>.critical`), which is the canonical shape for
+///     a tier-stack raise (warning + critical brackets on a single family).
 List<String> checkAdditionalBrackets({
   required String label,
   required List<BracketSpec>? additionalBrackets,
   String? topLevelStableId,
+  String? topLevelSeverityLabel,
   String? topLevelObservedAxisArgKey,
   List<String>? topLevelCapturePaths,
 }) {
@@ -1604,35 +1612,44 @@ List<String> checkAdditionalBrackets({
     return t.isEmpty ? null : t;
   }
 
-  final seen = <(String, String?), String>{};
+  // Tuple key: (stableId, severityLabel, argKey). Trace event names are
+  // `sleuth.issue.<stableId>.<severityLabel>` so two specs that differ
+  // only on severityLabel validate disjoint trace events and are not a
+  // collision (canonical tier-stack raise: warning + critical brackets
+  // on a single family, both with argKey=null).
+  final seen = <(String, String?, String?), String>{};
   final tlStable = canonical(topLevelStableId);
+  final tlSev = canonical(topLevelSeverityLabel);
   final tlArg = canonical(topLevelObservedAxisArgKey);
   if (tlStable != null) {
-    seen[(tlStable, tlArg)] = 'top-level (spec #0)';
+    seen[(tlStable, tlSev, tlArg)] = 'top-level (spec #0)';
   }
   for (var i = 0; i < additionalBrackets.length; i++) {
     final spec = additionalBrackets[i];
     final specStable = canonical(spec.stableId);
     if (specStable == null) continue;
+    final specSev = canonical(spec.severityLabel);
     final specArg = canonical(spec.observedAxisArgKey);
-    final key = (specStable, specArg);
+    final key = (specStable, specSev, specArg);
     final priorLabel = seen[key];
     final currLabel = 'additionalBrackets[$i] (spec #${i + 1})';
     if (priorLabel != null) {
       final argKeyDisplay = specArg == null
           ? 'null (no cross-check on either spec)'
           : '"$specArg"';
+      final sevDisplay = specSev == null ? 'null' : '"$specSev"';
       final reason = specArg == null
-          ? 'redundant — both specs validate the same trace event '
-              'name without an observed-axis cross-check to distinguish '
-              'them. Pick distinct stableIds OR set observedAxisArgKey '
-              'on at least one spec to disambiguate'
+          ? 'redundant — both specs validate the same '
+              '`sleuth.issue.$specStable.$specSev` trace event without '
+              'an observed-axis cross-check to distinguish them. Pick '
+              'distinct stableIds, distinct severityLabels, OR set '
+              'observedAxisArgKey on at least one spec to disambiguate'
           : 'would double-count the same trace event with the same '
               'observed-axis arg. Use distinct observedAxisArgKeys '
               '(or null on one) when bracketing multiple axes on the '
-              'same stableId';
+              'same (stableId, severityLabel)';
       failures.add('$label: cross-spec collision on (stableId="$specStable", '
-          'observedAxisArgKey=$argKeyDisplay) '
+          'severityLabel=$sevDisplay, observedAxisArgKey=$argKeyDisplay) '
           '— $priorLabel and $currLabel $reason.');
     } else {
       seen[key] = currLabel;
@@ -1931,6 +1948,7 @@ List<String> runRuntimeTierAudit({
     label: label,
     additionalBrackets: meta.additionalBrackets,
     topLevelStableId: meta.bracketStableId,
+    topLevelSeverityLabel: meta.bracketSeverityLabel,
     topLevelObservedAxisArgKey: meta.observedAxisArgKey,
     topLevelCapturePaths: meta.profileCapturePaths,
   ));

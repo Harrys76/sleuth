@@ -1101,6 +1101,55 @@ void main() {
               contains('non-empty "above" band'))));
     });
 
+    test(
+        'atTolerance=0.60 seam: 25.6 ms accepts, 25.601 ms rejects '
+        '(threshold=16, the HeavyCompute critical bracket boundary)', () async {
+      // Pins the schema-side at-band upper edge for the
+      // HeavyComputeDetector critical bracket. Detector metadata declares
+      // atTolerance=0.60 against threshold=16, so the audit gate accepts
+      // observed up to 16 × 1.6 = 25.6 ms and rejects the next tick.
+      // Without this test the seam value is just a number in BracketSpec —
+      // a future drift around the boundary could ship green.
+      final tmp = await Directory.systemTemp.createTemp('sleuth_060_seam_');
+      addTearDown(() => tmp.delete(recursive: true));
+      final belowF =
+          _writeRoleCapture(tmp, 'below.json', role: 'below', observed: 12);
+      final aboveF =
+          _writeRoleCapture(tmp, 'above.json', role: 'above', observed: 27);
+      final atAcceptF =
+          _writeRoleCapture(tmp, 'at_accept.json', role: 'at', observed: 25.6);
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: belowF,
+          atFile: atAcceptF,
+          aboveFile: aboveF,
+          threshold: 16,
+          unit: 'ms',
+          atTolerance: 0.60,
+          aboveCeilingMultiplier: 1.875,
+        ),
+        returnsNormally,
+      );
+      final atRejectF = _writeRoleCapture(tmp, 'at_reject.json',
+          role: 'at', observed: 25.601);
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: belowF,
+          atFile: atRejectF,
+          aboveFile: aboveF,
+          threshold: 16,
+          unit: 'ms',
+          atTolerance: 0.60,
+          aboveCeilingMultiplier: 1.875,
+        ),
+        throwsA(isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('Bracket violation'), contains('"at" observed')),
+        )),
+      );
+    });
+
     test('aboveCeilingMultiplier below 1 + atTolerance also rejected', () {
       expect(
           () => ProfileCaptureSchema.validateBracket(
@@ -1936,9 +1985,9 @@ File _writeRoleCapture(
   Directory dir,
   String filename, {
   required String role,
-  required int observed,
+  required num observed,
 }) {
-  final spanMicros = observed * 1000;
+  final spanMicros = (observed * 1000).round();
   final metadata = <String, Object?>{
     'device': 'iPhone 13 mini',
     'deviceOsVersion': 'iOS 17.6.1',
@@ -1946,9 +1995,9 @@ File _writeRoleCapture(
     'captureCommand': 'fvm flutter run --profile',
     'scenario': 'synthetic role-vs-label test triad',
     'expectedMagnitude': {
-      'min': observed - 100,
+      'min': observed * 0.5,
       'observed': observed,
-      'max': observed + 100,
+      'max': observed * 1.5,
       'unit': 'ms',
     },
     'captureDate': '2026-04-26T00:00:00Z',

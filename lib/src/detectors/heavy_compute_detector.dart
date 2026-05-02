@@ -96,6 +96,14 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       // is monotonic VM Timeline time — never overload `detectedAt`
       // with it (would corrupt ISO-8601 export to 1970-era dates).
       dedupIdentityMicros: event.timestampUs,
+      // Detector-stamped BUILD duration in ms. The audit gate cross-
+      // checks this against the capture's `expectedMagnitude.observed`
+      // (operator-Stopwatch value) so a regression that mis-computes
+      // BUILD `dur` cannot certify the wrong magnitude as long as the
+      // operator's Stopwatch records the true wall-clock work. Stored
+      // as a string per `extraTraceArgs` contract (VM timeline args are
+      // string-keyed string-valued).
+      extraTraceArgs: {'observedDurationMs': ms.toString()},
       confidenceReason:
           'Measured directly from VM timeline long UI-thread event',
     );
@@ -117,6 +125,9 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
       detectedAt: DateTime.now(),
+      // Same observed-axis stamping as the enriched path so the audit
+      // gate's cross-check applies to fallback emissions too.
+      extraTraceArgs: {'observedDurationMs': ms.toString()},
       confidenceReason:
           'Measured directly from VM timeline long UI-thread event',
     );
@@ -158,15 +169,18 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
             'paths: enriched `_createIssue` with dirtyList, unenriched '
             '`_createIssue` with `ts`, fallback `_createGenericIssue` '
             'on raw `buildScopeDurations`). The runtimeVerified tier '
-            'is backed by three on-device captures (iPhone 12 / iOS '
-            '17.5 / Flutter 3.41.x) that bracket the warning threshold '
-            'with `Sleuth.markScenarioBegin/End` + `flushTimelineNow` '
-            'driving synchronous detector emission inside the scenario '
-            'span. Captures recorded under v0.18.2 producer-side dedup '
+            'is backed by SIX on-device captures (iPhone 12 / iOS '
+            '17.5 / Flutter 3.41.x): three bracketing the 8 ms warning '
+            'threshold (canonical bracket) and three bracketing the '
+            '16 ms critical threshold (additionalBrackets[0], v0.19.13 '
+            'tier-stack raise). All six captures use '
+            '`Sleuth.markScenarioBegin/End` + `flushTimelineNow` to '
+            'drive synchronous detector emission inside the scenario '
+            'span. Captures recorded under v0.18.2+ producer-side dedup '
             '(stable per-BUILD `detectedAt` derived from '
             '`event.timestampUs`) so the strong uniqueness invariant '
             '(`requireUniqueDetectedAtMicros: true`) protects against '
-            'capture replay forgery.',
+            'capture replay forgery on both brackets.',
         reproducerPath: 'test/validation/heavy_compute_reproducer_test.dart',
         profileCapturePaths: [
           'test/validation/captures/heavy_compute/heavy_compute_below.json',
@@ -185,19 +199,54 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
         bracketAtTolerance: 0.50,
         aboveCeilingMultiplier: 1.875,
         coveredStableIds: {'heavy_compute'},
-        coveredThresholds: {'heavy_compute.warning'},
+        coveredThresholds: {
+          'heavy_compute.warning',
+          'heavy_compute.critical',
+        },
         // Captures recorded under v0.18.2+ producer-side dedup with
         // stable per-BUILD `detectedAt`. Opt into the strong
         // uniqueness invariant so the audit gate rejects any future
         // capture whose in-span trace records share a
         // `detectedAtMicros` (forgery / replay protection).
         bracketRequireUniqueDetectedAtMicros: true,
-        // The 16 ms critical tier remains implicitly `unvalidated` in
-        // this metadata — `DetectorMetadata` carries one `tier` per
-        // detector instance, so this declaration covers
-        // `heavy_compute.warning` only. Honest per-family-tier
-        // representation deferred to a future metadata extension;
-        // raising critical to runtimeVerified would require 3
-        // additional on-device captures bracketing 16 ms.
+        // Detector stamps BUILD ms into `extraTraceArgs` (key
+        // `observedDurationMs`) so the audit gate cross-checks the
+        // operator-Stopwatch `expectedMagnitude.observed` against the
+        // detector-side measurement. Closes the certify-wrong-magnitude
+        // gap a magnitudeSourceEventName='' bypass would otherwise
+        // leave open. Backward-compatible: pre-arg captures lack the
+        // key and the cross-check is skipped per-record.
+        observedAxisArgKey: 'observedDurationMs',
+        // Critical-tier bracket. atTolerance 0.60 (vs warning's 0.50) is
+        // forward-compat re-record headroom, not retroactive band-fit:
+        // the committed at observation (23.703 ms) fits the 0.50 band
+        // [16, 24] too. The wider band gives the next operator a 1-2
+        // tap convergence window instead of 4-5 retries against a near-
+        // edge target. aboveCeilingMultiplier stays 1.875 → ceiling 30
+        // ms; above-band (25.7, 30] keeps positive width since at-upper
+        // 25.6 < ceiling 30.
+        additionalBrackets: [
+          BracketSpec(
+            stableId: 'heavy_compute',
+            severityLabel: 'critical',
+            threshold: 16,
+            unit: 'ms',
+            coveredThresholds: {'heavy_compute.critical'},
+            profileCapturePaths: [
+              'test/validation/captures/heavy_compute/heavy_compute_critical_below.json',
+              'test/validation/captures/heavy_compute/heavy_compute_critical_at.json',
+              'test/validation/captures/heavy_compute/heavy_compute_critical_above.json',
+            ],
+            atTolerance: 0.60,
+            aboveCeilingMultiplier: 1.875,
+            requireUniqueDetectedAtMicros: true,
+            requireDetectorTraceRecord: true,
+            // Same observed-axis key as the canonical warning bracket.
+            // Cross-spec uniqueness tuple is (stableId, severityLabel,
+            // argKey) so this collides with neither: warning + critical
+            // share argKey but differ on severityLabel.
+            observedAxisArgKey: 'observedDurationMs',
+          ),
+        ],
       );
 }

@@ -2519,6 +2519,7 @@ void main() {
         label: 'X',
         additionalBrackets: [extra],
         topLevelStableId: 'platform_channel_traffic',
+        topLevelSeverityLabel: 'warning',
         topLevelObservedAxisArgKey: 'a',
       );
       expect(
@@ -2534,7 +2535,51 @@ void main() {
         label: 'X',
         additionalBrackets: [extra],
         topLevelStableId: 'platform_channel_traffic',
+        topLevelSeverityLabel: 'warning',
         topLevelObservedAxisArgKey: 'a',
+      );
+      expect(failures, isEmpty);
+    });
+
+    test(
+        'mixed-mode: top-level warning + additionalBrackets critical with '
+        'identical (stableId, argKey=null) accepted (tier-stack raise)', () {
+      // Canonical shape for a detector that brackets BOTH the warning
+      // and critical thresholds of a single family without exporting an
+      // observed-axis arg (e.g. HeavyCompute's per-BUILD ms is read
+      // directly off the BUILD `dur` field, not stamped into args). The
+      // trace events differ by severity so there is no double-counting.
+      final extra = mkSpec(
+        severityLabel: 'critical',
+        coveredThresholds: {'platform_channel_traffic.critical'},
+        pathTag: 'critical',
+      );
+      final failures = checkAdditionalBrackets(
+        label: 'X',
+        additionalBrackets: [extra],
+        topLevelStableId: 'platform_channel_traffic',
+        topLevelSeverityLabel: 'warning',
+      );
+      expect(failures, isEmpty);
+    });
+
+    test(
+        'two additionalBrackets specs on same stableId+argKey but different '
+        'severities accepted (audit gap fix)', () {
+      // Regression guard for the v0.19.13 audit-invariant patch: pre-fix
+      // the seen tuple was (stableId, argKey) and this case threw a
+      // false collision. Post-fix the seen tuple is (stableId,
+      // severityLabel, argKey), so two specs that share stableId + argKey
+      // but differ on severityLabel are disjoint.
+      final s1 = mkSpec(severityLabel: 'warning', pathTag: 'w');
+      final s2 = mkSpec(
+        severityLabel: 'critical',
+        coveredThresholds: {'platform_channel_traffic.critical'},
+        pathTag: 'c',
+      );
+      final failures = checkAdditionalBrackets(
+        label: 'X',
+        additionalBrackets: [s1, s2],
       );
       expect(failures, isEmpty);
     });

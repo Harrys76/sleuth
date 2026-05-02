@@ -1,3 +1,15 @@
+## 0.19.13
+
+`HeavyComputeDetector.heavy_compute.critical` raised to **runtimeVerified** via `additionalBrackets`. First tier-stack raise (warning + critical brackets on one family). Distribution: **8/23 effective runtimeVerified families**.
+
+- Detector: critical `BracketSpec` — `threshold: 16`, `atTolerance: 0.60` (at-band [16, 25.6]), `aboveCeilingMultiplier: 1.875` (ceiling 30 ms). `coveredThresholds` expands to `{warning, critical}`. Both brackets declare `observedAxisArgKey: 'observedDurationMs'` and the detector stamps BUILD ms into `extraTraceArgs` so the audit gate cross-checks operator-Stopwatch observed against detector-side measurement (closes wrong-magnitude gap when `magnitudeSourceEventName: ''` bypasses BUILD-derivation).
+- Audit invariant `checkAdditionalBrackets`: cross-spec uniqueness tuple bumped to `(stableId, severityLabel, observedAxisArgKey)`. Trace event names `sleuth.issue.<id>.<severity>` differ by severity, so the prior 2-tuple false-collided on tier-stack raises. 2 tests pin the new accept cases.
+- Capture screen: tier-mode dropdown drives `_legSpec(_Tier, _Leg)` resolver — target ms, band bounds, scenario name, capture file name retune per active tier. Critical legs: below=12 ms, at=20 ms, above=27 ms. `exportCaptureJson` receives `bracketStableId` + `bracketSeverityLabel` so trace-record presence (or absence on below) is validated at clipboard-copy time. `dispose()` emits `markScenarioEnd` for any in-flight scenario. `SafeArea` wraps the log.
+- Reproducer: 7 critical-band cases (18000 / 24000 / 24001 / 25600 / 25601 / 30000 / 30001µs) pin `.critical` emission across the band. 25600/25601µs straddle the schema's 0.60 at-band upper edge.
+- Schema-edge test: `validateBracket` accepts observed=25.6 ms / rejects 25.601 ms at threshold=16, atTolerance=0.60.
+- Anchor: 13 explicit pins covering both brackets.
+- Captures: 6 on-device recordings (iPhone 12 / iOS 17.5 / Flutter 3.41.x) — both warning and critical triads carry `observedDurationMs` for cross-check.
+
 ## 0.19.12
 
 `RebuildDetector.rebuild_activity.warning` raised to **runtimeVerified** via `perStableIdTier`. First raise requiring baseline subtraction: iOS profile-mode framework activity emits ~10–15 BUILDs/sec ambient, exceeding the default 10/sec threshold. Distribution: **20/23 reproducerOnly base, 7/23 effective runtimeVerified families**.

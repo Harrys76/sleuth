@@ -6,9 +6,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
-/// Capture helper for the planned v0.18.0 `runtimeVerified` tier raise on
-/// `HeavyComputeDetector.heavy_compute` **WARNING tier only**
-/// (threshold = 8 ms; strict-greater critical at 16 ms).
+/// Capture helper for the `runtimeVerified` tier raises on
+/// `HeavyComputeDetector.heavy_compute`.
+///
+/// Two tier-stack brackets are recorded from this screen:
+///
+///  - **Warning** (threshold = 8 ms, shipped v0.18.2). Below/at/above
+///    captures bracket the 8 ms strict-greater warning fire.
+///  - **Critical** (threshold = 16 ms = 2× warning, planned v0.19.13).
+///    Below/at/above captures bracket the 16 ms strict-greater critical
+///    fire. Below leg sits between 8 ms and 16 ms so the detector emits
+///    `.warning` (which the schema's `_requireNoIssueTraceRecord(critical)`
+///    accepts via its name-scoped filter) but not `.critical`.
+///
+/// Pick the active tier via the dropdown at the top of the screen. The
+/// scenario name, capture file naming, and per-leg target ms switch
+/// together — the wrapped capture JSON for each leg is exported to the
+/// iOS clipboard with the file name the operator should save it under.
 ///
 /// **VM-service connection required.** This screen produces captures
 /// that satisfy `ProfileCaptureSchema.validateBracket(...
@@ -20,44 +34,32 @@ import 'package:sleuth/sleuth.dart';
 /// "Connect via network", or run on the iOS simulator.
 ///
 /// In FRAME mode, the `HeavyComputeDetector` (vmOnly lifecycle) never
-/// observes BUILD events, so `_recordIssuesForCapture` never emits the
-/// required `sleuth.issue.heavy_compute.<severity>` trace record. The
-/// schema audit will reject the resulting capture as "Missing detector
-/// trace record" — that is the correct behavior. Earlier iterations of
-/// this screen synthesised the trace record from a Stopwatch around
-/// the inner loop; that path was removed because it produced evidence
+/// observes BUILD events, so the detector never emits the required
+/// `sleuth.issue.heavy_compute.<severity>` trace record. The schema
+/// audit will reject the resulting capture as "Missing detector trace
+/// record" — that is the correct behavior. Earlier iterations of this
+/// screen synthesised the trace record from a Stopwatch around the
+/// inner loop; that path was removed because it produced evidence
 /// indistinguishable from forgery and certified screen-mirrored
 /// threshold logic instead of detector behavior.
 ///
-/// Produces three deterministic profile-mode timeline captures —
-/// below / at / above — that `validateBracket(... atTolerance: 0.50,
-/// aboveCeilingMultiplier: 1.875)` will accept. The schema requires:
-///
-///  1. A `sleuth.scenario.begin` / `sleuth.scenario.end` instant-event
-///     pair pinning the work window.
-///  2. A `sleuth.issue.heavy_compute.warning` instant event inside that
-///     window for the AT and ABOVE captures (emitted by the real
-///     `HeavyComputeDetector`, NOT this screen).
-///  3. The captured magnitude bracketing 8 ms per below/at/above bands.
-///
 /// **Bands enforced by this screen** (tied to the schema settings the
-/// `HeavyComputeDetector` metadata must declare when it flips to
-/// `runtimeVerified`):
-///   below: ms < 8.0   (sub-threshold; detector stays silent).
-///   at:    8.0 ≤ ms ≤ 12.0  (atTolerance=0.50 → [8, 8 × 1.50]).
-///   above: 12.1 ≤ ms ≤ 15.0 (gap above the at-upper preserves
-///                            "above ≠ at" semantics; aboveCeiling
-///                            = 8 × 1.875 = 15 stays clear of the
-///                            16 ms critical threshold).
+/// `HeavyComputeDetector` metadata declares for each tier):
 ///
-/// The default schema `atTolerance` of 0.10 produces a [8, 8.8] ms
-/// at-band, which is unreachable on iPhone 12 (per-scenario variance
-/// ±25–30 % from thermal/JIT/scheduler noise). Widening to 0.50 is the
-/// smallest tolerance that lets the procedure converge while staying
-/// strictly below the above-ceiling. The detector's `validationMetadata`
-/// must set `bracketAtTolerance: 0.50` and `aboveCeilingMultiplier:
-/// 1.875` for the audit gate to accept these captures — the wider band
-/// is a per-detector declaration, not the schema-wide default.
+/// Warning tier (threshold=8, atTolerance=0.50, aboveCeilingMultiplier=1.875):
+///   below: ms < 8.0
+///   at:    8.0 ≤ ms ≤ 12.0  (atTolerance=0.50 → [8, 8 × 1.50])
+///   above: 12.1 ≤ ms ≤ 15.0 (above-ceiling 8 × 1.875 = 15;
+///                            stays clear of 16 ms critical)
+///
+/// Critical tier (threshold=16, atTolerance=0.50, aboveCeilingMultiplier=1.875):
+///   below: 8.0 ≤ ms ≤ 15.5  (warning fires; critical does NOT — the
+///                            schema's name-scoped no-record check
+///                            ignores warning events when validating
+///                            the critical below leg)
+///   at:    16.0 ≤ ms ≤ 24.0 (atTolerance=0.50 → [16, 16 × 1.50])
+///   above: 24.1 ≤ ms ≤ 30.0 (above-ceiling 16 × 1.875 = 30;
+///                            no super-critical tier above)
 ///
 /// **Required runtime gate**: this screen relies on
 /// `Sleuth.markScenarioBegin/End` which are silently no-ops unless the
@@ -71,20 +73,20 @@ import 'package:sleuth/sleuth.dart';
 ///
 ///  1. `cd example && fvm flutter run --profile -d DEVICE \
 ///       --dart-define=SLEUTH_CAPTURE_MODE=true`.
-///  2. Open DevTools Performance tab, clear timeline.
-///  3. Tap **Below**, wait for "safe to Export" log line.
-///  4. DevTools → Performance → Save timeline JSON →
-///     `<repo>/captures/raw/heavy_compute_below.raw.json`.
+///  2. Pick the active tier (Warning / Critical) from the dropdown.
+///  3. Tap **Below**, wait for "ready to Export" log line.
+///  4. Tap **Export last leg** — wrapped JSON is copied to clipboard
+///     with the correct file name (e.g. `heavy_compute_critical_at.json`).
 ///  5. Repeat for **At** and **Above**.
-///  6. Wrap each raw export via `tool/wrap_capture.dart` (see
-///     `doc/capture_procedure.md`) and drop the wrapped files under
+///  6. Save each clipboard payload under
 ///     `test/validation/captures/heavy_compute/`.
 ///
 /// **Auto-calibration**: sin/cos iteration counts are calibrated on
 /// screen open by running a short warmup loop and dividing measured
 /// duration into the target ms for each preset. Recalibrate via the
 /// "Recalibrate" button if device thermal throttling or background
-/// load skews the first-pass measurement.
+/// load skews the first-pass measurement. Each in-band capture also
+/// refines the rate, so subsequent taps land closer to the target band.
 class HeavyComputeCaptureScreen extends StatefulWidget {
   const HeavyComputeCaptureScreen({super.key});
 
@@ -96,39 +98,7 @@ class HeavyComputeCaptureScreen extends StatefulWidget {
 // Warning threshold for HeavyComputeDetector (lagThresholdMs).
 // Critical fires strict-greater at 2× = 16 ms.
 const _warningThresholdMs = 8;
-
-// Per-leg target compute durations (ms). Below sits well under the
-// threshold so the detector stays silent. At sits inside the at-band
-// `[8, 8 × 1.1] = [8, 8.8]`. Above sits inside `(8, aboveCeiling]`
-// with aboveCeiling = 8 × 1.875 = 15 ms — leaves a 1 ms guard against
-// the critical threshold (>16 ms). Pick targets in the middle of each
-// band so device jitter cannot push a single recording out-of-band.
-// Targets sit deliberately FAR from each band's nearest threshold to
-// absorb iPhone's ±25–30 % per-scenario variance:
-//   below band [0, 7.9]    → target 3.0 ms  (≥ 2.6× drift still safe)
-//   at    band [8, 12]     → target 10.0 ms (mid-band — ±20 % stays in band)
-//   above band [12.1, 15]  → target 13.5 ms (mid-band — ±10 % stays in band)
-//
-// The above-band lower bound is set to 12.1 (one tick past the at-band
-// upper) so at/above captures cannot land on the same magnitude. With
-// the default schema atTolerance + aboveCeilingMultiplier, the schema
-// allows above-band to start at 8 (just-above-threshold), which means
-// at/above could overlap and become semantically indistinguishable.
-// Keeping the screen-side floors disjoint preserves the bracket's
-// "below < at < above" intuition.
-//
-// Below is the most dangerous: any measured ms > 8 triggers
-// `markCaptureIssue` with `.warning`, and the schema then rejects the
-// below capture as "Unexpected detector trace record". Aim well under.
-const _belowTargetMs = 3.0;
-const _atTargetMs = 10.0;
-// Above target sits in the lower half of the (12, 15] above-band so
-// iPhone variance (±15-20% post-warmup) does not push the captured
-// magnitude past the 15 ms above-ceiling. 12.5 ms target ± 20% =
-// [10.0, 15.0]: low end re-enters at-band (operator retries), high
-// end exactly hits ceiling. Tighter than 13.5 ms which had only 1 ms
-// clearance and OOB'd consistently on iPhone 12.
-const _aboveTargetMs = 12.5;
+const _criticalThresholdMs = 16;
 
 // Calibration warmup. Big enough that the resulting iterations-per-ms
 // rate is stable, small enough that the screen open delay is invisible.
@@ -139,25 +109,97 @@ const _aboveTargetMs = 12.5;
 // thermal state and keeps each leg inside its target band.
 const _calibrationIterations = 500000;
 
+/// Active tier-stack bracket the screen is recording.
+enum _Tier {
+  warning(label: 'warning', thresholdMs: _warningThresholdMs),
+  critical(label: 'critical', thresholdMs: _criticalThresholdMs);
+
+  const _Tier({required this.label, required this.thresholdMs});
+
+  final String label;
+  final int thresholdMs;
+}
+
+/// Per-leg band specs resolved against the active [_Tier].
+///
+/// Targets sit deliberately FAR from each band's nearest threshold to
+/// absorb iPhone's ±15-25 % per-scenario variance. Below targets aim
+/// well under the active threshold; at + above targets sit mid-band so
+/// that ±20 % drift stays inside the schema-accepted band.
+({double targetMs, double msMin, double msMax}) _legSpec(_Tier tier, _Leg leg) {
+  switch (tier) {
+    case _Tier.warning:
+      switch (leg) {
+        // Below band [0, 7.9] → target 3.0 ms (≥ 2.6× drift still safe).
+        case _Leg.below:
+          return (targetMs: 3.0, msMin: 0.0, msMax: 7.9);
+        // At band [8, 12] → target 10.0 ms (mid-band, ±20 % stays in band).
+        case _Leg.at:
+          return (targetMs: 10.0, msMin: 8.0, msMax: 12.0);
+        // Above band [12.1, 15] → target 12.5 ms (lower half so ±20 %
+        // drift does not push past the 15 ms above-ceiling).
+        case _Leg.above:
+          return (targetMs: 12.5, msMin: 12.1, msMax: 15.0);
+      }
+    case _Tier.critical:
+      switch (leg) {
+        // Below band [8, 15.5] (warning fires; critical does not).
+        // Target 12 ms is mid-band; the schema's name-scoped
+        // _requireNoIssueTraceRecord('critical') ignores in-span
+        // `.warning` events.
+        case _Leg.below:
+          return (targetMs: 12.0, msMin: 8.0, msMax: 15.5);
+        // At band [16, 25.6] (atTolerance=0.60). Target 20 ms sits
+        // mid-band. The 0.60 tolerance is forward-compat re-record
+        // headroom relative to warning's 0.50 — the wider window is
+        // operator convergence margin, not a claim about device
+        // physics at higher magnitudes.
+        case _Leg.at:
+          return (targetMs: 20.0, msMin: 16.0, msMax: 25.6);
+        // Above band (25.7, 30] → target 27.0 ms. msMin bumped one tick
+        // past at-upper (25.6) so at + above magnitudes stay disjoint
+        // even when the operator over-shoots the at target.
+        case _Leg.above:
+          return (targetMs: 27.0, msMin: 25.7, msMax: 30.0);
+      }
+  }
+}
+
 class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
   final List<String> _log = [];
   bool _busy = false;
   // Iterations-per-ms determined by the calibration warmup. Until set,
   // capture buttons are disabled.
   double? _iterationsPerMs;
+  // Active tier-stack bracket the operator is recording. Defaults to
+  // warning (the v0.18.2 raise) for backward compat with the original
+  // capture procedure.
+  _Tier _activeTier = _Tier.warning;
   // Pending leg requested by a button tap; consumed inside `build` so
   // the sin/cos loop runs synchronously *inside* the build scope and
   // shows up in the VM timeline as a long Widget.build event (the
   // shape `HeavyComputeDetector` filters on). Same indirection as the
   // existing HeavyCompute demo.
   _Leg? _pendingLeg;
+  _Tier? _pendingTier;
 
   // Last completed scenario, captured at the end of build() so the
   // Export button knows what scenario name + measured magnitude to
   // pass to `Sleuth.exportCaptureJson`. Cleared when the user
   // re-taps a leg.
   _Leg? _lastCompletedLeg;
+  _Tier? _lastCompletedTier;
   double? _lastMeasuredMs;
+
+  // In-flight scenario name. Stamped at markScenarioBegin (inside
+  // build()), cleared at markScenarioEnd (in postFrameCallback). When
+  // non-null at dispose() the operator backgrounded or popped the
+  // screen mid-scenario; we emit a synthetic markScenarioEnd so the
+  // begin marker doesn't outlive the screen and pair with whatever
+  // scenario the next session opens (orphan scenario.begin would make
+  // ProfileCaptureSchema's `_scenarioSpan` see two begins or attribute
+  // a wider span than intended).
+  String? _inFlightScenarioName;
 
   bool get _captureModeOn {
     // SleuthConfig is only readable through Sleuth.controllerOf; the
@@ -172,6 +214,19 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
     // Run calibration after first frame so the scaffold paints before
     // the warmup blocks the UI thread.
     WidgetsBinding.instance.addPostFrameCallback((_) => _calibrate());
+  }
+
+  @override
+  void dispose() {
+    final scenario = _inFlightScenarioName;
+    if (scenario != null) {
+      // Operator popped or backgrounded mid-scenario. Emit the matching
+      // scenario.end so the in-buffer begin marker pairs and the next
+      // session's recorded span can't accidentally absorb it.
+      Sleuth.markScenarioEnd(scenario);
+      _inFlightScenarioName = null;
+    }
+    super.dispose();
   }
 
   void _calibrate() {
@@ -203,23 +258,28 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
 
   void _requestCapture(_Leg leg) {
     if (_busy || _iterationsPerMs == null) return;
+    final tier = _activeTier;
+    final spec = _legSpec(tier, leg);
     setState(() {
       _busy = true;
       _pendingLeg = leg;
+      _pendingTier = tier;
       _lastCompletedLeg = null;
+      _lastCompletedTier = null;
       _lastMeasuredMs = null;
       _log.add(
-        '[${leg.label}] scenario.begin '
-        '(target ${leg.targetMs.toStringAsFixed(1)} ms)',
+        '[${tier.label}/${leg.label}] scenario.begin '
+        '(target ${spec.targetMs.toStringAsFixed(1)} ms, '
+        'band [${spec.msMin.toStringAsFixed(1)}, '
+        '${spec.msMax.toStringAsFixed(1)}] ms)',
       );
     });
   }
 
   /// Composes the wrapped capture JSON for the most recent in-band
-  /// leg via `Sleuth.exportCaptureJson`, writes it to the app's
-  /// documents directory, and shows the resulting file path so the
-  /// operator can pull it off-device (Xcode → Devices and Simulators
-  /// → app container → download container, or share-sheet via Files).
+  /// leg via `Sleuth.exportCaptureJson`, copies it to the iOS
+  /// clipboard, and surfaces the target file name so the operator can
+  /// save the payload under `test/validation/captures/heavy_compute/`.
   ///
   /// Refuses when:
   /// - No leg has completed in-band since screen open (or since the
@@ -228,9 +288,10 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
   ///   mode (re-opened iOS profile build, or wireless debugging).
   Future<void> _exportLastLeg() async {
     final leg = _lastCompletedLeg;
+    final tier = _lastCompletedTier;
     final measured = _lastMeasuredMs;
     final messenger = ScaffoldMessenger.of(context);
-    if (leg == null || measured == null) {
+    if (leg == null || tier == null || measured == null) {
       setState(() {
         _log.add(
           'Export: no in-band leg recorded yet. Tap a leg button and '
@@ -239,18 +300,22 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       });
       return;
     }
+    final scenarioName = _scenarioName(tier, leg);
+    final fileName = _captureFileName(tier, leg);
     setState(() {
       _busy = true;
-      _log.add('[${leg.label}] Export: composing wrapped capture JSON…');
+      _log.add(
+        '[${tier.label}/${leg.label}] Export: composing wrapped capture JSON…',
+      );
     });
     String? json;
     try {
       json = await Sleuth.exportCaptureJson(
-        scenario: 'heavy_compute_${leg.label}',
-        role: leg.label, // 'below' | 'at' | 'above' (matches leg's label enum)
+        scenario: scenarioName,
+        role: leg.label, // 'below' | 'at' | 'above'
         // Schema requires expectedMagnitude.min strictly positive
-        // (rejects 0.0). Clamp to a small positive epsilon for the
-        // below-leg whose `measured` may be < 1.0 ms.
+        // (rejects 0.0). Clamp to a small positive epsilon for any
+        // sub-1-ms below leg.
         magnitudeMin: (measured - 1.0).clamp(0.001, double.infinity),
         magnitudeObserved: measured,
         magnitudeMax: measured + 1.0,
@@ -272,12 +337,24 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
         // (Stopwatch around _heavyCompute) is the authoritative
         // observed magnitude — same workaround NetworkMonitor uses.
         magnitudeSourceEventName: '',
+        // Pre-export trace-record cross-check. Forces exportCaptureJson
+        // to refuse (return null) when the leg's scenario span fails
+        // its severity-name match: at + above must contain at least one
+        // `sleuth.issue.heavy_compute.<active-tier>` event; below must
+        // contain ZERO of them. Catches "VM service disconnected" and
+        // "operator forgot to switch tier" failures at clipboard-copy
+        // time instead of CI time. Below leg's role-aware inverse check
+        // accepts cross-severity events (e.g. critical-below recordings
+        // emit `.warning` and that is intentionally allowed because the
+        // bracket only forbids `.critical` in span).
+        bracketStableId: 'heavy_compute',
+        bracketSeverityLabel: tier.label,
       );
     } catch (e) {
       json = null;
       if (mounted) {
         setState(() {
-          _log.add('[${leg.label}] Export FAILED: $e');
+          _log.add('[${tier.label}/${leg.label}] Export FAILED: $e');
         });
       }
     }
@@ -286,9 +363,9 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       setState(() {
         _busy = false;
         _log.add(
-          '[${leg.label}] Export FAILED: returned null. Common causes: '
-          'VM service disconnected (FRAME mode — kill the app from '
-          'Xcode and re-open from the home screen so VM+ mode '
+          '[${tier.label}/${leg.label}] Export FAILED: returned null. '
+          'Common causes: VM service disconnected (FRAME mode — kill the '
+          'app from Xcode and re-open from the home screen so VM+ mode '
           'activates), or scenario markers missing from the trace '
           'buffer (re-tap the leg and Export within 30 s).',
         );
@@ -302,30 +379,53 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       setState(() {
         _busy = false;
         _log.add(
-          '[${leg.label}] Export OK — wrapped capture '
+          '[${tier.label}/${leg.label}] Export OK — wrapped capture '
           '(${jsonText.length} chars) copied to iOS clipboard.',
         );
         _log.add(
-          '[${leg.label}] Paste into Notes / Mail / AirDrop note → '
-          'send to Mac. Save the pasted JSON as '
-          'heavy_compute_${leg.label}.json under '
+          '[${tier.label}/${leg.label}] Paste into Notes / Mail / AirDrop '
+          '→ send to Mac. Save the pasted JSON as $fileName under '
           'test/validation/captures/heavy_compute/.',
         );
       });
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Capture copied to clipboard. Paste anywhere to share.',
-          ),
-          duration: Duration(seconds: 6),
+        SnackBar(
+          content: Text('Capture copied. Save as $fileName.'),
+          duration: const Duration(seconds: 6),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _log.add('[${leg.label}] Clipboard copy FAILED: $e');
+        _log.add('[${tier.label}/${leg.label}] Clipboard copy FAILED: $e');
       });
+    }
+  }
+
+  /// Wire-format scenario name. Warning tier keeps the v0.18.2 prefix
+  /// (`heavy_compute_below`) for backward compat with the original
+  /// capture files. Critical tier injects `_critical_` so the captures
+  /// land at distinct file names + scenario IDs.
+  String _scenarioName(_Tier tier, _Leg leg) {
+    switch (tier) {
+      case _Tier.warning:
+        return 'heavy_compute_${leg.label}';
+      case _Tier.critical:
+        return 'heavy_compute_critical_${leg.label}';
+    }
+  }
+
+  /// Disk file name the operator should save the wrapped capture under.
+  /// Mirrors `_scenarioName` so the file/path matches the in-trace
+  /// scenario marker — anyone tracing a capture back to its on-device
+  /// source can read the scenario name and find the file directly.
+  String _captureFileName(_Tier tier, _Leg leg) {
+    switch (tier) {
+      case _Tier.warning:
+        return 'heavy_compute_${leg.label}.json';
+      case _Tier.critical:
+        return 'heavy_compute_critical_${leg.label}.json';
     }
   }
 
@@ -336,8 +436,11 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
     // event, otherwise HeavyComputeDetector's
     // `TimelinePhase.build`-filter never sees it.
     final pending = _pendingLeg;
-    if (pending != null) {
+    final pendingTier = _pendingTier;
+    if (pending != null && pendingTier != null) {
       _pendingLeg = null;
+      _pendingTier = null;
+      final spec = _legSpec(pendingTier, pending);
       // ONE workload per build callback. Earlier versions ran a 5-retry
       // auto-tune loop INSIDE this build, but that polluted the BUILD
       // timeline event with ~50 ms of cumulative warmup work and the
@@ -351,12 +454,14 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       // typically retries 2-3 times per leg before landing in-band on
       // a cold CPU; once warm, the rate stabilises.
       final rate = _iterationsPerMs ?? _calibrationIterations.toDouble();
-      final iterations = (rate * pending.targetMs).round();
+      final iterations = (rate * spec.targetMs).round();
+      final scenarioName = _scenarioName(pendingTier, pending);
       // markScenarioBegin emits the scenario.begin trace marker AND
       // (since v0.18.1) auto-resets the producer-side dedup set. Must
       // happen before the workload so the BUILD event the detector
       // observes lands inside the scenario span.
-      Sleuth.markScenarioBegin('heavy_compute_${pending.label}');
+      Sleuth.markScenarioBegin(scenarioName);
+      _inFlightScenarioName = scenarioName;
       final sw = Stopwatch()..start();
       _heavyCompute(iterations);
       sw.stop();
@@ -386,12 +491,10 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
       // context into ScaffoldMessenger.of.
       final messenger = ScaffoldMessenger.of(context);
       // Validate measured ms against the leg's hard bracket band
-      // (NOT the auto-tune ±8% target band — those are the ranges
-      // that actually satisfy `ProfileCaptureSchema.validateBracket`):
-      //   below:  ms < 8 (sub-threshold guard)
-      //   at:     8 <= ms <= 12 (atTolerance=0.50 → [8, 12])
-      //   above:  12 < ms <= 15 (above-ceiling 1.875 × 8 = 15)
-      final inBand = pending.isMsInBand(measuredMs);
+      // (NOT the auto-tune ±8 % target band — those are the ranges
+      // that satisfy `ProfileCaptureSchema.validateBracket` for the
+      // active tier).
+      final inBand = measuredMs >= spec.msMin && measuredMs <= spec.msMax;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
         // Drive the synchronous VM-poll + detector emission so the
@@ -412,7 +515,8 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
         // Close the scenario span AFTER the flush + dwell so the
         // emitted issue trace event's timestamp falls strictly inside
         // [scenario.begin, scenario.end].
-        Sleuth.markScenarioEnd('heavy_compute_${pending.label}');
+        Sleuth.markScenarioEnd(scenarioName);
+        _inFlightScenarioName = null;
         // Adaptive learning: refine the rate from THIS run's actual
         // throughput so the next tap lands closer to its target. iPhone
         // CPU thermal state drifts across taps; updating the rate here
@@ -425,19 +529,21 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
         final marker = inBand ? '✓ IN-BAND' : '✗ OUT-OF-BAND';
         setState(() {
           _lastCompletedLeg = inBand ? pending : null;
+          _lastCompletedTier = inBand ? pendingTier : null;
           _lastMeasuredMs = inBand ? measuredMs : null;
           _log.add(
-            '[${pending.label}] $marker — '
+            '[${pendingTier.label}/${pending.label}] $marker — '
             'measured ${measuredMs.toStringAsFixed(2)} ms '
-            '(must be ${pending.bandLabel}; '
+            '(must be [${spec.msMin.toStringAsFixed(1)}, '
+            '${spec.msMax.toStringAsFixed(1)}] ms; '
             'iterations $iterations, '
             'rate ${_iterationsPerMs!.toStringAsFixed(0)}/ms)',
           );
           if (!inBand) {
             _log.add(
-              '[${pending.label}] retry: tap ${pending.label} again '
-              '— rate refined; next tap should land closer to band. '
-              'Do NOT export an out-of-band run.',
+              '[${pendingTier.label}/${pending.label}] retry: tap '
+              '${pending.label} again — rate refined; next tap should '
+              'land closer to band. Do NOT export an out-of-band run.',
             );
           }
         });
@@ -449,15 +555,16 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
           _busy = false;
           if (inBand) {
             _log.add(
-              '[${pending.label}] ready to Export — tap "Export last '
-              'leg" to write the wrapped capture to the app sandbox.',
+              '[${pendingTier.label}/${pending.label}] ready to Export — '
+              'tap "Export last leg" to copy the wrapped capture to '
+              'clipboard.',
             );
           }
         });
         messenger.showSnackBar(
           SnackBar(
             content: Text(
-              '[${pending.label}] OK '
+              '[${pendingTier.label}/${pending.label}] OK '
               '(${measuredMs.toStringAsFixed(2)} ms). '
               'Tap Export now.',
             ),
@@ -468,133 +575,170 @@ class _HeavyComputeCaptureScreenState extends State<HeavyComputeCaptureScreen> {
     }
 
     final ready = _iterationsPerMs != null && !_busy;
+    final activeSpecs = {
+      for (final leg in _Leg.values) leg: _legSpec(_activeTier, leg),
+    };
     return Scaffold(
       appBar: AppBar(title: const Text('HeavyCompute capture helper')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'Records profile-mode captures for heavy_compute WARNING-tier '
-              'bracketing (8 ms threshold). Above preset stays well under '
-              '16 ms so the artifact cannot ambiently bracket the critical '
-              'tier. See class docstring + doc/capture_procedure.md for '
-              'the full recording protocol.',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            _CaptureButton(
-              label: 'Below ($_belowTargetMs ms) — passes',
-              subtitle:
-                  'Under $_warningThresholdMs ms threshold; '
-                  'detector stays silent',
-              enabled: ready,
-              onTap: () => _requestCapture(_Leg.below),
-            ),
-            const SizedBox(height: 8),
-            _CaptureButton(
-              label: 'At ($_atTargetMs ms) — warning',
-              subtitle: 'In [8, 12] at-band (±50% tolerance)',
-              enabled: ready,
-              onTap: () => _requestCapture(_Leg.at),
-            ),
-            const SizedBox(height: 8),
-            _CaptureButton(
-              label: 'Above ($_aboveTargetMs ms) — warning',
-              subtitle:
-                  'In [12.1, 15] above-band; '
-                  'stays clear of 16 ms critical',
-              enabled: ready,
-              onTap: () => _requestCapture(_Leg.above),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: ready ? _calibrate : null,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Recalibrate'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: _busy ? null : () => _exportLastLeg(),
-                    icon: const Icon(Icons.save_alt),
-                    label: const Text('Export last leg'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            const Text('Log', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            Expanded(
-              child: ListView.builder(
-                reverse: true,
-                itemCount: _log.length,
-                itemBuilder: (context, i) {
-                  final line = _log[_log.length - 1 - i];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(
-                      line,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  );
-                },
+      // SafeArea(bottom: true) prevents the scrolling log from rendering
+      // under the iPhone home-indicator strip on devices without a
+      // physical home button.
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Records profile-mode captures bracketing the heavy_compute '
+                'thresholds. Pick the active tier — Warning (8 ms) or '
+                'Critical (16 ms = 2× warning) — and the screen tunes its '
+                'leg targets, scenario name, and capture file name to match. '
+                'See class docstring + doc/capture_procedure.md for the '
+                'full recording protocol.',
+                style: TextStyle(fontSize: 13),
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Text(
+                    'Active tier:',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(width: 12),
+                  DropdownButton<_Tier>(
+                    value: _activeTier,
+                    onChanged: _busy
+                        ? null
+                        : (next) {
+                            if (next == null || next == _activeTier) return;
+                            setState(() {
+                              _activeTier = next;
+                              _lastCompletedLeg = null;
+                              _lastCompletedTier = null;
+                              _lastMeasuredMs = null;
+                              _log.add(
+                                'Switched active tier → ${next.label} '
+                                '(threshold ${next.thresholdMs} ms). '
+                                'Leg targets retuned.',
+                              );
+                            });
+                          },
+                    items: const [
+                      DropdownMenuItem(
+                        value: _Tier.warning,
+                        child: Text('Warning (8 ms)'),
+                      ),
+                      DropdownMenuItem(
+                        value: _Tier.critical,
+                        child: Text('Critical (16 ms)'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _CaptureButton(
+                label:
+                    'Below '
+                    '(${activeSpecs[_Leg.below]!.targetMs.toStringAsFixed(1)} '
+                    'ms) — '
+                    '${_activeTier == _Tier.warning ? "silent" : "warning fires"}',
+                subtitle: _activeTier == _Tier.warning
+                    ? 'Under $_warningThresholdMs ms threshold; detector silent'
+                    : 'Between $_warningThresholdMs ms and $_criticalThresholdMs '
+                          'ms — fires .warning, NOT .critical',
+                enabled: ready,
+                onTap: () => _requestCapture(_Leg.below),
+              ),
+              const SizedBox(height: 8),
+              _CaptureButton(
+                label:
+                    'At '
+                    '(${activeSpecs[_Leg.at]!.targetMs.toStringAsFixed(1)} '
+                    'ms) — ${_activeTier.label}',
+                subtitle:
+                    'In [${activeSpecs[_Leg.at]!.msMin.toStringAsFixed(1)}, '
+                    '${activeSpecs[_Leg.at]!.msMax.toStringAsFixed(1)}] '
+                    'at-band (±50% tolerance)',
+                enabled: ready,
+                onTap: () => _requestCapture(_Leg.at),
+              ),
+              const SizedBox(height: 8),
+              _CaptureButton(
+                label:
+                    'Above '
+                    '(${activeSpecs[_Leg.above]!.targetMs.toStringAsFixed(1)} '
+                    'ms) — ${_activeTier.label}',
+                subtitle:
+                    'In [${activeSpecs[_Leg.above]!.msMin.toStringAsFixed(1)}, '
+                    '${activeSpecs[_Leg.above]!.msMax.toStringAsFixed(1)}] '
+                    'above-band',
+                enabled: ready,
+                onTap: () => _requestCapture(_Leg.above),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: ready ? _calibrate : null,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Recalibrate'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _busy ? null : () => _exportLastLeg(),
+                      icon: const Icon(Icons.save_alt),
+                      label: const Text('Export last leg'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text('Log', style: TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Expanded(
+                child: ListView.builder(
+                  reverse: true,
+                  itemCount: _log.length,
+                  itemBuilder: (context, i) {
+                    final line = _log[_log.length - 1 - i];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        line,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
+/// Below / at / above leg of a single bracket. Bands resolved against
+/// the active [_Tier] via [_legSpec].
 enum _Leg {
-  // Bands match what ProfileCaptureSchema.validateBracket accepts when
-  // the detector's metadata declares `bracketAtTolerance: 0.50` and
-  // `aboveCeilingMultiplier: 1.875`:
-  //   below: ms < 8.0   (sub-threshold; detector must NOT fire).
-  //   at:    8.0 ≤ ms ≤ 12.0 (atTolerance=0.50 → [8, 8 × 1.50]).
-  //   above: 12.1 ≤ ms ≤ 15.0 (screen-side floor 12.1 keeps at and
-  //                            above magnitudes disjoint; the schema
-  //                            itself only requires above > 8 and
-  //                            ≤ aboveCeiling).
-  // The 10 % default at-band [8, 8.8] and 30 % band [8, 10.4] are both
-  // unreachable on iPhone 12 — per-scenario variance is ±25–30 %
-  // regardless of pre-warmup or auto-tuning. 50 % is the lowest at-
-  // tolerance that lets the procedure converge in 1–2 retries while
-  // still proving "at threshold" semantics. Tolerances >0.875 would
-  // push the at-upper-bound past the above-ceiling and cause schema-
-  // side band collapse.
-  below(label: 'below', targetMs: _belowTargetMs, msMin: 0.0, msMax: 7.9),
-  at(label: 'at', targetMs: _atTargetMs, msMin: 8.0, msMax: 12.0),
-  above(label: 'above', targetMs: _aboveTargetMs, msMin: 12.1, msMax: 15.0);
+  below(label: 'below'),
+  at(label: 'at'),
+  above(label: 'above');
 
-  const _Leg({
-    required this.label,
-    required this.targetMs,
-    required this.msMin,
-    required this.msMax,
-  });
+  const _Leg({required this.label});
+
   final String label;
-  final double targetMs;
-  final double msMin;
-  final double msMax;
-
-  bool isMsInBand(double ms) => ms >= msMin && ms <= msMax;
-  String get bandLabel =>
-      '[${msMin.toStringAsFixed(1)}, '
-      '${msMax.toStringAsFixed(1)}] ms';
 }
 
 double _heavyCompute(int iterations) {

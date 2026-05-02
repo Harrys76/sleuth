@@ -741,14 +741,24 @@ void main() {
               'one capture triad.');
     });
 
-    test('HeavyComputeDetector pinned at runtimeVerified (v0.18.2)', () {
-      // Anti-tautology anchor for the v0.18.2 raise. HeavyCompute moved
-      // from `reproducerOnly` to `runtimeVerified` (warning tier, 8 ms
-      // threshold) backed by three on-device captures (iPhone 12 /
-      // iOS 17.5 / Flutter 3.41.x) recorded under v0.18.1+ producer-
-      // side dedup with stable per-BUILD `detectedAt` derived from
-      // `event.timestampUs`. Critical tier (16 ms) stays implicitly
-      // unvalidated until per-family-tier metadata extension lands.
+    test(
+        'HeavyComputeDetector pinned at runtimeVerified for warning + '
+        'critical (v0.19.13 tier-stack raise)', () {
+      // Anti-tautology anchor for the tier-stack raise. HeavyCompute
+      // brackets both the 8 ms warning threshold (canonical bracket) and
+      // the 16 ms critical threshold (additionalBrackets[0]). Six
+      // on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x) under
+      // producer-side dedup with stable per-BUILD `detectedAt` from
+      // `event.timestampUs`.
+      //
+      // Both brackets declare `observedAxisArgKey: 'observedDurationMs'`
+      // and the detector stamps BUILD ms into `extraTraceArgs` so the
+      // audit cross-checks operator-Stopwatch observed against detector-
+      // measured value. Cross-spec uniqueness key
+      // `(stableId, severityLabel, argKey)` distinguishes the warning +
+      // critical pair via severityLabel even though they share one
+      // argKey — trace event names `sleuth.issue.<id>.<severity>`
+      // differ by severity so no double-counting occurs.
       final BaseDetector? hc = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.heavyCompute)
           .cast<BaseDetector?>()
@@ -757,16 +767,21 @@ void main() {
           reason: 'HeavyComputeDetector should be registered by default.');
       expect(hc, isA<DetectorMetadataProvider>());
       final meta = (hc as DetectorMetadataProvider).validationMetadata;
+
+      // Pin 1: base tier remains runtimeVerified (single-stableId
+      // detector — both severity tiers ship at the same evidence level).
       expect(meta.tier, EvidenceTier.runtimeVerified,
-          reason: 'v0.18.2 raises heavy_compute warning to runtimeVerified '
-              'with three on-device captures backing the bracket. '
-              'flushTimelineNow drives synchronous detector emission '
-              'inside the scenario span.');
+          reason: 'Single-stableId detector with both severities '
+              'runtimeVerified-backed; base tier carries it directly.');
+
+      // Pin 2: reproducer path unchanged.
       expect(meta.reproducerPath,
           equals('test/validation/heavy_compute_reproducer_test.dart'));
       expect(meta.citationUrl, isNull,
           reason: 'runtimeVerified does not require an external citation; '
               'evidence is the captured detector behaviour itself.');
+
+      // Pin 3: canonical bracket capture triad (warning tier, 8 ms).
       expect(
           meta.profileCapturePaths,
           equals(const [
@@ -774,29 +789,131 @@ void main() {
             'test/validation/captures/heavy_compute/heavy_compute_at.json',
             'test/validation/captures/heavy_compute/heavy_compute_above.json',
           ]),
-          reason: 'Three on-device captures back the runtimeVerified raise.');
+          reason: 'Canonical bracket triad backs the warning tier (8 ms).');
       expect(meta.bracketThreshold, equals(8));
       expect(meta.bracketUnit, equals('ms'));
       expect(meta.bracketStableId, equals('heavy_compute'));
       expect(meta.bracketSeverityLabel, equals('warning'));
       expect(meta.bracketAtTolerance, equals(0.50),
-          reason: 'iPhone CPU/thermal variance widens default ±10% band '
+          reason: 'iPhone CPU/thermal variance makes the default ±10% band '
               'unreachable; ±50% gives at-band [8, 12] ms.');
       expect(meta.aboveCeilingMultiplier, equals(1.875),
           reason: 'Above-ceiling 15 ms (1.875 × 8) clears the 16 ms '
               'critical threshold so above-leg cannot ambiently bracket '
               'critical.');
-      expect(meta.coveredThresholds, equals(const {'heavy_compute.warning'}),
-          reason: 'Severity-scoped to warning; critical (16 ms) stays '
-              'implicitly unvalidated.');
+
+      // Pin 4: severity-scoped coverage union — both warning + critical
+      // are explicitly covered; any future add must expand this set.
+      expect(
+          meta.coveredThresholds,
+          equals(const {
+            'heavy_compute.warning',
+            'heavy_compute.critical',
+          }),
+          reason: 'Both severity tiers covered: warning by canonical '
+              'bracket (v0.18.2) + critical by additionalBrackets[0] '
+              '(v0.19.13). perStableIdTier coverage check requires '
+              'every runtimeVerified family appear in either canonical '
+              'or additional coveredThresholds.');
+
+      // Pin 5: producer-dedup uniqueness opt-in on canonical bracket.
       expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue,
           reason: 'Captures recorded under v0.18.1+ producer dedup with '
               'stable per-BUILD detectedAt; opt into the strong invariant '
               'so audit gate rejects single-issue replay forgery.');
-      expect(meta.additionalBrackets, isNull,
-          reason: 'HeavyCompute brackets a single axis (8 ms warning); no '
-              'additional axes declared. Multi-axis raises (e.g. critical '
-              'tier on the same family) would populate additionalBrackets.');
+
+      // Pin 6: observedAxisArgKey on canonical bracket. HeavyCompute
+      // stamps BUILD ms via extraTraceArgs so the audit gate cross-checks
+      // operator-Stopwatch observed against detector-side measurement.
+      // Closes the certify-wrong-magnitude gap that magnitudeSourceEventName=''
+      // would otherwise leave open. Cross-spec uniqueness tuple
+      // (stableId, severityLabel, argKey) distinguishes warning + critical
+      // by severityLabel even though both share the same argKey.
+      expect(meta.observedAxisArgKey, equals('observedDurationMs'),
+          reason: 'HeavyCompute stamps BUILD `ms` into `extraTraceArgs` '
+              'as `observedDurationMs`; the schema cross-checks this '
+              'against `expectedMagnitude.observed` so a detector-side '
+              'duration miscompute cannot certify the wrong magnitude.');
+
+      // Pin 7: additionalBrackets non-null with exactly one entry.
+      expect(meta.additionalBrackets, isNotNull,
+          reason: 'v0.19.13 raises critical tier via additionalBrackets[0]. '
+              'A null here would mean the critical bracket is not declared '
+              'and the perStableIdTier coverage check would reject the '
+              'critical entry in coveredThresholds.');
+      expect(meta.additionalBrackets, hasLength(1),
+          reason: 'Exactly one additional bracket: critical tier. Future '
+              'multi-axis raises on the same family would extend this.');
+
+      final critical = meta.additionalBrackets!.single;
+
+      // Pin 8: critical bracket identifies the right (stableId, severity).
+      expect(critical.stableId, equals('heavy_compute'));
+      expect(critical.severityLabel, equals('critical'));
+
+      // Pin 9: critical bracket threshold + unit pin the 16 ms boundary.
+      expect(critical.threshold, equals(16),
+          reason: '2× warning threshold; matches the strict-greater '
+              'critical fire condition in `_createIssue`.');
+      expect(critical.unit, equals('ms'));
+
+      // Pin 10: critical bracket capture triad lives in critical-named
+      // files, distinct from canonical warning triad.
+      expect(
+          critical.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/heavy_compute/heavy_compute_critical_below.json',
+            'test/validation/captures/heavy_compute/heavy_compute_critical_at.json',
+            'test/validation/captures/heavy_compute/heavy_compute_critical_above.json',
+          ]),
+          reason: 'Distinct triad files — capture-path disjointness check '
+              'enforces independence between canonical and additional '
+              'brackets.');
+
+      // Pin 11: critical bracket band tolerances. atTolerance widened
+      // beyond the warning bracket's 0.50 because higher-magnitude
+      // compute on iPhone 12 exhibits a wider thermal/JIT drift
+      // envelope than the warning band — recordings landed +30 % above
+      // the calibration-derived target. 0.60 → at-band [16, 25.6].
+      // above-ceiling 30 ms (no super-critical tier above).
+      expect(critical.atTolerance, equals(0.60),
+          reason: 'Wider iPhone variance budget than warning tier (0.60 vs '
+              '0.50) because higher-magnitude compute drifts further past '
+              'calibration; ±60% gives at-band [16, 25.6] ms.');
+      expect(critical.aboveCeilingMultiplier, equals(1.875),
+          reason: 'Above-ceiling 30 ms (1.875 × 16). No super-critical '
+              'tier above so the above-leg has no adjacent threshold to '
+              'ambient-bracket; the multiplier mirrors the warning '
+              'bracket for symmetry.');
+
+      // Pin 12: critical bracket coveredThresholds is severity-scoped to
+      // critical only — declares what `perStableIdTier` coverage proof
+      // this spec contributes.
+      expect(
+          critical.coveredThresholds, equals(const {'heavy_compute.critical'}),
+          reason: 'Severity-scoped coverage. The audit gate matches this '
+              'against any perStableIdTier raise on heavy_compute.critical '
+              '(here: implicit via base-tier runtimeVerified + canonical '
+              'coveredThresholds union including .critical).');
+
+      // Pin 13: critical bracket schema strictness. observedAxisArgKey
+      // matches canonical bracket; cross-spec tuple (stableId, severity,
+      // argKey) makes warning + critical disjoint via severityLabel.
+      // requireUniqueDetectedAtMicros true (v0.18.1+ dedup);
+      // requireDetectorTraceRecord true (default for BracketSpec — proves
+      // detector actually fired at .critical).
+      expect(critical.observedAxisArgKey, equals('observedDurationMs'),
+          reason: 'Same arg key as canonical warning bracket; severityLabel '
+              'disambiguates the cross-spec uniqueness tuple. Audit cross-'
+              'checks operator-Stopwatch observed against detector-stamped '
+              '`observedDurationMs` for both warning + critical brackets.');
+      expect(critical.requireUniqueDetectedAtMicros, isTrue,
+          reason: 'Captures recorded under v0.18.1+ producer dedup; opt '
+              'into the strong replay-forgery rejection on critical too.');
+      expect(critical.requireDetectorTraceRecord, isTrue,
+          reason: 'BracketSpec default; proves detector actually emitted '
+              '.critical inside the scenario span. Without this the at + '
+              'above captures could pass without an actual critical fire.');
     });
 
     test(
