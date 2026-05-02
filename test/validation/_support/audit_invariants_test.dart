@@ -2881,18 +2881,18 @@ void main() {
       expect(failures.single, contains('observedAxisTolerance=0.31'));
     });
 
-    test('atTolerance > 1.0 rejected', () {
+    test('atTolerance > 0.65 rejected', () {
       final failures = checkBracketBoundsSanity(
         label: 'L',
         tier: EvidenceTier.runtimeVerified,
-        canonicalAtTolerance: 1.01,
+        canonicalAtTolerance: 0.66,
         canonicalAboveCeilingMultiplier: 2.0,
         canonicalObservedAxisTolerance: 0.25,
         canonicalObservedAxisReduction: 'max',
         additionalBrackets: null,
       );
       expect(failures, hasLength(1));
-      expect(failures.single, contains('atTolerance=1.01'));
+      expect(failures.single, contains('atTolerance=0.66'));
     });
 
     test('aboveCeilingMultiplier <= 1.0 rejected (inverts rule)', () {
@@ -2944,7 +2944,7 @@ void main() {
         unit: 'ms',
         coveredThresholds: const {'X.critical'},
         profileCapturePaths: const ['a.json', 'b.json', 'c.json'],
-        aboveCeilingMultiplier: 7.0, // above 5.0 ceiling
+        aboveCeilingMultiplier: 4.0, // above 3.0 ceiling
       );
       final failures = checkBracketBoundsSanity(
         label: 'L',
@@ -2956,7 +2956,7 @@ void main() {
         additionalBrackets: [spec],
       );
       expect(failures.any((f) => f.contains('additionalBrackets[0]')), isTrue);
-      expect(failures.any((f) => f.contains('aboveCeilingMultiplier=7.0')),
+      expect(failures.any((f) => f.contains('aboveCeilingMultiplier=4.0')),
           isTrue);
     });
   });

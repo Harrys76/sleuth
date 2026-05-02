@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'capture_event_constants.dart';
 import 'detector_metadata.dart' show BracketSpec;
 
@@ -759,16 +761,21 @@ class ProfileCaptureSchema {
   /// re-opening exactly the gap the cross-check exists to close.
   static void _validateScenarioMatchesPath(
       File file, Map<String, Object?> metadata) {
-    final parentDir = file.parent;
-    final parentName = parentDir.path.split(Platform.pathSeparator).last;
+    // Route through `package:path` for cross-platform consistency and
+    // correct trailing-separator handling. Hand-rolled `split(separator)`
+    // returns an empty trailing element when the parent path ends with a
+    // separator (e.g. `/foo/bar/`); `p.basename` strips the separator
+    // first and returns `'bar'`, matching the audit-side helper.
+    final parentName = p.basename(file.parent.path);
     if (parentName == '_fixtures') return;
     final scenario = metadata['scenario'];
     if (scenario is! String) return;
-    final basename =
-        file.uri.pathSegments.isEmpty ? '' : file.uri.pathSegments.last;
-    final basenameNoExt = basename.endsWith('.json')
-        ? basename.substring(0, basename.length - '.json'.length)
-        : basename;
+    // `package:path` treats `.json` (no name before the extension) as a
+    // dotfile basename, returning `.json` itself rather than an empty
+    // string. That makes the suffix rule below strict (`endsWith('_.json')`)
+    // and rejects operator-typo files with the standard cross-check
+    // error — no separate empty-basename guard needed.
+    final basenameNoExt = p.basenameWithoutExtension(file.path);
     if (scenario == basenameNoExt) return;
     if (scenario.endsWith('_$basenameNoExt')) return;
     throw FormatException(

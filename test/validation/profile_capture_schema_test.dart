@@ -1828,6 +1828,25 @@ void main() {
                 contains('"anything"'),
               ]))));
     });
+
+    test('dotfile basename (file ".json" only) rejected', () {
+      // Operator-typo corner: a file literally named `.json` has no
+      // name before the extension. `package:path.basenameWithoutExtension`
+      // returns `.json` itself (dotfile semantics), so the suffix rule
+      // becomes strict — `scenario.endsWith('_.json')` rejects any
+      // ordinary scenario.
+      final f = writeCaptureWithScenario('det/.json', 'anything_below');
+      expect(
+          () => ProfileCaptureSchema.parseFile(f),
+          throwsA(isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              allOf([
+                contains('"sleuthMetadata.scenario"'),
+                contains('"anything_below"'),
+                contains('".json"'),
+              ]))));
+    });
   });
 }
 

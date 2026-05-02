@@ -1560,12 +1560,14 @@ List<String> checkCanonicalCoveredThresholdBacking({
 ///     default and current production max; a tighter ceiling forces any
 ///     widening past 0.25 to be explicit and reviewed instead of silently
 ///     drifting from (e.g.) 0.10 to 0.24.
-///   * `atTolerance` (canonical or spec): `0 ≤ x ≤ 1.0`. Above 1.0 the
-///     at-band would extend past `2 × threshold`, conflicting with
-///     `aboveCeilingMultiplier ≥ 2.0`.
-///   * `aboveCeilingMultiplier`: `1 < x ≤ 5.0`. ≤ 1 inverts the rule
-///     (above-leg must exceed threshold); > 5 admits magnitudes that
-///     ambient-bracket adjacent severity tiers on most metrics.
+///   * `atTolerance` (canonical or spec): `0 ≤ x ≤ 0.65`. Current
+///     production max sits at 0.60 (heavy_compute critical); the bound
+///     leaves small headroom and forces explicit review for any future
+///     widening.
+///   * `aboveCeilingMultiplier`: `1 < x ≤ 3.0`. ≤ 1 inverts the rule
+///     (above-leg must exceed threshold); > 3 admits magnitudes that
+///     ambient-bracket adjacent severity tiers on most metrics. Current
+///     production max sits at 2.7 (RebuildDetector).
 ///   * `observedAxisReduction`: must be one of [allowedAxisReductions]
 ///     (matches the schema's accepted values).
 List<String> checkBracketBoundsSanity({
@@ -1596,18 +1598,20 @@ List<String> checkBracketBoundsSanity({
           'be an explicit, reviewed change rather than silent drift.');
     }
     if (atTolerance != null) {
-      if (atTolerance < 0.0 || atTolerance > 1.0) {
+      if (atTolerance < 0.0 || atTolerance > 0.65) {
         failures.add('$ctx: atTolerance=$atTolerance is outside the sanity '
-            'bound [0, 1.0]. Above 1.0 the at-band extends past 2 × '
-            'threshold, conflicting with aboveCeilingMultiplier ≥ 2.0.');
+            'bound [0, 0.65]. Current production max sits at 0.60 '
+            '(heavy_compute critical); widening past 0.65 should be an '
+            'explicit, reviewed change rather than silent drift.');
       }
     }
     if (aboveCeilingMultiplier != null) {
-      if (aboveCeilingMultiplier <= 1.0 || aboveCeilingMultiplier > 5.0) {
+      if (aboveCeilingMultiplier <= 1.0 || aboveCeilingMultiplier > 3.0) {
         failures.add('$ctx: aboveCeilingMultiplier=$aboveCeilingMultiplier is '
-            'outside the sanity bound (1.0, 5.0]. ≤ 1 inverts the rule; '
-            '> 5 admits magnitudes that ambient-bracket adjacent severity '
-            'tiers on most metrics.');
+            'outside the sanity bound (1.0, 3.0]. ≤ 1 inverts the rule '
+            '(above-leg must exceed threshold); > 3 admits magnitudes that '
+            'ambient-bracket adjacent severity tiers on most metrics. '
+            'Current production max sits at 2.7 (RebuildDetector).');
       }
     }
     if (!allowedAxisReductions.contains(observedAxisReduction)) {

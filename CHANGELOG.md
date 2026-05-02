@@ -1,3 +1,15 @@
+## 0.19.16
+
+Audit + schema polish. No detector raises; no public API changes; schemaVersion stays v1. Distribution unchanged at 9/23 effective runtimeVerified families.
+
+- `_validateScenarioMatchesPath` (in `ProfileCaptureSchema`) now routes parent-dir and basename lookups through `package:path` (`p.basename`, `p.basenameWithoutExtension`). Fixes silent over-strict behavior on trailing-separator parent paths and aligns with the audit-side helper. Promotes `path` from `dev_dependencies` to `dependencies` since `lib/` now imports it.
+- Operator-typo file `.json` (no name before extension): `package:path` dotfile semantics make the suffix rule strict (`scenario.endsWith('_.json')`) — rejected with the standard scenario-mismatch error.
+- `checkBracketBoundsSanity` tightens two bounds:
+  - `atTolerance`: `[0, 1.0]` → `[0, 0.65]`. Production max 0.60 (heavy_compute critical) leaves small headroom; future widening past 0.65 requires explicit code change.
+  - `aboveCeilingMultiplier`: `(1.0, 5.0]` → `(1.0, 3.0]`. Production max 2.7 (RebuildDetector); same review-on-widen contract.
+
+2,949 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.15
 
 Audit invariant hardening. No detector raises; schemaVersion stays v1. Distribution unchanged at 9/23 effective runtimeVerified families.

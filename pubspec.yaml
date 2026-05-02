@@ -1,6 +1,6 @@
 name: sleuth
 description: "Runtime performance diagnostics for Flutter apps — frame timing, VM timeline, and widget-tree heuristics to surface bottlenecks and actionable fixes."
-version: 0.19.15
+version: 0.19.16
 homepage: https://github.com/Harrys76/sleuth
 repository: https://github.com/Harrys76/sleuth
 issue_tracker: https://github.com/Harrys76/sleuth/issues
@@ -27,6 +27,7 @@ dependencies:
   flutter:
     sdk: flutter
   meta: ^1.15.0
+  path: ^1.9.0
   vm_service: ^14.0.0
 
 dev_dependencies:
@@ -34,7 +35,6 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^5.0.0
   fake_async: any
-  path: ^1.9.0
   crypto: any
   # Bundle I (AGR-3 + R3-NEW-2): the shared audit-invariant helpers use
   # `package:analyzer` to parse reproducer test files at AST level, so a
