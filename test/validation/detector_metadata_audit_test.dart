@@ -407,6 +407,14 @@ void main() {
           additionalBrackets: meta.additionalBrackets,
           topLevelCoveredThresholds: meta.coveredThresholds,
         ));
+        failures.addAll(checkCanonicalCoveredThresholdBacking(
+          label: label,
+          tier: meta.effectiveMaxTier,
+          topLevelStableId: meta.bracketStableId,
+          topLevelSeverityLabel: meta.bracketSeverityLabel,
+          topLevelCoveredThresholds: meta.coveredThresholds,
+          additionalBrackets: meta.additionalBrackets,
+        ));
       }
       expect(failures, isEmpty, reason: 'Tier invariants violated: $failures');
     });
@@ -2045,6 +2053,25 @@ void main() {
       }
     });
 
+    test(
+        'per-directory capture-name pattern is uniform '
+        '(scenario ↔ basename relationship)', () {
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
+      final failures = checkCapturePathPerDirectoryNamingUniformity(
+        capturesRoot: Directory('test/validation/captures'),
+      );
+      expect(failures, isEmpty,
+          reason: 'Mixed scenario-name patterns within a capture directory. '
+              'Every file under captures/<dir> must use the same '
+              'relationship between sleuthMetadata.scenario and the file '
+              'basename (either scenario == basename, or scenario == '
+              '"<dir>_<basename>"). Mixing patterns inside one directory '
+              'is unmaintainable. Drift: $failures');
+    });
+
     test('retained-orphan allowlist entries actually exist on disk', () {
       if (!File('pubspec.yaml').existsSync()) {
         markTestSkipped('CWD is not the package root; skipping.');
@@ -2134,6 +2161,14 @@ void main() {
           bracketStableId: meta.bracketStableId,
           additionalBrackets: meta.additionalBrackets,
           topLevelCoveredThresholds: meta.coveredThresholds,
+        ),
+        ...checkCanonicalCoveredThresholdBacking(
+          label: label,
+          tier: meta.effectiveMaxTier,
+          topLevelStableId: meta.bracketStableId,
+          topLevelSeverityLabel: meta.bracketSeverityLabel,
+          topLevelCoveredThresholds: meta.coveredThresholds,
+          additionalBrackets: meta.additionalBrackets,
         ),
       ];
       return failures;

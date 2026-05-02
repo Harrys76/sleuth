@@ -921,6 +921,11 @@ void main() {
       atMag['min'] = 945000;
       atMag['observed'] = 1050000;
       atMag['max'] = 1155000;
+      // Rewrite scenario to satisfy basename-suffix shape — the dormant
+      // bracket fixture's prose scenario is fixture-allowlisted, but
+      // this copy lands in a tempdir outside `_fixtures/` and must
+      // satisfy the cross-check.
+      atMeta['scenario'] = 'synthetic_at_unit_mismatch';
       final tamperedAt = File('${tmpDir.path}/at_unit_mismatch.json')
         ..writeAsStringSync(jsonEncode(atJson));
       expect(
@@ -990,6 +995,7 @@ void main() {
       if (field == 'device' && value == 'Pixel 7') {
         meta['deviceOsVersion'] = 'Android 14';
       }
+      meta['scenario'] = 'synthetic_${tag}_overridden';
       final out = File('${tmpDir.path}/${tag}_overridden.json')
         ..writeAsStringSync(jsonEncode(json));
       return out;
@@ -1739,6 +1745,90 @@ void main() {
       expect(msgFromSpec, equals(msgFromNamedArgs));
     });
   });
+
+  group('parseFile scenario-name ↔ file-path cross-check (v0.19.15)', () {
+    late Directory tempRoot;
+    setUp(() {
+      tempRoot = Directory.systemTemp.createTempSync('sleuth_scenario_path_');
+    });
+    tearDown(() {
+      if (tempRoot.existsSync()) tempRoot.deleteSync(recursive: true);
+    });
+
+    File writeCaptureWithScenario(String relativePath, String scenario) {
+      final f = File('${tempRoot.path}/$relativePath');
+      f.parent.createSync(recursive: true);
+      // Mutate the anchor fixture so trace + magnitude pass and only the
+      // scenario field is overridden — keeps the test focused on the
+      // scenario-name check.
+      final base =
+          File('test/validation/captures/_fixtures/anchor_devtools_export.json')
+              .readAsStringSync();
+      final mutated = base.replaceFirst(
+          RegExp(r'"scenario"\s*:\s*"[^"]*"'), '"scenario": "$scenario"');
+      f.writeAsStringSync(mutated);
+      return f;
+    }
+
+    test('basename-exact scenario passes', () {
+      final f = writeCaptureWithScenario('det/foo_below.json', 'foo_below');
+      expect(() => ProfileCaptureSchema.parseFile(f), returnsNormally);
+    });
+
+    test('directory-prefixed scenario passes', () {
+      final f = writeCaptureWithScenario(
+          'frame_timing/jank_detected_below.json',
+          'frame_timing_jank_detected_below');
+      expect(() => ProfileCaptureSchema.parseFile(f), returnsNormally);
+    });
+
+    test('family-prefixed scenario (RebuildDetector shape) passes', () {
+      final f = writeCaptureWithScenario(
+          'rebuild_detector/below.json', 'rebuild_activity_below');
+      expect(() => ProfileCaptureSchema.parseFile(f), returnsNormally);
+    });
+
+    test('scenario disagreeing with basename rejected', () {
+      final f =
+          writeCaptureWithScenario('det/foo_below.json', 'wrong_scenario');
+      expect(
+          () => ProfileCaptureSchema.parseFile(f),
+          throwsA(isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              allOf([
+                contains('"sleuthMetadata.scenario"'),
+                contains('"wrong_scenario"'),
+                contains('"foo_below"'),
+              ]))));
+    });
+
+    test('_fixtures/ subdirectory bypasses cross-check', () {
+      final f = writeCaptureWithScenario(
+          '_fixtures/synth.json', 'arbitrary_unrelated_scenario');
+      expect(() => ProfileCaptureSchema.parseFile(f), returnsNormally);
+    });
+
+    test('prose scenario in non-_fixtures directory rejected', () {
+      // Outside `_fixtures/`, every scenario must satisfy basename-exact
+      // or suffix-of-basename — including prose. A content-shape escape
+      // would let a stale committed capture pass simply by phrasing its
+      // scenario as prose, re-opening the gap the cross-check exists to
+      // close.
+      final f = writeCaptureWithScenario(
+          'det/anything.json', 'Synthetic prose with spaces');
+      expect(
+          () => ProfileCaptureSchema.parseFile(f),
+          throwsA(isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              allOf([
+                contains('"sleuthMetadata.scenario"'),
+                contains('"Synthetic prose with spaces"'),
+                contains('"anything"'),
+              ]))));
+    });
+  });
 }
 
 Map<String, Object?> _validMetadata() => <String, Object?>{
@@ -2037,12 +2127,19 @@ File _writeRoleCapture(
   required num observed,
 }) {
   final spanMicros = (observed * 1000).round();
+  // Synthetic-test scenarios derive from filename basename so the
+  // schema's scenario-name cross-check (basename-exact OR
+  // suffix-of-basename) accepts these tempdir captures without needing
+  // a content-shape escape hatch in production code.
+  final basenameNoExt = filename.endsWith('.json')
+      ? filename.substring(0, filename.length - '.json'.length)
+      : filename;
   final metadata = <String, Object?>{
     'device': 'iPhone 13 mini',
     'deviceOsVersion': 'iOS 17.6.1',
     'flutterVersion': '3.41.4',
     'captureCommand': 'fvm flutter run --profile',
-    'scenario': 'synthetic role-vs-label test triad',
+    'scenario': 'synthetic_$basenameNoExt',
     'expectedMagnitude': {
       'min': observed * 0.5,
       'observed': observed,

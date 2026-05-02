@@ -383,7 +383,8 @@ Future<File> _writeCapture(
       'flutterVersion': '3.41.4',
       'captureCommand': 'fvm flutter run --profile',
       'role': resolvedRole,
-      'scenario': 'round-trip test for $stableId',
+      'scenario':
+          'round_trip_${filename.endsWith('.json') ? filename.substring(0, filename.length - 5) : filename}',
       'expectedMagnitude': <String, Object?>{
         'min': observed - 1,
         'observed': observed,

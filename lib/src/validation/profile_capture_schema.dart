@@ -719,12 +719,65 @@ class ProfileCaptureSchema {
     return buf.toString();
   }
 
-  /// Convenience wrapper that reads a file and calls [parse].
+  /// Convenience wrapper that reads a file and calls [parse]. Adds a
+  /// scenario-name ↔ file-path cross-check the byte-only [parse] cannot
+  /// run (it has no path context). Captures placed in `_fixtures/`
+  /// subdirectories are skipped — those are negative-test fixtures with
+  /// deliberately unrelated scenarios.
   static Map<String, Object?> parseFile(File file) {
     if (!file.existsSync()) {
       throw FormatException('Capture file does not exist: ${file.path}');
     }
-    return parse(file.readAsBytesSync());
+    final metadata = parse(file.readAsBytesSync());
+    _validateScenarioMatchesPath(file, metadata);
+    return metadata;
+  }
+
+  /// Cross-checks `metadata.scenario` against the file's basename. A
+  /// capture's scenario field has to relate to its file by one of two
+  /// shapes:
+  ///
+  ///   * Basename-exact: `scenario == basenameWithoutExtension(file)`.
+  ///   * Suffix-of-scenario:
+  ///     `scenario.endsWith("_${basenameWithoutExtension(file)}")` —
+  ///     admits both directory-prefixed
+  ///     (`frame_timing_jank_detected_below`) and family-prefixed
+  ///     (`rebuild_activity_below`) shapes.
+  ///
+  /// Without the cross-check a capture file can be moved or copied with
+  /// its scenario field stale — the schema accepts it and the bracket
+  /// audit certifies the wrong scenario as evidence. Per-directory
+  /// uniformity (every file in one directory uses the same shape) is
+  /// enforced separately by the audit-set walker.
+  ///
+  /// Only escape: an immediate parent directory named `_fixtures`
+  /// (negative-test fixtures with deliberately unrelated scenarios).
+  /// All other captures — including ones whose scenario is prose with
+  /// whitespace or Unicode punctuation — must satisfy the basename-exact
+  /// or suffix shape. A content-shape escape would let a stale
+  /// committed capture pass simply by phrasing its scenario as prose,
+  /// re-opening exactly the gap the cross-check exists to close.
+  static void _validateScenarioMatchesPath(
+      File file, Map<String, Object?> metadata) {
+    final parentDir = file.parent;
+    final parentName = parentDir.path.split(Platform.pathSeparator).last;
+    if (parentName == '_fixtures') return;
+    final scenario = metadata['scenario'];
+    if (scenario is! String) return;
+    final basename =
+        file.uri.pathSegments.isEmpty ? '' : file.uri.pathSegments.last;
+    final basenameNoExt = basename.endsWith('.json')
+        ? basename.substring(0, basename.length - '.json'.length)
+        : basename;
+    if (scenario == basenameNoExt) return;
+    if (scenario.endsWith('_$basenameNoExt')) return;
+    throw FormatException(
+        '"sleuthMetadata.scenario" "$scenario" does not match the capture '
+        'file path. Expected either "$basenameNoExt" (basename-exact) or '
+        'a value ending in "_$basenameNoExt" (e.g. '
+        '"${parentName}_$basenameNoExt") for file ${file.path}. A scenario '
+        'that disagrees with the file name silently certifies the wrong '
+        'evidence when the file is moved or copied with a stale field.');
   }
 
   /// Validates a three-capture bracket against [threshold] in [unit].
@@ -1666,6 +1719,7 @@ class ProfileCaptureSchema {
       // workload paired with normal-sized scenario span). The role
       // field is the canonical signal — no shim needed here.
       final metadata = parse(bytes);
+      _validateScenarioMatchesPath(file, metadata);
       // Cross-check that the file's stored role matches the positional
       // bracket slot it was passed into. Without this, a mis-rolled
       // capture (e.g. a file with `metadata.role: 'below'` placed in

@@ -47,7 +47,7 @@ adding a new tier requires a semver major bump:
 ## Ledger
 
 **Summary:** **20 / 23 at `reproducerOnly` base, 3 / 23 at `runtimeVerified` base, 0 / 23 at `unvalidated`**
-as of v0.19.14. The detector-row tier reflects each detector's *base*
+as of v0.19.15 (audit invariant hardening; no detector raises). The detector-row tier reflects each detector's *base*
 tier; per-family raises live in `DetectorMetadata.perStableIdTier` and
 are shown in the row's Notes column. **Effective runtimeVerified-family
 count: 9** across 5 multi-family detectors —

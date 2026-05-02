@@ -1,3 +1,15 @@
+## 0.19.15
+
+Audit invariant hardening. No detector raises; schemaVersion stays v1. Distribution unchanged at 9/23 effective runtimeVerified families.
+
+- `checkCanonicalCoveredThresholdBacking`: every dotted entry in canonical `coveredThresholds` must be backed by a matching `(stableId, severityLabel)` across the canonical bracket and `additionalBrackets[*]`. Tier-gated to runtimeVerified+/externallyCited. Closes the tier-stack severity gap where canonical declaring `{slow_request.warning, slow_request.critical}` could pass even if `additionalBrackets[2]` (the critical evidence) were dropped — the family-prefix check at the existing `checkPerStableIdTier` level matched on `slow_request.` regardless of which severity was actually backed.
+- `checkBracketBoundsSanity`: numeric guards on tolerance and reduction fields applied to canonical and every `additionalBrackets[*]`. `observedAxisTolerance ∈ (0, 0.25]` (matches schema default and current production max), `atTolerance ∈ [0, 1.0]`, `aboveCeilingMultiplier ∈ (1, 5]`, `observedAxisReduction ∈ {max, last}`. Prevents silent widening that defeats bracket meaning.
+- `checkCapturePathPerDirectoryNamingUniformity`: every committed capture in a directory must use one shape relating `sleuthMetadata.scenario` to the file basename (basename-exact OR a common scenario-prefix where every file shares the prefix string). Non-conforming scenarios fail the audit. Mixed shapes or mismatched prefixes within one directory fail.
+- `ProfileCaptureSchema.parseFile` (and `_parseOrThrowWithLabel` on the bracket-triad path) cross-checks `metadata.scenario` against the file basename. Accepts `scenario == basename` or `scenario.endsWith('_<basename>')` — covers directory-prefixed (`frame_timing_jank_detected_below`) and family-prefixed (`rebuild_activity_below`) shapes. Only escape: immediate parent directory named `_fixtures` (negative-test fixtures). **Stricter validation in parseFile()** — committed captures whose scenario field disagrees with the filename, including prose scenarios, now reject. `parse(List<int>)` byte-only entry is unchanged (no file context).
+- 24 new tests across `audit_invariants_test.dart` and `profile_capture_schema_test.dart`. Production NetworkMonitor + HeavyCompute + RebuildDetector metadata exercised against the new backing invariant. Synthetic test fixtures across `_writeRoleCapture`, `cloneWithFieldOverride`, `writeCaptureFile`, and `_writeCapture` derive scenario from filename so future tempdir captures satisfy the cross-check by construction.
+
+2,948 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.14
 
 `NetworkMonitorDetector.slow_request.critical` raised to **runtimeVerified** via `additionalBrackets[2]`. Second tier-stack raise. Backfills `observedAxisArgKey: 'observedDurationMs'` on the canonical slow_request bracket. Distribution: **9/23 effective runtimeVerified families**; every runtimeVerified bracket now declares an observed-axis cross-check.

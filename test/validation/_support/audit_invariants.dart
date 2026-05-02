@@ -1465,6 +1465,185 @@ List<String> checkPerStableIdTier({
   return failures;
 }
 
+/// Tier-stack severity-backing invariant. Every dotted entry
+/// `<familyId>.<severity>` in canonical [topLevelCoveredThresholds] must
+/// be backed by a bracket spec carrying the matching `(stableId,
+/// severityLabel)` — either the canonical bracket itself (when the
+/// entry's severity matches `topLevelSeverityLabel`) OR some
+/// `additionalBrackets[*]` declaring the same severity for that family.
+///
+/// Bare entries (no `.`) are skipped; they cover a family without
+/// severity scope and are validated upstream by [checkCoveredThresholds].
+/// Spec-level `coveredThresholds` are NOT walked here — per-spec
+/// coherence in [checkAdditionalBrackets] structurally enforces that each
+/// `additionalBrackets[i]` entry's stableId/severity matches the spec's
+/// own, so spec entries are self-backed by construction.
+///
+/// Closes a tier-stack drift case the prefix-only severity check at
+/// [checkPerStableIdTier] cannot see: canonical declaring
+/// `{slow_request.warning, slow_request.critical}` while
+/// `topLevelSeverityLabel='warning'` and `additionalBrackets` is later
+/// dropped — the canonical's `slow_request.critical` entry has no
+/// backing spec, but the family-prefix check still passes because some
+/// entry starts with `slow_request.`.
+List<String> checkCanonicalCoveredThresholdBacking({
+  required String label,
+  required EvidenceTier tier,
+  required String? topLevelStableId,
+  required String? topLevelSeverityLabel,
+  required Set<String>? topLevelCoveredThresholds,
+  required List<BracketSpec>? additionalBrackets,
+}) {
+  if (tier != EvidenceTier.runtimeVerified &&
+      tier != EvidenceTier.externallyCited) {
+    return const [];
+  }
+  if (topLevelCoveredThresholds == null || topLevelCoveredThresholds.isEmpty) {
+    return const [];
+  }
+  final failures = <String>[];
+  final canonicalStable = topLevelStableId?.trim();
+  final canonicalSev = topLevelSeverityLabel?.trim();
+  for (final raw in topLevelCoveredThresholds) {
+    final entry = raw.trim();
+    final parts = entry.split('.');
+    if (parts.length != 2) continue; // bare or malformed — handled elsewhere
+    final familyId = parts[0];
+    final severity = parts[1];
+    if (familyId.isEmpty || severity.isEmpty) continue;
+    final canonicalCovers = canonicalStable != null &&
+        canonicalStable.isNotEmpty &&
+        canonicalStable == familyId &&
+        canonicalSev != null &&
+        canonicalSev.isNotEmpty &&
+        canonicalSev == severity;
+    final specCovers = additionalBrackets?.any((s) =>
+            s.stableId.trim() == familyId &&
+            s.severityLabel.trim() == severity) ??
+        false;
+    if (!canonicalCovers && !specCovers) {
+      final canonicalShape = (canonicalStable == null ||
+              canonicalStable.isEmpty)
+          ? 'null'
+          : '(stableId="$canonicalStable", severityLabel='
+              '${canonicalSev == null || canonicalSev.isEmpty ? 'null' : '"$canonicalSev"'})';
+      final specShapes = additionalBrackets == null
+          ? 'null'
+          : additionalBrackets
+              .map((s) =>
+                  '(stableId="${s.stableId}", severityLabel="${s.severityLabel}")')
+              .join(', ');
+      failures.add('$label: coveredThresholds entry "$entry" has no backing '
+          'bracket spec — canonical $canonicalShape and additionalBrackets '
+          '[$specShapes] do not declare (stableId="$familyId", '
+          'severityLabel="$severity"). A tier-stack raise must back every '
+          'severity-scoped entry with a matching BracketSpec.');
+    }
+  }
+  return failures;
+}
+
+/// Sanity bounds on numeric tolerance and reduction fields across the
+/// canonical bracket and every entry in [additionalBrackets].
+///
+/// Without explicit bounds a future maintainer can silently widen the
+/// at-band, the cross-check tolerance, or the above-leg ceiling far past
+/// the values the schema can defend. The audit currently rejects
+/// non-finite or negative values via [ProfileCaptureSchema.validateBracket]
+/// guards but accepts any positive value — including ones that defeat the
+/// bracket meaning (e.g. `aboveCeilingMultiplier: 0.9` inverts the rule;
+/// `atTolerance: 1.5` extends the at-band past `2 × threshold`,
+/// conflicting with the default 2.0× ceiling).
+///
+/// Bounds:
+///   * `observedAxisTolerance`: `0 < x ≤ 0.25`. Matches the schema's
+///     default and current production max; a tighter ceiling forces any
+///     widening past 0.25 to be explicit and reviewed instead of silently
+///     drifting from (e.g.) 0.10 to 0.24.
+///   * `atTolerance` (canonical or spec): `0 ≤ x ≤ 1.0`. Above 1.0 the
+///     at-band would extend past `2 × threshold`, conflicting with
+///     `aboveCeilingMultiplier ≥ 2.0`.
+///   * `aboveCeilingMultiplier`: `1 < x ≤ 5.0`. ≤ 1 inverts the rule
+///     (above-leg must exceed threshold); > 5 admits magnitudes that
+///     ambient-bracket adjacent severity tiers on most metrics.
+///   * `observedAxisReduction`: must be one of [allowedAxisReductions]
+///     (matches the schema's accepted values).
+List<String> checkBracketBoundsSanity({
+  required String label,
+  required EvidenceTier tier,
+  required double? canonicalAtTolerance,
+  required double? canonicalAboveCeilingMultiplier,
+  required double canonicalObservedAxisTolerance,
+  required String canonicalObservedAxisReduction,
+  required List<BracketSpec>? additionalBrackets,
+}) {
+  if (tier != EvidenceTier.runtimeVerified &&
+      tier != EvidenceTier.externallyCited) {
+    return const [];
+  }
+  final failures = <String>[];
+  void checkOne({
+    required String ctx,
+    required double? atTolerance,
+    required double? aboveCeilingMultiplier,
+    required double observedAxisTolerance,
+    required String observedAxisReduction,
+  }) {
+    if (observedAxisTolerance <= 0.0 || observedAxisTolerance > 0.25) {
+      failures.add('$ctx: observedAxisTolerance=$observedAxisTolerance is '
+          'outside the sanity bound (0, 0.25]. The schema default and '
+          'current production max sit at 0.25; widening past it should '
+          'be an explicit, reviewed change rather than silent drift.');
+    }
+    if (atTolerance != null) {
+      if (atTolerance < 0.0 || atTolerance > 1.0) {
+        failures.add('$ctx: atTolerance=$atTolerance is outside the sanity '
+            'bound [0, 1.0]. Above 1.0 the at-band extends past 2 × '
+            'threshold, conflicting with aboveCeilingMultiplier ≥ 2.0.');
+      }
+    }
+    if (aboveCeilingMultiplier != null) {
+      if (aboveCeilingMultiplier <= 1.0 || aboveCeilingMultiplier > 5.0) {
+        failures.add('$ctx: aboveCeilingMultiplier=$aboveCeilingMultiplier is '
+            'outside the sanity bound (1.0, 5.0]. ≤ 1 inverts the rule; '
+            '> 5 admits magnitudes that ambient-bracket adjacent severity '
+            'tiers on most metrics.');
+      }
+    }
+    if (!allowedAxisReductions.contains(observedAxisReduction)) {
+      failures.add('$ctx: observedAxisReduction="$observedAxisReduction" is '
+          'not in the approved set $allowedAxisReductions.');
+    }
+  }
+
+  checkOne(
+    ctx: '$label (canonical)',
+    atTolerance: canonicalAtTolerance,
+    aboveCeilingMultiplier: canonicalAboveCeilingMultiplier,
+    observedAxisTolerance: canonicalObservedAxisTolerance,
+    observedAxisReduction: canonicalObservedAxisReduction,
+  );
+  if (additionalBrackets != null) {
+    for (var i = 0; i < additionalBrackets.length; i++) {
+      final spec = additionalBrackets[i];
+      checkOne(
+        ctx: '$label.additionalBrackets[$i]',
+        atTolerance: spec.atTolerance,
+        aboveCeilingMultiplier: spec.aboveCeilingMultiplier,
+        observedAxisTolerance: spec.observedAxisTolerance,
+        observedAxisReduction: spec.observedAxisReduction,
+      );
+    }
+  }
+  return failures;
+}
+
+/// Approved values for `observedAxisReduction` — must stay in sync with
+/// [ProfileCaptureSchema._checkIssueTraceRecordPresent]'s reduction
+/// branches. Adding a new strategy means extending both the schema and
+/// this set.
+const Set<String> allowedAxisReductions = {'max', 'last'};
+
 /// Validates `DetectorMetadata.additionalBrackets` (since v0.19.8). Each
 /// entry is an independent bracket axis with its own threshold, capture
 /// triad, and observed-axis cross-check — used when a single detector
@@ -1963,6 +2142,15 @@ List<String> runRuntimeTierAudit({
     additionalBrackets: meta.additionalBrackets,
     repoRoot: repoRoot,
   ));
+  failures.addAll(checkBracketBoundsSanity(
+    label: label,
+    tier: meta.effectiveMaxTier,
+    canonicalAtTolerance: meta.bracketAtTolerance,
+    canonicalAboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+    canonicalObservedAxisTolerance: meta.observedAxisTolerance,
+    canonicalObservedAxisReduction: meta.observedAxisReduction,
+    additionalBrackets: meta.additionalBrackets,
+  ));
   return failures;
 }
 
@@ -2214,6 +2402,124 @@ List<String> checkRetainedOrphanManifest({
     if (perEntry.isNotEmpty) {
       failures.add('retained orphan "$relPath" (role=${entry.role}, '
           'owningClaim=${entry.owningClaim}): ${perEntry.join('; ')}');
+    }
+  });
+  return failures;
+}
+
+/// Per-directory uniformity on the scenario-name ↔ capture-file naming
+/// shape. Walks every committed `.json` capture under [capturesRoot],
+/// groups by parent directory, and asserts every file in the same
+/// directory uses the SAME shape relating `sleuthMetadata.scenario` to
+/// the file basename:
+///
+///   * `exact` — `scenario == basenameWithoutExtension(file)`.
+///   * `suffix` — `scenario.endsWith("_${basenameWithoutExtension(file)}")`,
+///     covering both directory-prefixed
+///     (`frame_timing_jank_detected_below`) and family-prefixed
+///     (`rebuild_activity_below`) variants. Within one directory the
+///     prefix is expected to be a single per-detector constant; the
+///     check enforces shape uniformity, not exact prefix equality.
+///
+/// Files in [excludedSubdirectoryNames] (default `{'_fixtures'}`) and
+/// directories with fewer than 2 files are skipped — single-file
+/// directories cannot drift, and `_fixtures/` holds negative-test
+/// fixtures with deliberately unrelated scenarios. Mixing shapes
+/// inside one directory is rejected even when each file individually
+/// passes the schema's per-file scenario-name check; the inconsistency
+/// is unmaintainable and makes operator workflow bug-prone.
+List<String> checkCapturePathPerDirectoryNamingUniformity({
+  required Directory capturesRoot,
+  Set<String> excludedSubdirectoryNames = const {'_fixtures'},
+}) {
+  if (!capturesRoot.existsSync()) return const [];
+  final byDir = <String, List<File>>{};
+  for (final entity in capturesRoot.listSync(recursive: true)) {
+    if (entity is! File) continue;
+    if (!entity.path.toLowerCase().endsWith('.json')) continue;
+    final dirName = p.basename(p.dirname(entity.path));
+    if (excludedSubdirectoryNames.contains(dirName)) continue;
+    byDir.putIfAbsent(dirName, () => <File>[]).add(entity);
+  }
+  final failures = <String>[];
+  byDir.forEach((dirName, files) {
+    if (files.length < 2) return;
+    String? agreedShape;
+    String? agreedPrefix; // suffix-shape only — must match across files
+    File? firstFile;
+    for (final file in files) {
+      final basename = p.basenameWithoutExtension(file.path);
+      String? scenario;
+      try {
+        final meta = ProfileCaptureSchema.parseFile(file);
+        final raw = meta['scenario'];
+        if (raw is String) scenario = raw.trim();
+      } on FormatException {
+        // Schema-level failures surface in their own audit; skip here so
+        // we don't double-report. The uniformity check is meaningful
+        // only on parseable captures.
+        continue;
+      }
+      if (scenario == null) continue;
+      String? shape;
+      String? prefix;
+      if (scenario == basename) {
+        shape = 'exact';
+      } else if (scenario.endsWith('_$basename')) {
+        shape = 'suffix';
+        // Strip basename + underscore separator. Empty prefix means
+        // scenario equals `_$basename` exactly; rare but possible.
+        prefix = scenario.substring(0, scenario.length - basename.length - 1);
+      }
+      if (shape == null) {
+        // Scenario satisfies neither the exact-basename nor the
+        // suffix-of-basename rule. Failing here (instead of silently
+        // continuing) closes the bypass corridor where a committed
+        // capture with a non-conforming scenario could escape the
+        // uniformity check while parseFile's per-file check skipped the
+        // same file due to scenario shape — leaving stale evidence on
+        // disk that no audit rejects.
+        failures.add('captures/$dirName: capture "${p.basename(file.path)}" '
+            'has scenario "$scenario" which is neither basename-exact '
+            '("$basename") nor suffix-of-basename '
+            '("...${basename.isEmpty ? '<empty>' : '_$basename'}"). '
+            'Every committed capture must encode a relationship between '
+            'scenario and basename so the audit can detect stale or '
+            'mis-copied evidence. Move the file under `_fixtures/` if '
+            'it is a negative-test fixture with an intentionally '
+            'unrelated scenario.');
+        continue;
+      }
+      if (agreedShape == null) {
+        agreedShape = shape;
+        agreedPrefix = prefix;
+        firstFile = file;
+        continue;
+      }
+      if (shape != agreedShape) {
+        failures.add('captures/$dirName: capture-name shape drift — '
+            '"${p.basename(firstFile!.path)}" uses "$agreedShape" but '
+            '"${p.basename(file.path)}" uses "$shape". Every file in a '
+            'directory must use one shape (either basename-exact or a '
+            'common scenario-prefix). Mixed shapes are unmaintainable '
+            'and confuse operator workflow.');
+        continue;
+      }
+      // Same shape across files — for suffix shape, ALL files must share
+      // the same prefix string. Without this, a directory with short
+      // basenames (`below.json`, `at.json`) would accept any scenario
+      // ending in `_below` / `_at` regardless of family — a typo'd
+      // scenario from an unrelated detector would silently certify the
+      // wrong evidence.
+      if (shape == 'suffix' && prefix != agreedPrefix) {
+        failures.add('captures/$dirName: scenario-prefix drift — '
+            '"${p.basename(firstFile!.path)}" prefixes scenario with '
+            '"${agreedPrefix}_" but "${p.basename(file.path)}" uses '
+            '"${prefix}_". Every suffix-shape file in a directory must '
+            'share the same scenario prefix; a mismatched prefix '
+            'suggests a copy-paste error from an unrelated detector\'s '
+            'scenario name.');
+      }
     }
   });
   return failures;

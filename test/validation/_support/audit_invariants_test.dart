@@ -26,7 +26,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:sleuth/sleuth.dart' show BracketSpec, EvidenceTier;
+import 'package:sleuth/sleuth.dart'
+    show BracketSpec, EvidenceTier, NetworkMonitorDetector, RebuildDetector;
+import 'package:sleuth/src/detectors/heavy_compute_detector.dart'
+    show HeavyComputeDetector;
 
 import 'audit_invariants.dart';
 
@@ -2202,9 +2205,15 @@ void main() {
     File writeCaptureFile(String relPath, Map<String, Object?> metadata) {
       final f = File(p.join(tempRepo.path, relPath));
       f.parent.createSync(recursive: true);
+      // Auto-derive scenario from filename so tempdir captures satisfy
+      // the schema's basename-suffix cross-check without each caller
+      // having to think about it.
+      final basenameNoExt = p.basenameWithoutExtension(relPath);
+      final patched = Map<String, Object?>.from(metadata)
+        ..['scenario'] = 'synthetic_$basenameNoExt';
       f.writeAsStringSync(jsonEncode({
         'traceEvents': validTraceEvents(),
-        'sleuthMetadata': metadata,
+        'sleuthMetadata': patched,
       }));
       return f;
     }
@@ -2693,6 +2702,342 @@ void main() {
           failures.any((f) => f.contains('no coveredThresholds entry of the '
               'form "X.<severity>"')),
           isTrue);
+    });
+  });
+
+  group('checkCanonicalCoveredThresholdBacking (v0.19.15)', () {
+    test('canonical self-backs its own severity', () {
+      final failures = checkCanonicalCoveredThresholdBacking(
+        label: 'L',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'X',
+        topLevelSeverityLabel: 'warning',
+        topLevelCoveredThresholds: const {'X.warning'},
+        additionalBrackets: null,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('tier-stack backed by canonical + additionalBrackets[critical] passes',
+        () {
+      final critical = BracketSpec(
+        stableId: 'X',
+        severityLabel: 'critical',
+        threshold: 16,
+        unit: 'ms',
+        coveredThresholds: const {'X.critical'},
+        profileCapturePaths: const ['a.json', 'b.json', 'c.json'],
+        aboveCeilingMultiplier: 1.5,
+      );
+      final failures = checkCanonicalCoveredThresholdBacking(
+        label: 'L',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'X',
+        topLevelSeverityLabel: 'warning',
+        topLevelCoveredThresholds: const {'X.warning', 'X.critical'},
+        additionalBrackets: [critical],
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('canonical declares X.critical without backing fails', () {
+      final failures = checkCanonicalCoveredThresholdBacking(
+        label: 'L',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'X',
+        topLevelSeverityLabel: 'warning',
+        topLevelCoveredThresholds: const {'X.warning', 'X.critical'},
+        additionalBrackets: null,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('"X.critical" has no backing'));
+      expect(
+          failures.single, contains('(stableId="X", severityLabel="warning")'));
+    });
+
+    test('cross-family entry without backing fails', () {
+      final failures = checkCanonicalCoveredThresholdBacking(
+        label: 'L',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'X',
+        topLevelSeverityLabel: 'warning',
+        topLevelCoveredThresholds: const {'X.warning', 'Y.critical'},
+        additionalBrackets: null,
+      );
+      expect(failures.any((f) => f.contains('"Y.critical"')), isTrue);
+    });
+
+    test('bare-family entry skipped', () {
+      final failures = checkCanonicalCoveredThresholdBacking(
+        label: 'L',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'X',
+        topLevelSeverityLabel: 'warning',
+        topLevelCoveredThresholds: const {'X'},
+        additionalBrackets: null,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('reproducerOnly tier is a no-op even with malformed thresholds', () {
+      final failures = checkCanonicalCoveredThresholdBacking(
+        label: 'L',
+        tier: EvidenceTier.reproducerOnly,
+        topLevelStableId: 'X',
+        topLevelSeverityLabel: 'warning',
+        topLevelCoveredThresholds: const {'X.warning', 'X.critical'},
+        additionalBrackets: null,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('production NetworkMonitor metadata passes (anti-confirmation-bias)',
+        () {
+      final detector = NetworkMonitorDetector();
+      final meta = detector.validationMetadata;
+      final failures = checkCanonicalCoveredThresholdBacking(
+        label: 'NetworkMonitorDetector',
+        tier: meta.effectiveMaxTier,
+        topLevelStableId: meta.bracketStableId,
+        topLevelSeverityLabel: meta.bracketSeverityLabel,
+        topLevelCoveredThresholds: meta.coveredThresholds,
+        additionalBrackets: meta.additionalBrackets,
+      );
+      expect(failures, isEmpty,
+          reason: 'Production NetworkMonitor metadata should be backed by '
+              'matching specs across canonical + additionalBrackets: $failures');
+    });
+
+    test('production HeavyCompute metadata passes (tier-stack family)', () {
+      final detector = HeavyComputeDetector();
+      final meta = detector.validationMetadata;
+      final failures = checkCanonicalCoveredThresholdBacking(
+        label: 'HeavyComputeDetector',
+        tier: meta.effectiveMaxTier,
+        topLevelStableId: meta.bracketStableId,
+        topLevelSeverityLabel: meta.bracketSeverityLabel,
+        topLevelCoveredThresholds: meta.coveredThresholds,
+        additionalBrackets: meta.additionalBrackets,
+      );
+      expect(failures, isEmpty,
+          reason: 'Production HeavyCompute metadata should be backed across '
+              'canonical + additionalBrackets: $failures');
+    });
+
+    test('production RebuildDetector metadata passes (perStableIdTier raise)',
+        () {
+      final detector = RebuildDetector();
+      final meta = detector.validationMetadata;
+      final failures = checkCanonicalCoveredThresholdBacking(
+        label: 'RebuildDetector',
+        tier: meta.effectiveMaxTier,
+        topLevelStableId: meta.bracketStableId,
+        topLevelSeverityLabel: meta.bracketSeverityLabel,
+        topLevelCoveredThresholds: meta.coveredThresholds,
+        additionalBrackets: meta.additionalBrackets,
+      );
+      expect(failures, isEmpty,
+          reason: 'Production RebuildDetector metadata should be backed: '
+              '$failures');
+    });
+  });
+
+  group('checkBracketBoundsSanity (v0.19.15)', () {
+    test('within-bounds canonical + spec passes', () {
+      final spec = BracketSpec(
+        stableId: 'X',
+        severityLabel: 'critical',
+        threshold: 16,
+        unit: 'ms',
+        coveredThresholds: const {'X.critical'},
+        profileCapturePaths: const ['a.json', 'b.json', 'c.json'],
+        atTolerance: 0.40,
+        aboveCeilingMultiplier: 2.0,
+        observedAxisTolerance: 0.10,
+      );
+      final failures = checkBracketBoundsSanity(
+        label: 'L',
+        tier: EvidenceTier.runtimeVerified,
+        canonicalAtTolerance: 0.10,
+        canonicalAboveCeilingMultiplier: 2.0,
+        canonicalObservedAxisTolerance: 0.25,
+        canonicalObservedAxisReduction: 'max',
+        additionalBrackets: [spec],
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('observedAxisTolerance > 0.30 rejected', () {
+      final failures = checkBracketBoundsSanity(
+        label: 'L',
+        tier: EvidenceTier.runtimeVerified,
+        canonicalAtTolerance: 0.10,
+        canonicalAboveCeilingMultiplier: 2.0,
+        canonicalObservedAxisTolerance: 0.31,
+        canonicalObservedAxisReduction: 'max',
+        additionalBrackets: null,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('observedAxisTolerance=0.31'));
+    });
+
+    test('atTolerance > 1.0 rejected', () {
+      final failures = checkBracketBoundsSanity(
+        label: 'L',
+        tier: EvidenceTier.runtimeVerified,
+        canonicalAtTolerance: 1.01,
+        canonicalAboveCeilingMultiplier: 2.0,
+        canonicalObservedAxisTolerance: 0.25,
+        canonicalObservedAxisReduction: 'max',
+        additionalBrackets: null,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('atTolerance=1.01'));
+    });
+
+    test('aboveCeilingMultiplier <= 1.0 rejected (inverts rule)', () {
+      final failures = checkBracketBoundsSanity(
+        label: 'L',
+        tier: EvidenceTier.runtimeVerified,
+        canonicalAtTolerance: 0.10,
+        canonicalAboveCeilingMultiplier: 0.9,
+        canonicalObservedAxisTolerance: 0.25,
+        canonicalObservedAxisReduction: 'max',
+        additionalBrackets: null,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('aboveCeilingMultiplier=0.9'));
+    });
+
+    test('observedAxisReduction not in approved set rejected', () {
+      final failures = checkBracketBoundsSanity(
+        label: 'L',
+        tier: EvidenceTier.runtimeVerified,
+        canonicalAtTolerance: 0.10,
+        canonicalAboveCeilingMultiplier: 2.0,
+        canonicalObservedAxisTolerance: 0.25,
+        canonicalObservedAxisReduction: 'median',
+        additionalBrackets: null,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('observedAxisReduction="median"'));
+    });
+
+    test('non-runtimeVerified tier is a no-op', () {
+      final failures = checkBracketBoundsSanity(
+        label: 'L',
+        tier: EvidenceTier.reproducerOnly,
+        canonicalAtTolerance: 99.0,
+        canonicalAboveCeilingMultiplier: 0.0,
+        canonicalObservedAxisTolerance: 99.0,
+        canonicalObservedAxisReduction: 'bogus',
+        additionalBrackets: null,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('bounds applied to additionalBrackets[*] entries too', () {
+      final spec = BracketSpec(
+        stableId: 'X',
+        severityLabel: 'critical',
+        threshold: 16,
+        unit: 'ms',
+        coveredThresholds: const {'X.critical'},
+        profileCapturePaths: const ['a.json', 'b.json', 'c.json'],
+        aboveCeilingMultiplier: 7.0, // above 5.0 ceiling
+      );
+      final failures = checkBracketBoundsSanity(
+        label: 'L',
+        tier: EvidenceTier.runtimeVerified,
+        canonicalAtTolerance: 0.10,
+        canonicalAboveCeilingMultiplier: 2.0,
+        canonicalObservedAxisTolerance: 0.25,
+        canonicalObservedAxisReduction: 'max',
+        additionalBrackets: [spec],
+      );
+      expect(failures.any((f) => f.contains('additionalBrackets[0]')), isTrue);
+      expect(failures.any((f) => f.contains('aboveCeilingMultiplier=7.0')),
+          isTrue);
+    });
+  });
+
+  group('checkCapturePathPerDirectoryNamingUniformity (v0.19.15)', () {
+    late Directory tempRoot;
+    setUp(() {
+      tempRoot = Directory.systemTemp.createTempSync('sleuth_uniformity_');
+    });
+    tearDown(() {
+      if (tempRoot.existsSync()) tempRoot.deleteSync(recursive: true);
+    });
+
+    File writeCapture(String relativePath, String scenario) {
+      final f = File(p.join(tempRoot.path, relativePath));
+      f.parent.createSync(recursive: true);
+      // Minimal capture skeleton sufficient for parseFile success — uses
+      // the anchor-fixture template as substrate.
+      final base = File('test/validation/captures/_fixtures/'
+              'anchor_devtools_export.json')
+          .readAsStringSync();
+      final mutated = base.replaceFirst(
+          RegExp(r'"scenario"\s*:\s*"[^"]*"'), '"scenario": "$scenario"');
+      f.writeAsStringSync(mutated);
+      return f;
+    }
+
+    test('uniform exact-shape directory passes', () {
+      writeCapture('det_a/foo_below.json', 'foo_below');
+      writeCapture('det_a/foo_at.json', 'foo_at');
+      writeCapture('det_a/foo_above.json', 'foo_above');
+      final failures = checkCapturePathPerDirectoryNamingUniformity(
+        capturesRoot: tempRoot,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('uniform suffix-shape directory passes', () {
+      writeCapture('det_b/below.json', 'rebuild_activity_below');
+      writeCapture('det_b/at.json', 'rebuild_activity_at');
+      writeCapture('det_b/above.json', 'rebuild_activity_above');
+      final failures = checkCapturePathPerDirectoryNamingUniformity(
+        capturesRoot: tempRoot,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('mixed shapes within one directory rejected', () {
+      writeCapture('det_c/foo_below.json', 'foo_below'); // exact
+      writeCapture('det_c/at.json', 'family_at'); // suffix
+      final failures = checkCapturePathPerDirectoryNamingUniformity(
+        capturesRoot: tempRoot,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('captures/det_c'));
+      expect(failures.single, contains('shape drift'));
+    });
+
+    test('_fixtures/ directory excluded from uniformity check', () {
+      writeCapture('_fixtures/synth_a.json', 'arbitrary_unrelated_scenario');
+      writeCapture('_fixtures/synth_b.json', 'totally_different_scenario');
+      final failures = checkCapturePathPerDirectoryNamingUniformity(
+        capturesRoot: tempRoot,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('suffix-shape directory with mismatched scenario prefix rejected', () {
+      // Both files use suffix shape but with different prefix strings —
+      // simulates a copy-paste typo where one file inherits the wrong
+      // detector's scenario prefix while basenames stay short.
+      writeCapture('det_d/below.json', 'rebuild_activity_below');
+      writeCapture('det_d/at.json', 'slow_request_at');
+      final failures = checkCapturePathPerDirectoryNamingUniformity(
+        capturesRoot: tempRoot,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('captures/det_d'));
+      expect(failures.single, contains('scenario-prefix drift'));
+      expect(failures.single, contains('rebuild_activity_'));
+      expect(failures.single, contains('slow_request_'));
     });
   });
 }
