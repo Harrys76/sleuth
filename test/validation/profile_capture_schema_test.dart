@@ -1150,6 +1150,55 @@ void main() {
       );
     });
 
+    test(
+        'atTolerance=0.40 seam: 4200 ms accepts, 4200.001 ms rejects '
+        '(threshold=3000, the slow_request critical bracket boundary)',
+        () async {
+      // Pins the schema-side at-band upper edge for the
+      // NetworkMonitorDetector slow_request critical bracket. Detector
+      // metadata declares atTolerance=0.40 against threshold=3000, so the
+      // audit gate accepts observed up to 3000 × 1.4 = 4200 ms and
+      // rejects the next tick.
+      final tmp = await Directory.systemTemp.createTemp('sleuth_040_seam_');
+      addTearDown(() => tmp.delete(recursive: true));
+      final belowF =
+          _writeRoleCapture(tmp, 'below.json', role: 'below', observed: 2700);
+      final aboveF =
+          _writeRoleCapture(tmp, 'above.json', role: 'above', observed: 5000);
+      final atAcceptF =
+          _writeRoleCapture(tmp, 'at_accept.json', role: 'at', observed: 4200);
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: belowF,
+          atFile: atAcceptF,
+          aboveFile: aboveF,
+          threshold: 3000,
+          unit: 'ms',
+          atTolerance: 0.40,
+          aboveCeilingMultiplier: 2.0,
+        ),
+        returnsNormally,
+      );
+      final atRejectF = _writeRoleCapture(tmp, 'at_reject.json',
+          role: 'at', observed: 4200.001);
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: belowF,
+          atFile: atRejectF,
+          aboveFile: aboveF,
+          threshold: 3000,
+          unit: 'ms',
+          atTolerance: 0.40,
+          aboveCeilingMultiplier: 2.0,
+        ),
+        throwsA(isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('Bracket violation'), contains('"at" observed')),
+        )),
+      );
+    });
+
     test('aboveCeilingMultiplier below 1 + atTolerance also rejected', () {
       expect(
           () => ProfileCaptureSchema.validateBracket(

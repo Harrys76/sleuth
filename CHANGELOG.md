@@ -1,3 +1,14 @@
+## 0.19.14
+
+`NetworkMonitorDetector.slow_request.critical` raised to **runtimeVerified** via `additionalBrackets[2]`. Second tier-stack raise. Backfills `observedAxisArgKey: 'observedDurationMs'` on the canonical slow_request bracket. Distribution: **9/23 effective runtimeVerified families**; every runtimeVerified bracket now declares an observed-axis cross-check.
+
+- Detector: `slow_request` emission stamps `extraTraceArgs.observedDurationMs` (worst record's `durationMs`). Critical `BracketSpec` — `threshold: 3000`, `atTolerance: 0.40` (at-band [3000, 4200]), `aboveCeilingMultiplier: 2.0` (ceiling 6000 ms), `requireUniqueDetectedAtMicros: true`. Both brackets share `observedAxisArgKey: 'observedDurationMs'` + `observedAxisTolerance: 0.10` (loopback measurement paths agree to the millisecond); cross-spec uniqueness tuple `(stableId, severityLabel, argKey)` distinguishes the pair via severityLabel. `coveredThresholds` expands to `{slow_request.warning, slow_request.critical}`.
+- Capture screen: severity-tier sub-dropdown (warning / critical) on slow_request mode. `_slowRequestLegSpec(_Tier, _Leg)` resolver tunes target ms + band bounds + scenario name + capture file name per active tier. Critical legs: below=2700 ms (warning fires; critical does not), at=3600 ms, above=5000 ms. `_endScenarioOnce` helper makes scenario closing idempotent — dispose's emission and per-mode catch-block emission for the same scenario can no longer double-emit. `SafeArea` wraps body.
+- Reproducer: 5 critical-band cases (4200 / 4201 / 6000 / 6001 ms + observedDurationMs stamp assertion). Layer 2 end-to-end case at 3500 ms confirms `.critical` fires through the SleuthHttpOverrides pipeline with the arg stamped.
+- Schema-edge test: `validateBracket` accepts observed=4200 ms / rejects 4200.001 ms at threshold=3000, atTolerance=0.40.
+- Anchor: NetworkMonitor block covers both slow_request brackets + canonical `observedAxisArgKey` pin + critical BracketSpec block + 4-tuple cross-spec uniqueness check.
+- Captures: 6 on-device recordings (iPhone 12 / iOS 17.5 / Flutter 3.41.x) — warning + critical triads both carry `observedDurationMs`; operator-Stopwatch and detector-stamped value match to the millisecond.
+
 ## 0.19.13
 
 `HeavyComputeDetector.heavy_compute.critical` raised to **runtimeVerified** via `additionalBrackets`. First tier-stack raise (warning + critical brackets on one family). Distribution: **8/23 effective runtimeVerified families**.

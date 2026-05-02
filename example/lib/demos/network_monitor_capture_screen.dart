@@ -71,6 +71,56 @@ enum _CaptureMode {
   final String label;
 }
 
+/// Severity tier for `_CaptureMode.slowRequest`. Other modes are
+/// single-tier and ignore this field. Tier drives scenario name,
+/// capture file name, and per-leg target ms.
+enum _Tier {
+  warning('warning', 1000),
+  critical('critical', 3000);
+
+  const _Tier(this.label, this.thresholdMs);
+
+  final String label;
+  final int thresholdMs;
+}
+
+/// Per-leg target + scenario-band bounds for slow_request captures
+/// resolved against the active [_Tier]. Targets sit far enough from
+/// each band edge that ±15 % network/scheduler drift stays inside the
+/// schema-accepted band.
+({int delayMs, int msMin, int msMax}) _slowRequestLegSpec(
+  _Tier tier,
+  String leg,
+) {
+  switch (tier) {
+    case _Tier.warning:
+      switch (leg) {
+        case 'below':
+          return (delayMs: 800, msMin: 0, msMax: 999);
+        case 'at':
+          return (delayMs: 1020, msMin: 1000, msMax: 1100);
+        case 'above':
+          return (delayMs: 1500, msMin: 1101, msMax: 1999);
+      }
+    case _Tier.critical:
+      switch (leg) {
+        // Below band [0, 2999] — warning fires (>=1000), critical does
+        // not. Schema's name-scoped no-record check accepts.
+        case 'below':
+          return (delayMs: 2700, msMin: 0, msMax: 2999);
+        // At band [3000, 4200] (atTolerance=0.40). Target 3600 = mid;
+        // ±15% network drift = [3060, 4140] — both edges in band.
+        case 'at':
+          return (delayMs: 3600, msMin: 3000, msMax: 4200);
+        // Above band (4201, 6000] (above-ceiling 2.0×3000=6000). Target
+        // 5000 = mid-band.
+        case 'above':
+          return (delayMs: 5000, msMin: 4201, msMax: 6000);
+      }
+  }
+  throw ArgumentError('Unknown leg: $leg');
+}
+
 class _NetworkMonitorCaptureScreenState
     extends State<NetworkMonitorCaptureScreen> {
   HttpServer? _server;
@@ -78,18 +128,33 @@ class _NetworkMonitorCaptureScreenState
   final List<String> _log = [];
   bool _busy = false;
   _CaptureMode _mode = _CaptureMode.slowRequest;
+  // Active severity tier for slow_request (warning vs critical). Other
+  // modes ignore this. Defaults to warning so the v0.18.0 capture flow
+  // is the no-tier-switch default.
+  _Tier _slowRequestTier = _Tier.warning;
 
   // Last completed leg state — what the Export button serialises.
   // Cleared on each new leg request so the operator cannot accidentally
   // export an out-of-band run from an earlier session.
   String? _lastCompletedLeg;
   _CaptureMode? _lastCompletedMode;
+  // slow_request: tier of the completed leg (warning or critical).
+  _Tier? _lastCompletedTier;
   // slow_request: ms wall-clock from Stopwatch.
   int? _lastMeasuredMs;
   // large_response: bytes received from the loopback response.
   int? _lastObservedBytes;
   // request_frequency: count of records sent inside the scenario span.
   int? _lastObservedCount;
+
+  // In-flight scenario name. Stamped at markScenarioBegin, cleared at
+  // markScenarioEnd. Non-null at dispose() means the operator popped or
+  // backgrounded mid-scenario; emit a synthetic markScenarioEnd so the
+  // begin marker doesn't outlive the screen and pair with whatever
+  // scenario the next session opens. Existing per-mode catch blocks
+  // already call markScenarioEnd on HTTP errors; this guards the
+  // narrower window where dispose interleaves with the postFrame chain.
+  String? _inFlightScenarioName;
 
   @override
   void initState() {
@@ -99,6 +164,16 @@ class _NetworkMonitorCaptureScreenState
 
   @override
   void dispose() {
+    final scenario = _inFlightScenarioName;
+    if (scenario != null) {
+      // Operator popped or backgrounded mid-scenario. Emit the matching
+      // scenario.end so the in-buffer begin marker pairs and the next
+      // session's recorded span can't accidentally absorb it. Routed
+      // through `_endScenarioOnce` so the catch path that fires after
+      // `client.close(force)` cancels the in-flight HTTP request can't
+      // emit a second end marker for the same scenario.
+      _endScenarioOnce(scenario);
+    }
     final client = _client;
     final server = _server;
     _client = null;
@@ -106,6 +181,20 @@ class _NetworkMonitorCaptureScreenState
     client?.close(force: true);
     unawaited(server?.close(force: true) ?? Future<void>.value());
     super.dispose();
+  }
+
+  /// Idempotent scenario-end emitter. Clears `_inFlightScenarioName`
+  /// BEFORE calling `Sleuth.markScenarioEnd` so a second invocation
+  /// for the same scenario name (typically from a per-mode catch
+  /// block firing after dispose's `client.close(force)` cancels the
+  /// awaiting request) early-returns without double-emitting. Two
+  /// `scenario.end` markers for one `scenario.begin` would fail
+  /// `ProfileCaptureSchema._scenarioSpan`'s "exactly one end"
+  /// invariant.
+  void _endScenarioOnce(String scenarioName) {
+    if (_inFlightScenarioName != scenarioName) return;
+    _inFlightScenarioName = null;
+    Sleuth.markScenarioEnd(scenarioName);
   }
 
   Future<void> _startServer() async {
@@ -179,12 +268,23 @@ class _NetworkMonitorCaptureScreenState
   void _resetLastLeg() {
     _lastCompletedLeg = null;
     _lastCompletedMode = null;
+    _lastCompletedTier = null;
     _lastMeasuredMs = null;
     _lastObservedBytes = null;
     _lastObservedCount = null;
   }
 
+  /// Wire-format scenario name for slow_request captures. Warning tier
+  /// keeps the v0.18.0 prefix (`slow_request_below`) for backward compat
+  /// with the original capture file names. Critical tier injects
+  /// `_critical_` so capture files land at distinct paths.
+  String _slowRequestScenarioName(_Tier tier, String leg) =>
+      tier == _Tier.warning
+      ? 'slow_request_$leg'
+      : 'slow_request_critical_$leg';
+
   Future<void> _runSlowRequestCapture({
+    required _Tier tier,
     required String label,
     required int delayMs,
   }) async {
@@ -194,11 +294,14 @@ class _NetworkMonitorCaptureScreenState
     setState(() {
       _busy = true;
       _resetLastLeg();
-      _log.add('[$label] scenario.begin → GET /slow?delay=$delayMs');
+      _log.add(
+        '[${tier.label}/$label] scenario.begin → GET /slow?delay=$delayMs',
+      );
     });
 
-    final scenarioName = 'slow_request_$label';
+    final scenarioName = _slowRequestScenarioName(tier, label);
     Sleuth.markScenarioBegin(scenarioName);
+    _inFlightScenarioName = scenarioName;
     final messenger = ScaffoldMessenger.of(context);
 
     final stopwatch = Stopwatch()..start();
@@ -229,7 +332,7 @@ class _NetworkMonitorCaptureScreenState
       // issue into the trace buffer with a `ts` strictly inside
       // [scenario.begin, scenario.end].
       await Future<void>.delayed(const Duration(milliseconds: 200));
-      Sleuth.markScenarioEnd(scenarioName);
+      _endScenarioOnce(scenarioName);
 
       // Additional dwell so the VM Timeline buffer drains before
       // exportCaptureJson reads it.
@@ -240,22 +343,25 @@ class _NetworkMonitorCaptureScreenState
         _busy = false;
         _lastCompletedLeg = label;
         _lastCompletedMode = _CaptureMode.slowRequest;
+        _lastCompletedTier = tier;
         _lastMeasuredMs = measuredMs;
         _log.add(
-          '[$label] scenario.end (${measuredMs}ms, ${bytes}B) — '
+          '[${tier.label}/$label] scenario.end (${measuredMs}ms, ${bytes}B) — '
           'tap "Export last leg" to write the wrapped capture.',
         );
       });
       messenger.showSnackBar(
         SnackBar(
-          content: Text('$label OK (${measuredMs}ms). Tap Export now.'),
+          content: Text(
+            '${tier.label}/$label OK (${measuredMs}ms). Tap Export now.',
+          ),
           duration: const Duration(seconds: 4),
         ),
       );
     } catch (e, st) {
-      Sleuth.markScenarioEnd(scenarioName);
+      _endScenarioOnce(scenarioName);
       developer.log(
-        '[sleuth.capture] FAILED $label: $e',
+        '[sleuth.capture] FAILED ${tier.label}/$label: $e',
         name: 'sleuth.capture',
         error: e,
         stackTrace: st,
@@ -263,7 +369,7 @@ class _NetworkMonitorCaptureScreenState
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _log.add('[$label] FAILED: $e');
+        _log.add('[${tier.label}/$label] FAILED: $e');
       });
     }
   }
@@ -283,6 +389,7 @@ class _NetworkMonitorCaptureScreenState
 
     final scenarioName = 'large_response_$label';
     Sleuth.markScenarioBegin(scenarioName);
+    _inFlightScenarioName = scenarioName;
     final messenger = ScaffoldMessenger.of(context);
 
     var bytes = 0;
@@ -297,7 +404,7 @@ class _NetworkMonitorCaptureScreenState
       }
 
       await Future<void>.delayed(const Duration(milliseconds: 200));
-      Sleuth.markScenarioEnd(scenarioName);
+      _endScenarioOnce(scenarioName);
       await Future<void>.delayed(const Duration(milliseconds: 800));
 
       if (!mounted) return;
@@ -321,7 +428,7 @@ class _NetworkMonitorCaptureScreenState
         ),
       );
     } catch (e, st) {
-      Sleuth.markScenarioEnd(scenarioName);
+      _endScenarioOnce(scenarioName);
       developer.log(
         '[sleuth.capture] FAILED $label: $e',
         name: 'sleuth.capture',
@@ -360,6 +467,7 @@ class _NetworkMonitorCaptureScreenState
     // exportCaptureJson reads it. Restrict to Dart-only for the span.
     Sleuth.suspendNonEssentialTimelineStreams();
     Sleuth.markScenarioBegin(scenarioName);
+    _inFlightScenarioName = scenarioName;
     final messenger = ScaffoldMessenger.of(context);
 
     var observedCount = 0;
@@ -409,7 +517,7 @@ class _NetworkMonitorCaptureScreenState
       await Future<void>.delayed(const Duration(milliseconds: 200));
       final monitor = Sleuth.networkMonitor;
       if (monitor == null) {
-        Sleuth.markScenarioEnd(scenarioName);
+        _endScenarioOnce(scenarioName);
         Sleuth.resumeAllTimelineStreams();
         if (!mounted) return;
         setState(() {
@@ -434,7 +542,7 @@ class _NetworkMonitorCaptureScreenState
       // land in trace records with a `ts` after markScenarioEnd, and
       // the audit gate filters it out for ts > spanHi.
       await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
-      Sleuth.markScenarioEnd(scenarioName);
+      _endScenarioOnce(scenarioName);
       await Future<void>.delayed(const Duration(milliseconds: 800));
 
       Sleuth.resumeAllTimelineStreams();
@@ -458,7 +566,7 @@ class _NetworkMonitorCaptureScreenState
         ),
       );
     } catch (e, st) {
-      Sleuth.markScenarioEnd(scenarioName);
+      _endScenarioOnce(scenarioName);
       Sleuth.resumeAllTimelineStreams();
       developer.log(
         '[sleuth.capture] FAILED $label: $e',
@@ -491,7 +599,17 @@ class _NetworkMonitorCaptureScreenState
       });
       return;
     }
-    final scenarioName = '${mode.stableId}_$leg';
+    // slow_request critical-tier captures need the `_critical_` infix
+    // to land at distinct file paths from the warning triad. Other
+    // modes are single-tier so the mode.stableId prefix is unambiguous.
+    final tier = _lastCompletedTier;
+    final scenarioName = (mode == _CaptureMode.slowRequest && tier != null)
+        ? _slowRequestScenarioName(tier, leg)
+        : '${mode.stableId}_$leg';
+    final bracketSeverityLabel =
+        (mode == _CaptureMode.slowRequest && tier != null)
+        ? tier.label
+        : 'warning';
     final (
       int magnitudeMin,
       int magnitudeObserved,
@@ -560,7 +678,7 @@ class _NetworkMonitorCaptureScreenState
         // operators see the failure mode without waiting for
         // test-time audit rejection.
         bracketStableId: mode.stableId,
-        bracketSeverityLabel: 'warning',
+        bracketSeverityLabel: bracketSeverityLabel,
       );
     } catch (e) {
       json = null;
@@ -622,65 +740,101 @@ class _NetworkMonitorCaptureScreenState
     final ready = _server != null && _client != null;
     return Scaffold(
       appBar: AppBar(title: const Text('NetworkMonitor capture helper')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            DropdownButtonFormField<_CaptureMode>(
-              initialValue: _mode,
-              decoration: const InputDecoration(
-                labelText: 'Capture mode',
-                border: OutlineInputBorder(),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DropdownButtonFormField<_CaptureMode>(
+                initialValue: _mode,
+                decoration: const InputDecoration(
+                  labelText: 'Capture mode',
+                  border: OutlineInputBorder(),
+                ),
+                items: _CaptureMode.values.map((m) {
+                  return DropdownMenuItem(value: m, child: Text(m.label));
+                }).toList(),
+                onChanged: _busy
+                    ? null
+                    : (m) {
+                        if (m == null) return;
+                        setState(() {
+                          _mode = m;
+                          _resetLastLeg();
+                        });
+                      },
               ),
-              items: _CaptureMode.values.map((m) {
-                return DropdownMenuItem(value: m, child: Text(m.label));
-              }).toList(),
-              onChanged: _busy
-                  ? null
-                  : (m) {
-                      if (m == null) return;
-                      setState(() {
-                        _mode = m;
-                        _resetLastLeg();
-                      });
-                    },
-            ),
-            const SizedBox(height: 12),
-            Text(_modeBlurb(_mode), style: const TextStyle(fontSize: 13)),
-            const SizedBox(height: 16),
-            ..._buildLegButtons(ready),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _busy ? null : _exportLastLeg,
-              icon: const Icon(Icons.save_alt),
-              label: const Text('Export last leg'),
-            ),
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            const Text('Log', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            Expanded(
-              child: ListView.builder(
-                reverse: true,
-                itemCount: _log.length,
-                itemBuilder: (context, i) {
-                  final line = _log[_log.length - 1 - i];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(
-                      line,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                      ),
+              if (_mode == _CaptureMode.slowRequest) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<_Tier>(
+                  initialValue: _slowRequestTier,
+                  decoration: const InputDecoration(
+                    labelText: 'Severity tier',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: _Tier.warning,
+                      child: Text('Warning (1000 ms)'),
                     ),
-                  );
-                },
+                    DropdownMenuItem(
+                      value: _Tier.critical,
+                      child: Text('Critical (3000 ms)'),
+                    ),
+                  ],
+                  onChanged: _busy
+                      ? null
+                      : (next) {
+                          if (next == null || next == _slowRequestTier) return;
+                          setState(() {
+                            _slowRequestTier = next;
+                            _resetLastLeg();
+                            _log.add(
+                              'Switched slow_request tier → ${next.label} '
+                              '(threshold ${next.thresholdMs} ms). '
+                              'Leg targets retuned.',
+                            );
+                          });
+                        },
+                ),
+              ],
+              const SizedBox(height: 12),
+              Text(_modeBlurb(_mode), style: const TextStyle(fontSize: 13)),
+              const SizedBox(height: 16),
+              ..._buildLegButtons(ready),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _busy ? null : _exportLastLeg,
+                icon: const Icon(Icons.save_alt),
+                label: const Text('Export last leg'),
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text('Log', style: TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Expanded(
+                child: ListView.builder(
+                  reverse: true,
+                  itemCount: _log.length,
+                  itemBuilder: (context, i) {
+                    final line = _log[_log.length - 1 - i];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        line,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -707,26 +861,51 @@ class _NetworkMonitorCaptureScreenState
   List<Widget> _buildLegButtons(bool ready) {
     switch (_mode) {
       case _CaptureMode.slowRequest:
+        final tier = _slowRequestTier;
+        final below = _slowRequestLegSpec(tier, 'below');
+        final at = _slowRequestLegSpec(tier, 'at');
+        final above = _slowRequestLegSpec(tier, 'above');
+        final belowSubtitle = tier == _Tier.warning
+            ? 'Under 1000 ms slow threshold; detector silent'
+            : 'Between 1000 ms and 3000 ms — fires .warning, NOT .critical';
         return [
           _CaptureButton(
-            label: 'Below (800 ms) — passes',
-            subtitle: 'Under 1000 ms slow threshold',
+            label:
+                'Below (${below.delayMs} ms) — '
+                '${tier == _Tier.warning ? "silent" : "warning fires"}',
+            subtitle: belowSubtitle,
             enabled: ready && !_busy,
-            onTap: () => _runSlowRequestCapture(label: 'below', delayMs: 800),
+            onTap: () => _runSlowRequestCapture(
+              tier: tier,
+              label: 'below',
+              delayMs: below.delayMs,
+            ),
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'At (1020 ms) — warning',
-            subtitle: 'In [1000, 1100] at-band (10% tolerance)',
+            label: 'At (${at.delayMs} ms) — ${tier.label}',
+            subtitle:
+                'In [${at.msMin}, ${at.msMax}] at-band '
+                '(${tier == _Tier.warning ? "10% tolerance" : "40% tolerance"})',
             enabled: ready && !_busy,
-            onTap: () => _runSlowRequestCapture(label: 'at', delayMs: 1020),
+            onTap: () => _runSlowRequestCapture(
+              tier: tier,
+              label: 'at',
+              delayMs: at.delayMs,
+            ),
           ),
           const SizedBox(height: 8),
           _CaptureButton(
-            label: 'Above (1500 ms) — warning',
-            subtitle: 'In (1000, 2000) warning band; stays under 3000 ms crit',
+            label: 'Above (${above.delayMs} ms) — ${tier.label}',
+            subtitle:
+                'In (${above.msMin}, ${above.msMax}] above-band'
+                '${tier == _Tier.warning ? "; stays under 3000 ms crit" : "; ceiling 6000 ms (2.0×)"}',
             enabled: ready && !_busy,
-            onTap: () => _runSlowRequestCapture(label: 'above', delayMs: 1500),
+            onTap: () => _runSlowRequestCapture(
+              tier: tier,
+              label: 'above',
+              delayMs: above.delayMs,
+            ),
           ),
         ];
       case _CaptureMode.largeResponse:

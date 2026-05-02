@@ -255,6 +255,7 @@ class NetworkMonitorDetector extends BaseDetector
     final (hint, effort) = FixHintBuilder.slowRequest(
       worstUrl: slowRecords.isNotEmpty ? slowRecords.first.url : null,
     );
+    final detectedAt = _clock();
     _issues.add(PerformanceIssue(
       stableId: 'slow_request',
       severity: severity,
@@ -270,7 +271,11 @@ class NetworkMonitorDetector extends BaseDetector
           'in buffer.',
       fixHint: hint,
       fixEffort: effort,
-      detectedAt: _clock(),
+      detectedAt: detectedAt,
+      // Audit gate cross-checks `expectedMagnitude.observed` (operator-
+      // Stopwatch) against this detector-side measurement so a regression
+      // in HTTP-duration computation cannot certify the wrong magnitude.
+      extraTraceArgs: {'observedDurationMs': worstMs.toString()},
       confidenceReason: 'Measured directly from HTTP interception',
     ));
   }
@@ -610,10 +615,6 @@ class NetworkMonitorDetector extends BaseDetector
         bracketUnit: 'ms',
         bracketStableId: 'slow_request',
         bracketSeverityLabel: 'warning',
-        // Default 2.0 → above-ceiling = 2000 ms, well below the 3000 ms
-        // critical threshold so the above-bracket capture cannot
-        // ambiently bracket the critical tier. Explicit declaration is
-        // required by the audit when `coveredThresholds` is set.
         aboveCeilingMultiplier: 2.0,
         coveredStableIds: {
           'slow_request',
@@ -627,13 +628,30 @@ class NetworkMonitorDetector extends BaseDetector
           'large_response': EvidenceTier.runtimeVerified,
           'request_frequency': EvidenceTier.runtimeVerified,
         },
-        coveredThresholds: {'slow_request.warning'},
+        coveredThresholds: {
+          'slow_request.warning',
+          'slow_request.critical',
+        },
         // Captures recorded under v0.18.1+ producer-side dedup, so
         // every in-span trace record carries a distinct
         // `detectedAtMicros`. Opting in locks single-issue replay
         // protection on the audit gate (see ProfileCaptureSchema
         // `requireUniqueDetectedAtMicros`).
         bracketRequireUniqueDetectedAtMicros: true,
+        // Detector stamps per-request worst-duration ms into
+        // `extraTraceArgs` so the audit gate cross-checks operator-
+        // Stopwatch observed against detector-side measurement (closes
+        // the wrong-magnitude gap when `magnitudeSourceEventName: ''`
+        // bypasses BUILD-derivation). Backward-compatible: pre-arg
+        // captures lack the key and the cross-check is skipped per-record.
+        observedAxisArgKey: 'observedDurationMs',
+        // Tighter than schema default 0.25 because both measurement
+        // paths (operator Stopwatch, detector RequestRecord.durationMs)
+        // wrap the same loopback round-trip and routinely agree to the
+        // millisecond — a 10 % tolerance still absorbs scheduler jitter
+        // while catching small constant-offset regressions a 25 % band
+        // would silently pass.
+        observedAxisTolerance: 0.10,
         additionalBrackets: [
           BracketSpec(
             stableId: 'large_response',
@@ -668,6 +686,37 @@ class NetworkMonitorDetector extends BaseDetector
             atTolerance: 0.50,
             aboveCeilingMultiplier: 2.0,
             observedAxisArgKey: 'observedRequestCount',
+            requireUniqueDetectedAtMicros: true,
+            requireDetectorTraceRecord: true,
+          ),
+          // Critical-tier bracket (3000 ms = 3× warning). atTolerance
+          // 0.40 (at-band [3000, 4200]) is forward-compat re-record
+          // headroom — wider than warning's 0.10 because the operator
+          // targets 3000+ ms on a stub HTTP server with iOS scheduler +
+          // network RTT variance. Tighter than HeavyCompute's 0.60
+          // because network-bound work is more deterministic than CPU-
+          // bound thermal drift. Above-ceiling 6000 ms (no super-tier
+          // above; iOS NSURLSession 60 s default leaves comfortable
+          // margin). Cross-spec uniqueness tuple
+          // (stableId, severityLabel, argKey) distinguishes this from
+          // the canonical warning bracket via severityLabel.
+          BracketSpec(
+            stableId: 'slow_request',
+            severityLabel: 'critical',
+            threshold: 3000,
+            unit: 'ms',
+            coveredThresholds: {'slow_request.critical'},
+            profileCapturePaths: [
+              'test/validation/captures/network_monitor/slow_request_critical_below.json',
+              'test/validation/captures/network_monitor/slow_request_critical_at.json',
+              'test/validation/captures/network_monitor/slow_request_critical_above.json',
+            ],
+            atTolerance: 0.40,
+            aboveCeilingMultiplier: 2.0,
+            observedAxisArgKey: 'observedDurationMs',
+            // Same tighter tolerance as canonical bracket — loopback
+            // measurement paths agree to the millisecond.
+            observedAxisTolerance: 0.10,
             requireUniqueDetectedAtMicros: true,
             requireDetectorTraceRecord: true,
           ),

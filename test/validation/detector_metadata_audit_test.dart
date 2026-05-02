@@ -495,19 +495,26 @@ void main() {
               'the controller or delete the file. Missing: $missing');
     });
 
-    test('NetworkMonitorDetector pinned at reproducerOnly (v0.19.9)', () {
-      // Anti-tautology anchor. v0.16.5 history retained for context: two
-      // `externallyCited` raises staged+reverted (NN/g 1.0 s is a UI
-      // feedback guideline, not a generic HTTP latency threshold; profile
-      // captures verified scenario marker span only, not detector emission).
-      // v0.18.0 introduced runtimeVerified slow_request; v0.18.3 moved
-      // the raise into perStableIdTier so the four unraised families
-      // were no longer mechanically over-claimed.
-      // v0.19.9: extends perStableIdTier to 3 families (slow_request +
-      // large_response + request_frequency at runtimeVerified) and
-      // populates additionalBrackets with one BracketSpec per axis-2/-3
-      // family. The L2 negative assertion + mechanism-4 prose-drift guard
-      // stay wired so future critical-tier claims cannot silently regress.
+    test(
+        'NetworkMonitorDetector pinned at reproducerOnly base + '
+        'slow_request tier-stack (warning + critical) raise', () {
+      // Anti-tautology anchor. NetworkMonitor base tier stays
+      // `reproducerOnly` so the two unraised families
+      // (http_error_spike, high_frequency_same_path) are not
+      // mechanically over-claimed. Per-family raises live in
+      // `perStableIdTier` and `additionalBrackets`:
+      //
+      //  - slow_request: warning (canonical bracket, 1000 ms) + critical
+      //    (additionalBrackets[2], 3000 ms) — first NetworkMonitor
+      //    tier-stack raise. Both brackets carry
+      //    `observedAxisArgKey: 'observedDurationMs'` so the audit gate
+      //    cross-checks operator-Stopwatch observed against detector-
+      //    measured worstMs. Cross-spec uniqueness tuple
+      //    (stableId, severityLabel, argKey) distinguishes the pair via
+      //    severityLabel even though they share argKey.
+      //  - large_response.warning: bytes axis (additionalBrackets[0]).
+      //  - request_frequency.warning: events-per-window axis
+      //    (additionalBrackets[1]).
       final BaseDetector? nm = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.networkMonitor)
           .cast<BaseDetector?>()
@@ -571,12 +578,24 @@ void main() {
       expect(meta.bracketUnit, equals('ms'));
       expect(meta.bracketStableId, equals('slow_request'));
       expect(meta.bracketSeverityLabel, equals('warning'));
-      expect(meta.coveredThresholds, equals(const {'slow_request.warning'}),
-          reason: 'Severity-scoped to warning; critical stays reproducerOnly.');
+      expect(
+          meta.coveredThresholds,
+          equals(const {
+            'slow_request.warning',
+            'slow_request.critical',
+          }),
+          reason: 'Severity-scoped: warning covered by canonical bracket, '
+              'critical covered by additionalBrackets[2]. Tier-stack raise '
+              'expands coveredThresholds union to both severities.');
       expect(meta.aboveCeilingMultiplier, equals(2.0),
-          reason: 'Above bracket sits in (1000, 2000] which is well below '
-              'the 3000 ms critical threshold; explicit declaration '
-              'required by the severity-scoped-coveredThresholds invariant.');
+          reason: 'Canonical bracket above-band (1000, 2000] sits well below '
+              'the 3000 ms critical threshold so it cannot ambiently bracket '
+              'the critical tier; explicit declaration required by the '
+              'severity-scoped-coveredThresholds invariant.');
+      expect(meta.observedAxisArgKey, equals('observedDurationMs'),
+          reason: 'Detector stamps worstMs into `extraTraceArgs` so the audit '
+              'gate cross-checks operator-Stopwatch observed against '
+              'detector-side measurement on the canonical bracket.');
       expect(meta.parametricFamilies, isNull,
           reason: 'NetworkMonitor does not declare parametric families.');
       expect(
@@ -593,50 +612,13 @@ void main() {
               'covers them via the layer-2 reproducer. perStableIdTier '
               'raises only slow_request to runtimeVerified.');
 
-      // L2 negative assertion (v0.16.5). Dormant at reproducerOnly.
-      // Fires when a re-raise populates `coveredThresholds`: a diff that
-      // adds `slow_request.critical` without its own citation + bracket
-      // triad fails CI. Critical cannot piggyback on a warning-tier raise.
-      final covered = meta.coveredThresholds ?? const <String>{};
-      final criticalClaims =
-          covered.where((t) => t.endsWith('.critical')).toList();
-      expect(criticalClaims, isEmpty,
-          reason: 'L2: no coveredThresholds entry may claim the critical '
-              'tier without its own citation + bracket triad. Offending '
-              'entries: $criticalClaims.');
+      // Critical-tier bracket evidence is now captured in
+      // additionalBrackets[2] (slow_request critical at threshold 3000).
+      // The earlier negative-claim guard against piggyback critical
+      // mentions is retired alongside the legitimate critical bracket
+      // backed by its own capture triad below.
 
-      // Rationale prose making an externally-grounded claim about the
-      // critical tier without metadata backing is prohibited. Block
-      // comments stripped first; inline backticks normalised to
-      // whitespace BEFORE lowercasing so identifier fragments like
-      // `` stays `reproducerOnly` `` don't mask the phrase match.
-      final stripped =
-          meta.rationale.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
-      final normalised = stripped.replaceAll('`', ' ');
-      final collapsed =
-          normalised.replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
-      final mentionsCitationSource = collapsed.contains('nn/g') ||
-          collapsed.contains('nielsen norman') ||
-          collapsed.contains('response-times') ||
-          collapsed.contains('response times');
-      final hasCriticalAndCitation =
-          collapsed.contains('critical') && mentionsCitationSource;
-      if (hasCriticalAndCitation) {
-        // Allowed only if the critical mention is explicitly an exclusion.
-        final hasExclusion = collapsed.contains('stays reproduceronly') ||
-            collapsed.contains('not covered') ||
-            collapsed.contains('scoped out') ||
-            collapsed.contains('only the warning') ||
-            collapsed.contains('warning threshold only') ||
-            collapsed.contains('warning tier only');
-        expect(hasExclusion, isTrue,
-            reason: 'Symptom-persistence mechanism 4: rationale co-mentions '
-                'the NN/g citation source and the critical tier without an '
-                'explicit exclusion. Prose must make clear critical is NOT '
-                'externally grounded.');
-      }
-
-      // AB4 default-drift cross-check (v0.16.5): when `bracketThreshold`
+      // AB4 default-drift cross-check: when `bracketThreshold`
       // is set, it must match the detector's runtime default — otherwise
       // a change adjusting one but not the other creates silent drift.
       // Dormant at reproducerOnly; fires on v0.16.7 re-raise.
@@ -649,16 +631,17 @@ void main() {
                 'mismatch means the externally-cited bracket claims a '
                 'different threshold than the detector actually uses.');
       }
-      // v0.19.9: additionalBrackets pin. Two BracketSpec entries cover
-      // the bytes axis (large_response.warning) and the events-per-window
-      // axis (request_frequency.warning) raised in this release. Each
-      // spec's coveredThresholds, threshold, unit, and provenance fields
-      // are pinned literally so a future diff that drops or rewires a
-      // spec must update this anchor.
+      // additionalBrackets pin. Three BracketSpec entries cover the
+      // bytes axis (large_response.warning at index 0), the
+      // events-per-window axis (request_frequency.warning at index 1),
+      // and the slow_request critical-tier raise (index 2). Each spec's
+      // coveredThresholds, threshold, unit, and provenance fields are
+      // pinned literally so a future diff that drops or rewires a spec
+      // must update this anchor.
       expect(meta.additionalBrackets, isNotNull);
-      expect(meta.additionalBrackets, hasLength(2),
-          reason: 'v0.19.9 declares exactly two additional axes: bytes '
-              '(large_response) and events (request_frequency). '
+      expect(meta.additionalBrackets, hasLength(3),
+          reason: 'Three additional brackets: large_response[0], '
+              'request_frequency[1], slow_request critical-tier[2]. '
               'http_error_spike and high_frequency_same_path stay at '
               'base reproducerOnly until they have their own captures.');
 
@@ -728,17 +711,67 @@ void main() {
       expect(freqSpec.requireUniqueDetectedAtMicros, isTrue);
       expect(freqSpec.requireDetectorTraceRecord, isTrue);
 
-      // Cross-spec uniqueness: stableId + observedAxisArgKey tuples must
-      // not collide. `checkAdditionalBrackets` enforces this in the
-      // walker, but the anchor pins it explicitly so a future diff that
-      // shares an arg key across specs is caught here too.
-      final pairs = meta.additionalBrackets!
-          .map((s) => '${s.stableId}|${s.observedAxisArgKey ?? ''}')
-          .toSet();
-      expect(pairs, hasLength(2),
-          reason: '(stableId, observedAxisArgKey) tuples must be unique '
-              'across additionalBrackets so each axis maps to exactly '
-              'one capture triad.');
+      final criticalSpec = meta.additionalBrackets!.firstWhere(
+        (s) => s.stableId == 'slow_request' && s.severityLabel == 'critical',
+      );
+      expect(criticalSpec.threshold, equals(3000),
+          reason: '3× warning threshold; matches NetworkMonitorDetector\'s '
+              'criticalSlowThresholdMs default.');
+      expect(criticalSpec.unit, equals('ms'));
+      expect(criticalSpec.coveredThresholds,
+          equals(const {'slow_request.critical'}),
+          reason: 'Severity-scoped to critical only.');
+      expect(
+          criticalSpec.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/network_monitor/slow_request_critical_below.json',
+            'test/validation/captures/network_monitor/slow_request_critical_at.json',
+            'test/validation/captures/network_monitor/slow_request_critical_above.json',
+          ]),
+          reason: 'Critical capture triad lives at distinct file paths so '
+              'capture-path disjointness check passes against the warning '
+              'triad.');
+      expect(criticalSpec.atTolerance, equals(0.40),
+          reason: 'Wider than warning\'s 0.10 because the operator targets '
+              '3000+ ms on a stub HTTP server with iOS scheduler + network '
+              'RTT variance; ±15% drift on at-target=3600 lands [3060, 4140] '
+              '— both edges in band [3000, 4200]. Tighter than HeavyCompute\'s '
+              '0.60 critical because network-bound work is more deterministic '
+              'than CPU-bound thermal drift. Forward-compat re-record '
+              'headroom, NOT a device-physics claim.');
+      expect(criticalSpec.aboveCeilingMultiplier, equals(2.0),
+          reason: 'Above-ceiling 6000 ms; no super-critical tier above so '
+              'the above-leg has no adjacent threshold to ambient-bracket. '
+              'iOS NSURLSession 60 s default leaves comfortable margin.');
+      expect(criticalSpec.observedAxisArgKey, equals('observedDurationMs'),
+          reason: 'Same arg key as canonical warning bracket; cross-spec '
+              'uniqueness tuple (stableId, severityLabel, argKey) '
+              'distinguishes the pair via severityLabel.');
+      expect(criticalSpec.requireUniqueDetectedAtMicros, isTrue);
+      expect(criticalSpec.requireDetectorTraceRecord, isTrue);
+
+      // Cross-spec uniqueness: (stableId, severityLabel, argKey) tuples
+      // must not collide. `checkAdditionalBrackets` enforces this in the
+      // walker; the anchor pins it explicitly so a future diff that
+      // shares all three across specs is caught here too. The
+      // slow_request warning + critical pair shares stableId AND argKey
+      // — distinguished only by severityLabel — and must remain disjoint
+      // under the 3-tuple.
+      final tuples = <String>{};
+      // Top-level (canonical) bracket counts as logical spec #0.
+      tuples.add(
+        '${meta.bracketStableId}|${meta.bracketSeverityLabel}'
+        '|${meta.observedAxisArgKey ?? ''}',
+      );
+      for (final spec in meta.additionalBrackets!) {
+        tuples.add(
+          '${spec.stableId}|${spec.severityLabel}'
+          '|${spec.observedAxisArgKey ?? ''}',
+        );
+      }
+      expect(tuples, hasLength(4),
+          reason: '4 distinct (stableId, severityLabel, argKey) tuples '
+              'across canonical + 3 additionalBrackets.');
     });
 
     test(

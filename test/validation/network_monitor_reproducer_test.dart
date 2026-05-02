@@ -107,6 +107,52 @@ void main() {
       expect(detector.issues.first.severity, IssueSeverity.critical);
     });
 
+    test('4200 ms — schema critical at-band upper edge stays critical', () {
+      // Companion to the critical-tier additionalBrackets[2] raise. The
+      // schema accepts at observed up to 4200 (atTolerance=0.40). The
+      // detector itself fires `.critical` at every magnitude > 3000 ms;
+      // these cases pin the severity classifier across the bracket band.
+      detector.processRecord(record(durationMs: 4200));
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+    });
+
+    test('4201 ms — first above the schema critical at-band stays critical',
+        () {
+      detector.processRecord(record(durationMs: 4201));
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+    });
+
+    test('6000 ms — schema critical above-ceiling stays critical', () {
+      detector.processRecord(record(durationMs: 6000));
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+    });
+
+    test('6001 ms — above above-ceiling still critical (no super tier)', () {
+      // No super-critical tier above .critical; a future detector update
+      // adding a higher severity would surface as a regression here.
+      detector.processRecord(record(durationMs: 6001));
+      expect(detector.issues, hasLength(1));
+      expect(detector.issues.first.severity, IssueSeverity.critical);
+    });
+
+    test('slow_request emission stamps observedDurationMs in extraTraceArgs',
+        () {
+      // Detector-side observed magnitude written into trace args so the
+      // audit gate can cross-check operator-Stopwatch observed against
+      // the detector's worstMs computation.
+      detector.processRecord(record(durationMs: 1500));
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'slow_request');
+      expect(issue.extraTraceArgs, isNotNull,
+          reason: 'slow_request must stamp extraTraceArgs.');
+      expect(issue.extraTraceArgs!['observedDurationMs'], equals('1500'),
+          reason: 'observedDurationMs equals worstMs from filtered records '
+              '(here: single record at 1500 ms).');
+    });
+
     test('reachability invariant: critical must exceed slow', () {
       expect(
         () => NetworkMonitorDetector(
@@ -260,6 +306,26 @@ void main() {
         expect(slow, hasLength(1));
         expect(slow.first.severity, IssueSeverity.warning);
         expect(slow.first.confidence, IssueConfidence.confirmed);
+      },
+    );
+
+    test(
+      'slow response (>= 3000 ms) fires slow_request critical via full pipeline',
+      () async {
+        // End-to-end pipeline check for the critical-tier raise: proxy
+        // observes the loopback delay, processes the record, and the
+        // detector escalates to .critical with observedDurationMs
+        // stamped into extraTraceArgs (cross-checkable by the audit gate).
+        await drive(serverDelay: const Duration(milliseconds: 3500));
+        expect(detector.records, hasLength(1));
+        expect(detector.records.first.durationMs, greaterThanOrEqualTo(3000));
+        final slow =
+            detector.issues.where((i) => i.stableId == 'slow_request').toList();
+        expect(slow, hasLength(1));
+        expect(slow.first.severity, IssueSeverity.critical);
+        expect(slow.first.extraTraceArgs?['observedDurationMs'], isNotNull,
+            reason: 'Critical emission must stamp observedDurationMs for the '
+                'audit cross-check.');
       },
     );
 
