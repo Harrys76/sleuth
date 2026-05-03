@@ -1593,7 +1593,16 @@ List<String> checkBracketBoundsSanity({
     required double? aboveCeilingMultiplier,
     required double observedAxisTolerance,
     required String observedAxisReduction,
+    int? minInBandSamples,
   }) {
+    if (minInBandSamples != null && minInBandSamples < 1) {
+      failures.add('$ctx: minInBandSamples=$minInBandSamples must be >= 1 '
+          'when non-null. Zero or negative values are nonsensical: a '
+          'spec opted into this field is asserting redundancy, which '
+          'requires at least one in-band sample (and typically two for '
+          'meaningful single-spike-loss protection). Drop the opt-in '
+          '(set to null) instead of zero.');
+    }
     if (observedAxisTolerance <= 0.0 || observedAxisTolerance > 0.25) {
       failures.add('$ctx: observedAxisTolerance=$observedAxisTolerance is '
           'outside the sanity bound (0, 0.25]. The schema default and '
@@ -1643,6 +1652,7 @@ List<String> checkBracketBoundsSanity({
         aboveCeilingMultiplier: spec.aboveCeilingMultiplier,
         observedAxisTolerance: spec.observedAxisTolerance,
         observedAxisReduction: spec.observedAxisReduction,
+        minInBandSamples: spec.minInBandSamples,
       );
     }
   }
@@ -2162,6 +2172,175 @@ List<String> checkDetectorAxisInRoleBand({
 /// this set.
 const Set<String> allowedAxisReductions = {'max', 'last'};
 
+/// For each [BracketSpec] with non-null [BracketSpec.minInBandSamples]:
+/// counts in-span detector samples per leg (at + above) whose
+/// `extraTraceArgs.<observedAxisArgKey>` value lies in that leg's role
+/// band, and fails if the count is below the spec's minimum.
+///
+/// Per-leg semantics, NOT summed across legs. The at-leg's count is
+/// checked against the at-band; the above-leg's count is checked
+/// against the above-band. Below-leg is silent and not checked.
+///
+/// Catches the "single in-band peak surrounded by N sub-band emissions"
+/// shape — `'max'` reduction would happily pick the lone peak, but a
+/// future event drop (VM-poll dedup tightens, ring buffer rolls,
+/// reduction strategy changes) could leave the leg without an in-band
+/// sample. Opting into `minInBandSamples >= 2` requires redundant
+/// evidence so any single emission can drop without invalidating the
+/// bracket band.
+///
+/// Skipped silently when:
+///   * [tier] is not `runtimeVerified` / `externallyCited`
+///   * Spec has no `observedAxisArgKey` (axis cross-check disabled)
+///   * Spec's `minInBandSamples` is null (opt-in default)
+///   * Capture file is missing or unparseable (delegated to
+///     [checkAdditionalBrackets] / `ProfileCaptureSchema.parseFile`)
+///
+/// v0.19.23 wires this only for [BracketSpec] entries in
+/// `additionalBrackets`. The canonical (top-level) bracket has no
+/// `minInBandSamples` field; extending it is a future schema change.
+List<String> checkMinInBandSamplesPerSpec({
+  required String label,
+  required EvidenceTier tier,
+  required List<BracketSpec>? additionalBrackets,
+  String? repoRoot,
+}) {
+  if (tier != EvidenceTier.runtimeVerified &&
+      tier != EvidenceTier.externallyCited) {
+    return const [];
+  }
+  if (additionalBrackets == null) return const [];
+  final rootDirPath = repoRoot ?? Directory.current.path;
+  if (!File(p.join(rootDirPath, 'pubspec.yaml')).existsSync()) {
+    return const [];
+  }
+  final failures = <String>[];
+
+  bool inBand({
+    required num value,
+    required String role,
+    required num threshold,
+    required double atTolerance,
+    required double aboveCeilingMultiplier,
+  }) {
+    final atUpper = threshold * (1 + atTolerance);
+    final aboveCeiling = threshold * aboveCeilingMultiplier;
+    switch (role) {
+      // at-band: [threshold, atUpper] inclusive both ends.
+      case 'at':
+        return value >= threshold && value <= atUpper;
+      // above-band: (atUpper, aboveCeiling] strict-greater on lower,
+      // inclusive on upper. Disjoint from at-band at the boundary.
+      case 'above':
+        return value > atUpper && value <= aboveCeiling;
+      default:
+        return false;
+    }
+  }
+
+  for (var i = 0; i < additionalBrackets.length; i++) {
+    final spec = additionalBrackets[i];
+    final minRequired = spec.minInBandSamples;
+    if (minRequired == null) continue;
+    final argKey = spec.observedAxisArgKey;
+    if (argKey == null) continue;
+    final capturePaths = spec.profileCapturePaths;
+    if (capturePaths.length != 3) continue;
+    final atTolerance =
+        spec.atTolerance ?? ProfileCaptureSchema.defaultAtTolerance;
+    final aboveCeilingMultiplier = spec.aboveCeilingMultiplier ??
+        ProfileCaptureSchema.defaultAboveCeilingMultiplier;
+    final expectedEventName =
+        'sleuth.issue.${spec.stableId}.${spec.severityLabel}';
+    // Convention mirrors checkDetectorAxisInRoleBand: paths order is
+    // below, at, above. Below-leg silent — skip.
+    for (final entry in [
+      ('at', capturePaths[1]),
+      ('above', capturePaths[2]),
+    ]) {
+      final role = entry.$1;
+      final relPath = entry.$2;
+      final file =
+          File(p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath));
+      if (!file.existsSync()) continue;
+      final List events;
+      try {
+        final raw = file.readAsBytesSync();
+        final root = json.decode(utf8.decode(raw)) as Map<String, Object?>;
+        final rawEvents = root['traceEvents'];
+        if (rawEvents is! List) continue;
+        events = rawEvents;
+      } on FormatException {
+        continue;
+      } on FileSystemException {
+        // existsSync→readAsBytesSync race (file deleted mid-audit) or
+        // permission flip. Sibling invariants enforce existence;
+        // silent-skip here keeps the audit robust under filesystem
+        // churn instead of crashing with a misleading stack trace.
+        continue;
+      }
+      int beginTs;
+      int endTs;
+      try {
+        (beginTs, endTs) =
+            ProfileCaptureSchema.findScenarioSpan(events, relPath);
+      } on FormatException {
+        continue;
+      }
+      var inBandCount = 0;
+      for (final ev in events) {
+        if (ev is! Map) continue;
+        if (ev['name'] != expectedEventName) continue;
+        final ts = ev['ts'];
+        if (ts is! num) continue;
+        final tsInt = ts.toInt();
+        if (tsInt < beginTs || tsInt > endTs) continue;
+        final args = ev['args'];
+        if (args is! Map) continue;
+        Object? rawAxis = args[argKey];
+        if (rawAxis == null) {
+          final dartArgs = args['Dart Arguments'];
+          if (dartArgs is Map) rawAxis = dartArgs[argKey];
+        }
+        num? parsed;
+        if (rawAxis is String && rawAxis.isNotEmpty) {
+          // Trim whitespace before parsing — Dart's `num.tryParse`
+          // rejects strings with surrounding whitespace, but a
+          // future producer that interpolates with padding would
+          // silently drop samples from the count without this
+          // defensive trim.
+          parsed = num.tryParse(rawAxis.trim());
+        } else if (rawAxis is num) {
+          parsed = rawAxis;
+        }
+        if (parsed == null) continue;
+        if (inBand(
+          value: parsed,
+          role: role,
+          threshold: spec.threshold,
+          atTolerance: atTolerance,
+          aboveCeilingMultiplier: aboveCeilingMultiplier,
+        )) {
+          inBandCount++;
+        }
+      }
+      if (inBandCount < minRequired) {
+        failures.add(
+          '$label.additionalBrackets[$i]: $role-leg capture ($relPath) '
+          'contains $inBandCount in-band detector sample(s) for '
+          '"$expectedEventName" with arg "$argKey" in the $role-band, '
+          'but spec.minInBandSamples=$minRequired requires at least '
+          '$minRequired. Single in-band peaks are SPOFs against future '
+          'event drops (dedup tightening, ring-buffer roll, reduction '
+          'strategy change). Re-record the leg with a sustained workload '
+          'so multiple emissions land in the role band.',
+        );
+      }
+    }
+  }
+  return failures;
+}
+
 /// Validates `DetectorMetadata.additionalBrackets` (since v0.19.8). Each
 /// entry is an independent bracket axis with its own threshold, capture
 /// triad, and observed-axis cross-check — used when a single detector
@@ -2218,6 +2397,11 @@ List<String> checkAdditionalBrackets({
       failures.add('$ctx: severityLabel is empty — must be "warning" or '
           '"critical" matching the threshold the bracket validates');
     }
+    // `minInBandSamples >= 1` validity check lives in
+    // `checkBracketBoundsSanity` (canonical home for numeric-field
+    // bounds, sibling of `atTolerance ∈ [0, 0.65]` etc.). Keeping the
+    // check single-layer avoids duplicate failures for one logical
+    // violation.
     if (spec.unit.trim().isEmpty) {
       failures.add('$ctx: unit is empty — required alongside threshold');
     }
@@ -2701,6 +2885,12 @@ List<String> runRuntimeTierAudit({
     topLevelObservedAxisReduction: meta.observedAxisReduction,
     additionalBrackets: meta.additionalBrackets,
     legacyObservedAxisAllowlist: legacyObservedAxisAllowlist,
+    repoRoot: repoRoot,
+  ));
+  failures.addAll(checkMinInBandSamplesPerSpec(
+    label: label,
+    tier: meta.effectiveMaxTier,
+    additionalBrackets: meta.additionalBrackets,
     repoRoot: repoRoot,
   ));
   return failures;

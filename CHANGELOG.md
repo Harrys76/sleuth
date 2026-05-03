@@ -1,3 +1,14 @@
+## 0.19.23
+
+`BracketSpec.minInBandSamples` opt-in schema field + `checkMinInBandSamplesPerSpec` audit invariant. No detector raises; distribution unchanged.
+
+- `BracketSpec.minInBandSamples` (default null = no enforcement). When non-null, each leg's capture (at + above) must contain ≥N in-span detector samples whose `extraTraceArgs.<observedAxisArgKey>` value lies in the leg's role band. Per-leg semantics, not summed across legs. Below-leg exempt.
+- `checkMinInBandSamplesPerSpec` invariant wired into `runRuntimeTierAudit`. Scoped to `additionalBrackets` (top-level extension lands when needed). `checkBracketBoundsSanity` rejects `minInBandSamples < 1` when non-null.
+- `RebuildDetector.rebuild_activity.critical` (`additionalBrackets[0]`) opts into `minInBandSamples: 2`. Single in-band peak captures with N sub-band emissions no longer certify the bracket band; re-records must sustain ≥2 in-band detector samples per leg.
+- 13 new tests pin null-default opt-in, count thresholds, per-leg semantics, cross-role membership, integer boundaries, real-capture fixture, missing-file silent skip, tier gating, and a comment-stripping source-grep that fails fast if the wiring is removed.
+
+3,000 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.22
 
 `critical_above.json` re-recorded with redundant in-band emissions. No detector raises; distribution unchanged.

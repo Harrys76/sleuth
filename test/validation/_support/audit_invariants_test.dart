@@ -4148,4 +4148,495 @@ void main() {
       expect(failures, isEmpty);
     });
   });
+
+  group('checkMinInBandSamplesPerSpec', () {
+    // Build a synthetic capture JSON file at the given path with a
+    // scenario span and N issue events whose `args.observedRebuildRate`
+    // values are taken from `rates`. Used to drive the invariant
+    // through controlled in-band / sub-band counts. `findScenarioSpan`
+    // requires exactly one scenario.begin + scenario.end pair.
+    void writeSyntheticCapture({
+      required String filePath,
+      required String stableId,
+      required String severityLabel,
+      required String argKey,
+      required List<num> rates,
+      String scenario = 'synthetic',
+    }) {
+      final events = <Map<String, Object?>>[
+        {
+          'name': 'sleuth.scenario.begin',
+          'ph': 'i',
+          's': 'p',
+          'ts': 1000,
+          'args': {'scenario': scenario},
+        },
+      ];
+      var ts = 1100;
+      for (final rate in rates) {
+        events.add({
+          'name': 'sleuth.issue.$stableId.$severityLabel',
+          'ph': 'i',
+          's': 'p',
+          'ts': ts,
+          'args': {argKey: rate.toString()},
+        });
+        ts += 100;
+      }
+      events.add({
+        'name': 'sleuth.scenario.end',
+        'ph': 'i',
+        's': 'p',
+        'ts': ts + 100,
+        'args': {'scenario': scenario},
+      });
+      File(filePath).writeAsStringSync(json.encode({'traceEvents': events}));
+    }
+
+    Directory makeRepoRoot() {
+      final root = Directory.systemTemp.createTempSync('min_in_band_');
+      File(p.join(root.path, 'pubspec.yaml')).writeAsStringSync('name: test');
+      return root;
+    }
+
+    BracketSpec spec({
+      required List<String> capturePaths,
+      int? minInBandSamples,
+      String severityLabel = 'critical',
+      double atTolerance = 0.65,
+      double aboveCeilingMultiplier = 2.7,
+      num threshold = 31,
+    }) {
+      return BracketSpec(
+        stableId: 'rebuild_activity',
+        severityLabel: severityLabel,
+        threshold: threshold,
+        unit: 'rebuilds',
+        coveredThresholds: {'rebuild_activity.$severityLabel'},
+        profileCapturePaths: capturePaths,
+        atTolerance: atTolerance,
+        aboveCeilingMultiplier: aboveCeilingMultiplier,
+        observedAxisArgKey: 'observedRebuildRate',
+        observedAxisReduction: 'max',
+        minInBandSamples: minInBandSamples,
+      );
+    }
+
+    test('null minInBandSamples skips the check (opt-in default)', () {
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      // 0 in-band events would normally fail; null = no enforcement.
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [10, 20], // both below threshold 31
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [10], // below threshold
+      );
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(capturePaths: [
+            'below.json',
+            'at.json',
+            'above.json',
+          ]),
+        ],
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('fails when in-band count < minInBandSamples', () {
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      // at-leg: 1 in-band (40 ∈ [31,51]), 2 sub-band.
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [40, 20, 25],
+      );
+      // above-leg: 1 in-band (70 ∈ (51,83]), 2 sub-band.
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [70, 30, 25],
+      );
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+          ),
+        ],
+        repoRoot: root.path,
+      );
+      // Both legs fail (per-leg semantics).
+      expect(failures.length, equals(2));
+      expect(
+          failures.any((f) => f.contains('at-leg') && f.contains('1')), isTrue);
+      expect(failures.any((f) => f.contains('above-leg') && f.contains('1')),
+          isTrue);
+    });
+
+    test('passes at boundary count == minInBandSamples', () {
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [35, 40], // exactly 2 in-band
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [60, 70], // exactly 2 in-band
+      );
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+          ),
+        ],
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('passes when in-band count > minInBandSamples', () {
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [35, 40, 45, 50], // 4 in-band
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [55, 60, 70, 80], // 4 in-band
+      );
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+          ),
+        ],
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('per-leg semantics: 1 in-band per leg fails for both legs', () {
+      // Sum across legs would be 2 (spuriously passing min=2). Per-leg
+      // semantics catches this.
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [40], // 1 in-band
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [70], // 1 in-band
+      );
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+          ),
+        ],
+        repoRoot: root.path,
+      );
+      expect(failures.length, equals(2));
+    });
+
+    test('cross-role: at-band events do not satisfy above-leg requirement', () {
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      // at-leg: 2 in-band events (passes its own check).
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [40, 45],
+      );
+      // above-leg: events fall in at-band [31, 51], NOT above-band
+      // (51, 83]. above-leg has 0 in-band events.
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [40, 45],
+      );
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+          ),
+        ],
+        repoRoot: root.path,
+      );
+      expect(failures.length, equals(1));
+      expect(failures.first, contains('above-leg'));
+      expect(failures.first, contains('0 in-band'));
+    });
+
+    test('at-band inclusive lower boundary (sample at threshold)', () {
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [31, 32], // 31 == threshold; both in at-band
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [60, 70],
+      );
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+          ),
+        ],
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('at-band inclusive upper boundary (51 in at-band, 52 in above-band)',
+        () {
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      // at-band upper for threshold 31, atTolerance 0.65 = 51.15.
+      // 51 ∈ at-band; 52 ∈ above-band.
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [51, 51], // both at upper boundary, in at-band
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [52, 52], // both at first integer past upper, in above-band
+      );
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+          ),
+        ],
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('above-band inclusive ceiling boundary (83 in, 84 over)', () {
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      // above-ceiling = 31 * 2.7 = 83.7. 83 ∈ above-band; 84 over.
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [40, 45],
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [83, 84], // 83 in-band; 84 over-ceiling
+      );
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+          ),
+        ],
+        repoRoot: root.path,
+      );
+      // above-leg has only 1 in-band (83); 84 is over-ceiling, not in.
+      expect(failures.length, equals(1));
+      expect(failures.first, contains('above-leg'));
+    });
+
+    test('real-capture fixture: critical_above.json passes invariant', () {
+      // End-to-end format-contract verification using the real
+      // committed capture, not synthetic JSON. If RebuildDetector's
+      // emission format ever drifts (arg name, value type, scenario
+      // marker shape), this test catches it before audit gate fires.
+      final realCapture = File(
+        'test/validation/captures/rebuild_detector/critical_above.json',
+      );
+      if (!realCapture.existsSync()) {
+        markTestSkipped('critical_above.json not present');
+        return;
+      }
+      // Use the actual project root so the relative path resolves.
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'RebuildDetector',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(
+            capturePaths: const [
+              'test/validation/captures/rebuild_detector/critical_below.json',
+              'test/validation/captures/rebuild_detector/critical_at.json',
+              'test/validation/captures/rebuild_detector/critical_above.json',
+            ],
+            minInBandSamples: 2,
+          ),
+        ],
+        // No repoRoot override — uses Directory.current which the test
+        // runner sets to the package root.
+      );
+      expect(failures, isEmpty,
+          reason: 'committed critical_above.json must satisfy '
+              'minInBandSamples=2; if this fails, either the capture '
+              'regressed below 2 in-band emissions or the invariant '
+              'misclassifies real captures.');
+    });
+
+    test('skips when capture file missing (delegated to other invariants)', () {
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      // No capture files written — paths point to non-existent files.
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+          ),
+        ],
+        repoRoot: root.path,
+      );
+      // Silent skip — checkAdditionalBrackets enforces existence.
+      expect(failures, isEmpty);
+    });
+
+    test('runRuntimeTierAudit wires checkMinInBandSamplesPerSpec', () {
+      // Anti-tautology guard: if a future refactor removes the
+      // `failures.addAll(checkMinInBandSamplesPerSpec(...))` call from
+      // `runRuntimeTierAudit`, the 12 unit tests above still pass
+      // because they invoke the helper directly. The shipped audit
+      // gate would silently no-op the contract. Source-grep the wire
+      // site so wiring removal fails fast.
+      final src = File('test/validation/_support/audit_invariants.dart')
+          .readAsStringSync();
+      // Strip line + block comments before matching so a `//`-commented
+      // call no longer satisfies the wiring requirement.
+      final stripped = src
+          .split('\n')
+          .map((line) {
+            final idx = line.indexOf('//');
+            return idx < 0 ? line : line.substring(0, idx);
+          })
+          .join('\n')
+          .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
+      expect(
+        stripped.contains('failures.addAll(checkMinInBandSamplesPerSpec('),
+        isTrue,
+        reason: 'runRuntimeTierAudit must invoke '
+            'checkMinInBandSamplesPerSpec so the contract reaches the '
+            'top-level audit gate. Removing or commenting out this wire '
+            'turns every opt-in spec into a silent no-op while the '
+            'field-literal anchors and unit tests continue to pass.',
+      );
+    });
+
+    test('reproducerOnly tier skips the check', () {
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [10], // 0 in-band — would fail at runtimeVerified
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [10],
+      );
+      final failures = checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.reproducerOnly,
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+          ),
+        ],
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty);
+    });
+  });
 }

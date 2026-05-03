@@ -59,12 +59,13 @@ test/
 
 ## Current state
 
-**v0.19.22** (current) — `critical_above.json` re-recorded with `targetRebuildRate: 70` (was 65); two in-band emissions [65, 70] redundant against single-spike loss. No detector raises; distribution unchanged at 11 effective family-severity pairs. 2,987 tests passing.
+**v0.19.23** (current) — `BracketSpec.minInBandSamples` opt-in field + `checkMinInBandSamplesPerSpec` audit invariant (per-leg in-band sample count enforcement). `RebuildDetector.rebuild_activity.critical` opts in at 2. No detector raises; distribution unchanged. 3,000 tests passing.
 
 **Distribution (current)**: 20/23 reproducerOnly base, 11 effective runtimeVerified family-severity pairs across 8 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}).
 
 ### Recent releases (one-line)
 
+- **v0.19.22** — `critical_above.json` re-recorded with `targetRebuildRate: 70` (was 65); two in-band emissions [65, 70] redundant against single-spike loss.
 - **v0.19.21** — `RebuildDetector.rebuild_activity.critical` raised to runtimeVerified via `additionalBrackets[0]` (threshold 31, atTolerance 0.65, aboveCeilingMultiplier 2.7); 3 on-device captures + capture-screen tier dropdown; cross-leg `_persistentRewriteError` flag on memory + platform screens.
 - **v0.19.20** — Capture-screen retry-budget short-circuit (memory + platform); `MemoryPressureDetector.gc_pressure` emission stamps `observedGcEvents` + `dedupIdentityMicros` from `_gcOverageStart`.
 - **v0.19.19** — Capture re-record on iPhone 12 / iOS 17.5 / Flutter 3.41.4 (`heap_growing` + `platform_channel_traffic`, both `legacyObservedAxisAllowlist` entries consumed); `checkDetectorAxisInRoleBand` invariant; capture-screen post-process so `expectedMagnitude.observed` = detector slope/count; axis-fidelity full coverage.

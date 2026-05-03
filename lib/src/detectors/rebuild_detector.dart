@@ -700,6 +700,17 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
             requireDetectorTraceRecord: true,
             observedAxisArgKey: 'observedRebuildRate',
             observedAxisReduction: 'max',
+            // Each leg's capture must contain >=2 in-band detector
+            // samples in its role band so a single in-band peak
+            // surrounded by sub-band emissions cannot certify the
+            // bracket. iPhone thermal throttling on a 6 s sustained
+            // leg routinely produces a mix of in-band + sub-band
+            // emissions; requiring redundancy makes the audit gate
+            // robust against a future event drop (VM-poll dedup
+            // tightening, ring-buffer roll, reduction-strategy
+            // change) that would otherwise leave the leg with only
+            // sub-band evidence.
+            minInBandSamples: 2,
           ),
         ],
         rationale: 'Hybrid detector. Three families: `stateful_density` '

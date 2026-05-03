@@ -1245,6 +1245,15 @@ void main() {
             'test/validation/captures/rebuild_detector/critical_at.json',
             'test/validation/captures/rebuild_detector/critical_above.json',
           ]));
+      expect(critical.minInBandSamples, equals(2),
+          reason: 'critical bracket requires >=2 in-band detector samples '
+              'per leg (at + above). iPhone thermal throttling on a 6 s '
+              'sustained leg routinely produces a mix of in-band + '
+              'sub-band emissions; opting in turns the redundancy '
+              'property of the committed capture into an enforced '
+              'contract — a future re-record with only one in-band peak '
+              'fails the audit gate instead of silently shipping fragile '
+              'evidence.');
     });
 
     test('PlatformChannelDetector pinned at runtimeVerified (v0.19.4)', () {

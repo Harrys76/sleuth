@@ -30,6 +30,7 @@ class BracketSpec {
     this.observedAxisReduction = 'max',
     this.requireUniqueDetectedAtMicros = false,
     this.requireDetectorTraceRecord = true,
+    this.minInBandSamples,
   });
 
   /// The stable issue ID this spec brackets (e.g.
@@ -138,6 +139,27 @@ class BracketSpec {
   /// `requireDetectorTraceRecord: false` explicitly or the schemaVersion
   /// gate fires before any other validation.
   final bool requireDetectorTraceRecord;
+
+  /// Minimum count of in-span detector samples per leg whose
+  /// `extraTraceArgs.<observedAxisArgKey>` value lies in that leg's
+  /// role band (at-band for the at-leg capture, above-band for the
+  /// above-leg capture). Default null = no enforcement.
+  ///
+  /// Per-leg semantics, NOT summed across legs: each of the at + above
+  /// legs independently must contain at least this many in-band events.
+  /// Below-leg is exempt (silent by definition; no in-band events
+  /// expected).
+  ///
+  /// Use to require redundant evidence so a single in-band peak
+  /// surrounded by N sub-band emissions does not certify the bracket
+  /// band. The audit invariant `checkMinInBandSamplesPerSpec` (in
+  /// `test/validation/_support/audit_invariants.dart`) enforces this
+  /// when non-null.
+  ///
+  /// `BracketSpec` does not override `operator ==` / `hashCode`;
+  /// equality is identity-based and the new field does not affect
+  /// the equality contract.
+  final int? minInBandSamples;
 }
 
 /// Metadata describing how a detector's threshold or heuristic was validated.
