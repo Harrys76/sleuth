@@ -18,7 +18,9 @@
 //   but must emit no critical events.
 //     below 25/sec  — under critical threshold 31; warning may fire
 //     at    40/sec  — inside [31, 51], comfortable margin
-//     above 65/sec  — inside (51.15, 83.7], strict under ceiling
+//     above 70/sec  — inside (51.15, 83.7], headroom under ceiling
+//                     to absorb iOS thermal throttling on a 6 s
+//                     sustained leg without dropping below 52/sec
 //
 // Below-leg producer pattern: detector exposes lastObservedRebuildRate
 // unconditionally. Reading detector-measured rate at scenario.end keeps
@@ -71,7 +73,7 @@ const _warningLegs = <_Leg>[
 const _criticalLegs = <_Leg>[
   _Leg(label: 'below', targetRebuildRate: 25, rateMin: 20, rateMax: 30),
   _Leg(label: 'at', targetRebuildRate: 40, rateMin: 31, rateMax: 51),
-  _Leg(label: 'above', targetRebuildRate: 65, rateMin: 52, rateMax: 83),
+  _Leg(label: 'above', targetRebuildRate: 70, rateMin: 52, rateMax: 83),
 ];
 
 List<_Leg> _legsForTier(_Tier tier) =>

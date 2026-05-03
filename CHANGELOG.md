@@ -1,3 +1,12 @@
+## 0.19.22
+
+`critical_above.json` re-recorded with redundant in-band emissions. No detector raises; distribution unchanged.
+
+- `RebuildActivityCaptureScreen._criticalLegs.above.targetRebuildRate`: 65 → 70. Headroom under above-ceiling 83 widens enough that thermal throttling on a 6 s sustained leg leaves multiple in-band emissions instead of a single peak spike.
+- `test/validation/captures/rebuild_detector/critical_above.json` re-recorded (iPhone 12 / iOS 17.5 / Flutter 3.41.4 profile mode). Critical events now [65, 43, 70, 44, 43] vs prior [72, 43, 43, 42, 42]: two in-band peaks instead of one. Max-reduction picks 70 ∈ (51, 83]; either in-band event could drop without invalidating the audit-gate cross-check.
+
+2,987 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.21
 
 `RebuildDetector.rebuild_activity.critical` raised to runtimeVerified. Cross-leg short-circuit on memory + platform capture screens. Distribution: 10 → 11 family-severity pairs.
