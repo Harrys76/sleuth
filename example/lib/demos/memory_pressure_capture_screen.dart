@@ -493,11 +493,19 @@ class _MemoryPressureCaptureScreenState
               'foreground while the leg runs; re-tap after fixing.',
             );
           } else if (rewriteError != null) {
+            // Persistent shape change: every retry will throw the same
+            // StateError, burning the budget on identical failures.
+            // Short-circuit by exhausting the budget so the next tap
+            // hits the "budget exhausted" guard at the top of _runLeg
+            // and the operator restarts the screen instead of waiting
+            // through five identical wasted scenarios.
+            _retryCount = _maxRetriesPerLeg;
             _log.add(
-              '[${leg.label}] post-process FAILED — $rewriteError. The '
-              'wrapped capture shape changed; update '
-              '_replaceExpectedObserved in this screen to match the new '
-              'sleuthMetadata layout before re-tapping.',
+              '[${leg.label}] post-process FAILED — $rewriteError. '
+              'Wrapped capture shape changed; update '
+              '_replaceExpectedObserved before retrying. Retry budget '
+              'exhausted to prevent burning through identical failures '
+              '— restart the screen after fixing.',
             );
           } else if (leg != _MemoryLeg.below && detectorBps == null) {
             _log.add(

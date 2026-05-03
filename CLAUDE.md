@@ -59,12 +59,13 @@ test/
 
 ## Current state
 
-**v0.19.19** (current) — `heap_growing` and `platform_channel_traffic` captures re-recorded on iPhone 12 / iOS 17.5 / Flutter 3.41.4; both v0.19.18 `legacyObservedAxisAllowlist` entries consumed. New `checkDetectorAxisInRoleBand` invariant asserts the detector-stamped axis value lies in the role's bracket band (disjoint at the at/above boundary). Capture screens post-process the wrapped JSON so `expectedMagnitude.observed` equals the detector slope/count by construction. Axis-fidelity tightened to full coverage (`carrying < matched` fails); `last` reduction tied-ts pinned by insertion order. **No detector raises**; distribution unchanged. 2,976 tests passing.
+**v0.19.20** (current) — Memory + platform capture screens stop looping on persistent post-process `rewriteError` (per-leg retry budget exhausts, log instructs restart). `MemoryPressureDetector.gc_pressure` emission stamps `observedGcEvents` + `dedupIdentityMicros` from `_gcOverageStart` (collapses ambient noise to 1 trace event per overage episode). 3 new reproducer tests pin axis stamping + same/distinct-overage identity. No detector raises; distribution unchanged. 2,979 tests passing.
 
 **Distribution (current)**: 20/23 reproducerOnly base, 10 effective runtimeVerified family-severity pairs across 8 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity.warning, heavy_compute {warning + critical}).
 
 ### Recent releases (one-line)
 
+- **v0.19.19** — Capture re-record on iPhone 12 / iOS 17.5 / Flutter 3.41.4 (`heap_growing` + `platform_channel_traffic`, both `legacyObservedAxisAllowlist` entries consumed); `checkDetectorAxisInRoleBand` invariant; capture-screen post-process so `expectedMagnitude.observed` = detector slope/count; axis-fidelity full coverage.
 - **v0.19.18** — `MemoryPressureDetector.heap_growing` `observedSlopeBytesPerSec` plumbing + `checkCapturesCarryObservedAxisArg` capture-fidelity invariant + typed `LegacyObservedAxisEntry` allowlist with `consumeBy` deadline.
 - **v0.19.17** — `FrameTimingDetector.sustained_jank` emission stamps (observedSevereCount/observedJankPercent/bufferSize + `_emissionSeq` dedupIdentityMicros); attempted `sustained_jank.critical` raise withdrawn (axis non-composability); audit gains `checkRuntimeVerifiedRequiresObservedAxisArgKey`.
 - **v0.19.16** — Audit + schema polish: `_validateScenarioMatchesPath` routes through `package:path`; tightened bounds `atTolerance ∈ [0, 0.65]` and `aboveCeilingMultiplier ∈ (1, 3]`; `path` promoted to `dependencies`.

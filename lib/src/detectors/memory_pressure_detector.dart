@@ -74,6 +74,13 @@ class MemoryPressureDetector extends BaseDetector
   final Queue<HeapSample> _heapSamples = Queue<HeapSample>();
   DateTime? _sustainedGrowthStart;
   DateTime? _sustainedNativeGrowthStart;
+  // First in-window event timestamp at the moment gc_pressure crossed
+  // the >5/window threshold. Pinned for the full overage episode so
+  // re-emissions across consecutive evaluations share dedup identity
+  // and CaptureHelper collapses them to one trace record per episode.
+  // Cleared in the no-emit branch (`windowEvents <= 5`) so a new
+  // overage after a transient drop produces a distinct identity.
+  DateTime? _gcOverageStart;
 
   // -- heap_near_capacity rolling window --
   //
@@ -147,6 +154,7 @@ class MemoryPressureDetector extends BaseDetector
       _capacityWindow.clear();
       _sustainedGrowthStart = null;
       _sustainedNativeGrowthStart = null;
+      _gcOverageStart = null;
       _firstHeapSampleTime = null;
       _evaluate();
     }
@@ -250,7 +258,10 @@ class MemoryPressureDetector extends BaseDetector
 
   void _evaluateGcPressure() {
     final windowEvents = _gcWindow.fold<int>(0, (s, b) => s + b.count);
-    if (windowEvents == 0) return;
+    if (windowEvents == 0) {
+      _gcOverageStart = null;
+      return;
+    }
 
     // Fixed-window denominator: (events / window seconds) * 60.
     // Using the window size rather than elapsed-since-first-event keeps
@@ -258,6 +269,12 @@ class MemoryPressureDetector extends BaseDetector
     // from registering as "infinite rate" before the window has filled.
     final gcPerMinute = (windowEvents / _gcWindowDuration.inSeconds) * 60;
     if (gcPerMinute > 30) {
+      // Pin overage-start on first cross. Persists across consecutive
+      // re-emissions during the same overage so CaptureHelper's
+      // dedup collapses them to one trace record. Cleared in the
+      // else-branch below when the rate drops back to or under
+      // threshold so a new overage produces a fresh identity.
+      _gcOverageStart ??= _gcWindow.first.ts;
       final (hint, effort) = FixHintBuilder.gcPressure();
       _issues.add(PerformanceIssue(
         stableId: 'gc_pressure',
@@ -272,8 +289,19 @@ class MemoryPressureDetector extends BaseDetector
         fixEffort: effort,
         observationSource: ObservationSource.vmTimeline,
         detectedAt: _clock(),
+        dedupIdentityMicros: _gcOverageStart!.microsecondsSinceEpoch,
+        extraTraceArgs: {
+          'observedGcEvents': windowEvents.toString(),
+        },
         confidenceReason: 'VM GC frequency elevated + object churn rate',
       ));
+    } else {
+      // Below the >30/min threshold (windowEvents <= 5). Clearing here
+      // (instead of only on windowEvents == 0) ensures two distinct
+      // overage episodes separated by a sub-threshold dip do not share
+      // identity — the second emission needs a fresh _gcOverageStart so
+      // dedup does not collapse two episodes into one trace record.
+      _gcOverageStart = null;
     }
   }
 
@@ -505,6 +533,7 @@ class MemoryPressureDetector extends BaseDetector
     _heapSamples.clear();
     _sustainedGrowthStart = null;
     _sustainedNativeGrowthStart = null;
+    _gcOverageStart = null;
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
     _capacityWindow.clear();
@@ -517,6 +546,7 @@ class MemoryPressureDetector extends BaseDetector
     _heapSamples.clear();
     _sustainedGrowthStart = null;
     _sustainedNativeGrowthStart = null;
+    _gcOverageStart = null;
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
     _capacityWindow.clear();

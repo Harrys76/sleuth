@@ -1,3 +1,14 @@
+## 0.19.20
+
+Capture-screen retry-budget short-circuit + `gc_pressure` overage-window stamping. No detector raises; distribution unchanged.
+
+- `MemoryPressureCaptureScreen` + `PlatformChannelCaptureScreen`: persistent `_replaceExpectedObserved` `rewriteError` now exhausts the per-leg retry budget so identical failures stop looping; log instructs restart.
+- `MemoryPressureDetector.gc_pressure` emission stamps `extraTraceArgs.observedGcEvents` (10 s sliding-window count) + `dedupIdentityMicros` from a new `_gcOverageStart` pin. Same-overage emissions collapse to one trace event per episode (cuts ambient noise from N events to 1 in unrelated captures).
+- `_gcOverageStart` clears in `resetCaptureState` / `reset` / `dispose` and on the no-emit else-branch (`windowEvents <= 5`) so distinct overages get distinct identities.
+- 3 new reproducer tests pin axis stamping + same/distinct-overage identity (the distinct-identity test mutation-kills if the else-branch clear is removed).
+
+2,979 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.19
 
 Closes the schema two-axis gap: bracket-band claim is now enforced against the detector-stamped axis value, with full per-event coverage. **No detector raises**; distribution unchanged.

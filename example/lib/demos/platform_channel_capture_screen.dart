@@ -449,11 +449,17 @@ class _PlatformChannelCaptureScreenState
               'foreground; re-tap after fixing.',
             );
           } else if (rewriteError != null) {
+            // Persistent shape change: every retry will throw the same
+            // StateError. Short-circuit by exhausting the budget so the
+            // operator restarts the screen instead of burning 5 retries
+            // on identical failures.
+            _retryCount = _maxRetriesPerLeg;
             _log.add(
-              '[${leg.label}] post-process FAILED — $rewriteError. The '
-              'wrapped capture shape changed; update '
-              '_replaceExpectedObserved in this screen to match the new '
-              'sleuthMetadata layout before re-tapping.',
+              '[${leg.label}] post-process FAILED — $rewriteError. '
+              'Wrapped capture shape changed; update '
+              '_replaceExpectedObserved before retrying. Retry budget '
+              'exhausted to prevent burning through identical failures '
+              '— restart the screen after fixing.',
             );
           } else if (leg != _ChannelLeg.below && detectorCps == null) {
             _log.add(

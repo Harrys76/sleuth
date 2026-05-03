@@ -1114,6 +1114,12 @@ void main() {
               'other 3 families (gc_pressure, heap_near_capacity, '
               'native_memory_growing) stay base reproducerOnly. Multi-axis '
               'raises across families would populate additionalBrackets.');
+      expect(meta.perStableIdTier?['gc_pressure'], isNull,
+          reason: 'gc_pressure stays at base reproducerOnly. Detector '
+              'emission carries observedGcEvents + dedupIdentityMicros '
+              'as preparatory plumbing (improves dedup quality of ambient '
+              'gc_pressure noise in unrelated captures) but no '
+              'runtimeVerified bracket evidence is committed.');
     });
 
     test(
