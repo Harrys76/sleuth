@@ -3146,4 +3146,167 @@ void main() {
       expect(failures.single, contains('"bar"'));
     });
   });
+
+  group('checkCapturesCarryObservedAxisArg (v0.19.18)', () {
+    // Positive case (real on-device captures that carry the arg) and
+    // backward-compat allowlist behaviour are exercised against real
+    // capture JSONs. Tier-gate + missing-arg failure paths use the
+    // existing _fixtures stripped fixtures from the v0.19.18 schema
+    // skip-semantics regression test.
+    final repoRoot = Directory.current.path;
+    File ensurePubspec(Directory dir) {
+      final f = File(p.join(dir.path, 'pubspec.yaml'));
+      if (!f.existsSync()) f.writeAsStringSync('name: stub\nversion: 0.0.1\n');
+      return f;
+    }
+
+    test(
+        'positive: NetworkMonitor slow_request captures carry the arg → '
+        'passes', () {
+      ensurePubspec(Directory(repoRoot));
+      final failures = checkCapturesCarryObservedAxisArg(
+        label: 'NetworkMonitorDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'slow_request',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedDurationMs',
+        topLevelCapturePaths: const [
+          'test/validation/captures/network_monitor/slow_request_below.json',
+          'test/validation/captures/network_monitor/slow_request_at.json',
+          'test/validation/captures/network_monitor/slow_request_above.json',
+        ],
+        repoRoot: repoRoot,
+      );
+      expect(failures, isEmpty,
+          reason: 'NetworkMonitor slow_request captures DO carry '
+              'observedDurationMs in every in-span warning event; the '
+              'invariant must accept them. Failures: $failures');
+    });
+
+    test(
+        'negative: stripped fixtures lack the arg → fails with actionable '
+        'message naming the bracket', () {
+      ensurePubspec(Directory(repoRoot));
+      final stripped = File(p.join(
+        repoRoot,
+        'test/validation/captures/_fixtures/'
+        'slow_request_at_no_observed_axis.json',
+      ));
+      if (!stripped.existsSync()) {
+        markTestSkipped(
+          'Stripped fixture not present; run profile_capture_schema_test.dart '
+          'first to generate it.',
+        );
+        return;
+      }
+      final failures = checkCapturesCarryObservedAxisArg(
+        label: 'TestDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'slow_request',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedDurationMs',
+        topLevelCapturePaths: const [
+          'test/validation/captures/_fixtures/'
+              'slow_request_below_no_observed_axis.json',
+          'test/validation/captures/_fixtures/'
+              'slow_request_at_no_observed_axis.json',
+          'test/validation/captures/_fixtures/'
+              'slow_request_above_no_observed_axis.json',
+        ],
+        repoRoot: repoRoot,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'Stripped fixtures lack observedDurationMs; invariant '
+              'must surface the dormant cross-check.');
+      expect(failures.first, contains('TestDetector'));
+      expect(failures.first, contains('"slow_request"'));
+      expect(failures.first, contains('"warning"'));
+      expect(failures.first, contains('"observedDurationMs"'));
+      expect(failures.first, contains('legacyObservedAxisAllowlist'));
+    });
+
+    test(
+        'allowlisted: bracket key in allowlist → no-op even with stripped '
+        'captures', () {
+      ensurePubspec(Directory(repoRoot));
+      final failures = checkCapturesCarryObservedAxisArg(
+        label: 'TestDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'slow_request',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedDurationMs',
+        topLevelCapturePaths: const [
+          'test/validation/captures/_fixtures/'
+              'slow_request_below_no_observed_axis.json',
+          'test/validation/captures/_fixtures/'
+              'slow_request_at_no_observed_axis.json',
+          'test/validation/captures/_fixtures/'
+              'slow_request_above_no_observed_axis.json',
+        ],
+        legacyObservedAxisAllowlist: const {
+          'TestDetector (tier=runtimeVerified):slow_request:warning',
+        },
+        repoRoot: repoRoot,
+      );
+      expect(failures, isEmpty,
+          reason: 'Allowlist entry for the bracket key must skip the '
+              'capture-fidelity check entirely.');
+    });
+
+    test(
+        'tier gate: reproducerOnly bracket → no-op regardless of capture '
+        'state', () {
+      final failures = checkCapturesCarryObservedAxisArg(
+        label: 'TestDetector (tier=reproducerOnly)',
+        tier: EvidenceTier.reproducerOnly,
+        topLevelStableId: 'slow_request',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedDurationMs',
+        topLevelCapturePaths: const [
+          'test/validation/captures/_fixtures/'
+              'slow_request_below_no_observed_axis.json',
+          'test/validation/captures/_fixtures/'
+              'slow_request_at_no_observed_axis.json',
+          'test/validation/captures/_fixtures/'
+              'slow_request_above_no_observed_axis.json',
+        ],
+        repoRoot: repoRoot,
+      );
+      expect(failures, isEmpty,
+          reason: 'reproducerOnly tier must not exercise the invariant.');
+    });
+  });
+
+  group('checkLegacyObservedAxisManifest (v0.19.18)', () {
+    test('expired entry (currentVersion >= consumeBy) fails', () {
+      final failures = checkLegacyObservedAxisManifest(
+        manifest: const {
+          'X:foo:warning': LegacyObservedAxisEntry(
+            consumeBy: '0.21.0',
+            owningClaim: 'foo cross-check re-record',
+            rationale: 'test',
+          ),
+        },
+        currentReleaseVersion: '0.21.0',
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('"X:foo:warning"'));
+      expect(failures.single, contains('consumeBy "0.21.0"'));
+      expect(failures.single, contains('expired'));
+    });
+
+    test('non-expired entry (currentVersion < consumeBy) passes', () {
+      final failures = checkLegacyObservedAxisManifest(
+        manifest: const {
+          'X:foo:warning': LegacyObservedAxisEntry(
+            consumeBy: '0.21.0',
+            owningClaim: 'foo cross-check re-record',
+            rationale: 'test',
+          ),
+        },
+        currentReleaseVersion: '0.19.18',
+      );
+      expect(failures, isEmpty);
+    });
+  });
 }

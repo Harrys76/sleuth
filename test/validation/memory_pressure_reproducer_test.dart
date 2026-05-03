@@ -104,6 +104,34 @@ void main() {
         }
         expect(detector.issues, lacksStableId('heap_growing'));
       });
+
+      test('emission stamps extraTraceArgs.observedSlopeBytesPerSec', () {
+        // Drive the same 600 KB/s sustained scenario as the fire test
+        // above so the stamp value is predictable. Least-squares
+        // regression over 25 samples at 500 ms spacing with heap usage
+        // i * 300_000 yields slope = 600_000 bytes/sec exactly (linear
+        // input). `slope.toStringAsFixed(0)` => '600000'.
+        for (var i = 0; i < 25; i++) {
+          detector.processHeapSample(HeapSample(
+            heapUsage: i * 300000,
+            heapCapacity: 100 * 1024 * 1024,
+            externalUsage: 0,
+            timestamp: now,
+          ));
+          now = now.add(const Duration(milliseconds: 500));
+        }
+        final issue =
+            detector.issues.firstWhere((i) => i.stableId == 'heap_growing');
+        expect(issue.extraTraceArgs, isNotNull,
+            reason: 'v0.19.18 stamps observedSlopeBytesPerSec; '
+                'extraTraceArgs map MUST be populated.');
+        expect(
+            issue.extraTraceArgs!['observedSlopeBytesPerSec'], equals('600000'),
+            reason: 'Stringified slope (bytes/sec) for the schema\'s '
+                'observed-axis cross-check. Format must match the '
+                'wire-format contract (string or num) consumed at '
+                'profile_capture_schema.dart L1198-1209.');
+      });
     });
 
     group('heap_near_capacity (>80% + correlated heap_growing)', () {

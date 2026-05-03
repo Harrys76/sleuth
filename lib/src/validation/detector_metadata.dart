@@ -85,6 +85,17 @@ class BracketSpec {
   /// double-counting trace events. Specs that differ on `severityLabel`
   /// validate disjoint `sleuth.issue.<id>.<severity>` events and never
   /// collide regardless of argKey (canonical tier-stack raise pattern).
+  ///
+  /// Declaration alone does not guarantee the cross-check is active —
+  /// the schema's per-record gate skips silently when capture records
+  /// lack the arg (`observedAxisArgKey != null && observedAxisExpected
+  /// != null && observedAxisSamples.isNotEmpty` in
+  /// `_checkIssueTraceRecordPresent`). The audit invariant
+  /// `checkCapturesCarryObservedAxisArg` (in
+  /// `test/validation/_support/audit_invariants.dart`) enforces capture
+  /// fidelity for non-allowlisted runtimeVerified+ brackets; entries in
+  /// `legacyObservedAxisAllowlist` (typed manifest in same file) are
+  /// exempt pending capture re-record with a `consumeBy` deadline.
   final String? observedAxisArgKey;
 
   /// Tolerance for the [observedAxisArgKey] cross-check. Same semantics
@@ -422,6 +433,15 @@ class DetectorMetadata {
   /// detectors started exporting observed-axis values lack the arg
   /// and the cross-check is skipped per-record. The metadata setting
   /// stays harmless for legacy captures.
+  ///
+  /// Declaration alone does not guarantee the cross-check is active —
+  /// the schema's per-record gate skips silently when capture records
+  /// lack the arg. The audit invariant
+  /// `checkCapturesCarryObservedAxisArg` (in
+  /// `test/validation/_support/audit_invariants.dart`) enforces capture
+  /// fidelity for non-allowlisted runtimeVerified+ brackets; entries in
+  /// `legacyObservedAxisAllowlist` (typed manifest in same file) are
+  /// exempt pending capture re-record with a `consumeBy` deadline.
   final String? observedAxisArgKey;
 
   /// Tolerance for the [observedAxisArgKey] cross-check, expressed as

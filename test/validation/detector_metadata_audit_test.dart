@@ -196,6 +196,48 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
 /// anchors (not batch blocks). These are enumerated explicitly because
 /// the v0.16.5 / v0.16.6 anchor tests assert against the detector's
 /// `validationMetadata` directly rather than a shared expectations map.
+/// Allowlist of runtimeVerified+ brackets whose declared
+/// `observedAxisArgKey` is dormant pending capture re-record. Each
+/// entry forces the audit to skip the per-record cross-check fidelity
+/// invariant for the named bracket; the `consumeBy` deadline forces
+/// re-record (or explicit allowlist extension) by the named release.
+///
+/// Entries here are debt — review the `LegacyObservedAxisEntry`
+/// rationale before adding or extending.
+const legacyObservedAxisAllowlist = <String, LegacyObservedAxisEntry>{
+  'MemoryPressureDetector (tier=reproducerOnly):heap_growing:warning':
+      LegacyObservedAxisEntry(
+    consumeBy: '0.21.0',
+    owningClaim:
+        'heap_growing observedSlopeBytesPerSec cross-check (re-record pending)',
+    rationale:
+        'v0.19.18 declared observedAxisArgKey on the canonical bracket and '
+        'stamped observedSlopeBytesPerSec into emission, but the existing 3 '
+        'heap_growing capture JSONs predate the stamp. Cross-check is '
+        'plumbing-only until on-device captures are re-recorded under '
+        'v0.19.18+ binaries. Re-record consumes this entry by v0.21.0; '
+        'allowlist failure forces explicit extension or capture refresh. '
+        'When operator re-records, account for measuredBps (allocation-rate) '
+        'vs slope (heap-growth-rate) divergence; default 25% tolerance '
+        'assumes retained-allocation scenario keeps GC sweep negligible — '
+        'verify post-record.',
+  ),
+  'PlatformChannelDetector (tier=runtimeVerified):'
+      'platform_channel_traffic:warning': LegacyObservedAxisEntry(
+    consumeBy: '0.21.0',
+    owningClaim:
+        'platform_channel_traffic observedCount cross-check (re-record pending)',
+    rationale: 'PlatformChannel canonical bracket declares observedAxisArgKey: '
+        '"observedCount" but the existing 3 platform_channel_traffic capture '
+        'JSONs predate the producer-side stamp landing on the emission path. '
+        'Same dormant-cross-check pattern as MemoryPressure heap_growing — '
+        'schema gate skips silently when records lack the arg. Re-record '
+        'consumes this entry by v0.21.0; bundling with the heap_growing '
+        're-record session in the same operator on-device pass is the '
+        'expected path.',
+  ),
+};
+
 const _singleDetectorAnchors = <DetectorType>{
   DetectorType.networkMonitor,
   DetectorType.frameTiming,
@@ -291,7 +333,12 @@ void main() {
                 meta.reproducerPath!.trim().isEmpty) {
               failures.add('$label: missing reproducerPath');
             }
-            failures.addAll(runRuntimeTierAudit(label: label, meta: meta));
+            failures.addAll(runRuntimeTierAudit(
+              label: label,
+              meta: meta,
+              legacyObservedAxisAllowlist:
+                  legacyObservedAxisAllowlist.keys.toSet(),
+            ));
             break;
           case EvidenceTier.externallyCited:
             failures.addAll(
@@ -300,7 +347,12 @@ void main() {
                 meta.reproducerPath!.trim().isEmpty) {
               failures.add('$label: missing reproducerPath');
             }
-            failures.addAll(runRuntimeTierAudit(label: label, meta: meta));
+            failures.addAll(runRuntimeTierAudit(
+              label: label,
+              meta: meta,
+              legacyObservedAxisAllowlist:
+                  legacyObservedAxisAllowlist.keys.toSet(),
+            ));
             break;
         }
 
@@ -415,18 +467,13 @@ void main() {
           topLevelCoveredThresholds: meta.coveredThresholds,
           additionalBrackets: meta.additionalBrackets,
         ));
-        // checkRuntimeVerifiedRequiresObservedAxisArgKey is intentionally
-        // NOT called from this per-detector pass yet. The invariant is
-        // wired in `runRuntimeTierAudit` and exercised by the
-        // multi-axis-audit pipeline E2E test + dedicated unit tests in
-        // `audit_invariants_test.dart`. Per-detector enforcement is
-        // deferred until `MemoryPressureDetector.heap_growing` gains an
-        // `observedSlope` extraTraceArgs stamp + matching argKey on its
-        // canonical bracket — currently that detector is the one
-        // remaining runtimeVerified bracket without an observed-axis
-        // cross-check, predating v0.19.17. Wiring the check here today
-        // would fail-CI on a pre-existing defect outside this release's
-        // scope.
+        failures.addAll(checkRuntimeVerifiedRequiresObservedAxisArgKey(
+          label: label,
+          tier: meta.effectiveMaxTier,
+          topLevelStableId: meta.bracketStableId,
+          topLevelObservedAxisArgKey: meta.observedAxisArgKey,
+          additionalBrackets: meta.additionalBrackets,
+        ));
       }
       expect(failures, isEmpty, reason: 'Tier invariants violated: $failures');
     });
@@ -1035,6 +1082,25 @@ void main() {
               'strong invariant so audit gate rejects sustained-window-'
               'break forgery (multiple trace records inside one scenario '
               'span with distinct identities).');
+      expect(meta.observedAxisArgKey, equals('observedSlopeBytesPerSec'),
+          reason: 'v0.19.18 backfills the observed-axis cross-check on '
+              'the canonical heap_growing bracket. Stamp is plumbing-only '
+              'until existing captures are re-recorded; schema skips per-'
+              'record when the arg is absent (backward-compat).');
+      // Pinning DEFAULTS — values fall through from spec (BracketSpec
+      // defaults: observedAxisTolerance=0.25, observedAxisReduction='max').
+      // Anchor catches schema-default drift; if the schema default
+      // changes for any reason, this anchor breaks even though
+      // MemoryPressure spec did not change. That's the intended
+      // behaviour: schema defaults are part of MemoryPressure's bracket
+      // validation contract.
+      expect(meta.observedAxisTolerance, equals(0.25),
+          reason: 'Default tolerance — single-fire-per-window emission '
+              'with cooldown semantics; no sliding-window drift to absorb.');
+      expect(meta.observedAxisReduction, equals('max'),
+          reason: 'Default reduction; detector emits at most one issue per '
+              'sustained-growth window, so MAX picks the single in-span '
+              'sample.');
       expect(
           meta.coveredStableIds,
           equals(const {
@@ -2209,6 +2275,32 @@ void main() {
               'owning claim, or (d) remove the file + manifest entry '
               'together if the multi-release was skipped. Failures: '
               '$failures');
+    });
+
+    test('legacy observed-axis allowlist manifest lifecycle', () {
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
+      // Mirrors the retained-orphan lifecycle audit: parses pubspec
+      // version, fails entries whose `consumeBy` has been reached or
+      // passed. Forces re-record (or explicit allowlist extension)
+      // by the named release.
+      final pubspecText = File('pubspec.yaml').readAsStringSync();
+      final versionMatch = RegExp(r'^version:\s*(\S+)\s*$', multiLine: true)
+          .firstMatch(pubspecText);
+      expect(versionMatch, isNotNull,
+          reason: 'pubspec.yaml is missing a top-level `version:` line');
+      final currentVersion = versionMatch!.group(1)!;
+      final failures = checkLegacyObservedAxisManifest(
+        manifest: legacyObservedAxisAllowlist,
+        currentReleaseVersion: currentVersion,
+      );
+      expect(failures, isEmpty,
+          reason: 'Legacy observed-axis allowlist audit failed. Either '
+              're-record the relevant captures so the per-record cross-'
+              'check activates, or extend the consumeBy with a documented '
+              'reason. Failures: $failures');
     });
   });
 

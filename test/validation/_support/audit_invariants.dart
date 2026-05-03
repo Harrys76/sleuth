@@ -28,6 +28,7 @@
 // Callers aggregate across metadata entries and assert the combined list
 // is empty so one test failure surfaces every violation at once.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:analyzer/dart/analysis/features.dart';
@@ -1690,6 +1691,159 @@ List<String> checkRuntimeVerifiedRequiresObservedAxisArgKey({
   return failures;
 }
 
+/// Tier-quality invariant: runtimeVerified+ brackets that declare
+/// `observedAxisArgKey` must have CAPTURES that actually carry the
+/// arg. Without this, a bracket declaration passes
+/// `checkRuntimeVerifiedRequiresObservedAxisArgKey` while
+/// `ProfileCaptureSchema._checkIssueTraceRecordPresent` skips the
+/// per-record cross-check silently (gate is
+/// `argKey != null && expected != null && samples.isNotEmpty` —
+/// an empty samples list makes the cross-check dormant). The result:
+/// CI reports the bracket has an observed-axis cross-check while no
+/// magnitude evidence is being verified.
+///
+/// Tier-gated: no-op for `unvalidated` and `reproducerOnly`. For
+/// runtimeVerified+ brackets that declare argKey, parses each at +
+/// above capture file (skips below — sub-threshold by definition,
+/// no in-span issue events expected) and asserts at least one
+/// `sleuth.issue.<stableId>.<severityLabel>` event in the scenario
+/// span carries a parseable value for the declared argKey.
+///
+/// Allowlist: brackets in [legacyObservedAxisAllowlist] (keyed by
+/// `'<label>:<stableId>:<severityLabel>'`) are exempt — used for
+/// grandfathered brackets whose captures predate the producer-side
+/// stamp and are pending re-record. The companion
+/// [checkLegacyObservedAxisManifest] enforces a `consumeBy`
+/// deadline so the allowlist cannot grow unbounded.
+List<String> checkCapturesCarryObservedAxisArg({
+  required String label,
+  required EvidenceTier tier,
+  required String? topLevelStableId,
+  required String? topLevelSeverityLabel,
+  required String? topLevelObservedAxisArgKey,
+  required List<String>? topLevelCapturePaths,
+  List<BracketSpec>? additionalBrackets,
+  Set<String> legacyObservedAxisAllowlist = const {},
+  String? repoRoot,
+}) {
+  if (tier != EvidenceTier.runtimeVerified &&
+      tier != EvidenceTier.externallyCited) {
+    return const [];
+  }
+  final rootDirPath = repoRoot ?? Directory.current.path;
+  if (!File(p.join(rootDirPath, 'pubspec.yaml')).existsSync()) {
+    return const [];
+  }
+  final failures = <String>[];
+
+  void checkOne({
+    required String stableId,
+    required String severityLabel,
+    required String argKey,
+    required List<String>? capturePaths,
+    required String specLabel,
+  }) {
+    if (capturePaths == null || capturePaths.length != 3) return;
+    final allowKey = '$label:$stableId:$severityLabel';
+    if (legacyObservedAxisAllowlist.contains(allowKey)) return;
+    // Convention: profileCapturePaths order is below, at, above. Below
+    // is sub-threshold by design (no in-span issue events expected),
+    // so cross-check fidelity only applies to at + above.
+    final expectedEventName = 'sleuth.issue.$stableId.$severityLabel';
+    for (final entry in [
+      ('at', capturePaths[1]),
+      ('above', capturePaths[2]),
+    ]) {
+      final role = entry.$1;
+      final relPath = entry.$2;
+      final file =
+          File(p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath));
+      if (!file.existsSync()) continue;
+      final raw = file.readAsBytesSync();
+      final root = json.decode(utf8.decode(raw)) as Map<String, Object?>;
+      final events = root['traceEvents'] as List?;
+      if (events == null) continue;
+      int? beginTs;
+      int? endTs;
+      for (final ev in events) {
+        if (ev is! Map) continue;
+        final name = ev['name'];
+        if (name == 'sleuth.scenario.begin') {
+          final ts = ev['ts'];
+          if (ts is num) beginTs = ts.toInt();
+        } else if (name == 'sleuth.scenario.end') {
+          final ts = ev['ts'];
+          if (ts is num) endTs = ts.toInt();
+        }
+      }
+      if (beginTs == null || endTs == null) continue;
+      var matched = 0;
+      var carrying = 0;
+      for (final ev in events) {
+        if (ev is! Map) continue;
+        if (ev['name'] != expectedEventName) continue;
+        final ts = ev['ts'];
+        if (ts is! num) continue;
+        final tsInt = ts.toInt();
+        if (tsInt < beginTs || tsInt > endTs) continue;
+        matched++;
+        final args = ev['args'];
+        if (args is! Map) continue;
+        final raw = args[argKey];
+        num? parsed;
+        if (raw is String && raw.isNotEmpty) {
+          parsed = num.tryParse(raw);
+        } else if (raw is num) {
+          parsed = raw;
+        }
+        if (parsed != null) carrying++;
+      }
+      if (matched > 0 && carrying == 0) {
+        failures.add('$label: $specLabel on stableId="$stableId" '
+            'severityLabel="$severityLabel" declares '
+            'observedAxisArgKey="$argKey" but the $role capture '
+            '($relPath) contains $matched in-span '
+            '"$expectedEventName" event(s) and ZERO carry a '
+            'parseable value for "$argKey". The schema\'s per-record '
+            'cross-check skips silently when the samples list is '
+            'empty, so the bracket\'s observed-axis verification is '
+            'dormant. Either re-record the captures under a producer '
+            'binary that stamps the arg, OR add '
+            '"$label:$stableId:$severityLabel" to '
+            '`legacyObservedAxisAllowlist` with a `consumeBy` '
+            'deadline (see LegacyObservedAxisEntry).');
+      }
+    }
+  }
+
+  if (topLevelStableId != null &&
+      topLevelSeverityLabel != null &&
+      topLevelObservedAxisArgKey != null) {
+    checkOne(
+      stableId: topLevelStableId,
+      severityLabel: topLevelSeverityLabel,
+      argKey: topLevelObservedAxisArgKey,
+      capturePaths: topLevelCapturePaths,
+      specLabel: 'canonical bracket',
+    );
+  }
+  if (additionalBrackets != null) {
+    for (var i = 0; i < additionalBrackets.length; i++) {
+      final spec = additionalBrackets[i];
+      final argKey = spec.observedAxisArgKey;
+      if (argKey == null) continue;
+      checkOne(
+        stableId: spec.stableId,
+        severityLabel: spec.severityLabel,
+        argKey: argKey,
+        capturePaths: spec.profileCapturePaths,
+        specLabel: 'additionalBrackets[$i]',
+      );
+    }
+  }
+  return failures;
+}
+
 /// Approved values for `observedAxisReduction` — must stay in sync with
 /// [ProfileCaptureSchema._checkIssueTraceRecordPresent]'s reduction
 /// branches. Adding a new strategy means extending both the schema and
@@ -2138,6 +2292,7 @@ List<String> runRuntimeTierAudit({
   required String label,
   required DetectorMetadata meta,
   String? repoRoot,
+  Set<String> legacyObservedAxisAllowlist = const {},
 }) {
   final failures = <String>[];
   failures.addAll(checkCoveredThresholds(
@@ -2203,16 +2358,24 @@ List<String> runRuntimeTierAudit({
     canonicalObservedAxisReduction: meta.observedAxisReduction,
     additionalBrackets: meta.additionalBrackets,
   ));
-  // [checkRuntimeVerifiedRequiresObservedAxisArgKey] is intentionally
-  // NOT batched here yet. `MemoryPressureDetector.heap_growing`
-  // currently lacks an `observedSlope` extraTraceArgs stamp — wiring
-  // the invariant into the per-detector pipeline before that lands
-  // would fail-CI on a pre-existing axis-check gap unrelated to the
-  // v0.19.17 sustained_jank withdrawal. The invariant runs in the
-  // multi-axis-audit pipeline E2E test (synthetic specs) and through
-  // dedicated unit tests; it is exposed publicly so a future
-  // anchor-block test or refreshed per-detector pass can wire it
-  // after the MemoryPressureDetector stamp lands.
+  failures.addAll(checkRuntimeVerifiedRequiresObservedAxisArgKey(
+    label: label,
+    tier: meta.effectiveMaxTier,
+    topLevelStableId: meta.bracketStableId,
+    topLevelObservedAxisArgKey: meta.observedAxisArgKey,
+    additionalBrackets: meta.additionalBrackets,
+  ));
+  failures.addAll(checkCapturesCarryObservedAxisArg(
+    label: label,
+    tier: meta.effectiveMaxTier,
+    topLevelStableId: meta.bracketStableId,
+    topLevelSeverityLabel: meta.bracketSeverityLabel,
+    topLevelObservedAxisArgKey: meta.observedAxisArgKey,
+    topLevelCapturePaths: meta.profileCapturePaths,
+    additionalBrackets: meta.additionalBrackets,
+    legacyObservedAxisAllowlist: legacyObservedAxisAllowlist,
+    repoRoot: repoRoot,
+  ));
   return failures;
 }
 
@@ -2464,6 +2627,67 @@ List<String> checkRetainedOrphanManifest({
     if (perEntry.isNotEmpty) {
       failures.add('retained orphan "$relPath" (role=${entry.role}, '
           'owningClaim=${entry.owningClaim}): ${perEntry.join('; ')}');
+    }
+  });
+  return failures;
+}
+
+/// Typed allowlist entry for a runtimeVerified+ bracket whose
+/// declared `observedAxisArgKey` is dormant pending capture
+/// re-record. Each entry carries a `consumeBy` semver — the audit
+/// fails the entry when pubspec's current version reaches or
+/// passes that release. Forces re-record by the named release OR
+/// explicit allowlist extension (which gets PR-reviewed).
+///
+/// Companion to [checkCapturesCarryObservedAxisArg]: the per-detector
+/// invariant skips brackets in this allowlist; this lifecycle helper
+/// then enforces the deadline so the allowlist cannot grow unbounded.
+/// Shape mirrors [RetainedOrphanEntry] so the dormant-debt audit
+/// trail is consistent across the codebase.
+class LegacyObservedAxisEntry {
+  const LegacyObservedAxisEntry({
+    required this.consumeBy,
+    required this.owningClaim,
+    required this.rationale,
+  });
+
+  /// Semver naming the release the entry expects to land — i.e. the
+  /// release that re-records the captures under a producer binary
+  /// stamping the declared `observedAxisArgKey`. When pubspec's
+  /// `version:` reaches or passes this, the audit declares the entry
+  /// expired and fails.
+  final String consumeBy;
+
+  /// Descriptive identifier of the planned re-record campaign that
+  /// will consume the entry — surfaced in failure messages so a
+  /// reviewer can jump from audit output to the roadmap row.
+  final String owningClaim;
+
+  /// Human-readable rationale. Required so the list reads as intent,
+  /// not just data.
+  final String rationale;
+}
+
+/// Parses [manifest] against [currentReleaseVersion] (typically
+/// extracted from pubspec) and fails entries whose `consumeBy` has
+/// been reached or passed. Mirrors [checkRetainedOrphanManifest]'s
+/// expiry semantics so the two manifests share lifecycle behavior.
+List<String> checkLegacyObservedAxisManifest({
+  required Map<String, LegacyObservedAxisEntry> manifest,
+  required String currentReleaseVersion,
+}) {
+  if (manifest.isEmpty) return const [];
+  final failures = <String>[];
+  manifest.forEach((key, entry) {
+    final cmp = _compareSemver(currentReleaseVersion, entry.consumeBy);
+    if (cmp >= 0) {
+      failures.add('legacyObservedAxisAllowlist entry "$key" '
+          '(owningClaim="${entry.owningClaim}"): consumeBy '
+          '"${entry.consumeBy}" has been reached by current release '
+          '"$currentReleaseVersion" — entry is expired. Either '
+          're-record the captures under a producer binary that '
+          'stamps the declared observedAxisArgKey, OR explicitly '
+          'extend the consumeBy with a documented reason.');
     }
   });
   return failures;

@@ -323,6 +323,13 @@ class MemoryPressureDetector extends BaseDetector
           // with distinct identities means the sustained window broke
           // and re-engaged — capture-procedure validator catches that.
           dedupIdentityMicros: _sustainedGrowthStart!.microsecondsSinceEpoch,
+          // Stringified per the wire-format contract for VM timeline args
+          // (see also HeavyComputeDetector.observedDurationMs,
+          // RebuildDetector.observedRebuildRate). Schema's `args` parser
+          // accepts both string and num and round-trips via num.tryParse.
+          extraTraceArgs: {
+            'observedSlopeBytesPerSec': slope.toStringAsFixed(0),
+          },
           topAllocators: _lastTopAllocators,
           confidenceReason: 'Heap trend analysis + sustained growth regression',
         ));
@@ -551,7 +558,11 @@ class MemoryPressureDetector extends BaseDetector
             '`heap_near_capacity`, `native_memory_growing`) stay '
             'reproducerOnly — each requires a separate capture campaign '
             'with multi-axis brackets the current single-bracket schema '
-            'cannot express.\n'
+            'cannot express. v0.19.18 backfills the '
+            '`observedSlopeBytesPerSec` extraTraceArgs stamp + '
+            '`observedAxisArgKey` declaration on the canonical bracket; '
+            'cross-check is plumbing-only until on-device captures are '
+            'refreshed (schema skips per-record when the arg is absent).\n'
             '\n'
             'Three upstream hops disclosed as skipped: (1) '
             '`VmServiceClient.getMemoryUsage` repacks '
@@ -584,6 +595,16 @@ class MemoryPressureDetector extends BaseDetector
         bracketSeverityLabel: 'warning',
         bracketAtTolerance: 0.50,
         aboveCeilingMultiplier: 2.0,
+        // Cross-check is plumbing-only until the 3 heap_growing capture
+        // JSONs are re-recorded under v0.19.18+ binaries. Existing
+        // captures predate the `observedSlopeBytesPerSec` stamp;
+        // schema's per-record gate (`observedAxisArgKey != null &&
+        // observedAxisExpected != null && observedAxisSamples.isNotEmpty`
+        // in `_checkIssueTraceRecordPresent`) skips silently when records
+        // lack the arg. Bracket allowlisted in
+        // `legacyObservedAxisAllowlist` with `consumeBy=0.21.0` enforced
+        // by `checkLegacyObservedAxisManifest`.
+        observedAxisArgKey: 'observedSlopeBytesPerSec',
         coveredStableIds: {
           'gc_pressure',
           'heap_growing',

@@ -1,3 +1,15 @@
+## 0.19.18
+
+`MemoryPressureDetector.heap_growing` emission gains `extraTraceArgs.observedSlopeBytesPerSec` (stringified bytes/sec) + `observedAxisArgKey` declaration on the canonical bracket. **No detector raises**; distribution unchanged. Per-detector audit now enforces both presence (declaration) AND fidelity (captures actually carry the arg) for every runtimeVerified+ bracket.
+
+- Detector: `heap_growing` emission stamps `observedSlopeBytesPerSec` (regression slope, bytes/sec) into `extraTraceArgs`. Existing 3 `heap_growing` capture JSONs predate the stamp; cross-check fidelity is allowlisted via `legacyObservedAxisAllowlist` with `consumeBy=0.21.0` pending on-device re-record.
+- Audit: `checkRuntimeVerifiedRequiresObservedAxisArgKey` (presence-only invariant on argKey declaration) and `checkCapturesCarryObservedAxisArg` (fidelity invariant — every matched at/above capture record carries a parseable value for the declared argKey) both wired into `runRuntimeTierAudit` + per-detector audit loop. Allowlist exempts grandfathered brackets via typed `LegacyObservedAxisEntry` with `consumeBy` deadline enforced by `checkLegacyObservedAxisManifest` — same lifecycle shape as `retainedOrphans`.
+- Allowlist entries: `MemoryPressureDetector.heap_growing.warning` and `PlatformChannelDetector.platform_channel_traffic.warning` (both `consumeBy=0.21.0`; the existing platform_channel captures predate the v0.19.4 `observedCount` stamp landing on the emission path and were not refreshed at the time).
+- Schema: backward-compat skip semantics pinned by a regression test in `profile_capture_schema_test.dart` — declared argKey + records lacking the arg must skip silently (load-bearing for every detector with pre-stamp captures).
+- `BracketSpec.observedAxisArgKey` and `DetectorMetadata.observedAxisArgKey` docstrings now name the fidelity contract (declaration ≠ active cross-check; `checkCapturesCarryObservedAxisArg` enforces fidelity outside the allowlist).
+
+2,964 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.17
 
 `FrameTimingDetector.sustained_jank` emission gains `extraTraceArgs.observedSevereCount` + `observedJankPercent` + `bufferSize` plumbing and `dedupIdentityMicros` via `_emissionSeq` tie-breaking. **No detector raises**. Distribution unchanged at 10 effective runtimeVerified family-severity pairs across 8 unique stableIds.

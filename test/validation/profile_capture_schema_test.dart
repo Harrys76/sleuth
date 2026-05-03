@@ -1848,6 +1848,95 @@ void main() {
               ]))));
     });
   });
+
+  // Pins the schema's per-record observed-axis cross-check skip
+  // semantics. v0.19.18 declared `observedAxisArgKey` on
+  // `MemoryPressureDetector.heap_growing` while leaving the existing 3
+  // capture JSONs unmodified (recorded before the
+  // `observedSlopeBytesPerSec` stamp existed). The schema's per-record
+  // cross-check at `profile_capture_schema.dart` L1267-1269 must skip
+  // silently when the spec declares the argKey but the records lack it
+  // (the sample list stays empty); otherwise pre-stamp captures
+  // regress across every detector that has not yet refreshed its
+  // captures. This test pins that contract — DO NOT change L1267-1269
+  // to throw on missing arg without addressing every detector's
+  // pre-stamp captures first.
+  group('observed-axis cross-check skip semantics (backward compat)', () {
+    File capture(String role) => File(
+        'test/validation/captures/network_monitor/slow_request_$role.json');
+
+    test(
+        'declared argKey + records lacking the arg → skip silently '
+        '(no exception)', () {
+      // Construct a synthetic capture triad by stripping the
+      // `observedDurationMs` arg from every in-span issue record.
+      // `validateBracket` must accept the triad when called with
+      // `observedAxisArgKey: 'observedDurationMs'` AND
+      // `observedAxisExpected: <something>` because the per-record
+      // cross-check is gated on a non-empty samples list — empty here
+      // because the arg was stripped from every record.
+      File mutateStripObservedArg(String role, String argKeyToStrip) {
+        final out = File('test/validation/captures/_fixtures/'
+            'slow_request_${role}_no_observed_axis.json');
+        // Generated once and committed (matches the
+        // `slow_request_at_replayed_stripped.json` pattern); skip
+        // regeneration on subsequent runs so CI does not rewrite
+        // identical content unnecessarily.
+        if (out.existsSync()) return out;
+        final source = json.decode(capture(role).readAsStringSync())
+            as Map<String, dynamic>;
+        final events = (source['traceEvents'] as List).cast<dynamic>();
+        for (var i = 0; i < events.length; i++) {
+          final ev = events[i];
+          if (ev is! Map) continue;
+          final name = ev['name'];
+          if (name is! String ||
+              !name.startsWith('sleuth.issue.slow_request.warning')) {
+            continue;
+          }
+          final args = ev['args'];
+          if (args is! Map) continue;
+          final cleaned = Map<String, dynamic>.from(args)
+            ..remove(argKeyToStrip);
+          final clone = Map<String, dynamic>.from(ev);
+          clone['args'] = cleaned;
+          events[i] = clone;
+        }
+        out.parent.createSync(recursive: true);
+        out.writeAsStringSync(json.encode(source));
+        return out;
+      }
+
+      final belowStripped =
+          mutateStripObservedArg('below', 'observedDurationMs');
+      final atStripped = mutateStripObservedArg('at', 'observedDurationMs');
+      final aboveStripped =
+          mutateStripObservedArg('above', 'observedDurationMs');
+
+      expect(
+        () => ProfileCaptureSchema.validateBracket(
+          belowFile: belowStripped,
+          atFile: atStripped,
+          aboveFile: aboveStripped,
+          threshold: 1000,
+          unit: 'ms',
+          requireDetectorTraceRecord: true,
+          stableId: 'slow_request',
+          severityLabel: 'warning',
+          aboveCeilingMultiplier: 2.0,
+          observedAxisArgKey: 'observedDurationMs',
+          observedAxisTolerance: 0.25,
+        ),
+        returnsNormally,
+        reason: 'Schema must skip the observed-axis cross-check when '
+            'records carry no matching arg, even though the spec '
+            'declared the argKey. Otherwise pre-stamp captures across '
+            'every detector regress silently the moment a new tier-raise '
+            'declares argKey. See profile_capture_schema.dart '
+            'L1267-1269 for the gate.',
+      );
+    });
+  });
 }
 
 Map<String, Object?> _validMetadata() => <String, Object?>{
