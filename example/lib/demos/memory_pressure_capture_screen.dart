@@ -175,6 +175,16 @@ class _MemoryPressureCaptureScreenState
   _MemoryLeg? _activeRetryLeg;
   int _retryCount = 0;
 
+  // Cross-leg gate. Set when any leg's catch-block sees a persistent
+  // post-process `rewriteError` (i.e. `_replaceExpectedObserved` shape
+  // drift). Same shape-drift bug breaks every leg, so once one leg has
+  // exhausted its retry budget on it, the other legs short-circuit
+  // instead of burning their own budgets on identical failures.
+  // Restart-screen is the only recovery path: clear-log button does
+  // NOT reset this flag, because operator must re-prove the wrapped
+  // capture shape after fixing `_replaceExpectedObserved`.
+  bool _persistentRewriteError = false;
+
   // Last completed scenario, captured at the end of the leg run so the
   // Export button knows what scenario name + measured magnitude to pass
   // to `Sleuth.exportCaptureJson`. Cleared when the user re-taps a leg.
@@ -267,6 +277,16 @@ class _MemoryPressureCaptureScreenState
 
   Future<void> _runLeg(_MemoryLeg leg) async {
     if (_busy || _bytesPerMs == null) return;
+    if (_persistentRewriteError) {
+      setState(() {
+        _log.add(
+          '[${leg.label}] persistent rewriteError on a prior leg — '
+          'restart the screen to retry. Same shape-drift bug breaks '
+          'every leg; running another scenario would waste 30 s.',
+        );
+      });
+      return;
+    }
     if (!_captureModeOn) {
       setState(() {
         _log.add(
@@ -493,13 +513,12 @@ class _MemoryPressureCaptureScreenState
               'foreground while the leg runs; re-tap after fixing.',
             );
           } else if (rewriteError != null) {
-            // Persistent shape change: every retry will throw the same
-            // StateError, burning the budget on identical failures.
-            // Short-circuit by exhausting the budget so the next tap
-            // hits the "budget exhausted" guard at the top of _runLeg
-            // and the operator restarts the screen instead of waiting
-            // through five identical wasted scenarios.
+            // Persistent shape change: every retry on this leg AND
+            // every other leg will throw the same StateError. Exhaust
+            // this leg's budget AND set the cross-leg gate so the next
+            // tap on any leg short-circuits at the top of _runLeg.
             _retryCount = _maxRetriesPerLeg;
+            _persistentRewriteError = true;
             _log.add(
               '[${leg.label}] post-process FAILED — $rewriteError. '
               'Wrapped capture shape changed; update '

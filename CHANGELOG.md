@@ -1,3 +1,16 @@
+## 0.19.21
+
+`RebuildDetector.rebuild_activity.critical` raised to runtimeVerified. Cross-leg short-circuit on memory + platform capture screens. Distribution: 10 → 11 family-severity pairs.
+
+- `RebuildDetector.validationMetadata.additionalBrackets[0]`: `BracketSpec` for `rebuild_activity.critical` (threshold 31, atTolerance 0.65, aboveCeilingMultiplier 2.7, `observedAxisArgKey: 'observedRebuildRate'`, `observedAxisReduction: 'max'`). At-band [31, 51], above-band (51, 83]. `coveredThresholds` extends to include `rebuild_activity.critical`.
+- 3 on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.4 profile mode) at `test/validation/captures/rebuild_detector/critical_{below,at,above}.json` — observed rates 28 / 40 / 72 BUILDs/sec under baseline subtraction.
+- `RebuildActivityCaptureScreen` gains a tier dropdown (warning / critical). Tier drives scenario name, capture-file basename, and `bracketSeverityLabel` parameter; switching tiers clears stashed capture state so an operator cannot export a warning capture tagged under the critical bracket. Mid-leg tier switch blocked at fire time.
+- `MemoryPressureCaptureScreen` + `PlatformChannelCaptureScreen`: top-level `_persistentRewriteError` flag. Once any leg's catch-block sees a persistent post-process `rewriteError`, every subsequent leg short-circuits at `_runLeg` entry. Restart-screen is the only recovery path (clear-log does not reset — `_replaceExpectedObserved` shape compatibility must be re-proven).
+- 6 new `rebuild_activity.critical` reproducer tests pin axis stamping + severity boundary + at-band/above-band/above-ceiling integer boundaries.
+- New `capture_screen_audit_test.dart`: source-grep audit asserts the `_persistentRewriteError` field, setter, and entry guard are present in both screens. Cheap regression net for capture-screen code with no widget-test coverage.
+
+2,987 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.20
 
 Capture-screen retry-budget short-circuit + `gc_pressure` overage-window stamping. No detector raises; distribution unchanged.

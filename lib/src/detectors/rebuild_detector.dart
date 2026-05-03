@@ -682,6 +682,26 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         perStableIdTier: {
           'rebuild_activity': EvidenceTier.runtimeVerified,
         },
+        additionalBrackets: [
+          BracketSpec(
+            stableId: 'rebuild_activity',
+            severityLabel: 'critical',
+            threshold: 31,
+            unit: 'rebuilds',
+            coveredThresholds: {'rebuild_activity.critical'},
+            profileCapturePaths: [
+              'test/validation/captures/rebuild_detector/critical_below.json',
+              'test/validation/captures/rebuild_detector/critical_at.json',
+              'test/validation/captures/rebuild_detector/critical_above.json',
+            ],
+            atTolerance: 0.65,
+            aboveCeilingMultiplier: 2.7,
+            requireUniqueDetectedAtMicros: true,
+            requireDetectorTraceRecord: true,
+            observedAxisArgKey: 'observedRebuildRate',
+            observedAxisReduction: 'max',
+          ),
+        ],
         rationale: 'Hybrid detector. Three families: `stateful_density` '
             '(public-named StatefulWidget density; framework/private '
             'filtered), `rebuild_activity` (VM-timeline rebuild-rate — '
@@ -720,7 +740,10 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
             'refresh-rate-independent rates.',
         reproducerPath: 'test/validation/rebuild_reproducer_test.dart',
         coveredStableIds: {'stateful_density', 'rebuild_activity'},
-        coveredThresholds: {'rebuild_activity.warning'},
+        coveredThresholds: {
+          'rebuild_activity.warning',
+          'rebuild_activity.critical',
+        },
         parametricFamilies: {'rebuild_debug'},
         bracketStableId: 'rebuild_activity',
         bracketSeverityLabel: 'warning',

@@ -207,6 +207,90 @@ void main() {
       });
     });
 
+    // -- Group A.1: rebuild_activity.critical bracket contract -----------
+    //
+    // Pins `additionalBrackets[0]` (critical tier, threshold 31, atTolerance
+    // 0.65, aboveCeilingMultiplier 2.7). Anchors the BracketSpec math
+    // against accidental drift — a future PR could silently change tolerance
+    // without these tests, and only the audit-anchor field literals would
+    // catch it.
+
+    group('rebuild_activity.critical bracket contract', () {
+      testWidgets('adjusted=31 stamps observedRebuildRate + critical severity',
+          (tester) async {
+        primeVmWindow(31);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        final issue =
+            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+        expect(issue.severity, IssueSeverity.critical);
+        expect(issue.extraTraceArgs, isNotNull);
+        expect(issue.extraTraceArgs!['observedRebuildRate'], equals('31'),
+            reason: 'Detector stamps integer-string adjusted rate so the '
+                'audit cross-check + role-band invariant read the same '
+                'value the bracket band gates against.');
+      });
+
+      testWidgets('adjusted=30 stays warning (boundary)', (tester) async {
+        primeVmWindow(30);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        final issue =
+            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+        expect(issue.severity, IssueSeverity.warning);
+      });
+
+      testWidgets('adjusted=51 lies in critical at-band (last integer)',
+          (tester) async {
+        // at-band = [threshold, threshold * (1 + atTolerance)]
+        //         = [31, 31 * 1.65] = [31, 51.15]
+        // Last integer in band: 51.
+        primeVmWindow(51);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        final issue =
+            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+        expect(issue.severity, IssueSeverity.critical);
+        expect(issue.extraTraceArgs!['observedRebuildRate'], equals('51'));
+        // Bracket math: 51 must NOT exceed the at-band ceiling 51.15.
+        expect(51 <= 31 * 1.65, isTrue,
+            reason: 'BracketSpec at-band upper boundary computation.');
+      });
+
+      testWidgets('adjusted=52 lies in above-band (first integer past at)',
+          (tester) async {
+        primeVmWindow(52);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        final issue =
+            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+        expect(issue.severity, IssueSeverity.critical);
+        expect(issue.extraTraceArgs!['observedRebuildRate'], equals('52'));
+        expect(52 > 31 * 1.65, isTrue,
+            reason: 'BracketSpec above-band lower boundary — first integer '
+                'past at-band upper.');
+      });
+
+      testWidgets('adjusted=83 lies at-or-below above-ceiling (last integer)',
+          (tester) async {
+        // above-ceiling = threshold * aboveCeilingMultiplier = 31 * 2.7 = 83.7
+        primeVmWindow(83);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        final issue =
+            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+        expect(issue.severity, IssueSeverity.critical);
+        expect(83 <= 31 * 2.7, isTrue,
+            reason: 'BracketSpec aboveCeilingMultiplier boundary.');
+      });
+
+      testWidgets('adjusted=84 exceeds above-ceiling', (tester) async {
+        primeVmWindow(84);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        final issue =
+            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+        expect(issue.severity, IssueSeverity.critical);
+        expect(84 > 31 * 2.7, isTrue,
+            reason: 'First integer past above-ceiling — operator must '
+                're-record at lower target rate if leg lands here.');
+      });
+    });
+
     // -- Group B: per-widget non-builder triad (>= 10) -------------------
 
     group('rebuild_debug_<Type> non-builder triad (rate >= 10)', () {
@@ -688,6 +772,7 @@ void main() {
         // mention rebuild_activity in a comment AND drive scenarios.
         if (src.contains("rebuild_activity_\${leg.label}") ||
             src.contains("'rebuild_activity_'") ||
+            src.contains("'rebuild_activity_\$basename'") ||
             src.contains('rebuild_activity_below') ||
             src.contains('rebuild_activity_at') ||
             src.contains('rebuild_activity_above')) {
@@ -745,17 +830,16 @@ void main() {
       );
     });
 
-    // Helper ↔ evidence coherence guard. The capture screen's `_legs`
-    // constants declare the operator-side expected magnitude band
-    // (rateMin..rateMax). Each capture JSON records what the
-    // operator-screen exported as the leg's band. Re-recording from
-    // the helper at this revision must reproduce committed bounds —
-    // otherwise the audit gate validates evidence the current helper
-    // cannot recreate. Drift between the surfaces (hand-patched JSON,
-    // helper edits without re-record) silently breaks re-record.
+    // Helper ↔ evidence coherence guard. The capture screen's
+    // `_warningLegs` and `_criticalLegs` constants declare per-tier
+    // operator-side expected magnitude bands (rateMin..rateMax). Each
+    // capture JSON records what the operator-screen exported. Re-record
+    // from the helper at this revision must reproduce the committed
+    // bounds — drift between helper edits and JSON content silently
+    // breaks re-record.
     test(
       'committed capture expectedMagnitude.min/max match capture screen '
-      '_legs constants (re-record reproducibility contract)',
+      'per-tier _legs constants (re-record reproducibility contract)',
       () {
         final captureDir = Directory(
           'test/validation/captures/rebuild_detector',
@@ -771,37 +855,58 @@ void main() {
           r"_Leg\(\s*label:\s*'(\w+)'\s*,\s*targetRebuildRate:\s*\d+\s*,\s*"
           r'rateMin:\s*(\d+)\s*,\s*rateMax:\s*(\d+)\s*\)',
         );
-        final legBounds = <String, ({int min, int max})>{};
-        for (final m in legPattern.allMatches(screenSrc)) {
-          legBounds[m.group(1)!] = (
-            min: int.parse(m.group(2)!),
-            max: int.parse(m.group(3)!),
-          );
+
+        Map<String, ({int min, int max})> parseBounds(String block) {
+          final out = <String, ({int min, int max})>{};
+          for (final m in legPattern.allMatches(block)) {
+            out[m.group(1)!] = (
+              min: int.parse(m.group(2)!),
+              max: int.parse(m.group(3)!),
+            );
+          }
+          return out;
         }
-        expect(legBounds.length, 3,
-            reason: '_legs in capture screen must declare exactly 3 '
-                'legs (below, at, above). Found ${legBounds.length}.');
-        for (final leg in const ['below', 'at', 'above']) {
-          final f = File('${captureDir.path}/$leg.json');
-          if (!f.existsSync()) continue;
+
+        String slice(String marker) {
+          final start = screenSrc.indexOf(marker);
+          expect(start, greaterThanOrEqualTo(0),
+              reason: 'capture screen must declare const $marker.');
+          final end = screenSrc.indexOf('];', start);
+          expect(end, greaterThan(start));
+          return screenSrc.substring(start, end);
+        }
+
+        final warningBounds =
+            parseBounds(slice('const _warningLegs = <_Leg>['));
+        final criticalBounds =
+            parseBounds(slice('const _criticalLegs = <_Leg>['));
+        expect(warningBounds.length, 3,
+            reason: '_warningLegs must declare 3 legs '
+                '(below, at, above). Found ${warningBounds.length}.');
+        expect(criticalBounds.length, 3,
+            reason: '_criticalLegs must declare 3 legs '
+                '(below, at, above). Found ${criticalBounds.length}.');
+
+        void check(
+            String fileBasename, ({int min, int max}) bounds, String tier) {
+          final f = File('${captureDir.path}/$fileBasename.json');
+          if (!f.existsSync()) return;
           final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
           final em = (j['sleuthMetadata'] as Map)['expectedMagnitude'] as Map;
           final captureMin = em['min'] as int;
           final captureMax = em['max'] as int;
-          final helperBounds = legBounds[leg]!;
-          expect(captureMin, equals(helperBounds.min),
-              reason: 'Drift: $leg.json expectedMagnitude.min=$captureMin '
-                  'but _legs.$leg.rateMin=${helperBounds.min}. Either the '
-                  'helper was edited without re-recording the capture, or '
-                  'capture metadata was hand-patched inconsistently with '
-                  'the helper.');
-          expect(captureMax, equals(helperBounds.max),
-              reason: 'Drift: $leg.json expectedMagnitude.max=$captureMax '
-                  'but _legs.$leg.rateMax=${helperBounds.max}.');
-          expect((j['sleuthMetadata'] as Map)['schemaVersion'], 'v1',
-              reason: '$leg.json must declare schemaVersion=v1. A '
-                  'schema bump invalidates these captures and requires '
-                  're-record + this anchor update.');
+          expect(captureMin, equals(bounds.min),
+              reason: 'Drift: $fileBasename.json expectedMagnitude.min='
+                  '$captureMin but ${tier}_legs rateMin=${bounds.min}.');
+          expect(captureMax, equals(bounds.max),
+              reason: 'Drift: $fileBasename.json expectedMagnitude.max='
+                  '$captureMax but ${tier}_legs rateMax=${bounds.max}.');
+          expect((j['sleuthMetadata'] as Map)['schemaVersion'], 'v1');
+        }
+
+        for (final leg in const ['below', 'at', 'above']) {
+          check(leg, warningBounds[leg]!, 'warning');
+          check('critical_$leg', criticalBounds[leg]!, 'critical');
         }
       },
     );

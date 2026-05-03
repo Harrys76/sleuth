@@ -1190,10 +1190,13 @@ void main() {
               'crossing threshold); max-reduction picks the worst signal '
               'rather than the tail-off final window.');
       expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
-      expect(meta.coveredThresholds, equals(const {'rebuild_activity.warning'}),
-          reason: 'Severity-scoped to warning. Critical (`> 30 BUILDs/sec`) '
-              'is the same family but a separate raise — would need its '
-              'own capture triad.');
+      expect(
+          meta.coveredThresholds,
+          equals(
+              const {'rebuild_activity.warning', 'rebuild_activity.critical'}),
+          reason: 'Warning covered by canonical bracket; critical covered '
+              'by additionalBrackets[0] (>30 BUILDs/sec) backed by a '
+              'dedicated capture triad under critical_*.json.');
       expect(meta.coveredStableIds,
           equals(const {'stateful_density', 'rebuild_activity'}),
           reason: 'Both layer-2 reproducer-covered families; '
@@ -1202,22 +1205,46 @@ void main() {
           reason: 'Parametric `rebuild_debug_<typeName>` family '
               'unchanged — debug-callback path stays at base '
               'reproducerOnly.');
-      expect(meta.additionalBrackets, isNull,
-          reason: 'rebuild_activity brackets a single axis (rebuilds/sec); '
-              'multi-axis raises would populate additionalBrackets.');
-
-      // Prose-drift guard. Critical cannot piggyback on the warning raise.
-      final stripped =
-          meta.rationale.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
-      final collapsed = stripped.replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
-      final claimsRebuildCritical =
-          collapsed.contains('rebuild_activity.critical') ||
-              collapsed.contains('rebuild_activity critical');
-      expect(claimsRebuildCritical, isFalse,
-          reason: 'Rationale prose claims a rebuild_activity critical-tier '
-              'raise. Critical cannot piggyback on the warning raise — '
-              'add coveredThresholds entry + dedicated capture triad, or '
-              'remove the prose claim.');
+      // Critical-tier bracket pin. additionalBrackets[0] adds the
+      // tier-stack raise without disturbing the canonical warning bracket.
+      expect(meta.additionalBrackets, isNotNull,
+          reason: 'additionalBrackets carries the critical tier raise; '
+              'a future PR removing it would silently drop critical '
+              'from audit coverage.');
+      // Look up by (stableId, severityLabel) so a future PR adding a
+      // second additionalBrackets entry (e.g. a different stableId
+      // raise) does not fail this anchor with a misleading length
+      // mismatch — the field-literal assertions below would be the
+      // real diagnostic surface.
+      final critical = meta.additionalBrackets!.firstWhere(
+        (b) =>
+            b.stableId == 'rebuild_activity' && b.severityLabel == 'critical',
+        orElse: () => throw StateError(
+          'additionalBrackets must contain a (rebuild_activity, critical) '
+          'spec; found severityLabels: '
+          '${meta.additionalBrackets!.map((b) => "${b.stableId}.${b.severityLabel}").join(", ")}.',
+        ),
+      );
+      expect(critical.stableId, equals('rebuild_activity'));
+      expect(critical.severityLabel, equals('critical'));
+      expect(critical.threshold, equals(31),
+          reason: 'Detector gate is `adjusted > 30` (rebuildsPerSecThreshold '
+              '* 3); first integer firing critical is 31.');
+      expect(critical.unit, equals('rebuilds'));
+      expect(critical.atTolerance, equals(0.65));
+      expect(critical.aboveCeilingMultiplier, equals(2.7));
+      expect(critical.observedAxisArgKey, equals('observedRebuildRate'));
+      expect(critical.observedAxisReduction, equals('max'));
+      expect(critical.requireUniqueDetectedAtMicros, isTrue);
+      expect(critical.coveredThresholds,
+          equals(const {'rebuild_activity.critical'}));
+      expect(
+          critical.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/rebuild_detector/critical_below.json',
+            'test/validation/captures/rebuild_detector/critical_at.json',
+            'test/validation/captures/rebuild_detector/critical_above.json',
+          ]));
     });
 
     test('PlatformChannelDetector pinned at runtimeVerified (v0.19.4)', () {

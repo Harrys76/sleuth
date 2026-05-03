@@ -1,22 +1,28 @@
-// Capture screen for `RebuildDetector.rebuild_activity.warning` runtime-
-// verified raise. Drives a controlled rebuilds-per-second rate via
-// Stopwatch-throttled Ticker setState on a plain StatefulWidget (NOT a
-// builder widget — RebuildDetector applies a 3× threshold multiplier
-// to StreamBuilder/AnimatedBuilder/FutureBuilder/TweenAnimationBuilder
+// Capture screen for `RebuildDetector.rebuild_activity` runtime-verified
+// raises. Drives a controlled rebuilds-per-second rate via Stopwatch-
+// throttled Ticker setState on a plain StatefulWidget (NOT a builder
+// widget — RebuildDetector applies a 3× threshold multiplier to
+// StreamBuilder/AnimatedBuilder/FutureBuilder/TweenAnimationBuilder
 // which would push warning to >30/sec, colliding with critical).
 //
-// Three legs bracket the threshold (default 10/sec, fires `> 10`).
-// Schema at-band is [bracketThreshold, threshold × (1+atTolerance)] =
-// [11, 16.5] inclusive. Above-band ceiling 27.5 < critical 30. Targets:
-//   below  5/sec — sub-threshold, no emission
-//   at    13/sec — inside [11, 16.5], comfortable margin from upper bound
-//   above 20/sec — inside (16.5, 27.5], strict under critical
+// Two tiers selectable via dropdown:
+//
+//   Warning (`> 10/sec` fires .warning). Schema at-band [11, 16.5].
+//   Above-band ceiling 27.5 < critical threshold 30.
+//     below  5/sec  — sub-threshold, no emission
+//     at    13/sec  — inside [11, 16.5]
+//     above 20/sec  — inside (16.5, 27.5], strict under critical
+//
+//   Critical (`> 30/sec` fires .critical). Schema at-band [31, 51.15].
+//   Above-band ceiling 83.7. Below leg may still emit warning (>10/sec)
+//   but must emit no critical events.
+//     below 25/sec  — under critical threshold 31; warning may fire
+//     at    40/sec  — inside [31, 51], comfortable margin
+//     above 65/sec  — inside (51.15, 83.7], strict under ceiling
 //
 // Below-leg producer pattern: detector exposes lastObservedRebuildRate
-// unconditionally. The schema's per-leg invariants leave below-leg's
-// axis unchecked (silent leg has no warning event to cross-check
-// against), so plan-not-measured was a silent-evidence-quality gap;
-// reading detector-measured rate closes it client-side.
+// unconditionally. Reading detector-measured rate at scenario.end keeps
+// below-leg evidence quality on par with at/above legs.
 
 import 'dart:developer' as developer;
 
@@ -42,11 +48,34 @@ class _Leg {
   final int rateMax;
 }
 
-const _legs = <_Leg>[
+/// Bracket tier the operator is targeting. Drives leg targets,
+/// scenario name, capture-file basename, and the
+/// `bracketSeverityLabel` parameter passed to
+/// `Sleuth.exportCaptureJson` so the wrapped JSON's
+/// `metadata.bracket.severityLabel` matches the bracket the audit gate
+/// will cross-check against.
+enum _Tier {
+  warning('warning'),
+  critical('critical');
+
+  const _Tier(this.label);
+  final String label;
+}
+
+const _warningLegs = <_Leg>[
   _Leg(label: 'below', targetRebuildRate: 5, rateMin: 1, rateMax: 10),
   _Leg(label: 'at', targetRebuildRate: 13, rateMin: 11, rateMax: 19),
   _Leg(label: 'above', targetRebuildRate: 20, rateMin: 19, rateMax: 27),
 ];
+
+const _criticalLegs = <_Leg>[
+  _Leg(label: 'below', targetRebuildRate: 25, rateMin: 20, rateMax: 30),
+  _Leg(label: 'at', targetRebuildRate: 40, rateMin: 31, rateMax: 51),
+  _Leg(label: 'above', targetRebuildRate: 65, rateMin: 52, rateMax: 83),
+];
+
+List<_Leg> _legsForTier(_Tier tier) =>
+    tier == _Tier.warning ? _warningLegs : _criticalLegs;
 
 const _scenarioDurationSec = 6;
 const _postCompletionDwellMs = 500;
@@ -80,6 +109,7 @@ class _RebuildActivityCaptureScreenState
   final ValueNotifier<bool> _busy = ValueNotifier<bool>(false);
   final ValueNotifier<int?> _lastObservedRate = ValueNotifier<int?>(null);
   final ValueNotifier<int?> _baselineRate = ValueNotifier<int?>(null);
+  final ValueNotifier<_Tier> _tier = ValueNotifier<_Tier>(_Tier.warning);
   final ValueNotifier<List<String>> _log = ValueNotifier<List<String>>(
     const [],
   );
@@ -103,6 +133,7 @@ class _RebuildActivityCaptureScreenState
     _busy.dispose();
     _lastObservedRate.dispose();
     _baselineRate.dispose();
+    _tier.dispose();
     _log.dispose();
     super.dispose();
   }
@@ -122,11 +153,22 @@ class _RebuildActivityCaptureScreenState
     _lastCompletedLeg = null;
     _lastObservedRate.value = null;
     _stashedCaptureJson = null;
+    final tier = _tier.value;
     _appendLog(
-      '[${leg.label}] scenario.begin — target ~${leg.targetRebuildRate}/sec',
+      '[${tier.label}/${leg.label}] scenario.begin — '
+      'target ~${leg.targetRebuildRate}/sec',
     );
 
-    final scenarioName = 'rebuild_activity_${leg.label}';
+    // Suffix-shape capture file name (e.g. `critical_below.json`,
+    // basename `critical_below`); scenario string also follows the
+    // suffix-shape `rebuild_activity_<basename>` so
+    // checkCapturePathPerDirectoryNamingUniformity sees a single
+    // common prefix `rebuild_activity` across both tiers' captures
+    // even though they live in the same directory.
+    final basename = tier == _Tier.warning
+        ? leg.label
+        : 'critical_${leg.label}';
+    final scenarioName = 'rebuild_activity_$basename';
     final messenger = ScaffoldMessenger.of(context);
 
     // ValueNotifier writes above mark their consumers dirty but BUILD
@@ -242,6 +284,13 @@ class _RebuildActivityCaptureScreenState
       streamsSuspended = false;
       if (!mounted) return;
 
+      // Detector-stamped value reaches the schema directly via the
+      // `magnitudeObserved` parameter — no `_replaceExpectedObserved`
+      // post-process step is needed (the wrapped JSON's
+      // `expectedMagnitude.observed` is set from this argument inside
+      // `Sleuth.exportCaptureJson`). Other capture screens that compute
+      // observed magnitude from raw VM data after the fact (memory,
+      // platform_channel) DO need the post-process; this one does not.
       String? stashed;
       try {
         stashed = await Sleuth.exportCaptureJson(
@@ -264,7 +313,7 @@ class _RebuildActivityCaptureScreenState
           // span; below must contain none. Operator sees refusal
           // before JSON hits the clipboard.
           bracketStableId: 'rebuild_activity',
-          bracketSeverityLabel: 'warning',
+          bracketSeverityLabel: tier.label,
         );
       } catch (e, st) {
         developer.log(
@@ -281,7 +330,7 @@ class _RebuildActivityCaptureScreenState
       _stashedCaptureJson = stashed;
       _lastObservedRate.value = observedRate;
       _appendLog(
-        '[${leg.label}] scenario.end — observed=$observedRate/sec; '
+        '[${tier.label}/${leg.label}] scenario.end — observed=$observedRate/sec; '
         'pulses=$_pulseCount; '
         'export ${stashed != null ? "OK" : "FAILED"}',
       );
@@ -332,7 +381,7 @@ class _RebuildActivityCaptureScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('RebuildActivity Capture (v0.19.11)')),
+      appBar: AppBar(title: const Text('RebuildActivity Capture')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -340,39 +389,89 @@ class _RebuildActivityCaptureScreenState
           children: [
             const Text(
               'Drives Ticker-gated setState on a plain StatefulWidget at a '
-              'controlled rebuilds-per-second rate. Three legs bracket the '
-              '`rebuild_activity.warning` threshold (>10/sec).',
+              'controlled rebuilds-per-second rate. Pick tier from dropdown; '
+              'three legs bracket the `rebuild_activity.<tier>` threshold '
+              '(warning >10/sec, critical >30/sec).',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 12),
             _Pulse(key: _pulseKey),
             const SizedBox(height: 16),
+            ValueListenableBuilder<_Tier>(
+              valueListenable: _tier,
+              builder: (_, tier, _) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    const Text('Tier: '),
+                    const SizedBox(width: 8),
+                    DropdownButton<_Tier>(
+                      value: tier,
+                      // Re-read `_busy.value` at fire time. The parent
+                      // ValueListenableBuilder listens to `_tier`, not
+                      // `_busy`, so a build-time read here would let the
+                      // operator switch tier mid-leg-run.
+                      onChanged: (next) {
+                        if (_busy.value) return;
+                        if (next == null || next == tier) return;
+                        final hadStash = _stashedCaptureJson != null;
+                        setState(() {
+                          _tier.value = next;
+                          _lastCompletedLeg = null;
+                          _stashedCaptureJson = null;
+                        });
+                        _appendLog(
+                          hadStash
+                              ? 'Switched to ${next.label} tier — '
+                                    'previous stashed capture cleared.'
+                              : 'Switched to ${next.label} tier.',
+                        );
+                      },
+                      items: const [
+                        DropdownMenuItem(
+                          value: _Tier.warning,
+                          child: Text('warning (>10/sec)'),
+                        ),
+                        DropdownMenuItem(
+                          value: _Tier.critical,
+                          child: Text('critical (>30/sec)'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
             ValueListenableBuilder<bool>(
               valueListenable: _busy,
               builder: (_, busy, _) => ValueListenableBuilder<int?>(
                 valueListenable: _baselineRate,
-                builder: (_, baseline, _) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final leg in _legs)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: ElevatedButton(
-                          onPressed: busy ? null : () => _runLeg(leg),
-                          child: Text(
-                            'Run ${leg.label} (~${leg.targetRebuildRate}/sec)',
+                builder: (_, baseline, _) => ValueListenableBuilder<_Tier>(
+                  valueListenable: _tier,
+                  builder: (_, tier, _) => Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final leg in _legsForTier(tier))
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: ElevatedButton(
+                            onPressed: busy ? null : () => _runLeg(leg),
+                            child: Text(
+                              'Run ${tier.label}/${leg.label} '
+                              '(~${leg.targetRebuildRate}/sec)',
+                            ),
                           ),
                         ),
+                      const SizedBox(height: 8),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.content_copy),
+                        label: const Text('Export last leg → clipboard'),
+                        onPressed: busy || _stashedCaptureJson == null
+                            ? null
+                            : _exportLastLeg,
                       ),
-                    const SizedBox(height: 8),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.content_copy),
-                      label: const Text('Export last leg → clipboard'),
-                      onPressed: busy || _stashedCaptureJson == null
-                          ? null
-                          : _exportLastLeg,
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

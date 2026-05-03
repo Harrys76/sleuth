@@ -185,6 +185,14 @@ class _PlatformChannelCaptureScreenState
   _ChannelLeg? _activeRetryLeg;
   int _retryCount = 0;
 
+  // Cross-leg gate. Set when any leg's catch-block sees a persistent
+  // post-process `rewriteError` (i.e. `_replaceExpectedObserved` shape
+  // drift). Same shape-drift bug breaks every leg, so once one leg has
+  // exhausted its retry budget on it, the other legs short-circuit
+  // instead of burning their own budgets on identical failures.
+  // Restart-screen is the only recovery path.
+  bool _persistentRewriteError = false;
+
   // Last completed scenario, captured at the end of the leg run so the
   // Export button knows what scenario name + measured magnitude to
   // pass to `Sleuth.exportCaptureJson`. Cleared when the user re-taps
@@ -232,6 +240,16 @@ class _PlatformChannelCaptureScreenState
 
   Future<void> _runLeg(_ChannelLeg leg) async {
     if (_busy) return;
+    if (_persistentRewriteError) {
+      setState(() {
+        _log.add(
+          '[${leg.label}] persistent rewriteError on a prior leg — '
+          'restart the screen to retry. Same shape-drift bug breaks '
+          'every leg.',
+        );
+      });
+      return;
+    }
     if (!_captureModeOn) {
       setState(() {
         _log.add(
@@ -449,11 +467,12 @@ class _PlatformChannelCaptureScreenState
               'foreground; re-tap after fixing.',
             );
           } else if (rewriteError != null) {
-            // Persistent shape change: every retry will throw the same
-            // StateError. Short-circuit by exhausting the budget so the
-            // operator restarts the screen instead of burning 5 retries
-            // on identical failures.
+            // Persistent shape change: every retry on this leg AND
+            // every other leg throws the same StateError. Exhaust this
+            // leg's budget AND set the cross-leg gate so the next tap
+            // on any leg short-circuits at the top of _runLeg.
             _retryCount = _maxRetriesPerLeg;
+            _persistentRewriteError = true;
             _log.add(
               '[${leg.label}] post-process FAILED — $rewriteError. '
               'Wrapped capture shape changed; update '

@@ -59,12 +59,13 @@ test/
 
 ## Current state
 
-**v0.19.20** (current) — Memory + platform capture screens stop looping on persistent post-process `rewriteError` (per-leg retry budget exhausts, log instructs restart). `MemoryPressureDetector.gc_pressure` emission stamps `observedGcEvents` + `dedupIdentityMicros` from `_gcOverageStart` (collapses ambient noise to 1 trace event per overage episode). 3 new reproducer tests pin axis stamping + same/distinct-overage identity. No detector raises; distribution unchanged. 2,979 tests passing.
+**v0.19.21** (current) — `RebuildDetector.rebuild_activity.critical` raised to runtimeVerified via `additionalBrackets[0]` (threshold 31, atTolerance 0.65, aboveCeilingMultiplier 2.7); 3 on-device captures at `critical_{below,at,above}.json`; capture screen gains tier dropdown. Memory + platform capture screens add a cross-leg `_persistentRewriteError` flag (once any leg hits persistent post-process shape drift, every other leg short-circuits). New source-grep audit pins the flag wiring. 2,987 tests passing.
 
-**Distribution (current)**: 20/23 reproducerOnly base, 10 effective runtimeVerified family-severity pairs across 8 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity.warning, heavy_compute {warning + critical}).
+**Distribution (current)**: 20/23 reproducerOnly base, 11 effective runtimeVerified family-severity pairs across 8 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}).
 
 ### Recent releases (one-line)
 
+- **v0.19.20** — Capture-screen retry-budget short-circuit (memory + platform); `MemoryPressureDetector.gc_pressure` emission stamps `observedGcEvents` + `dedupIdentityMicros` from `_gcOverageStart`.
 - **v0.19.19** — Capture re-record on iPhone 12 / iOS 17.5 / Flutter 3.41.4 (`heap_growing` + `platform_channel_traffic`, both `legacyObservedAxisAllowlist` entries consumed); `checkDetectorAxisInRoleBand` invariant; capture-screen post-process so `expectedMagnitude.observed` = detector slope/count; axis-fidelity full coverage.
 - **v0.19.18** — `MemoryPressureDetector.heap_growing` `observedSlopeBytesPerSec` plumbing + `checkCapturesCarryObservedAxisArg` capture-fidelity invariant + typed `LegacyObservedAxisEntry` allowlist with `consumeBy` deadline.
 - **v0.19.17** — `FrameTimingDetector.sustained_jank` emission stamps (observedSevereCount/observedJankPercent/bufferSize + `_emissionSeq` dedupIdentityMicros); attempted `sustained_jank.critical` raise withdrawn (axis non-composability); audit gains `checkRuntimeVerifiedRequiresObservedAxisArgKey`.
