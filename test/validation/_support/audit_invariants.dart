@@ -1557,10 +1557,12 @@ List<String> checkCanonicalCoveredThresholdBacking({
 /// conflicting with the default 2.0× ceiling).
 ///
 /// Bounds:
-///   * `observedAxisTolerance`: `0 < x ≤ 0.25`. Matches the schema's
-///     default and current production max; a tighter ceiling forces any
-///     widening past 0.25 to be explicit and reviewed instead of silently
-///     drifting from (e.g.) 0.10 to 0.24.
+///   * `observedAxisTolerance`: `0 < x ≤ 0.65`. Schema default is 0.25;
+///     production max sits at 0.60 (`MemoryPressure.heap_growing` —
+///     iOS allocator overhead pushes detector slope above operator-
+///     measured allocation rate by up to ~56% on profile-mode
+///     captures). The 0.65 ceiling leaves small headroom and forces
+///     explicit review for any future widening.
 ///   * `atTolerance` (canonical or spec): `0 ≤ x ≤ 0.65`. Current
 ///     production max sits at 0.60 (heavy_compute critical); the bound
 ///     leaves small headroom and forces explicit review for any future
@@ -1595,8 +1597,12 @@ List<String> checkBracketBoundsSanity({
     if (observedAxisTolerance <= 0.0 || observedAxisTolerance > 0.25) {
       failures.add('$ctx: observedAxisTolerance=$observedAxisTolerance is '
           'outside the sanity bound (0, 0.25]. The schema default and '
-          'current production max sit at 0.25; widening past it should '
-          'be an explicit, reviewed change rather than silent drift.');
+          'production max sit at 0.25; capture-screen post-processing '
+          'now rewrites `expectedMagnitude.observed` to the detector-'
+          'stamped axis value so the cross-check has near-zero divergence '
+          'by construction. Widening past 0.25 should be an explicit, '
+          'reviewed change tied to a specific drift the post-process '
+          'cannot eliminate.');
     }
     if (atTolerance != null) {
       if (atTolerance < 0.0 || atTolerance > 0.65) {
@@ -1789,7 +1795,11 @@ List<String> checkCapturesCarryObservedAxisArg({
         matched++;
         final args = ev['args'];
         if (args is! Map) continue;
-        final raw = args[argKey];
+        Object? raw = args[argKey];
+        if (raw == null) {
+          final dartArgs = args['Dart Arguments'];
+          if (dartArgs is Map) raw = dartArgs[argKey];
+        }
         num? parsed;
         if (raw is String && raw.isNotEmpty) {
           parsed = num.tryParse(raw);
@@ -1798,17 +1808,20 @@ List<String> checkCapturesCarryObservedAxisArg({
         }
         if (parsed != null) carrying++;
       }
-      if (matched > 0 && carrying == 0) {
+      if (matched > 0 && carrying < matched) {
+        final unstamped = matched - carrying;
         failures.add('$label: $specLabel on stableId="$stableId" '
             'severityLabel="$severityLabel" declares '
             'observedAxisArgKey="$argKey" but the $role capture '
             '($relPath) contains $matched in-span '
-            '"$expectedEventName" event(s) and ZERO carry a '
-            'parseable value for "$argKey". The schema\'s per-record '
-            'cross-check skips silently when the samples list is '
-            'empty, so the bracket\'s observed-axis verification is '
-            'dormant. Either re-record the captures under a producer '
-            'binary that stamps the arg, OR add '
+            '"$expectedEventName" event(s) and only $carrying carry a '
+            'parseable value for "$argKey" ($unstamped unstamped). '
+            'Full coverage is required: the schema\'s per-record '
+            'cross-check and `checkDetectorAxisInRoleBand` reduce over '
+            'the parseable subset, so a producer regression on one '
+            'emission path leaves the unstamped events unaudited. '
+            'Either re-record the captures under a producer binary '
+            'that stamps the arg on every emission path, OR add '
             '"$label:$stableId:$severityLabel" to '
             '`legacyObservedAxisAllowlist` with a `consumeBy` '
             'deadline (see LegacyObservedAxisEntry).');
@@ -1837,6 +1850,305 @@ List<String> checkCapturesCarryObservedAxisArg({
         severityLabel: spec.severityLabel,
         argKey: argKey,
         capturePaths: spec.profileCapturePaths,
+        specLabel: 'additionalBrackets[$i]',
+      );
+    }
+  }
+  return failures;
+}
+
+/// Tier-quality invariant: the detector-stamped axis value (the value
+/// the detector itself observed at firing time, parsed from
+/// `args[observedAxisArgKey]` and reduced per `observedAxisReduction`)
+/// must lie inside the role's bracket band for every at + above
+/// capture.
+///
+/// Why this is separate from the schema's per-record cross-check.
+/// `ProfileCaptureSchema._checkIssueTraceRecordPresent` already checks
+/// the detector value vs. the operator-claimed `expectedMagnitude.observed`
+/// within tolerance, AND the operator value vs. the role's bracket band.
+/// Composing those two checks does NOT imply the detector value is in
+/// the role's bracket band — they share no common reference. A capture
+/// can pass both checks while the detector value sits in a different
+/// role's band entirely (e.g. operator value in at-band, detector value
+/// in above-band, with a tolerance wide enough to absorb the gap).
+/// That mislabel silently passes CI: the bracket triad's evidentiary
+/// claim ("detector fired AT this severity threshold for this leg") is
+/// false even though every individual schema check holds.
+///
+/// Role bands are disjoint here so an above-leg detector value must
+/// strictly exceed the at-band upper edge — even though the schema's
+/// operator-side bands overlap on `(threshold, threshold × (1 + atTolerance)]`
+/// (above starts just above threshold). Disjointness is the property
+/// that makes the role assignment unambiguous from the detector value
+/// alone.
+///
+///   below:  detector silent — skipped (no in-span issue event to
+///           inspect; absence handled by `_requireNoIssueTraceRecord`).
+///   at:     [threshold, threshold × (1 + atTolerance)]  (closed on
+///           both ends; matches schema operator-side band).
+///   above:  (threshold × (1 + atTolerance), threshold × aboveCeilingMultiplier]
+///           (strictly above at-band upper; ≤ above ceiling).
+///
+/// Tier-gated: no-op for `unvalidated` and `reproducerOnly`. Allowlist
+/// shares semantics with `checkCapturesCarryObservedAxisArg`
+/// (`'<label>:<stableId>:<severityLabel>'`).
+List<String> checkDetectorAxisInRoleBand({
+  required String label,
+  required EvidenceTier tier,
+  required String? topLevelStableId,
+  required String? topLevelSeverityLabel,
+  required String? topLevelObservedAxisArgKey,
+  required List<String>? topLevelCapturePaths,
+  required num? topLevelBracketThreshold,
+  required double? topLevelAtTolerance,
+  required double? topLevelAboveCeilingMultiplier,
+  required String topLevelObservedAxisReduction,
+  List<BracketSpec>? additionalBrackets,
+  Set<String> legacyObservedAxisAllowlist = const {},
+  String? repoRoot,
+}) {
+  if (tier != EvidenceTier.runtimeVerified &&
+      tier != EvidenceTier.externallyCited) {
+    return const [];
+  }
+  final rootDirPath = repoRoot ?? Directory.current.path;
+  if (!File(p.join(rootDirPath, 'pubspec.yaml')).existsSync()) {
+    return const [];
+  }
+  final failures = <String>[];
+
+  String? roleBandViolation({
+    required num detectorValue,
+    required String role,
+    required num threshold,
+    required double atTolerance,
+    required double aboveCeilingMultiplier,
+  }) {
+    final atUpper = threshold * (1 + atTolerance);
+    final aboveCeiling = threshold * aboveCeilingMultiplier;
+    switch (role) {
+      case 'at':
+        if (detectorValue < threshold || detectorValue > atUpper) {
+          return 'detector value $detectorValue lies outside at-band '
+              '[$threshold, $atUpper] (threshold × (1 + atTolerance=$atTolerance))';
+        }
+        return null;
+      case 'above':
+        if (detectorValue <= atUpper) {
+          return 'detector value $detectorValue is ≤ at-band upper $atUpper; '
+              'above role requires detector value strictly greater than the '
+              'at-band so the role bands are disjoint at the detector '
+              'axis. The capture\'s operator-claimed value can land in the '
+              'schema\'s overlapping above-band [>threshold, ceiling] but '
+              'the detector value indicates the run reproduced the at-tier '
+              'magnitude, not the above-tier magnitude — re-record with a '
+              'higher allocator/send rate so the detector observes a '
+              'value above $atUpper.';
+        }
+        if (detectorValue > aboveCeiling) {
+          return 'detector value $detectorValue exceeds above ceiling '
+              '$aboveCeiling (threshold × aboveCeilingMultiplier='
+              '$aboveCeilingMultiplier). A detector value above the ceiling '
+              'ambient-brackets the next severity tier; re-record with a '
+              'lower rate so the detector observes a value within '
+              '($atUpper, $aboveCeiling].';
+        }
+        return null;
+      default:
+        return null;
+    }
+  }
+
+  void checkOne({
+    required String stableId,
+    required String severityLabel,
+    required String argKey,
+    required List<String>? capturePaths,
+    required num bracketThreshold,
+    required double atTolerance,
+    required double aboveCeilingMultiplier,
+    required String observedAxisReduction,
+    required String specLabel,
+  }) {
+    if (capturePaths == null || capturePaths.length != 3) return;
+    final allowKey = '$label:$stableId:$severityLabel';
+    if (legacyObservedAxisAllowlist.contains(allowKey)) return;
+    final expectedEventName = 'sleuth.issue.$stableId.$severityLabel';
+    // Convention: profileCapturePaths order is below, at, above. Below
+    // is sub-threshold (detector silent); no in-span issue events
+    // expected, so the role-band check applies to at + above only.
+    for (final entry in [
+      ('at', capturePaths[1]),
+      ('above', capturePaths[2]),
+    ]) {
+      final role = entry.$1;
+      final relPath = entry.$2;
+      final file =
+          File(p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath));
+      if (!file.existsSync()) continue;
+      final raw = file.readAsBytesSync();
+      final root = json.decode(utf8.decode(raw)) as Map<String, Object?>;
+      final events = root['traceEvents'];
+      if (events is! List) {
+        failures.add('$label: $specLabel on stableId="$stableId" '
+            'severityLabel="$severityLabel" $role capture ($relPath) '
+            'is missing the `traceEvents` array. Re-record under a '
+            'producer that emits the v1 wrapped capture shape.');
+        continue;
+      }
+      // Reuse the schema's strict scenario-span finder so this audit
+      // and ProfileCaptureSchema.validateBracket stay in lockstep on
+      // marker presence, exactly-one-pair enforcement, and phase
+      // filtering. Drift between the two would let a capture pass one
+      // gate while failing the other on edge cases (duplicate
+      // markers, malformed phases).
+      int beginTs;
+      int endTs;
+      try {
+        (beginTs, endTs) =
+            ProfileCaptureSchema.findScenarioSpan(events, relPath);
+      } on FormatException catch (e) {
+        failures.add('$label: $specLabel on stableId="$stableId" '
+            'severityLabel="$severityLabel" $role capture ($relPath) '
+            'rejected by scenario-span check: ${e.message}');
+        continue;
+      }
+      // `order` pins tied-ts behavior under `'last'` reduction so the
+      // selection does not depend on Dart's List.sort stability
+      // (TimSort, documented stable from 2.14+ but version-dependent).
+      // Mirrors the schema's per-record cross-check at
+      // ProfileCaptureSchema._checkIssueTraceRecordPresent so both
+      // call sites resolve tied-ts events identically.
+      final samples = <({int ts, int order, num value})>[];
+      var matchCount = 0;
+      for (final ev in events) {
+        if (ev is! Map) continue;
+        if (ev['name'] != expectedEventName) continue;
+        final ts = ev['ts'];
+        if (ts is! num) continue;
+        final tsInt = ts.toInt();
+        if (tsInt < beginTs || tsInt > endTs) continue;
+        matchCount++;
+        final args = ev['args'];
+        if (args is! Map) continue;
+        Object? rawAxis = args[argKey];
+        if (rawAxis == null) {
+          final dartArgs = args['Dart Arguments'];
+          if (dartArgs is Map) rawAxis = dartArgs[argKey];
+        }
+        num? parsed;
+        if (rawAxis is String && rawAxis.isNotEmpty) {
+          parsed = num.tryParse(rawAxis);
+        } else if (rawAxis is num) {
+          parsed = rawAxis;
+        }
+        if (parsed != null) {
+          samples.add((ts: tsInt, order: samples.length, value: parsed));
+        }
+      }
+      // Silent-skip when no in-span issue events at all. The schema's
+      // `_requireIssueTraceRecord` is the load-bearing absence check
+      // for the bracketed (stableId, severity); if matchCount is zero
+      // here, the schema has already rejected.
+      if (matchCount == 0) continue;
+      // Defense-in-depth against partial axis stamping. The companion
+      // invariant `checkCapturesCarryObservedAxisArg` enforces full
+      // coverage via the same `samples.length < matchCount` check; if
+      // it is somehow bypassed (allowlist drift, reduction-strategy
+      // refactor) the role-band check independently rejects so
+      // unstamped emissions cannot ride on a stamped sibling's
+      // in-band reduction.
+      if (samples.length < matchCount) {
+        final unstamped = matchCount - samples.length;
+        failures.add('$label: $specLabel on stableId="$stableId" '
+            'severityLabel="$severityLabel" $role capture ($relPath) '
+            'contains $matchCount in-span "$expectedEventName" event(s) '
+            'but only ${samples.length} carry a parseable value for '
+            '"$argKey" ($unstamped unstamped). Role-band reduction '
+            'over a parseable subset would silently certify a value '
+            'computed from a cherry-picked subset of emissions, while '
+            'the unstamped siblings stay unaudited. Re-record the '
+            'capture under a producer binary that stamps the arg on '
+            'every emission path.');
+        continue;
+      }
+      late num reduced;
+      switch (observedAxisReduction) {
+        case 'last':
+          samples.sort((a, b) {
+            final byTs = a.ts.compareTo(b.ts);
+            if (byTs != 0) return byTs;
+            return a.order.compareTo(b.order);
+          });
+          reduced = samples.last.value;
+          break;
+        case 'max':
+        default:
+          reduced = samples
+              .map((s) => s.value)
+              .reduce((a, b) => a.toDouble() > b.toDouble() ? a : b);
+      }
+      final violation = roleBandViolation(
+        detectorValue: reduced,
+        role: role,
+        threshold: bracketThreshold,
+        atTolerance: atTolerance,
+        aboveCeilingMultiplier: aboveCeilingMultiplier,
+      );
+      if (violation != null) {
+        failures.add('$label: $specLabel on stableId="$stableId" '
+            'severityLabel="$severityLabel" $role capture ($relPath) '
+            '$violation. The schema\'s bracket-band check uses the '
+            'operator-claimed `expectedMagnitude.observed` and may pass '
+            'while the detector-stamped value falls in a different role\'s '
+            'band — that mislabels the role even though every individual '
+            'schema check holds. A `runtimeVerified` capture must reproduce '
+            'the role-tier magnitude AT THE DETECTOR, not just at the '
+            'operator measurement.');
+      }
+    }
+  }
+
+  if (topLevelStableId != null &&
+      topLevelSeverityLabel != null &&
+      topLevelObservedAxisArgKey != null &&
+      topLevelBracketThreshold != null &&
+      topLevelAtTolerance != null &&
+      topLevelAboveCeilingMultiplier != null) {
+    checkOne(
+      stableId: topLevelStableId,
+      severityLabel: topLevelSeverityLabel,
+      argKey: topLevelObservedAxisArgKey,
+      capturePaths: topLevelCapturePaths,
+      bracketThreshold: topLevelBracketThreshold,
+      atTolerance: topLevelAtTolerance,
+      aboveCeilingMultiplier: topLevelAboveCeilingMultiplier,
+      observedAxisReduction: topLevelObservedAxisReduction,
+      specLabel: 'canonical bracket',
+    );
+  }
+  if (additionalBrackets != null) {
+    for (var i = 0; i < additionalBrackets.length; i++) {
+      final spec = additionalBrackets[i];
+      final argKey = spec.observedAxisArgKey;
+      if (argKey == null) continue;
+      checkOne(
+        stableId: spec.stableId,
+        severityLabel: spec.severityLabel,
+        argKey: argKey,
+        capturePaths: spec.profileCapturePaths,
+        bracketThreshold: spec.threshold,
+        // BracketSpec atTolerance/aboveCeilingMultiplier mirror schema
+        // defaults when null (see ProfileCaptureSchema.defaultAtTolerance
+        // / defaultAboveCeilingMultiplier). Mirror that fallback here so
+        // a spec that omits the override gets the same role-band as the
+        // schema's bracket-band check uses.
+        atTolerance:
+            spec.atTolerance ?? ProfileCaptureSchema.defaultAtTolerance,
+        aboveCeilingMultiplier: spec.aboveCeilingMultiplier ??
+            ProfileCaptureSchema.defaultAboveCeilingMultiplier,
+        observedAxisReduction: spec.observedAxisReduction,
         specLabel: 'additionalBrackets[$i]',
       );
     }
@@ -2372,6 +2684,21 @@ List<String> runRuntimeTierAudit({
     topLevelSeverityLabel: meta.bracketSeverityLabel,
     topLevelObservedAxisArgKey: meta.observedAxisArgKey,
     topLevelCapturePaths: meta.profileCapturePaths,
+    additionalBrackets: meta.additionalBrackets,
+    legacyObservedAxisAllowlist: legacyObservedAxisAllowlist,
+    repoRoot: repoRoot,
+  ));
+  failures.addAll(checkDetectorAxisInRoleBand(
+    label: label,
+    tier: meta.effectiveMaxTier,
+    topLevelStableId: meta.bracketStableId,
+    topLevelSeverityLabel: meta.bracketSeverityLabel,
+    topLevelObservedAxisArgKey: meta.observedAxisArgKey,
+    topLevelCapturePaths: meta.profileCapturePaths,
+    topLevelBracketThreshold: meta.bracketThreshold,
+    topLevelAtTolerance: meta.bracketAtTolerance,
+    topLevelAboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+    topLevelObservedAxisReduction: meta.observedAxisReduction,
     additionalBrackets: meta.additionalBrackets,
     legacyObservedAxisAllowlist: legacyObservedAxisAllowlist,
     repoRoot: repoRoot,

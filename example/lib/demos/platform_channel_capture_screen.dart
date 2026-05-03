@@ -113,13 +113,27 @@ class PlatformChannelCaptureScreen extends StatefulWidget {
 // Detector threshold (warning tier).
 const _warningThresholdCallsPerSec = 20;
 
-// Per-leg target rates (calls/sec) and batch geometry.
-//   below: 3 calls / 200 ms = 15/sec
-//   at:    5 calls / 200 ms = 25/sec
-//   above: 7 calls / 200 ms = 35/sec
+// Per-leg target *operator-send* rates (calls/sec) and batch geometry.
+// In-band gating uses the DETECTOR-stamped count (parsed from the
+// capture's in-span `args.observedCount` and re-injected into the
+// JSON's `expectedMagnitude.observed`), not the operator send rate.
+// iOS scheduling and `MethodChannel` coalescing skew detector count
+// vs. operator send count by ±10–20 % depending on thermal state.
+// Operator targets pick rates that LAND THE DETECTOR mid-band on a
+// typical iPhone 12; retries refine.
+//
+//   below band (operator < 20/sec, detector silent) →
+//                                     3 calls / 200 ms = 15/sec
+//   at    band (detector ∈ [20, 30]) → 5 calls / 200 ms = 25/sec
+//   above band (detector ∈ [31, 39]) → 9 calls / 200 ms = 45/sec
+//                                     (operator overshoots ~+30 %
+//                                     above-band so coalescing leaves
+//                                     detector count in band; previous
+//                                     7/200ms produced detector ~28 in
+//                                     at-band, mislabeling above-leg)
 const _belowCallsPerBatch = 3;
 const _atCallsPerBatch = 5;
-const _aboveCallsPerBatch = 7;
+const _aboveCallsPerBatch = 9;
 const _batchTickMs = 200;
 
 const _belowTargetCps = _belowCallsPerBatch * 1000 ~/ _batchTickMs;
@@ -327,96 +341,138 @@ class _PlatformChannelCaptureScreenState
       );
       if (!mounted) return;
 
-      // `measuredCps` is the SEND rate (per-iteration counter / wall
+      // `operatorCps` is the SEND rate (per-iteration counter / wall
       // clock), NOT the rate the detector observed at parser entry.
       // iOS coalescing, missed `b` events under thermal pressure, or
-      // a `debugProfilePlatformChannels` flag race could produce a
-      // gap between sent and observed counts. Schema bracket math
-      // validates against this number; the trace record confirms the
-      // detector fired at the claimed severity but does NOT carry
-      // the observed count back into the capture for cross-check.
-      // If a future capture's `magnitudeObserved` lands in the warning
-      // band but the trace record carries the critical severity name,
-      // the validator rejects with "found 0 warning records" — the
-      // signal that send-rate diverged from observed-rate enough to
-      // cross a severity boundary. Re-record with reduced batch size
-      // to recover headroom.
-      final measuredCps = totalCallsSent / (callPhaseElapsedMs / 1000.0);
-      final inBand = leg.isCpsInBand(measuredCps);
+      // a `debugProfilePlatformChannels` flag race produces a gap
+      // between sent and observed counts. Detector-stamped
+      // `observedCount` (parsed back out of the wrapped capture and
+      // re-injected into `expectedMagnitude.observed`) is the
+      // authoritative number the role band is judged against. Operator
+      // rate is the wheel the operator turns.
+      final operatorCps = totalCallsSent / (callPhaseElapsedMs / 1000.0);
 
-      // Compose-then-stash: snapshot the wrapped capture JSON
-      // immediately while scenario markers are still present in the
-      // VM trace buffer.
       String? stashed;
-      if (inBand) {
-        try {
-          stashed = await Sleuth.exportCaptureJson(
-            scenario: 'platform_channel_traffic_${leg.label}',
-            role: leg.label,
-            // Schema requires magnitudeMin > 0. Below leg's cpsMin is
-            // 1 (not 0) by construction so no clamp needed.
-            magnitudeMin: leg.cpsMin.toDouble(),
-            magnitudeObserved: measuredCps,
-            magnitudeMax: leg.cpsMax.toDouble(),
-            unit: 'events',
-            device: 'iPhone 12',
-            deviceOsVersion: 'iOS 17.5',
-            flutterVersion: '3.41.4',
-            captureCommand:
-                'fvm flutter run --profile -d "iPhone 12" '
-                '--dart-define=SLEUTH_CAPTURE_MODE=true',
-            // platform_channel_traffic's source events are
-            // per-call `Platform Channel send …` async TimelineTask
-            // events, not BUILDs — skip BUILD-derivation so the
-            // operator's measured rate is the authoritative observed
-            // magnitude.
-            magnitudeSourceEventName: '',
-          );
-        } catch (_) {
-          stashed = null;
+      try {
+        stashed = await Sleuth.exportCaptureJson(
+          scenario: 'platform_channel_traffic_${leg.label}',
+          role: leg.label,
+          // Schema requires magnitudeMin > 0. Below leg's cpsMin is
+          // 1 (not 0) by construction so no clamp needed.
+          magnitudeMin: leg.cpsMin.toDouble(),
+          magnitudeObserved: operatorCps,
+          magnitudeMax: leg.cpsMax.toDouble(),
+          unit: 'events',
+          device: 'iPhone 12',
+          deviceOsVersion: 'iOS 17.5',
+          flutterVersion: '3.41.4',
+          captureCommand:
+              'fvm flutter run --profile -d "iPhone 12" '
+              '--dart-define=SLEUTH_CAPTURE_MODE=true',
+          // platform_channel_traffic's source events are
+          // per-call `Platform Channel send …` async TimelineTask
+          // events, not BUILDs — skip BUILD-derivation. The
+          // post-process step replaces the placeholder with detector
+          // count.
+          magnitudeSourceEventName: '',
+        );
+      } catch (_) {
+        stashed = null;
+      }
+
+      double? detectorCps;
+      String? rewrittenJson;
+      String? rewriteError;
+      if (stashed != null) {
+        detectorCps = _extractDetectorCountFromCapture(stashed, leg);
+        if (detectorCps != null) {
+          try {
+            rewrittenJson = _replaceExpectedObserved(stashed, detectorCps);
+          } on StateError catch (e) {
+            rewriteError = e.message;
+          }
+        } else if (leg == _ChannelLeg.below) {
+          rewrittenJson = stashed;
         }
+      }
+
+      bool inBand;
+      if (leg == _ChannelLeg.below) {
+        inBand = leg.isCpsInBand(operatorCps);
+      } else {
+        inBand = detectorCps != null && leg.isCpsInBand(detectorCps);
       }
 
       if (!mounted) return;
       final marker = inBand ? '✓ IN-BAND' : '✗ OUT-OF-BAND';
+      final reportedCps = leg == _ChannelLeg.below
+          ? operatorCps
+          : (detectorCps ?? operatorCps);
       setState(() {
         _busy = false;
         _lastCompletedLeg = inBand ? leg : null;
-        _lastMeasuredCps = inBand ? measuredCps : null;
-        _stashedCaptureJson = stashed;
+        _lastMeasuredCps = inBand ? reportedCps : null;
+        _stashedCaptureJson = inBand ? rewrittenJson : null;
+        final ratio = (detectorCps != null && operatorCps > 0)
+            ? (detectorCps / operatorCps).toStringAsFixed(2)
+            : null;
         _log.add(
           '[${leg.label}] $marker — '
-          'measured ${measuredCps.toStringAsFixed(1)} calls/sec '
-          '($totalCallsSent calls over '
+          'operator ${operatorCps.toStringAsFixed(1)} calls/sec, '
+          'detector ${detectorCps == null ? '(silent)' : '${detectorCps.toStringAsFixed(1)} calls/sec'}'
+          '${ratio == null ? '' : ' (det/op ratio $ratio)'} '
+          '($totalCallsSent sent over '
           '${(callPhaseElapsedMs / 1000).toStringAsFixed(2)} s, '
-          '$batchFailures failures)',
+          '$batchFailures failures; role-band uses '
+          '${leg == _ChannelLeg.below ? 'operator' : 'detector'}: '
+          '[${leg.cpsMin}, ${leg.cpsMax}] calls/sec)',
         );
         if (inBand) {
           _activeRetryLeg = null;
-          if (stashed != null) {
+          if (rewrittenJson != null) {
             _log.add(
-              '[${leg.label}] capture stashed (${stashed.length} chars) '
+              '[${leg.label}] capture stashed (${rewrittenJson.length} chars) '
               '— tap "Export last leg" to copy to clipboard.',
             );
-          } else {
+          }
+        } else {
+          if (stashed == null) {
             _log.add(
               '[${leg.label}] capture FAILED to compose. Check the '
-              'flutter run terminal — Sleuth.exportCaptureJson now '
-              'logs the exact reason via debugPrint (VM client null, '
-              'VM client disconnected, empty trace buffer, or '
-              'scenario markers not found). Most common cause when '
+              'flutter run terminal — Sleuth.exportCaptureJson logs the '
+              'exact reason via debugPrint (VM client null, VM client '
+              'disconnected, empty trace buffer, or scenario markers '
+              'not found). Most common cause when '
               '--dart-define=SLEUTH_CAPTURE_MODE=true was passed: '
               'iOS auto-locked the screen during the leg and the VM '
               'service connection dropped. Keep the screen on and '
               'foreground; re-tap after fixing.',
             );
+          } else if (rewriteError != null) {
+            _log.add(
+              '[${leg.label}] post-process FAILED — $rewriteError. The '
+              'wrapped capture shape changed; update '
+              '_replaceExpectedObserved in this screen to match the new '
+              'sleuthMetadata layout before re-tapping.',
+            );
+          } else if (leg != _ChannelLeg.below && detectorCps == null) {
+            _log.add(
+              '[${leg.label}] capture has no detector count arg in any '
+              'in-span platform_channel_traffic.warning event. Detector '
+              'did not fire in scenario span. Likely cause: parser '
+              'dropped channel events because '
+              'debugProfilePlatformChannels was not enabled, or iOS '
+              'coalesced parallel calls. Re-tap.',
+            );
+          } else {
+            _log.add(
+              '[${leg.label}] retry: detector count '
+              '${detectorCps?.toStringAsFixed(1) ?? '?'} calls/sec '
+              'missed band. Adjust batch size so detector lands in '
+              '[${leg.cpsMin}, ${leg.cpsMax}] calls/sec. Do NOT export '
+              'an out-of-band run.',
+            );
           }
-        } else {
-          _log.add(
-            '[${leg.label}] retry: tap ${leg.label} again — iOS '
-            'scheduling jitter pushed the rate out of band. Do NOT '
-            'export an out-of-band run.',
-          );
         }
       });
     } finally {
@@ -648,6 +704,117 @@ class _PlatformChannelCaptureScreenState
     return null;
   }
 
+  /// Walks the wrapped capture's `traceEvents` for in-span
+  /// `sleuth.issue.platform_channel_traffic.warning` events and returns
+  /// the maximum `args.observedCount` value the detector stamped during
+  /// the scenario. Returns null when the detector did not fire (below
+  /// leg) or the arg is missing/unparseable. Reduction `'max'` matches
+  /// the schema's per-record cross-check on this stableId.
+  double? _extractDetectorCountFromCapture(String json, _ChannelLeg leg) {
+    Map<String, dynamic> wrapped;
+    try {
+      wrapped = jsonDecode(json) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+    final traceEvents = wrapped['traceEvents'];
+    if (traceEvents is! List) return null;
+    final scenarioName = 'platform_channel_traffic_${leg.label}';
+    int? beginTs;
+    int? endTs;
+    for (final raw in traceEvents) {
+      if (raw is! Map<String, dynamic>) continue;
+      final name = raw['name'];
+      final ts = raw['ts'];
+      if (ts is! num) continue;
+      if (name != 'sleuth.scenario.begin' && name != 'sleuth.scenario.end') {
+        continue;
+      }
+      String? markerName;
+      final args = raw['args'];
+      if (args is Map) {
+        final direct = args['name'];
+        if (direct is String) markerName = direct;
+        final dartArgs = args['Dart Arguments'];
+        if (markerName == null && dartArgs is Map) {
+          final inner = dartArgs['name'];
+          if (inner is String) markerName = inner;
+        }
+      }
+      if (markerName != scenarioName) continue;
+      if (name == 'sleuth.scenario.begin') beginTs = ts.toInt();
+      if (name == 'sleuth.scenario.end') endTs = ts.toInt();
+    }
+    if (beginTs == null || endTs == null) return null;
+    const eventName = 'sleuth.issue.platform_channel_traffic.warning';
+    double? max;
+    for (final raw in traceEvents) {
+      if (raw is! Map<String, dynamic>) continue;
+      if (raw['name'] != eventName) continue;
+      final ts = raw['ts'];
+      if (ts is! num) continue;
+      final tsInt = ts.toInt();
+      if (tsInt < beginTs || tsInt > endTs) continue;
+      final args = raw['args'];
+      if (args is! Map) continue;
+      // Some VM service exports nest user-supplied trace args under
+      // a top-level `Dart Arguments` map. Mirror the scenario-marker
+      // name lookup so detector count extraction stays active under
+      // either shape.
+      Object? axis = args['observedCount'];
+      if (axis == null) {
+        final dartArgs = args['Dart Arguments'];
+        if (dartArgs is Map) axis = dartArgs['observedCount'];
+      }
+      double? parsed;
+      if (axis is String && axis.isNotEmpty) {
+        parsed = double.tryParse(axis);
+      } else if (axis is num) {
+        parsed = axis.toDouble();
+      }
+      if (parsed == null) continue;
+      if (max == null || parsed > max) max = parsed;
+    }
+    return max;
+  }
+
+  /// Returns a copy of [json] with `sleuthMetadata.expectedMagnitude.observed`
+  /// rewritten to [observed]. Eliminates operator-vs-detector divergence
+  /// by construction so the schema bracket-band check, the per-record
+  /// cross-check, and `checkDetectorAxisInRoleBand` all reduce to the
+  /// same authoritative number.
+  ///
+  /// Throws [StateError] when the target field is missing — a silent
+  /// no-op would let an exported capture keep the operator-value
+  /// placeholder in `expectedMagnitude.observed`, regressing the
+  /// schema bracket-band check on a future schema-shape change.
+  String _replaceExpectedObserved(String json, double observed) {
+    final root = jsonDecode(json) as Map<String, dynamic>;
+    final meta = root['sleuthMetadata'];
+    if (meta is! Map<String, dynamic>) {
+      throw StateError(
+        'sleuthMetadata is missing or not a Map in stashed capture; '
+        'wrapped capture shape may have changed in a Sleuth release. '
+        'Update _replaceExpectedObserved before exporting captures.',
+      );
+    }
+    final expected = meta['expectedMagnitude'];
+    if (expected is! Map<String, dynamic>) {
+      throw StateError(
+        'sleuthMetadata.expectedMagnitude is missing or not a Map in '
+        'stashed capture; wrapped capture shape may have changed.',
+      );
+    }
+    if (!expected.containsKey('observed')) {
+      throw StateError(
+        'sleuthMetadata.expectedMagnitude.observed is missing in stashed '
+        'capture; wrapped capture shape may have changed.',
+      );
+    }
+    expected['observed'] = observed;
+    return const JsonEncoder.withIndent('  ').convert(root);
+  }
+
   @override
   Widget build(BuildContext context) {
     final ready = !_busy;
@@ -679,17 +846,20 @@ class _PlatformChannelCaptureScreenState
             ),
             const SizedBox(height: 8),
             _CaptureButton(
-              label: 'At ($_atTargetCps calls/sec) — warning',
-              subtitle: 'In [20, 30] at-band (±50% tolerance)',
+              label: 'At (op $_atTargetCps calls/sec) — warning',
+              subtitle:
+                  'Detector count must land in [20, 30] '
+                  '(operator ≈ detector on this leg)',
               enabled: ready,
               onTap: () => _runLeg(_ChannelLeg.at),
             ),
             const SizedBox(height: 8),
             _CaptureButton(
-              label: 'Above ($_aboveTargetCps calls/sec) — warning',
+              label: 'Above (op $_aboveTargetCps calls/sec) — warning',
               subtitle:
-                  'In [31, 39] above-band (1.95× ceiling, '
-                  'under critical = 41)',
+                  'Detector count must land in [31, 39] '
+                  '(operator overshoots; iOS coalescing reduces detector '
+                  'count by ~20%; under critical=41)',
               enabled: ready,
               onTap: () => _runLeg(_ChannelLeg.above),
             ),

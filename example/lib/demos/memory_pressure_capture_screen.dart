@@ -90,18 +90,39 @@ class MemoryPressureCaptureScreen extends StatefulWidget {
 // Detector threshold (warning tier).
 const _warningThresholdBytesPerSec = 512000;
 
-// Per-leg target rates (bytes/sec). Mid-band picks absorb iPhone GC
-// variance (±20–30 %) and stay disjoint at the at/above boundary.
+// Per-leg target *operator-allocator* rates (bytes/sec). The screen
+// gates each at + above leg on the DETECTOR-stamped slope (parsed back
+// out of the wrapped capture and re-injected into the JSON's
+// `expectedMagnitude.observed`), not on the operator rate. Operator
+// rate is the wheel the operator turns; detector slope is what the
+// role band is judged against. iPhone 12 / iOS 17.5 / Flutter 3.41.x
+// captures show detector slope tracks ~25–55 % above operator rate
+// because the allocator chunk overhead, GC compactor moves, and
+// ambient framework allocations all contribute to the regression
+// slope but not to `totalAllocated / elapsed`. Initial targets pick
+// operator rates that LAND THE DETECTOR mid-band on a typical
+// iPhone 12 — adaptive recalibration after each leg refines the next
+// attempt.
 //
-//   below band [0, 511 999]    → target 350 000 (±20 % keeps [280k, 420k]
-//                                 well below 512k threshold)
-//   at    band [512 000, 768 000] → target 640 000 (±15 % keeps
-//                                   [544k, 736k] inside band)
-//   above band [800 000, 1 024 000] → target 920 000 (±10 % keeps
-//                                     [828k, 1012k] inside band)
+//   below band (detector silent <512 KB/s) → operator 350 000 KB/s
+//                                            (detector typically
+//                                            ~400–470, well under
+//                                            threshold)
+//   at    band [512 000, 768 000] (detector slope) → operator 420 000
+//                                                    KB/s (~+50 %
+//                                                    drift → detector
+//                                                    ~600–680, mid-band)
+//   above band (768 000, 1 024 000] (detector slope) → operator 820 000
+//                                                      KB/s (~+12 %
+//                                                      drift on hotter
+//                                                      allocator →
+//                                                      detector
+//                                                      ~880–940, in
+//                                                      band, well
+//                                                      under 1024 ceiling)
 const _belowTargetBps = 350000;
-const _atTargetBps = 640000;
-const _aboveTargetBps = 920000;
+const _atTargetBps = 420000;
+const _aboveTargetBps = 820000;
 
 // Allocation runs in 50 ms ticks. Per-tick byte count =
 // `_bytesPerMs * _allocationTickMs`. Smaller ticks give smoother slope;
@@ -349,8 +370,7 @@ class _MemoryPressureCaptureScreenState
       streamsSuspended = false;
       if (!mounted) return;
 
-      final measuredBps = totalAllocated / (allocationElapsedMs / 1000.0);
-      final inBand = leg.isBpsInBand(measuredBps);
+      final operatorBps = totalAllocated / (allocationElapsedMs / 1000.0);
 
       // Adaptive learning: refine `_bytesPerMs` from this leg's actual
       // throughput so the next attempt converges faster.
@@ -358,69 +378,111 @@ class _MemoryPressureCaptureScreenState
         _bytesPerMs = totalAllocated / allocationElapsedMs;
       }
 
-      // Compose-then-stash: snapshot the wrapped capture JSON
-      // immediately while scenario markers are still present in the VM
-      // trace buffer. If we deferred this to the operator's Export tap,
-      // tens of seconds of subsequent buffer churn could roll the
-      // scenario.begin marker off the ring buffer and exportCaptureJson
-      // would return null.
+      // Compose first against the operator-measured rate so the wrapped
+      // JSON shape is valid. The post-process step below replaces
+      // `expectedMagnitude.observed` with the detector-stamped slope so
+      // the bracket-band check, the schema's per-record cross-check, and
+      // the audit's `checkDetectorAxisInRoleBand` invariant all reduce
+      // to the same authoritative number — the value the detector
+      // itself observed at firing time. Operator rate is the wheel the
+      // operator turns; detector slope is the value the role band is
+      // judged against.
       String? stashed;
-      if (inBand) {
-        try {
-          stashed = await Sleuth.exportCaptureJson(
-            scenario: 'memory_pressure_heap_growing_${leg.label}',
-            role: leg.label,
-            // Schema requires magnitudeMin > 0. Below leg's bpsMin is
-            // 0, so clamp to a small positive epsilon (1 byte/sec) —
-            // still strictly under the 512 KB/s threshold for the
-            // bracket semantics, but satisfies the schema's "strictly
-            // positive" invariant.
-            magnitudeMin: leg.bpsMin == 0 ? 1.0 : leg.bpsMin.toDouble(),
-            magnitudeObserved: measuredBps,
-            magnitudeMax: leg.bpsMax.toDouble(),
-            unit: 'bytes/sec',
-            device: 'iPhone 12',
-            deviceOsVersion: 'iOS 17.5',
-            flutterVersion: '3.41.4',
-            captureCommand:
-                'fvm flutter run --profile -d "iPhone 12" '
-                '--dart-define=SLEUTH_CAPTURE_MODE=true',
-            // heap_growing's source event is the VM heap sample, not a
-            // BUILD timeline event — skip BUILD-derivation. Empty
-            // string → operator's measured rate is the authoritative
-            // observed magnitude.
-            magnitudeSourceEventName: '',
-          );
-        } catch (_) {
-          stashed = null;
+      try {
+        stashed = await Sleuth.exportCaptureJson(
+          scenario: 'memory_pressure_heap_growing_${leg.label}',
+          role: leg.label,
+          // Schema requires magnitudeMin > 0. Below leg's bpsMin is
+          // 0, so clamp to a small positive epsilon (1 byte/sec) —
+          // still strictly under the 512 KB/s threshold for the
+          // bracket semantics, but satisfies the schema's "strictly
+          // positive" invariant.
+          magnitudeMin: leg.bpsMin == 0 ? 1.0 : leg.bpsMin.toDouble(),
+          magnitudeObserved: operatorBps,
+          magnitudeMax: leg.bpsMax.toDouble(),
+          unit: 'bytes/sec',
+          device: 'iPhone 12',
+          deviceOsVersion: 'iOS 17.5',
+          flutterVersion: '3.41.4',
+          captureCommand:
+              'fvm flutter run --profile -d "iPhone 12" '
+              '--dart-define=SLEUTH_CAPTURE_MODE=true',
+          // heap_growing's source event is the VM heap sample, not a
+          // BUILD timeline event — skip BUILD-derivation. The
+          // post-process step replaces the placeholder with detector
+          // slope.
+          magnitudeSourceEventName: '',
+        );
+      } catch (_) {
+        stashed = null;
+      }
+
+      double? detectorBps;
+      String? rewrittenJson;
+      String? rewriteError;
+      if (stashed != null) {
+        detectorBps = _extractDetectorSlopeFromCapture(stashed, leg);
+        if (detectorBps != null) {
+          try {
+            rewrittenJson = _replaceExpectedObserved(stashed, detectorBps);
+          } on StateError catch (e) {
+            rewriteError = e.message;
+          }
+        } else if (leg == _MemoryLeg.below) {
+          // Below leg: detector is silent by design (no in-span issue
+          // event). Authoritative value is the operator-measured
+          // sub-threshold rate.
+          rewrittenJson = stashed;
         }
+      }
+
+      // For at + above: in-band uses detector slope (the value the role
+      // band is enforced against). For below: operator rate (detector
+      // silent). When the detector value is missing from at/above the
+      // run is unusable — surface as out-of-band and keep nothing.
+      bool inBand;
+      if (leg == _MemoryLeg.below) {
+        inBand = leg.isBpsInBand(operatorBps);
+      } else {
+        inBand = detectorBps != null && leg.isBpsInBand(detectorBps);
       }
 
       if (!mounted) return;
       final marker = inBand ? '✓ IN-BAND' : '✗ OUT-OF-BAND';
+      final reportedBps = (leg == _MemoryLeg.below
+          ? operatorBps
+          : (detectorBps ?? operatorBps));
       setState(() {
         _busy = false;
         _lastCompletedLeg = inBand ? leg : null;
-        _lastMeasuredBps = inBand ? measuredBps : null;
-        _stashedCaptureJson = stashed;
+        _lastMeasuredBps = inBand ? reportedBps : null;
+        _stashedCaptureJson = inBand ? rewrittenJson : null;
+        final ratio = (detectorBps != null && operatorBps > 0)
+            ? (detectorBps / operatorBps).toStringAsFixed(2)
+            : null;
         _log.add(
           '[${leg.label}] $marker — '
-          'measured ${(measuredBps / 1024).toStringAsFixed(0)} KB/s '
-          '(allocated ${(totalAllocated / 1024).toStringAsFixed(0)} KB '
-          'over ${(allocationElapsedMs / 1000).toStringAsFixed(1)} s)',
+          'operator ${(operatorBps / 1024).toStringAsFixed(0)} KB/s, '
+          'detector ${detectorBps == null ? '(silent)' : '${(detectorBps / 1024).toStringAsFixed(0)} KB/s'}'
+          '${ratio == null ? '' : ' (det/op ratio $ratio)'} '
+          '(role-band uses ${leg == _MemoryLeg.below ? 'operator' : 'detector'}: '
+          '[${(leg.bpsMin / 1024).toStringAsFixed(0)}, '
+          '${(leg.bpsMax / 1024).toStringAsFixed(0)}] KB/s)',
         );
         if (inBand) {
           _activeRetryLeg = null;
-          if (stashed != null) {
+          if (rewrittenJson != null) {
             _log.add(
-              '[${leg.label}] capture stashed (${stashed.length} chars) — '
+              '[${leg.label}] capture stashed (${rewrittenJson.length} chars) — '
               'tap "Export last leg" to copy to clipboard.',
             );
-          } else {
+          }
+        } else {
+          if (stashed == null) {
             _log.add(
               '[${leg.label}] capture FAILED to compose. Check the '
               'flutter run terminal / Xcode device console — '
-              'Sleuth.exportCaptureJson now logs the exact reason via '
+              'Sleuth.exportCaptureJson logs the exact reason via '
               'debugPrint (VM client null, VM client disconnected, '
               'empty trace buffer, or scenario markers not found). The '
               'most common cause when --dart-define=SLEUTH_CAPTURE_MODE'
@@ -430,13 +492,34 @@ class _MemoryPressureCaptureScreenState
               'the VM service connection). Keep the screen on and '
               'foreground while the leg runs; re-tap after fixing.',
             );
+          } else if (rewriteError != null) {
+            _log.add(
+              '[${leg.label}] post-process FAILED — $rewriteError. The '
+              'wrapped capture shape changed; update '
+              '_replaceExpectedObserved in this screen to match the new '
+              'sleuthMetadata layout before re-tapping.',
+            );
+          } else if (leg != _MemoryLeg.below && detectorBps == null) {
+            _log.add(
+              '[${leg.label}] capture has no detector slope arg in any '
+              'in-span heap_growing.warning event. Detector did not '
+              'fire in scenario span. Likely cause: pre-scenario flat '
+              'heap samples in the 30 s regression window dampened '
+              'slope below threshold. Allocate longer or at higher '
+              'rate. Re-tap.',
+            );
+          } else {
+            _log.add(
+              '[${leg.label}] retry: detector slope '
+              '${detectorBps == null ? '?' : (detectorBps / 1024).toStringAsFixed(0)} '
+              'KB/s missed band. Adjust target rate (current operator '
+              '${_bytesPerMs!.toStringAsFixed(0)} bytes/ms) so the '
+              'detector slope lands in '
+              '[${(leg.bpsMin / 1024).toStringAsFixed(0)}, '
+              '${(leg.bpsMax / 1024).toStringAsFixed(0)}] KB/s. Do NOT '
+              'export an out-of-band run.',
+            );
           }
-        } else {
-          _log.add(
-            '[${leg.label}] retry: tap ${leg.label} again — rate refined '
-            'to ${_bytesPerMs!.toStringAsFixed(0)} bytes/ms; next attempt '
-            'should land closer to band. Do NOT export an out-of-band run.',
-          );
         }
       });
     } finally {
@@ -629,6 +712,117 @@ class _MemoryPressureCaptureScreenState
     return null;
   }
 
+  /// Walks the wrapped capture's `traceEvents` for in-span
+  /// `sleuth.issue.heap_growing.warning` events and returns the maximum
+  /// `args.observedSlopeBytesPerSec` value the detector stamped during
+  /// the scenario. Returns null when the detector did not fire (below
+  /// leg) or the arg is missing/unparseable. Reduction strategy `'max'`
+  /// matches the schema's per-record cross-check on this stableId.
+  double? _extractDetectorSlopeFromCapture(String json, _MemoryLeg leg) {
+    Map<String, dynamic> wrapped;
+    try {
+      wrapped = jsonDecode(json) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+    final traceEvents = wrapped['traceEvents'];
+    if (traceEvents is! List) return null;
+    final scenarioName = 'memory_pressure_heap_growing_${leg.label}';
+    int? beginTs;
+    int? endTs;
+    for (final raw in traceEvents) {
+      if (raw is! Map<String, dynamic>) continue;
+      final name = raw['name'];
+      final ts = raw['ts'];
+      if (ts is! num) continue;
+      if (name != 'sleuth.scenario.begin' && name != 'sleuth.scenario.end') {
+        continue;
+      }
+      String? markerName;
+      final args = raw['args'];
+      if (args is Map) {
+        final direct = args['name'];
+        if (direct is String) markerName = direct;
+        final dartArgs = args['Dart Arguments'];
+        if (markerName == null && dartArgs is Map) {
+          final inner = dartArgs['name'];
+          if (inner is String) markerName = inner;
+        }
+      }
+      if (markerName != scenarioName) continue;
+      if (name == 'sleuth.scenario.begin') beginTs = ts.toInt();
+      if (name == 'sleuth.scenario.end') endTs = ts.toInt();
+    }
+    if (beginTs == null || endTs == null) return null;
+    const eventName = 'sleuth.issue.heap_growing.warning';
+    double? max;
+    for (final raw in traceEvents) {
+      if (raw is! Map<String, dynamic>) continue;
+      if (raw['name'] != eventName) continue;
+      final ts = raw['ts'];
+      if (ts is! num) continue;
+      final tsInt = ts.toInt();
+      if (tsInt < beginTs || tsInt > endTs) continue;
+      final args = raw['args'];
+      if (args is! Map) continue;
+      // Some VM service exports nest user-supplied trace args under
+      // a top-level `Dart Arguments` map. Mirror the scenario-marker
+      // name lookup so detector slope extraction stays active under
+      // either shape.
+      Object? axis = args['observedSlopeBytesPerSec'];
+      if (axis == null) {
+        final dartArgs = args['Dart Arguments'];
+        if (dartArgs is Map) axis = dartArgs['observedSlopeBytesPerSec'];
+      }
+      double? parsed;
+      if (axis is String && axis.isNotEmpty) {
+        parsed = double.tryParse(axis);
+      } else if (axis is num) {
+        parsed = axis.toDouble();
+      }
+      if (parsed == null) continue;
+      if (max == null || parsed > max) max = parsed;
+    }
+    return max;
+  }
+
+  /// Returns a copy of [json] with `sleuthMetadata.expectedMagnitude.observed`
+  /// rewritten to [observed]. Eliminates the operator-vs-detector
+  /// divergence by construction so the schema bracket-band check, the
+  /// per-record cross-check, and `checkDetectorAxisInRoleBand` all
+  /// reduce to the same authoritative number.
+  ///
+  /// Throws [StateError] when the target field is missing — a silent
+  /// no-op would let an exported capture keep the operator-value
+  /// placeholder in `expectedMagnitude.observed`, regressing the
+  /// schema bracket-band check on a future schema-shape change.
+  String _replaceExpectedObserved(String json, double observed) {
+    final root = jsonDecode(json) as Map<String, dynamic>;
+    final meta = root['sleuthMetadata'];
+    if (meta is! Map<String, dynamic>) {
+      throw StateError(
+        'sleuthMetadata is missing or not a Map in stashed capture; '
+        'wrapped capture shape may have changed in a Sleuth release. '
+        'Update _replaceExpectedObserved before exporting captures.',
+      );
+    }
+    final expected = meta['expectedMagnitude'];
+    if (expected is! Map<String, dynamic>) {
+      throw StateError(
+        'sleuthMetadata.expectedMagnitude is missing or not a Map in '
+        'stashed capture; wrapped capture shape may have changed.',
+      );
+    }
+    if (!expected.containsKey('observed')) {
+      throw StateError(
+        'sleuthMetadata.expectedMagnitude.observed is missing in stashed '
+        'capture; wrapped capture shape may have changed.',
+      );
+    }
+    expected['observed'] = observed;
+    return const JsonEncoder.withIndent('  ').convert(root);
+  }
+
   @override
   Widget build(BuildContext context) {
     final ready = _bytesPerMs != null && !_busy;
@@ -658,15 +852,19 @@ class _MemoryPressureCaptureScreenState
             ),
             const SizedBox(height: 8),
             _CaptureButton(
-              label: 'At (${_atTargetBps ~/ 1024} KB/s) — warning',
-              subtitle: 'In [512, 768] KB/s at-band (±50% tolerance)',
+              label: 'At (op ${_atTargetBps ~/ 1024} KB/s) — warning',
+              subtitle:
+                  'Detector slope must land in [512, 768] KB/s '
+                  '(operator rate adjusted for ~+50% allocator drift)',
               enabled: ready,
               onTap: () => _runLeg(_MemoryLeg.at),
             ),
             const SizedBox(height: 8),
             _CaptureButton(
-              label: 'Above (${_aboveTargetBps ~/ 1024} KB/s) — warning',
-              subtitle: 'In [800, 1024] KB/s above-band',
+              label: 'Above (op ${_aboveTargetBps ~/ 1024} KB/s) — warning',
+              subtitle:
+                  'Detector slope must land in [769, 1024] KB/s '
+                  '(operator rate adjusted for ~+12% allocator drift)',
               enabled: ready,
               onTap: () => _runLeg(_MemoryLeg.above),
             ),
@@ -726,20 +924,21 @@ class _MemoryPressureCaptureScreenState
 }
 
 enum _MemoryLeg {
-  // Bands match what ProfileCaptureSchema.validateBracket accepts when
-  // the detector's metadata declares `bracketAtTolerance: 0.50` and
-  // `aboveCeilingMultiplier: 2.0`:
-  //   below: bytes/sec < 512 000 (sub-threshold; detector stays silent).
-  //   at:    512 000 ≤ bytes/sec ≤ 768 000  (atTolerance 0.50).
-  //   above: 800 000 ≤ bytes/sec ≤ 1 024 000  (screen-side floor 800 000
-  //                                            keeps at and above
-  //                                            magnitudes disjoint).
+  // Role bands match what `checkDetectorAxisInRoleBand` enforces (and,
+  // for at, what `ProfileCaptureSchema.validateBracket` enforces) so
+  // an in-band capture passes the audit and an out-of-band capture is
+  // rejected client-side before export rather than failing CI later:
+  //   below: bytes/sec < 512 000 (operator rate; detector silent).
+  //   at:    512 000 ≤ detector slope ≤ 768 000 (atTolerance 0.50 →
+  //          [threshold, threshold × 1.5]).
+  //   above: 768 001 ≤ detector slope ≤ 1 024 000 (strictly above
+  //          at-band upper, ≤ threshold × aboveCeilingMultiplier=2.0).
   below(label: 'below', targetBps: _belowTargetBps, bpsMin: 0, bpsMax: 511_999),
   at(label: 'at', targetBps: _atTargetBps, bpsMin: 512_000, bpsMax: 768_000),
   above(
     label: 'above',
     targetBps: _aboveTargetBps,
-    bpsMin: 800_000,
+    bpsMin: 768_001,
     bpsMax: 1_024_000,
   );
 

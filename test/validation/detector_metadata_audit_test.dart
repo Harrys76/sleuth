@@ -204,39 +204,7 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
 ///
 /// Entries here are debt — review the `LegacyObservedAxisEntry`
 /// rationale before adding or extending.
-const legacyObservedAxisAllowlist = <String, LegacyObservedAxisEntry>{
-  'MemoryPressureDetector (tier=reproducerOnly):heap_growing:warning':
-      LegacyObservedAxisEntry(
-    consumeBy: '0.21.0',
-    owningClaim:
-        'heap_growing observedSlopeBytesPerSec cross-check (re-record pending)',
-    rationale:
-        'v0.19.18 declared observedAxisArgKey on the canonical bracket and '
-        'stamped observedSlopeBytesPerSec into emission, but the existing 3 '
-        'heap_growing capture JSONs predate the stamp. Cross-check is '
-        'plumbing-only until on-device captures are re-recorded under '
-        'v0.19.18+ binaries. Re-record consumes this entry by v0.21.0; '
-        'allowlist failure forces explicit extension or capture refresh. '
-        'When operator re-records, account for measuredBps (allocation-rate) '
-        'vs slope (heap-growth-rate) divergence; default 25% tolerance '
-        'assumes retained-allocation scenario keeps GC sweep negligible — '
-        'verify post-record.',
-  ),
-  'PlatformChannelDetector (tier=runtimeVerified):'
-      'platform_channel_traffic:warning': LegacyObservedAxisEntry(
-    consumeBy: '0.21.0',
-    owningClaim:
-        'platform_channel_traffic observedCount cross-check (re-record pending)',
-    rationale: 'PlatformChannel canonical bracket declares observedAxisArgKey: '
-        '"observedCount" but the existing 3 platform_channel_traffic capture '
-        'JSONs predate the producer-side stamp landing on the emission path. '
-        'Same dormant-cross-check pattern as MemoryPressure heap_growing — '
-        'schema gate skips silently when records lack the arg. Re-record '
-        'consumes this entry by v0.21.0; bundling with the heap_growing '
-        're-record session in the same operator on-device pass is the '
-        'expected path.',
-  ),
-};
+const legacyObservedAxisAllowlist = <String, LegacyObservedAxisEntry>{};
 
 const _singleDetectorAnchors = <DetectorType>{
   DetectorType.networkMonitor,
@@ -1083,20 +1051,24 @@ void main() {
               'break forgery (multiple trace records inside one scenario '
               'span with distinct identities).');
       expect(meta.observedAxisArgKey, equals('observedSlopeBytesPerSec'),
-          reason: 'v0.19.18 backfills the observed-axis cross-check on '
-              'the canonical heap_growing bracket. Stamp is plumbing-only '
-              'until existing captures are re-recorded; schema skips per-'
-              'record when the arg is absent (backward-compat).');
-      // Pinning DEFAULTS — values fall through from spec (BracketSpec
-      // defaults: observedAxisTolerance=0.25, observedAxisReduction='max').
-      // Anchor catches schema-default drift; if the schema default
-      // changes for any reason, this anchor breaks even though
-      // MemoryPressure spec did not change. That's the intended
-      // behaviour: schema defaults are part of MemoryPressure's bracket
-      // validation contract.
+          reason: 'Canonical heap_growing bracket carries the observed-'
+              'axis cross-check. Captures must stamp '
+              'observedSlopeBytesPerSec on every in-span warning event; '
+              'the schema rejects bracket triads without it once the '
+              'detector is runtimeVerified.');
+      // Pin the schema-default tolerance. The capture-screen post-
+      // process step rewrites `expectedMagnitude.observed` to the
+      // detector-stamped slope so the cross-check has near-zero
+      // divergence by construction; anchor catches any future drift
+      // away from the default that would re-introduce operator-vs-
+      // detector slack.
       expect(meta.observedAxisTolerance, equals(0.25),
-          reason: 'Default tolerance — single-fire-per-window emission '
-              'with cooldown semantics; no sliding-window drift to absorb.');
+          reason: 'Schema default 0.25; capture screen makes operator '
+              'value identical to detector slope so wider tolerance is '
+              'unnecessary.');
+      // Pinning the reduction DEFAULT — falls through from spec
+      // (BracketSpec default 'max'). Anchor catches schema-default
+      // drift; intentional if the contract ever changes.
       expect(meta.observedAxisReduction, equals('max'),
           reason: 'Default reduction; detector emits at most one issue per '
               'sustained-growth window, so MAX picks the single in-span '

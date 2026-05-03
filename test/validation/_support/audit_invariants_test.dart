@@ -2867,18 +2867,18 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test('observedAxisTolerance > 0.30 rejected', () {
+    test('observedAxisTolerance > 0.25 rejected', () {
       final failures = checkBracketBoundsSanity(
         label: 'L',
         tier: EvidenceTier.runtimeVerified,
         canonicalAtTolerance: 0.10,
         canonicalAboveCeilingMultiplier: 2.0,
-        canonicalObservedAxisTolerance: 0.31,
+        canonicalObservedAxisTolerance: 0.30,
         canonicalObservedAxisReduction: 'max',
         additionalBrackets: null,
       );
       expect(failures, hasLength(1));
-      expect(failures.single, contains('observedAxisTolerance=0.31'));
+      expect(failures.single, contains('observedAxisTolerance=0.3'));
     });
 
     test('atTolerance > 0.65 rejected', () {
@@ -3271,6 +3271,845 @@ void main() {
               'slow_request_above_no_observed_axis.json',
         ],
         repoRoot: repoRoot,
+      );
+      expect(failures, isEmpty,
+          reason: 'reproducerOnly tier must not exercise the invariant.');
+    });
+  });
+
+  group('checkDetectorAxisInRoleBand (v0.19.19)', () {
+    // Builds a wrapped capture JSON with one in-span issue event whose
+    // `args[axisKey]` carries [detectorValue]. The role-band check
+    // reduces over those samples (max/last) and asserts the result lies
+    // in the role's bracket band. We do not need the full Sleuth
+    // export shape here — just enough trace events for the invariant's
+    // begin/end scenario span and one issue event with the axis arg.
+    File writeCaptureFixture(
+      Directory dir, {
+      required String filename,
+      required String stableId,
+      required String severityLabel,
+      required String axisKey,
+      required num detectorValue,
+    }) {
+      final scenarioName = '${stableId}_role_band_test';
+      final eventName = 'sleuth.issue.$stableId.$severityLabel';
+      final wrapped = <String, Object?>{
+        'sleuthMetadata': <String, Object?>{
+          'scenario': scenarioName,
+          'role': 'at',
+        },
+        'traceEvents': <Map<String, Object?>>[
+          {
+            'name': 'sleuth.scenario.begin',
+            'ph': 'i',
+            'ts': 1000,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': scenarioName},
+          },
+          {
+            'name': eventName,
+            'ph': 'i',
+            'ts': 2000,
+            'pid': 1,
+            'tid': 1,
+            'args': {
+              'detectedAtMicros': '2000',
+              axisKey: detectorValue.toString(),
+            },
+          },
+          {
+            'name': 'sleuth.scenario.end',
+            'ph': 'i',
+            'ts': 3000,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': scenarioName},
+          },
+        ],
+      };
+      final f = File(p.join(dir.path, filename))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(jsonEncode(wrapped));
+      return f;
+    }
+
+    Directory makeTempRoot() {
+      final dir = Directory.systemTemp.createTempSync('detector_role_band_');
+      File(p.join(dir.path, 'pubspec.yaml'))
+          .writeAsStringSync('name: stub\nversion: 0.0.1\n');
+      return dir;
+    }
+
+    test('detector value inside at-band → passes', () {
+      final root = makeTempRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeCaptureFixture(
+        root,
+        filename: 'below.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        // below: detector silent (no in-span issue event would carry
+        // axis); satisfy the iteration by stamping a sub-threshold
+        // value the invariant skips silently for below role anyway.
+        detectorValue: 100000,
+      );
+      writeCaptureFixture(
+        root,
+        filename: 'at.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        detectorValue: 600000, // in [512000, 768000] for tol=0.50
+      );
+      writeCaptureFixture(
+        root,
+        filename: 'above.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        detectorValue: 900000, // > atUpper 768000, ≤ ceiling 1024000
+      );
+      final failures = checkDetectorAxisInRoleBand(
+        label: 'TestDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'heap_growing',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedSlopeBytesPerSec',
+        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+        topLevelBracketThreshold: 512000,
+        topLevelAtTolerance: 0.50,
+        topLevelAboveCeilingMultiplier: 2.0,
+        topLevelObservedAxisReduction: 'max',
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason: 'detector values in role bands must pass: $failures');
+    });
+
+    test(
+        'detector value above at-band when role=at → fails (memory at-leg '
+        'regression)', () {
+      final root = makeTempRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeCaptureFixture(
+        root,
+        filename: 'below.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        detectorValue: 100000,
+      );
+      writeCaptureFixture(
+        root,
+        filename: 'at.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        // 897292 lands in above-band (>768000) — the v0.19.19 mislabel
+        // this invariant exists to catch.
+        detectorValue: 897292,
+      );
+      writeCaptureFixture(
+        root,
+        filename: 'above.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        detectorValue: 920000,
+      );
+      final failures = checkDetectorAxisInRoleBand(
+        label: 'MemoryPressureDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'heap_growing',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedSlopeBytesPerSec',
+        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+        topLevelBracketThreshold: 512000,
+        topLevelAtTolerance: 0.50,
+        topLevelAboveCeilingMultiplier: 2.0,
+        topLevelObservedAxisReduction: 'max',
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.first, contains('at capture'));
+      expect(failures.first, contains('897292'));
+      expect(failures.first, contains('outside at-band'));
+    });
+
+    test(
+        'detector value inside at-band when role=above → fails (platform '
+        'above-leg regression)', () {
+      final root = makeTempRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeCaptureFixture(
+        root,
+        filename: 'below.json',
+        stableId: 'platform_channel_traffic',
+        severityLabel: 'warning',
+        axisKey: 'observedCount',
+        detectorValue: 5,
+      );
+      writeCaptureFixture(
+        root,
+        filename: 'at.json',
+        stableId: 'platform_channel_traffic',
+        severityLabel: 'warning',
+        axisKey: 'observedCount',
+        detectorValue: 25,
+      );
+      writeCaptureFixture(
+        root,
+        filename: 'above.json',
+        stableId: 'platform_channel_traffic',
+        severityLabel: 'warning',
+        axisKey: 'observedCount',
+        // 28 ≤ atUpper (30) — the platform above-leg mislabel pattern.
+        detectorValue: 28,
+      );
+      final failures = checkDetectorAxisInRoleBand(
+        label: 'PlatformChannelDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'platform_channel_traffic',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedCount',
+        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+        topLevelBracketThreshold: 20,
+        topLevelAtTolerance: 0.50,
+        topLevelAboveCeilingMultiplier: 1.95,
+        topLevelObservedAxisReduction: 'max',
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.first, contains('above capture'));
+      expect(failures.first, contains('28'));
+      expect(failures.first, contains('at-band'));
+    });
+
+    test('detector value below threshold when role=at → fails', () {
+      final root = makeTempRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeCaptureFixture(
+        root,
+        filename: 'below.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        detectorValue: 100000,
+      );
+      writeCaptureFixture(
+        root,
+        filename: 'at.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        // 400000 < threshold 512000 — at-leg detector should be ≥ T.
+        detectorValue: 400000,
+      );
+      writeCaptureFixture(
+        root,
+        filename: 'above.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        detectorValue: 920000,
+      );
+      final failures = checkDetectorAxisInRoleBand(
+        label: 'MemoryPressureDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'heap_growing',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedSlopeBytesPerSec',
+        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+        topLevelBracketThreshold: 512000,
+        topLevelAtTolerance: 0.50,
+        topLevelAboveCeilingMultiplier: 2.0,
+        topLevelObservedAxisReduction: 'max',
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty);
+      expect(failures.first, contains('at capture'));
+      expect(failures.first, contains('400000'));
+    });
+
+    test(
+        'missing axis arg on every in-span event → role-band invariant '
+        'rejects (defense-in-depth alongside checkCapturesCarryObservedAxisArg)',
+        () {
+      final root = makeTempRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      // Capture file with no axis arg in the issue event. The role-
+      // band invariant rejects defensively: matchCount > 0 but
+      // samples.length == 0 means a producer regression on every
+      // emission path. checkCapturesCarryObservedAxisArg also catches
+      // this; both invariants reject so the failure surfaces even if
+      // one of them is bypassed via allowlist drift or refactor.
+      final scenarioName = 'heap_growing_role_band_test';
+      const eventName = 'sleuth.issue.heap_growing.warning';
+      final wrapped = <String, Object?>{
+        'sleuthMetadata': const <String, Object?>{
+          'scenario': 'heap_growing_role_band_test',
+          'role': 'at',
+        },
+        'traceEvents': <Map<String, Object?>>[
+          {
+            'name': 'sleuth.scenario.begin',
+            'ph': 'i',
+            'ts': 1000,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': scenarioName},
+          },
+          {
+            'name': eventName,
+            'ph': 'i',
+            'ts': 2000,
+            'pid': 1,
+            'tid': 1,
+            'args': {'detectedAtMicros': '2000'},
+          },
+          {
+            'name': 'sleuth.scenario.end',
+            'ph': 'i',
+            'ts': 3000,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': scenarioName},
+          },
+        ],
+      };
+      File(p.join(root.path, 'at.json')).writeAsStringSync(jsonEncode(wrapped));
+      File(p.join(root.path, 'below.json'))
+          .writeAsStringSync(jsonEncode(wrapped));
+      File(p.join(root.path, 'above.json'))
+          .writeAsStringSync(jsonEncode(wrapped));
+      final failures = checkDetectorAxisInRoleBand(
+        label: 'MemoryPressureDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'heap_growing',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedSlopeBytesPerSec',
+        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+        topLevelBracketThreshold: 512000,
+        topLevelAtTolerance: 0.50,
+        topLevelAboveCeilingMultiplier: 2.0,
+        topLevelObservedAxisReduction: 'max',
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'role-band invariant must reject when matchCount > 0 '
+              'but every event lacks the axis arg (defense-in-depth).');
+      expect(failures.first, contains('only 0 carry'));
+      expect(failures.first, contains('1 unstamped'));
+    });
+
+    test(
+        "observedAxisReduction='last' picks the chronologically-last sample, "
+        'not the numerical max', () {
+      final root = Directory.systemTemp.createTempSync('detector_role_band_');
+      addTearDown(() => root.deleteSync(recursive: true));
+      File(p.join(root.path, 'pubspec.yaml'))
+          .writeAsStringSync('name: stub\nversion: 0.0.1\n');
+      // Multi-event in-span capture: ts ascending, value non-monotone.
+      // For 'last' reduction the invariant must take ts=300 → value 25
+      // (in at-band [20, 30]). For 'max' it would take 50 (out-of-band).
+      // The test asserts 'last' picks 25 and passes; flipping to 'max'
+      // in the same fixture would reject.
+      const scenarioName = 'jank_detected_role_band_test';
+      const eventName = 'sleuth.issue.jank_detected.warning';
+      final wrapped = <String, Object?>{
+        'sleuthMetadata': const <String, Object?>{
+          'scenario': 'jank_detected_role_band_test',
+          'role': 'at',
+        },
+        'traceEvents': <Map<String, Object?>>[
+          {
+            'name': 'sleuth.scenario.begin',
+            'ph': 'i',
+            'ts': 100,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': scenarioName},
+          },
+          {
+            'name': eventName,
+            'ph': 'i',
+            'ts': 200,
+            'pid': 1,
+            'tid': 1,
+            'args': {'detectedAtMicros': '200', 'observedJankPercent': '50'},
+          },
+          {
+            'name': eventName,
+            'ph': 'i',
+            'ts': 300,
+            'pid': 1,
+            'tid': 1,
+            'args': {'detectedAtMicros': '300', 'observedJankPercent': '25'},
+          },
+          {
+            'name': 'sleuth.scenario.end',
+            'ph': 'i',
+            'ts': 400,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': scenarioName},
+          },
+        ],
+      };
+      // At-leg: multi-event fixture with non-monotone-by-ts values
+      // (the test target). Below: empty (detector silent). Above:
+      // single in-band event with value 35 (in (30, 40] above-band).
+      File(p.join(root.path, 'at.json')).writeAsStringSync(jsonEncode(wrapped));
+      final emptyBelow = <String, Object?>{
+        'sleuthMetadata': const <String, Object?>{
+          'scenario': 'jank_detected_below',
+          'role': 'below',
+        },
+        'traceEvents': const <Map<String, Object?>>[],
+      };
+      File(p.join(root.path, 'below.json'))
+          .writeAsStringSync(jsonEncode(emptyBelow));
+      final aboveFixture = <String, Object?>{
+        'sleuthMetadata': const <String, Object?>{
+          'scenario': 'jank_detected_above',
+          'role': 'above',
+        },
+        'traceEvents': <Map<String, Object?>>[
+          {
+            'name': 'sleuth.scenario.begin',
+            'ph': 'i',
+            'ts': 100,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': 'jank_detected_above'},
+          },
+          {
+            'name': eventName,
+            'ph': 'i',
+            'ts': 200,
+            'pid': 1,
+            'tid': 1,
+            'args': {'detectedAtMicros': '200', 'observedJankPercent': '35'},
+          },
+          {
+            'name': 'sleuth.scenario.end',
+            'ph': 'i',
+            'ts': 300,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': 'jank_detected_above'},
+          },
+        ],
+      };
+      File(p.join(root.path, 'above.json'))
+          .writeAsStringSync(jsonEncode(aboveFixture));
+      final lastFailures = checkDetectorAxisInRoleBand(
+        label: 'FrameTimingDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'jank_detected',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedJankPercent',
+        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+        topLevelBracketThreshold: 20,
+        topLevelAtTolerance: 0.50,
+        topLevelAboveCeilingMultiplier: 2.0,
+        topLevelObservedAxisReduction: 'last',
+        repoRoot: root.path,
+      );
+      expect(lastFailures, isEmpty,
+          reason: "'last' reduction must pick chronologically-last sample "
+              'on at-leg (ts=300 → 25, in at-band); failures: $lastFailures');
+      final maxFailures = checkDetectorAxisInRoleBand(
+        label: 'FrameTimingDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'jank_detected',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedJankPercent',
+        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+        topLevelBracketThreshold: 20,
+        topLevelAtTolerance: 0.50,
+        topLevelAboveCeilingMultiplier: 2.0,
+        topLevelObservedAxisReduction: 'max',
+        repoRoot: root.path,
+      );
+      expect(maxFailures, isNotEmpty,
+          reason: "'max' reduction picks 50 (out of at-band [20, 30]) on the "
+              'same at-leg fixture; sanity check that the reduction '
+              'strategy meaningfully changes the verdict.');
+    });
+
+    test('additionalBrackets entry exercises invariant via spec.threshold', () {
+      final root = Directory.systemTemp.createTempSync('detector_role_band_');
+      addTearDown(() => root.deleteSync(recursive: true));
+      File(p.join(root.path, 'pubspec.yaml'))
+          .writeAsStringSync('name: stub\nversion: 0.0.1\n');
+      // Construct an additionalBrackets entry mirroring the
+      // HeavyComputeDetector critical-tier shape (threshold 16,
+      // atTolerance 0.60 → at-band [16, 25.6], above-ceiling 1.875 →
+      // above-band (25.6, 30]). Stamp an at-leg detector value of 19
+      // (in-band) and an above-leg value of 18 (in at-band → fails
+      // role=above check).
+      const scenarioBase = 'heavy_compute_critical';
+      const eventName = 'sleuth.issue.heavy_compute.critical';
+      Map<String, Object?> wrappedFor(double detector, String roleLabel) =>
+          <String, Object?>{
+            'sleuthMetadata': <String, Object?>{
+              'scenario': '${scenarioBase}_$roleLabel',
+              'role': roleLabel,
+            },
+            'traceEvents': <Map<String, Object?>>[
+              {
+                'name': 'sleuth.scenario.begin',
+                'ph': 'i',
+                'ts': 100,
+                'pid': 1,
+                'tid': 1,
+                'args': {'name': '${scenarioBase}_$roleLabel'},
+              },
+              {
+                'name': eventName,
+                'ph': 'i',
+                'ts': 200,
+                'pid': 1,
+                'tid': 1,
+                'args': {
+                  'detectedAtMicros': '200',
+                  'observedDurationMs': detector.toString(),
+                },
+              },
+              {
+                'name': 'sleuth.scenario.end',
+                'ph': 'i',
+                'ts': 300,
+                'pid': 1,
+                'tid': 1,
+                'args': {'name': '${scenarioBase}_$roleLabel'},
+              },
+            ],
+          };
+      File(p.join(root.path, 'crit_below.json'))
+          .writeAsStringSync(jsonEncode(wrappedFor(8, 'below')));
+      File(p.join(root.path, 'crit_at.json'))
+          .writeAsStringSync(jsonEncode(wrappedFor(19, 'at')));
+      File(p.join(root.path, 'crit_above.json'))
+          .writeAsStringSync(jsonEncode(wrappedFor(18, 'above')));
+      final spec = BracketSpec(
+        stableId: 'heavy_compute',
+        severityLabel: 'critical',
+        threshold: 16,
+        unit: 'ms',
+        coveredThresholds: const {'heavy_compute.critical'},
+        profileCapturePaths: const [
+          'crit_below.json',
+          'crit_at.json',
+          'crit_above.json',
+        ],
+        atTolerance: 0.60,
+        aboveCeilingMultiplier: 1.875,
+        observedAxisArgKey: 'observedDurationMs',
+      );
+      final failures = checkDetectorAxisInRoleBand(
+        label: 'HeavyComputeDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: null,
+        topLevelSeverityLabel: null,
+        topLevelObservedAxisArgKey: null,
+        topLevelCapturePaths: null,
+        topLevelBracketThreshold: null,
+        topLevelAtTolerance: null,
+        topLevelAboveCeilingMultiplier: null,
+        topLevelObservedAxisReduction: 'max',
+        additionalBrackets: [spec],
+        repoRoot: root.path,
+      );
+      expect(failures, isNotEmpty,
+          reason: 'above-leg detector value 18 is ≤ at-band upper 25.6; '
+              'invariant must surface via additionalBrackets[0] path.');
+      expect(failures.first, contains('additionalBrackets[0]'));
+      expect(failures.first, contains('above capture'));
+      expect(failures.first, contains('18'));
+    });
+
+    test(
+        'partial axis stamping (carrying < matched) fails with both '
+        'invariants', () {
+      final root = Directory.systemTemp.createTempSync('detector_role_band_');
+      addTearDown(() => root.deleteSync(recursive: true));
+      File(p.join(root.path, 'pubspec.yaml'))
+          .writeAsStringSync('name: stub\nversion: 0.0.1\n');
+      // 2 in-span heap_growing.warning events; first carries the axis
+      // arg, second omits it. checkCapturesCarryObservedAxisArg used to
+      // pass here (carrying=1 > 0); checkDetectorAxisInRoleBand used to
+      // reduce over the parseable subset. Both must now reject so a
+      // producer regression on one emission path can't ride on a
+      // stamped sibling's in-band reduction.
+      const scenarioName = 'heap_growing_at';
+      const eventName = 'sleuth.issue.heap_growing.warning';
+      final wrapped = <String, Object?>{
+        'sleuthMetadata': const <String, Object?>{
+          'scenario': 'heap_growing_at',
+          'role': 'at',
+        },
+        'traceEvents': <Map<String, Object?>>[
+          {
+            'name': 'sleuth.scenario.begin',
+            'ph': 'i',
+            'ts': 100,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': scenarioName},
+          },
+          {
+            'name': eventName,
+            'ph': 'i',
+            'ts': 200,
+            'pid': 1,
+            'tid': 1,
+            'args': {
+              'detectedAtMicros': '200',
+              'observedSlopeBytesPerSec': '600000',
+            },
+          },
+          {
+            'name': eventName,
+            'ph': 'i',
+            'ts': 300,
+            'pid': 1,
+            'tid': 1,
+            'args': {'detectedAtMicros': '300'},
+          },
+          {
+            'name': 'sleuth.scenario.end',
+            'ph': 'i',
+            'ts': 400,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': scenarioName},
+          },
+        ],
+      };
+      final emptyAbove = <String, Object?>{
+        'sleuthMetadata': const <String, Object?>{
+          'scenario': 'heap_growing_above',
+          'role': 'above',
+        },
+        'traceEvents': const <Map<String, Object?>>[],
+      };
+      final emptyBelow = <String, Object?>{
+        'sleuthMetadata': const <String, Object?>{
+          'scenario': 'heap_growing_below',
+          'role': 'below',
+        },
+        'traceEvents': const <Map<String, Object?>>[],
+      };
+      File(p.join(root.path, 'at.json')).writeAsStringSync(jsonEncode(wrapped));
+      File(p.join(root.path, 'above.json'))
+          .writeAsStringSync(jsonEncode(emptyAbove));
+      File(p.join(root.path, 'below.json'))
+          .writeAsStringSync(jsonEncode(emptyBelow));
+
+      final fidelityFailures = checkCapturesCarryObservedAxisArg(
+        label: 'MemoryPressureDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'heap_growing',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedSlopeBytesPerSec',
+        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+        repoRoot: root.path,
+      );
+      expect(fidelityFailures, isNotEmpty,
+          reason: 'carrying=1 < matched=2 must surface; subset proof '
+              'rejected.');
+      expect(fidelityFailures.first, contains('only 1 carry'));
+      expect(fidelityFailures.first, contains('1 unstamped'));
+      expect(fidelityFailures.first, contains('Full coverage is required'));
+
+      final roleBandFailures = checkDetectorAxisInRoleBand(
+        label: 'MemoryPressureDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'heap_growing',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedSlopeBytesPerSec',
+        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+        topLevelBracketThreshold: 512000,
+        topLevelAtTolerance: 0.50,
+        topLevelAboveCeilingMultiplier: 2.0,
+        topLevelObservedAxisReduction: 'max',
+        repoRoot: root.path,
+      );
+      expect(roleBandFailures, isNotEmpty,
+          reason: 'Defense-in-depth: role-band invariant must also '
+              'reject the partial-coverage capture even though the '
+              'parseable single sample (600000) lands in band.');
+      expect(roleBandFailures.first, contains('only 1 carry'));
+      expect(roleBandFailures.first, contains('1 unstamped'));
+    });
+
+    test(
+        "tied-ts samples under 'last' reduction resolve by insertion "
+        'order (deterministic)', () {
+      final root = Directory.systemTemp.createTempSync('detector_role_band_');
+      addTearDown(() => root.deleteSync(recursive: true));
+      File(p.join(root.path, 'pubspec.yaml'))
+          .writeAsStringSync('name: stub\nversion: 0.0.1\n');
+      // Two in-span events at the SAME ts. The second-written event
+      // wins under 'last' because insertion order is the deterministic
+      // tiebreaker. First event stamps a value (50) that would fall
+      // OUT of the at-band [20, 30]; second event stamps an in-band
+      // value (25). 'last' must pick the second (25, in-band). If the
+      // tiebreaker were unspecified the test could pick either and
+      // sometimes flake.
+      const scenarioName = 'jank_detected_at';
+      const eventName = 'sleuth.issue.jank_detected.warning';
+      final atFixture = <String, Object?>{
+        'sleuthMetadata': const <String, Object?>{
+          'scenario': 'jank_detected_at',
+          'role': 'at',
+        },
+        'traceEvents': <Map<String, Object?>>[
+          {
+            'name': 'sleuth.scenario.begin',
+            'ph': 'i',
+            'ts': 100,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': scenarioName},
+          },
+          {
+            'name': eventName,
+            'ph': 'i',
+            'ts': 200,
+            'pid': 1,
+            'tid': 1,
+            'args': {'detectedAtMicros': '200a', 'observedJankPercent': '50'},
+          },
+          {
+            'name': eventName,
+            'ph': 'i',
+            'ts': 200,
+            'pid': 1,
+            'tid': 1,
+            'args': {'detectedAtMicros': '200b', 'observedJankPercent': '25'},
+          },
+          {
+            'name': 'sleuth.scenario.end',
+            'ph': 'i',
+            'ts': 300,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': scenarioName},
+          },
+        ],
+      };
+      final aboveFixture = <String, Object?>{
+        'sleuthMetadata': const <String, Object?>{
+          'scenario': 'jank_detected_above',
+          'role': 'above',
+        },
+        'traceEvents': <Map<String, Object?>>[
+          {
+            'name': 'sleuth.scenario.begin',
+            'ph': 'i',
+            'ts': 100,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': 'jank_detected_above'},
+          },
+          {
+            'name': eventName,
+            'ph': 'i',
+            'ts': 200,
+            'pid': 1,
+            'tid': 1,
+            'args': {'detectedAtMicros': '200', 'observedJankPercent': '35'},
+          },
+          {
+            'name': 'sleuth.scenario.end',
+            'ph': 'i',
+            'ts': 300,
+            'pid': 1,
+            'tid': 1,
+            'args': {'name': 'jank_detected_above'},
+          },
+        ],
+      };
+      final emptyBelow = <String, Object?>{
+        'sleuthMetadata': const <String, Object?>{
+          'scenario': 'jank_detected_below',
+          'role': 'below',
+        },
+        'traceEvents': const <Map<String, Object?>>[],
+      };
+      File(p.join(root.path, 'at.json'))
+          .writeAsStringSync(jsonEncode(atFixture));
+      File(p.join(root.path, 'above.json'))
+          .writeAsStringSync(jsonEncode(aboveFixture));
+      File(p.join(root.path, 'below.json'))
+          .writeAsStringSync(jsonEncode(emptyBelow));
+
+      final failures = checkDetectorAxisInRoleBand(
+        label: 'FrameTimingDetector (tier=runtimeVerified)',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'jank_detected',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedJankPercent',
+        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+        topLevelBracketThreshold: 20,
+        topLevelAtTolerance: 0.50,
+        topLevelAboveCeilingMultiplier: 2.0,
+        topLevelObservedAxisReduction: 'last',
+        repoRoot: root.path,
+      );
+      expect(failures, isEmpty,
+          reason: "tied-ts 'last' reduction must pick second-inserted "
+              'sample (value 25, in at-band [20, 30]); insertion-order '
+              'tiebreaker pins the choice deterministically. failures: '
+              '$failures');
+    });
+
+    test('reproducerOnly tier → no-op regardless of capture state', () {
+      final root = makeTempRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeCaptureFixture(
+        root,
+        filename: 'at.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        // Out-of-band but tier gate must skip.
+        detectorValue: 50,
+      );
+      writeCaptureFixture(
+        root,
+        filename: 'below.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        detectorValue: 50,
+      );
+      writeCaptureFixture(
+        root,
+        filename: 'above.json',
+        stableId: 'heap_growing',
+        severityLabel: 'warning',
+        axisKey: 'observedSlopeBytesPerSec',
+        detectorValue: 50,
+      );
+      final failures = checkDetectorAxisInRoleBand(
+        label: 'TestDetector (tier=reproducerOnly)',
+        tier: EvidenceTier.reproducerOnly,
+        topLevelStableId: 'heap_growing',
+        topLevelSeverityLabel: 'warning',
+        topLevelObservedAxisArgKey: 'observedSlopeBytesPerSec',
+        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+        topLevelBracketThreshold: 512000,
+        topLevelAtTolerance: 0.50,
+        topLevelAboveCeilingMultiplier: 2.0,
+        topLevelObservedAxisReduction: 'max',
+        repoRoot: root.path,
       );
       expect(failures, isEmpty,
           reason: 'reproducerOnly tier must not exercise the invariant.');

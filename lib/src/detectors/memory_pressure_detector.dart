@@ -595,15 +595,6 @@ class MemoryPressureDetector extends BaseDetector
         bracketSeverityLabel: 'warning',
         bracketAtTolerance: 0.50,
         aboveCeilingMultiplier: 2.0,
-        // Cross-check is plumbing-only until the 3 heap_growing capture
-        // JSONs are re-recorded under v0.19.18+ binaries. Existing
-        // captures predate the `observedSlopeBytesPerSec` stamp;
-        // schema's per-record gate (`observedAxisArgKey != null &&
-        // observedAxisExpected != null && observedAxisSamples.isNotEmpty`
-        // in `_checkIssueTraceRecordPresent`) skips silently when records
-        // lack the arg. Bracket allowlisted in
-        // `legacyObservedAxisAllowlist` with `consumeBy=0.21.0` enforced
-        // by `checkLegacyObservedAxisManifest`.
         observedAxisArgKey: 'observedSlopeBytesPerSec',
         coveredStableIds: {
           'gc_pressure',

@@ -1171,7 +1171,13 @@ class ProfileCaptureSchema {
     // aggregate observables on rolling buffers (e.g. FrameTimingDetector
     // jankPercent over a 240-frame buffer is non-monotone as the buffer
     // grows and slides).
-    final observedAxisSamples = <({int ts, num value})>[];
+    // `order` pins tied-ts behavior: when two events share the same
+    // wall-clock microsecond, the one observed later in the events
+    // list wins under `'last'` reduction. Without this the reduction
+    // would silently depend on Dart's List.sort stability (TimSort,
+    // documented stable from 2.14+ but version-dependent), reintroducing
+    // a non-pinned implementation detail into the audit.
+    final observedAxisSamples = <({int ts, int order, num value})>[];
     for (final event in events) {
       if (event is! Map) continue;
       final ph = event['ph'];
@@ -1196,7 +1202,15 @@ class ProfileCaptureSchema {
           uniqueDetectedAtMicros.add(m.toString());
         }
         if (observedAxisArgKey != null) {
-          final axis = args[observedAxisArgKey];
+          // Some VM service exports nest user-supplied trace args under
+          // a top-level `Dart Arguments` map instead of placing them
+          // directly on `args`. Mirror the scenario-marker name lookup
+          // so the cross-check stays active under either shape.
+          Object? axis = args[observedAxisArgKey];
+          if (axis == null) {
+            final dartArgs = args['Dart Arguments'];
+            if (dartArgs is Map) axis = dartArgs[observedAxisArgKey];
+          }
           num? parsedAxis;
           if (axis is String && axis.isNotEmpty) {
             parsedAxis = num.tryParse(axis);
@@ -1204,7 +1218,11 @@ class ProfileCaptureSchema {
             parsedAxis = axis;
           }
           if (parsedAxis != null) {
-            observedAxisSamples.add((ts: tsInt, value: parsedAxis));
+            observedAxisSamples.add((
+              ts: tsInt,
+              order: observedAxisSamples.length,
+              value: parsedAxis,
+            ));
           }
         }
       }
@@ -1280,7 +1298,11 @@ class ProfileCaptureSchema {
       late num observed;
       switch (observedAxisReduction) {
         case 'last':
-          observedAxisSamples.sort((a, b) => a.ts.compareTo(b.ts));
+          observedAxisSamples.sort((a, b) {
+            final byTs = a.ts.compareTo(b.ts);
+            if (byTs != 0) return byTs;
+            return a.order.compareTo(b.order);
+          });
           observed = observedAxisSamples.last.value;
           break;
         case 'max':
@@ -1353,6 +1375,15 @@ class ProfileCaptureSchema {
   /// [scenarioBeginMarker] / [scenarioEndMarker] instant events.
   /// Throws when markers are missing or duplicated.
   static (int, int) _scenarioSpan(List events, File file) {
+    return findScenarioSpan(events, file.path);
+  }
+
+  /// Public wrapper around the scenario-span finder so audit
+  /// invariants can reuse the schema's exactly-one-pair strictness
+  /// instead of replicating loose name-only matching that drifts. Takes
+  /// a free-form [contextLabel] (path or capture identifier) for the
+  /// error message; the schema's own callers pass `file.path`.
+  static (int, int) findScenarioSpan(List events, String contextLabel) {
     int? beginTs;
     int? endTs;
     var beginCount = 0;
@@ -1375,7 +1406,7 @@ class ProfileCaptureSchema {
     }
     if (beginCount != 1 || endCount != 1) {
       throw FormatException(
-          'Scenario markers malformed in ${file.path}: expected exactly one '
+          'Scenario markers malformed in $contextLabel: expected exactly one '
           '"$scenarioBeginMarker" and one "$scenarioEndMarker" instant '
           'event, found beginCount=$beginCount, endCount=$endCount. '
           'Trace-record search needs a unique scenario span.');

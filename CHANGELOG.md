@@ -1,3 +1,17 @@
+## 0.19.19
+
+Closes the schema two-axis gap: bracket-band claim is now enforced against the detector-stamped axis value, with full per-event coverage. **No detector raises**; distribution unchanged.
+
+- Captures re-recorded on iPhone 12 / iOS 17.5 / Flutter 3.41.4: `heap_growing_{below,at,above}.json` carry `observedSlopeBytesPerSec`; `platform_channel_traffic_{below,at,above}.json` carry `observedCount`. Both v0.19.18 `legacyObservedAxisAllowlist` entries consumed.
+- Capture screens (`MemoryPressureCaptureScreen`, `PlatformChannelCaptureScreen`) post-process the wrapped JSON to rewrite `expectedMagnitude.observed` to the detector-stamped slope/count. Schema bracket-band check, per-record cross-check, and `checkDetectorAxisInRoleBand` then reduce to the same authoritative number.
+- New audit invariant `checkDetectorAxisInRoleBand` (`test/validation/_support/audit_invariants.dart`) asserts the reduced detector value lies in the role's bracket band — disjoint at the at/above boundary (above-leg detector value must strictly exceed `threshold × (1 + atTolerance)`) so role assignment is unambiguous from the detector alone.
+- Full-coverage enforcement: `checkCapturesCarryObservedAxisArg` fails when `carrying < matched`; `checkDetectorAxisInRoleBand` independently fails when `samples.length < matchCount`. A producer regression on one emission path cannot ride on a stamped sibling.
+- `last` reduction tied-ts pinned via insertion-order secondary sort key in `_checkIssueTraceRecordPresent` and `checkDetectorAxisInRoleBand` — last-inserted wins, no dependency on `List.sort` stability.
+- `ProfileCaptureSchema.findScenarioSpan` made public; `checkDetectorAxisInRoleBand` reuses it so both checks share strict exactly-one-pair marker enforcement.
+- `MemoryPressureDetector.observedAxisTolerance` reverted to schema default 0.25 (post-process eliminates operator-vs-detector divergence by construction). `checkBracketBoundsSanity` bound restored to `(0, 0.25]`.
+
+2,976 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.18
 
 `MemoryPressureDetector.heap_growing` emission gains `extraTraceArgs.observedSlopeBytesPerSec` (stringified bytes/sec) + `observedAxisArgKey` declaration on the canonical bracket. **No detector raises**; distribution unchanged. Per-detector audit now enforces both presence (declaration) AND fidelity (captures actually carry the arg) for every runtimeVerified+ bracket.
