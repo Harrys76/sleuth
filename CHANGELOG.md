@@ -1,3 +1,14 @@
+## 0.19.17
+
+`FrameTimingDetector.sustained_jank` emission gains `extraTraceArgs.observedSevereCount` + `observedJankPercent` + `bufferSize` plumbing and `dedupIdentityMicros` via `_emissionSeq` tie-breaking. **No detector raises**. Distribution unchanged at 10 effective runtimeVerified family-severity pairs across 8 unique stableIds.
+
+- The `sustained_jank.critical` raise was dropped: the bracket axis (sliding-window severeCount) is non-composable with operator-claimed K under the schema's current axis reductions. Captures at `test/validation/captures/frame_timing/sustained_jank_{below,at,above}.json` ship as reproducer-tier provisional evidence via the `retainedOrphans` allowlist; `sustained_jank` stays at the detector's base reproducerOnly tier.
+- `checkRuntimeVerifiedRequiresObservedAxisArgKey`: new audit invariant rejects runtimeVerified+ brackets that omit `observedAxisArgKey`. Exercised by the multi-axis E2E pipeline test and 6 unit tests.
+- `BracketSpec.observedAxisTolerance` and `.observedAxisReduction` docstrings note that the values are inert when `observedAxisArgKey` is null.
+- `FrameTimingSustainedJankCaptureScreen`: below-leg `_belowScenarioDurationMs` reverted to the 6 s scenario length matching at/above legs; correctness relies on the absence-of-event check, not span duration. At/above legs reject the export when `severeFiredCount < targetSevere` so ambient-only severeCount cannot pass as confounded evidence.
+
+2,957 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.16
 
 Audit + schema polish. No detector raises; no public API changes; schemaVersion stays v1. Distribution unchanged at 9/23 effective runtimeVerified families.

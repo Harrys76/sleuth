@@ -357,6 +357,14 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
 
     if (severeCount >= 3) {
       final (hint1, effort1) = FixHintBuilder.sustainedJank();
+      // Wall-clock micros plus instance-monotonic counter — same shape as
+      // jank_detected emission below. Audit gate's
+      // `bracketRequireUniqueDetectedAtMicros: true` invariant on the
+      // sustained_jank bracket needs distinct `detectedAtMicros` per
+      // record so a single-issue replay cannot satisfy the multi-record
+      // count threshold.
+      final identity1 =
+          DateTime.now().microsecondsSinceEpoch + (_emissionSeq++);
       _issues.add(
         PerformanceIssue(
           stableId: 'sustained_jank',
@@ -369,7 +377,13 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           detail: '${_buildDetail(worst)}\n${bottleneck.summary}',
           fixHint: hint1,
           fixEffort: effort1,
-          detectedAt: DateTime.now(),
+          detectedAt: DateTime.fromMicrosecondsSinceEpoch(identity1),
+          dedupIdentityMicros: identity1,
+          extraTraceArgs: {
+            'observedSevereCount': severeCount.toString(),
+            'observedJankPercent': jankPercent.toStringAsFixed(2),
+            'bufferSize': frames.length.toString(),
+          },
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
       );
@@ -682,8 +696,16 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           'raster_cache_thrashing',
           'raster_cache_growing',
         },
-        // jank_detected raised to runtimeVerified via perStableIdTier.
-        // Other 3 stableIds stay implicit reproducerOnly.
+        // jank_detected + sustained_jank raised to runtimeVerified via
+        // perStableIdTier. Cache families stay implicit reproducerOnly.
+        // sustained_jank stays reproducerOnly: the metric (sliding-window
+        // severeCount over a 240-frame buffer) is non-composable with
+        // operator-claimed K under the schema's current 'max'/'last'
+        // axis reductions, AND a candidate 'first' reduction would not
+        // close the gap (above-leg's first emission is at the gate
+        // threshold, not at K). Captures at
+        // test/validation/captures/frame_timing/sustained_jank_*.json
+        // are retained as reproducer-tier provisional evidence.
         perStableIdTier: {
           'jank_detected': EvidenceTier.runtimeVerified,
         },
@@ -698,7 +720,9 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         bracketUnit: 'percent',
         bracketAtTolerance: 0.50,
         aboveCeilingMultiplier: 1.85,
-        coveredThresholds: {'jank_detected.warning'},
+        coveredThresholds: {
+          'jank_detected.warning',
+        },
         observedAxisArgKey: 'observedJankPercent',
         observedAxisTolerance: 0.25,
         observedAxisReduction: 'last',

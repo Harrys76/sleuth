@@ -415,6 +415,18 @@ void main() {
           topLevelCoveredThresholds: meta.coveredThresholds,
           additionalBrackets: meta.additionalBrackets,
         ));
+        // checkRuntimeVerifiedRequiresObservedAxisArgKey is intentionally
+        // NOT called from this per-detector pass yet. The invariant is
+        // wired in `runRuntimeTierAudit` and exercised by the
+        // multi-axis-audit pipeline E2E test + dedicated unit tests in
+        // `audit_invariants_test.dart`. Per-detector enforcement is
+        // deferred until `MemoryPressureDetector.heap_growing` gains an
+        // `observedSlope` extraTraceArgs stamp + matching argKey on its
+        // canonical bracket — currently that detector is the one
+        // remaining runtimeVerified bracket without an observed-axis
+        // cross-check, predating v0.19.17. Wiring the check here today
+        // would fail-CI on a pre-existing defect outside this release's
+        // scope.
       }
       expect(failures, isEmpty, reason: 'Tier invariants violated: $failures');
     });
@@ -1328,17 +1340,16 @@ void main() {
 
     test(
         'FrameTimingDetector pinned: base reproducerOnly + jank_detected '
-        'runtimeVerified via perStableIdTier (v0.19.7)', () {
+        'runtimeVerified via perStableIdTier (v0.19.7); sustained_jank '
+        'stays reproducerOnly (v0.19.17 raise withdrawn)', () {
       // Anti-tautology anchor. Base tier stays reproducerOnly — the
-      // v0.16.6 hermetic reproducer still backs `sustained_jank`,
-      // `raster_cache_thrashing`, `raster_cache_growing`, and the
-      // non-bracketed evaluation paths of `jank_detected`. v0.19.7 layers
-      // a perStableIdTier raise on `jank_detected.warning` only, backed
-      // by three on-device captures (iPhone 12 / iOS 17.5 / Flutter
-      // 3.41.x) bracketing the rounded `jankPercent > 15` gate. First
-      // reachable observed value is 16 (37/240=15.4 rounds to 15 → no
-      // fire; 38/240=15.83 rounds to 16 → fires), so bracketThreshold=16
-      // aligns the audit contract with detector reality.
+      // hermetic reproducer still backs raster_cache_thrashing /
+      // raster_cache_growing and the non-bracketed evaluation paths
+      // of jank_detected. One perStableIdTier raise: jank_detected.warning
+      // (jankPercent gate) backed by three on-device captures.
+      // sustained_jank stays at base reproducerOnly: the bracket axis
+      // (sliding-window severeCount) is non-composable with operator-
+      // claimed K under any current schema reduction.
       final BaseDetector? ft = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.frameTiming)
           .cast<BaseDetector?>()
@@ -1360,18 +1371,24 @@ void main() {
           reason: 'runtimeVerified does not require an external citation; '
               'evidence is the captured detector behaviour itself.');
 
-      // perStableIdTier raise — single-family.
-      expect(meta.perStableIdTier,
-          equals(const {'jank_detected': EvidenceTier.runtimeVerified}),
-          reason: 'v0.19.7 raises ONLY jank_detected.warning; the other 3 '
-              'stableIds stay implicitly reproducerOnly.');
+      // perStableIdTier raise — single family (jank_detected only).
+      expect(
+          meta.perStableIdTier,
+          equals(const {
+            'jank_detected': EvidenceTier.runtimeVerified,
+          }),
+          reason: 'v0.19.7 raises jank_detected.warning. sustained_jank '
+              'stays at base reproducerOnly: a v0.19.17 raise via '
+              'additionalBrackets[0] was withdrawn before ship after the '
+              'severeCount axis was found non-composable with operator-'
+              'claimed K under any current schema reduction.');
       expect(
           meta.effectiveTierFor('jank_detected'), EvidenceTier.runtimeVerified,
           reason:
               'effectiveTierFor must reflect the perStableIdTier override.');
       expect(
           meta.effectiveTierFor('sustained_jank'), EvidenceTier.reproducerOnly,
-          reason: 'sustained_jank stays at base reproducerOnly tier.');
+          reason: 'sustained_jank stays at the detector\'s base tier.');
 
       // Three on-device captures.
       expect(
@@ -1405,9 +1422,14 @@ void main() {
       expect(meta.aboveCeilingMultiplier, equals(1.85),
           reason: 'Above-band (24, 29.6]; ceiling stays well under any '
               'critical co-fire boundary.');
-      expect(meta.coveredThresholds, equals(const {'jank_detected.warning'}),
-          reason: 'Severity-scoped to warning; critical (sustained_jank, '
-              'severeCount >= 3) stays implicitly reproducerOnly.');
+      expect(
+          meta.coveredThresholds,
+          equals(const {
+            'jank_detected.warning',
+          }),
+          reason: 'Single severity-scoped entry — canonical jank_detected '
+              'warning. The v0.19.17 sustained_jank.critical raise was '
+              'withdrawn; the entry was removed from coveredThresholds.');
       expect(meta.observedAxisArgKey, equals('observedJankPercent'),
           reason: 'Audit gate cross-checks operator-claimed magnitude '
               'against detector-emitted observedJankPercent within ±25%.');
@@ -1443,11 +1465,16 @@ void main() {
       expect(() => FrameTimingDetector(captureMode: true), returnsNormally,
           reason: 'captureMode constructor surface must remain wired; the '
               'in-app capture screen depends on it short-circuiting warmup.');
+
+      // No additionalBrackets — the v0.19.17 sustained_jank.critical
+      // bracket was removed before ship.
       expect(meta.additionalBrackets, isNull,
-          reason: 'jank_detected brackets a single axis (jankPercent). '
-              'sustained_jank (severeCount-based critical) and the cache '
-              'families stay implicitly reproducerOnly; raising any of them '
-              'would populate additionalBrackets with a second BracketSpec.');
+          reason: 'v0.19.17 attempted a sustained_jank.critical raise via '
+              'additionalBrackets[0]; the bracket was removed before ship '
+              'because sliding-window severeCount cannot be cross-checked '
+              'against operator-claimed K under any current schema '
+              'reduction. Captures retained as reproducer-tier provisional '
+              'evidence; bracket spec withdrawn.');
     });
 
     test('v0.17.1 structural batch pinned at reproducerOnly', () {
@@ -1997,11 +2024,73 @@ void main() {
     // slow_request_above.json) when NetworkMonitorDetector flipped to
     // `runtimeVerified` for the slow_request warning tier. The three
     // captures are now referenced by `profileCapturePaths` and exit
-    // the orphan manifest as a result. Empty manifest is intentional;
-    // the audit still walks `test/validation/captures/` and rejects
-    // any committed `.json` that is neither referenced by live
-    // metadata nor allowlisted here.
-    const retainedOrphans = <String, RetainedOrphanEntry>{};
+    // the orphan manifest as a result.
+    //
+    // v0.19.17 attempted a runtimeVerified raise of
+    // `sustained_jank.critical` via additionalBrackets[0] and
+    // withdrew it before ship: the bracket axis (sliding 240-frame
+    // window severeCount) is non-composable with operator-claimed K
+    // under the schema's current `'max'`/`'last'` reductions, and a
+    // candidate `'first'` reduction would not close the gap (above-
+    // leg's first emission is at the gate threshold, not at K). The
+    // three on-device captures remain on disk as reproducer-tier
+    // provisional evidence. They will be reconsumed by a future
+    // sustained_jank raise once the schema admits an axis reduction
+    // that matches the metric (e.g. operator-window-bounded peak).
+    const retainedOrphans = <String, RetainedOrphanEntry>{
+      'test/validation/captures/frame_timing/sustained_jank_below.json':
+          RetainedOrphanEntry(
+        role: 'below',
+        device: 'iPhone 12',
+        deviceOsVersion: 'iOS 17.5',
+        flutterMajorMinor: '3.41',
+        unit: 'frames',
+        observedMin: 1.0,
+        observedMax: 1.0,
+        consumeBy: '0.21.0',
+        owningClaim: 'sustained_jank.critical (re-raise pending schema rework)',
+        rationale: 'Below-leg idle scenario; 0 in-span sustained_jank.critical '
+            'events. expectedMagnitude.observed clamped to 1.0 because the '
+            'schema requires magnitudeMin > 0; the absence-of-event check '
+            'is what gates the role=below validation.',
+      ),
+      'test/validation/captures/frame_timing/sustained_jank_at.json':
+          RetainedOrphanEntry(
+        role: 'at',
+        device: 'iPhone 12',
+        deviceOsVersion: 'iOS 17.5',
+        flutterMajorMinor: '3.41',
+        unit: 'frames',
+        observedMin: 3.0,
+        observedMax: 3.0,
+        consumeBy: '0.21.0',
+        owningClaim: 'sustained_jank.critical (re-raise pending schema rework)',
+        rationale: 'At-leg with K=3 fixed-count severe-frame Ticker injection. '
+            'In-span sustained_jank.critical events are present but the '
+            'detector observedSevereCount climbs into the high teens as '
+            'ambient frames accumulate behind the operator-injected '
+            'severe frames; bracket axis cannot validate that magnitude '
+            'against operator-claimed K under any current schema '
+            'reduction.',
+      ),
+      'test/validation/captures/frame_timing/sustained_jank_above.json':
+          RetainedOrphanEntry(
+        role: 'above',
+        device: 'iPhone 12',
+        deviceOsVersion: 'iOS 17.5',
+        flutterMajorMinor: '3.41',
+        unit: 'frames',
+        observedMin: 5.0,
+        observedMax: 5.0,
+        consumeBy: '0.21.0',
+        owningClaim: 'sustained_jank.critical (re-raise pending schema rework)',
+        rationale:
+            'Above-leg with K=5 fixed-count severe-frame Ticker injection. '
+            'Same axis non-composability as at-leg: detector '
+            'observedSevereCount LAST=18 vs operator-claimed K=5 — the '
+            'bracket cannot certify the magnitude band on this axis.',
+      ),
+    };
 
     test('no unreferenced captures on disk', () {
       if (!File('pubspec.yaml').existsSync()) {
@@ -2168,6 +2257,13 @@ void main() {
           topLevelStableId: meta.bracketStableId,
           topLevelSeverityLabel: meta.bracketSeverityLabel,
           topLevelCoveredThresholds: meta.coveredThresholds,
+          additionalBrackets: meta.additionalBrackets,
+        ),
+        ...checkRuntimeVerifiedRequiresObservedAxisArgKey(
+          label: label,
+          tier: meta.effectiveMaxTier,
+          topLevelStableId: meta.bracketStableId,
+          topLevelObservedAxisArgKey: meta.observedAxisArgKey,
           additionalBrackets: meta.additionalBrackets,
         ),
       ];

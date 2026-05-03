@@ -143,6 +143,76 @@ void main() {
     });
 
     test(
+        'sustained_jank stamps observedSevereCount + dedupIdentityMicros '
+        'on extraTraceArgs', () {
+      // Producer-side plumbing for a future runtimeVerified raise on
+      // sustained_jank.critical. The audit gate's bracket spec carries
+      // `observedAxisArgKey: 'observedSevereCount'`, so the detector
+      // must emit that arg at fire time. `dedupIdentityMicros` plus
+      // `_emissionSeq` tie-breaking gives every emission a unique
+      // identity so the strong-uniqueness invariant rejects single-issue
+      // replay forgery.
+      for (var i = 0; i < 5; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 33));
+      }
+      for (var i = 5; i < 20; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+      }
+
+      final sustained =
+          detector.issues.firstWhere((i) => i.stableId == 'sustained_jank');
+      expect(sustained.severity, IssueSeverity.critical);
+      expect(sustained.dedupIdentityMicros, isNotNull,
+          reason: 'Producer-side dedup identity must be stamped so the '
+              'audit-side strong-uniqueness invariant has values to '
+              'check.');
+      expect(sustained.extraTraceArgs, isNotNull);
+      expect(sustained.extraTraceArgs!['observedSevereCount'], equals('5'),
+          reason: '5 severe frames in 20-frame sample — stringified per '
+              'Timeline arg-encoding contract.');
+      expect(sustained.extraTraceArgs!['observedJankPercent'], isA<String>(),
+          reason: 'Stringified percent for downstream cross-check.');
+      expect(sustained.extraTraceArgs!['bufferSize'], equals('20'));
+    });
+
+    test(
+        'severeCount band 2/3/5 — sustained_jank gate transitions exactly '
+        'at >=3', () {
+      // Pin the (severeCount → fires?) relationship across the bracket
+      // band a future runtimeVerified raise targets. severeCount=2 below
+      // gate (no fire); severeCount=3 at gate (fires); severeCount=5
+      // above gate (fires with higher count).
+      for (final (severeCount, fires) in const [
+        (2, false),
+        (3, true),
+        (5, true)
+      ]) {
+        final d = FrameTimingDetector(warmupDuration: Duration.zero);
+        try {
+          for (var i = 0; i < severeCount; i++) {
+            d.addFrameForTest(makeStats(frameNumber: i, totalMs: 33));
+          }
+          for (var i = severeCount; i < 20; i++) {
+            d.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+          }
+          final sustained =
+              d.issues.where((i) => i.stableId == 'sustained_jank').toList();
+          if (fires) {
+            expect(sustained, hasLength(1),
+                reason: 'severeCount=$severeCount should fire sustained_jank.');
+            expect(sustained.first.extraTraceArgs!['observedSevereCount'],
+                equals(severeCount.toString()));
+          } else {
+            expect(sustained, isEmpty,
+                reason: 'severeCount=$severeCount is below the >=3 gate.');
+          }
+        } finally {
+          d.dispose();
+        }
+      }
+    });
+
+    test(
         'real FrameTiming pipeline — sustained_jank fires via '
         'handleTimingsForTest', () {
       // Blocker B2: anti-tautology leg. The synthetic `addFrameForTest`

@@ -3040,4 +3040,110 @@ void main() {
       expect(failures.single, contains('slow_request_'));
     });
   });
+
+  group('checkRuntimeVerifiedRequiresObservedAxisArgKey (v0.19.17)', () {
+    BracketSpec mkSpec({
+      required String stableId,
+      required String severityLabel,
+      String? observedAxisArgKey,
+    }) {
+      return BracketSpec(
+        stableId: stableId,
+        severityLabel: severityLabel,
+        threshold: 10,
+        unit: 'ms',
+        coveredThresholds: {'$stableId.$severityLabel'},
+        profileCapturePaths: const [
+          'a/below.json',
+          'a/at.json',
+          'a/above.json',
+        ],
+        observedAxisArgKey: observedAxisArgKey,
+      );
+    }
+
+    test('runtimeVerified canonical with non-null argKey passes', () {
+      final failures = checkRuntimeVerifiedRequiresObservedAxisArgKey(
+        label: 'TestDetector',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'foo',
+        topLevelObservedAxisArgKey: 'observedFoo',
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('runtimeVerified canonical with null argKey fails', () {
+      final failures = checkRuntimeVerifiedRequiresObservedAxisArgKey(
+        label: 'TestDetector',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'foo',
+        topLevelObservedAxisArgKey: null,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('TestDetector'));
+      expect(failures.single, contains('canonical bracket'));
+      expect(failures.single, contains('observedAxisArgKey is null'));
+      expect(failures.single, contains('demote'));
+    });
+
+    test('runtimeVerified additionalBrackets[i] with null argKey fails', () {
+      final failures = checkRuntimeVerifiedRequiresObservedAxisArgKey(
+        label: 'TestDetector',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'foo',
+        topLevelObservedAxisArgKey: 'observedFoo',
+        additionalBrackets: [
+          mkSpec(stableId: 'bar', severityLabel: 'critical'),
+        ],
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('additionalBrackets[0]'));
+      expect(failures.single, contains('"bar"'));
+      expect(failures.single, contains('"critical"'));
+      expect(failures.single, contains('observedAxisArgKey is null'));
+    });
+
+    test('reproducerOnly canonical with null argKey is no-op', () {
+      final failures = checkRuntimeVerifiedRequiresObservedAxisArgKey(
+        label: 'TestDetector',
+        tier: EvidenceTier.reproducerOnly,
+        topLevelStableId: 'foo',
+        topLevelObservedAxisArgKey: null,
+      );
+      expect(failures, isEmpty);
+    });
+
+    test('externallyCited canonical with null argKey fails', () {
+      final failures = checkRuntimeVerifiedRequiresObservedAxisArgKey(
+        label: 'TestDetector',
+        tier: EvidenceTier.externallyCited,
+        topLevelStableId: 'foo',
+        topLevelObservedAxisArgKey: null,
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('canonical bracket'));
+    });
+
+    test(
+        'runtimeVerified canonical OK + null argKey on additionalBrackets[0] '
+        'fails on the bracket only', () {
+      final failures = checkRuntimeVerifiedRequiresObservedAxisArgKey(
+        label: 'TestDetector',
+        tier: EvidenceTier.runtimeVerified,
+        topLevelStableId: 'foo',
+        topLevelObservedAxisArgKey: 'observedFoo',
+        additionalBrackets: [
+          mkSpec(stableId: 'bar', severityLabel: 'warning'),
+          mkSpec(
+            stableId: 'baz',
+            severityLabel: 'critical',
+            observedAxisArgKey: 'observedBaz',
+          ),
+        ],
+      );
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('additionalBrackets[0]'));
+      expect(failures.single, contains('"bar"'));
+    });
+  });
 }

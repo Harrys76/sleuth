@@ -88,13 +88,17 @@ class BracketSpec {
   final String? observedAxisArgKey;
 
   /// Tolerance for the [observedAxisArgKey] cross-check. Same semantics
-  /// as [DetectorMetadata.observedAxisTolerance]. Default 0.25.
+  /// as [DetectorMetadata.observedAxisTolerance]. Default 0.25. When
+  /// [observedAxisArgKey] is null, this value is not consulted; the
+  /// cross-check is skipped entirely.
   final double observedAxisTolerance;
 
   /// Reduction strategy when multiple in-span trace records carry
   /// [observedAxisArgKey]. Same values as
   /// [DetectorMetadata.observedAxisReduction]: `'max'` (default,
   /// monotone-per-emission axes) or `'last'` (windowed-aggregate axes).
+  /// When [observedAxisArgKey] is null, this value is not consulted;
+  /// the cross-check is skipped entirely.
   final String observedAxisReduction;
 
   /// When true, every in-span `sleuth.issue.<stableId>.<severity>` trace
@@ -425,7 +429,8 @@ class DetectorMetadata {
   /// observed within ±25% of expected). Default `0.25` absorbs iOS
   /// `MethodChannel` coalescing variance plus parser dedup slack.
   /// Tighten when device variance is known to be smaller; loosen for
-  /// hot/throttled devices.
+  /// hot/throttled devices. When [observedAxisArgKey] is null, this
+  /// value is not consulted; the cross-check is skipped entirely.
   final double observedAxisTolerance;
 
   /// Reduction strategy for selecting a single observed value when
@@ -453,7 +458,8 @@ class DetectorMetadata {
   /// runtimeVerified detector. Opt into `'last'` only for windowed-
   /// aggregate observables. The accompanying audit-anchor test should
   /// pin the chosen reduction per detector so a future drift cannot
-  /// silently change semantics.
+  /// silently change semantics. When [observedAxisArgKey] is null,
+  /// this value is not consulted; the cross-check is skipped entirely.
   final String observedAxisReduction;
 
   /// Additional bracket axes for detectors whose runtimeVerified evidence

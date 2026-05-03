@@ -14,6 +14,7 @@ import 'demos/custom_painter_demo.dart';
 import 'demos/font_loading_demo.dart';
 import 'demos/fps_stress_test_demo.dart';
 import 'demos/frame_timing_capture_screen.dart';
+import 'demos/frame_timing_sustained_jank_capture_screen.dart';
 import 'demos/global_key_demo.dart';
 import 'demos/gpu_pressure_demo.dart';
 import 'demos/heavy_compute_capture_screen.dart';
@@ -273,6 +274,14 @@ class DemoHome extends StatelessWidget {
             subtitle: 'jank_detected runtimeVerified bracket capture (60Hz)',
             color: Colors.indigo,
             builder: (_) => const FrameTimingCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.videocam_outlined,
+            title: 'FrameTiming Sustained-Jank Capture',
+            subtitle:
+                'sustained_jank reproducer-tier captures (60Hz, severeCount)',
+            color: Colors.indigo,
+            builder: (_) => const FrameTimingSustainedJankCaptureScreen(),
           ),
         ],
       ),

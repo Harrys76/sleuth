@@ -1642,6 +1642,54 @@ List<String> checkBracketBoundsSanity({
   return failures;
 }
 
+/// Tier-quality invariant: runtimeVerified+ brackets MUST declare
+/// `observedAxisArgKey`. The detector-observed-axis cross-check in
+/// `ProfileCaptureSchema.validateBracket` is gated on a non-null
+/// argKey; without one, the bracket reduces to "≥1 trace event with
+/// the right name exists in span" — equivalent in evidentiary
+/// strength to reproducerOnly + a real-device existence proof, NOT
+/// the bracketed magnitude verification "runtimeVerified" implies.
+///
+/// Tier-gated: no-op for `unvalidated` and `reproducerOnly`. Applies to
+/// the canonical bracket and to every entry in `additionalBrackets`.
+List<String> checkRuntimeVerifiedRequiresObservedAxisArgKey({
+  required String label,
+  required EvidenceTier tier,
+  required String? topLevelStableId,
+  required String? topLevelObservedAxisArgKey,
+  List<BracketSpec>? additionalBrackets,
+}) {
+  if (tier != EvidenceTier.runtimeVerified &&
+      tier != EvidenceTier.externallyCited) {
+    return const [];
+  }
+  final failures = <String>[];
+  if (topLevelStableId != null && topLevelObservedAxisArgKey == null) {
+    failures.add('$label: canonical bracket on stableId='
+        '"$topLevelStableId" is tier=$tier but observedAxisArgKey is null. '
+        'The schema\'s detector-observed-axis cross-check is gated on a '
+        'non-null argKey; without one the bracket only proves event '
+        'presence, not magnitude. Either set observedAxisArgKey to a '
+        'stamped trace-record arg, OR demote the tier (perStableIdTier or '
+        'detector base) to reproducerOnly.');
+  }
+  if (additionalBrackets != null) {
+    for (var i = 0; i < additionalBrackets.length; i++) {
+      final spec = additionalBrackets[i];
+      if (spec.observedAxisArgKey == null) {
+        failures.add('$label: additionalBrackets[$i] on stableId='
+            '"${spec.stableId}" severityLabel="${spec.severityLabel}" is '
+            'tier=$tier but observedAxisArgKey is null. Same reasoning as '
+            'canonical: presence-only evidence does not earn '
+            'runtimeVerified. Either declare observedAxisArgKey, OR '
+            'remove this bracket and leave the (stableId, severity) at '
+            'reproducerOnly.');
+      }
+    }
+  }
+  return failures;
+}
+
 /// Approved values for `observedAxisReduction` — must stay in sync with
 /// [ProfileCaptureSchema._checkIssueTraceRecordPresent]'s reduction
 /// branches. Adding a new strategy means extending both the schema and
@@ -2155,6 +2203,16 @@ List<String> runRuntimeTierAudit({
     canonicalObservedAxisReduction: meta.observedAxisReduction,
     additionalBrackets: meta.additionalBrackets,
   ));
+  // [checkRuntimeVerifiedRequiresObservedAxisArgKey] is intentionally
+  // NOT batched here yet. `MemoryPressureDetector.heap_growing`
+  // currently lacks an `observedSlope` extraTraceArgs stamp — wiring
+  // the invariant into the per-detector pipeline before that lands
+  // would fail-CI on a pre-existing axis-check gap unrelated to the
+  // v0.19.17 sustained_jank withdrawal. The invariant runs in the
+  // multi-axis-audit pipeline E2E test (synthetic specs) and through
+  // dedicated unit tests; it is exposed publicly so a future
+  // anchor-block test or refreshed per-detector pass can wire it
+  // after the MemoryPressureDetector stamp lands.
   return failures;
 }
 
