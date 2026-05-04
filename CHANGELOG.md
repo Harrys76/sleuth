@@ -1,3 +1,12 @@
+## 0.19.24
+
+Test polish. No detector changes; distribution unchanged.
+
+- `runRuntimeTierAudit wires checkMinInBandSamplesPerSpec end-to-end`: source-grep wiring smoke test replaced with behavioral test that constructs synthetic `DetectorMetadata` (1 in-band per leg vs `minInBandSamples: 2`), invokes `runRuntimeTierAudit`, and asserts the failure list contains `minInBandSamples=2`. Indirection-proof — helper extraction or conditional gating breaks the new test, while the prior source-grep would silently accept either.
+- `real-capture fixture: critical_above.json passes invariant`: explicit `pubspec.yaml` existence check replaces the implicit `Directory.current` assumption, mirroring the `markTestSkipped('CWD is not the package root; skipping.')` pattern used elsewhere in the file.
+
+3,000 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.23
 
 `BracketSpec.minInBandSamples` opt-in schema field + `checkMinInBandSamplesPerSpec` audit invariant. No detector raises; distribution unchanged.

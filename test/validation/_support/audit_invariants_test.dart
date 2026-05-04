@@ -27,7 +27,12 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sleuth/sleuth.dart'
-    show BracketSpec, EvidenceTier, NetworkMonitorDetector, RebuildDetector;
+    show
+        BracketSpec,
+        DetectorMetadata,
+        EvidenceTier,
+        NetworkMonitorDetector,
+        RebuildDetector;
 import 'package:sleuth/src/detectors/heavy_compute_detector.dart'
     show HeavyComputeDetector;
 
@@ -4528,6 +4533,12 @@ void main() {
       // committed capture, not synthetic JSON. If RebuildDetector's
       // emission format ever drifts (arg name, value type, scenario
       // marker shape), this test catches it before audit gate fires.
+      // Relative path requires CWD = package root; assert explicitly so
+      // a non-standard runner cwd skips loudly instead of misleading.
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
       final realCapture = File(
         'test/validation/captures/rebuild_detector/critical_above.json',
       );
@@ -4578,33 +4589,66 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test('runRuntimeTierAudit wires checkMinInBandSamplesPerSpec', () {
-      // Anti-tautology guard: if a future refactor removes the
-      // `failures.addAll(checkMinInBandSamplesPerSpec(...))` call from
-      // `runRuntimeTierAudit`, the 12 unit tests above still pass
-      // because they invoke the helper directly. The shipped audit
-      // gate would silently no-op the contract. Source-grep the wire
-      // site so wiring removal fails fast.
-      final src = File('test/validation/_support/audit_invariants.dart')
-          .readAsStringSync();
-      // Strip line + block comments before matching so a `//`-commented
-      // call no longer satisfies the wiring requirement.
-      final stripped = src
-          .split('\n')
-          .map((line) {
-            final idx = line.indexOf('//');
-            return idx < 0 ? line : line.substring(0, idx);
-          })
-          .join('\n')
-          .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
+    test('runRuntimeTierAudit wires checkMinInBandSamplesPerSpec end-to-end',
+        () {
+      // Behavioral wire test: build a synthetic DetectorMetadata whose
+      // additionalBrackets[0] carries minInBandSamples=2, write captures
+      // with only 1 in-band sample per leg, route through
+      // runRuntimeTierAudit, and assert the failure list contains the
+      // minInBandSamples-specific message. Indirection-proof: a refactor
+      // that extracts the call into a helper, gates it conditionally,
+      // or removes it entirely all break this test, while the 12 unit
+      // tests above (which invoke checkMinInBandSamplesPerSpec directly)
+      // continue to pass.
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'below.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [20], // below-leg silent by convention.
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [40, 20, 25], // 1 in-band (40 ∈ [31, 51]), needs 2.
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedRebuildRate',
+        rates: [70, 30, 25], // 1 in-band (70 ∈ (51, 83]), needs 2.
+      );
+      final meta = DetectorMetadata(
+        tier: EvidenceTier.runtimeVerified,
+        rationale: 'Synthetic metadata for behavioral wire verification.',
+        reproducerPath: 'test/validation/_support/audit_invariants_test.dart',
+        coveredStableIds: const {'rebuild_activity'},
+        coveredThresholds: const {'rebuild_activity.critical'},
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+          ),
+        ],
+      );
+      final failures = runRuntimeTierAudit(
+        label: 'WireTest',
+        meta: meta,
+        repoRoot: root.path,
+      );
       expect(
-        stripped.contains('failures.addAll(checkMinInBandSamplesPerSpec('),
+        failures.any((f) => f.contains('minInBandSamples=2')),
         isTrue,
         reason: 'runRuntimeTierAudit must invoke '
             'checkMinInBandSamplesPerSpec so the contract reaches the '
-            'top-level audit gate. Removing or commenting out this wire '
-            'turns every opt-in spec into a silent no-op while the '
-            'field-literal anchors and unit tests continue to pass.',
+            'top-level audit gate. Removing, commenting out, or '
+            'conditionally gating the wire turns every opt-in spec into '
+            'a silent no-op.',
       );
     });
 

@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.19.19 (2026-05-03)_
+_Last updated: v0.19.24 (2026-05-04)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
@@ -406,7 +406,7 @@ per release:
   structural detectors) and 2 runtime-driven reproducers (Frame Timing,
   Network Monitor) that exercise their own production entrypoints
   (`handleTimingsForTest`, `SleuthHttpOverrides`). Ledger distribution
-  unchanged: 23/23 `reproducerOnly`. **← current release**
+  unchanged: 23/23 `reproducerOnly`.
 - **v0.18.0+** — Re-raise `NetworkMonitorDetector.slow_request.warning`
   (hard deadline — orphan manifest `consumeBy: '0.18.0'` blocks the
   release unless re-raised or orphans deleted). Also drops the
