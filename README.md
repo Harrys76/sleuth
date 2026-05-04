@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="doc/logo.png" width="128" alt="Sleuth logo">
+  <img src="https://raw.githubusercontent.com/Harrys76/sleuth/main/doc/logo.png" width="128" alt="Sleuth logo">
 </p>
 
 # Sleuth
@@ -438,7 +438,7 @@ The in-app Startup Metrics page also includes a full "Measurement Methodology" s
 
 Each detector carries a `DetectorMetadata` record declaring the strongest evidence backing its current thresholds and heuristics, ordered across four tiers: `unvalidated` → `reproducerOnly` → `runtimeVerified` → `externallyCited`. As of v0.19.25, **21/23 detectors ship at `reproducerOnly` base and 2/23 at `runtimeVerified` base**, with **11 effective `runtimeVerified` family-severity pairs across 8 unique stableIds** (`slow_request {warning + critical}`, `large_response.warning`, `request_frequency.warning`, `heap_growing.warning`, `platform_channel_traffic.warning`, `jank_detected.warning`, `rebuild_activity {warning + critical}`, `heavy_compute {warning + critical}`). Zero detectors at `unvalidated`. The CI audit gate at `test/validation/detector_metadata_audit_test.dart` enforces the contract on every test run.
 
-The per-detector ledger lives at [`doc/validation_ledger.md`](doc/validation_ledger.md) — it names each detector's current tier, links to its reproducer when one exists, and explains what would raise it. Tier raises land the supporting reproducer or capture evidence in the same PR.
+The per-detector ledger lives at [`doc/validation_ledger.md`](https://github.com/Harrys76/sleuth/blob/main/doc/validation_ledger.md) — it names each detector's current tier, links to its reproducer when one exists, and explains what would raise it. Tier raises land the supporting reproducer or capture evidence in the same PR.
 
 ## What This Does Better Than DevTools
 
