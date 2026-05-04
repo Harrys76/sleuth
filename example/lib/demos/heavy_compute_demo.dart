@@ -1,20 +1,19 @@
 import 'dart:async';
 import 'dart:isolate';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../demo_scaffold.dart';
 
-// ─────────────────────────────────────────
-// Demo 8: Heavy Compute on Main Thread
-// Triggers: HeavyCompute, FrameTiming
-// ─────────────────────────────────────────
+// CSV "import contacts" screen. The bad path parses on the main isolate
+// inside `build()` so the BUILD timeline event spans the parse —
+// HeavyComputeDetector observes durations >8 ms (warning) / >16 ms
+// (critical). The fixed path offloads to `Isolate.run` so the parent
+// isolate's BUILD event stays sub-threshold and the UI stays responsive.
 
-/// Demonstrates running a long CPU-bound loop on the main isolate versus
-/// offloading it to a background isolate via `Isolate.run`. The bad path
-/// freezes the UI — the spinner stutters and taps are dropped. The fix
-/// keeps the UI responsive throughout.
+const _rowChoices = [1000, 10000, 50000];
+
 class HeavyComputeDemo extends StatefulWidget {
   const HeavyComputeDemo({super.key});
 
@@ -23,157 +22,287 @@ class HeavyComputeDemo extends StatefulWidget {
 }
 
 class _HeavyComputeDemoState extends State<HeavyComputeDemo> {
-  static const _iterations = 5000000;
+  int _rowIndex = 1; // default 10K (warning)
+  bool _busy = false;
+  // Set by the bad-path Pick CSV tap and consumed on the next `build`.
+  // The parse must run inside `build` so the enclosing BUILD timeline
+  // event — emitted by `BuildOwner.buildScope` — captures the parse
+  // duration. Gesture-handler work runs in pointer dispatch (no BUILD
+  // event), so HeavyComputeDetector cannot observe it there.
+  bool _pendingMainParse = false;
+  final ValueNotifier<int> _lastMainMs = ValueNotifier<int>(0);
+  final ValueNotifier<int> _lastIsolateMs = ValueNotifier<int>(0);
+  List<_Contact> _contacts = const [];
 
-  String _result = 'Tap the button to compute';
-  bool _computing = false;
-
-  /// Flag set by the bad-path button tap handler and consumed on the
-  /// next [build]. When true, the heavy sin/cos loop runs synchronously
-  /// *inside* the build scope so it lands in the VM timeline as a long
-  /// Widget.build event — which is what [HeavyComputeDetector] observes.
-  ///
-  /// Without this indirection, running the compute directly in the tap
-  /// handler (the "obvious" implementation) would only trip
-  /// FrameTimingDetector via severe frame jank. HeavyComputeDetector
-  /// would stay silent because it filters on `TimelinePhase.build`
-  /// events — the `BuildOwner.buildScope` wrapper in Flutter's
-  /// `drawFrame`. Gesture-handler work runs in the pointer dispatch
-  /// phase, not inside buildScope, so it never reaches the detector.
-  bool _pendingMainIsolateCompute = false;
-
-  /// Wall-clock duration of the last compute, in milliseconds.
-  /// Displayed in the metrics bar.
-  final ValueNotifier<int> _lastComputeMs = ValueNotifier<int>(0);
-
-  void _requestMainIsolateCompute() {
-    setState(() {
-      _computing = true;
-      _pendingMainIsolateCompute = true;
-      _result = 'Computing on main isolate…';
-    });
-  }
-
-  Future<void> _runOnBackgroundIsolate() async {
-    setState(() {
-      _computing = true;
-      _result = 'Computing on background isolate…';
-    });
-    final stopwatch = Stopwatch()..start();
-
-    // ✅ FIX: Isolate.run offloads to a worker isolate, main stays responsive.
-    final sum = await Isolate.run(() => _heavyCompute(_iterations));
-
-    stopwatch.stop();
-    if (!mounted) return;
-    _lastComputeMs.value = stopwatch.elapsedMilliseconds;
-    setState(() {
-      _computing = false;
-      _result =
-          'Background-isolate result: ${sum.toStringAsFixed(2)}\n'
-          '(UI stayed at 60 FPS throughout.)';
-    });
-  }
+  int get _rowCount => _rowChoices[_rowIndex];
 
   @override
   void dispose() {
-    _lastComputeMs.dispose();
+    _lastMainMs.dispose();
+    _lastIsolateMs.dispose();
     super.dispose();
+  }
+
+  void _handleToggle(bool isFixed) {
+    // A pending main-isolate parse is consumed only by the Bad body's
+    // build. If the user toggles to Fixed before that build runs the
+    // body unmounts, the parse never fires, and the post-frame
+    // callback that would have cleared `_busy` never schedules. Reset
+    // both flags so the Fixed body's controls aren't stranded.
+    if (_pendingMainParse) {
+      setState(() {
+        _pendingMainParse = false;
+        _busy = false;
+      });
+    }
+  }
+
+  void _onSliderChanged(double v) {
+    final newIndex = v.round();
+    if (newIndex == _rowIndex) return;
+    HapticFeedback.selectionClick();
+    setState(() => _rowIndex = newIndex);
+  }
+
+  void _requestMainParse() {
+    setState(() {
+      _busy = true;
+      _pendingMainParse = true;
+      _contacts = const [];
+    });
+  }
+
+  Future<void> _runIsolateParse() async {
+    setState(() {
+      _busy = true;
+      _contacts = const [];
+    });
+    final stopwatch = Stopwatch()..start();
+    final rows = _rowCount;
+    final result = await Isolate.run(() => _generateAndParse(rows));
+    stopwatch.stop();
+    if (!mounted) return;
+    _lastIsolateMs.value = stopwatch.elapsedMilliseconds;
+    setState(() {
+      _busy = false;
+      _contacts = result;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    // ❌ BAD path: if the user tapped "Run on Main Isolate", execute the
-    //    sin/cos loop synchronously *inside* this build() call so the
-    //    enclosing BUILD timeline event (emitted by Flutter's
-    //    `BuildOwner.buildScope`) captures the multi-second duration.
-    //    HeavyComputeDetector filters on TimelinePhase.build events, so
-    //    this is the only way for the detector to see the work.
-    //
-    //    The flag is reset BEFORE running the compute so the post-frame
-    //    setState below doesn't re-enter the hot path on the next build.
-    if (_pendingMainIsolateCompute) {
-      _pendingMainIsolateCompute = false;
+    if (_pendingMainParse) {
+      _pendingMainParse = false;
       final stopwatch = Stopwatch()..start();
-      final sum = _heavyCompute(_iterations);
+      final rows = _rowCount;
+      final result = _generateAndParse(rows);
       stopwatch.stop();
       final elapsedMs = stopwatch.elapsedMilliseconds;
-      final resultText =
-          'Main-isolate result: ${sum.toStringAsFixed(2)}\n'
-          '(UI was frozen for ${elapsedMs}ms during build!)';
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _lastComputeMs.value = elapsedMs;
+        _lastMainMs.value = elapsedMs;
         setState(() {
-          _computing = false;
-          _result = resultText;
+          _busy = false;
+          _contacts = result;
         });
       });
     }
 
     return DemoScaffold(
-      title: 'Heavy Compute',
+      title: 'CSV Import',
       description:
-          '❌ BAD: $_iterations iterations of sin/cos math run inside '
-          'build() on the main isolate. The enclosing BUILD timeline '
-          'event blocks for seconds — the UI freezes and the spinner '
-          'stops mid-animation.\n'
-          '✅ FIX: Use Isolate.run (or compute()) to offload the work to '
-          'a background isolate. The main thread stays free to render.\n\n'
-          '▶ Tap "Run Compute". Watch the spinner above the button: in '
-          'the bad path it stops mid-animation; in the fixed path it '
-          'spins smoothly through the computation.',
+          '❌ BAD: Parses an in-memory CSV synchronously on the main isolate '
+          'inside `build()`. The enclosing BUILD timeline event spans the '
+          'parse — HeavyComputeDetector flags `heavy_compute.warning` '
+          '(>8 ms) and `heavy_compute.critical` (>16 ms) at the larger row '
+          'counts. UI freezes for the duration of the parse.\n'
+          '✅ FIX: `Isolate.run()` offloads parsing — UI stays responsive, '
+          'detector goes silent. Note: isolate spawn overhead is ~50–150 ms, '
+          'so the isolate path is not strictly faster for tiny payloads — '
+          'it trades total time for UI responsiveness.\n\n'
+          '▶ Slide the row count, tap Pick CSV. 1K = silent, 10K = warning, '
+          '50K = critical. Toggle Fixed to see the detector go silent.\n\n'
+          'No Cancel button: both paths complete in under ~300 ms even at '
+          '50K rows. Real apps with multi-second parses should expose '
+          'cancellation via raw `Isolate.spawn` + `ReceivePort`.',
       metricsBar: MetricsBar(
         chips: [
+          MetricChip(label: 'Rows', value: '${_rowCount ~/ 1000}K'),
           ValueListenableBuilder<int>(
-            valueListenable: _lastComputeMs,
-            builder: (_, ms, _) =>
-                MetricChip(label: 'Last compute', value: '$ms', unit: ' ms'),
+            valueListenable: _lastMainMs,
+            builder: (_, ms, _) => MetricChip(
+              label: 'Main',
+              value: ms == 0 ? '—' : '$ms',
+              unit: ms == 0 ? '' : ' ms',
+            ),
           ),
-          const MetricChip(label: 'Iterations', value: '5M'),
+          ValueListenableBuilder<int>(
+            valueListenable: _lastIsolateMs,
+            builder: (_, ms, _) => MetricChip(
+              label: 'Isolate',
+              value: ms == 0 ? '—' : '$ms',
+              unit: ms == 0 ? '' : ' ms',
+            ),
+          ),
         ],
       ),
-      body: _ComputeControls(
-        label: 'Bad: main-isolate compute inside build()',
-        buttonLabel: 'Run on Main Isolate',
-        computing: _computing,
-        result: _result,
-        onPressed: _computing ? null : _requestMainIsolateCompute,
+      onToggle: _handleToggle,
+      body: _ImportBody(
+        rowIndex: _rowIndex,
+        tier: _tierForMs(_lastMainMs.value),
+        busy: _busy,
+        contacts: _contacts,
+        onSliderChanged: _onSliderChanged,
+        onPickCsv: _busy ? null : _requestMainParse,
+        modeLabel: 'Main isolate (UI freezes)',
+        ctaLabel: 'Pick CSV',
       ),
-      fixedBody: _ComputeControls(
-        label: 'Fixed: background isolate via Isolate.run()',
-        buttonLabel: 'Run on Background Isolate',
-        computing: _computing,
-        result: _result,
-        onPressed: _computing ? null : _runOnBackgroundIsolate,
+      fixedBody: _ImportBody(
+        rowIndex: _rowIndex,
+        tier: _tierForMs(_lastMainMs.value),
+        busy: _busy,
+        contacts: _contacts,
+        onSliderChanged: _onSliderChanged,
+        onPickCsv: _busy ? null : _runIsolateParse,
+        modeLabel: 'Isolate.run() (UI responsive)',
+        ctaLabel: 'Pick CSV (isolate)',
       ),
     );
   }
 }
 
-double _heavyCompute(int iterations) {
-  final random = Random(42);
-  var sum = 0.0;
-  for (var i = 0; i < iterations; i++) {
-    sum += random.nextDouble() * random.nextDouble();
-  }
-  return sum;
-}
-
-class _ComputeControls extends StatelessWidget {
-  const _ComputeControls({
-    required this.label,
-    required this.buttonLabel,
-    required this.computing,
-    required this.result,
-    required this.onPressed,
+class _ImportBody extends StatelessWidget {
+  const _ImportBody({
+    required this.rowIndex,
+    required this.tier,
+    required this.busy,
+    required this.contacts,
+    required this.onSliderChanged,
+    required this.onPickCsv,
+    required this.modeLabel,
+    required this.ctaLabel,
   });
 
-  final String label;
-  final String buttonLabel;
-  final bool computing;
-  final String result;
-  final VoidCallback? onPressed;
+  final int rowIndex;
+  final _Tier tier;
+  final bool busy;
+  final List<_Contact> contacts;
+  final ValueChanged<double> onSliderChanged;
+  final VoidCallback? onPickCsv;
+  final String modeLabel;
+  final String ctaLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Row(
+            children: [
+              Text(
+                modeLabel,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const Spacer(),
+              _TierBadge(tier: tier),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Slider(
+            value: rowIndex.toDouble(),
+            min: 0,
+            max: 2,
+            divisions: 2,
+            label: '${_rowChoices[rowIndex] ~/ 1000}K rows',
+            onChanged: busy ? null : onSliderChanged,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: const [
+              Text('1K', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              Text('10K', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              Text('50K', style: TextStyle(fontSize: 11, color: Colors.grey)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onPickCsv,
+              icon: const Icon(Icons.upload_file),
+              label: Text(ctaLabel),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (busy) const LinearProgressIndicator(),
+        Expanded(
+          child: contacts.isEmpty
+              ? _EmptyState(busy: busy)
+              : _ContactList(contacts: contacts),
+        ),
+      ],
+    );
+  }
+}
+
+class _TierBadge extends StatelessWidget {
+  const _TierBadge({required this.tier});
+
+  final _Tier tier;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (tier) {
+      _Tier.unknown => Colors.grey,
+      _Tier.silent => Colors.green,
+      _Tier.warning => Colors.amber,
+      _Tier.critical => Colors.red,
+    };
+    final label = switch (tier) {
+      _Tier.unknown => '?',
+      _Tier.silent => 'silent',
+      _Tier.warning => 'warning',
+      _Tier.critical => 'critical',
+    };
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.busy});
+
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -183,31 +312,18 @@ class _ComputeControls extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Icon(
+              busy ? Icons.hourglass_top : Icons.contacts_outlined,
+              size: 40,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
             Text(
-              label,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              busy ? 'Parsing...' : 'No contacts yet — tap Pick CSV.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            // The spinner is a truth-teller: if the UI thread stalls, it
-            // stops spinning. Users can see the freeze in real time.
-            SizedBox(
-              height: 48,
-              child: computing
-                  ? const CircularProgressIndicator()
-                  : const Icon(Icons.check_circle_outline, size: 40),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              result,
-              style: Theme.of(context).textTheme.bodyLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: onPressed,
-              icon: const Icon(Icons.speed),
-              label: Text(buttonLabel),
             ),
           ],
         ),
@@ -215,3 +331,96 @@ class _ComputeControls extends StatelessWidget {
     );
   }
 }
+
+class _ContactList extends StatelessWidget {
+  const _ContactList({required this.contacts});
+
+  final List<_Contact> contacts;
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = contacts.take(50).toList();
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Imported ${contacts.length} contacts (showing first 50)',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: preview.length,
+            itemBuilder: (context, i) {
+              final c = preview[i];
+              return ListTile(
+                dense: true,
+                leading: CircleAvatar(
+                  backgroundColor: Theme.of(
+                    context,
+                  ).colorScheme.primaryContainer,
+                  child: Text(c.name[0]),
+                ),
+                title: Text(c.name),
+                subtitle: Text(c.email),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Pure helpers (top-level for Isolate.run sendability) ────────────
+
+class _Contact {
+  const _Contact(this.name, this.email);
+  final String name;
+  final String email;
+}
+
+enum _Tier { unknown, silent, warning, critical }
+
+// Classify from the latest measured main-isolate parse duration rather
+// than row count. Detector thresholds are duration-based (>8 ms warning,
+// >16 ms critical) — a fast iPhone may parse 50K under 16 ms (warning,
+// not critical) and a CPU-throttled Android may parse 1K over 8 ms.
+// Row-count mapping over-promises across devices.
+_Tier _tierForMs(int ms) {
+  if (ms == 0) return _Tier.unknown;
+  if (ms <= 8) return _Tier.silent;
+  if (ms <= 16) return _Tier.warning;
+  return _Tier.critical;
+}
+
+// Generates a CSV string in memory. ~50 bytes/row → 50K rows ≈ 2.5 MB.
+String _generateCsv(int rows) {
+  final b = StringBuffer('id,name,email\n');
+  for (var i = 0; i < rows; i++) {
+    b.write('$i,User$i,user$i@example.com\n');
+  }
+  return b.toString();
+}
+
+List<_Contact> _parseCsv(String csv) {
+  final lines = csv.split('\n');
+  final contacts = <_Contact>[];
+  for (var i = 1; i < lines.length; i++) {
+    final line = lines[i];
+    if (line.isEmpty) continue;
+    final parts = line.split(',');
+    if (parts.length < 3) continue;
+    contacts.add(_Contact(parts[1], parts[2]));
+  }
+  return contacts;
+}
+
+List<_Contact> _generateAndParse(int rows) => _parseCsv(_generateCsv(rows));

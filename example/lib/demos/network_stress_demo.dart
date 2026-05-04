@@ -1,18 +1,36 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 import '../demo_scaffold.dart';
 
-// ─────────────────────────────────────────
-// Demo 15: Network Stress
-// Triggers: NetworkMonitor detector (slow, frequency, large)
-// ─────────────────────────────────────────
+// Search-bar autocomplete + paginated photo gallery. Bad path fires
+// requests with no debounce and pulls 1.1 MiB pages; fixed path debounces
+// to 300 ms and pulls 200 KB pages. NetworkMonitor flags
+// `request_frequency` (>30 reqs/5 s window), `large_response` (>1 MiB),
+// and `slow_request` warning + critical (>1000 ms / >3000 ms).
 
-/// Demonstrates three network anti-patterns: slow requests, request
-/// frequency spikes, and oversized responses. The fix demonstrates the
-/// *presence* of a cache (a single request, subsequent taps are served
-/// from memory) and pagination (a small page instead of 2MB).
+const _badDebounceMs = 0;
+const _fixedDebounceMs = 300;
+const _largePayloadBytes = 1100000;
+const _smallPayloadBytes = 200000;
+
+// Hard cap on requests per session. Aggressive typing in Bad mode
+// otherwise hammers httpbin until the public endpoint rate-limits with
+// 429s, after which the Sleuth `slow_request` / `large_response`
+// demonstrations silently stop firing because failed responses no longer
+// match the threshold shapes.
+const _maxSessionRequests = 30;
+
+// `/delay/4` rather than `/delay/3` so `slow_request.critical` (>3000 ms
+// strict) clears even when the client-perceived duration loses a few
+// hundred ms to RTT scheduling jitter.
+const _slowEndpoint = 'https://httpbin.org/delay/4';
+const _searchEndpoint = 'https://httpbin.org/get';
+const _largeEndpoint = 'https://httpbin.org/bytes/$_largePayloadBytes';
+const _smallEndpoint = 'https://httpbin.org/bytes/$_smallPayloadBytes';
+
 class NetworkStressDemo extends StatefulWidget {
   const NetworkStressDemo({super.key});
 
@@ -20,310 +38,513 @@ class NetworkStressDemo extends StatefulWidget {
   State<NetworkStressDemo> createState() => _NetworkStressDemoState();
 }
 
-class _NetworkStressDemoState extends State<NetworkStressDemo> {
-  /// Soft cap on log lines. Prevents the list from growing unbounded
-  /// if the demo is left running — otherwise each toggle/tap appends
-  /// entries forever and eventually janks the ListView that renders
-  /// them.
-  static const _maxLogLines = 200;
-
-  final List<String> _log = [];
-  bool _running = false;
-
-  /// Total requests issued during the current session (both modes).
+class _NetworkStressDemoState extends State<NetworkStressDemo>
+    with SingleTickerProviderStateMixin {
+  // TabController lives above the DemoScaffold ternary so a Bad/Fixed
+  // toggle does not snap the user back to tab 0. The per-tab body
+  // widgets own their own controllers + timers and dispose cleanly when
+  // the ternary unmounts them.
+  late final TabController _tabs;
   final ValueNotifier<int> _requestCount = ValueNotifier<int>(0);
 
-  /// Client used by the fixed body to cache the first response.
-  String? _cachedSmallResponse;
-
-  void _addLog(String message) {
-    if (!mounted) return;
-    setState(() {
-      _log.add(message);
-      if (_log.length > _maxLogLines) {
-        _log.removeRange(0, _log.length - _maxLogLines);
-      }
-    });
-  }
-
-  void _handleToggle(bool isFixed) {
-    _addLog(
-      isFixed
-          ? '--- Switched to fixed pattern ---'
-          : '--- Back to bad pattern ---',
-    );
-  }
-
-  // ── Bad patterns ──────────────────────────────────────────
-
-  Future<void> _triggerSlowRequest() async {
-    _addLog('Sending slow request (3s delay)...');
-    _requestCount.value++;
-    final client = HttpClient();
-    try {
-      final request = await client.getUrl(
-        Uri.parse('https://httpbin.org/delay/3'),
-      );
-      final response = await request.close();
-      // Use `await for` to consume the body. `drain()` / `.asFuture()`
-      // replace the response subscription's `onDone`, which Sleuth's
-      // `SleuthHttpOverrides` proxy relies on to emit the
-      // `RequestRecord` — see CHANGELOG v0.16.1 known limitation.
-      await for (final _ in response) {
-        // Intentionally empty — we only need the stream to complete.
-      }
-      if (!mounted) return;
-      _addLog('Slow request done: ${response.statusCode}');
-    } catch (e) {
-      if (!mounted) return;
-      _addLog('Slow request error: $e');
-    } finally {
-      client.close();
-    }
-  }
-
-  Future<void> _triggerFrequencySpike() async {
-    _addLog('Firing 40 rapid requests...');
-    final client = HttpClient();
-    var completed = 0;
-    try {
-      final futures = <Future>[];
-      for (var i = 0; i < 40; i++) {
-        _requestCount.value++;
-        futures.add(() async {
-          try {
-            final req = await client.getUrl(
-              Uri.parse('https://httpbin.org/get?i=$i'),
-            );
-            final res = await req.close();
-            await for (final _ in res) {
-              // Drain via `await for` so the proxy's `onDone` fires.
-            }
-            completed++;
-          } catch (_) {
-            completed++;
-          }
-        }());
-      }
-      await Future.wait(futures);
-      if (!mounted) return;
-      _addLog('Frequency spike done: $completed/40 completed');
-    } finally {
-      // Always close even if the widget was disposed mid-flight —
-      // otherwise the HttpClient leaks until GC.
-      client.close(force: true);
-    }
-  }
-
-  Future<void> _triggerLargeResponse() async {
-    _addLog('Requesting 2MB response...');
-    _requestCount.value++;
-    final client = HttpClient();
-    try {
-      final request = await client.getUrl(
-        Uri.parse('https://httpbin.org/bytes/2000000'),
-      );
-      final response = await request.close();
-      var bytes = 0;
-      // `await for` keeps the proxy's wrapping `onDone` intact.
-      // `listen(...).asFuture()` would replace it and the
-      // `RequestRecord` would never emit.
-      await for (final chunk in response) {
-        bytes += chunk.length;
-      }
-      if (!mounted) return;
-      _addLog('Large response done: $bytes bytes');
-    } catch (e) {
-      if (!mounted) return;
-      _addLog('Large response error: $e');
-    } finally {
-      client.close();
-    }
-  }
-
-  Future<void> _triggerAll() async {
-    if (_running) return;
-    setState(() {
-      _running = true;
-      _log.clear();
-    });
-    _addLog('--- Triggering all 3 issue types ---');
-    await Future.wait([
-      _triggerSlowRequest(),
-      _triggerFrequencySpike(),
-      _triggerLargeResponse(),
-    ]);
-    if (!mounted) return;
-    _addLog('--- All done. Check the Sleuth overlay. ---');
-    setState(() => _running = false);
-  }
-
-  // ── Fixed patterns ────────────────────────────────────────
-
-  /// Cached fetch — only the first tap issues a request; later taps
-  /// return the cached value and do not bump the request counter.
-  Future<void> _triggerCached() async {
-    if (_cachedSmallResponse != null) {
-      _addLog('Served from in-memory cache (0 network calls).');
-      return;
-    }
-    _addLog('First fetch — issuing one request and caching the result...');
-    _requestCount.value++;
-    final client = HttpClient();
-    try {
-      final request = await client.getUrl(
-        Uri.parse('https://httpbin.org/get?cached=1'),
-      );
-      final response = await request.close();
-      await for (final _ in response) {
-        // Drain via `await for` so the proxy's `onDone` fires and the
-        // `RequestRecord` is emitted. `drain()` / `.asFuture()` replace
-        // the subscription's `onDone` and silently bypass the monitor.
-      }
-      if (!mounted) return;
-      _cachedSmallResponse = '<cached ${response.statusCode}>';
-      _addLog('Cached. Subsequent taps will be 0 requests.');
-    } catch (e) {
-      if (!mounted) return;
-      _addLog('Cached fetch error: $e');
-    } finally {
-      client.close();
-    }
-  }
-
-  /// Paginated fetch — one small page at a time instead of a 2MB blob.
-  Future<void> _triggerPaginated() async {
-    _addLog('Fetching 1 page of 20 items...');
-    _requestCount.value++;
-    final client = HttpClient();
-    try {
-      final request = await client.getUrl(
-        Uri.parse('https://httpbin.org/bytes/20000'),
-      );
-      final response = await request.close();
-      var bytes = 0;
-      // `await for` keeps the proxy's wrapping `onDone` intact.
-      // `listen(...).asFuture()` would replace it and the
-      // `RequestRecord` would never emit.
-      await for (final chunk in response) {
-        bytes += chunk.length;
-      }
-      if (!mounted) return;
-      _addLog('Page done: $bytes bytes (fits in a single small payload).');
-    } catch (e) {
-      if (!mounted) return;
-      _addLog('Paginated fetch error: $e');
-    } finally {
-      client.close();
-    }
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: 2, vsync: this);
   }
 
   @override
   void dispose() {
+    _tabs.dispose();
     _requestCount.dispose();
     super.dispose();
+  }
+
+  void _handleToggle(bool isFixed) {
+    // Fresh request budget per mode so the operator can demonstrate
+    // the Fixed pattern after exhausting the cap on Bad. Per-mode
+    // counters would preserve the running comparison, but resetting
+    // is simpler and the cap is anti-rate-limit guard, not a metric.
+    _requestCount.value = 0;
   }
 
   @override
   Widget build(BuildContext context) {
     return DemoScaffold(
-      title: 'Network Stress',
+      title: 'Search + Gallery',
       description:
-          '❌ BAD: Slow requests (3s delays), request floods (40 parallel '
-          'gets), and oversized responses (2MB). NetworkMonitor flags all '
-          'three.\n'
-          '✅ FIX: Cache frequently-fetched data, paginate large responses, '
-          'and debounce rapid requests.\n\n'
-          '▶ Tap any of the bad buttons, watch the "Requests" chip climb, '
-          'then flip to Fixed Pattern — the cached button makes at most 1 '
-          'request and pagination keeps responses small.\n\n'
-          'Requires internet connectivity.',
+          '❌ BAD: Search fires a request on every keystroke (no debounce). '
+          'Gallery auto-pulls 1.1 MiB pages on scroll. NetworkMonitor flags '
+          '`request_frequency` (>30 reqs/5 s) and `large_response` (>1 MiB). '
+          'Toggle the Slow API switch to fire `slow_request.critical` '
+          '(>3000 ms).\n'
+          '✅ FIX: Search debounces to 300 ms; gallery loads small (200 KB) '
+          'pages behind a manual button.\n\n'
+          '▶ Type aggressively in Search and scroll Gallery — issue cards '
+          'appear in the Sleuth overlay.\n\n'
+          'Requires internet. Capped at $_maxSessionRequests requests per '
+          'session to stay under httpbin.org\'s rate limit.',
       metricsBar: MetricsBar(
         chips: [
           ValueListenableBuilder<int>(
             valueListenable: _requestCount,
-            builder: (_, v, _) => MetricChip(label: 'Requests', value: '$v'),
+            builder: (_, v, _) => MetricChip(
+              label: 'Requests',
+              value: '$v',
+              unit: ' / $_maxSessionRequests',
+            ),
           ),
         ],
       ),
       onToggle: _handleToggle,
-      body: _buildBody(bad: true),
-      fixedBody: _buildBody(bad: false),
+      body: _TabbedBody(tabs: _tabs, bad: true, requestCount: _requestCount),
+      fixedBody: _TabbedBody(
+        tabs: _tabs,
+        bad: false,
+        requestCount: _requestCount,
+      ),
     );
   }
+}
 
-  Widget _buildBody({required bool bad}) {
+class _TabbedBody extends StatelessWidget {
+  const _TabbedBody({
+    required this.tabs,
+    required this.bad,
+    required this.requestCount,
+  });
+
+  final TabController tabs;
+  final bool bad;
+  final ValueNotifier<int> requestCount;
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.center,
-            children: bad
-                ? [
-                    FilledButton.icon(
-                      onPressed: _running ? null : _triggerSlowRequest,
-                      icon: const Icon(Icons.hourglass_bottom),
-                      label: const Text('Slow (3s)'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: _running ? null : _triggerFrequencySpike,
-                      icon: const Icon(Icons.bolt),
-                      label: const Text('40x Burst'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: _running ? null : _triggerLargeResponse,
-                      icon: const Icon(Icons.file_download),
-                      label: const Text('2MB'),
-                    ),
-                    FilledButton.tonalIcon(
-                      onPressed: _running ? null : _triggerAll,
-                      icon: const Icon(Icons.warning_amber),
-                      label: const Text('All 3'),
-                    ),
-                  ]
-                : [
-                    FilledButton.icon(
-                      onPressed: _triggerCached,
-                      icon: const Icon(Icons.cached),
-                      label: const Text('Cached fetch'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: _triggerPaginated,
-                      icon: const Icon(Icons.view_stream),
-                      label: const Text('Paginated page'),
-                    ),
-                  ],
-          ),
+        TabBar(
+          controller: tabs,
+          tabs: const [
+            Tab(icon: Icon(Icons.search), text: 'Search'),
+            Tab(icon: Icon(Icons.photo_library), text: 'Gallery'),
+          ],
         ),
         Expanded(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: ListView.builder(
-                itemCount: _log.length,
-                itemBuilder: (_, i) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    _log[i],
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-              ),
-            ),
+          child: TabBarView(
+            controller: tabs,
+            children: [
+              _SearchTab(bad: bad, requestCount: requestCount),
+              _GalleryTab(bad: bad, requestCount: requestCount),
+            ],
           ),
         ),
-        const SizedBox(height: 16),
       ],
     );
   }
+}
+
+// ── Search tab ───────────────────────────────────────────────────────
+
+class _SearchTab extends StatefulWidget {
+  const _SearchTab({required this.bad, required this.requestCount});
+
+  final bool bad;
+  final ValueNotifier<int> requestCount;
+
+  @override
+  State<_SearchTab> createState() => _SearchTabState();
+}
+
+class _SearchTabState extends State<_SearchTab> {
+  final _controller = TextEditingController();
+  Timer? _debounce;
+  // Monotonic request token. Stale responses (older token than current)
+  // are dropped at the UI layer. The detector still sees every issued
+  // request — `request_frequency` is intentionally measuring the bad
+  // pattern (unbounded keystroke fanout), not perceived debounce.
+  int _seq = 0;
+  bool _slowApi = false;
+  bool _loading = false;
+  String? _result;
+  String? _error;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onChanged(String value) {
+    _debounce?.cancel();
+    if (value.trim().isEmpty) {
+      // Bump _seq so any in-flight request that returns after the
+      // clear fails the seq guard and does not write back into the
+      // empty UI.
+      _seq++;
+      setState(() {
+        _result = null;
+        _error = null;
+        _loading = false;
+      });
+      return;
+    }
+    final delay = Duration(
+      milliseconds: widget.bad ? _badDebounceMs : _fixedDebounceMs,
+    );
+    _debounce = Timer(delay, () => _runSearch(value, ++_seq));
+  }
+
+  Future<void> _runSearch(String query, int seq) async {
+    if (widget.requestCount.value >= _maxSessionRequests) {
+      setState(() => _error = 'Session request cap reached. Restart screen.');
+      return;
+    }
+    // Reserve the slot BEFORE the network round-trip so concurrent
+    // keystrokes can't all see a counter under the cap and slip past
+    // the gate while their fetches are in flight.
+    widget.requestCount.value++;
+    setState(() => _loading = true);
+    final url = _slowApi ? _slowEndpoint : '$_searchEndpoint?q=$query';
+    try {
+      final bytes = await _fetchBytes(url);
+      if (!mounted || seq != _seq) return;
+      setState(() {
+        _result = '$bytes bytes returned for "$query"';
+        _error = null;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted || seq != _seq) return;
+      setState(() {
+        _error = _friendlyError(e);
+        _result = null;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _controller,
+            onChanged: _onChanged,
+            onSubmitted: (v) => _runSearch(v, ++_seq),
+            decoration: InputDecoration(
+              hintText: 'Type to search...',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _controller.text.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () {
+                        _controller.clear();
+                        _onChanged('');
+                      },
+                    ),
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Slow API (3 s+ response)'),
+            subtitle: const Text(
+              'Routes search to /delay/4 — fires slow_request.critical',
+              style: TextStyle(fontSize: 11),
+            ),
+            value: _slowApi,
+            onChanged: (v) {
+              // Invalidate any in-flight request so a stale response
+              // from the prior endpoint mode does not write back under
+              // the new mode.
+              setState(() {
+                _slowApi = v;
+                _seq++;
+              });
+            },
+          ),
+          const SizedBox(height: 16),
+          Expanded(child: _buildResult(context)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResult(BuildContext context) {
+    if (_loading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 12),
+            Text('Searching...'),
+          ],
+        ),
+      );
+    }
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ),
+      );
+    }
+    if (_result != null) {
+      return Center(child: Text(_result!));
+    }
+    return const Center(
+      child: Text(
+        'Type to search',
+        style: TextStyle(fontSize: 14, color: Colors.grey),
+      ),
+    );
+  }
+}
+
+// ── Gallery tab ──────────────────────────────────────────────────────
+
+class _GalleryTab extends StatefulWidget {
+  const _GalleryTab({required this.bad, required this.requestCount});
+
+  final bool bad;
+  final ValueNotifier<int> requestCount;
+
+  @override
+  State<_GalleryTab> createState() => _GalleryTabState();
+}
+
+class _GalleryTabState extends State<_GalleryTab> {
+  final _scroll = ScrollController();
+  final List<int> _pages = [];
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.bad) {
+      _scroll.addListener(_onScroll);
+    }
+  }
+
+  @override
+  void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    if (_loading) return;
+    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 100) {
+      _loadNextPage();
+    }
+  }
+
+  Future<void> _loadNextPage() async {
+    // Idempotent while a fetch is in flight — pull-to-refresh and the
+    // scroll listener can both call this concurrently otherwise, and
+    // both completions would append into the freshly-cleared list.
+    if (_loading) return;
+    if (widget.requestCount.value >= _maxSessionRequests) {
+      setState(() => _error = 'Session request cap reached.');
+      return;
+    }
+    // Reserve the slot before the await so concurrent callers respect
+    // the cap.
+    widget.requestCount.value++;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final url = widget.bad ? _largeEndpoint : _smallEndpoint;
+    try {
+      final bytes = await _fetchBytes(url);
+      if (!mounted) return;
+      setState(() {
+        _pages.add(bytes);
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = _friendlyError(e);
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _pages.clear();
+      _error = null;
+    });
+    await _loadNextPage();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView.builder(
+        controller: _scroll,
+        padding: const EdgeInsets.all(16),
+        itemCount: _pages.length + 1,
+        itemBuilder: (context, i) {
+          if (i < _pages.length) {
+            return _PhotoTile(index: i, bytes: _pages[i]);
+          }
+          if (_error != null) {
+            return _ErrorTile(message: _error!, onRetry: _loadNextPage);
+          }
+          if (_loading) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (widget.bad) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                _pages.isEmpty
+                    ? 'Pull to load first page (auto-load on scroll once seeded).'
+                    : 'Scrolling near the bottom triggers auto-load.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            );
+          }
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: FilledButton.icon(
+                onPressed: _loadNextPage,
+                icon: const Icon(Icons.add),
+                label: const Text('Load next page'),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PhotoTile extends StatelessWidget {
+  const _PhotoTile({required this.index, required this.bytes});
+
+  final int index;
+  final int bytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hue = (index * 37) % 360;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          leading: DecoratedBox(
+            decoration: BoxDecoration(
+              color: HSVColor.fromAHSV(1, hue.toDouble(), 0.5, 0.7).toColor(),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const SizedBox(width: 56, height: 56),
+          ),
+          title: Text('Photo #${index + 1}'),
+          subtitle: Text(
+            '${(bytes / 1024).toStringAsFixed(1)} KiB',
+            style: TextStyle(color: scheme.onSurfaceVariant),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorTile extends StatelessWidget {
+  const _ErrorTile({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        children: [
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry page'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Shared helpers ───────────────────────────────────────────────────
+
+// Drains the response body via `await for`. `drain()` and
+// `listen(...).asFuture()` replace the response subscription's `onDone`
+// callback, which Sleuth's `SleuthHttpOverrides` proxy relies on to emit
+// `RequestRecord`s — without that emission the detector never observes
+// the request.
+//
+// The 10 s timeout wraps the whole request including body drain. A
+// server that returns headers and then stalls the body would otherwise
+// hang the tab indefinitely because `request.close()` resolves on
+// headers, not on completion.
+Future<int> _fetchBytes(String url) async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+  try {
+    return await () async {
+      final request = await client.getUrl(Uri.parse(url));
+      final response = await request.close();
+      var bytes = 0;
+      await for (final chunk in response) {
+        bytes += chunk.length;
+      }
+      return bytes;
+    }().timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        client.close(force: true);
+        throw TimeoutException('Request timed out');
+      },
+    );
+  } finally {
+    client.close(force: true);
+  }
+}
+
+String _friendlyError(Object e) {
+  if (e is TimeoutException) return 'Request timed out (network slow?).';
+  if (e is SocketException) return 'Network unavailable.';
+  if (e is HttpException) return 'HTTP error: ${e.message}';
+  return 'Request failed: $e';
 }

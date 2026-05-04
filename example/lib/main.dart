@@ -161,26 +161,12 @@ class DemoHome extends StatelessWidget {
             builder: (_) => const NonLazyListDemo(),
           ),
           _DemoRoute(
-            icon: Icons.speed,
-            title: 'Heavy Compute on Main Thread',
-            subtitle: 'HeavyCompute • FrameTiming detectors',
+            icon: Icons.upload_file,
+            title: 'CSV Import',
+            subtitle:
+                'HeavyCompute warning + critical (main isolate vs Isolate.run)',
             color: Colors.purple,
             builder: (_) => const HeavyComputeDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.videocam,
-            title: 'HeavyCompute Capture Helper',
-            subtitle:
-                'Sleuth.markScenarioBegin/End + flushTimelineNow • runtimeVerified',
-            color: Colors.purple,
-            builder: (_) => const HeavyComputeCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.refresh,
-            title: 'RebuildActivity Capture Helper',
-            subtitle: 'rebuild_activity runtimeVerified bracket capture',
-            color: Colors.teal,
-            builder: (_) => const RebuildActivityCaptureScreen(),
           ),
         ],
       ),
@@ -191,9 +177,9 @@ class DemoHome extends StatelessWidget {
         icon: Icons.format_paint,
         demos: [
           _DemoRoute(
-            icon: Icons.format_paint,
-            title: 'Repaint Stress',
-            subtitle: 'Repaint detector (VM+/debug)',
+            icon: Icons.graphic_eq,
+            title: 'Live Waveform',
+            subtitle: 'Repaint detector (excessive_repaint • repaint_debug_*)',
             color: Colors.blueGrey,
             builder: (_) => const RepaintStressDemo(),
           ),
@@ -240,21 +226,6 @@ class DemoHome extends StatelessWidget {
             color: Colors.red,
             builder: (_) => const FpsStressTestDemo(),
           ),
-          _DemoRoute(
-            icon: Icons.videocam,
-            title: 'FrameTiming Capture Helper',
-            subtitle: 'jank_detected runtimeVerified bracket capture (60Hz)',
-            color: Colors.indigo,
-            builder: (_) => const FrameTimingCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.videocam_outlined,
-            title: 'FrameTiming Sustained-Jank Capture',
-            subtitle:
-                'sustained_jank reproducer-tier captures (60Hz, severeCount)',
-            color: Colors.indigo,
-            builder: (_) => const FrameTimingSustainedJankCaptureScreen(),
-          ),
         ],
       ),
 
@@ -293,14 +264,6 @@ class DemoHome extends StatelessWidget {
             builder: (_) => const MemoryPressureDemo(),
           ),
           _DemoRoute(
-            icon: Icons.videocam,
-            title: 'MemoryPressure Capture Helper',
-            subtitle:
-                'Sleuth.markScenarioBegin/End • heap_growing runtimeVerified',
-            color: Colors.purple,
-            builder: (_) => const MemoryPressureCaptureScreen(),
-          ),
-          _DemoRoute(
             icon: Icons.all_inclusive,
             title: 'KeepAlive Overuse',
             subtitle: 'KeepAlive detector (>5 alive)',
@@ -316,18 +279,12 @@ class DemoHome extends StatelessWidget {
         icon: Icons.cloud,
         demos: [
           _DemoRoute(
-            icon: Icons.cloud_download,
-            title: 'Network Stress',
-            subtitle: 'Network Monitor detector',
+            icon: Icons.search,
+            title: 'Search + Gallery',
+            subtitle:
+                'NetworkMonitor (slow_request • request_frequency • large_response)',
             color: Colors.orange,
             builder: (_) => const NetworkStressDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.videocam,
-            title: 'NetworkMonitor Capture Helper (v0.18.0)',
-            subtitle: 'slow_request runtimeVerified bracket capture',
-            color: Colors.orange,
-            builder: (_) => const NetworkMonitorCaptureScreen(),
           ),
           _DemoRoute(
             icon: Icons.settings_input_hdmi,
@@ -335,14 +292,6 @@ class DemoHome extends StatelessWidget {
             subtitle: 'PlatformChannel detector (>20/sec)',
             color: Colors.blueGrey,
             builder: (_) => const PlatformChannelDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.videocam,
-            title: 'PlatformChannel Capture Helper (v0.19.4)',
-            subtitle:
-                'platform_channel_traffic runtimeVerified bracket capture',
-            color: Colors.blueGrey,
-            builder: (_) => const PlatformChannelCaptureScreen(),
           ),
           _DemoRoute(
             icon: Icons.font_download,
@@ -388,6 +337,68 @@ class DemoHome extends StatelessWidget {
                 'Rebuild • KeepAlive • PlatformChannel • Image • SetState',
             color: Colors.blue,
             builder: (_) => const CombinedChatDemo(),
+          ),
+        ],
+      ),
+
+      // ── Capture Helpers ──
+      // Operator-only tooling for the runtimeVerified bracket-recording
+      // procedure (see doc/capture_procedure.md). Each helper drives
+      // Sleuth.markScenarioBegin/End around a workload at known magnitude
+      // (below / at / above the bracket band) so detectors emit captured
+      // trace records on real devices.
+      _DemoCategory(
+        title: 'Capture Helpers',
+        icon: Icons.videocam,
+        demos: [
+          _DemoRoute(
+            icon: Icons.speed,
+            title: 'HeavyCompute',
+            subtitle: 'heavy_compute warning + critical brackets',
+            color: Colors.purple,
+            builder: (_) => const HeavyComputeCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.refresh,
+            title: 'RebuildActivity',
+            subtitle: 'rebuild_activity warning + critical brackets',
+            color: Colors.teal,
+            builder: (_) => const RebuildActivityCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.timeline,
+            title: 'FrameTiming (jank_detected)',
+            subtitle: 'jank_detected warning bracket (60Hz)',
+            color: Colors.indigo,
+            builder: (_) => const FrameTimingCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.show_chart,
+            title: 'FrameTiming (sustained_jank)',
+            subtitle: 'sustained_jank reproducer-tier captures',
+            color: Colors.indigo,
+            builder: (_) => const FrameTimingSustainedJankCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.data_array,
+            title: 'MemoryPressure',
+            subtitle: 'heap_growing warning bracket',
+            color: Colors.purple,
+            builder: (_) => const MemoryPressureCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.cloud_download,
+            title: 'NetworkMonitor',
+            subtitle: 'slow_request warning + critical brackets',
+            color: Colors.orange,
+            builder: (_) => const NetworkMonitorCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.settings_input_hdmi,
+            title: 'PlatformChannel',
+            subtitle: 'platform_channel_traffic warning bracket',
+            color: Colors.blueGrey,
+            builder: (_) => const PlatformChannelCaptureScreen(),
           ),
         ],
       ),

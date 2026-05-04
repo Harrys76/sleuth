@@ -1,17 +1,17 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../demo_scaffold.dart';
 
-// ─────────────────────────────────────────
-// Demo 14: Repaint Stress
-// Triggers: Repaint detector (VM+ or debug callbacks)
-// ─────────────────────────────────────────
+// Live audio-style waveform visualizer. A 60 Hz CustomPaint scrolls a
+// 256-sample sine + noise trace, while header labels (BPM, Peak)
+// rebuild every frame. Without a `RepaintBoundary` the painter's
+// repaints propagate up through the Column and drag the labels and
+// sibling chrome into the same repaint, tripping `excessive_repaint*`
+// and `repaint_debug_<TypeName>` families. Wrapping the painter in a
+// `RepaintBoundary` quiets all paths.
 
-/// Demonstrates continuous repainting without a `RepaintBoundary`. In the
-/// bad path, every frame's repaint propagates up to the ancestor layer,
-/// dragging siblings into the repaint. The fix wraps the animated
-/// `CustomPaint` in a `RepaintBoundary` so the repaint is isolated to a
-/// single layer.
 class RepaintStressDemo extends StatefulWidget {
   const RepaintStressDemo({super.key});
 
@@ -22,10 +22,6 @@ class RepaintStressDemo extends StatefulWidget {
 class _RepaintStressDemoState extends State<RepaintStressDemo>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
-
-  /// Counts paint calls in the current body via the painter's paint()
-  /// method. The chip is reset on toggle so the number reflects only
-  /// the currently-visible subtree.
   final ValueNotifier<int> _paintCount = ValueNotifier<int>(0);
 
   @override
@@ -34,7 +30,22 @@ class _RepaintStressDemoState extends State<RepaintStressDemo>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 3),
-    )..repeat();
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Pause the ticker entirely when Reduce Motion is on. Without this
+    // the controller keeps spinning at 60 Hz even though no listener
+    // pulls from it — wasted CPU in the very demo measuring repaint
+    // cost.
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion) {
+      _controller.stop();
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
   }
 
   @override
@@ -50,63 +61,89 @@ class _RepaintStressDemoState extends State<RepaintStressDemo>
 
   @override
   Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     return DemoScaffold(
-      title: 'Repaint Stress',
+      title: 'Live Waveform',
       description:
-          '❌ BAD: A CustomPaint drawing concentric circles at 60 Hz with no '
-          'RepaintBoundary. Every frame\'s repaint propagates up to the root '
-          'layer, dragging siblings into the repaint too.\n'
-          '✅ FIX: Wrap the CustomPaint in a RepaintBoundary so the repaint '
-          'is isolated to a single layer.\n\n'
-          '▶ Flip to Fixed Pattern — the painter still animates, but the '
-          'repaint cost is contained.',
+          '❌ BAD: A 60 Hz CustomPaint scrolling oscilloscope plus per-frame '
+          'header labels (BPM, Peak) — no RepaintBoundary. Every frame\'s '
+          'repaint propagates through the Column and drags the labels into '
+          'the repaint. Repaint detector flags `excessive_repaint*` and '
+          'per-widget `repaint_debug_<TypeName>` families.\n'
+          '✅ FIX: Wrap the painter in a RepaintBoundary so the repaint '
+          'isolates to its own layer.\n\n'
+          '▶ Open Bad path → wait 1–2 s for the issue cards. Toggle Fixed '
+          '→ cards disappear within 2–3 s.',
       metricsBar: MetricsBar(
         chips: [
-          ValueListenableBuilder<int>(
-            valueListenable: _paintCount,
-            builder: (_, v, _) => MetricChip(label: 'Paints', value: '$v'),
+          // The Paints notifier ticks once per frame. Without an own
+          // boundary, this rebuild propagates outward and contributes
+          // to the very repaint metric the demo is measuring — even on
+          // the Fixed path, which would otherwise be quiet.
+          RepaintBoundary(
+            child: ValueListenableBuilder<int>(
+              valueListenable: _paintCount,
+              builder: (_, v, _) => MetricChip(label: 'Paints', value: '$v'),
+            ),
           ),
+          MetricChip(label: 'Mode', value: reduceMotion ? 'Static' : '60 Hz'),
         ],
       ),
       onToggle: _handleToggle,
-      body: _BadRepaintBody(controller: _controller, paintCount: _paintCount),
-      fixedBody: _FixedRepaintBody(
+      body: _WaveformBody(
         controller: _controller,
         paintCount: _paintCount,
+        wrapInBoundary: false,
+        reduceMotion: reduceMotion,
+      ),
+      fixedBody: _WaveformBody(
+        controller: _controller,
+        paintCount: _paintCount,
+        wrapInBoundary: true,
+        reduceMotion: reduceMotion,
       ),
     );
   }
 }
 
-class _BadRepaintBody extends StatelessWidget {
-  const _BadRepaintBody({required this.controller, required this.paintCount});
+class _WaveformBody extends StatelessWidget {
+  const _WaveformBody({
+    required this.controller,
+    required this.paintCount,
+    required this.wrapInBoundary,
+    required this.reduceMotion,
+  });
 
   final AnimationController controller;
   final ValueNotifier<int> paintCount;
+  final bool wrapInBoundary;
+  final bool reduceMotion;
 
   @override
   Widget build(BuildContext context) {
-    // ❌ No RepaintBoundary — repaints propagate up through the Column.
+    final waveform = CustomPaint(
+      painter: _WaveformPainter(
+        animation: controller,
+        paintCount: paintCount,
+        animate: !reduceMotion,
+      ),
+    );
     return Column(
       children: [
-        const Padding(
-          padding: EdgeInsets.all(12),
-          child: Text(
-            'Sibling text — repaints every frame because no RepaintBoundary',
-            style: TextStyle(fontSize: 13, color: Colors.red),
-          ),
-        ),
+        if (reduceMotion)
+          const _ReduceMotionBanner()
+        else
+          _HeaderLabels(controller: controller),
         Expanded(
-          child: CustomPaint(
-            painter: _WavePainter(controller, paintCount),
-            child: Center(
-              child: AnimatedBuilder(
-                animation: controller,
-                builder: (context, _) => Text(
-                  '${(controller.value * 360).toInt()}°',
-                  style: Theme.of(context).textTheme.displayMedium,
-                ),
-              ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Semantics(
+              label: 'Audio waveform visualizer',
+              container: true,
+              liveRegion: true,
+              child: wrapInBoundary
+                  ? RepaintBoundary(child: waveform)
+                  : waveform,
             ),
           ),
         ),
@@ -115,38 +152,74 @@ class _BadRepaintBody extends StatelessWidget {
   }
 }
 
-class _FixedRepaintBody extends StatelessWidget {
-  const _FixedRepaintBody({required this.controller, required this.paintCount});
+class _HeaderLabels extends StatelessWidget {
+  const _HeaderLabels({required this.controller});
 
   final AnimationController controller;
-  final ValueNotifier<int> paintCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) {
+          final t = controller.value;
+          final bpm = 110 + (math.sin(t * 2 * math.pi) * 14).round();
+          final peak = (0.5 + math.sin(t * 4 * math.pi) * 0.5).abs();
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _StatColumn(label: 'BPM', value: '$bpm', color: scheme.primary),
+              _StatColumn(
+                label: 'Peak',
+                value: peak.toStringAsFixed(2),
+                color: scheme.tertiary,
+              ),
+              _StatColumn(
+                label: 'Phase',
+                value: '${(t * 360).toInt()}°',
+                color: scheme.secondary,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _StatColumn extends StatelessWidget {
+  const _StatColumn({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.all(12),
-          child: Text(
-            'Sibling text — stable, never repainted',
-            style: TextStyle(fontSize: 13, color: Colors.green),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
-        // ✅ RepaintBoundary isolates the painter's repaint to its own layer.
-        Expanded(
-          child: RepaintBoundary(
-            child: CustomPaint(
-              painter: _WavePainter(controller, paintCount),
-              child: Center(
-                child: AnimatedBuilder(
-                  animation: controller,
-                  builder: (context, _) => Text(
-                    '${(controller.value * 360).toInt()}°',
-                    style: Theme.of(context).textTheme.displayMedium,
-                  ),
-                ),
-              ),
-            ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            color: color,
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
       ],
@@ -154,36 +227,87 @@ class _FixedRepaintBody extends StatelessWidget {
   }
 }
 
-class _WavePainter extends CustomPainter {
-  _WavePainter(this.animation, this.paintCount) : super(repaint: animation);
+class _ReduceMotionBanner extends StatelessWidget {
+  const _ReduceMotionBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Icon(Icons.accessibility_new, size: 18, color: scheme.onSurface),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Animation paused (Reduce Motion enabled). '
+                  'Repaint detector will not fire while paused.',
+                  style: TextStyle(fontSize: 12, color: scheme.onSurface),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WaveformPainter extends CustomPainter {
+  _WaveformPainter({
+    required this.animation,
+    required this.paintCount,
+    required this.animate,
+  }) : super(repaint: animate ? animation : null);
 
   final Animation<double> animation;
   final ValueNotifier<int> paintCount;
+  final bool animate;
+
+  // 256-point scrolling buffer of sine + noise. The noise term keeps the
+  // line visually live even after the sine wraps.
+  static const _samples = 256;
+  static final _noise = List<double>.generate(
+    _samples,
+    (i) => (math.Random(i).nextDouble() - 0.5) * 0.1,
+  );
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Count paints via a microtask — bumping a ValueNotifier directly
-    // during paint would reentrantly schedule a frame.
     Future.microtask(() => paintCount.value += 1);
 
-    final progress = animation.value;
+    final phase = animation.value * 2 * math.pi;
     final paint = Paint()
-      ..color =
-          Color.lerp(
-            const Color(0xFF3B82F6),
-            const Color(0xFFEF4444),
-            progress,
-          ) ??
-          const Color(0xFF3B82F6)
+      ..color = const Color(0xFF3B82F6)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+      ..strokeWidth = 2;
 
-    for (var i = 0; i < 8; i++) {
-      final radius = 30.0 + i * 20 + progress * 40;
-      canvas.drawCircle(Offset(size.width / 2, size.height / 2), radius, paint);
+    final mid = size.height / 2;
+    final amp = size.height * 0.35;
+    final dx = size.width / (_samples - 1);
+
+    final path = Path()..moveTo(0, mid);
+    for (var i = 0; i < _samples; i++) {
+      final t = i / _samples;
+      final y = mid + math.sin(t * 4 * math.pi + phase) * amp + _noise[i] * amp;
+      path.lineTo(i * dx, y);
     }
+    canvas.drawPath(path, paint);
+
+    final centerline = Paint()
+      ..color = const Color(0x33888888)
+      ..strokeWidth = 1;
+    canvas.drawLine(Offset(0, mid), Offset(size.width, mid), centerline);
   }
 
   @override
-  bool shouldRepaint(_WavePainter old) => true;
+  bool shouldRepaint(_WaveformPainter old) => old.animate != animate;
 }
