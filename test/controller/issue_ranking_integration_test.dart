@@ -30,20 +30,13 @@ void main() {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
-          child: Column(
-            children: [
-              const Opacity(
-                opacity: 0.0,
-                child: SizedBox(width: 10, height: 10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
               ),
-              ListView(
-                shrinkWrap: true,
-                children: List.generate(
-                  25,
-                  (i) => SizedBox(key: ValueKey(i), height: 10),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       );
@@ -81,11 +74,15 @@ void main() {
     testWidgets('recurrence counts increment across scan cycles',
         (tester) async {
       await tester.pumpWidget(
-        const Directionality(
+        Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
           ),
         ),
       );
@@ -108,11 +105,15 @@ void main() {
     testWidgets('recurrence resets when issue disappears', (tester) async {
       // First: widget tree with Opacity(0.0) issue
       await tester.pumpWidget(
-        const Directionality(
+        Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
           ),
         ),
       );
@@ -136,7 +137,7 @@ void main() {
 
       // Recurrence for the opacity issue should be gone
       expect(
-        controller.recurrenceCountsForTest.containsKey('opacity_zero'),
+        controller.recurrenceCountsForTest.containsKey('non_lazy_list'),
         isFalse,
       );
     });
@@ -144,11 +145,15 @@ void main() {
     testWidgets('frame impact boosts build issues during UI thread jank',
         (tester) async {
       await tester.pumpWidget(
-        const Directionality(
+        Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
           ),
         ),
       );
@@ -181,11 +186,15 @@ void main() {
     testWidgets('frame impact clears when jank stops (no stale phase boost)',
         (tester) async {
       await tester.pumpWidget(
-        const Directionality(
+        Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
           ),
         ),
       );
@@ -234,11 +243,15 @@ void main() {
         'timeline path (aggregateIssuesForTest) does not increment recurrence',
         (tester) async {
       await tester.pumpWidget(
-        const Directionality(
+        Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
           ),
         ),
       );

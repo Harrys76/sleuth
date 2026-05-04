@@ -4,10 +4,7 @@ import 'package:sleuth/sleuth.dart';
 import 'custom_detectors/01_simple_structural_detector.dart';
 import 'custom_detectors/02_runtime_callback_detector.dart';
 import 'custom_detectors/03_hybrid_vm_structural_detector.dart';
-import 'demos/animated_builder_demo.dart';
-import 'demos/combined_analytics_dashboard_demo.dart';
 import 'demos/combined_chat_demo.dart';
-import 'demos/combined_ecommerce_demo.dart';
 import 'demos/combined_social_feed_demo.dart';
 import 'demos/custom_detector_cookbook_demo.dart';
 import 'demos/custom_painter_demo.dart';
@@ -15,7 +12,6 @@ import 'demos/font_loading_demo.dart';
 import 'demos/fps_stress_test_demo.dart';
 import 'demos/frame_timing_capture_screen.dart';
 import 'demos/frame_timing_sustained_jank_capture_screen.dart';
-import 'demos/global_key_demo.dart';
 import 'demos/gpu_pressure_demo.dart';
 import 'demos/heavy_compute_capture_screen.dart';
 import 'demos/heavy_compute_demo.dart';
@@ -24,11 +20,9 @@ import 'demos/intrinsic_height_demo.dart';
 import 'demos/keepalive_demo.dart';
 import 'demos/memory_pressure_capture_screen.dart';
 import 'demos/memory_pressure_demo.dart';
-import 'demos/nested_scroll_demo.dart';
 import 'demos/network_monitor_capture_screen.dart';
 import 'demos/network_stress_demo.dart';
 import 'demos/non_lazy_list_demo.dart';
-import 'demos/opacity_zero_demo.dart';
 import 'demos/platform_channel_capture_screen.dart';
 import 'demos/platform_channel_demo.dart';
 import 'demos/rebuild_activity_capture_screen.dart';
@@ -36,7 +30,6 @@ import 'demos/rebuild_hotspot_demo.dart';
 import 'demos/repaint_boundary_demo.dart';
 import 'demos/repaint_stress_demo.dart';
 import 'demos/shader_jank_demo.dart';
-import 'demos/shallow_rebuild_risk_demo.dart';
 import 'demos/uncached_image_demo.dart';
 
 void main() {
@@ -168,20 +161,6 @@ class DemoHome extends StatelessWidget {
             builder: (_) => const NonLazyListDemo(),
           ),
           _DemoRoute(
-            icon: Icons.animation,
-            title: 'AnimatedBuilder No Child',
-            subtitle: 'AnimatedBuilder detector',
-            color: Colors.cyan,
-            builder: (_) => const AnimatedBuilderDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.account_tree,
-            title: 'Shallow Rebuild Risk',
-            subtitle: 'ShallowRebuildRisk detector',
-            color: Colors.lime,
-            builder: (_) => const ShallowRebuildRiskDemo(),
-          ),
-          _DemoRoute(
             icon: Icons.speed,
             title: 'Heavy Compute on Main Thread',
             subtitle: 'HeavyCompute • FrameTiming detectors',
@@ -241,13 +220,6 @@ class DemoHome extends StatelessWidget {
         icon: Icons.layers,
         demos: [
           _DemoRoute(
-            icon: Icons.opacity,
-            title: 'Opacity Zero',
-            subtitle: 'Opacity detector (invisible widget)',
-            color: Colors.brown,
-            builder: (_) => const OpacityZeroDemo(),
-          ),
-          _DemoRoute(
             icon: Icons.memory_outlined,
             title: 'GPU Pressure',
             subtitle: 'GpuPressure detector (hybrid)',
@@ -297,13 +269,6 @@ class DemoHome extends StatelessWidget {
             subtitle: 'LayoutBottleneck detector',
             color: Colors.amber,
             builder: (_) => const IntrinsicHeightDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.swap_vert,
-            title: 'Nested Scroll',
-            subtitle: 'NestedScroll detector',
-            color: Colors.indigo,
-            builder: (_) => const NestedScrollDemo(),
           ),
         ],
       ),
@@ -389,21 +354,6 @@ class DemoHome extends StatelessWidget {
         ],
       ),
 
-      // ── Keys & Identity ──
-      _DemoCategory(
-        title: 'Keys & Identity',
-        icon: Icons.key,
-        demos: [
-          _DemoRoute(
-            icon: Icons.key,
-            title: 'GlobalKey Overuse',
-            subtitle: 'GlobalKey detector (>10 keys)',
-            color: Colors.blue,
-            builder: (_) => const GlobalKeyDemo(),
-          ),
-        ],
-      ),
-
       // ── Custom Detectors ──
       _DemoCategory(
         title: 'Custom Detectors',
@@ -427,23 +377,9 @@ class DemoHome extends StatelessWidget {
           _DemoRoute(
             icon: Icons.dynamic_feed,
             title: 'Combined: Social Feed',
-            subtitle: 'Image • Opacity • Layout • setState • Correlator',
+            subtitle: 'Image • Layout • setState • Correlator',
             color: Colors.deepPurple,
             builder: (_) => const CombinedSocialFeedDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.dashboard,
-            title: 'Combined: Analytics Dashboard',
-            subtitle: 'Painter • AnimBuilder • GlobalKey • Font • Non-lazy',
-            color: Colors.teal,
-            builder: (_) => const CombinedAnalyticsDashboardDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.shopping_cart,
-            title: 'Combined: E-Commerce Page',
-            subtitle: 'Image • Layout • AnimBuilder • ListView • GlobalKey',
-            color: Colors.deepOrange,
-            builder: (_) => const CombinedEcommerceDemo(),
           ),
           _DemoRoute(
             icon: Icons.chat,

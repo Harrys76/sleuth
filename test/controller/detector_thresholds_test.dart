@@ -10,10 +10,8 @@ void main() {
       expect(t.gpuPressureRatio, 2.0);
       expect(t.memoryGrowthBytesPerSec, 512000);
       expect(t.memoryCapacityPercent, 0.80);
-      expect(t.shallowRebuildMaxDepth, 3);
       expect(t.setStateScopeOwnershipPercent, 0.5);
       expect(t.keepAliveMax, 5);
-      expect(t.animatedBuilderMinSubtreeSize, 50);
       expect(t.fontLoadingMaxFamilies, 3);
     });
 
@@ -24,10 +22,8 @@ void main() {
         gpuPressureRatio: 3.0,
         memoryGrowthBytesPerSec: 256000,
         memoryCapacityPercent: 0.70,
-        shallowRebuildMaxDepth: 5,
         setStateScopeOwnershipPercent: 0.3,
         keepAliveMax: 10,
-        animatedBuilderMinSubtreeSize: 30,
         fontLoadingMaxFamilies: 1,
       );
       expect(t.shaderJankMs, 50);
@@ -35,10 +31,8 @@ void main() {
       expect(t.gpuPressureRatio, 3.0);
       expect(t.memoryGrowthBytesPerSec, 256000);
       expect(t.memoryCapacityPercent, 0.70);
-      expect(t.shallowRebuildMaxDepth, 5);
       expect(t.setStateScopeOwnershipPercent, 0.3);
       expect(t.keepAliveMax, 10);
-      expect(t.animatedBuilderMinSubtreeSize, 30);
       expect(t.fontLoadingMaxFamilies, 1);
     });
 

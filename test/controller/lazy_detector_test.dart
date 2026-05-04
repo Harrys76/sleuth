@@ -29,14 +29,14 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('default config constructs all 23 detectors', (tester) async {
+    testWidgets('default config constructs all 18 detectors', (tester) async {
       await tester.pumpWidget(buildMixedTree(50));
 
       final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
-      // 4 typed + 19 factory = 23 total.
-      expect(controller.detectorCountForTest, 23);
+      // 4 typed + 14 factory = 18 total.
+      expect(controller.detectorCountForTest, 18);
 
       controller.dispose();
     });
@@ -57,7 +57,7 @@ void main() {
       expect(controller.detectorCountForTest, 4); // 4 typed only
 
       // Enable opacity at runtime.
-      controller.enableDetector(DetectorType.opacity);
+      controller.enableDetector(DetectorType.customPainter);
       expect(controller.detectorCountForTest, 5);
 
       // Verify it participates in a scan.
@@ -74,14 +74,14 @@ void main() {
         config: const SleuthConfig(
           enabledDetectors: {
             DetectorType.frameTiming,
-            DetectorType.opacity,
+            DetectorType.customPainter,
           },
         ),
       );
       controller.initializeDetectorsForTest();
       expect(controller.detectorCountForTest, 5); // 4 typed + opacity
 
-      controller.disableDetector(DetectorType.opacity);
+      controller.disableDetector(DetectorType.customPainter);
       expect(controller.detectorCountForTest, 4); // opacity removed
 
       controller.dispose();
@@ -137,7 +137,7 @@ void main() {
         config: const SleuthConfig(
           enabledDetectors: {
             DetectorType.frameTiming,
-            DetectorType.opacity,
+            DetectorType.customPainter,
           },
         ),
       );
@@ -145,7 +145,7 @@ void main() {
       final countBefore = controller.detectorCountForTest;
 
       // Enable opacity again — already present. Should not add a duplicate.
-      controller.enableDetector(DetectorType.opacity);
+      controller.enableDetector(DetectorType.customPainter);
       expect(controller.detectorCountForTest, countBefore);
 
       controller.dispose();
@@ -156,12 +156,12 @@ void main() {
       await tester.pumpWidget(buildMixedTree(500));
       final context = tester.element(find.byType(Directionality));
 
-      // Enable only shallowRebuildRisk (known to fire on buildMixedTree).
+      // Enable only rebuild (known to fire on buildMixedTree).
       final controller = SleuthController(
         config: const SleuthConfig(
           enabledDetectors: {
             DetectorType.frameTiming,
-            DetectorType.shallowRebuildRisk,
+            DetectorType.rebuild,
           },
         ),
       );
@@ -169,13 +169,14 @@ void main() {
       controller.runTreeScanForTest(context);
 
       final issues = controller.issuesNotifier.value;
-      // Should only see shallowRebuildRisk issues (if any), not issues
-      // from detectors that weren't constructed.
+      // Should only see rebuild issues (if any), not issues from detectors
+      // that weren't constructed.
       for (final issue in issues) {
         expect(
           issue.stableId,
           anyOf(
-            startsWith('shallow_rebuild_risk'),
+            startsWith('rebuild'),
+            startsWith('stateful_density'),
             startsWith('sustained_jank'),
             startsWith('frame_timing'),
           ),

@@ -1,3 +1,41 @@
+## 0.20.0
+
+**BREAKING**: 5 low-value detectors removed. Distribution: 23 → 18 detectors.
+
+### Removed
+
+- `DetectorType.animatedBuilder` — subset of `rebuild_detector` (AnimatedBuilder misuse manifests as rebuild storms; covered upstream).
+- `DetectorType.opacity` — symptom-of-symptom (`Opacity` → `saveLayer` → jank already caught by `frame_timing.jank_detected`).
+- `DetectorType.shallowRebuildRisk` — predictive heuristic; real signal caught by `rebuild_detector` from VM-timeline evidence.
+- `DetectorType.nestedScroll` — Flutter's own `Vertical viewport was given unbounded height` diagnostic is more authoritative.
+- `DetectorType.globalKey` — correctness lint, not perf; framework throws on duplicate `GlobalKey`.
+
+Orphaned config fields removed: `SleuthConfig.maxGlobalKeys`, `DetectorThresholds.shallowRebuildMaxDepth`, `DetectorThresholds.animatedBuilderMinSubtreeSize`.
+
+### Migration
+
+Drop the 5 removed `DetectorType` references from `enabledDetectors`. `rebuild_detector` + `frame_timing` still surface AnimatedBuilder, opacity-jank, and rebuild-storm patterns from runtime evidence.
+
+```dart
+// BEFORE (v0.19.x):
+SleuthConfig(enabledDetectors: {
+  DetectorType.opacity, DetectorType.rebuild, DetectorType.frameTiming,
+});
+
+// AFTER (v0.20.0):
+SleuthConfig(enabledDetectors: {
+  DetectorType.rebuild, DetectorType.frameTiming,
+});
+```
+
+v0.19 snapshots remain readable in v0.20 — serialization is `stableId`-keyed; encyclopedia + causal-graph rules retain removed-stableId entries for replay context. Users pinned at `^0.19.x` will not auto-upgrade.
+
+### Distribution
+
+16/18 reproducerOnly base + 2/18 runtimeVerified base. 11 effective runtimeVerified family-severity pairs across 8 unique stableIds (unchanged — none of the 5 removed carried raises).
+
+2,851 unit + integration tests passing; `fvm flutter analyze` clean. Benchmark thresholds in `test/benchmark/` are machine-load-sensitive and may flake on slower hardware.
+
 ## 0.19.27
 
 Test polish on top of v0.19.26. No detector logic change; tier distribution unchanged.

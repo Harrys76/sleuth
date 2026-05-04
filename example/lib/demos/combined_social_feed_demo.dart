@@ -5,7 +5,7 @@ import '../demo_scaffold.dart';
 // ───────────────────────────────────────────────
 // Combined Demo 1: Social Feed
 // ───────────────────────────────────────────────
-// Triggers: ImageMemory, Opacity, LayoutBottleneck, Rebuild/SetStateScope
+// Triggers: ImageMemory, LayoutBottleneck, Rebuild/SetStateScope
 // Correlation: Rule 2 (merge rebuild+setState), Rule 4 (escalate image+memory)
 
 /// Demonstrates a realistic social feed with 4+ anti-patterns stacked in
@@ -47,12 +47,9 @@ class _CombinedSocialFeedDemoState extends State<CombinedSocialFeedDemo> {
       description:
           '❌ BAD: Top-level setState rebuilds all $_cardCount cards on every '
           'like. Post images are fetched at full 800×600 resolution with '
-          'no cacheWidth, IntrinsicHeight forces two-pass layout per row, '
-          'and an Opacity(0.0) "load more" banner is still laid out and '
-          'painted.\n'
+          'no cacheWidth, and IntrinsicHeight forces two-pass layout per row.\n'
           '✅ FIX: Move the like counter into a ValueNotifier, add cacheWidth '
-          'on every network image, drop the IntrinsicHeight, and omit the '
-          'invisible banner entirely.\n\n'
+          'on every network image, and drop the IntrinsicHeight.\n\n'
           '▶ Tap the Like FAB. In the bad path every card rebuilds; in the '
           'fixed path only the badge updates.',
       onToggle: _handleToggle,

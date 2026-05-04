@@ -11,7 +11,6 @@ class FixHintBuilder {
   FixHintBuilder._();
 
   // ---------------------------------------------------------------------------
-  // AnimatedBuilderDetector
   // ---------------------------------------------------------------------------
 
   static (String, FixEffort) animatedBuilderNoChild({
@@ -124,7 +123,6 @@ class FixHintBuilder {
   }
 
   // ---------------------------------------------------------------------------
-  // GlobalKeyDetector
   // ---------------------------------------------------------------------------
 
   static (String, FixEffort) excessiveGlobalKeys({required int count}) {
@@ -442,7 +440,6 @@ class FixHintBuilder {
   }
 
   // ---------------------------------------------------------------------------
-  // NestedScrollDetector
   // ---------------------------------------------------------------------------
 
   static (String, FixEffort) nestedScrollChildren({
@@ -554,7 +551,6 @@ class FixHintBuilder {
   }
 
   // ---------------------------------------------------------------------------
-  // OpacityDetector
   // ---------------------------------------------------------------------------
 
   static (String, FixEffort) opacityZero({
@@ -730,7 +726,6 @@ class FixHintBuilder {
   }
 
   // ---------------------------------------------------------------------------
-  // ShallowRebuildRiskDetector
   // ---------------------------------------------------------------------------
 
   static (String, FixEffort) shallowRebuildRisk({

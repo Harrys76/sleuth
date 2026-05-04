@@ -4,7 +4,6 @@ import 'package:sleuth/src/utils/fix_hint_builder.dart';
 
 void main() {
   // -------------------------------------------------------------------------
-  // AnimatedBuilderDetector
   // -------------------------------------------------------------------------
   group('animatedBuilderNoChild', () {
     test('returns quick effort', () {
@@ -109,7 +108,6 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // GlobalKeyDetector
   // -------------------------------------------------------------------------
   group('excessiveGlobalKeys', () {
     test('returns quick effort', () {
@@ -317,7 +315,6 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // NestedScrollDetector
   // -------------------------------------------------------------------------
   group('nestedScrollChildren', () {
     test('returns medium effort', () {
@@ -400,7 +397,6 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // OpacityDetector — preserved keyword: Visibility
   // -------------------------------------------------------------------------
   group('opacityZero', () {
     test('returns quick effort', () {
@@ -622,7 +618,6 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // ShallowRebuildRiskDetector
   // -------------------------------------------------------------------------
   group('shallowRebuildRisk', () {
     test('returns medium effort', () {

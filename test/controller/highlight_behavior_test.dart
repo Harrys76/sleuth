@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
-import 'package:sleuth/src/models/base_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/widget_highlight.dart';
 
@@ -18,14 +17,19 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('Opacity(0.0) highlights flow through to highlightsNotifier',
+    testWidgets(
+        'Listview detector highlights flow through to highlightsNotifier',
         (tester) async {
       await tester.pumpWidget(
-        const Directionality(
+        Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
           ),
         ),
       );
@@ -34,13 +38,12 @@ void main() {
         tester.element(find.byType(Directionality)),
       );
 
-      // Opacity detector should have found Opacity(0.0) and produced highlights
       final highlights = controller.highlightsNotifier.value.items;
       expect(
-        highlights.any((h) => h.detectorName == 'Opacity'),
+        highlights.isNotEmpty,
         isTrue,
         reason:
-            'Opacity detector highlights should flow through _collectHighlights',
+            'Listview detector highlights should flow through _collectHighlights',
       );
     });
 
@@ -74,47 +77,18 @@ void main() {
               'GPU detector highlights should flow through _collectHighlights');
     });
 
-    testWidgets(
-        'disabled detector produces no highlights in highlightsNotifier',
-        (tester) async {
-      // Disable opacity detector via config
-      controller = SleuthController(
-        config: SleuthConfig(
-          enabledDetectors: {
-            // Enable everything except opacity
-            ...DetectorType.values.where((t) => t != DetectorType.opacity),
-          },
-        ),
-      );
-      controller.initializeDetectorsForTest();
-
-      await tester.pumpWidget(
-        const Directionality(
-          textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
-          ),
-        ),
-      );
-
-      controller.runTreeScanForTest(
-        tester.element(find.byType(Directionality)),
-      );
-
-      final opacityHighlights = controller.highlightsNotifier.value.items
-          .where((h) => h.detectorName == 'Opacity');
-      expect(opacityHighlights, isEmpty);
-    });
-
     testWidgets('highlights cleared and repopulated on each scan cycle',
         (tester) async {
       await tester.pumpWidget(
-        const Directionality(
+        Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
           ),
         ),
       );
@@ -201,11 +175,15 @@ void main() {
 
       // Second scan: tree with Opacity(0.0) → highlights produced
       await tester.pumpWidget(
-        const Directionality(
+        Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
           ),
         ),
       );
@@ -223,11 +201,15 @@ void main() {
         (tester) async {
       // First scan: tree with Opacity(0.0) → highlights produced
       await tester.pumpWidget(
-        const Directionality(
+        Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
           ),
         ),
       );
@@ -403,10 +385,10 @@ void main() {
   });
 
   group('detectorNamesForCategory', () {
-    test('layout category maps to Layout and Opacity', () {
+    test('layout category maps to Layout', () {
       final names =
           SleuthController.detectorNamesForCategory(IssueCategory.layout);
-      expect(names, containsAll(['Layout', 'Opacity']));
+      expect(names, contains('Layout'));
     });
 
     test('raster category maps to GPU', () {
@@ -418,8 +400,7 @@ void main() {
     test('build category maps to expected detector names', () {
       final names =
           SleuthController.detectorNamesForCategory(IssueCategory.build);
-      expect(
-          names, containsAll(['Non-lazy', 'GlobalKey', 'setState', 'Rebuild']));
+      expect(names, containsAll(['Non-lazy', 'setState', 'Rebuild']));
     });
 
     test('paint category maps to expected detector names', () {
@@ -444,11 +425,15 @@ void main() {
     testWidgets('issues have null routeName when no ModalRoute in context',
         (tester) async {
       await tester.pumpWidget(
-        const Directionality(
+        Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: List.generate(
+                55,
+                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+              ),
+            ),
           ),
         ),
       );
@@ -471,12 +456,17 @@ void main() {
         MaterialApp(
           initialRoute: '/home',
           routes: {
-            '/home': (_) => const Column(
+            '/home': (_) => Column(
                   key: pageKey,
                   children: [
-                    Opacity(
-                      opacity: 0.0,
-                      child: SizedBox(width: 10, height: 10),
+                    SingleChildScrollView(
+                      child: Column(
+                        children: List.generate(
+                          55,
+                          (i) =>
+                              SizedBox(key: ValueKey(i), width: 10, height: 10),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -505,12 +495,17 @@ void main() {
         MaterialApp(
           initialRoute: '/home',
           routes: {
-            '/home': (_) => const Column(
+            '/home': (_) => Column(
                   key: pageKey,
                   children: [
-                    Opacity(
-                      opacity: 0.0,
-                      child: SizedBox(width: 10, height: 10),
+                    SingleChildScrollView(
+                      child: Column(
+                        children: List.generate(
+                          55,
+                          (i) =>
+                              SizedBox(key: ValueKey(i), width: 10, height: 10),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -538,12 +533,17 @@ void main() {
         MaterialApp(
           initialRoute: '/home',
           routes: {
-            '/home': (_) => const Column(
+            '/home': (_) => Column(
                   key: pageKey,
                   children: [
-                    Opacity(
-                      opacity: 0.0,
-                      child: SizedBox(width: 10, height: 10),
+                    SingleChildScrollView(
+                      child: Column(
+                        children: List.generate(
+                          55,
+                          (i) =>
+                              SizedBox(key: ValueKey(i), width: 10, height: 10),
+                        ),
+                      ),
                     ),
                   ],
                 ),

@@ -20,20 +20,13 @@ void main() {
         DetectorType.repaint,
         DetectorType.listview,
         DetectorType.imageMemory,
-        DetectorType.globalKey,
         DetectorType.layoutBottleneck,
-        DetectorType.opacity,
-        DetectorType.animatedBuilder,
         DetectorType.customPainter,
         DetectorType.fontLoading,
         DetectorType.repaintBoundary,
         DetectorType.startup,
       });
       // VM-only / hybrid / advanced detectors should NOT be enabled.
-      expect(
-        config.enabledDetectors.contains(DetectorType.shallowRebuildRisk),
-        isFalse,
-      );
       expect(
         config.enabledDetectors.contains(DetectorType.heavyCompute),
         isFalse,
@@ -75,17 +68,12 @@ void main() {
       }
     });
 
-    test('excludes frameTiming and shallowRebuildRisk explicitly', () {
+    test('excludes frameTiming explicitly', () {
       final config = SleuthConfig.performance();
       expect(
         config.enabledDetectors.contains(DetectorType.frameTiming),
         isFalse,
         reason: 'frameTiming is runtime-lifecycle, not structural',
-      );
-      expect(
-        config.enabledDetectors.contains(DetectorType.shallowRebuildRisk),
-        isFalse,
-        reason: 'shallowRebuildRisk is hybrid-lifecycle, not structural',
       );
     });
 
@@ -128,19 +116,14 @@ DetectorLifecycle _lifecycleOf(DetectorType type) {
       return DetectorLifecycle.vmOnly;
     case DetectorType.repaint:
     case DetectorType.rebuild:
-    case DetectorType.shallowRebuildRisk:
     case DetectorType.gpuPressure:
       return DetectorLifecycle.hybrid;
     case DetectorType.setStateScope:
     case DetectorType.layoutBottleneck:
     case DetectorType.listview:
     case DetectorType.imageMemory:
-    case DetectorType.globalKey:
-    case DetectorType.nestedScroll:
     case DetectorType.customPainter:
     case DetectorType.keepAlive:
-    case DetectorType.animatedBuilder:
-    case DetectorType.opacity:
     case DetectorType.fontLoading:
     case DetectorType.repaintBoundary:
       return DetectorLifecycle.structural;

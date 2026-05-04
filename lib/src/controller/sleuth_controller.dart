@@ -33,16 +33,11 @@ import '../detectors/repaint_detector.dart';
 import '../detectors/rebuild_detector.dart';
 import '../detectors/setstate_scope_detector.dart';
 import '../detectors/gpu_pressure_detector.dart';
-import '../detectors/shallow_rebuild_risk_detector.dart';
 import '../detectors/layout_bottleneck_detector.dart';
 import '../detectors/listview_detector.dart';
 import '../detectors/image_memory_detector.dart';
-import '../detectors/global_key_detector.dart';
-import '../detectors/nested_scroll_detector.dart';
 import '../detectors/custom_painter_detector.dart';
 import '../detectors/keep_alive_detector.dart';
-import '../detectors/animated_builder_detector.dart';
-import '../detectors/opacity_detector.dart';
 import '../detectors/font_loading_detector.dart';
 import '../detectors/network_monitor_detector.dart';
 import '../detectors/repaint_boundary_detector.dart';
@@ -440,12 +435,10 @@ class SleuthController {
 
   static List<String> detectorNamesForCategory(IssueCategory category) {
     return switch (category) {
-      IssueCategory.layout => ['Layout', 'Opacity'],
+      IssueCategory.layout => ['Layout'],
       IssueCategory.build => [
           'Non-lazy',
-          'GlobalKey',
           'setState',
-          'AnimatedBuilder',
           'Rebuild',
         ],
       IssueCategory.paint => ['Painter', 'Repaint'],
@@ -749,24 +742,13 @@ class SleuthController {
       DetectorType.gpuPressure: () => GpuPressureDetector(
             rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
           ),
-      DetectorType.shallowRebuildRisk: () => ShallowRebuildRiskDetector(
-            depthThreshold: config.thresholds.shallowRebuildMaxDepth,
-          ),
       DetectorType.layoutBottleneck: LayoutBottleneckDetector.new,
       DetectorType.listview: () =>
           ListviewDetector(childThreshold: config.maxListChildren),
       DetectorType.imageMemory: ImageMemoryDetector.new,
-      DetectorType.globalKey: () =>
-          GlobalKeyDetector(threshold: config.maxGlobalKeys),
-      DetectorType.nestedScroll: () =>
-          NestedScrollDetector(childThreshold: config.maxListChildren),
       DetectorType.customPainter: CustomPainterDetector.new,
       DetectorType.keepAlive: () =>
           KeepAliveDetector(threshold: config.thresholds.keepAliveMax),
-      DetectorType.animatedBuilder: () => AnimatedBuilderDetector(
-            minSubtreeSize: config.thresholds.animatedBuilderMinSubtreeSize,
-          ),
-      DetectorType.opacity: OpacityDetector.new,
       DetectorType.fontLoading: () => FontLoadingDetector(
             maxFamilies: config.thresholds.fontLoadingMaxFamilies,
           ),
@@ -1809,7 +1791,6 @@ class SleuthController {
       'setstate_scope': 'setStateScope',
       'raster_dominance': 'gpuPressure',
       'expensive_gpu': 'gpuPressure',
-      'shallow_rebuild': 'shallowRebuildRisk',
       'layout_bottleneck': 'layoutBottleneck',
       'wrap_layout': 'layoutBottleneck',
       'non_lazy_list': 'listview',
@@ -1817,14 +1798,9 @@ class SleuthController {
       'non_lazy_listview': 'listview',
       'sliver_': 'listview',
       'uncached_images': 'imageMemory',
-      'excessive_global': 'globalKey',
-      'global_key_recreation': 'globalKey',
-      'nested_scroll': 'nestedScroll',
       'always_repaint_painter': 'customPainter',
       'frequent_repaint_painter': 'customPainter',
       'excessive_keep_alive': 'keepAlive',
-      'animated_builder': 'animatedBuilder',
-      'opacity_zero': 'opacity',
       'runtime_font': 'fontLoading',
       'multiple_custom_fonts': 'fontLoading',
       'slow_request': 'networkMonitor',
@@ -1892,8 +1868,8 @@ class SleuthController {
   BuildContext? _lastScanContext;
 
   /// True when the scan root is an overlay entry (scaffold-free Navigator path).
-  /// Exempts [ShallowRebuildRiskDetector] and [SetStateScopeDetector] from the
-  /// walk — their depth/ratio semantics break with overlay-entry scan roots.
+  /// Exempts [SetStateScopeDetector] from the walk — its dirty-ratio semantic
+  /// breaks with overlay-entry scan roots.
   bool _isScaffoldFreeScan = false;
 
   /// True if [_findActiveRouteScanRoot] found a Navigator in the tree.
@@ -2688,9 +2664,7 @@ class SleuthController {
     final walkDetectors = _isScaffoldFreeScan
         ? unified
             .where((d) =>
-                d.type != DetectorType.startup &&
-                d is! SetStateScopeDetector &&
-                d is! ShallowRebuildRiskDetector)
+                d.type != DetectorType.startup && d is! SetStateScopeDetector)
             .toList()
         : unified.where((d) => d.type != DetectorType.startup).toList();
 
@@ -4002,7 +3976,6 @@ class SleuthConfig {
     this.fpsTarget = 60,
     this.rebuildThreshold = 10,
     this.maxListChildren = 50,
-    this.maxGlobalKeys = 20,
     this.platformChannelLimit = 20,
     this.treeScanInterval = const Duration(seconds: 1),
     this.adaptiveScanEnabled = true,
@@ -4047,10 +4020,6 @@ class SleuthConfig {
         assert(
           maxListChildren >= 1,
           'maxListChildren must be at least 1.',
-        ),
-        assert(
-          maxGlobalKeys >= 1,
-          'maxGlobalKeys must be at least 1.',
         ),
         assert(
           platformChannelLimit >= 1,
@@ -4110,11 +4079,10 @@ class SleuthConfig {
   /// Minimal configuration for first-time integration.
   ///
   /// Enables the safe structural and runtime detectors (frame timing,
-  /// rebuild, repaint, listview, image memory, global key, layout
-  /// bottleneck, opacity, animated builder, custom painter, font loading,
-  /// repaint boundary). Disables network monitoring, debug callbacks,
-  /// deep instrumentation, and AI chat — those are opt-in because they
-  /// have setup or runtime cost.
+  /// rebuild, repaint, listview, image memory, layout bottleneck, custom
+  /// painter, font loading, repaint boundary, startup). Disables network
+  /// monitoring, debug callbacks, deep instrumentation, and AI chat —
+  /// those are opt-in because they have setup or runtime cost.
   ///
   /// Use this when you're trying Sleuth for the first time and don't
   /// want to read 25 parameter docs.
@@ -4130,10 +4098,7 @@ class SleuthConfig {
           DetectorType.repaint,
           DetectorType.listview,
           DetectorType.imageMemory,
-          DetectorType.globalKey,
           DetectorType.layoutBottleneck,
-          DetectorType.opacity,
-          DetectorType.animatedBuilder,
           DetectorType.customPainter,
           DetectorType.fontLoading,
           DetectorType.repaintBoundary,
@@ -4150,9 +4115,6 @@ class SleuthConfig {
   /// diagnostic pipeline.
   ///
   /// Intentionally EXCLUDED from the enabled set:
-  /// - [DetectorType.shallowRebuildRisk] — this is a
-  ///   [DetectorLifecycle.hybrid] detector (reads VM timeline data), so
-  ///   it does NOT belong in a structural-only preset despite the name.
   /// - [DetectorType.frameTiming] — runtime lifecycle.
   ///
   factory SleuthConfig.performance({SleuthThemeData? theme}) => SleuthConfig(
@@ -4168,10 +4130,6 @@ class SleuthConfig {
           // lifecycle fields of each detector file.
           DetectorType.listview,
           DetectorType.imageMemory,
-          DetectorType.globalKey,
-          DetectorType.nestedScroll,
-          DetectorType.opacity,
-          DetectorType.animatedBuilder,
           DetectorType.customPainter,
           DetectorType.layoutBottleneck,
           DetectorType.fontLoading,
@@ -4236,8 +4194,7 @@ class SleuthConfig {
   /// `suppressedIssues: {'rebuild_debug_StreamBuilder'}` if needed.
   final int rebuildThreshold;
 
-  /// Maximum children in a non-lazy list/grid before [ListviewDetector]
-  /// and [NestedScrollDetector] fire.
+  /// Maximum children in a non-lazy list/grid before [ListviewDetector] fires.
   ///
   /// **Default:** 50. This is the empirical cutoff where Flutter's lazy
   /// builder-based widgets (`ListView.builder`, `GridView.builder`) clearly
@@ -4252,23 +4209,6 @@ class SleuthConfig {
   /// fixed-size "chip row" patterns will get flagged — consider whether
   /// the false-positive rate is worth the stricter guard.
   final int maxListChildren;
-
-  /// Maximum [GlobalKey]s in list/grid/page scopes before
-  /// [GlobalKeyDetector] fires the **excessive** branch.
-  ///
-  /// **Default:** 20. GlobalKey allocation in a scrollable is almost
-  /// always a smell — scrollables realise items lazily, so stable identity
-  /// across rebuilds usually belongs on the item model, not the widget.
-  ///
-  /// **Raise this** (e.g. 50) if your scrollable genuinely needs many
-  /// keyed items for animation state preservation.
-  ///
-  /// **Lower this** (e.g. 10) for stricter GlobalKey hygiene.
-  ///
-  /// This threshold governs the **excessive** branch only. The
-  /// **recreation** branch (GlobalKey churn across rebuilds) is gated on
-  /// a separate internal threshold of 5.
-  final int maxGlobalKeys;
 
   /// Maximum platform channel calls per second before
   /// [PlatformChannelDetector] fires on call-count alone.
@@ -4497,7 +4437,7 @@ class SleuthConfig {
 
   /// StableId patterns to suppress from the issue list.
   ///
-  /// Exact strings match directly (e.g. `'opacity_zero'`).
+  /// Exact strings match directly (e.g. `'non_lazy_list'`).
   /// Trailing `*` matches any stableId starting with the prefix
   /// (e.g. `'rebuild_debug_*'` suppresses `rebuild_debug_MyWidget`,
   /// `rebuild_debug_Text`, etc.).
@@ -4650,7 +4590,6 @@ class SleuthConfig {
     int? fpsTarget,
     int? rebuildThreshold,
     int? maxListChildren,
-    int? maxGlobalKeys,
     int? platformChannelLimit,
     Duration? treeScanInterval,
     bool? adaptiveScanEnabled,
@@ -4688,7 +4627,6 @@ class SleuthConfig {
       fpsTarget: fpsTarget ?? this.fpsTarget,
       rebuildThreshold: rebuildThreshold ?? this.rebuildThreshold,
       maxListChildren: maxListChildren ?? this.maxListChildren,
-      maxGlobalKeys: maxGlobalKeys ?? this.maxGlobalKeys,
       platformChannelLimit: platformChannelLimit ?? this.platformChannelLimit,
       treeScanInterval: treeScanInterval ?? this.treeScanInterval,
       adaptiveScanEnabled: adaptiveScanEnabled ?? this.adaptiveScanEnabled,

@@ -23,10 +23,14 @@ void main() {
         CupertinoApp(
           home: CupertinoPageScaffold(
             child: Column(
-              children: const [
-                Opacity(
-                  opacity: 0.0,
-                  child: SizedBox(width: 10, height: 10),
+              children: [
+                SingleChildScrollView(
+                  child: Column(
+                    children: List.generate(
+                      55,
+                      (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -79,9 +83,13 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: Scaffold(
-              body: const Opacity(
-                opacity: 0.0,
-                child: SizedBox(width: 10, height: 10),
+              body: SingleChildScrollView(
+                child: Column(
+                  children: List.generate(
+                    55,
+                    (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                  ),
+                ),
               ),
             ),
           ),
@@ -106,9 +114,13 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: CupertinoPageScaffold(
-              child: const Opacity(
-                opacity: 0.0,
-                child: SizedBox(width: 10, height: 10),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: List.generate(
+                    55,
+                    (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                  ),
+                ),
               ),
             ),
           ),
@@ -127,9 +139,13 @@ void main() {
           home: Scaffold(
             body: Scaffold(
               body: Scaffold(
-                body: const Opacity(
-                  opacity: 0.0,
-                  child: SizedBox(width: 10, height: 10),
+                body: SingleChildScrollView(
+                  child: Column(
+                    children: List.generate(
+                      55,
+                      (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -154,9 +170,13 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: Scaffold(
-              body: const Opacity(
-                opacity: 0.0,
-                child: SizedBox(width: 10, height: 10),
+              body: SingleChildScrollView(
+                child: Column(
+                  children: List.generate(
+                    55,
+                    (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                  ),
+                ),
               ),
             ),
             bottomNavigationBar: BottomNavigationBar(
@@ -200,9 +220,14 @@ void main() {
               children: [
                 const Scaffold(body: Text('home tab')),
                 Scaffold(
-                  body: const Opacity(
-                    opacity: 0.0,
-                    child: SizedBox(width: 10, height: 10),
+                  body: SingleChildScrollView(
+                    child: Column(
+                      children: List.generate(
+                        55,
+                        (i) =>
+                            SizedBox(key: ValueKey(i), width: 10, height: 10),
+                      ),
+                    ),
                   ),
                 ),
                 const Scaffold(body: Text('profile tab')),
@@ -560,10 +585,14 @@ void main() {
       // MaterialApp without Scaffold — page is a bare Center widget
       await tester.pumpWidget(
         MaterialApp(
-          home: const Center(
-            child: Opacity(
-              opacity: 0.0,
-              child: SizedBox(width: 10, height: 10),
+          home: Center(
+            child: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  55,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                ),
+              ),
             ),
           ),
         ),
@@ -584,10 +613,14 @@ void main() {
     testWidgets('scaffold-free path detects structural issues', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
-          home: const Center(
-            child: Opacity(
-              opacity: 0.0,
-              child: SizedBox(width: 10, height: 10),
+          home: Center(
+            child: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  55,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                ),
+              ),
             ),
           ),
         ),
@@ -644,10 +677,15 @@ void main() {
         MaterialApp(
           initialRoute: '/home',
           routes: {
-            '/home': (_) => const Center(
-                  child: Opacity(
-                    opacity: 0.0,
-                    child: SizedBox(width: 10, height: 10),
+            '/home': (_) => Center(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: List.generate(
+                        55,
+                        (i) =>
+                            SizedBox(key: ValueKey(i), width: 10, height: 10),
+                      ),
+                    ),
                   ),
                 ),
           },
@@ -713,11 +751,15 @@ void main() {
           textDirection: TextDirection.ltr,
           child: NotificationListener<ScrollNotification>(
             onNotification: (_) => false,
-            child: const Column(
+            child: Column(
               children: [
-                Opacity(
-                  opacity: 0.0,
-                  child: SizedBox(width: 10, height: 10),
+                SingleChildScrollView(
+                  child: Column(
+                    children: List.generate(
+                      55,
+                      (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -748,11 +790,15 @@ void main() {
           textDirection: TextDirection.ltr,
           child: NotificationListener<ScrollNotification>(
             onNotification: (_) => false,
-            child: const Column(
+            child: Column(
               children: [
-                Opacity(
-                  opacity: 0.0,
-                  child: SizedBox(width: 10, height: 10),
+                SingleChildScrollView(
+                  child: Column(
+                    children: List.generate(
+                      55,
+                      (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -773,10 +819,14 @@ void main() {
         (tester) async {
       await tester.pumpWidget(
         MaterialApp(
-          home: const Center(
-            child: Opacity(
-              opacity: 0.0,
-              child: SizedBox(width: 10, height: 10),
+          home: Center(
+            child: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  55,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                ),
+              ),
             ),
           ),
         ),
@@ -796,9 +846,13 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: const Opacity(
-              opacity: 0.0,
-              child: SizedBox(width: 10, height: 10),
+            body: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  55,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                ),
+              ),
             ),
           ),
         ),
@@ -817,10 +871,14 @@ void main() {
       // First: scaffold-free scan
       await tester.pumpWidget(
         MaterialApp(
-          home: const Center(
-            child: Opacity(
-              opacity: 0.0,
-              child: SizedBox(width: 10, height: 10),
+          home: Center(
+            child: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  55,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                ),
+              ),
             ),
           ),
         ),
@@ -835,9 +893,13 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: const Opacity(
-              opacity: 0.0,
-              child: SizedBox(width: 10, height: 10),
+            body: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  55,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                ),
+              ),
             ),
           ),
         ),
@@ -856,11 +918,15 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: const Column(
+            body: Column(
               children: [
-                Opacity(
-                  opacity: 0.0,
-                  child: SizedBox(width: 10, height: 10),
+                SingleChildScrollView(
+                  child: Column(
+                    children: List.generate(
+                      55,
+                      (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -897,9 +963,13 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: const Opacity(
-              opacity: 0.0,
-              child: SizedBox(width: 10, height: 10),
+            body: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  55,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                ),
+              ),
             ),
           ),
         ),

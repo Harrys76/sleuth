@@ -7,7 +7,6 @@ import 'package:sleuth/src/detectors/platform_channel_detector.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/detectors/repaint_detector.dart';
 import 'package:sleuth/src/detectors/shader_jank_detector.dart';
-import 'package:sleuth/src/detectors/shallow_rebuild_risk_detector.dart';
 import 'package:sleuth/src/models/phase_event.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
 
@@ -50,7 +49,6 @@ void main() {
         final rebuild = RebuildDetector();
         final repaint = RepaintDetector();
         final gpuPressure = GpuPressureDetector();
-        final shallowRebuild = ShallowRebuildRiskDetector();
         final shaderJank = ShaderJankDetector();
         final heavyCompute = HeavyComputeDetector();
         final platformChannel = PlatformChannelDetector();
@@ -60,7 +58,7 @@ void main() {
         repaint.vmConnected = true;
 
         final avgUs = benchmarkUs(
-          'feed $count events to 8 detectors',
+          'feed $count events to 7 detectors',
           () {
             shaderJank.processTimelineData(data);
             heavyCompute.processTimelineData(data);
@@ -69,7 +67,6 @@ void main() {
             repaint.processTimelineData(data);
             rebuild.processTimelineData(data);
             gpuPressure.processTimelineData(data);
-            shallowRebuild.processTimelineData(data);
             rebuild.evaluateNow();
             repaint.evaluateNow();
           },

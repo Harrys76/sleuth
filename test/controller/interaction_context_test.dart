@@ -3,14 +3,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
-/// Minimal widget tree for getting a BuildContext in tests.
-const _minimalApp = Directionality(
-  textDirection: TextDirection.ltr,
-  child: Opacity(
-    opacity: 0.0,
-    child: SizedBox(width: 10, height: 10),
-  ),
-);
+/// Minimal widget tree for getting a BuildContext that triggers a retained
+/// detector (`non_lazy_list` via SingleChildScrollView + Column with >50
+/// children).
+Widget _minimalApp() => Directionality(
+      textDirection: TextDirection.ltr,
+      child: SingleChildScrollView(
+        child: Column(
+          children: List.generate(
+            55,
+            (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+          ),
+        ),
+      ),
+    );
 
 FixedScrollMetrics _scrollMetrics() => FixedScrollMetrics(
       minScrollExtent: 0,
@@ -43,7 +49,7 @@ void main() {
     group('scroll state', () {
       testWidgets('onScrollActivity sets scrolling on ScrollStartNotification',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         expect(controller.interactionStateForTest, InteractionContext.idle);
@@ -55,7 +61,7 @@ void main() {
       testWidgets(
           'onScrollActivity sets idle after ScrollEndNotification debounce',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         controller.onScrollActivity(_scrollStart(ctx));
@@ -73,7 +79,7 @@ void main() {
 
       testWidgets('rapid scroll start cancels idle debounce timer',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         // Start → End → Start before debounce
@@ -92,7 +98,7 @@ void main() {
 
       testWidgets('scroll notifications ignored during navigating state',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         controller.interactionStateForTest = InteractionContext.navigating;
@@ -153,9 +159,13 @@ void main() {
           Directionality(
             textDirection: TextDirection.ltr,
             child: Scaffold(
-              body: const Opacity(
-                opacity: 0.0,
-                child: SizedBox(width: 10, height: 10),
+              body: SingleChildScrollView(
+                child: Column(
+                  children: List.generate(
+                    55,
+                    (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                  ),
+                ),
               ),
             ),
           ),
@@ -168,7 +178,7 @@ void main() {
 
       testWidgets('_scanTree cancels scroll idle timer on navigation',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         // Start scrolling, then end (debounce timer starts)
@@ -208,9 +218,13 @@ void main() {
           Directionality(
             textDirection: TextDirection.ltr,
             child: Scaffold(
-              body: const Opacity(
-                opacity: 0.0,
-                child: SizedBox(width: 10, height: 10),
+              body: SingleChildScrollView(
+                child: Column(
+                  children: List.generate(
+                    55,
+                    (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                  ),
+                ),
               ),
             ),
           ),
@@ -249,7 +263,7 @@ void main() {
     group('stamping', () {
       testWidgets('interactionContext stamped on aggregated issues',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         controller.runTreeScanForTest(ctx);
@@ -263,7 +277,7 @@ void main() {
 
       testWidgets('scrolling context stamped when actively scrolling',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         controller.interactionStateForTest = InteractionContext.scrolling;
@@ -275,7 +289,7 @@ void main() {
       });
 
       testWidgets('idle context stamped when no interaction', (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         controller.runTreeScanForTest(ctx);
@@ -287,7 +301,7 @@ void main() {
 
       testWidgets('timeline path stamps navigating during transition',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         // First produce some issues via scan
@@ -307,7 +321,7 @@ void main() {
 
       testWidgets('scrolling state change triggers immediate re-aggregation',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         // Produce issues with idle context
@@ -325,7 +339,7 @@ void main() {
 
       testWidgets('idle debounce triggers immediate re-aggregation',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         // Produce issues, then scroll
@@ -348,7 +362,7 @@ void main() {
     group('keyboard/typing state', () {
       testWidgets('onKeyboardVisibilityChanged sets typing on keyboard show',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         expect(controller.interactionStateForTest, InteractionContext.idle);
 
         controller.onKeyboardVisibilityChanged(visible: true);
@@ -357,7 +371,7 @@ void main() {
 
       testWidgets('typing returns to idle after keyboard hide debounce',
           (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         controller.onKeyboardVisibilityChanged(visible: true);
         expect(controller.interactionStateForTest, InteractionContext.typing);
 
@@ -370,7 +384,7 @@ void main() {
       });
 
       testWidgets('typing has priority over scrolling', (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         // Start typing
@@ -383,7 +397,7 @@ void main() {
       });
 
       testWidgets('navigating has priority over typing', (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
 
         // Navigate first
         controller.interactionStateForTest = InteractionContext.navigating;
@@ -395,7 +409,7 @@ void main() {
       });
 
       testWidgets('typing context stamped on issues', (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         controller.onKeyboardVisibilityChanged(visible: true);
@@ -430,7 +444,7 @@ void main() {
       });
 
       testWidgets('appLifecycle context stamped on issues', (tester) async {
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         // Produce issues
@@ -505,7 +519,7 @@ void main() {
         final c = SleuthController();
         c.initializeDetectorsForTest();
 
-        await tester.pumpWidget(_minimalApp);
+        await tester.pumpWidget(_minimalApp());
         final ctx = tester.element(find.byType(Directionality));
 
         // Start a debounce timer

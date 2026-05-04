@@ -152,14 +152,11 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: Opacity(
-              opacity: 0.0,
-              child: SingleChildScrollView(
-                child: Column(
-                  children: List.generate(
-                    25,
-                    (i) => SizedBox(key: ValueKey(i), height: 10),
-                  ),
+            body: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  55,
+                  (i) => SizedBox(key: ValueKey(i), height: 10),
                 ),
               ),
             ),

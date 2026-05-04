@@ -18,7 +18,7 @@ Sleuth runs four layers of analysis:
 
 1. **Frame timing** (FrameTiming API) — per-frame build and raster duration, vsync overhead, cache stats. Works on every platform in debug and profile mode. This is the primary signal.
 2. **VM timeline** (vm_service) — when connected, provides sub-phase breakdowns (buildScope, flushLayout, flushPaint, raster). Best-effort; availability depends on platform and runtime environment.
-3. **Widget tree scan** (post-frame walk, 1x/sec) — finds structural anti-patterns like non-lazy lists, uncached images, excessive GlobalKeys, and more.
+3. **Widget tree scan** (post-frame walk, 1x/sec) — finds structural anti-patterns like non-lazy lists, uncached images, missing RepaintBoundary, and more.
 4. **Network monitoring** (HttpOverrides) — transparent HTTP interception that detects slow requests, frequency spikes, oversized responses, and HTTP error bursts without modifying app networking code.
 
 ## Quick Start
@@ -43,7 +43,7 @@ flutter run
 
 ## Debug vs Profile Mode
 
-Both modes run the full overlay, all 23 detectors, and the AI chat. The difference is **what data each mode can access** and **how accurate the timing is**.
+Both modes run the full overlay, all 18 detectors, and the AI chat. The difference is **what data each mode can access** and **how accurate the timing is**.
 
 | Capability | Debug | Profile | Release |
 |------------|:-----:|:-------:|:-------:|
@@ -132,7 +132,6 @@ Sleuth.track(
     fpsTarget: 60,
     rebuildThreshold: 10,
     maxListChildren: 20,
-    maxGlobalKeys: 10,
     platformChannelLimit: 20,
     treeScanInterval: Duration(seconds: 1),
     captureBufferCapacity: 50,        // max jank frames retained for export
@@ -152,7 +151,7 @@ Sleuth.track(
       DetectorType.imageMemory,
       // ... add only the detectors you need
     },
-    suppressedIssues: {'opacity_zero', 'font_*'}, // hide known issues by stableId (exact or wildcard)
+    suppressedIssues: {'non_lazy_list', 'font_*'}, // hide known issues by stableId (exact or wildcard)
     thresholds: DetectorThresholds(
       shaderJankMs: 50,              // shader compilation warning threshold
       heavyComputeGapMs: 200,        // heavy compute gap threshold
@@ -223,7 +222,7 @@ Built-in adapters automatically exclude their provider URLs from network monitor
 
 ## Custom Detectors
 
-Plug in domain-specific detectors alongside the built-in 23. Three shapes are supported:
+Plug in domain-specific detectors alongside the built-in 18. Three shapes are supported:
 
 **Structural** — inspect widgets during the tree walk using `SimpleStructuralDetector`:
 
@@ -424,26 +423,22 @@ The in-app Startup Metrics page also includes a full "Measurement Methodology" s
 | Layout Bottleneck | Render tree | IntrinsicHeight/Width present, Wrap with excessive children | Possible | Present does not mean slow. Framework-internal intrinsics (DropdownButton, AlertDialog) suppressed |
 | ListView | Element tree | Non-lazy list with many children | Possible | May be intentional for small lists. Catches ListView/GridView/SliverList non-builder constructors |
 | Image Memory | Element tree | Image without cacheWidth/Height | Possible | Images ≤50px suppressed — negligible memory savings |
-| GlobalKey | Element tree | Many GlobalKeys in scrollable, cross-scan key recreation | Possible–Likely | May be necessary for state preservation |
-| Nested Scroll | Element tree | Scroll-inside-scroll pattern | Possible | NeverScrollableScrollPhysics and NestedScrollView automatically suppressed |
 | CustomPainter | Element tree | shouldRepaint always true | Possible | May be needed for animated painters |
 | Keep Alive | Element tree | Many keep-alive pages | Possible | Trade-off between memory and rebuild cost |
-| AnimatedBuilder | Element tree | No child param on large subtree | Possible | Only matters if subtree is large. Also detects TweenAnimationBuilder without child |
-| Opacity | Element tree | Opacity(0.0), AnimatedOpacity(0.0), or FadeTransition(0.0) settled | Possible | Widget still participates in hit testing and semantics. FadeTransition deduped with AnimatedOpacity |
 | Font Loading | Element tree | Non-system font in use, runtime-loaded fonts (fontFamilyFallback heuristic) | Possible | Font may already be loaded. Runtime detection is heuristic — intentional fallback chains may trigger |
 | RepaintBoundary | Element + render tree | Expensive GPU widget without RepaintBoundary ancestor, excessive boundaries in scrollables | Possible–Confirmed | Escalates with debug paint rate evidence. ColorFiltered detected via widget type |
 | Startup | `Sleuth.init()` + FrameTiming | TTFF exceeded budget, dominant phase attribution | Confirmed | One-shot; requires `Sleuth.init()` before `runApp()`. Wall-clock measurement has ~5-50ms inherent skew |
 
 ## Validation Ledger
 
-Each detector carries a `DetectorMetadata` record declaring the strongest evidence backing its current thresholds and heuristics, ordered across four tiers: `unvalidated` → `reproducerOnly` → `runtimeVerified` → `externallyCited`. As of v0.19.25, **21/23 detectors ship at `reproducerOnly` base and 2/23 at `runtimeVerified` base**, with **11 effective `runtimeVerified` family-severity pairs across 8 unique stableIds** (`slow_request {warning + critical}`, `large_response.warning`, `request_frequency.warning`, `heap_growing.warning`, `platform_channel_traffic.warning`, `jank_detected.warning`, `rebuild_activity {warning + critical}`, `heavy_compute {warning + critical}`). Zero detectors at `unvalidated`. The CI audit gate at `test/validation/detector_metadata_audit_test.dart` enforces the contract on every test run.
+Each detector carries a `DetectorMetadata` record declaring the strongest evidence backing its current thresholds and heuristics, ordered across four tiers: `unvalidated` → `reproducerOnly` → `runtimeVerified` → `externallyCited`. As of v0.20.0, **16/18 detectors ship at `reproducerOnly` base and 2/18 at `runtimeVerified` base**, with **11 effective `runtimeVerified` family-severity pairs across 8 unique stableIds** (`slow_request {warning + critical}`, `large_response.warning`, `request_frequency.warning`, `heap_growing.warning`, `platform_channel_traffic.warning`, `jank_detected.warning`, `rebuild_activity {warning + critical}`, `heavy_compute {warning + critical}`). Zero detectors at `unvalidated`. The CI audit gate at `test/validation/detector_metadata_audit_test.dart` enforces the contract on every test run.
 
 The per-detector ledger lives at [`doc/validation_ledger.md`](https://github.com/Harrys76/sleuth/blob/main/doc/validation_ledger.md) — it names each detector's current tier, links to its reproducer when one exists, and explains what would raise it. Tier raises land the supporting reproducer or capture evidence in the same PR.
 
 ## What This Does Better Than DevTools
 
 - **Always on**: no separate tool window, no connection setup — performance data is visible as you use your app
-- **23 detectors**: structural anti-patterns (non-lazy lists, uncached images, excessive GlobalKeys, missing RepaintBoundary) that DevTools does not flag
+- **18 detectors**: structural anti-patterns (non-lazy lists, uncached images, missing RepaintBoundary, intrinsic-height layout cost) that DevTools does not flag
 - **Inline Rebuild Stats panel**: in profile mode (with `enableDeepDebugInstrumentation: true`), an always-on expandable panel above the issue list shows `Rebuilds: N across M widgets`. Expand for the top-3 widgets with rank, name, live-tweened count, and a normalised bar fill. Pause/Resume freezes the rendered counts so you can read a stable snapshot while attribution continues to accumulate (pause auto-clears on route change with a transient toast). A `See all N →` link pushes the full `RebuildStatsPage` drilldown using the snapshot that was on screen when you tapped it. Counts include initial widget inflations (the same `BUILD` timeline scope covers both inflations and `setState`-driven rebuilds), so route entry shows transient elevated values that decay as the tree stabilises — surfaced inline as an `incl. inflations` footnote in the expanded panel
 - **Confidence explanations**: every issue explains *why* its confidence is confirmed/likely/possible — what evidence was used and what would upgrade it
 - **Severity auto-escalation**: persistent warnings automatically escalate to critical after 30 scan cycles; structural findings upgrade to likely when corroborated by frame jank or rebuild evidence
@@ -473,7 +468,7 @@ Sleuth is best used for **fast in-app triage** — catch the problem, understand
 
 To set clear expectations:
 
-- This package is **not a replacement** for DevTools heap snapshots or interactive flame charts — it covers breadth (23 detectors, encyclopedia, AI chat) but not the depth of object-level introspection or zoomable timelines
+- This package is **not a replacement** for DevTools heap snapshots or interactive flame charts — it covers breadth (18 detectors, encyclopedia, AI chat) but not the depth of object-level introspection or zoomable timelines
 - **Widget attribution varies by mode** — debug mode provides exact per-widget rebuild/paint counts and source file:line locations. Profile mode provides per-widget-type attribution via VM timeline dirty lists (when VM is connected), falling back to structural heuristics when unavailable. See [Debug vs Profile Mode](#debug-vs-profile-mode) for the full matrix
 - **VM full mode availability** depends on runtime environment and is not guaranteed on all platforms
 - **Memory pressure detection** monitors GC frequency, heap growth trends (linear regression), and capacity thresholds. When growth is detected, enriches the issue with per-class allocation deltas — but does not track individual object leaks or retention paths
@@ -494,9 +489,6 @@ flutter run
 - `ListView(children: List.generate(...))` → `ListView.builder` with `itemExtent`
 - `IntrinsicHeight` row → `CrossAxisAlignment.stretch`
 - `Image.network` without caching → `cacheWidth` / `cacheHeight`
-- `GlobalKey()` in `build()` → `final` field
-- `Opacity(opacity: 0.0)` → `Visibility(visible: false)`
-- `AnimatedBuilder` without `child` → extracted `child`
 - `Fibonacci` on main thread → `Isolate.run()`
 - 40 concurrent HTTP gets → in-memory cache + pagination
 
@@ -504,10 +496,9 @@ flutter run
 
 **Combined multi-detector demos** stack 4–5 anti-patterns in one realistic screen and show every corresponding fix applied together:
 
-- **E-Commerce Product Page** — hero carousel, rotating price `AnimatedBuilder`, `IntrinsicHeight` size row, 200-review list, 4 `GlobalKey`s, hidden `Opacity(0.0)` loading banner
 - **Chat App** — tabbed conversations with `AutomaticKeepAliveClientMixin`, uncached avatars, 40ms platform-channel typing poll, top-level `setState` on message arrival
-- **Social Feed** — cards with uncached post images, `IntrinsicHeight` header row, `Opacity(0.0)` "load more" banner, top-level `setState` on Like
-- **Analytics Dashboard** — `CustomPainter.shouldRepaint` always-true, non-extracted `AnimatedBuilder`, refresh that rebuilds every tile
+- **Social Feed** — cards with uncached post images, `IntrinsicHeight` header row, top-level `setState` on Like
+- **Analytics Dashboard** — `CustomPainter.shouldRepaint` always-true, refresh that rebuilds every tile
 
 Each demo description follows the `❌ BAD / ✅ FIX / ▶ action` format with an explicit reproduction step telling you what to tap to trigger the detection.
 

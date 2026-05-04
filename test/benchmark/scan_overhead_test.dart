@@ -2,21 +2,16 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/base_detector.dart';
-import 'package:sleuth/src/detectors/animated_builder_detector.dart';
 import 'package:sleuth/src/detectors/custom_painter_detector.dart';
 import 'package:sleuth/src/detectors/font_loading_detector.dart';
-import 'package:sleuth/src/detectors/global_key_detector.dart';
 import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
 import 'package:sleuth/src/detectors/image_memory_detector.dart';
 import 'package:sleuth/src/detectors/keep_alive_detector.dart';
 import 'package:sleuth/src/detectors/layout_bottleneck_detector.dart';
 import 'package:sleuth/src/detectors/listview_detector.dart';
-import 'package:sleuth/src/detectors/nested_scroll_detector.dart';
-import 'package:sleuth/src/detectors/opacity_detector.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/detectors/repaint_detector.dart';
 import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
-import 'package:sleuth/src/detectors/shallow_rebuild_risk_detector.dart';
 
 import '../helpers/benchmark_helpers.dart';
 
@@ -63,15 +58,6 @@ void main() {
       expect(avgUs, lessThan(defaultBudgetUs));
     });
 
-    testWidgets('ShallowRebuildRiskDetector', (tester) async {
-      await setup(tester);
-      final detector = ShallowRebuildRiskDetector();
-      final avgUs = benchmarkUs('ShallowRebuildRiskDetector', () {
-        detector.scanTree(context);
-      });
-      expect(avgUs, lessThan(defaultBudgetUs));
-    });
-
     testWidgets('SetStateScopeDetector', (tester) async {
       await setup(tester);
       final detector = SetStateScopeDetector();
@@ -108,24 +94,6 @@ void main() {
       expect(avgUs, lessThan(defaultBudgetUs));
     });
 
-    testWidgets('GlobalKeyDetector', (tester) async {
-      await setup(tester);
-      final detector = GlobalKeyDetector();
-      final avgUs = benchmarkUs('GlobalKeyDetector', () {
-        detector.scanTree(context);
-      });
-      expect(avgUs, lessThan(defaultBudgetUs));
-    });
-
-    testWidgets('NestedScrollDetector', (tester) async {
-      await setup(tester);
-      final detector = NestedScrollDetector();
-      final avgUs = benchmarkUs('NestedScrollDetector', () {
-        detector.scanTree(context);
-      });
-      expect(avgUs, lessThan(defaultBudgetUs));
-    });
-
     testWidgets('CustomPainterDetector', (tester) async {
       await setup(tester);
       final detector = CustomPainterDetector();
@@ -139,24 +107,6 @@ void main() {
       await setup(tester);
       final detector = KeepAliveDetector();
       final avgUs = benchmarkUs('KeepAliveDetector', () {
-        detector.scanTree(context);
-      });
-      expect(avgUs, lessThan(defaultBudgetUs));
-    });
-
-    testWidgets('AnimatedBuilderDetector', (tester) async {
-      await setup(tester);
-      final detector = AnimatedBuilderDetector();
-      final avgUs = benchmarkUs('AnimatedBuilderDetector', () {
-        detector.scanTree(context);
-      });
-      expect(avgUs, lessThan(defaultBudgetUs));
-    });
-
-    testWidgets('OpacityDetector', (tester) async {
-      await setup(tester);
-      final detector = OpacityDetector();
-      final avgUs = benchmarkUs('OpacityDetector', () {
         detector.scanTree(context);
       });
       expect(avgUs, lessThan(defaultBudgetUs));
@@ -217,22 +167,17 @@ void main() {
         RebuildDetector(),
         RepaintDetector(),
         GpuPressureDetector(),
-        ShallowRebuildRiskDetector(),
         SetStateScopeDetector(),
         LayoutBottleneckDetector(),
         ListviewDetector(),
         ImageMemoryDetector(),
-        GlobalKeyDetector(),
-        NestedScrollDetector(),
         CustomPainterDetector(),
         KeepAliveDetector(),
-        AnimatedBuilderDetector(),
-        OpacityDetector(),
         FontLoadingDetector(),
       ];
 
       final time500 = benchmarkUs(
-        '15 detectors × 500 elements',
+        '10 detectors × 500 elements',
         () {
           for (final d in detectors) {
             d.scanTree(context);
@@ -246,7 +191,7 @@ void main() {
       context = tester.element(find.byType(Directionality));
 
       final time1000 = benchmarkUs(
-        '15 detectors × 1000 elements',
+        '10 detectors × 1000 elements',
         () {
           for (final d in detectors) {
             d.scanTree(context);

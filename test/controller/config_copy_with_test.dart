@@ -12,7 +12,6 @@ void main() {
       expect(copy.fpsTarget, original.fpsTarget);
       expect(copy.rebuildThreshold, original.rebuildThreshold);
       expect(copy.maxListChildren, original.maxListChildren);
-      expect(copy.maxGlobalKeys, original.maxGlobalKeys);
       expect(copy.platformChannelLimit, original.platformChannelLimit);
       expect(copy.treeScanInterval, original.treeScanInterval);
       expect(copy.adaptiveScanEnabled, original.adaptiveScanEnabled);
@@ -67,14 +66,12 @@ void main() {
         fpsTarget: 120,
         rebuildThreshold: 20,
         maxListChildren: 100,
-        maxGlobalKeys: 50,
         platformChannelLimit: 40,
       );
 
       expect(copy.fpsTarget, 120);
       expect(copy.rebuildThreshold, 20);
       expect(copy.maxListChildren, 100);
-      expect(copy.maxGlobalKeys, 50);
       expect(copy.platformChannelLimit, 40);
     });
 

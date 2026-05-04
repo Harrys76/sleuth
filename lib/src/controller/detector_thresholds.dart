@@ -22,10 +22,8 @@ class DetectorThresholds {
     this.gpuPressureRatio = 2.0,
     this.memoryGrowthBytesPerSec = 512000,
     this.memoryCapacityPercent = 0.80,
-    this.shallowRebuildMaxDepth = 3,
     this.setStateScopeOwnershipPercent = 0.5,
     this.keepAliveMax = 5,
-    this.animatedBuilderMinSubtreeSize = 50,
     this.fontLoadingMaxFamilies = 3,
     this.startupTtffWarningMs = 1500,
     this.startupTtffCriticalMs = 3000,
@@ -60,10 +58,6 @@ class DetectorThresholds {
           'memoryCapacityPercent must be in the range 0.0..1.0.',
         ),
         assert(
-          shallowRebuildMaxDepth >= 1,
-          'shallowRebuildMaxDepth must be >= 1 (depth 0 is the root).',
-        ),
-        assert(
           setStateScopeOwnershipPercent >= 0.0 &&
               setStateScopeOwnershipPercent <= 1.0,
           'setStateScopeOwnershipPercent must be in the range 0.0..1.0.',
@@ -71,10 +65,6 @@ class DetectorThresholds {
         assert(
           keepAliveMax >= 1,
           'keepAliveMax must be >= 1 (zero would flag every keep-alive).',
-        ),
-        assert(
-          animatedBuilderMinSubtreeSize >= 1,
-          'animatedBuilderMinSubtreeSize must be >= 1.',
         ),
         assert(
           fontLoadingMaxFamilies >= 1,
@@ -174,18 +164,6 @@ class DetectorThresholds {
   /// warning.
   final double memoryCapacityPercent;
 
-  /// Maximum widget-tree depth for [ShallowRebuildRiskDetector].
-  /// StatefulWidgets at or above this depth are flagged when they
-  /// rebuild.
-  ///
-  /// **Default:** 3. Rebuilds at depth 0–3 sit near the tree root and
-  /// cascade into large subtrees — the canonical setState-too-high
-  /// anti-pattern.
-  ///
-  /// **Raise this** (e.g. 5) to be noisier, catching medium-depth
-  /// cascades. **Lower this** (e.g. 1) to only flag root-level rebuilds.
-  final int shallowRebuildMaxDepth;
-
   /// Minimum proportion of the owning subtree that must be dirty for
   /// [SetStateScopeDetector] to promote a rebuild hot spot into an issue.
   /// Value is a fraction in the range 0.0–1.0.
@@ -211,17 +189,6 @@ class DetectorThresholds {
   /// items (a tab bar with preserved state). **Lower this** (e.g. 3)
   /// for stricter lazy-list hygiene.
   final int keepAliveMax;
-
-  /// Minimum [AnimatedBuilder] subtree size (widget count) before
-  /// [AnimatedBuilderDetector] flags a missing `child` parameter.
-  /// Smaller subtrees are ignored as low-impact.
-  ///
-  /// **Default:** 50. Below 50 descendants the per-tick rebuild cost is
-  /// negligible even without the `child` optimization.
-  ///
-  /// **Raise this** (e.g. 100) to only flag the worst offenders.
-  /// **Lower this** (e.g. 20) to enforce strict child-hoisting hygiene.
-  final int animatedBuilderMinSubtreeSize;
 
   /// Maximum distinct custom font families observed on a single screen
   /// before [FontLoadingDetector] fires.

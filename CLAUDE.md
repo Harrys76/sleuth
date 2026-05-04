@@ -1,12 +1,12 @@
 # Sleuth
 
-Runtime performance diagnostics package for Flutter mobile apps. 23 detectors across 4 lifecycle types (runtime, vmOnly, hybrid, structural).
+Runtime performance diagnostics package for Flutter mobile apps. 18 detectors across 4 lifecycle types (runtime, vmOnly, hybrid, structural).
 
 ## Commands
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~2,634 tests, ~30s)
+fvm flutter test                    # Run all tests (~2,851 tests, ~30s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -24,7 +24,7 @@ lib/
   sleuth.dart          # Public API barrel file + Sleuth entry point
   src/
     models/                     # Data classes: PerformanceIssue, FrameStats, FrameVerdict, BaseDetector
-    detectors/                  # 23 detector implementations (one file per detector)
+    detectors/                  # 18 detector implementations (one file per detector)
     network/                    # HTTP monitoring: SleuthHttpOverrides, RequestRecord
     analyzer/                   # RenderPipelineAnalyzer, FrameEventCorrelator
     controller/                 # SleuthController (orchestrates detectors, config, scan loop)
@@ -42,7 +42,7 @@ test/
 ### Key patterns
 
 - **Detectors** extend `BaseDetector` (in `models/base_detector.dart`). Each has a `DetectorType` enum value and `DetectorLifecycle` (runtime, vmOnly, hybrid, structural). Built-in detectors implement 4 lifecycle methods (`prepareScan`, `checkElement`, `afterElement`, `finalizeScan`) for the unified tree walk. Custom detectors override `scanTree` directly.
-- **SleuthController** owns all detectors, runs the scan loop (unified single-pass tree walk for all 16 tree-scanning detectors), and manages the `FrameVerdict` pipeline.
+- **SleuthController** owns all detectors, runs the scan loop (unified single-pass tree walk for all 12 tree-scanning detectors), and manages the `FrameVerdict` pipeline.
 - **Three-tier verdict**: Correlated (VM timeline matched per-frame) > Full (VM batch) > Basic (FrameTiming only). Falls back automatically.
 - **Evidence tier ledger**: every built-in detector carries `DetectorMetadata` declaring its `EvidenceTier` (`unvalidated` / `reproducerOnly` / `runtimeVerified` / `externallyCited`). Raises require a hermetic reproducer + audit-gate entries. Ledger: `doc/validation_ledger.md`.
 - **Reproducer path convention**: `reproducerPath` points at `test/validation/<d>_reproducer_test.dart` (purpose-written, v0.16.3 / v0.17.1) or `test/detectors/<d>_detector_test.dart` (reused unit tests, v0.17.2). Both pass `isPathInsideRepo`. Pick whichever fits the detector's test shape.
@@ -59,12 +59,13 @@ test/
 
 ## Current state
 
-**v0.19.27** (current) — `Sleuth.track auto-init` regression test (two-stage `isNull` → `isNotNull` via `Sleuth.resetStartupForTest`, mounted via `tester.pumpWidget` for SleuthOverlay disposal) + `delta == 0` cold_start inclusive-boundary pin in `shaderWarmupContext attribution` group. No detector or distribution change. 3,007 unit + integration tests pass; benchmark group machine-load-sensitive.
+**v0.20.0** (current) — **BREAKING**: 5 low-value detectors removed (`animatedBuilder`, `opacity`, `shallowRebuildRisk`, `nestedScroll`, `globalKey`); 23 → 18 detectors. Orphaned config fields (`SleuthConfig.maxGlobalKeys`, `DetectorThresholds.shallowRebuildMaxDepth`, `animatedBuilderMinSubtreeSize`) removed. v0.19 snapshots still deserialize (stableId-keyed); encyclopedia + causal_graph keep removed-stableId entries for replay context. 2,851 tests pass.
 
-**Distribution (current)**: 21/23 reproducerOnly base + 2/23 runtimeVerified base, 11 effective runtimeVerified family-severity pairs across 8 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}).
+**Distribution (current)**: 16/18 reproducerOnly base + 2/18 runtimeVerified base, 11 effective runtimeVerified family-severity pairs across 8 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}).
 
 ### Recent releases (one-line)
 
+- **v0.19.27** — Test polish on top of v0.19.26: `Sleuth.track()` auto-init regression test + `delta == 0` cold_start inclusive-boundary pin. No detector or distribution change.
 - **v0.19.26** — `ShaderJankDetector` emits `extraTraceArgs.shaderWarmupContext` ('cold_start' | 'hot_path' | 'keyframe') via `Sleuth.dartEntryMonotonicUs` + `ParsedTimelineData.phaseEvents` build-event correlation; new `DetectorThresholds.coldStartShaderWindowSeconds` (default 5) + `shaderKeyframeWindowMs` (default 100); tier unchanged (reproducerOnly).
 - **v0.19.25** — Test + doc polish. cwd guard extended to the `checkCapturePathPerDirectoryNamingUniformity` group (5 tests); validation-tier docs (README + ledger) refreshed and summary count corrected to 21/23 reproducerOnly + 2/23 runtimeVerified base.
 - **v0.19.24** — Behavioral wiring test for `checkMinInBandSamplesPerSpec` (replaces source-grep); explicit cwd guard on `critical_above.json` real-capture test; ledger stale `← current release` marker removed.

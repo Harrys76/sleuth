@@ -935,6 +935,12 @@ class IssueExplanationBuilder {
       ],
     ),
 
+    // The entries below cover stableIds whose source detectors were removed
+    // in v0.20.0 (animated_builder, opacity, shallow_rebuild_risk,
+    // nested_scroll, global_key). They remain so v0.19 saved snapshots
+    // replay with full explanation context. Do not delete without bumping
+    // snapshot schemaVersion.
+
     // ── Shallow Rebuild Risk ──────────────────────────────────────────────
 
     'shallow_rebuild_risk': (

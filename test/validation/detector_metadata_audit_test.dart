@@ -64,14 +64,6 @@ const _v0163Expectations = <DetectorType, (String, Set<String>)>{
     'test/validation/image_memory_reproducer_test.dart',
     {'uncached_images'},
   ),
-  DetectorType.opacity: (
-    'test/validation/opacity_reproducer_test.dart',
-    {'opacity_zero'},
-  ),
-  DetectorType.globalKey: (
-    'test/validation/global_key_reproducer_test.dart',
-    {'excessive_global_keys', 'global_key_recreation'},
-  ),
   DetectorType.listview: (
     'test/validation/listview_reproducer_test.dart',
     {
@@ -92,17 +84,9 @@ const _v0171Expectations = <DetectorType, (String, Set<String>)>{
     'test/validation/layout_bottleneck_reproducer_test.dart',
     {'layout_bottleneck', 'wrap_layout_bottleneck'},
   ),
-  DetectorType.nestedScroll: (
-    'test/validation/nested_scroll_reproducer_test.dart',
-    {'nested_scroll', 'nested_scroll_same_axis'},
-  ),
   DetectorType.customPainter: (
     'test/validation/custom_painter_reproducer_test.dart',
     {'always_repaint_painter', 'frequent_repaint_painter'},
-  ),
-  DetectorType.animatedBuilder: (
-    'test/validation/animated_builder_reproducer_test.dart',
-    {'animated_builder_no_child'},
   ),
   DetectorType.keepAlive: (
     'test/validation/keep_alive_reproducer_test.dart',
@@ -184,11 +168,6 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
     'test/validation/repaint_reproducer_test.dart',
     {'excessive_repaint', 'excessive_repaint_debug'},
     {'repaint_debug'},
-  ),
-  DetectorType.shallowRebuildRisk: (
-    'test/validation/shallow_rebuild_risk_reproducer_test.dart',
-    {'shallow_rebuild_risk'},
-    null,
   ),
 };
 
