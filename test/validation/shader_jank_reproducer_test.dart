@@ -349,6 +349,37 @@ void main() {
           'hot_path',
         );
       });
+
+      test(
+          'cold_start: shader event timestamp EXACTLY at app-start (delta == 0 inclusive boundary)',
+          () {
+        // app-start = 0 (group setUp). Shader at ts=0 → delta = 0.
+        // Pins inclusive lower bound of `deltaUs >= 0 && deltaUs < window`.
+        // Companion to the negative-delta test above: together they pin
+        // both sides of the `>= 0` guard.
+        final events = [
+          buildEvent(name: 'ShaderCompilation', ph: 'X', dur: 150000, ts: 0),
+        ];
+        final parsed = parseAndAssertShape(events, (
+          buildEventCount: 0,
+          buildScopeCount: 0,
+          layoutCount: 0,
+          paintCount: 0,
+          rasterCount: 0,
+          shaderCount: 1,
+          channelCount: 0,
+          gcCount: 0,
+          phaseEventCount: 1,
+        ));
+        attrDetector.processTimelineData(parsed);
+        expect(attrDetector.issues, hasLength(1));
+        expect(
+          attrDetector.issues.first.extraTraceArgs?['shaderWarmupContext'],
+          'cold_start',
+          reason:
+              'delta == 0 must satisfy cold_start branch (inclusive lower bound).',
+        );
+      });
     });
 
     group('negative control', () {

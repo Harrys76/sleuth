@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
@@ -138,6 +139,44 @@ void main() {
       // With no controller registered the timeout is irrelevant — the
       // gate returns before ever building a timeout future.
       await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 1));
+    });
+  });
+
+  group('Sleuth.track auto-init', () {
+    // The documented quick-start `runApp(Sleuth.track(child: MyApp()))` must
+    // populate `Sleuth.dartEntryMonotonicUs` so detectors that compare
+    // timeline timestamps against app-start (e.g. ShaderJankDetector
+    // cold_start branch) reach a non-null clock. Without `track()` invoking
+    // `init()`, that integration silently no-ops.
+    setUp(Sleuth.resetStartupForTest);
+    tearDown(Sleuth.resetStartupForTest);
+
+    testWidgets('Sleuth.track() captures dartEntryMonotonicUs', (tester) async {
+      // Stage 1: confirm the reset hook actually cleared static state.
+      // Without this, a Stage-2 non-null assertion is vacuous when prior
+      // tests left the static populated.
+      expect(
+        Sleuth.dartEntryMonotonicUs,
+        isNull,
+        reason: 'reset hook left dartEntryMonotonicUs populated; '
+            'Stage-2 assertion would be vacuous.',
+      );
+
+      // Stage 2: track() must call init() so dartEntryMonotonicUs is set.
+      // pumpWidget mounts SleuthOverlay so the framework calls its
+      // dispose() at test teardown, which clears the static `_controller`
+      // via Sleuth.notifyControllerDisposed. A plain `test` body with a
+      // bare `Sleuth.track(...)` call would leak `_controller` into the
+      // suite, breaking later tests that assume cold state under shuffle.
+      await tester.pumpWidget(Sleuth.track(child: const SizedBox()));
+
+      expect(
+        Sleuth.dartEntryMonotonicUs,
+        isNotNull,
+        reason: 'Sleuth.track() must call Sleuth.init() so '
+            'dartEntryMonotonicUs is populated for downstream detectors.',
+      );
+      expect(Sleuth.dartEntryMonotonicUs, greaterThan(0));
     });
   });
 }

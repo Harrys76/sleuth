@@ -59,12 +59,13 @@ test/
 
 ## Current state
 
-**v0.19.26** (current) — `ShaderJankDetector` emits `extraTraceArgs.shaderWarmupContext` ('cold_start' | 'hot_path' | 'keyframe') discriminating shader-compile origin via `Sleuth.dartEntryMonotonicUs` + `ParsedTimelineData.phaseEvents` build-event correlation. New `DetectorThresholds.coldStartShaderWindowSeconds` (default 5) + `shaderKeyframeWindowMs` (default 100). Tier unchanged (reproducerOnly). 3,000+ tests passing.
+**v0.19.27** (current) — `Sleuth.track auto-init` regression test (two-stage `isNull` → `isNotNull` via `Sleuth.resetStartupForTest`, mounted via `tester.pumpWidget` for SleuthOverlay disposal) + `delta == 0` cold_start inclusive-boundary pin in `shaderWarmupContext attribution` group. No detector or distribution change. 3,007 unit + integration tests pass; benchmark group machine-load-sensitive.
 
 **Distribution (current)**: 21/23 reproducerOnly base + 2/23 runtimeVerified base, 11 effective runtimeVerified family-severity pairs across 8 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}).
 
 ### Recent releases (one-line)
 
+- **v0.19.26** — `ShaderJankDetector` emits `extraTraceArgs.shaderWarmupContext` ('cold_start' | 'hot_path' | 'keyframe') via `Sleuth.dartEntryMonotonicUs` + `ParsedTimelineData.phaseEvents` build-event correlation; new `DetectorThresholds.coldStartShaderWindowSeconds` (default 5) + `shaderKeyframeWindowMs` (default 100); tier unchanged (reproducerOnly).
 - **v0.19.25** — Test + doc polish. cwd guard extended to the `checkCapturePathPerDirectoryNamingUniformity` group (5 tests); validation-tier docs (README + ledger) refreshed and summary count corrected to 21/23 reproducerOnly + 2/23 runtimeVerified base.
 - **v0.19.24** — Behavioral wiring test for `checkMinInBandSamplesPerSpec` (replaces source-grep); explicit cwd guard on `critical_above.json` real-capture test; ledger stale `← current release` marker removed.
 - **v0.19.23** — `BracketSpec.minInBandSamples` opt-in + `checkMinInBandSamplesPerSpec` invariant (per-leg in-band sample count); `rebuild_activity.critical` opts in at 2.

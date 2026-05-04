@@ -1,3 +1,12 @@
+## 0.19.27
+
+Test polish on top of v0.19.26. No detector logic change; tier distribution unchanged.
+
+- `test/sleuth_test.dart`: new `Sleuth.track auto-init` group. Two-stage assertion (pre-call `isNull` after `Sleuth.resetStartupForTest`, post-call `isNotNull`) directly fails when `init()` is removed from `Sleuth.track()`. Mounted via `tester.pumpWidget` so SleuthOverlay disposal clears the static `_controller` at teardown.
+- `test/validation/shader_jank_reproducer_test.dart`: new `delta == 0 inclusive boundary` test in the `shaderWarmupContext attribution` group. Pins the inclusive lower bound of the cold_start guard `deltaUs >= 0 && deltaUs < window`. Companion to the existing negative-delta `hot_path` test — together they pin both sides of `>= 0`.
+
+3,007 unit + integration tests passing; `fvm flutter analyze` clean. Benchmarks in `test/benchmark/` use machine-load-sensitive timing thresholds and may flake on slower hardware.
+
 ## 0.19.26
 
 `ShaderJankDetector` emits `extraTraceArgs.shaderWarmupContext` discriminating shader-compile origin. No tier change; ShaderJank stays `reproducerOnly`.
