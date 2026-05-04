@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.19.24 (2026-05-04)_
+_Last updated: v0.19.25 (2026-05-04)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and
@@ -46,8 +46,8 @@ adding a new tier requires a semver major bump:
 
 ## Ledger
 
-**Summary:** **20 / 23 at `reproducerOnly` base, 3 / 23 at `runtimeVerified` base, 0 / 23 at `unvalidated`**
-as of v0.19.18 (no detector raises; `MemoryPressureDetector.heap_growing` backfills `observedSlopeBytesPerSec` extraTraceArgs stamp + `observedAxisArgKey`; per-detector audit now enforces `checkRuntimeVerifiedRequiresObservedAxisArgKey` on every runtimeVerified bracket). The detector-row tier reflects each detector's *base*
+**Summary:** **21 / 23 at `reproducerOnly` base, 2 / 23 at `runtimeVerified` base, 0 / 23 at `unvalidated`**.
+Per-release detail lives in [`CHANGELOG.md`](../CHANGELOG.md). The detector-row tier reflects each detector's *base*
 tier; per-family raises live in `DetectorMetadata.perStableIdTier` and
 are shown in the row's Notes column. **Effective runtimeVerified-family
 count: 11 family-severity pairs across 8 unique stableIds** —
@@ -179,7 +179,7 @@ Flutter 3.41.4) stay on disk as retained orphans with
 |---|---|---|---|
 | setState Scope | `reproducerOnly` | [`setstate_scope_reproducer_test.dart`](../test/validation/setstate_scope_reproducer_test.dart) | **Structural / possible-confidence path only** pinned: widest public StatefulWidget owns > `dirtyRatioThreshold` of tree AND `_maxSubtreeSize > minSubtreeSize`. Private-named widgets skipped (`!name.startsWith("_")`), animation-scope suppression, and below-minSubtreeSize silence pinned as negative controls. The DebugSnapshot confidence-upgrade path (likely / confirmed via rebuild-counter correlation) is a known gap not covered at this tier — documented in the detector rationale. Thresholds tuned down in tests to validate classification semantics, not threshold values. `coveredStableIds = {'setstate_scope'}`. |
 | Layout Bottleneck | `reproducerOnly` | [`layout_bottleneck_reproducer_test.dart`](../test/validation/layout_bottleneck_reproducer_test.dart) | Both families pinned: `layout_bottleneck` (IntrinsicHeight / IntrinsicWidth structural trigger) and `wrap_layout_bottleneck` (Wrap with > `wrapChildThreshold` children, strict-greater). Pure structural scan — no layout-phase timing dependency — so the reproducer covers the full runtime trigger path. `coveredStableIds = {'layout_bottleneck', 'wrap_layout_bottleneck'}`. |
-| ListView | `reproducerOnly` | [`listview_reproducer_test.dart`](../test/validation/listview_reproducer_test.dart) | All 8 stable-id families pinned (v0.16.6 backfill from 3 → 8). Non-lazy construction families: `non_lazy_listview`, `non_lazy_gridview`, `non_lazy_sliver_list`, `non_lazy_sliver_grid` (each with list-delegate eager + builder-lazy negative control), and `non_lazy_list` (`SingleChildScrollView` + `Column`/`Row` above threshold, at-threshold silent). Sliver boundary families: `sliver_to_box_adapter_large` (Column subtree above threshold), `sliver_to_box_adapter_shrinkwrap` (Check-C gate pinned by a three-test triad — shrinkWrap:true fires, shrinkWrap:false silent, many-children-in-list-delegate routes to Check A non_lazy_listview not Check C, pinning the isNonLazy bypass), and `sliver_fill_remaining_scrollable` as a **structural adjacency check** — fires when any scrollable descendant appears under `SliverFillRemaining(hasScrollBody: false)`, with `hasScrollBody: true` as the negative control. The runtime performance pathology the sliver_fill_remaining pattern correlates with is not directly measured (the real anti-pattern throws a layout error in `flutter_test`, forcing a `SizedBox` wrapper around the inner scrollable); the detector is `DetectorLifecycle.structural` by declaration, so structural-only validation is internally consistent. v0.16.N re-raise to `runtimeVerified` would require a profile-mode capture triad per family demonstrating measurable frame-budget impact under the non-lazy construction path. |
+| ListView | `reproducerOnly` | [`listview_reproducer_test.dart`](../test/validation/listview_reproducer_test.dart) | All 8 stable-id families pinned (v0.16.6 backfill from 3 → 8). Non-lazy construction families: `non_lazy_listview`, `non_lazy_gridview`, `non_lazy_sliver_list`, `non_lazy_sliver_grid` (each with list-delegate eager + builder-lazy negative control), and `non_lazy_list` (`SingleChildScrollView` + `Column`/`Row` above threshold, at-threshold silent). Sliver boundary families: `sliver_to_box_adapter_large` (Column subtree above threshold), `sliver_to_box_adapter_shrinkwrap` (Check-C gate pinned by a three-test triad — shrinkWrap:true fires, shrinkWrap:false silent, many-children-in-list-delegate routes to Check A non_lazy_listview not Check C, pinning the isNonLazy bypass), and `sliver_fill_remaining_scrollable` as a **structural adjacency check** — fires when any scrollable descendant appears under `SliverFillRemaining(hasScrollBody: false)`, with `hasScrollBody: true` as the negative control. The runtime performance pathology the sliver_fill_remaining pattern correlates with is not directly measured (the real anti-pattern throws a layout error in `flutter_test`, forcing a `SizedBox` wrapper around the inner scrollable); the detector is `DetectorLifecycle.structural` by declaration, so structural-only validation is internally consistent. A future re-raise to `runtimeVerified` would require a profile-mode capture triad per family demonstrating measurable frame-budget impact under the non-lazy construction path. |
 | Image Memory | `reproducerOnly` | [`image_memory_reproducer_test.dart`](../test/validation/image_memory_reproducer_test.dart) | 50dp small-image skip threshold pinned by 40×40 / 50×50 / 51×51 / 100×100 boundary triad, ResizeImage wrapper suppression, and the "zero is NOT small" unconstrained-size policy. **Both emission branches exercised**: the `Image` widget branch and the `DecoratedBox` branch (`Container` with `BoxDecoration.image` at 100×100 fires; `DecorationImage` wrapping a `ResizeImage` suppresses). Pure structural scan — no decode dependency. `coveredStableIds = {'uncached_images'}`. |
 | GlobalKey | `reproducerOnly` | [`global_key_reproducer_test.dart`](../test/validation/global_key_reproducer_test.dart) | Both families pinned with their correct scope contracts: `excessive_global_keys` is **scrollable-gated** (threshold boundary + critical above 3× threshold; bare-tree keys ignored) while `global_key_recreation` is **whole-tree** (identity-hash churn across two scans on the same scan root fires in a scrollable context AND in a bare `Column` tree; State-held stable keys do not; first scan alone is silent because `_prevKeyIds` is empty). `coveredStableIds = {'excessive_global_keys', 'global_key_recreation'}` using the prefix convention for the indexed `excessive_global_keys:<i>` family. |
 | Nested Scroll | `reproducerOnly` | [`nested_scroll_reproducer_test.dart`](../test/validation/nested_scroll_reproducer_test.dart) | Both families pinned: `nested_scroll` (inner-Scrollable count > `childThreshold`, strict-greater) and `nested_scroll_same_axis` (parent + inner sharing vertical axis). `NeverScrollableScrollPhysics` suppression and cross-axis silence pinned as negative controls so the axis-match contract cannot silently regress. `coveredStableIds = {'nested_scroll', 'nested_scroll_same_axis'}`. |
@@ -216,8 +216,12 @@ against an empty expected-components list today.
 
 ## Roadmap
 
-The v0.16 milestone arc is carrying detectors up the ledger one tier raise
-per release:
+> **Note** — historical narrative through v0.16.6. Subsequent v0.17–v0.19
+> releases extended the audit-gate infrastructure and progressively raised
+> additional families to `runtimeVerified` via `perStableIdTier` and
+> `additionalBrackets`. Per-release detail lives in
+> [`CHANGELOG.md`](../CHANGELOG.md). For the current tier distribution,
+> see the Summary section above.
 
 - **v0.16.0** — Validation methodology infrastructure (`EvidenceTier`,
   `DetectorMetadata`, audit gate contract).
@@ -407,46 +411,41 @@ per release:
   Network Monitor) that exercise their own production entrypoints
   (`handleTimingsForTest`, `SleuthHttpOverrides`). Ledger distribution
   unchanged: 23/23 `reproducerOnly`.
-- **v0.18.0+** — Re-raise `NetworkMonitorDetector.slow_request.warning`
-  (hard deadline — orphan manifest `consumeBy: '0.18.0'` blocks the
-  release unless re-raised or orphans deleted). Also drops the
-  `FrameStatsBuffer.averageFps` alias — downstream consumers must
-  migrate to `throughputFps` or `actualFps` explicitly.
-  Prerequisites: (a) replace citation with a generic mobile/API HTTP
-  latency source matching the detector semantics OR narrow the detector
-  contract to user-blocking requests and enforce scope with a gate;
-  (b) extend capture helper to emit a
-  `sleuth.issue.slow_request.warning` trace/log record with the
-  detector-measured duration; (c) extend
-  `ProfileCaptureSchema.validateBracket` to require that record inside
-  the scenario window. Remaining `unvalidated` detectors cluster around
-  runtime/VM-driven thresholds (memory pressure, GPU pressure) where
-  the next tier raise will typically also need a reference-device
-  profile capture.
-
-Follow-up work from v0.16.1:
-
-- **Canonical issue-family identifiers** (still deferred; v0.16.6's
-  multi-family raise scoped by bare stable ID, not parameterized
-  `<family>:<hash>`, so the "prefix up to `:`" convention remained
-  sufficient) — will replace the convention once a parameterized-ID
-  family needs tier-scoped coverage.
-- **Format/parse validation for `profileCapturePath`** (first
-  `runtimeVerified` raise) — so file existence alone does not satisfy the
-  audit gate once a detector claims a profile-mode capture backs its
-  thresholds.
+- **v0.18.0+** — Shipped: `NetworkMonitorDetector.slow_request.warning`
+  raised to `runtimeVerified` via `perStableIdTier` backed by 3 on-device
+  captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x). Orphan-manifest
+  retained-orphan entries cleared. `FrameStatsBuffer.averageFps` alias
+  dropped — downstream consumers migrate to `throughputFps` or
+  `actualFps`. Subsequent v0.19.x raises (heap_growing,
+  platform_channel_traffic, jank_detected, rebuild_activity,
+  heavy_compute, large_response, request_frequency, slow_request.critical)
+  documented per-release in [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## How to contribute a tier raise
 
-1. Pick a detector at `unvalidated`.
-2. Write a hermetic reproducer at `test/validation/<detector_name>_reproducer_test.dart`
-   that pins the detector's thresholds end-to-end.
-3. Update the detector's `validationMetadata`:
-   - raise `tier` to `EvidenceTier.reproducerOnly`
-   - set `reproducerPath` to the new file
-   - rewrite the `rationale` to describe *what* is validated and *how*
-   - for multi-family detectors, pin `coveredStableIds` to the families the
-     reproducer actually exercises
-4. Update this ledger's row.
-5. Run `fvm flutter analyze` + `fvm flutter test` — the audit gate will
-   enforce the contract.
+Pick a detector or stable-id family that sits below the desired evidence
+tier. The active raise paths are:
+
+- **`reproducerOnly` raise** — for any detector still at `unvalidated`
+  (currently 0/23, but applies to any added in a future release): write a
+  hermetic reproducer at
+  `test/validation/<detector_name>_reproducer_test.dart` pinning the
+  detector's thresholds end-to-end. Set `tier: EvidenceTier.reproducerOnly`
+  in `validationMetadata`, set `reproducerPath` to the new file, rewrite
+  the `rationale` to describe what is validated and how, and pin
+  `coveredStableIds` (or `parametricFamilies` for underscore-parametric
+  families) to what the reproducer exercises.
+
+- **`runtimeVerified` raise** — for a detector or family already at
+  `reproducerOnly`: add three on-device captures (below / at / above) under
+  `test/validation/captures/<detector>/`, recorded via the in-app capture
+  procedure on a reference-device pair. Wire the bracket via
+  `perStableIdTier` (per-family raise on a single-family detector) or
+  `additionalBrackets` (per-family raise alongside the canonical bracket,
+  or independent observable axes on the same family). Stamp the observed
+  axis into `extraTraceArgs.<observedAxisArgKey>` so the audit-gate
+  cross-check fires.
+
+After either path: update this ledger's row, run `fvm flutter analyze` +
+`fvm flutter test` — the audit gate will enforce the contract on every
+test run.

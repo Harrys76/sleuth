@@ -1,3 +1,12 @@
+## 0.19.25
+
+Test + doc polish. No detector changes; tier distribution unchanged.
+
+- cwd guard added to 5 tests in the `checkCapturePathPerDirectoryNamingUniformity` group of `audit_invariants_test.dart` — each skips with `markTestSkipped('CWD is not the package root; skipping.')` when run from a non-package-root directory instead of failing with a cryptic `FileSystemException` on the relative-path read inside `writeCapture`. Matches the v0.19.24 pattern.
+- `README.md` + `doc/validation_ledger.md` refreshed: summary count corrected to **21 / 23 reproducerOnly base + 2 / 23 runtimeVerified base** (was misreported as 20 / 3 — recounted against `EvidenceTier` in `lib/src/detectors/`); Roadmap section flagged as historical narrative through v0.16.6 with pointer to `CHANGELOG.md`; "How to contribute a tier raise" rewritten to cover both `reproducerOnly` and `runtimeVerified` raise paths; obsolete v0.16.x present-tense framing and a fulfilled v0.18.0+ "hard deadline" bullet rewritten to past-tense shipped state.
+
+3,000 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.24
 
 Test polish. No detector changes; distribution unchanged.

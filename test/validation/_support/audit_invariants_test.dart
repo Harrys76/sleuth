@@ -2990,6 +2990,10 @@ void main() {
     }
 
     test('uniform exact-shape directory passes', () {
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
       writeCapture('det_a/foo_below.json', 'foo_below');
       writeCapture('det_a/foo_at.json', 'foo_at');
       writeCapture('det_a/foo_above.json', 'foo_above');
@@ -3000,6 +3004,10 @@ void main() {
     });
 
     test('uniform suffix-shape directory passes', () {
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
       writeCapture('det_b/below.json', 'rebuild_activity_below');
       writeCapture('det_b/at.json', 'rebuild_activity_at');
       writeCapture('det_b/above.json', 'rebuild_activity_above');
@@ -3010,6 +3018,10 @@ void main() {
     });
 
     test('mixed shapes within one directory rejected', () {
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
       writeCapture('det_c/foo_below.json', 'foo_below'); // exact
       writeCapture('det_c/at.json', 'family_at'); // suffix
       final failures = checkCapturePathPerDirectoryNamingUniformity(
@@ -3021,6 +3033,10 @@ void main() {
     });
 
     test('_fixtures/ directory excluded from uniformity check', () {
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
       writeCapture('_fixtures/synth_a.json', 'arbitrary_unrelated_scenario');
       writeCapture('_fixtures/synth_b.json', 'totally_different_scenario');
       final failures = checkCapturePathPerDirectoryNamingUniformity(
@@ -3030,6 +3046,10 @@ void main() {
     });
 
     test('suffix-shape directory with mismatched scenario prefix rejected', () {
+      if (!File('pubspec.yaml').existsSync()) {
+        markTestSkipped('CWD is not the package root; skipping.');
+        return;
+      }
       // Both files use suffix shape but with different prefix strings —
       // simulates a copy-paste typo where one file inherits the wrong
       // detector's scenario prefix while basenames stay short.
