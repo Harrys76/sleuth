@@ -1,3 +1,16 @@
+## 0.20.1
+
+`FrameTimingDetector` and `RebuildDetector` stamp `extraTraceArgs.lifecyclePhase: 'startup' | 'steady'` on each emission. README + dartdoc gain a "Measurement window" note: Sleuth reports frame total duration from `FrameTiming` (build-to-raster span), not vsync delivery cadence.
+
+- New `DetectorThresholds.startupPhaseWindowSeconds` (default 5). Classification reads `Timeline.now` at emission time — emission-time semantics, not event-time. A startup-phase frame whose callback delivery is delayed past the window boundary tags `'steady'`. Differs from `ShaderJankDetector.shaderWarmupContext` (per-event timestamp); the two tags are related but not aligned at the boundary.
+- Buffer-aggregated emissions (`sustained_jank` 60-frame, `rebuild_activity` 1-second, raster-cache 30+ frames) tag from emission-time `Timeline.now`. A buffer straddling the boundary tags `'steady'` once `Timeline.now` exceeds the threshold.
+- Null `Sleuth.dartEntryMonotonicUs` (init not called) or negative delta omits the key rather than fabricating a value.
+- `rebuild_activity` runtimeVerified bracket axis (`observedRebuildRate`) co-exists with the new key. Audit-gate `validateBracket` reads named keys directly; multi-key emissions remain extractable.
+- The tag is observable in capture-mode trace records and audit-gate replay; not serialized into saved JSON snapshots.
+- Both detectors expose `appStartMonotonicUsForTest` constructor parameter for deterministic tests.
+
+2,862 unit + integration tests passing; `fvm flutter analyze` clean. No detector logic, public API, or schema-version change.
+
 ## 0.20.0
 
 **BREAKING**: 5 low-value detectors removed. Distribution: 23 → 18 detectors.

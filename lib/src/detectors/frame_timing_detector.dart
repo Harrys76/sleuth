@@ -1,8 +1,10 @@
+import 'dart:developer' show Timeline;
 import 'dart:ui' show FramePhase;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../../sleuth.dart' show Sleuth;
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
@@ -15,6 +17,42 @@ import '../vm/timeline_parser.dart';
 /// every frame) and optionally augments with exact VM Timeline phase data.
 ///
 /// **Runtime Detector** — near-zero overhead, always available.
+///
+/// **Measurement window.** Sleuth reports the frame total duration
+/// (build-to-raster span) from `FrameTiming` — not vsync delivery cadence
+/// (`CADisplayLink`-anchored on iOS, `Choreographer.doFrame` callback on
+/// Android). The two are different metrics: `FrameTiming` reports how
+/// long the engine took to produce a frame; vsync-anchored metrics report
+/// when the OS displayed it. A frame produced in 3 ms still waits ~13 ms
+/// for the next vsync — `FrameTiming` reports 3 ms, vsync metrics report
+/// ~16 ms. Cross-framework comparison numbers that mix the two read as
+/// large performance deltas where the underlying behaviour is identical.
+///
+/// **Lifecycle phase.** Each emission stamps
+/// `extraTraceArgs.lifecyclePhase: 'startup' | 'steady'` based on whether
+/// the issue EMITTED within
+/// [DetectorThresholds.startupPhaseWindowSeconds] of
+/// [Sleuth.dartEntryMonotonicUs]. The classification reads `Timeline.now`
+/// at emission time — it is **emission-time semantics**, not event-time.
+/// A startup-phase frame whose `addTimingsCallback` delivery is delayed
+/// past the window boundary tags as `'steady'` even when the underlying
+/// frame timestamp was inside startup. Buffer-aggregated emissions
+/// (`sustained_jank` over a 60-frame window, raster-cache trends over
+/// 30+ frames) tag from emission-time `Timeline.now`; a buffer that
+/// straddles the boundary tags as `'steady'` once `Timeline.now` exceeds
+/// the window even if most contributing frames landed inside startup.
+///
+/// This differs from `ShaderJankDetector.shaderWarmupContext`, which
+/// classifies against per-event shader timestamp. The two tags are
+/// related but NOT aligned at the boundary.
+///
+/// Hot restart resets `Sleuth.dartEntryMonotonicUs` (Dart re-initializes
+/// statics; `Sleuth.init()` re-runs and writes a fresh anchor). Emissions
+/// for the configured window after each hot restart tag as `'startup'`
+/// even when the prior session was already past the window.
+///
+/// The tag is observable in capture-mode trace records and audit-gate
+/// replay; it is not serialized into saved JSON snapshots.
 class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   FrameTimingDetector({
     int? warningThresholdMs,
@@ -23,11 +61,14 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     this.warmupFrameCount = 0,
     this.warmupDuration = _defaultWarmupDuration,
     this.captureMode = false,
+    this.startupPhaseWindowSeconds = 5,
     this.onFrameStats,
+    int? Function()? appStartMonotonicUsForTest,
   })  : warningThresholdMs = warningThresholdMs ??
             _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 1),
         criticalThresholdMs = criticalThresholdMs ??
             _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 2),
+        _appStartForTest = appStartMonotonicUsForTest,
         super(
           type: DetectorType.frameTiming,
           lifecycle: DetectorLifecycle.runtime,
@@ -56,6 +97,21 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   final int criticalThresholdMs;
   final int fpsTarget;
 
+  /// Window in seconds after Dart entry within which emissions stamp
+  /// `extraTraceArgs.lifecyclePhase: 'startup'`; emissions outside the
+  /// window stamp `'steady'`. Default mirrors
+  /// [DetectorThresholds.startupPhaseWindowSeconds] — the canonical
+  /// source for users wiring via `SleuthConfig`. See class dartdoc for
+  /// buffer-spanning behaviour.
+  final int startupPhaseWindowSeconds;
+
+  /// Test-only override for the app-start monotonic anchor. When supplied,
+  /// `_classifyLifecyclePhase` uses the returned value in place of
+  /// [Sleuth.dartEntryMonotonicUs]. Tests pass
+  /// `() => Timeline.now - syntheticAgeUs` to pin a deterministic
+  /// synthetic age relative to real `Timeline.now`.
+  final int? Function()? _appStartForTest;
+
   /// Legacy frame-count gate (AND-combined with [warmupDuration]).
   ///
   /// Kept for callers that want an explicit frame-based floor. Default is 0
@@ -81,6 +137,24 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   final bool captureMode;
 
   final void Function(FrameStatsBuffer buffer)? onFrameStats;
+
+  /// Returns `'startup'` when emission `Timeline.now` falls within the
+  /// startup window after [Sleuth.dartEntryMonotonicUs], `'steady'`
+  /// otherwise, or `null` when no app-start anchor is available
+  /// (e.g. `Sleuth.init()` not yet called). A null return omits the
+  /// `lifecyclePhase` key from `extraTraceArgs` rather than fabricating a
+  /// phase value.
+  String? _classifyLifecyclePhase() {
+    final appStart = _appStartForTest?.call() ?? Sleuth.dartEntryMonotonicUs;
+    if (appStart == null) return null;
+    final delta = Timeline.now - appStart;
+    // Defensive: a future-timestamped `_appStartForTest` value would
+    // otherwise produce a negative delta. Production `Timeline.now` is
+    // monotonic-from-boot and cannot land before the captured app-start.
+    if (delta < 0) return null;
+    final windowUs = startupPhaseWindowSeconds * 1000000;
+    return delta < windowUs ? 'startup' : 'steady';
+  }
 
   // Fixed 240 so `actualFpsRaw` reports the true device rate regardless of
   // [fpsTarget]. A target-derived capacity would cap the count below the
@@ -355,6 +429,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     // Classify jank frames by bottleneck thread for attribution.
     final bottleneck = _classifyJankBottleneck(frames);
 
+    final lifecyclePhase = _classifyLifecyclePhase();
     if (severeCount >= 3) {
       final (hint1, effort1) = FixHintBuilder.sustainedJank();
       // Wall-clock micros plus instance-monotonic counter — same shape as
@@ -383,6 +458,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
             'observedSevereCount': severeCount.toString(),
             'observedJankPercent': jankPercent.toStringAsFixed(2),
             'bufferSize': frames.length.toString(),
+            if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
           },
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
@@ -419,6 +495,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
             'observedJankPercent': jankPercent.toStringAsFixed(2),
             'observedWorstFrameMs': worstMs.toStringAsFixed(2),
             'bufferSize': frames.length.toString(),
+            if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
           },
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
@@ -489,6 +566,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         i.stableId == 'raster_cache_thrashing' ||
         i.stableId == 'raster_cache_growing');
 
+    final lifecyclePhase = _classifyLifecyclePhase();
     if (_consecutiveThrashingFrames >= _thrashingWindowFrames) {
       final (hint, effort) = FixHintBuilder.rasterCacheThrashing();
       _issues.add(PerformanceIssue(
@@ -506,6 +584,9 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         fixHint: hint,
         fixEffort: effort,
         detectedAt: DateTime.now(),
+        extraTraceArgs: {
+          if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+        },
         confidenceReason: 'Measured directly from FrameTiming API',
       ));
     }
@@ -529,6 +610,9 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         fixHint: hint,
         fixEffort: effort,
         detectedAt: DateTime.now(),
+        extraTraceArgs: {
+          if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+        },
         confidenceReason: 'Measured directly from FrameTiming API',
       ));
     }

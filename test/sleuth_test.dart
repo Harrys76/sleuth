@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/src/detectors/frame_timing_detector.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
 
 void main() {
@@ -178,5 +179,72 @@ void main() {
       );
       expect(Sleuth.dartEntryMonotonicUs, greaterThan(0));
     });
+  });
+
+  group('lifecyclePhase production-anchor integration', () {
+    // The lifecyclePhase tag is observable in capture-mode trace records
+    // and audit-gate replay, but reproducer tests pin classification via
+    // the `appStartMonotonicUsForTest` ctor override. This integration
+    // test covers the production code path: `Sleuth.track()` populates
+    // `Sleuth.dartEntryMonotonicUs`, a detector constructed WITHOUT the
+    // override reads the same static, and the resulting emission stamps
+    // `lifecyclePhase: 'startup'`.
+    //
+    // Catches regressions in: import cycle between detector and Sleuth
+    // class, static-state setup race, controller construction wire-up.
+    setUp(Sleuth.resetStartupForTest);
+    tearDown(Sleuth.resetStartupForTest);
+
+    FrameStats makeStats({required int frameNumber, int totalMs = 10}) =>
+        FrameStats(
+          frameNumber: frameNumber,
+          uiDuration: Duration(milliseconds: totalMs),
+          rasterDuration: Duration.zero,
+          timestamp: DateTime(2026, 5, 5)
+              .add(Duration(milliseconds: frameNumber * 16)),
+          pictureCacheCount: 0,
+          pictureCacheBytes: 1,
+          layerCacheCount: 0,
+          layerCacheBytes: 0,
+          frameBudgetMs: 16,
+        );
+
+    testWidgets(
+      'jank_detected stamps lifecyclePhase via Sleuth.dartEntryMonotonicUs '
+      '(no test override)',
+      (tester) async {
+        await tester.pumpWidget(Sleuth.track(child: const SizedBox()));
+        expect(
+          Sleuth.dartEntryMonotonicUs,
+          isNotNull,
+          reason: 'Sleuth.track() must populate the production anchor.',
+        );
+
+        final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+        addTearDown(detector.dispose);
+
+        // 3 jank (>16 ms) out of 19 frames → 16 % rounds above the 15 %
+        // gate → jank_detected fires (sustained_jank requires ≥3 severe
+        // (>32 ms) frames, which 17-ms frames do not satisfy).
+        for (var i = 0; i < 3; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 17));
+        }
+        for (var i = 3; i < 19; i++) {
+          detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+        }
+
+        final issue =
+            detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
+        expect(
+          issue.extraTraceArgs?['lifecyclePhase'],
+          'startup',
+          reason: 'lifecyclePhase must populate via the production '
+              'Sleuth.dartEntryMonotonicUs anchor without an explicit '
+              'appStartMonotonicUsForTest override. A missing or null '
+              'value indicates a wire-up regression in controller '
+              'construction or Sleuth static-state setup.',
+        );
+      },
+    );
   });
 }

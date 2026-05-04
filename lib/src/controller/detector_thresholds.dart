@@ -29,6 +29,7 @@ class DetectorThresholds {
     this.startupTtffCriticalMs = 3000,
     this.coldStartShaderWindowSeconds = 5,
     this.shaderKeyframeWindowMs = 100,
+    this.startupPhaseWindowSeconds = 5,
   })  : assert(
           shaderJankMs >= 0,
           'shaderJankMs must be >= 0 (got a negative value).',
@@ -40,6 +41,10 @@ class DetectorThresholds {
         assert(
           shaderKeyframeWindowMs >= 1,
           'shaderKeyframeWindowMs must be >= 1.',
+        ),
+        assert(
+          startupPhaseWindowSeconds >= 1,
+          'startupPhaseWindowSeconds must be >= 1.',
         ),
         assert(
           heavyComputeGapMs >= 0,
@@ -117,6 +122,20 @@ class DetectorThresholds {
   /// **Raise this** to attribute looser correlations as keyframes (longer
   /// async pipeline). **Lower this** to require tighter causal coupling.
   final int shaderKeyframeWindowMs;
+
+  /// Window in seconds after Dart entry within which `FrameTimingDetector`
+  /// and `RebuildDetector` stamp `extraTraceArgs.lifecyclePhase: 'startup'`
+  /// on emitted issues; emissions outside the window stamp `'steady'`.
+  /// Operators use the tag in capture-mode trace records and audit-gate
+  /// replay to filter startup-phase artefacts from steady-state regressions.
+  ///
+  /// **Default:** 5 seconds. Mirrors `coldStartShaderWindowSeconds` so the
+  /// two lifecycle attributions stay aligned by default.
+  ///
+  /// **Raise this** for apps with extended initialization (heavy splash
+  /// screen, runtime font loading, large asset bundles). **Lower this**
+  /// for stricter steady-state attribution on snappy startup paths.
+  final int startupPhaseWindowSeconds;
 
   /// UI-thread gap duration in milliseconds indicating heavy compute on
   /// the main isolate. [HeavyComputeDetector] fires at 2× this value

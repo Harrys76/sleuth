@@ -90,6 +90,12 @@ The overlay shows **Throughput FPS** as the primary numeral (color-coded vs `fps
 
 `enableDebugCallbacks` installs `debugOnRebuildDirtyWidget` and `debugOnProfilePaint` — these conflict with DevTools "Track Widget Rebuilds", so only one can be active at a time. The package detects the conflict and yields to DevTools if it's already attached.
 
+## Measurement Window
+
+Sleuth reports the frame total duration (build-to-raster span) from Flutter's `FrameTiming` — not vsync delivery cadence (`CADisplayLink` on iOS, `Choreographer.doFrame` on Android). The two are different metrics: `FrameTiming` reports how long the engine took to produce a frame; vsync-anchored metrics report when the OS displayed it. A frame produced in 3 ms still waits ~13 ms for the next vsync — `FrameTiming` reports 3 ms, vsync metrics report ~16 ms. Cross-framework comparison numbers that mix the two read as large performance deltas where the underlying behaviour is identical.
+
+`FrameTimingDetector` and `RebuildDetector` stamp `extraTraceArgs.lifecyclePhase: 'startup' | 'steady'` on each emission based on whether the issue emitted within `DetectorThresholds.startupPhaseWindowSeconds` (default 5 s) of `Sleuth.dartEntryMonotonicUs`. This is **emission-time semantics** — late callback delivery can tag a startup-phase frame as `'steady'` if the emission lands past the window boundary. The tag is observable in capture-mode trace records and audit-gate replay; it is not serialized into saved JSON snapshots. Operators use it to filter startup-phase artefacts (route inflation, font loading, Material animations) from steady-state regressions.
+
 ## Platform Support
 
 | Platform | Frame Timing | VM Full Mode | Notes |

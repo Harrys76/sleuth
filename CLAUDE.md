@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 18 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~2,851 tests, ~30s)
+fvm flutter test                    # Run all tests (~2,862 tests, ~30s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -59,7 +59,9 @@ test/
 
 ## Current state
 
-**v0.20.0** (current) — **BREAKING**: 5 low-value detectors removed (`animatedBuilder`, `opacity`, `shallowRebuildRisk`, `nestedScroll`, `globalKey`); 23 → 18 detectors. Orphaned config fields (`SleuthConfig.maxGlobalKeys`, `DetectorThresholds.shallowRebuildMaxDepth`, `animatedBuilderMinSubtreeSize`) removed. v0.19 snapshots still deserialize (stableId-keyed); encyclopedia + causal_graph keep removed-stableId entries for replay context. 2,851 tests pass.
+**v0.20.1** (current) — `FrameTimingDetector` + `RebuildDetector` stamp `extraTraceArgs.lifecyclePhase: 'startup' | 'steady'` on each emission via new `DetectorThresholds.startupPhaseWindowSeconds` (default 5). Emission-time semantics; observable in capture-mode trace records and audit-gate replay only (not saved snapshots). README + dartdoc add "Measurement window" note distinguishing `FrameTiming` build-to-raster span from vsync delivery. No detector logic, public API, or schema change. 2,862 tests pass.
+
+**v0.20.0** — BREAKING: 5 low-value detectors removed (`animatedBuilder`, `opacity`, `shallowRebuildRisk`, `nestedScroll`, `globalKey`); 23 → 18 detectors. Orphaned config fields removed. v0.19 snapshots still deserialize (stableId-keyed).
 
 **Distribution (current)**: 16/18 reproducerOnly base + 2/18 runtimeVerified base, 11 effective runtimeVerified family-severity pairs across 8 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}).
 

@@ -1,5 +1,8 @@
+import 'dart:developer' show Timeline;
+
 import 'package:flutter/widgets.dart';
 
+import '../../sleuth.dart' show Sleuth;
 import '../debug/debug_snapshot.dart';
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
@@ -21,12 +24,38 @@ import '../vm/timeline_parser.dart';
 /// Data sources accumulate into staging fields; the single [_evaluate]
 /// method is the ONLY writer of [_issues]. Called from [scanTree] (scan
 /// tick) and [evaluateNow] (timeline tick).
+///
+/// Each emission stamps `extraTraceArgs.lifecyclePhase: 'startup' |
+/// 'steady'` based on whether the issue EMITTED within
+/// [startupPhaseWindowSeconds] of [Sleuth.dartEntryMonotonicUs]. The
+/// classification reads `Timeline.now` at emission time — it is
+/// **emission-time semantics**, not event-time. `rebuild_activity`'s
+/// 1-second window means a window straddling the startup boundary tags
+/// as `'steady'` once `Timeline.now` exceeds the threshold even when
+/// most contributing build events happened during startup. Per-widget
+/// `rebuild_debug_<typeName>` emissions in a single scan tick share
+/// one classification (read once per evaluation pass).
+///
+/// This differs from `ShaderJankDetector.shaderWarmupContext`, which
+/// classifies against per-event shader timestamp. The two tags are
+/// related but NOT aligned at the boundary.
+///
+/// Hot restart resets `Sleuth.dartEntryMonotonicUs` (Dart re-initializes
+/// statics; `Sleuth.init()` re-runs and writes a fresh anchor). Emissions
+/// for the configured window after each hot restart tag as `'startup'`
+/// even when the prior session was already past the window.
+///
+/// The tag is observable in capture-mode trace records and audit-gate
+/// replay; it is not serialized into saved JSON snapshots.
 class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   RebuildDetector({
     this.rebuildsPerSecThreshold = 10,
+    this.startupPhaseWindowSeconds = 5,
     DateTime Function()? clock,
+    int? Function()? appStartMonotonicUsForTest,
   })  : _clock = clock ?? DateTime.now,
         _windowStart = (clock ?? DateTime.now)(),
+        _appStartForTest = appStartMonotonicUsForTest,
         super(
           type: DetectorType.rebuild,
           lifecycle: DetectorLifecycle.hybrid,
@@ -35,7 +64,35 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         );
 
   final int rebuildsPerSecThreshold;
+
+  /// Window in seconds after Dart entry within which emissions stamp
+  /// `extraTraceArgs.lifecyclePhase: 'startup'`; outside the window
+  /// emissions stamp `'steady'`. Default mirrors
+  /// [DetectorThresholds.startupPhaseWindowSeconds] — the canonical
+  /// source for users wiring via `SleuthConfig`.
+  final int startupPhaseWindowSeconds;
+
   final DateTime Function() _clock;
+  final int? Function()? _appStartForTest;
+
+  /// Returns `'startup'` when emission `Timeline.now` falls within the
+  /// startup window after [Sleuth.dartEntryMonotonicUs], `'steady'`
+  /// otherwise, or `null` when no app-start anchor is available
+  /// (e.g. `Sleuth.init()` not yet called). A null return omits the
+  /// `lifecyclePhase` key from `extraTraceArgs` rather than fabricating
+  /// a phase value.
+  String? _classifyLifecyclePhase() {
+    final appStart = _appStartForTest?.call() ?? Sleuth.dartEntryMonotonicUs;
+    if (appStart == null) return null;
+    final delta = Timeline.now - appStart;
+    // Defensive: a future-timestamped `_appStartForTest` value would
+    // otherwise produce a negative delta. Production `Timeline.now` is
+    // monotonic-from-boot and cannot land before the captured app-start.
+    if (delta < 0) return null;
+    final windowUs = startupPhaseWindowSeconds * 1000000;
+    return delta < windowUs ? 'startup' : 'steady';
+  }
+
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   static const int _maxHighlightsPerType = 3;
@@ -452,6 +509,9 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
 
   /// Debug callback path — per-widget-type rebuild attribution.
   void _evaluateDebugData(DebugSnapshot snapshot) {
+    // Read once per evaluation pass — multiple per-widget emissions in
+    // the same scan tick share the same lifecycle phase.
+    final lifecyclePhase = _classifyLifecyclePhase();
     for (final entry in snapshot.rebuildCounts.entries) {
       final typeName = entry.key;
       final count = entry.value;
@@ -496,6 +556,9 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         ancestorChain: snapshot.ancestorChains[typeName],
         observationSource: ObservationSource.debugCallback,
         detectedAt: DateTime.now(),
+        extraTraceArgs: {
+          if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+        },
         confidenceReason:
             'Measured directly from debug callback rebuild counter',
       ));
@@ -562,6 +625,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     );
 
     final detectedAt = DateTime.now();
+    final lifecyclePhase = _classifyLifecyclePhase();
     _issues.add(PerformanceIssue(
       stableId: 'rebuild_activity',
       severity: adjusted > rebuildsPerSecThreshold * 3
@@ -576,7 +640,10 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       observationSource: ObservationSource.vmTimeline,
       detectedAt: detectedAt,
       dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
-      extraTraceArgs: {'observedRebuildRate': adjusted.toString()},
+      extraTraceArgs: {
+        'observedRebuildRate': adjusted.toString(),
+        if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+      },
       confidenceReason: 'Measured directly from VM timeline build count',
     ));
   }
@@ -597,6 +664,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       topWidget: topRebuilders.isNotEmpty ? topWidget : null,
     );
 
+    final lifecyclePhase = _classifyLifecyclePhase();
     _issues.add(PerformanceIssue(
       stableId: 'stateful_density',
       severity: IssueSeverity.warning,
@@ -611,6 +679,9 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       fixEffort: effort,
       observationSource: ObservationSource.structural,
       detectedAt: DateTime.now(),
+      extraTraceArgs: {
+        if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+      },
       confidenceReason:
           'Structural scan only — connect VM for higher confidence',
     ));

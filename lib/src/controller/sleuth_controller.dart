@@ -696,6 +696,7 @@ class SleuthController {
       warmupFrameCount: config.frameTimingWarmupFrameCount,
       warmupDuration: config.frameTimingWarmupDuration,
       captureMode: config.captureMode,
+      startupPhaseWindowSeconds: config.thresholds.startupPhaseWindowSeconds,
       onFrameStats: _onFrameStats,
     )..isEnabled = enabled.contains(DetectorType.frameTiming);
 
@@ -712,9 +713,10 @@ class SleuthController {
       largeResponseBytes: config.largeResponseThresholdBytes,
     )..isEnabled = enabled.contains(DetectorType.networkMonitor);
 
-    _rebuildDetector =
-        RebuildDetector(rebuildsPerSecThreshold: config.rebuildThreshold)
-          ..isEnabled = enabled.contains(DetectorType.rebuild);
+    _rebuildDetector = RebuildDetector(
+      rebuildsPerSecThreshold: config.rebuildThreshold,
+      startupPhaseWindowSeconds: config.thresholds.startupPhaseWindowSeconds,
+    )..isEnabled = enabled.contains(DetectorType.rebuild);
 
     // Factory map for non-typed detectors. Only detectors present in
     // [enabledDetectors] are constructed — saves buffer allocations and

@@ -38,6 +38,7 @@
 // both `raster_cache_thrashing` and `raster_cache_growing` if a future
 // capture landed on an Impeller device.
 
+import 'dart:developer' show Timeline;
 import 'dart:ui' show FrameTiming;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -782,6 +783,122 @@ void main() {
         expect(identities[i], greaterThan(identities[i - 1]),
             reason: 'identities should strictly increase across reset()s');
       }
+    });
+  });
+
+  group('FrameTimingDetector — lifecyclePhase attribution', () {
+    // Pin behaviour for `extraTraceArgs.lifecyclePhase`:
+    //   - within startupPhaseWindowSeconds of app-start → 'startup'
+    //   - past the window → 'steady'
+    //   - no app-start anchor (Sleuth.init not called, no test override)
+    //     → key omitted
+    //
+    // The detector reads `Timeline.now` at emission time and compares
+    // against either `appStartMonotonicUsForTest` or
+    // `Sleuth.dartEntryMonotonicUs`. Tests pin
+    // `appStartMonotonicUsForTest` relative to current `Timeline.now` so
+    // the (now - appStart) delta is deterministic.
+
+    test('jank_detected stamps lifecyclePhase=startup within window', () {
+      // Synthetic app-start = now - 1 s → emission 1 s post-start →
+      // 'startup' (default window 5 s).
+      final detector = FrameTimingDetector(
+        warmupDuration: Duration.zero,
+        appStartMonotonicUsForTest: () => Timeline.now - 1000000,
+      );
+      addTearDown(detector.dispose);
+      // 3 jank (non-severe) out of 19 → 16 % → jank_detected fires.
+      detector.addFrameForTest(makeStats(frameNumber: 0, totalMs: 17));
+      detector.addFrameForTest(makeStats(frameNumber: 1, totalMs: 17));
+      detector.addFrameForTest(makeStats(frameNumber: 2, totalMs: 17));
+      for (var i = 3; i < 19; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+      }
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
+      expect(issue.extraTraceArgs?['lifecyclePhase'], 'startup');
+      // Existing observed-axis keys remain intact alongside lifecyclePhase.
+      expect(issue.extraTraceArgs?['observedJankPercent'], isNotNull);
+      expect(issue.extraTraceArgs?['observedJankCount'], isNotNull);
+    });
+
+    test('jank_detected stamps lifecyclePhase=steady past window', () {
+      // Synthetic app-start = now - 10 s → past 5 s default window → 'steady'.
+      final detector = FrameTimingDetector(
+        warmupDuration: Duration.zero,
+        appStartMonotonicUsForTest: () => Timeline.now - 10000000,
+      );
+      addTearDown(detector.dispose);
+      detector.addFrameForTest(makeStats(frameNumber: 0, totalMs: 17));
+      detector.addFrameForTest(makeStats(frameNumber: 1, totalMs: 17));
+      detector.addFrameForTest(makeStats(frameNumber: 2, totalMs: 17));
+      for (var i = 3; i < 19; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+      }
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
+      expect(issue.extraTraceArgs?['lifecyclePhase'], 'steady');
+      expect(issue.extraTraceArgs?['observedJankPercent'], isNotNull);
+    });
+
+    test('sustained_jank stamps lifecyclePhase from emission-time Timeline.now',
+        () {
+      final detector = FrameTimingDetector(
+        warmupDuration: Duration.zero,
+        appStartMonotonicUsForTest: () => Timeline.now - 2000000,
+      );
+      addTearDown(detector.dispose);
+      // 3 severe + 17 normal → sustained_jank fires.
+      detector.addFrameForTest(makeStats(frameNumber: 0, totalMs: 33));
+      detector.addFrameForTest(makeStats(frameNumber: 1, totalMs: 33));
+      detector.addFrameForTest(makeStats(frameNumber: 2, totalMs: 33));
+      for (var i = 3; i < 20; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+      }
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'sustained_jank');
+      expect(issue.extraTraceArgs?['lifecyclePhase'], 'startup');
+    });
+
+    test('raster_cache_thrashing + raster_cache_growing stamp lifecyclePhase',
+        () {
+      final detector = FrameTimingDetector(
+        warmupDuration: Duration.zero,
+        appStartMonotonicUsForTest: () => Timeline.now - 1000000,
+      );
+      addTearDown(detector.dispose);
+      // Seed thrashing window: alternate counts ≥6 to trip >20 % variation.
+      detector.addFrameForTest(
+          makeStats(frameNumber: 0, pictureCacheCount: 10, totalMs: 10));
+      for (var i = 1; i <= 16; i++) {
+        detector.addFrameForTest(makeStats(
+          frameNumber: i,
+          pictureCacheCount: i.isEven ? 10 : 20,
+          pictureCacheBytes: 1024 * (i + 1), // monotonic growth
+          totalMs: 10,
+        ));
+      }
+      final thrashing = detector.issues
+          .firstWhere((i) => i.stableId == 'raster_cache_thrashing');
+      expect(thrashing.extraTraceArgs?['lifecyclePhase'], 'startup');
+    });
+
+    test('emission omits lifecyclePhase when no app-start anchor available',
+        () {
+      // No appStartMonotonicUsForTest passed; Sleuth.init not called in
+      // unit-test isolate → Sleuth.dartEntryMonotonicUs returns null →
+      // key omitted from extraTraceArgs (no fabricated phase value).
+      final detector = FrameTimingDetector(warmupDuration: Duration.zero);
+      addTearDown(detector.dispose);
+      detector.addFrameForTest(makeStats(frameNumber: 0, totalMs: 17));
+      detector.addFrameForTest(makeStats(frameNumber: 1, totalMs: 17));
+      detector.addFrameForTest(makeStats(frameNumber: 2, totalMs: 17));
+      for (var i = 3; i < 19; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
+      }
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
+      expect(issue.extraTraceArgs?.containsKey('lifecyclePhase'), false);
     });
   });
 

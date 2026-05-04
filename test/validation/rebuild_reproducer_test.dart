@@ -37,6 +37,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
@@ -958,6 +959,139 @@ void main() {
             reason: '$leg.json must contain exactly 1 '
                 '`sleuth.scenario.end` marker. Found $ends.');
       }
+    });
+  });
+
+  group('RebuildDetector — lifecyclePhase attribution', () {
+    // Pin behaviour for `extraTraceArgs.lifecyclePhase`:
+    //   - within startupPhaseWindowSeconds of app-start → 'startup'
+    //   - past the window → 'steady'
+    //   - no app-start anchor → key omitted
+    //
+    // The detector reads `Timeline.now` at emission time and compares
+    // against `appStartMonotonicUsForTest` or `Sleuth.dartEntryMonotonicUs`.
+    // Tests pin the override relative to current `Timeline.now` for a
+    // deterministic delta.
+
+    late DateTime fakeNow;
+
+    setUp(() {
+      fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
+    });
+
+    List<TimelineEvent> buildEvents(int n) => List.generate(
+          n,
+          (i) => buildEvent(
+            name: 'BUILD',
+            ph: 'X',
+            dur: 100,
+            ts: 1000 + i * 100,
+          ),
+        );
+
+    ParsedShape buildShape(int n) => (
+          buildEventCount: n,
+          buildScopeCount: n,
+          layoutCount: 0,
+          paintCount: 0,
+          rasterCount: 0,
+          shaderCount: 0,
+          channelCount: 0,
+          gcCount: 0,
+          phaseEventCount: n,
+        );
+
+    void primeVmWindow(RebuildDetector detector, int buildCount) {
+      fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
+      final parsed = parseAndAssertShape(
+        buildEvents(buildCount),
+        buildShape(buildCount),
+      );
+      detector.processTimelineData(parsed);
+      detector.evaluateNow();
+    }
+
+    test('rebuild_activity stamps lifecyclePhase=startup within window', () {
+      final detector = RebuildDetector(
+        clock: () => fakeNow,
+        appStartMonotonicUsForTest: () => developer.Timeline.now - 1000000,
+      );
+      detector.vmConnected = true;
+      primeVmWindow(detector, 12); // 12 > 10 threshold → fires warning
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+      expect(issue.extraTraceArgs?['lifecyclePhase'], 'startup');
+      // Existing observed-axis key remains intact alongside lifecyclePhase.
+      expect(issue.extraTraceArgs?['observedRebuildRate'], '12');
+    });
+
+    test('rebuild_activity stamps lifecyclePhase=steady past window', () {
+      final detector = RebuildDetector(
+        clock: () => fakeNow,
+        appStartMonotonicUsForTest: () => developer.Timeline.now - 10000000,
+      );
+      detector.vmConnected = true;
+      primeVmWindow(detector, 12);
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+      expect(issue.extraTraceArgs?['lifecyclePhase'], 'steady');
+      expect(issue.extraTraceArgs?['observedRebuildRate'], '12');
+    });
+
+    test('rebuild_debug_<typeName> stamps lifecyclePhase=startup', () {
+      final detector = RebuildDetector(
+        clock: () => fakeNow,
+        appStartMonotonicUsForTest: () => developer.Timeline.now - 1000000,
+      );
+      detector.vmConnected = true;
+      detector.updateDebugSnapshot(DebugSnapshot(
+        rebuildCounts: {'MyWidget': 12},
+        totalPaintCount: 0,
+        elapsed: const Duration(seconds: 1),
+        source: RebuildCountSource.none,
+      ));
+      // Trigger _evaluate via timeline tick.
+      primeVmWindow(detector, 0);
+      final issue = detector.issues
+          .firstWhere((i) => i.stableId == 'rebuild_debug_MyWidget');
+      expect(issue.extraTraceArgs?['lifecyclePhase'], 'startup');
+    });
+
+    test('rebuild_activity omits lifecyclePhase when no app-start anchor', () {
+      final detector = RebuildDetector(clock: () => fakeNow);
+      detector.vmConnected = true;
+      primeVmWindow(detector, 12);
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+      expect(issue.extraTraceArgs?.containsKey('lifecyclePhase'), false);
+      expect(issue.extraTraceArgs?['observedRebuildRate'], '12');
+    });
+
+    test('audit-gate co-presence: observedRebuildRate stays extractable', () {
+      // Regression guard: adding lifecyclePhase must not displace the
+      // runtimeVerified bracket axis key. The audit gate's
+      // `validateBracket` reads `args[observedAxisArgKey]` directly, so
+      // multi-key extraTraceArgs must still expose 'observedRebuildRate'.
+      final detector = RebuildDetector(
+        clock: () => fakeNow,
+        appStartMonotonicUsForTest: () => developer.Timeline.now - 1000000,
+      );
+      detector.vmConnected = true;
+      primeVmWindow(detector, 35); // above 3× critical → still has rate arg
+      final issue =
+          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+      // Named-key assertions rather than exact-length: future axis
+      // additions to extraTraceArgs should not break this regression
+      // guard. The load-bearing invariant is that observedRebuildRate
+      // (the audit-gate bracket axis) and lifecyclePhase (the new tag)
+      // both extract correctly from the same emission.
+      expect(issue.extraTraceArgs, isNotNull);
+      expect(issue.extraTraceArgs!.containsKey('observedRebuildRate'), true,
+          reason: 'observedRebuildRate is the runtimeVerified bracket '
+              'axis key — adding lifecyclePhase must not displace it.');
+      expect(issue.extraTraceArgs!['observedRebuildRate'], '35');
+      expect(issue.extraTraceArgs!.containsKey('lifecyclePhase'), true);
+      expect(issue.extraTraceArgs!['lifecyclePhase'], 'startup');
     });
   });
 }
