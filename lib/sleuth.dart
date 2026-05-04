@@ -145,6 +145,12 @@ class Sleuth {
   /// Same clock domain as engine timeline events.
   static int? _dartEntryMonotonicUs;
 
+  /// Public read-only accessor for [_dartEntryMonotonicUs]. Null until
+  /// [init] runs. Same monotonic clock as `PhaseEvent.timestampUs`, so
+  /// detectors can compare timeline-event timestamps against app-start
+  /// directly (no clock normalization needed).
+  static int? get dartEntryMonotonicUs => _dartEntryMonotonicUs;
+
   /// Framework init duration in microseconds (direct measurement).
   static int? _frameworkInitDurationUs;
 
@@ -415,6 +421,13 @@ class Sleuth {
   static Widget track({required Widget child, SleuthConfig? config}) {
     // Complete no-op in release mode
     if (kReleaseMode) return child;
+
+    // Capture Dart entry timestamp if the app skipped explicit [init] —
+    // idempotent via `_initCalled`. Detectors that compare timeline
+    // timestamps against app-start (e.g. shader-warmup attribution) read
+    // [dartEntryMonotonicUs], which would stay null on
+    // `runApp(Sleuth.track(...))` without this call.
+    init();
 
     final controller = SleuthController(config: config);
     _controller = controller;

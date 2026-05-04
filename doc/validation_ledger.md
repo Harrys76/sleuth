@@ -1,6 +1,6 @@
 # Detector Validation Ledger
 
-_Last updated: v0.19.25 (2026-05-04)_
+_Last updated: v0.19.26 (2026-05-04)_
 
 Sleuth ships 23 built-in detectors. This ledger is the public reliability
 statement for each one — what evidence supports its current thresholds and

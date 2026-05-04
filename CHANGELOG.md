@@ -1,3 +1,16 @@
+## 0.19.26
+
+`ShaderJankDetector` emits `extraTraceArgs.shaderWarmupContext` discriminating shader-compile origin. No tier change; ShaderJank stays `reproducerOnly`.
+
+- New emission key `'shaderWarmupContext'` with values `'cold_start' | 'hot_path' | 'keyframe'`. Cold_start: shader compile within `coldStartShaderWindowSeconds` (default 5) of `Sleuth.dartEntryMonotonicUs`, gated on non-negative delta so VM ring-buffer replay of pre-init events does not trivially classify as cold_start. Keyframe: build event preceding shader compile within `shaderKeyframeWindowMs` (default 100) — one-sided causal window. Hot_path: fallback when neither matches. Cold_start takes precedence over keyframe.
+- `Sleuth.track()` now calls `Sleuth.init()` at entry (idempotent via existing `_initCalled` guard) so the documented quick-start `runApp(Sleuth.track(child: MyApp()))` captures `dartEntryMonotonicUs`. Without this, the cold_start branch silently no-ops on the primary integration path.
+- `Sleuth.dartEntryMonotonicUs` public getter exposes the existing `_dartEntryMonotonicUs` static. Same monotonic clock as `PhaseEvent.timestampUs`, so detectors can compare timeline-event timestamps against app-start without normalization.
+- `DetectorThresholds.coldStartShaderWindowSeconds` (default 5) + `DetectorThresholds.shaderKeyframeWindowMs` (default 100) added with `>= 1` asserts and dartdoc covering raise/lower guidance.
+- Detector iterates `data.phaseEvents.where(shader)` instead of `data.shaderCompileDurations` for per-event timestamps. Impeller-zero suppression preserved (empty-poll counter checks the filtered phaseEvents list). `shaderCompileData` test helper populates `phaseEvents` alongside `shaderCompileDurations` so existing unit-test fixtures still drive the detector.
+- 5 new reproducer tests pin attribution outcomes: cold_start within window, hot_path past window, keyframe with 50ms-before build event, hot_path with 200ms-before build event (keyframe-window negative control), hot_path on negative delta (pre-init shader event). Mockable app-start clock via `appStartMonotonicUsForTest` constructor parameter.
+
+3,005 tests passing. `fvm flutter analyze` clean.
+
 ## 0.19.25
 
 Test + doc polish. No detector changes; tier distribution unchanged.

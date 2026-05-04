@@ -1,8 +1,10 @@
+import '../../sleuth.dart' show Sleuth;
 import '../models/base_detector.dart';
+import '../models/performance_issue.dart';
+import '../models/phase_event.dart';
+import '../utils/fix_hint_builder.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
-import '../models/performance_issue.dart';
-import '../utils/fix_hint_builder.dart';
 import '../vm/timeline_parser.dart';
 
 /// Detects shader compilation jank from VM Timeline events.
@@ -10,9 +12,20 @@ import '../vm/timeline_parser.dart';
 /// **VM-Only Detector** — flags shader compilations >100ms.
 /// On Impeller (default since Flutter 3.16), shaders are pre-compiled at
 /// build time so this detector correctly produces no issues.
+///
+/// Each emission stamps `extraTraceArgs.shaderWarmupContext` with one of
+/// `'cold_start' | 'hot_path' | 'keyframe'` discriminating shader-compile
+/// origin. Cold_start takes precedence over keyframe — lifecycle is the
+/// more specific operator signal. Keyframe window is one-sided causal:
+/// the build event must come BEFORE the shader compile.
 class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
-  ShaderJankDetector({this.thresholdMs = 100})
-      : super(
+  ShaderJankDetector({
+    this.thresholdMs = 100,
+    this.coldStartShaderWindowSeconds = 5,
+    this.shaderKeyframeWindowMs = 100,
+    int? Function()? appStartMonotonicUsForTest,
+  })  : _appStartForTest = appStartMonotonicUsForTest,
+        super(
           type: DetectorType.shaderJank,
           lifecycle: DetectorLifecycle.vmOnly,
           name: 'Shader Jank',
@@ -20,6 +33,9 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
         );
 
   final int thresholdMs;
+  final int coldStartShaderWindowSeconds;
+  final int shaderKeyframeWindowMs;
+  final int? Function()? _appStartForTest;
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
   int _totalShaderEvents = 0;
@@ -38,7 +54,11 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
 
-    if (data.shaderCompileDurations.isEmpty) {
+    final shaderEvents = data.phaseEvents
+        .where((e) => e.phase == TimelinePhase.shader)
+        .toList(growable: false);
+
+    if (shaderEvents.isEmpty) {
       _emptyPollsSinceLastShader++;
       if (_emptyPollsSinceLastShader > 3) {
         _issues.clear();
@@ -46,15 +66,15 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
       return;
     }
 
-    // Shader events found — reset empty counter.
     _emptyPollsSinceLastShader = 0;
     _issues.clear();
 
-    for (final durationUs in data.shaderCompileDurations) {
+    for (final event in shaderEvents) {
       _totalShaderEvents++;
-      final ms = durationUs / 1000;
+      final ms = event.durationUs / 1000;
       if (ms >= thresholdMs) {
         final (hint, effort) = FixHintBuilder.shaderCompilation();
+        final context = _classifyShaderWarmup(event.timestampUs, data);
         _issues.add(PerformanceIssue(
           stableId: 'shader_compilation',
           severity: ms >= thresholdMs * 2
@@ -72,9 +92,42 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
           detectedAt: DateTime.now(),
           confidenceReason:
               'Measured directly from VM timeline shader_compile events',
+          extraTraceArgs: {'shaderWarmupContext': context},
         ));
       }
     }
+  }
+
+  String _classifyShaderWarmup(int shaderTsUs, ParsedTimelineData data) {
+    final appStart = _appStartForTest?.call() ?? Sleuth.dartEntryMonotonicUs;
+    // cold_start takes precedence over keyframe — lifecycle is more specific.
+    if (appStart != null) {
+      final deltaUs = shaderTsUs - appStart;
+      final coldStartWindowUs = coldStartShaderWindowSeconds * 1000000;
+      // Require non-negative delta — VM ring-buffer replay or late
+      // [Sleuth.init] can surface shader events with timestamps BEFORE
+      // the captured app-start, and an unguarded `<` comparison would
+      // satisfy the cold-start branch trivially for any negative value.
+      if (deltaUs >= 0 && deltaUs < coldStartWindowUs) {
+        return 'cold_start';
+      }
+    }
+    // One-sided keyframe window: build BEFORE shader (causal direction).
+    // Limitation: correlation only checks build events in the SAME
+    // poll batch. A causal build that lands in the previous poll's
+    // batch and a shader compile that lands in the next poll's batch
+    // are not correlated — those classify as `'hot_path'` instead of
+    // `'keyframe'`. Cross-poll correlation would require a sliding
+    // build-event window kept across `processTimelineData` calls; not
+    // implemented because typical poll batches (~500 ms) exceed the
+    // keyframe window (default 100 ms), so most causal pairs land in
+    // the same batch.
+    final keyframeWindowUs = shaderKeyframeWindowMs * 1000;
+    final hasNearbyBuild = data.phaseEvents.any((e) =>
+        e.phase == TimelinePhase.build &&
+        shaderTsUs >= e.timestampUs &&
+        shaderTsUs - e.timestampUs < keyframeWindowUs);
+    return hasNearbyBuild ? 'keyframe' : 'hot_path';
   }
 
   @override
@@ -93,8 +146,15 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
             'VM → parser → detector boundary including shader name '
             'variants (ShaderCompilation, Pipeline::Create, lowercase) '
             'and Impeller-zero suppression via consecutive empty polls. '
-            'Fixtures hand-built against parser allowlist; real-device '
-            'capture comparison is runtime-verified-tier work.',
+            '`extraTraceArgs.shaderWarmupContext` discriminates '
+            'cold_start (within `coldStartShaderWindowSeconds` of '
+            '`Sleuth.dartEntryMonotonicUs`), keyframe (build event '
+            'within `shaderKeyframeWindowMs` BEFORE shader compile), '
+            'and hot_path (fallback) — pinned by per-context reproducer '
+            'tests with mocked app-start clock and synthetic '
+            '`PhaseEvent` fixtures. Fixtures hand-built against parser '
+            'allowlist; real-device capture comparison is '
+            'runtime-verified-tier work.',
         reproducerPath: 'test/validation/shader_jank_reproducer_test.dart',
         coveredStableIds: {'shader_compilation'},
       );

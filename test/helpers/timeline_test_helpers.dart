@@ -118,10 +118,30 @@ ParsedTimelineData enrichedBuildActivityData({
     );
 
 /// Factory for timeline data with shader compile durations (for ShaderJankDetector).
+///
+/// Populates BOTH `shaderCompileDurations` and `phaseEvents` so the detector
+/// — which iterates `phaseEvents.where(shader)` to access per-event timestamps
+/// for `shaderWarmupContext` attribution — sees the synthetic events. Each
+/// shader event is stamped with a synthetic monotonic timestamp at 1 second
+/// intervals starting at 1_000_000 µs (1 s) so test fixtures land outside
+/// the default 5 s `coldStartShaderWindowSeconds` and classify as
+/// `'hot_path'` unless overridden by `appStartMonotonicUsForTest`.
 ParsedTimelineData shaderCompileData({
   List<int> shaderDurationsUs = const [],
-}) =>
-    ParsedTimelineData(shaderCompileDurations: shaderDurationsUs);
+}) {
+  final phaseEvents = <PhaseEvent>[];
+  for (var i = 0; i < shaderDurationsUs.length; i++) {
+    phaseEvents.add(PhaseEvent(
+      phase: TimelinePhase.shader,
+      timestampUs: 10000000 + i * 1000000,
+      durationUs: shaderDurationsUs[i],
+    ));
+  }
+  return ParsedTimelineData(
+    shaderCompileDurations: shaderDurationsUs,
+    phaseEvents: phaseEvents,
+  );
+}
 
 /// Factory for timeline data with platform channel events (for PlatformChannelDetector).
 ParsedTimelineData platformChannelData({

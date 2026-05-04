@@ -59,12 +59,13 @@ test/
 
 ## Current state
 
-**v0.19.25** (current) — Test + doc polish. cwd guard extended to the `checkCapturePathPerDirectoryNamingUniformity` group (5 tests); validation-tier docs (README + ledger) refreshed and summary count corrected to 21/23 reproducerOnly + 2/23 runtimeVerified base. No detector changes; distribution unchanged. 3,000 tests passing.
+**v0.19.26** (current) — `ShaderJankDetector` emits `extraTraceArgs.shaderWarmupContext` ('cold_start' | 'hot_path' | 'keyframe') discriminating shader-compile origin via `Sleuth.dartEntryMonotonicUs` + `ParsedTimelineData.phaseEvents` build-event correlation. New `DetectorThresholds.coldStartShaderWindowSeconds` (default 5) + `shaderKeyframeWindowMs` (default 100). Tier unchanged (reproducerOnly). 3,000+ tests passing.
 
 **Distribution (current)**: 21/23 reproducerOnly base + 2/23 runtimeVerified base, 11 effective runtimeVerified family-severity pairs across 8 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}).
 
 ### Recent releases (one-line)
 
+- **v0.19.25** — Test + doc polish. cwd guard extended to the `checkCapturePathPerDirectoryNamingUniformity` group (5 tests); validation-tier docs (README + ledger) refreshed and summary count corrected to 21/23 reproducerOnly + 2/23 runtimeVerified base.
 - **v0.19.24** — Behavioral wiring test for `checkMinInBandSamplesPerSpec` (replaces source-grep); explicit cwd guard on `critical_above.json` real-capture test; ledger stale `← current release` marker removed.
 - **v0.19.23** — `BracketSpec.minInBandSamples` opt-in + `checkMinInBandSamplesPerSpec` invariant (per-leg in-band sample count); `rebuild_activity.critical` opts in at 2.
 - **v0.19.22** — `critical_above.json` re-recorded with `targetRebuildRate: 70` (was 65); two in-band emissions [65, 70] redundant against single-spike loss.

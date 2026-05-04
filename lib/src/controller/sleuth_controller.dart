@@ -729,6 +729,9 @@ class SleuthController {
     final factories = <DetectorType, BaseDetector Function()>{
       DetectorType.shaderJank: () => ShaderJankDetector(
             thresholdMs: config.thresholds.shaderJankMs,
+            coldStartShaderWindowSeconds:
+                config.thresholds.coldStartShaderWindowSeconds,
+            shaderKeyframeWindowMs: config.thresholds.shaderKeyframeWindowMs,
           ),
       DetectorType.heavyCompute: () => HeavyComputeDetector(
             lagThresholdMs: config.thresholds.heavyComputeGapMs,

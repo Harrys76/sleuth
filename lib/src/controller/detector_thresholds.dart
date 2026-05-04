@@ -29,9 +29,19 @@ class DetectorThresholds {
     this.fontLoadingMaxFamilies = 3,
     this.startupTtffWarningMs = 1500,
     this.startupTtffCriticalMs = 3000,
+    this.coldStartShaderWindowSeconds = 5,
+    this.shaderKeyframeWindowMs = 100,
   })  : assert(
           shaderJankMs >= 0,
           'shaderJankMs must be >= 0 (got a negative value).',
+        ),
+        assert(
+          coldStartShaderWindowSeconds >= 1,
+          'coldStartShaderWindowSeconds must be >= 1.',
+        ),
+        assert(
+          shaderKeyframeWindowMs >= 1,
+          'shaderKeyframeWindowMs must be >= 1.',
         ),
         assert(
           heavyComputeGapMs >= 0,
@@ -92,6 +102,31 @@ class DetectorThresholds {
   /// **Lower this** (e.g. 50 ms) for a stricter shader-warmup audit on
   /// Impeller-enabled iOS where shader jank should be rare.
   final int shaderJankMs;
+
+  /// Window in seconds after Dart entry within which `ShaderJankDetector`
+  /// classifies a shader compile as `'cold_start'` (expected app-launch
+  /// warmup). Shaders compiled outside this window classify as
+  /// `'hot_path'` or `'keyframe'` depending on build-event coincidence.
+  ///
+  /// **Default:** 5 seconds. Covers typical app cold-start shader-warmup
+  /// (2–4 s) with safety margin for slower devices.
+  ///
+  /// **Raise this** for apps with extended initialization (heavy splash
+  /// screen, many fonts, large asset bundles). **Lower this** for stricter
+  /// hot-path attribution on snappy startup paths.
+  final int coldStartShaderWindowSeconds;
+
+  /// Window in milliseconds within which a build event preceding a shader
+  /// compile classifies the shader as `'keyframe'` (animation-driven /
+  /// frame-triggered) rather than `'hot_path'`. The window is one-sided
+  /// causal — build must come BEFORE shader.
+  ///
+  /// **Default:** 100 ms. Most synchronous compile-on-demand stalls happen
+  /// within one or two frame budgets of the build that triggered them.
+  ///
+  /// **Raise this** to attribute looser correlations as keyframes (longer
+  /// async pipeline). **Lower this** to require tighter causal coupling.
+  final int shaderKeyframeWindowMs;
 
   /// UI-thread gap duration in milliseconds indicating heavy compute on
   /// the main isolate. [HeavyComputeDetector] fires at 2× this value
