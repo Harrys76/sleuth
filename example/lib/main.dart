@@ -163,8 +163,7 @@ class DemoHome extends StatelessWidget {
           _DemoRoute(
             icon: Icons.upload_file,
             title: 'CSV Import',
-            subtitle:
-                'HeavyCompute warning + critical (main isolate vs Isolate.run)',
+            subtitle: 'HeavyCompute warning + critical',
             color: Colors.purple,
             builder: (_) => const HeavyComputeDemo(),
           ),
@@ -179,7 +178,7 @@ class DemoHome extends StatelessWidget {
           _DemoRoute(
             icon: Icons.graphic_eq,
             title: 'Live Waveform',
-            subtitle: 'Repaint detector (excessive_repaint • repaint_debug_*)',
+            subtitle: 'Repaint: aggregate + per-widget',
             color: Colors.blueGrey,
             builder: (_) => const RepaintStressDemo(),
           ),
@@ -281,8 +280,7 @@ class DemoHome extends StatelessWidget {
           _DemoRoute(
             icon: Icons.search,
             title: 'Search + Gallery',
-            subtitle:
-                'NetworkMonitor (slow_request • request_frequency • large_response)',
+            subtitle: 'NetworkMonitor: slow / frequency / large',
             color: Colors.orange,
             builder: (_) => const NetworkStressDemo(),
           ),
@@ -333,8 +331,7 @@ class DemoHome extends StatelessWidget {
           _DemoRoute(
             icon: Icons.chat,
             title: 'Combined: Chat App',
-            subtitle:
-                'Rebuild • KeepAlive • PlatformChannel • Image • SetState',
+            subtitle: 'Rebuild + KeepAlive + Channel + SetState',
             color: Colors.blue,
             builder: (_) => const CombinedChatDemo(),
           ),

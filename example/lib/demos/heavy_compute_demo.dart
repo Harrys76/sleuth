@@ -122,9 +122,9 @@ class _HeavyComputeDemoState extends State<HeavyComputeDemo> {
           'it trades total time for UI responsiveness.\n\n'
           '▶ Slide the row count, tap Pick CSV. 1K = silent, 10K = warning, '
           '50K = critical. Toggle Fixed to see the detector go silent.\n\n'
-          'No Cancel button: both paths complete in under ~300 ms even at '
-          '50K rows. Real apps with multi-second parses should expose '
-          'cancellation via raw `Isolate.spawn` + `ReceivePort`.',
+          'No Cancel button: both paths complete in under a few hundred ms '
+          'on modern devices. Real apps with multi-second parses should '
+          'expose cancellation via raw `Isolate.spawn` + `ReceivePort`.',
       metricsBar: MetricsBar(
         chips: [
           MetricChip(label: 'Rows', value: '${_rowCount ~/ 1000}K'),

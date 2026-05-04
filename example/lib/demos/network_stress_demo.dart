@@ -205,7 +205,14 @@ class _SearchTabState extends State<_SearchTab> {
     // the gate while their fetches are in flight.
     widget.requestCount.value++;
     setState(() => _loading = true);
-    final url = _slowApi ? _slowEndpoint : '$_searchEndpoint?q=$query';
+    // `replace(queryParameters: ...)` percent-encodes reserved chars
+    // (`+`, `&`, `=`, `#`, unicode) per RFC 3986 — spaces become `+`,
+    // others percent-escaped. httpbin.org parses both forms.
+    final url = _slowApi
+        ? _slowEndpoint
+        : Uri.parse(
+            _searchEndpoint,
+          ).replace(queryParameters: {'q': query}).toString();
     try {
       final bytes = await _fetchBytes(url);
       if (!mounted || seq != _seq) return;

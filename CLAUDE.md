@@ -59,7 +59,9 @@ test/
 
 ## Current state
 
-**v0.20.1** (current) — `FrameTimingDetector` + `RebuildDetector` stamp `extraTraceArgs.lifecyclePhase: 'startup' | 'steady'` on each emission via new `DetectorThresholds.startupPhaseWindowSeconds` (default 5). Emission-time semantics; observable in capture-mode trace records and audit-gate replay only (not saved snapshots). README + dartdoc add "Measurement window" note distinguishing `FrameTiming` build-to-raster span from vsync delivery. No detector logic, public API, or schema change. 2,862 tests pass.
+**v0.20.2** (current) — Example-app polish: tile subtitles trimmed to ≤40 chars; heavy_compute description drops hard "300 ms" claim; network_stress search uses `Uri.replace(queryParameters)` (RFC 3986 encoding). No detector logic, public API, or schema change.
+
+**v0.20.1** — `FrameTimingDetector` + `RebuildDetector` stamp `extraTraceArgs.lifecyclePhase: 'startup' | 'steady'` per emission via `DetectorThresholds.startupPhaseWindowSeconds` (default 5). Emission-time semantics; capture-mode + audit-gate replay only.
 
 **v0.20.0** — BREAKING: 5 low-value detectors removed (`animatedBuilder`, `opacity`, `shallowRebuildRisk`, `nestedScroll`, `globalKey`); 23 → 18 detectors. Orphaned config fields removed. v0.19 snapshots still deserialize (stableId-keyed).
 
