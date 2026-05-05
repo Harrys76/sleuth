@@ -780,16 +780,14 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           'raster_cache_thrashing',
           'raster_cache_growing',
         },
-        // jank_detected + sustained_jank raised to runtimeVerified via
-        // perStableIdTier. Cache families stay implicit reproducerOnly.
-        // sustained_jank stays reproducerOnly: the metric (sliding-window
-        // severeCount over a 240-frame buffer) is non-composable with
-        // operator-claimed K under the schema's current 'max'/'last'
-        // axis reductions, AND a candidate 'first' reduction would not
-        // close the gap (above-leg's first emission is at the gate
-        // threshold, not at K). Captures at
-        // test/validation/captures/frame_timing/sustained_jank_*.json
-        // are retained as reproducer-tier provisional evidence.
+        // Only `jank_detected` is raised to runtimeVerified via
+        // `perStableIdTier`; `sustained_jank` + cache families stay
+        // implicit reproducerOnly. `sustained_jank`'s bracket axis
+        // (sliding 240-frame-window severeCount) cannot composably
+        // bracket against operator-claimed K because ambient severe
+        // frames accumulate in the same window. A future raise needs
+        // detector-level baseline subtraction (see
+        // `RebuildDetector.setBaseline(int)`).
         perStableIdTier: {
           'jank_detected': EvidenceTier.runtimeVerified,
         },

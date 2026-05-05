@@ -59,7 +59,9 @@ test/
 
 ## Current state
 
-**v0.21.0** (current) — `RepaintDetector.excessive_repaint.warning` raised to runtimeVerified via `perStableIdTier` on three iPhone 12 / iOS 17.5 / Flutter 3.41.4 captures (32-distinct-`CustomPaint` workload routes emission through the VM aggregate path). Adds `peakObservedPaintCount` + `flushPaintEvaluation()` + `resetCaptureState()` plumbing on the detector and `Sleuth.repaintDetector` / `Sleuth.lastCaptureExportFailure` static accessors.
+**v0.22.0** (current) — `sustained_jank.critical` raise withdrawn; bracket axis (sliding 240-frame-window severeCount) non-composable with operator-claimed K. Captures + capture screen + retainedOrphans entries removed. Reproducer-tier coverage retained. Distribution unchanged (12/9).
+
+**v0.21.0** — `RepaintDetector.excessive_repaint.warning` raised to runtimeVerified via `perStableIdTier` on three iPhone 12 / iOS 17.5 / Flutter 3.41.4 captures (32-distinct-`CustomPaint` workload routes emission through VM aggregate path). Adds `peakObservedPaintCount` + `flushPaintEvaluation()` + `resetCaptureState()` plumbing + `Sleuth.repaintDetector` / `Sleuth.lastCaptureExportFailure` static accessors.
 
 **v0.20.2** — Example-app polish: tile subtitles trimmed to ≤40 chars; heavy_compute description drops hard "300 ms" claim; network_stress search uses `Uri.replace(queryParameters)` (RFC 3986 encoding).
 

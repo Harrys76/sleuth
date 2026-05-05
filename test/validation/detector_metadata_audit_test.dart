@@ -2170,72 +2170,7 @@ void main() {
     // `runtimeVerified` for the slow_request warning tier. The three
     // captures are now referenced by `profileCapturePaths` and exit
     // the orphan manifest as a result.
-    //
-    // v0.19.17 attempted a runtimeVerified raise of
-    // `sustained_jank.critical` via additionalBrackets[0] and
-    // withdrew it before ship: the bracket axis (sliding 240-frame
-    // window severeCount) is non-composable with operator-claimed K
-    // under the schema's current `'max'`/`'last'` reductions, and a
-    // candidate `'first'` reduction would not close the gap (above-
-    // leg's first emission is at the gate threshold, not at K). The
-    // three on-device captures remain on disk as reproducer-tier
-    // provisional evidence. They will be reconsumed by a future
-    // sustained_jank raise once the schema admits an axis reduction
-    // that matches the metric (e.g. operator-window-bounded peak).
-    const retainedOrphans = <String, RetainedOrphanEntry>{
-      'test/validation/captures/frame_timing/sustained_jank_below.json':
-          RetainedOrphanEntry(
-        role: 'below',
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterMajorMinor: '3.41',
-        unit: 'frames',
-        observedMin: 1.0,
-        observedMax: 1.0,
-        consumeBy: '0.22.0',
-        owningClaim: 'sustained_jank.critical (re-raise pending schema rework)',
-        rationale: 'Below-leg idle scenario; 0 in-span sustained_jank.critical '
-            'events. expectedMagnitude.observed clamped to 1.0 because the '
-            'schema requires magnitudeMin > 0; the absence-of-event check '
-            'is what gates the role=below validation.',
-      ),
-      'test/validation/captures/frame_timing/sustained_jank_at.json':
-          RetainedOrphanEntry(
-        role: 'at',
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterMajorMinor: '3.41',
-        unit: 'frames',
-        observedMin: 3.0,
-        observedMax: 3.0,
-        consumeBy: '0.22.0',
-        owningClaim: 'sustained_jank.critical (re-raise pending schema rework)',
-        rationale: 'At-leg with K=3 fixed-count severe-frame Ticker injection. '
-            'In-span sustained_jank.critical events are present but the '
-            'detector observedSevereCount climbs into the high teens as '
-            'ambient frames accumulate behind the operator-injected '
-            'severe frames; bracket axis cannot validate that magnitude '
-            'against operator-claimed K under any current schema '
-            'reduction.',
-      ),
-      'test/validation/captures/frame_timing/sustained_jank_above.json':
-          RetainedOrphanEntry(
-        role: 'above',
-        device: 'iPhone 12',
-        deviceOsVersion: 'iOS 17.5',
-        flutterMajorMinor: '3.41',
-        unit: 'frames',
-        observedMin: 5.0,
-        observedMax: 5.0,
-        consumeBy: '0.22.0',
-        owningClaim: 'sustained_jank.critical (re-raise pending schema rework)',
-        rationale:
-            'Above-leg with K=5 fixed-count severe-frame Ticker injection. '
-            'Same axis non-composability as at-leg: detector '
-            'observedSevereCount LAST=18 vs operator-claimed K=5 — the '
-            'bracket cannot certify the magnitude band on this axis.',
-      ),
-    };
+    const retainedOrphans = <String, RetainedOrphanEntry>{};
 
     test('no unreferenced captures on disk', () {
       if (!File('pubspec.yaml').existsSync()) {
