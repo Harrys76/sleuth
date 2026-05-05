@@ -453,34 +453,11 @@ To set clear expectations:
 
 ## Example App
 
-The `example/` directory includes **20 demo screens** + **7 capture-helper screens** organized into 9 categories (Build, Paint, GPU & Rendering, Layout, Memory, Network & I/O, Custom Detectors, Combined, Capture Helpers). Every demo is wrapped in the shared `DemoScaffold`, which provides a **Before/After toggle** and a **live metrics bar** so you can flip between the anti-pattern and its fix in-place and watch Sleuth's detection appear and disappear:
+20 demo screens + 7 capture-helper screens with Before/After toggle + live metrics. See [`example/README.md`](example/README.md) for the full screen list and demo categorization.
 
 ```bash
-cd example
-flutter run
+cd example && flutter run --profile
 ```
-
-**Every demo ships a working "Fixed Pattern" body** — not a description — so the segmented toggle shows a real comparison:
-
-- Top-level `setState` → `ValueNotifier` + `ValueListenableBuilder`
-- `ListView(children: List.generate(...))` → `ListView.builder` with `itemExtent`
-- `IntrinsicHeight` row → `CrossAxisAlignment.stretch`
-- `Image.network` without caching → `cacheWidth` / `cacheHeight`
-- `Fibonacci` on main thread → `Isolate.run()`
-- 40 concurrent HTTP gets → in-memory cache + pagination
-
-**Demos with live metric chips:** high-level setState (bad/fixed rebuilds), non-lazy list (widgets built), heavy compute (ms per call), FPS stress test (live FPS via `addTimingsCallback`), repaint stress (paints/sec), network stress (request count), memory pressure (retained MB).
-
-**Combined multi-detector demos** stack 4–5 anti-patterns in one realistic screen and show every corresponding fix applied together:
-
-- **Chat App** — tabbed conversations with `AutomaticKeepAliveClientMixin`, uncached avatars, 40ms platform-channel typing poll, top-level `setState` on message arrival
-- **Social Feed** — cards with uncached post images, `IntrinsicHeight` header row, top-level `setState` on Like
-
-Each demo description follows the `❌ BAD / ✅ FIX / ▶ action` format with an explicit reproduction step telling you what to tap to trigger the detection.
-
-## Dependencies
-
-- `vm_service: ^14.0.0` — optional VM timeline data when connected
 
 ## License
 

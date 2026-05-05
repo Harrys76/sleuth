@@ -54,6 +54,30 @@ Drive on-device capture brackets for the audit gate.
 
 Each demo includes `BAD:` and `FIX:` annotations explaining the anti-pattern and its fix.
 
+## Before/After Toggle
+
+Every demo is wrapped in the shared `DemoScaffold` with a **Before/After toggle** + **live metrics bar**. Flip between anti-pattern and fix in-place; watch Sleuth's detection appear and disappear.
+
+**Working "Fixed Pattern" bodies** (not descriptions) so the segmented toggle shows real comparison:
+
+- Top-level `setState` → `ValueNotifier` + `ValueListenableBuilder`
+- `ListView(children: List.generate(...))` → `ListView.builder` with `itemExtent`
+- `IntrinsicHeight` row → `CrossAxisAlignment.stretch`
+- `Image.network` without caching → `cacheWidth` / `cacheHeight`
+- `Fibonacci` on main thread → `Isolate.run()`
+- 40 concurrent HTTP gets → in-memory cache + pagination
+
+**Live metric chips:** high-level setState (bad/fixed rebuilds), non-lazy list (widgets built), heavy compute (ms per call), FPS stress test (live FPS via `addTimingsCallback`), repaint stress (paints/sec), network stress (request count), memory pressure (retained MB).
+
+## Combined Multi-Detector Demos
+
+Stack 4–5 anti-patterns in one realistic screen + show every fix applied together:
+
+- **Chat App** — tabbed conversations with `AutomaticKeepAliveClientMixin`, uncached avatars, 40ms platform-channel typing poll, top-level `setState` on message arrival
+- **Social Feed** — cards with uncached post images, `IntrinsicHeight` header row, top-level `setState` on Like
+
+Each demo description follows `❌ BAD / ✅ FIX / ▶ action` format with explicit reproduction step.
+
 ## What to Look For
 
 1. Tap the dog button to open the dashboard
