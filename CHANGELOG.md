@@ -1,3 +1,15 @@
+## 0.23.0
+
+`GpuPressureDetector.raster_dominance` + `RenderPipelineAnalyzer` raster-phase classification fixed: idle batches no longer fire false-positive critical. Aggregate raster sums (60 vsync frames × ~1ms) over-attributed cost vs UI work that only fires on active frames.
+
+- Detector ratio numerator switched to MAX-of-frame raster (`_lastMaxFrameRasterUs / _lastUiUs`); per-frame floor `> maxFrameRasterFloorUs` (default 8000us = half 60Hz budget) gates the gate.
+- New ctor param `GpuPressureDetector(maxFrameRasterFloorUs: 8000)` tunable for 120Hz / Impeller / low-power-mode.
+- Analyzer keeps aggregate ranking; raster admitted as `suspectedPhase` candidate only when one frame crossed 8000us.
+- Tradeoff: sustained moderate raster across active multi-frame batches may under-classify (MAX vs aggregate UI asymmetry).
+- Tests: 4 ratio-triad fixtures bumped 8x; +5 new tests (idle-suppression, per-frame floor boundary triad, one-spike-plus-idle-tail regression, realistic 12ms critical).
+
+2,874 tests passing; `fvm flutter analyze` clean.
+
 ## 0.22.0
 
 `sustained_jank.critical` runtimeVerified raise withdrawn. Bracket axis (sliding 240-frame-window severeCount) cannot composably bracket against operator-claimed K — ambient severe frames accumulate in the same window. Future raise needs detector-level baseline subtraction (`RebuildDetector.setBaseline(int)` pattern).

@@ -59,7 +59,9 @@ test/
 
 ## Current state
 
-**v0.22.0** (current) — `sustained_jank.critical` raise withdrawn; bracket axis (sliding 240-frame-window severeCount) non-composable with operator-claimed K. Captures + capture screen + retainedOrphans entries removed. Reproducer-tier coverage retained. Distribution unchanged (12/9).
+**v0.23.0** (current) — `GpuPressureDetector.raster_dominance` + `RenderPipelineAnalyzer` raster-phase fixed: idle batches no longer false-fire. Detector ratio numerator uses MAX-of-frame raster (`_lastMaxFrameRasterUs / _lastUiUs`) gated by `maxFrameRasterFloorUs` (default 8000us = half 60Hz budget); analyzer keeps aggregate ranking but admits raster as `suspectedPhase` candidate only when one frame's raster crossed 8000us.
+
+**v0.22.0** — `sustained_jank.critical` raise withdrawn; bracket axis (sliding 240-frame-window severeCount) non-composable with operator-claimed K. Captures + capture screen + retainedOrphans entries removed. Reproducer-tier coverage retained.
 
 **v0.21.0** — `RepaintDetector.excessive_repaint.warning` raised to runtimeVerified via `perStableIdTier` on three iPhone 12 / iOS 17.5 / Flutter 3.41.4 captures (32-distinct-`CustomPaint` workload routes emission through VM aggregate path). Adds `peakObservedPaintCount` + `flushPaintEvaluation()` + `resetCaptureState()` plumbing + `Sleuth.repaintDetector` / `Sleuth.lastCaptureExportFailure` static accessors.
 

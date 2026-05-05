@@ -17,8 +17,10 @@ import '../vm/timeline_parser.dart';
 /// **Hybrid Detector** — VM raster thread duration + render tree
 /// to identify Opacity, ClipPath, BackdropFilter on deep subtrees.
 class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
-  GpuPressureDetector({this.rasterMultiplierThreshold = 2.0})
-      : super(
+  GpuPressureDetector({
+    this.rasterMultiplierThreshold = 2.0,
+    this.maxFrameRasterFloorUs = 8000,
+  }) : super(
           type: DetectorType.gpuPressure,
           lifecycle: DetectorLifecycle.hybrid,
           name: 'GPU Pressure',
@@ -27,6 +29,14 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
 
   /// Flag when raster time exceeds UI time by this factor.
   final double rasterMultiplierThreshold;
+
+  /// Suppress `raster_dominance` unless the worst single-frame raster
+  /// scope in the batch exceeds this floor (microseconds). Aggregate
+  /// raster sums across many vsync-driven idle frames + trivial UI
+  /// work otherwise produce a misleading high ratio. Default 8000us
+  /// (half of 60Hz frame budget) — single bad frame must exceed half
+  /// budget for raster to qualify as the bottleneck.
+  final int maxFrameRasterFloorUs;
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   bool _isEnabled = true;
@@ -39,6 +49,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   static const _highSigmaThreshold = 10.0;
 
   int _lastRasterUs = 0;
+  int _lastMaxFrameRasterUs = 0;
   int _lastUiUs = 0;
   bool _vmConnected = false;
   final List<String> _expensiveNodes = [];
@@ -52,6 +63,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     _vmConnected = value;
     if (!value) {
       _lastRasterUs = 0;
+      _lastMaxFrameRasterUs = 0;
       _lastUiUs = 0;
       // Remove VM-backed raster dominance issue entirely.
       _issues.removeWhere((i) => i.stableId == 'raster_dominance');
@@ -85,6 +97,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     if (!_isEnabled) return;
     if (data.rasterDurations.isNotEmpty) {
       _lastRasterUs = data.rasterDurations.fold(0, (s, d) => s + d);
+      _lastMaxFrameRasterUs =
+          data.rasterDurations.reduce((a, b) => a > b ? a : b);
     }
     final totalUi = data.totalBuildScopeUs +
         data.totalFlushLayoutUs +
@@ -187,9 +201,15 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     _issues.clear();
 
     final hasRasterTiming = vmConnected && _lastUiUs > 0 && _lastRasterUs > 0;
-    final ratio = hasRasterTiming ? _lastRasterUs / _lastUiUs : 0.0;
-    final hasRasterDominance =
-        hasRasterTiming && ratio > rasterMultiplierThreshold;
+    // Numerator is the WORST single-frame raster scope, not aggregate
+    // sum. Aggregate inflates whenever many idle vsync raster scopes
+    // share a batch with little UI work — including the case of one
+    // bad raster frame in an otherwise-idle batch. Tradeoff documented
+    // in DetectorMetadata rationale.
+    final ratio = hasRasterTiming ? _lastMaxFrameRasterUs / _lastUiUs : 0.0;
+    final hasRasterDominance = hasRasterTiming &&
+        _lastMaxFrameRasterUs > maxFrameRasterFloorUs &&
+        ratio > rasterMultiplierThreshold;
 
     if (hasRasterDominance) {
       final (hint, effort) = FixHintBuilder.rasterDominance();
@@ -202,9 +222,9 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
           category: IssueCategory.raster,
           confidence: IssueConfidence.confirmed,
           title: 'Raster Dominance: ${ratio.toStringAsFixed(1)}× UI time',
-          detail:
-              'Raster thread (${(_lastRasterUs / 1000).toStringAsFixed(1)}ms) '
-              'is ${ratio.toStringAsFixed(1)}× slower than UI thread '
+          detail: 'Worst-frame raster '
+              '(${(_lastMaxFrameRasterUs / 1000).toStringAsFixed(1)}ms) is '
+              '${ratio.toStringAsFixed(1)}× the UI thread total '
               '(${(_lastUiUs / 1000).toStringAsFixed(1)}ms).',
           fixHint: hint,
           fixEffort: effort,
@@ -277,10 +297,16 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
             'feeds raster + UI timeline events through '
             '`TimelineParser.parse()` into the detector — closes the '
             'parser-boundary gap. Two families pinned. '
-            '`raster_dominance` (VM): ratio = `_lastRasterUs / _lastUiUs` '
-            'with strict `> 2.0` threshold; critical at `> 4.0`; '
-            '`hasRasterTiming` precondition (`vmConnected && _lastUiUs > 0 '
-            '&& _lastRasterUs > 0`) verified by zero-UI negative control. '
+            '`raster_dominance` (VM): ratio = `_lastMaxFrameRasterUs / '
+            '_lastUiUs` with strict `> 2.0` threshold; critical at `> 4.0`. '
+            'Numerator is the WORST single-frame raster scope (not aggregate) '
+            'so idle vsync raster scopes cannot inflate the ratio. Two '
+            'preconditions: `hasRasterTiming` (`vmConnected && _lastUiUs > 0 '
+            '&& _lastRasterUs > 0`) and `_lastMaxFrameRasterUs > '
+            'maxFrameRasterFloorUs` (default 8000us = half 60Hz budget). '
+            'Tradeoff: sustained moderate raster across an active multi-frame '
+            'batch may under-classify (UI denominator is still aggregate); a '
+            'per-frame UI proxy would close that gap. '
             '`expensive_gpu_nodes` (structural): subtree-size strict `> 5` '
             'gate over 4 RenderObject checks (`RenderOpacity` with '
             'opacity-value short-circuit at 0.0 / 1.0 pinned by 4-axis '

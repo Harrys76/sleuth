@@ -63,9 +63,18 @@ class RenderPipelineAnalyzer {
     final buildUs = timelineData.totalBuildScopeUs;
     final layoutUs = timelineData.totalFlushLayoutUs;
     final paintUs = timelineData.totalFlushPaintUs;
-    final rasterUs = timelineData.rasterDurations.isNotEmpty
-        ? timelineData.rasterDurations.fold(0, (s, d) => s + d)
+    // Raster aggregate includes idle vsync compositor scopes (60/sec)
+    // that UI phase aggregates do not, so raster only qualifies as a
+    // phase-ranking candidate when one frame's raster crossed half the
+    // 60Hz frame budget (8000us). Below that, the aggregate carries
+    // no per-frame pressure signal.
+    final rasterAggregateUs = timelineData.rasterDurations.isNotEmpty
+        ? timelineData.rasterDurations.fold<int>(0, (s, d) => s + d)
         : frameStats.rasterDuration.inMicroseconds;
+    final maxRasterFrameUs = timelineData.rasterDurations.isNotEmpty
+        ? timelineData.rasterDurations.reduce((a, b) => a > b ? a : b)
+        : frameStats.rasterDuration.inMicroseconds;
+    final rasterUs = maxRasterFrameUs > 8000 ? rasterAggregateUs : 0;
 
     // Determine which phase is the widest
     final phases = {
