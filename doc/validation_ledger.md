@@ -191,26 +191,24 @@ Flutter 3.41.4) stay on disk as retained orphans with
 
 ## Non-Detector Components
 
-Some components that make per-test reliability claims are not detectors —
-rankers, causal-graph rules, const deny-lists, and so on. They carry their
-tier claim via the parallel `ComponentMetadata` framework and register with
+Some components make per-test reliability claims that aren't detectors —
+rankers, causal-graph rules, FPS formulas, recurrence-trend thresholds, fix
+verification cooldowns, route-health scores. They carry their tier claim
+via the parallel `ComponentMetadata` framework and register with
 `ValidatedComponentRegistry` from a `static void registerMetadata()` entry
 point.
 
-**Summary:** 0 components currently registered. The audit gate
-(`test/validation/component_metadata_audit_test.dart`) enforces the same
-five invariants as the detector gate on any components that do register.
-v0.16.2 exercises invariants 2–5 (rationale, tier-appropriate fields,
-reproducer-file contract, capture-schema contract) against dormant
-synthetic `ComponentMetadata` so the gate's per-invariant logic is live
-today. Invariant 1 (registration dispatch — "did you forget to call
-`registerMetadata()`?") is wired but unreachable until the first real
-component lands; its dispatch site is trivially exercised
-against an empty expected-components list today.
+**Summary:** 0 components currently registered as of v0.23.0. The framework
+(`ComponentMetadata`, `ValidatedComponentRegistry`) and audit gate
+(`test/validation/component_metadata_audit_test.dart`) are live and exercise
+invariants 2–5 (rationale, tier-appropriate fields, reproducer contract,
+capture-schema contract) against synthetic fixtures. Invariant 1
+(registration dispatch — "did you forget to call `registerMetadata()`?") is
+wired but unreachable until the first real component lands.
 
 | Component | Tier | Reproducer | Notes |
 |---|---|---|---|
-| _(none yet)_ | — | — | First real registration expected in v0.16.7+ alongside an `IssueRanker` tier raise. |
+| _(none yet)_ | — | — | Framework ready. First registration deferred — will land alongside the next non-detector formula change that warrants pinned-evidence backing (`IssueRanker` weights, `CausalGraphRule` set, FPS-buffer formulas, recurrence thresholds). |
 
 ## Roadmap
 
