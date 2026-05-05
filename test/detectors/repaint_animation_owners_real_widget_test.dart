@@ -1,4 +1,4 @@
-// Real-widget anti-tautology tests for spec_v0_15_3 C5 fix.
+// Real-widget anti-tautology tests for animation-owner attribution.
 //
 // The companion `repaint_detector_test.dart` group covers the gate
 // algebra against hand-rolled `DebugSnapshot` fixtures populated with
@@ -47,7 +47,7 @@ import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/repaint_detector.dart';
 
 void main() {
-  group('RepaintDetector — real animation owners (spec_v0_15_3 C5)', () {
+  group('RepaintDetector — real animation owners', () {
     testWidgets('LinearProgressIndicator paints attributed as owned',
         (tester) async {
       final captured = await _captureRealPaints(
@@ -172,7 +172,7 @@ void main() {
     });
   });
 
-  group('RepaintDetector — C1 polymorphic-key collision (spec_v0_15_3 C1)', () {
+  group('RepaintDetector — polymorphic-key collision', () {
     testWidgets(
         'mixed-ownership CustomPaint scene fires only on un-owned residual',
         (tester) async {
@@ -272,7 +272,7 @@ void main() {
     });
   });
 
-  group('RepaintDetector — C3 chain-walks-up gap (spec_v0_15_3 C3)', () {
+  group('RepaintDetector — chain-walks-up gap', () {
     testWidgets(
         'bare CircularProgressIndicator without RepaintBoundary attributed '
         'via descendant walk', (tester) async {

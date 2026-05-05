@@ -126,7 +126,7 @@ class _HeavyComputeDemoState extends State<HeavyComputeDemo> {
           'so the isolate path is not strictly faster for tiny payloads — '
           'it trades total time for UI responsiveness.\n\n'
           '▶ Slide the row count, tap Pick CSV. 50K = usually silent '
-          '(depends on device speed), 200K = warning, 1M = critical. '
+          '(depends on device speed), 200K = warning, 500K = critical. '
           'Toggle Fixed to see the detector go silent.\n\n'
           'No Cancel button: both paths complete in under a few hundred ms '
           'on modern devices. Real apps with multi-second parses should '
@@ -238,7 +238,7 @@ class _ImportBody extends StatelessWidget {
             children: const [
               Text('50K', style: TextStyle(fontSize: 11, color: Colors.grey)),
               Text('200K', style: TextStyle(fontSize: 11, color: Colors.grey)),
-              Text('1M', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              Text('500K', style: TextStyle(fontSize: 11, color: Colors.grey)),
             ],
           ),
         ),

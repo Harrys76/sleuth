@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 18 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test                    # Run all tests (~2,862 tests, ~30s)
+fvm flutter test                    # Run all tests (~2,881 tests, ~30s)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -75,6 +75,11 @@ test/
 
 ### Recent releases (one-line)
 
+- **v0.22.0** — `sustained_jank.critical` raise withdrawn (bracket axis non-composable with operator-claimed K). Captures + capture screen + retainedOrphans entries removed; reproducer-tier coverage retained.
+- **v0.21.0** — `RepaintDetector.excessive_repaint.warning` raised to runtimeVerified via `perStableIdTier` (32-distinct-`CustomPaint` workload routes through VM aggregate path). `Sleuth.repaintDetector` + `Sleuth.lastCaptureExportFailure` static accessors; `peakObservedPaintCount` + `flushPaintEvaluation()` + `resetCaptureState()` plumbing.
+- **v0.20.2** — Example-app polish: tile subtitles ≤40 chars; heavy_compute description drops hard "300 ms" claim; network_stress search uses `Uri.replace(queryParameters)` (RFC 3986).
+- **v0.20.1** — `FrameTimingDetector` + `RebuildDetector` stamp `extraTraceArgs.lifecyclePhase: 'startup' | 'steady'` per emission via `DetectorThresholds.startupPhaseWindowSeconds` (default 5).
+- **v0.20.0** — BREAKING: 5 low-value detectors removed (`animatedBuilder`, `opacity`, `shallowRebuildRisk`, `nestedScroll`, `globalKey`); 23 → 18 detectors.
 - **v0.19.27** — Test polish on top of v0.19.26: `Sleuth.track()` auto-init regression test + `delta == 0` cold_start inclusive-boundary pin. No detector or distribution change.
 - **v0.19.26** — `ShaderJankDetector` emits `extraTraceArgs.shaderWarmupContext` ('cold_start' | 'hot_path' | 'keyframe') via `Sleuth.dartEntryMonotonicUs` + `ParsedTimelineData.phaseEvents` build-event correlation; new `DetectorThresholds.coldStartShaderWindowSeconds` (default 5) + `shaderKeyframeWindowMs` (default 100); tier unchanged (reproducerOnly).
 - **v0.19.25** — Test + doc polish. cwd guard extended to the `checkCapturePathPerDirectoryNamingUniformity` group (5 tests); validation-tier docs (README + ledger) refreshed and summary count corrected to 21/23 reproducerOnly + 2/23 runtimeVerified base.
@@ -107,4 +112,4 @@ test/
 - **v0.18.1** — `Sleuth.flushTimelineNow()`; producer-side dedup; `requireUniqueDetectedAtMicros` opt-in.
 - **v0.18.0** — `NetworkMonitorDetector.slow_request.warning` first runtimeVerified raise; capture infrastructure (markScenarioBegin/End, exportCaptureJson, schemaVersion v1).
 
-For full release notes see `CHANGELOG.md`. Spec docs in `doc/spec_v*.md`.
+For full release notes see `CHANGELOG.md`.

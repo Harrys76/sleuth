@@ -459,5 +459,48 @@ void main() {
       detector.dispose();
       expect(detector.issues, isEmpty);
     });
+
+    group('sourceRoute binding (route-during-cooldown regression)', () {
+      test(
+          'persisted issue across cooldown carries sourceRoute = route at '
+          'emission, not the route active at later cycles', () {
+        // Cooldown semantics: emission on route A, navigation to B
+        // mid-cooldown. Retained issue must keep sourceRoute=A so the
+        // controller's aggregator does not reattribute to B.
+        String currentRoute = '/demo/Channel Stress';
+        final localFakeNow = DateTime(2026, 1, 1);
+        DateTime nowRef = localFakeNow;
+        final d = PlatformChannelDetector(
+          clock: () => nowRef,
+          sourceRouteProvider: () => currentRoute,
+        );
+
+        d.processTimelineData(
+          platformChannelData(channelEventCount: 25),
+        );
+        nowRef = nowRef.add(const Duration(seconds: 2));
+        d.processTimelineData(emptyTimelineData());
+        expect(d.issues, hasLength(1));
+        expect(d.issues.first.sourceRoute, '/demo/Channel Stress');
+
+        // User navigates while cooldown still suppressing.
+        currentRoute = '/';
+        nowRef = nowRef.add(const Duration(seconds: 1));
+        d.processTimelineData(emptyTimelineData());
+
+        expect(d.issues, hasLength(1));
+        expect(d.issues.first.sourceRoute, '/demo/Channel Stress',
+            reason: 'cooldown-retained issue must NOT mutate sourceRoute');
+      });
+
+      test('null sourceRouteProvider yields null sourceRoute', () {
+        detector.processTimelineData(
+          platformChannelData(channelEventCount: 25),
+        );
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        detector.processTimelineData(emptyTimelineData());
+        expect(detector.issues.first.sourceRoute, isNull);
+      });
+    });
   });
 }

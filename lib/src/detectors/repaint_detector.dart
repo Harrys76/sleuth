@@ -415,7 +415,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
 
   /// Debug callback path — per-widget paint attribution.
   ///
-  /// **Gate A — per-widget residual subtraction (spec_v0_15_3 C1 fix).**
+  /// **Gate A — per-widget residual subtraction.**
   /// Earlier (v0.15.3 M1) this gate did `if (_isAnimationOwned(...))
   /// continue;` — a binary skip-or-fire on the cached ancestor chain.
   /// That behaved correctly for monomorphic typeNames, but for
@@ -491,7 +491,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   /// Debug callback path — aggregate paint count (no per-widget attribution).
   ///
   /// Gate C — subtract animation-owned paints from the aggregate before
-  /// computing the rate (spec_v0_15_3 KDD-3). When the residual rate falls
+  /// computing the rate. When the residual rate falls
   /// below threshold, the issue is suppressed: the aggregate "noise" was
   /// fully accounted for by intentional animations.
   ///

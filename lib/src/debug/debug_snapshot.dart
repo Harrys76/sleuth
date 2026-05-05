@@ -55,7 +55,7 @@ class DebugSnapshot {
   /// Populated by [DebugInstrumentationCoordinator._handleProfilePaint]
   /// using [isAnimationOwnedPaint] (chain-containment OR bounded
   /// descendant walk). Per-paint attribution sidesteps the
-  /// `paintCounts` polymorphic-key collision (spec_v0_15_3 KDD-6 / C1):
+  /// `paintCounts` polymorphic-key collision:
   /// two distinct widgets that both report `'CustomPaint'` as their
   /// type can have completely different per-paint owned outcomes —
   /// e.g. a `CircularProgressIndicator`'s internal `CustomPaint` is

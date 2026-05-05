@@ -1,5 +1,4 @@
-// Real-widget anti-tautology test for spec_v0_15_3 M1
-// (RepaintDetector animation-owned filter).
+// Real-widget anti-tautology test for RepaintDetector animation-owned filter.
 //
 // The companion `repaint_detector_test.dart` group covers the gate
 // algebra against hand-rolled `DebugSnapshot` fixtures. Hand-written
@@ -24,7 +23,7 @@ import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/repaint_detector.dart';
 
 void main() {
-  group('RepaintDetector — real CircularProgressIndicator (spec_v0_15_3 M1)',
+  group('RepaintDetector — real CircularProgressIndicator (animation filter)',
       () {
     testWidgets(
         'real CircularProgressIndicator paints captured with chain are '
@@ -43,9 +42,8 @@ void main() {
       // apps would normally have via `Material` — without it the
       // dirty-paint propagates up to `Center`, which lacks an
       // animation-owned chain and would fire `repaint_debug_Center`
-      // (a real chain-containment limitation noted in spec_v0_15_3
-      // KDD-2; descendant inspection is out of scope for the v0.15.3
-      // patch).
+      // (a real chain-containment limitation; descendant inspection is
+      // out of scope for the v0.15.3 patch).
       //
       // The indicator's own AnimationController is what generates
       // repaints between `tester.pump()` calls; no artificial driver.

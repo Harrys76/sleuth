@@ -116,7 +116,7 @@ void main() {
   });
 
   // v0.17.0 actualFps semantics — rolling 1-second window anchored on
-  // latest rasterFinishUs. See doc/spec_v0_17_0_fps_semantics.md Step 11.
+  // latest rasterFinishUs.
   group('FrameStatsBuffer.actualFps (count-based)', () {
     FrameStats frameAt({required int frameNumber, required int rasterUs}) {
       return FrameStats(

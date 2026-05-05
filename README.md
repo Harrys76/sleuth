@@ -7,7 +7,7 @@
 [![Pub Version](https://img.shields.io/pub/v/sleuth)](https://pub.dev/packages/sleuth)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2%2C146_%2B_9_passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-2%2C881_passing-brightgreen)]()
 [![Analysis](https://img.shields.io/badge/analysis-0_issues-brightgreen)]()
 
 Runtime performance diagnostics for Flutter mobile apps. Combines frame timing, optional VM timeline analysis, and widget-tree heuristics to surface bottlenecks and actionable fixes — directly inside your app.
@@ -357,42 +357,20 @@ void main() {
 }
 ```
 
-### What `ttffMs` measures (and what it excludes)
+Four metrics, three windows:
 
-`StartupMetrics.ttffMs` is a wall-clock duration from the `Sleuth.init()` call to the first `FrameTiming` raster-finish. It **deliberately excludes** the native pre-Dart phase, which differs by platform:
+| Metric | Window | Source |
+|--------|--------|--------|
+| `ttffMs` | Dart entry → first frame raster-finish | `FrameTiming` callback |
+| `engineTtffMs` | Engine C++ entry → first frame rasterized (matches `flutter run --trace-startup`) | VM timeline |
+| `preDartOverheadMs` | Engine C++ entry → Dart entry (native pre-Dart phase) | VM timeline |
+| `frameworkInitMs` | `WidgetsFlutterBinding.ensureInitialized()` duration | `Timeline.now` delta |
 
-- **iOS cold start** — `dyld`, Objective-C `+load`, `UIApplicationMain`, `AppDelegate` init, `FlutterEngine` creation, Dart VM bootstrap, AOT snapshot load, core-library init. Typically **400–1200 ms** on iPhone 12-class hardware.
-- **Android cold start** — Zygote fork, `Application.onCreate()`, ContentProvider auto-init (Firebase, WorkManager, etc.), `FlutterActivity.onCreate()`, `FlutterEngine` creation, Dart VM bootstrap, AOT snapshot load, core-library init. Typically **300–900 ms** on mid-range devices; often exceeds **1500 ms** on budget / Android Go hardware, where Zygote preload is less effective and AOT snapshot load is disk-bound.
+`ttffMs` isolates Dart-controlled work (default thresholds 1500 ms warning / 3000 ms critical). `preDartOverheadMs` is outside Dart's control (typically 400–1200 ms iOS, 300–900 ms Android, often >1500 ms on Android Go).
 
-That portion is outside Dart's control — it depends on device class, OS version, how many pods/gradle plugins you ship, and how many ContentProviders auto-initialize. `ttffMs` isolates the part your Dart code can actually move.
+**Use `ttffMs`** to catch Dart regressions — heavy work in `main()` / first `build()` / initial route. **Use `engineTtffMs`** for product dashboards. **Split the bill** with `preDartOverheadMs` vs `ttffMs`.
 
-The default detector thresholds (`1500 ms` warning, `3000 ms` critical) apply to `ttffMs` and are calibrated for this narrower window. They are the same on both platforms because `ttffMs` is measuring Dart code, which runs on the same VM across iOS and Android.
-
-### `ttffMs` vs `flutter run --trace-startup`
-
-`flutter run --trace-startup` writes `build/start_up_info.json` with `timeToFirstFrameRasterizedMicros`, which measures from **engine C++ entry** to first frame rasterized. That's a wider window than `ttffMs` — it includes the native pre-Dart phase. **Expect `--trace-startup` to report a larger number than `ttffMs` by the pre-Dart overhead.** Both numbers are correct; they just answer different questions.
-
-Sleuth exposes the `--trace-startup`-equivalent value as `StartupMetrics.engineTtffMs`, and the native-phase gap as `StartupMetrics.preDartOverheadMs`. Both are populated retroactively by scraping `FlutterEngineMainEnter` and `Rasterized first useful frame` events from the Dart VM timeline ring buffer. They require:
-
-- A VM connection (debug or profile mode — release has no VM service).
-- The VM to poll the timeline before the ring buffer evicts those early events (usually fine, but possible to lose on high-traffic startups — in which case the fields are `null`).
-
-When present, both numbers render in the in-app Startup Metrics page and in the `slow_startup_ttff` issue detail under "Engine startup phases". Read them programmatically via `Sleuth.exportSummary()`.
-
-| Metric | Window | Matches `--trace-startup`? | Source |
-|--------|--------|----------------------------|--------|
-| `ttffMs` | Dart entry → first frame raster-finish | No (narrower, excludes native phase) | `FrameTiming` callback |
-| `engineTtffMs` | Engine C++ entry → first frame rasterized | **Yes** | VM timeline |
-| `preDartOverheadMs` | Engine C++ entry → Dart entry | — | VM timeline |
-| `frameworkInitMs` | `WidgetsFlutterBinding.ensureInitialized()` duration | — | Direct `Timeline.now` delta |
-
-### When to use which
-
-- **Track Dart-land regressions** (heavy synchronous work in `main()` / first `build()` / initial route) → use `ttffMs`. It moves when your code moves.
-- **Track full cold-start time** for product dashboards → use `engineTtffMs`, or `flutter run --trace-startup` as the ground-truth reference.
-- **Split the bill between native and Dart** → `preDartOverheadMs` (native, outside Dart's control) vs `ttffMs` (Dart, yours to optimize).
-
-The in-app Startup Metrics page also includes a full "Measurement Methodology" section that enumerates both capture layers (direct `FrameTiming` + VM timeline extraction) if you need the exact capture mechanics.
+In-app Startup Metrics page has full methodology + per-phase breakdown.
 
 ## Detector Matrix
 
@@ -419,7 +397,6 @@ The in-app Startup Metrics page also includes a full "Measurement Methodology" s
 |----------|-------------|-----------|------------|-------------------|
 | Rebuild | VM build count + tree | High rebuild activity | Confirmed for count, Possible for widget attribution | Degrades to structural density report without VM |
 | GPU Pressure | VM raster timing + render tree | Raster thread dominance | Confirmed for ratio, Likely when nodes coexist | Degrades to structural node detection without VM. Sigma-aware severity for BackdropFilter; ColorFiltered detection via widget type |
-| Shallow Rebuild Risk | VM build count + tree depth | Shallow StatefulWidgets exist during high build activity | Possible | Degrades to structural risk report without VM |
 
 ### Structural Detectors (tree scan only)
 
@@ -437,31 +414,25 @@ The in-app Startup Metrics page also includes a full "Measurement Methodology" s
 
 ## Validation Ledger
 
-Each detector carries a `DetectorMetadata` record declaring the strongest evidence backing its current thresholds and heuristics, ordered across four tiers: `unvalidated` → `reproducerOnly` → `runtimeVerified` → `externallyCited`. As of v0.21.0, **16/18 detectors ship at `reproducerOnly` base and 2/18 at `runtimeVerified` base**, with **12 effective `runtimeVerified` family-severity pairs across 9 unique stableIds** (`slow_request {warning + critical}`, `large_response.warning`, `request_frequency.warning`, `heap_growing.warning`, `platform_channel_traffic.warning`, `jank_detected.warning`, `rebuild_activity {warning + critical}`, `heavy_compute {warning + critical}`, `excessive_repaint.warning`). Zero detectors at `unvalidated`. The CI audit gate at `test/validation/detector_metadata_audit_test.dart` enforces the contract on every test run.
+Each detector carries a `DetectorMetadata` record declaring the strongest evidence backing its current thresholds and heuristics, ordered across four tiers: `unvalidated` → `reproducerOnly` → `runtimeVerified` → `externallyCited`. As of v0.23.0, **16/18 detectors ship at `reproducerOnly` base and 2/18 at `runtimeVerified` base**, with **12 effective `runtimeVerified` family-severity pairs across 9 unique stableIds** (`slow_request {warning + critical}`, `large_response.warning`, `request_frequency.warning`, `heap_growing.warning`, `platform_channel_traffic.warning`, `jank_detected.warning`, `rebuild_activity {warning + critical}`, `heavy_compute {warning + critical}`, `excessive_repaint.warning`). Zero detectors at `unvalidated`. The CI audit gate at `test/validation/detector_metadata_audit_test.dart` enforces the contract on every test run.
 
 The per-detector ledger lives at [`doc/validation_ledger.md`](https://github.com/Harrys76/sleuth/blob/main/doc/validation_ledger.md) — it names each detector's current tier, links to its reproducer when one exists, and explains what would raise it. Tier raises land the supporting reproducer or capture evidence in the same PR.
 
 ## What This Does Better Than DevTools
 
-- **Always on**: no separate tool window, no connection setup — performance data is visible as you use your app
-- **18 detectors**: structural anti-patterns (non-lazy lists, uncached images, missing RepaintBoundary, intrinsic-height layout cost) that DevTools does not flag
-- **Inline Rebuild Stats panel**: in profile mode (with `enableDeepDebugInstrumentation: true`), an always-on expandable panel above the issue list shows `Rebuilds: N across M widgets`. Expand for the top-3 widgets with rank, name, live-tweened count, and a normalised bar fill. Pause/Resume freezes the rendered counts so you can read a stable snapshot while attribution continues to accumulate (pause auto-clears on route change with a transient toast). A `See all N →` link pushes the full `RebuildStatsPage` drilldown using the snapshot that was on screen when you tapped it. Counts include initial widget inflations (the same `BUILD` timeline scope covers both inflations and `setState`-driven rebuilds), so route entry shows transient elevated values that decay as the tree stabilises — surfaced inline as an `incl. inflations` footnote in the expanded panel
-- **Confidence explanations**: every issue explains *why* its confidence is confirmed/likely/possible — what evidence was used and what would upgrade it
-- **Severity auto-escalation**: persistent warnings automatically escalate to critical after 30 scan cycles; structural findings upgrade to likely when corroborated by frame jank or rebuild evidence
-- **Causal issue graph**: 44 rules linking root causes to downstream effects — see why an issue matters, not just that it exists
-- **Fix verification**: capture baseline → fix → compare. Cooldown-based resolution with hot-reload grace period
-- **Historical trending**: per-issue recurrence time-series tracks worsening/improving/stable/intermittent patterns across scan cycles
-- **Widget heat map**: "top offenders" ranking aggregates issues by widget, filtering framework internals
-- **Per-route health scores**: passive route detection (no NavigatorObserver) with per-route FPS, jank ratio, issue aggregation, and composite health score — see which screens are degraded
-- **Network monitoring**: in-app detection of slow requests, request floods, oversized responses, HTTP error spikes, high-frequency same-path bursts (≥3 GET/HEAD/OPTIONS to one endpoint within 500 ms, query strings ignored), and network-to-frame correlation
-- **Heap trend monitoring**: detects sustained memory growth and near-capacity conditions without heap snapshots
-- **CPU attribution on jank frames**: surfaces top-5 functions by CPU time on every jank frame — no manual profiling session needed
-- **Source-location enrichment**: ancestor chains include file:line in debug mode, linking issues directly to source code
-- **Actionable fix hints**: every issue includes what to change, not just what went wrong — with code snippets and debugging commands
-- **Issue Encyclopedia**: in-app educational deep-dives for all 47 issue types — searchable, with cross-references between related issues, accessible from any issue card
-- **Contextual AI Chat**: per-issue AI assistant with streaming responses, starter questions, and expandable issue context — bring your team's AI provider
-- **Customizable**: suppress known issues, tune detector thresholds, plug in custom detectors, theme the overlay (60+ color tokens, 6 spacing tokens, 9 typography tokens, 7 border radius tokens)
-- **Zero setup**: one line of code, no browser tab, no port forwarding
+- **Always on**: no separate tool window, no connection setup — one-line install, visible while you use the app
+- **18 detectors**: structural anti-patterns DevTools does not flag (non-lazy lists, uncached images, missing RepaintBoundary, intrinsic-height layout cost)
+- **Inline Rebuild Stats**: live rebuild counter with top-3 widget breakdown and full-list drilldown when `enableDeepDebugInstrumentation: true`
+- **Confidence explanations**: every issue explains *why* its confidence is confirmed/likely/possible — what evidence was used, what would upgrade it
+- **Causal issue graph**: 44 rules link root causes to downstream effects — see why an issue matters, not just that it exists
+- **Fix verification**: baseline → fix → compare. Cooldown-based resolution with hot-reload grace period
+- **Historical trending**: per-issue recurrence tracks worsening/improving/stable/intermittent patterns across scan cycles
+- **Per-route health scores**: passive route detection (no NavigatorObserver) with per-route FPS, jank ratio, issue aggregation, composite health score
+- **Network monitoring**: slow requests, request floods, oversized responses, HTTP error spikes, high-frequency same-path bursts (≥3 GET/HEAD/OPTIONS to one endpoint within 500 ms), network-to-frame correlation
+- **Heap trend monitoring**: sustained memory growth + near-capacity detection without heap snapshots
+- **CPU attribution on jank frames**: top-5 functions by CPU time per jank frame — no manual profiling session
+- **Issue Encyclopedia**: in-app deep-dives for all 47 issue types, searchable + cross-referenced
+- **Contextual AI Chat**: per-issue AI assistant with streaming responses + starter questions — bring your own provider
 
 ## What DevTools Still Does Better
 
@@ -482,7 +453,7 @@ To set clear expectations:
 
 ## Example App
 
-The `example/` directory includes 26 demo screens organized into 8 categories (Build, Paint, GPU & Rendering, Layout, Memory, Network & I/O, Keys & Identity, Custom Detectors, Combined). Every demo is wrapped in the shared `DemoScaffold`, which provides a **Before/After toggle** and a **live metrics bar** so you can flip between the anti-pattern and its fix in-place and watch Sleuth's detection appear and disappear:
+The `example/` directory includes **20 demo screens** + **7 capture-helper screens** organized into 9 categories (Build, Paint, GPU & Rendering, Layout, Memory, Network & I/O, Custom Detectors, Combined, Capture Helpers). Every demo is wrapped in the shared `DemoScaffold`, which provides a **Before/After toggle** and a **live metrics bar** so you can flip between the anti-pattern and its fix in-place and watch Sleuth's detection appear and disappear:
 
 ```bash
 cd example
@@ -504,7 +475,6 @@ flutter run
 
 - **Chat App** — tabbed conversations with `AutomaticKeepAliveClientMixin`, uncached avatars, 40ms platform-channel typing poll, top-level `setState` on message arrival
 - **Social Feed** — cards with uncached post images, `IntrinsicHeight` header row, top-level `setState` on Like
-- **Analytics Dashboard** — `CustomPainter.shouldRepaint` always-true, refresh that rebuilds every tile
 
 Each demo description follows the `❌ BAD / ✅ FIX / ▶ action` format with an explicit reproduction step telling you what to tap to trigger the detection.
 

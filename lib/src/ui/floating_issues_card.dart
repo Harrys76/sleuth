@@ -35,7 +35,7 @@ import 'sleuth_theme.dart';
 /// on what "visible" means — pin ids keyed against the visible list must
 /// survive mutations to hidden downstream entries, and stale-state pruning
 /// must not delete a pin just because its root's downstream children
-/// churn (C1 fix in spec_v0_15_5_pin_on_expand.md).
+/// churn.
 ///
 /// Marked [visibleForTesting] so unit tests can verify the filter and the
 /// pin-placement algorithm below without pumping the full overlay widget

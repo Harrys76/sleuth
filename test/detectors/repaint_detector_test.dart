@@ -611,7 +611,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------
-  // spec_v0_15_3 M1 — animation-owned paint filter (Gates A/B/C)
+  // Animation-owned paint filter (Gates A/B/C).
   //
   // Hand-rolled fixture coverage of the helper logic. The companion
   // real-widget falsification test lives in
@@ -632,7 +632,7 @@ void main() {
   // tests now poke the new contract directly: given a snapshot with
   // these owned-counts, what does each gate emit? Coordinator-side
   // attribution correctness is exercised by the real-widget suite.
-  group('animation-owned paint filter (spec_v0_15_3 M1)', () {
+  group('animation-owned paint filter', () {
     late RepaintDetector detector;
     late DateTime fakeNow;
 

@@ -13,7 +13,7 @@ import 'debug_snapshot.dart';
 enum _InstalledMode { none, debug, profile }
 
 /// Manages per-widget rebuild/paint attribution via two mutually-exclusive
-/// paths (KDD-1 in `doc/spec_v15_rebuild_stats.md`):
+/// paths:
 ///
 /// - **Debug mode** uses `debugOnRebuildDirtyWidget` + `debugOnProfilePaint`
 ///   global callbacks. Counts actual rebuilds only (initial builds are
@@ -66,9 +66,9 @@ class DebugInstrumentationCoordinator {
   ///
   /// Computed per-paint via [isAnimationOwnedPaint] so that polymorphic-key
   /// collisions on [_paintCounts] (two `CustomPaint` widgets with different
-  /// owners — spec_v0_15_3 KDD-6 / C1) get correct attribution: each paint
-  /// event is judged on its live element, not on a cached chain that may
-  /// belong to a different widget instance.
+  /// owners) get correct attribution: each paint event is judged on its
+  /// live element, not on a cached chain that may belong to a different
+  /// widget instance.
   final Map<String, int> _animationOwnedPaintCounts = {};
 
   /// Aggregate count of paints attributed to an animation owner. Drives the
@@ -634,10 +634,10 @@ class DebugInstrumentationCoordinator {
 
     // Build a fresh chain for THIS paint event. We must not reuse a
     // chain cached by typeName for the ownership decision: two distinct
-    // widgets sharing the same `runtimeType.toString()` (spec_v0_15_3
-    // KDD-6 / C1) — e.g. CircularProgressIndicator's internal
-    // `CustomPaint` and a chart's bare `CustomPaint` — can have totally
-    // different owners. Per-paint attribution is the only correct path.
+    // widgets sharing the same `runtimeType.toString()` — e.g.
+    // CircularProgressIndicator's internal `CustomPaint` and a chart's
+    // bare `CustomPaint` — can have totally different owners. Per-paint
+    // attribution is the only correct path.
     //
     // The chain cache (`_ancestorChains`) is still populated on first
     // occurrence per typeName for the source-location enrichment use
