@@ -71,32 +71,6 @@ SleuthConfig(
 )
 ```
 
-### iOS profile builds via Fastlane
-
-`gym`/`flutter assemble` reads `ios/Flutter/Generated.xcconfig` during archive. A stale `TRACK_WIDGET_CREATION=false` from a prior release build silently strips Sleuth's widget-creation locations from the IPA — issues lose their `file.dart:42` ancestor chain. Patch it before `gym`:
-
-```ruby
-if target_platform == :ios && (mode == "profile" || mode == "debug")
-  xcconfig = File.expand_path('../ios/Flutter/Generated.xcconfig', __dir__)
-  if File.exist?(xcconfig)
-    text = File.read(xcconfig)
-    if text.include?('TRACK_WIDGET_CREATION=false')
-      File.write(xcconfig, text.sub('TRACK_WIDGET_CREATION=false', 'TRACK_WIDGET_CREATION=true'))
-    end
-  end
-
-  gym(
-    scheme: flavor == "PROD" ? "Runner" : "dev",
-    configuration: flavor == "PROD" ? "Profile" : "Profile-dev",
-    export_method: @export_method,
-    silent: true,
-    suppress_xcode_output: true,
-  )
-end
-```
-
-Belt-and-suspenders only — `flutter build ios --profile` already sets the flag correctly. Patch protects against archive runs that re-execute `xcode_backend.sh` against a previously-cached value.
-
 ## FPS Semantics
 
 Sleuth exposes two frame-rate metrics:
@@ -476,6 +450,36 @@ To set clear expectations:
 - **VM full mode availability** depends on runtime environment and is not guaranteed on all platforms
 - **Memory pressure detection** monitors GC frequency, heap growth trends (linear regression), and capacity thresholds. When growth is detected, enriches the issue with per-class allocation deltas — but does not track individual object leaks or retention paths
 - **CPU attribution** is statistical (~1 kHz sampling) — functions running <1 ms may not appear; use DevTools CPU profiler for complete call trees
+
+## Tips & Troubleshooting
+
+### iOS profile builds via Fastlane lose source locations
+
+**Symptom:** profile-mode IPA archived via `fastlane gym` shows issues without `file.dart:42` ancestor chains. Local `flutter run --profile` works fine.
+
+**Cause:** `gym` re-runs `flutter assemble` via `xcode_backend.sh` during archive, which reads `ios/Flutter/Generated.xcconfig`. A stale `TRACK_WIDGET_CREATION=false` lingering from a prior release build strips Sleuth's widget-creation locations from the archived binary.
+
+**Fix:** patch the xcconfig before `gym` in your Fastfile. Belt-and-suspenders — `flutter build ios --profile` sets the flag correctly, but archive runs against cached values can drift.
+
+```ruby
+if target_platform == :ios && (mode == "profile" || mode == "debug")
+  xcconfig = File.expand_path('../ios/Flutter/Generated.xcconfig', __dir__)
+  if File.exist?(xcconfig)
+    text = File.read(xcconfig)
+    if text.include?('TRACK_WIDGET_CREATION=false')
+      File.write(xcconfig, text.sub('TRACK_WIDGET_CREATION=false', 'TRACK_WIDGET_CREATION=true'))
+    end
+  end
+
+  gym(
+    scheme: flavor == "PROD" ? "Runner" : "dev",
+    configuration: flavor == "PROD" ? "Profile" : "Profile-dev",
+    export_method: @export_method,
+    silent: true,
+    suppress_xcode_output: true,
+  )
+end
+```
 
 ## Example App
 
