@@ -92,6 +92,7 @@ class PerformanceIssue {
     this.packageName,
     this.scaffoldHashKey,
     this.tabVisitIndex,
+    this.sourceRoute,
   });
 
   /// How severe this issue is (ok, warning, critical).
@@ -215,6 +216,16 @@ class PerformanceIssue {
   /// distinguish multiple sessions for the same `(routeName, scaffoldHashKey)`.
   final int? tabVisitIndex;
 
+  /// Route name captured by the detector at emission time, before the
+  /// controller's aggregate-cycle stamp overwrites [routeName] with the
+  /// CURRENTLY active route. Detectors that retain issues across batches
+  /// (TTL persistence, cooldown suppression) MUST populate this so a
+  /// post-emission navigation does not reattribute the issue to the new
+  /// route. The aggregator prefers `sourceRoute` over the live route when
+  /// stamping. Null for one-shot per-batch detectors that never persist
+  /// across navigation.
+  final String? sourceRoute;
+
   /// Display label for the route: `routeName` for the first visit, or
   /// `"$routeName (tab-$tabVisitIndex)"` for the 2nd+ visit to the same
   /// `(routeName, scaffoldHashKey)` pair. Returns `null` when [routeName] is
@@ -260,6 +271,7 @@ class PerformanceIssue {
         if (packageName != null) 'packageName': packageName,
         if (scaffoldHashKey != null) 'scaffoldHashKey': scaffoldHashKey,
         if (tabVisitIndex != null) 'tabVisitIndex': tabVisitIndex,
+        if (sourceRoute != null) 'sourceRoute': sourceRoute,
       };
 
   /// Deserializes a [PerformanceIssue] from a JSON map.
@@ -349,6 +361,7 @@ class PerformanceIssue {
             : null,
         tabVisitIndex:
             json['tabVisitIndex'] is int ? json['tabVisitIndex'] as int : null,
+        sourceRoute: json['sourceRoute'] as String?,
       );
 
   PerformanceIssue copyWith({
@@ -378,6 +391,7 @@ class PerformanceIssue {
     String? packageName,
     int? scaffoldHashKey,
     int? tabVisitIndex,
+    String? sourceRoute,
   }) {
     return PerformanceIssue(
       severity: severity ?? this.severity,
@@ -411,6 +425,7 @@ class PerformanceIssue {
       packageName: packageName ?? this.packageName,
       scaffoldHashKey: scaffoldHashKey ?? this.scaffoldHashKey,
       tabVisitIndex: tabVisitIndex ?? this.tabVisitIndex,
+      sourceRoute: sourceRoute ?? this.sourceRoute,
     );
   }
 

@@ -730,11 +730,13 @@ class SleuthController {
           ),
       DetectorType.heavyCompute: () => HeavyComputeDetector(
             lagThresholdMs: config.thresholds.heavyComputeGapMs,
+            sourceRouteProvider: _currentRouteName,
           ),
       DetectorType.platformChannel: () => PlatformChannelDetector(
             callsPerSecThreshold: config.platformChannelLimit,
             durationThresholdUs:
                 config.platformChannelDurationThresholdMs * 1000,
+            sourceRouteProvider: _currentRouteName,
           ),
       DetectorType.repaint: RepaintDetector.new,
       DetectorType.setStateScope: () => SetStateScopeDetector(
@@ -3478,9 +3480,15 @@ class SleuthController {
     final List<PerformanceIssue> visible = [];
     int suppressedCount = 0;
     for (final issue in correlated) {
+      // sourceRoute precedence: persisted issues (TTL retention,
+      // cooldown suppression) carry the route they were emitted on.
+      // Falling back to the live route would reattribute the issue to
+      // whichever route the user navigated to during the persistence
+      // window. See `PerformanceIssue.sourceRoute` doc.
+      final effectiveRoute = issue.sourceRoute ?? route;
       final stamped = issue.copyWith(
         debugModeDisclaimer: kDebugMode ? true : null,
-        routeName: route,
+        routeName: effectiveRoute,
         interactionContext: _interactionState,
         scaffoldHashKey: hashKey,
         tabVisitIndex: tabIdx,

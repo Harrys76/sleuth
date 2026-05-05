@@ -14,7 +14,9 @@ class PlatformChannelDetector extends BaseDetector
     this.callsPerSecThreshold = 20,
     this.durationThresholdUs = 8000,
     DateTime Function()? clock,
+    String? Function()? sourceRouteProvider,
   })  : _clock = clock ?? DateTime.now,
+        _sourceRouteProvider = sourceRouteProvider ?? (() => null),
         super(
           type: DetectorType.platformChannel,
           lifecycle: DetectorLifecycle.vmOnly,
@@ -29,6 +31,7 @@ class PlatformChannelDetector extends BaseDetector
   /// Cumulative duration threshold per window (microseconds). Default 8ms.
   final int durationThresholdUs;
   final DateTime Function() _clock;
+  final String? Function() _sourceRouteProvider;
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
 
@@ -168,6 +171,11 @@ class PlatformChannelDetector extends BaseDetector
         },
         confidenceReason:
             'Measured directly from VM timeline platform channel events',
+        // Bind active route at emission so the controller's aggregate
+        // stamp does not reattribute the issue to a route the user
+        // navigated to during the 3-cycle cooldown window. See
+        // [HeavyComputeDetector] persistence-contract doc.
+        sourceRoute: _sourceRouteProvider(),
       );
       _issues
         ..clear()

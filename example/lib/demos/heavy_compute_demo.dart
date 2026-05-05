@@ -12,7 +12,12 @@ import '../demo_scaffold.dart';
 // (critical). The fixed path offloads to `Isolate.run` so the parent
 // isolate's BUILD event stays sub-threshold and the UI stays responsive.
 
-const _rowChoices = [1000, 10000, 50000];
+// Capped at 500K to bound peak memory (50MB raw CSV string + 1M-line
+// split buffer + 500K _Contact objects + sort scratch). Higher values
+// risked OOM on 2GB Android and iOS watchdog kill on >10s blocking. The
+// post-parse sort guarantees critical-tier emission on Apple Silicon
+// where 500K parses sub-threshold (~3ms) but 500K compares dominate.
+const _rowChoices = [50000, 200000, 500000];
 
 class HeavyComputeDemo extends StatefulWidget {
   const HeavyComputeDemo({super.key});
@@ -22,7 +27,7 @@ class HeavyComputeDemo extends StatefulWidget {
 }
 
 class _HeavyComputeDemoState extends State<HeavyComputeDemo> {
-  int _rowIndex = 1; // default 10K (warning)
+  int _rowIndex = 1; // default 200K (warning)
   bool _busy = false;
   // Set by the bad-path Pick CSV tap and consumed on the next `build`.
   // The parse must run inside `build` so the enclosing BUILD timeline
@@ -120,8 +125,9 @@ class _HeavyComputeDemoState extends State<HeavyComputeDemo> {
           'detector goes silent. Note: isolate spawn overhead is ~50–150 ms, '
           'so the isolate path is not strictly faster for tiny payloads — '
           'it trades total time for UI responsiveness.\n\n'
-          '▶ Slide the row count, tap Pick CSV. 1K = silent, 10K = warning, '
-          '50K = critical. Toggle Fixed to see the detector go silent.\n\n'
+          '▶ Slide the row count, tap Pick CSV. 50K = usually silent '
+          '(depends on device speed), 200K = warning, 1M = critical. '
+          'Toggle Fixed to see the detector go silent.\n\n'
           'No Cancel button: both paths complete in under a few hundred ms '
           'on modern devices. Real apps with multi-second parses should '
           'expose cancellation via raw `Isolate.spawn` + `ReceivePort`.',
@@ -230,9 +236,9 @@ class _ImportBody extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: const [
-              Text('1K', style: TextStyle(fontSize: 11, color: Colors.grey)),
-              Text('10K', style: TextStyle(fontSize: 11, color: Colors.grey)),
               Text('50K', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              Text('200K', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              Text('1M', style: TextStyle(fontSize: 11, color: Colors.grey)),
             ],
           ),
         ),
@@ -420,6 +426,11 @@ List<_Contact> _parseCsv(String csv) {
     if (parts.length < 3) continue;
     contacts.add(_Contact(parts[1], parts[2]));
   }
+  // Sort by name. Real "import contacts" flows almost always sort or
+  // dedupe; the sort doubles as device-speed insurance — at 1M rows
+  // the O(n log n) string compare reliably crosses the 16 ms critical
+  // threshold even on Apple Silicon.
+  contacts.sort((a, b) => a.name.compareTo(b.name));
   return contacts;
 }
 

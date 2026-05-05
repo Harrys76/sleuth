@@ -59,7 +59,7 @@ test/
 
 ## Current state
 
-**v0.23.0** (current) — `GpuPressureDetector.raster_dominance` + `RenderPipelineAnalyzer` raster-phase fixed: idle batches no longer false-fire. Detector ratio numerator uses MAX-of-frame raster (`_lastMaxFrameRasterUs / _lastUiUs`) gated by `maxFrameRasterFloorUs` (default 8000us = half 60Hz budget); analyzer keeps aggregate ranking but admits raster as `suspectedPhase` candidate only when one frame's raster crossed 8000us.
+**v0.23.0** (current) — `GpuPressureDetector.raster_dominance` idle false-positive fixed (MAX-of-frame numerator + `maxFrameRasterFloorUs` gate). `HeavyComputeDetector` emissions persist via monotonic Stopwatch (`emissionPersistence`, default 10s). New `PerformanceIssue.sourceRoute`: persisted issues stamp route at emission; aggregator prefers `sourceRoute` over live route. Wired through heavy_compute + platform_channel via `sourceRouteProvider`. CSV Import demo capped at 500K.
 
 **v0.22.0** — `sustained_jank.critical` raise withdrawn; bracket axis (sliding 240-frame-window severeCount) non-composable with operator-claimed K. Captures + capture screen + retainedOrphans entries removed. Reproducer-tier coverage retained.
 

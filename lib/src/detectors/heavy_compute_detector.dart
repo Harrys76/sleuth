@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart';
+
 import '../models/base_detector.dart';
 import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
@@ -9,9 +11,35 @@ import '../vm/timeline_parser.dart';
 /// Detects heavy computation blocking the UI thread.
 ///
 /// **VM-Only Detector** — monitors Dart isolate event gaps >8ms.
+///
+/// ## Persistence contract
+///
+/// Heavy compute is one-shot: a single BUILD scope produces one event,
+/// which is observed in one VM batch and absent from the next. To keep
+/// the issue visible past the user's tap-to-open delay, fresh emissions
+/// stay in [issues] for [emissionPersistence] (default 10s) wall-clock,
+/// measured by a monotonic [Stopwatch] (immune to system clock changes,
+/// DST, NTP sync). Fresh emissions reset the window and replace the
+/// stale issue immediately.
+///
+/// **Source-route binding.** Detectors that retain issues across batches
+/// MUST stamp [PerformanceIssue.sourceRoute] at emission time so a
+/// post-emission navigation does not reattribute the issue to the new
+/// route via the controller's aggregate-cycle route stamp. Pass
+/// [sourceRouteProvider] from the controller to read the active route
+/// at emission. Returning null is acceptable when the controller has no
+/// active route (e.g. during pre-routing scans). Future detectors that
+/// adopt persistence should follow the same pattern — see
+/// [PlatformChannelDetector] for the cooldown-suppression variant.
 class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
-  HeavyComputeDetector({this.lagThresholdMs = 8})
-      : super(
+  HeavyComputeDetector({
+    this.lagThresholdMs = 8,
+    this.emissionPersistence = const Duration(seconds: 10),
+    String? Function()? sourceRouteProvider,
+    @visibleForTesting Stopwatch? testStopwatch,
+  })  : _sourceRouteProvider = sourceRouteProvider ?? (() => null),
+        _emissionStopwatch = testStopwatch ?? Stopwatch(),
+        super(
           type: DetectorType.heavyCompute,
           lifecycle: DetectorLifecycle.vmOnly,
           name: 'Heavy Compute',
@@ -19,6 +47,20 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
         );
 
   final int lagThresholdMs;
+
+  /// Wall-clock duration a previously-emitted `heavy_compute` issue
+  /// persists before being cleared. Heavy compute is one-shot (a
+  /// single BUILD scope produces one event); without persistence the
+  /// issue is visible for ~1 VM batch only. iOS profile-mode VM
+  /// service can poll multiple times per second, so a batch-count
+  /// TTL would expire faster than the user's tap-to-open window. A
+  /// [Stopwatch]-measured wall-clock duration is independent of poll
+  /// cadence AND immune to system clock jumps (DST, NTP sync).
+  final Duration emissionPersistence;
+
+  final String? Function() _sourceRouteProvider;
+  final Stopwatch _emissionStopwatch;
+
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
 
@@ -29,7 +71,22 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   bool get isEnabled => _isEnabled;
 
   @override
-  set isEnabled(bool value) => _isEnabled = value;
+  set isEnabled(bool value) {
+    _isEnabled = value;
+    if (!value) _clearRetainedState();
+  }
+
+  @override
+  set vmConnected(bool value) {
+    if (!value) _clearRetainedState();
+  }
+
+  void _clearRetainedState() {
+    _issues.clear();
+    _emissionStopwatch
+      ..stop()
+      ..reset();
+  }
 
   /// Process timeline data looking for long-running Dart events.
   ///
@@ -39,8 +96,8 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
-    _issues.clear();
 
+    final fresh = <PerformanceIssue>[];
     final buildPhaseEvents =
         data.phaseEvents.where((e) => e.phase == TimelinePhase.build).toList();
 
@@ -48,7 +105,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       for (final event in buildPhaseEvents) {
         final ms = event.durationUs / 1000;
         if (ms > lagThresholdMs) {
-          _issues.add(_createIssue(ms, event));
+          fresh.add(_createIssue(ms, event));
         }
       }
     } else {
@@ -56,9 +113,30 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       for (final durationUs in data.buildScopeDurations) {
         final ms = durationUs / 1000;
         if (ms > lagThresholdMs) {
-          _issues.add(_createGenericIssue(ms));
+          fresh.add(_createGenericIssue(ms));
         }
       }
+    }
+
+    if (fresh.isNotEmpty) {
+      // Fresh emission replaces any stale issue and resets the
+      // monotonic persistence window.
+      _issues
+        ..clear()
+        ..addAll(fresh);
+      _emissionStopwatch
+        ..reset()
+        ..start();
+    } else if (_emissionStopwatch.isRunning &&
+        _emissionStopwatch.elapsed < emissionPersistence) {
+      // Idle batch but persistence window still open — keep showing
+      // the prior issue so it stays observable past the user's
+      // tap-to-open delay regardless of VM poll cadence.
+    } else {
+      _issues.clear();
+      _emissionStopwatch
+        ..stop()
+        ..reset();
     }
   }
 
@@ -106,6 +184,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       extraTraceArgs: {'observedDurationMs': ms.toString()},
       confidenceReason:
           'Measured directly from VM timeline long UI-thread event',
+      sourceRoute: _sourceRouteProvider(),
     );
   }
 
@@ -130,6 +209,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       extraTraceArgs: {'observedDurationMs': ms.toString()},
       confidenceReason:
           'Measured directly from VM timeline long UI-thread event',
+      sourceRoute: _sourceRouteProvider(),
     );
   }
 
@@ -157,7 +237,12 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   @override
-  void dispose() => _issues.clear();
+  void dispose() {
+    _issues.clear();
+    _emissionStopwatch
+      ..stop()
+      ..reset();
+  }
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
@@ -180,7 +265,18 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
             '(stable per-BUILD `detectedAt` derived from '
             '`event.timestampUs`) so the strong uniqueness invariant '
             '(`requireUniqueDetectedAtMicros: true`) protects against '
-            'capture replay forgery on both brackets.',
+            'capture replay forgery on both brackets. Issue lifetime: '
+            'heavy_compute is one-shot per BUILD scope. Emitted issues '
+            'persist for `emissionPersistence` wall-clock duration '
+            '(default 10s, monotonic Stopwatch) so a one-shot compute '
+            'event stays observable past the tap-to-open delay on the '
+            'FloatingIssuesCard. Wall-clock semantics are independent '
+            'of VM poll cadence — iOS profile-mode batches arrive '
+            'multiple times per second. Fresh emissions reset the '
+            'persistence window and replace the stale issue '
+            'immediately. Persisted issues stamp `sourceRoute` at '
+            'emission so post-emission navigation does not reattribute '
+            'the issue via the controller aggregate stamp.',
         reproducerPath: 'test/validation/heavy_compute_reproducer_test.dart',
         profileCapturePaths: [
           'test/validation/captures/heavy_compute/heavy_compute_below.json',

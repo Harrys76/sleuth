@@ -254,5 +254,182 @@ void main() {
 
       expect(detector.issues, isEmpty);
     });
+
+    group('emissionPersistence (monotonic Stopwatch TTL)', () {
+      test(
+          'issue persists for emissionPersistence duration regardless of '
+          'how many idle batches arrive within it', () {
+        final fakeStopwatch = _FakeStopwatch();
+        final ttlDetector = HeavyComputeDetector(testStopwatch: fakeStopwatch);
+
+        ttlDetector.processTimelineData(
+          heavyComputeData(buildScopeDurationsUs: [12000]),
+        );
+        expect(ttlDetector.issues, hasLength(1));
+
+        for (var i = 0; i < 50; i++) {
+          fakeStopwatch.advance(const Duration(milliseconds: 180));
+          ttlDetector.processTimelineData(heavyComputeData());
+        }
+        expect(ttlDetector.issues, hasLength(1),
+            reason: 'should persist through 50 idle batches in 9s');
+
+        fakeStopwatch.advance(const Duration(seconds: 2));
+        ttlDetector.processTimelineData(heavyComputeData());
+        expect(ttlDetector.issues, isEmpty);
+      });
+
+      test(
+          'fresh emission immediately replaces stale issue and resets '
+          'persistence window', () {
+        final fakeStopwatch = _FakeStopwatch();
+        final ttlDetector = HeavyComputeDetector(testStopwatch: fakeStopwatch);
+
+        ttlDetector.processTimelineData(
+          heavyComputeData(buildScopeDurationsUs: [12000]),
+        );
+        expect(ttlDetector.issues, hasLength(1));
+        expect(ttlDetector.issues.first.title, 'Heavy Computation: 12.0ms');
+
+        for (var i = 0; i < 25; i++) {
+          fakeStopwatch.advance(const Duration(milliseconds: 200));
+          ttlDetector.processTimelineData(heavyComputeData());
+        }
+        expect(ttlDetector.issues.first.title, 'Heavy Computation: 12.0ms');
+
+        // Fresh emission replaces stale issue + resets window from the
+        // new emission's elapsed=0.
+        ttlDetector.processTimelineData(
+          heavyComputeData(buildScopeDurationsUs: [20000]),
+        );
+        expect(ttlDetector.issues, hasLength(1));
+        expect(ttlDetector.issues.first.title, 'Heavy Computation: 20.0ms');
+
+        fakeStopwatch.advance(const Duration(seconds: 9));
+        ttlDetector.processTimelineData(heavyComputeData());
+        expect(ttlDetector.issues, hasLength(1));
+      });
+
+      test('idle batches before any emission do not retain anything', () {
+        for (var i = 0; i < 10; i++) {
+          detector.processTimelineData(heavyComputeData());
+          expect(detector.issues, isEmpty);
+        }
+      });
+
+      test('isEnabled=false clears retained state', () {
+        final fakeStopwatch = _FakeStopwatch();
+        final d = HeavyComputeDetector(testStopwatch: fakeStopwatch);
+
+        d.processTimelineData(
+          heavyComputeData(buildScopeDurationsUs: [12000]),
+        );
+        expect(d.issues, hasLength(1));
+
+        d.isEnabled = false;
+        expect(d.issues, isEmpty);
+        expect(fakeStopwatch.isRunning, isFalse);
+      });
+
+      test('vmConnected=false clears retained state', () {
+        final fakeStopwatch = _FakeStopwatch();
+        final d = HeavyComputeDetector(testStopwatch: fakeStopwatch);
+
+        d.processTimelineData(
+          heavyComputeData(buildScopeDurationsUs: [12000]),
+        );
+        expect(d.issues, hasLength(1));
+
+        d.vmConnected = false;
+        expect(d.issues, isEmpty);
+        expect(fakeStopwatch.isRunning, isFalse);
+      });
+    });
+
+    group('sourceRoute binding (route-during-TTL regression)', () {
+      test(
+          'persisted issue carries sourceRoute = route at emission, '
+          'not the route active at later aggregate cycles', () {
+        // Simulate a route-changing provider: emission happens on
+        // route A, subsequent retrieval happens after the user
+        // navigated to route B.
+        String currentRoute = '/demo/CSV Import';
+        final fakeStopwatch = _FakeStopwatch();
+        final d = HeavyComputeDetector(
+          testStopwatch: fakeStopwatch,
+          sourceRouteProvider: () => currentRoute,
+        );
+
+        d.processTimelineData(
+          heavyComputeData(buildScopeDurationsUs: [20000]),
+        );
+        expect(d.issues, hasLength(1));
+        expect(d.issues.first.sourceRoute, '/demo/CSV Import');
+
+        // User navigates while TTL still warm.
+        currentRoute = '/';
+        fakeStopwatch.advance(const Duration(seconds: 5));
+        d.processTimelineData(heavyComputeData());
+
+        // Issue still retained AND still carries the original route.
+        expect(d.issues, hasLength(1));
+        expect(d.issues.first.sourceRoute, '/demo/CSV Import',
+            reason: 'sourceRoute must NOT mutate during persistence window');
+      });
+
+      test('null sourceRouteProvider yields null sourceRoute', () {
+        final d = HeavyComputeDetector();
+        d.processTimelineData(
+          heavyComputeData(buildScopeDurationsUs: [20000]),
+        );
+        expect(d.issues.first.sourceRoute, isNull);
+      });
+    });
   });
+}
+
+/// Test double for [Stopwatch] giving deterministic control over elapsed
+/// time. The detector treats Stopwatch as a monotonic seam — fake
+/// implementation drops the platform-ticker dependency so tests can
+/// advance time manually.
+class _FakeStopwatch implements Stopwatch {
+  Duration _elapsed = Duration.zero;
+  bool _running = false;
+
+  void advance(Duration d) {
+    if (_running) _elapsed += d;
+  }
+
+  @override
+  Duration get elapsed => _elapsed;
+
+  @override
+  int get elapsedMicroseconds => _elapsed.inMicroseconds;
+
+  @override
+  int get elapsedMilliseconds => _elapsed.inMilliseconds;
+
+  @override
+  int get elapsedTicks => _elapsed.inMicroseconds;
+
+  @override
+  int get frequency => 1000000;
+
+  @override
+  bool get isRunning => _running;
+
+  @override
+  void reset() {
+    _elapsed = Duration.zero;
+  }
+
+  @override
+  void start() {
+    _running = true;
+  }
+
+  @override
+  void stop() {
+    _running = false;
+  }
 }

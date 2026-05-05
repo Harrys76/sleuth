@@ -1,14 +1,15 @@
 ## 0.23.0
 
-`GpuPressureDetector.raster_dominance` + `RenderPipelineAnalyzer` raster-phase classification fixed: idle batches no longer fire false-positive critical. Aggregate raster sums (60 vsync frames × ~1ms) over-attributed cost vs UI work that only fires on active frames.
+`GpuPressureDetector.raster_dominance` idle false-positive fixed; `HeavyComputeDetector` issues persist past one VM batch.
 
-- Detector ratio numerator switched to MAX-of-frame raster (`_lastMaxFrameRasterUs / _lastUiUs`); per-frame floor `> maxFrameRasterFloorUs` (default 8000us = half 60Hz budget) gates the gate.
-- New ctor param `GpuPressureDetector(maxFrameRasterFloorUs: 8000)` tunable for 120Hz / Impeller / low-power-mode.
-- Analyzer keeps aggregate ranking; raster admitted as `suspectedPhase` candidate only when one frame crossed 8000us.
-- Tradeoff: sustained moderate raster across active multi-frame batches may under-classify (MAX vs aggregate UI asymmetry).
-- Tests: 4 ratio-triad fixtures bumped 8x; +5 new tests (idle-suppression, per-frame floor boundary triad, one-spike-plus-idle-tail regression, realistic 12ms critical).
+- `GpuPressureDetector`: ratio numerator uses MAX-of-frame raster gated by `maxFrameRasterFloorUs` (default 8000us). New ctor param tunable for 120Hz / Impeller / low-power-mode.
+- `RenderPipelineAnalyzer`: raster admitted as `suspectedPhase` only when one frame crosses 8000us.
+- `HeavyComputeDetector`: emissions persist `emissionPersistence` (default 10s) via monotonic `Stopwatch` — survives VM poll cadence + system clock jumps. Retained state clears on `isEnabled=false` / `vmConnected=false`.
+- `PerformanceIssue.sourceRoute`: detectors that retain issues stamp the route at emission. Aggregator prefers `sourceRoute` over live route, so post-emission navigation cannot reattribute. Wired through `HeavyComputeDetector` + `PlatformChannelDetector` via `sourceRouteProvider`.
+- CSV Import demo row choices `[50K, 200K, 500K]` + post-parse sort. 500K cap avoids OOM / iOS watchdog.
+- Tests: +5 gpu_pressure (idle-suppression, floor-triad, spike+idle, 12ms critical); +5 heavy_compute (Stopwatch TTL × 3, lifecycle clear × 2, route-during-TTL × 2).
 
-2,874 tests passing; `fvm flutter analyze` clean.
+2,881 tests; `fvm flutter analyze` clean.
 
 ## 0.22.0
 
