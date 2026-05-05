@@ -160,7 +160,7 @@ Sleuth.track(
     suppressedIssues: {'non_lazy_list', 'font_*'}, // hide known issues by stableId (exact or wildcard)
     thresholds: DetectorThresholds(
       shaderJankMs: 50,              // shader compilation warning threshold
-      heavyComputeGapMs: 200,        // heavy compute gap threshold
+      heavyComputeGapMs: 8,          // heavy compute warning gap (critical at 2× = 16ms)
       gpuPressureRatio: 1.5,         // raster/UI time ratio for GPU pressure
     ),
     customDetectors: [MyCustomDetector()], // plug in domain-specific detectors
@@ -389,7 +389,6 @@ In-app Startup Metrics page has full methodology + per-phase breakdown.
 | Heavy Compute | VM Timeline | Long UI-thread event | Confirmed | Requires VM connection |
 | Platform Channel | VM Timeline | High call frequency | Confirmed | Requires VM connection and `debugProfilePlatformChannels` |
 | Memory Pressure | VM GC events + heap polling | GC frequency elevated, heap growing steadily (linear regression), heap near capacity (>80%) | Likely / Confirmed | Requires VM connection |
-| Repaint | VM Timeline | High paint frequency | Confirmed | Requires VM connection |
 
 ### Hybrid Detectors (VM + tree scan, degrade without VM)
 
@@ -397,6 +396,7 @@ In-app Startup Metrics page has full methodology + per-phase breakdown.
 |----------|-------------|-----------|------------|-------------------|
 | Rebuild | VM build count + tree | High rebuild activity | Confirmed for count, Possible for widget attribution | Degrades to structural density report without VM |
 | GPU Pressure | VM raster timing + render tree | Raster thread dominance | Confirmed for ratio, Likely when nodes coexist | Degrades to structural node detection without VM. Sigma-aware severity for BackdropFilter; ColorFiltered detection via widget type |
+| Repaint | VM paint events + per-widget attribution | High paint frequency, animation-owned suppression | Confirmed for rate, Possible for widget attribution | Degrades to structural-only without VM |
 
 ### Structural Detectors (tree scan only)
 
