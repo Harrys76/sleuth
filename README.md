@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Harrys76/sleuth/main/doc/logo.png" width="128" alt="Sleuth logo">
+  <img src="doc/logo.png" width="128" alt="Sleuth logo">
 </p>
 
 # Sleuth
