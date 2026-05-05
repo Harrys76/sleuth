@@ -1093,6 +1093,28 @@ class SleuthController {
   /// second rate rather than the operator's plan.
   RebuildDetector get rebuildDetector => _rebuildDetector;
 
+  /// Public accessor for capture-mode tooling — capture screens read
+  /// [RepaintDetector.lastObservedPaintCount] and call
+  /// [RepaintDetector.flushPaintEvaluation] before exporting
+  /// sub-threshold legs so the wrapped magnitude reflects the
+  /// detector-measured 1s-window paint count rather than the operator's
+  /// plan. Returns null if [DetectorType.repaint] was excluded from
+  /// [SleuthConfig.enabledDetectors] at init time.
+  RepaintDetector? get repaintDetector {
+    for (final d in _detectors) {
+      if (d is RepaintDetector) return d;
+    }
+    return null;
+  }
+
+  /// Last reason [exportCaptureJson] returned null. Set immediately
+  /// before each null-return path so capture-screen UIs can surface
+  /// the failure without parsing flutter-tool console output. Cleared
+  /// at the start of every [exportCaptureJson] call so stale failures
+  /// from prior legs do not bleed into the next attempt.
+  String? _lastCaptureExportFailure;
+  String? get lastCaptureExportFailure => _lastCaptureExportFailure;
+
   /// Exposes [_lastScanContext] so tests can verify a scan went down the
   /// happy path (non-null) vs. the navigating sentinel path (null). Without
   /// this, a test that asserts "buffer cleared after tab switch" cannot
@@ -1381,6 +1403,12 @@ class SleuthController {
     for (final detector in _detectors) {
       if (detector is PlatformChannelDetector) {
         detector.reset();
+      } else if (detector is RepaintDetector) {
+        // Clear paint accumulator + last/peak observables + pending
+        // debug snapshot so a back-to-back leg cannot inherit the prior
+        // leg's `peakObservedPaintCount` via the `_paintEventCount >
+        // _peakObservedPaintCount` window-close comparison.
+        detector.resetCaptureState();
       }
     }
     // Clear FrameTimingDetector's frame buffer + ephemeral _issues so the
@@ -1420,23 +1448,24 @@ class SleuthController {
           'Must be exactly one of '
               '${ProfileCaptureSchema.allowedRoles.toList()..sort()}');
     }
+    _lastCaptureExportFailure = null;
     final client = _vmClient;
     if (client == null || !client.isConnected) {
-      debugPrint(
-        'Sleuth.exportCaptureJson($scenario): null return — VM service '
-        'client ${client == null ? "not initialised" : "disconnected"}. '
-        'Capture mode requires wireless debug or simulator (VM+). '
-        'USB-tethered FRAME mode will not work.',
-      );
+      final reason =
+          'VM service client ${client == null ? "not initialised" : "disconnected"}. '
+          'Capture mode requires wireless debug or simulator (VM+). '
+          'USB-tethered FRAME mode will not work.';
+      _lastCaptureExportFailure = reason;
+      debugPrint('Sleuth.exportCaptureJson($scenario): null return — $reason');
       return null;
     }
     final events = await client.fetchRawTimelineEventsJson();
     if (events.isEmpty) {
-      debugPrint(
-        'Sleuth.exportCaptureJson($scenario): null return — VM service '
-        'returned 0 timeline events. Either the buffer was just cleared '
-        'or the VM service handshake is incomplete.',
-      );
+      const reason = 'VM service returned 0 timeline events. Either the '
+          'buffer was just cleared or the VM service handshake is '
+          'incomplete.';
+      _lastCaptureExportFailure = reason;
+      debugPrint('Sleuth.exportCaptureJson($scenario): null return — $reason');
       return null;
     }
     // Locate scenario.begin / scenario.end pair MATCHING the requested
@@ -1495,20 +1524,16 @@ class SleuthController {
               e['name'] == 'sleuth.scenario.begin' ||
               e['name'] == 'sleuth.scenario.end')
           .length;
-      debugPrint(
-        'Sleuth.exportCaptureJson($scenario): null return — scenario '
-        'markers not found (begin=$beginTs, end=$endTs). '
-        '$scenarioMarkersInBuffer scenario markers exist in buffer but '
-        'none match scenario name "$scenario". Causes: (1) '
-        'captureMode is OFF — verify SleuthConfig(captureMode: true) '
-        'AND `--dart-define=SLEUTH_CAPTURE_MODE=true` was passed at '
-        'launch (the example app reads the dart-define into the config '
-        'at runApp time; an in-process flag flip will NOT take '
-        'effect — fully kill and re-launch). (2) Scenario name '
-        'mismatch between markScenarioBegin/End and exportCaptureJson '
-        'arguments. (3) VM trace ring buffer overflowed and rolled the '
-        'markers off — long allocation phases may saturate the buffer.',
-      );
+      final reason = 'Scenario markers not found (begin=$beginTs, end=$endTs). '
+          '$scenarioMarkersInBuffer scenario markers exist in buffer but '
+          'none match scenario name "$scenario". Causes: (1) captureMode '
+          'is OFF — verify SleuthConfig(captureMode: true) AND '
+          '`--dart-define=SLEUTH_CAPTURE_MODE=true` was passed at launch. '
+          '(2) Scenario name mismatch between markScenarioBegin/End and '
+          'exportCaptureJson arguments. (3) VM trace ring buffer '
+          'overflowed and rolled the markers off.';
+      _lastCaptureExportFailure = reason;
+      debugPrint('Sleuth.exportCaptureJson($scenario): null return — $reason');
       return null;
     }
     final spanLo = beginTs;
@@ -1545,29 +1570,31 @@ class SleuthController {
       }
       if (role == 'below') {
         if (inSpanIssueCount > 0) {
+          final reason =
+              'role="below" must contain ZERO "$expectedName" events '
+              'in scenario span [$spanLo, $spanHi]; found '
+              '$inSpanIssueCount. Re-record below the threshold or '
+              'pick a smaller magnitude. The detector should not '
+              'fire at sub-threshold input.';
+          _lastCaptureExportFailure = reason;
           debugPrint(
-            'Sleuth.exportCaptureJson($scenario): null return — '
-            'role="below" must contain ZERO "$expectedName" events '
-            'in scenario span [$spanLo, $spanHi]; found '
-            '$inSpanIssueCount. Re-record below the threshold or '
-            'pick a smaller magnitude. The detector should not '
-            'fire at sub-threshold input.',
-          );
+              'Sleuth.exportCaptureJson($scenario): null return — $reason');
           return null;
         }
       } else {
         if (inSpanIssueCount == 0) {
+          final reason =
+              'role="$role" must contain at least one "$expectedName" '
+              'event in scenario span [$spanLo, $spanHi]; found 0. '
+              'Causes: (1) detector did not fire (workload below '
+              'threshold despite operator intent); (2) emission fell '
+              'outside the scenario span (timer phase issue — extend '
+              'span or call detector\'s flushXxx hook before '
+              'markScenarioEnd); (3) capture-mode dedup recorded the '
+              'event but timeline buffer rolled it off (overflow).';
+          _lastCaptureExportFailure = reason;
           debugPrint(
-            'Sleuth.exportCaptureJson($scenario): null return — '
-            'role="$role" must contain at least one "$expectedName" '
-            'event in scenario span [$spanLo, $spanHi]; found 0. '
-            'Causes: (1) detector did not fire (workload below '
-            'threshold despite operator intent); (2) emission fell '
-            'outside the scenario span (timer phase issue — extend '
-            'span or call detector\'s flushXxx hook before '
-            'markScenarioEnd); (3) capture-mode dedup recorded the '
-            'event but timeline buffer rolled it off (overflow).',
-          );
+              'Sleuth.exportCaptureJson($scenario): null return — $reason');
           return null;
         }
       }

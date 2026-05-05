@@ -164,11 +164,15 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
     {'raster_dominance', 'expensive_gpu_nodes'},
     null,
   ),
-  DetectorType.repaint: (
-    'test/validation/repaint_reproducer_test.dart',
-    {'excessive_repaint', 'excessive_repaint_debug'},
-    {'repaint_debug'},
-  ),
+  // RepaintDetector lifted out of the v0.17.4 reproducerOnly batch:
+  // base stays reproducerOnly but the `excessive_repaint.warning`
+  // family is raised to runtimeVerified via perStableIdTier on top of
+  // an iPhone 12 / iOS 17.5 / Flutter 3.41.4 capture triad. The
+  // remaining families (`excessive_repaint_debug`,
+  // `repaint_debug_<typeName>`) stay reproducerOnly. See the dedicated
+  // `RepaintDetector pinned at runtimeVerified for excessive_repaint`
+  // anchor block below for the per-family-tier + bracket-field
+  // invariants.
 };
 
 /// Detectors anchored by NetworkMonitor + FrameTiming single-detector
@@ -192,6 +196,7 @@ const _singleDetectorAnchors = <DetectorType>{
   DetectorType.memoryPressure,
   DetectorType.platformChannel,
   DetectorType.rebuild,
+  DetectorType.repaint,
 };
 
 void main() {
@@ -1235,6 +1240,87 @@ void main() {
               'evidence.');
     });
 
+    test(
+        'RepaintDetector pinned at runtimeVerified for excessive_repaint '
+        '(v0.21.0)', () {
+      // Anti-tautology anchor: excessive_repaint raised from base
+      // reproducerOnly to runtimeVerified via perStableIdTier (warning
+      // tier, > 30 paints/sec aggregate over a 1 s VM window) backed
+      // by three on-device captures (iPhone 12 / iOS 17.5 /
+      // Flutter 3.41.4). Other families `excessive_repaint_debug` and
+      // parametric `repaint_debug_<typeName>` stay at base
+      // reproducerOnly. Captures use a 32-distinct-CustomPainter
+      // workload so the per-widget debug gate stays sub-threshold and
+      // emission flows through the VM aggregate path.
+      final BaseDetector? rp = controller.detectorsForAudit
+          .where((d) => d.type == DetectorType.repaint)
+          .cast<BaseDetector?>()
+          .firstWhere((_) => true, orElse: () => null);
+      expect(rp, isNotNull,
+          reason: 'RepaintDetector should be registered by default.');
+      expect(rp, isA<DetectorMetadataProvider>());
+      final meta = (rp as DetectorMetadataProvider).validationMetadata;
+      expect(meta.tier, EvidenceTier.reproducerOnly,
+          reason: 'Base tier stays reproducerOnly — excessive_repaint raise '
+              'lives in perStableIdTier so the debug-path families are not '
+              'mechanically over-claimed at runtimeVerified.');
+      expect(meta.perStableIdTier?['excessive_repaint'],
+          EvidenceTier.runtimeVerified,
+          reason: 'v0.21.0 raises excessive_repaint warning via on-device '
+              'captures; the raise lives in perStableIdTier so the audit '
+              'gate routes off effectiveMaxTier.');
+      expect(meta.effectiveTierFor('excessive_repaint'),
+          EvidenceTier.runtimeVerified);
+      expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified);
+      expect(meta.reproducerPath,
+          equals('test/validation/repaint_reproducer_test.dart'));
+      expect(meta.citationUrl, isNull);
+      expect(
+          meta.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/repaint/excessive_repaint_below.json',
+            'test/validation/captures/repaint/excessive_repaint_at.json',
+            'test/validation/captures/repaint/excessive_repaint_above.json',
+          ]));
+      expect(meta.bracketThreshold, equals(30),
+          reason: 'Detector gate is `paintCount > paintFrequencyThreshold` '
+              '(default 30); first integer firing is 31.');
+      expect(meta.bracketUnit, equals('paints'));
+      expect(meta.bracketStableId, equals('excessive_repaint'));
+      expect(meta.bracketSeverityLabel, equals('warning'));
+      expect(meta.bracketAtTolerance, equals(0.50),
+          reason: 'at-band [30, 45]; matches the 0.50 atTolerance used by '
+              'jank_detected and request_frequency. iOS 60Hz scheduler '
+              'jitter on staggered Timer ticks across 32 widget types '
+              'varies by ±10 paints/sec window-to-window — the band must '
+              'be wide enough to absorb that variance without overlapping '
+              'the above-band.');
+      expect(meta.aboveCeilingMultiplier, equals(2.0),
+          reason: 'above-band ceiling 30 × 2.0 = 60 strictly under the '
+              '`> threshold * 2 = 60` critical-tier fire boundary; above '
+              'leg targets warning emissions in (45, 60) so the audit '
+              'sees pure warning evidence without ambient critical fire.');
+      expect(meta.observedAxisArgKey, equals('observedPaintCount'),
+          reason: 'Detector stamps `extraTraceArgs.observedPaintCount` (the '
+              '1 s window aggregate count) on every excessive_repaint '
+              'emission for the schema cross-check.');
+      expect(meta.observedAxisReduction, equals('max'),
+          reason: 'Multiple in-span emissions per leg (one per 1 s window '
+              'crossing threshold); max-reduction picks the worst signal '
+              'rather than the tail-off final window when widgets unmount.');
+      expect(
+          meta.coveredThresholds, equals(const {'excessive_repaint.warning'}),
+          reason: 'Severity-scoped to warning only; critical (>60 paints/sec) '
+              'stays implicitly reproducerOnly.');
+      expect(meta.coveredStableIds,
+          equals(const {'excessive_repaint', 'excessive_repaint_debug'}),
+          reason: 'Both VM and debug-aggregate families exist on the '
+              'detector; perStableIdTier raises only excessive_repaint.');
+      expect(meta.parametricFamilies, equals(const {'repaint_debug'}),
+          reason: 'Parametric `repaint_debug_<typeName>` family unchanged — '
+              'debug per-widget path stays at base reproducerOnly.');
+    });
+
     test('PlatformChannelDetector pinned at runtimeVerified (v0.19.4)', () {
       // Anti-tautology anchor for the v0.19.4 raise. PlatformChannel
       // moved from `reproducerOnly` to `runtimeVerified` (warning tier,
@@ -2106,7 +2192,7 @@ void main() {
         unit: 'frames',
         observedMin: 1.0,
         observedMax: 1.0,
-        consumeBy: '0.21.0',
+        consumeBy: '0.22.0',
         owningClaim: 'sustained_jank.critical (re-raise pending schema rework)',
         rationale: 'Below-leg idle scenario; 0 in-span sustained_jank.critical '
             'events. expectedMagnitude.observed clamped to 1.0 because the '
@@ -2122,7 +2208,7 @@ void main() {
         unit: 'frames',
         observedMin: 3.0,
         observedMax: 3.0,
-        consumeBy: '0.21.0',
+        consumeBy: '0.22.0',
         owningClaim: 'sustained_jank.critical (re-raise pending schema rework)',
         rationale: 'At-leg with K=3 fixed-count severe-frame Ticker injection. '
             'In-span sustained_jank.critical events are present but the '
@@ -2141,7 +2227,7 @@ void main() {
         unit: 'frames',
         observedMin: 5.0,
         observedMax: 5.0,
-        consumeBy: '0.21.0',
+        consumeBy: '0.22.0',
         owningClaim: 'sustained_jank.critical (re-raise pending schema rework)',
         rationale:
             'Above-leg with K=5 fixed-count severe-frame Ticker injection. '

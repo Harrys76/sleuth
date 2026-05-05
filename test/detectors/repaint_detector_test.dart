@@ -880,6 +880,132 @@ void main() {
       expect(detector.issues, isEmpty);
     });
   });
+
+  group('excessive_repaint capture-mode plumbing', () {
+    late RepaintDetector detector;
+    late DateTime fakeNow;
+
+    setUp(() {
+      fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
+      detector = RepaintDetector(clock: () => fakeNow);
+      detector.vmConnected = true;
+    });
+
+    test('observedPaintCount stamped on emission equals paintCount', () {
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highPaintActivityData(paintCount: 35));
+      detector.evaluateNow();
+
+      expect(detector.issues, hasLength(1));
+      final issue = detector.issues.first;
+      expect(issue.stableId, 'excessive_repaint');
+      expect(issue.extraTraceArgs?['observedPaintCount'], '35');
+    });
+
+    test('window-completion stamps lastObservedPaintCount even sub-threshold',
+        () {
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highPaintActivityData(paintCount: 6));
+      // 6 paints/sec is below 30 threshold — no issue should fire,
+      // but the observable getter must still surface the measurement
+      // for capture-mode below-leg export.
+      detector.evaluateNow();
+
+      expect(detector.issues, isEmpty);
+      expect(detector.lastObservedPaintCount, 6);
+    });
+
+    test('flushPaintEvaluation populates observable without emitting issues',
+        () {
+      detector.processTimelineData(highPaintActivityData(paintCount: 12));
+      // No window has elapsed (fakeNow not advanced) — _paintEventCount
+      // is staged but _pendingVmWindowCount is null.
+      expect(detector.lastObservedPaintCount, 0);
+
+      detector.flushPaintEvaluation();
+      expect(detector.lastObservedPaintCount, 12);
+      expect(detector.issues, isEmpty,
+          reason: 'flush is observable refresh only — never emits');
+    });
+
+    test('flushPaintEvaluation does NOT update peakObservedPaintCount', () {
+      // Partial-window counts must not leak into peak — peak is the
+      // capture-mode magnitude export and must match an in-span
+      // emission's observedPaintCount arg under the audit gate's
+      // observedAxisReduction: 'max'. flushPaintEvaluation never
+      // triggers _evaluate, so the partial-window count never appears
+      // as a trace record; updating peak from it would produce an
+      // exported magnitude with no matching emission.
+      detector.processTimelineData(highPaintActivityData(paintCount: 50));
+      expect(detector.peakObservedPaintCount, 0);
+
+      detector.flushPaintEvaluation();
+      expect(detector.lastObservedPaintCount, 50,
+          reason: 'flush updates the last observable');
+      expect(detector.peakObservedPaintCount, 0,
+          reason: 'peak stays bound to naturally-closed windows only');
+    });
+
+    test('resetCaptureState clears all per-leg accumulator fields', () {
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highPaintActivityData(paintCount: 35));
+      detector.evaluateNow();
+      expect(detector.issues, isNotEmpty);
+      expect(detector.lastObservedPaintCount, 35);
+      expect(detector.peakObservedPaintCount, 35);
+
+      detector.resetCaptureState();
+
+      expect(detector.lastObservedPaintCount, 0);
+      expect(detector.peakObservedPaintCount, 0);
+      expect(detector.issues, isEmpty);
+      expect(detector.highlights, isEmpty);
+      // Subsequent processTimelineData on a fresh window should accumulate
+      // from zero, not carry over.
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highPaintActivityData(paintCount: 6));
+      detector.evaluateNow();
+      expect(detector.lastObservedPaintCount, 6);
+      expect(detector.peakObservedPaintCount, 6);
+    });
+
+    test('peakObservedPaintCount tracks max across multiple windows', () {
+      // Window 1: 12 paints (sub-threshold)
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highPaintActivityData(paintCount: 12));
+      detector.evaluateNow();
+      expect(detector.lastObservedPaintCount, 12);
+      expect(detector.peakObservedPaintCount, 12);
+
+      // Window 2: 45 paints (above threshold — peak)
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highPaintActivityData(paintCount: 45));
+      detector.evaluateNow();
+      expect(detector.lastObservedPaintCount, 45);
+      expect(detector.peakObservedPaintCount, 45);
+
+      // Window 3: 8 paints (lower than peak — peak holds)
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highPaintActivityData(paintCount: 8));
+      detector.evaluateNow();
+      expect(detector.lastObservedPaintCount, 8);
+      expect(detector.peakObservedPaintCount, 45,
+          reason: 'peak must hold max across all windows since reset');
+    });
+
+    test('dedupIdentityMicros stamped on emission', () {
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(highPaintActivityData(paintCount: 35));
+      detector.evaluateNow();
+
+      expect(detector.issues, hasLength(1));
+      // The detector reads DateTime.now() (not the injected clock) for
+      // the dedup stamp, mirroring NetworkMonitor's pattern. We only
+      // assert the field is populated; the value itself is wall-clock.
+      expect(detector.issues.first.dedupIdentityMicros, isNotNull);
+      expect(detector.issues.first.dedupIdentityMicros, greaterThan(0));
+    });
+  });
 }
 
 class _TestPaintWidget extends StatelessWidget {

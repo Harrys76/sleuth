@@ -62,6 +62,7 @@ import 'src/controller/sleuth_controller.dart';
 import 'src/detectors/network_monitor_detector.dart'
     show NetworkMonitorDetector;
 import 'src/detectors/rebuild_detector.dart' show RebuildDetector;
+import 'src/detectors/repaint_detector.dart' show RepaintDetector;
 import 'src/models/fix_verification_result.dart';
 import 'src/models/route_session.dart';
 import 'src/models/session_snapshot.dart';
@@ -530,6 +531,30 @@ class Sleuth {
   static RebuildDetector? get rebuildDetector {
     if (kReleaseMode) return null;
     return _controller?.rebuildDetector;
+  }
+
+  /// Public accessor for the [RepaintDetector] instance. Capture
+  /// screens read [RepaintDetector.lastObservedPaintCount] after
+  /// driving a paint-heavy scenario and call
+  /// [RepaintDetector.flushPaintEvaluation] so the wrapped magnitude
+  /// reflects the detector-measured 1s-window paint count rather than
+  /// the operator's plan. Returns null when [Sleuth] has not been
+  /// initialised, in release mode, or when [DetectorType.repaint] was
+  /// excluded from [SleuthConfig.enabledDetectors].
+  static RepaintDetector? get repaintDetector {
+    if (kReleaseMode) return null;
+    return _controller?.repaintDetector;
+  }
+
+  /// Reason the most recent [exportCaptureJson] call returned null.
+  /// Capture screens display this in their in-app log so operators
+  /// can diagnose failures without parsing flutter-tool console
+  /// output. Cleared at the start of every [exportCaptureJson] call.
+  /// Returns null in release mode or before any capture export has
+  /// been attempted.
+  static String? get lastCaptureExportFailure {
+    if (kReleaseMode) return null;
+    return _controller?.lastCaptureExportFailure;
   }
 
   /// Diagnostic snapshot of capture-mode preconditions. Capture screens

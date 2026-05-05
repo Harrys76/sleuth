@@ -59,13 +59,15 @@ test/
 
 ## Current state
 
-**v0.20.2** (current) — Example-app polish: tile subtitles trimmed to ≤40 chars; heavy_compute description drops hard "300 ms" claim; network_stress search uses `Uri.replace(queryParameters)` (RFC 3986 encoding). No detector logic, public API, or schema change.
+**v0.21.0** (current) — `RepaintDetector.excessive_repaint.warning` raised to runtimeVerified via `perStableIdTier` on three iPhone 12 / iOS 17.5 / Flutter 3.41.4 captures (32-distinct-`CustomPaint` workload routes emission through the VM aggregate path). Adds `peakObservedPaintCount` + `flushPaintEvaluation()` + `resetCaptureState()` plumbing on the detector and `Sleuth.repaintDetector` / `Sleuth.lastCaptureExportFailure` static accessors.
 
-**v0.20.1** — `FrameTimingDetector` + `RebuildDetector` stamp `extraTraceArgs.lifecyclePhase: 'startup' | 'steady'` per emission via `DetectorThresholds.startupPhaseWindowSeconds` (default 5). Emission-time semantics; capture-mode + audit-gate replay only.
+**v0.20.2** — Example-app polish: tile subtitles trimmed to ≤40 chars; heavy_compute description drops hard "300 ms" claim; network_stress search uses `Uri.replace(queryParameters)` (RFC 3986 encoding).
 
-**v0.20.0** — BREAKING: 5 low-value detectors removed (`animatedBuilder`, `opacity`, `shallowRebuildRisk`, `nestedScroll`, `globalKey`); 23 → 18 detectors. Orphaned config fields removed. v0.19 snapshots still deserialize (stableId-keyed).
+**v0.20.1** — `FrameTimingDetector` + `RebuildDetector` stamp `extraTraceArgs.lifecyclePhase: 'startup' | 'steady'` per emission via `DetectorThresholds.startupPhaseWindowSeconds` (default 5).
 
-**Distribution (current)**: 16/18 reproducerOnly base + 2/18 runtimeVerified base, 11 effective runtimeVerified family-severity pairs across 8 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}).
+**v0.20.0** — BREAKING: 5 low-value detectors removed (`animatedBuilder`, `opacity`, `shallowRebuildRisk`, `nestedScroll`, `globalKey`); 23 → 18 detectors.
+
+**Distribution (current)**: 16/18 reproducerOnly base + 2/18 runtimeVerified base, 12 effective runtimeVerified family-severity pairs across 9 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}, excessive_repaint.warning).
 
 ### Recent releases (one-line)
 

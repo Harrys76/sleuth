@@ -24,6 +24,7 @@ import 'demos/network_monitor_capture_screen.dart';
 import 'demos/network_stress_demo.dart';
 import 'demos/non_lazy_list_demo.dart';
 import 'demos/platform_channel_capture_screen.dart';
+import 'demos/repaint_capture_screen.dart';
 import 'demos/platform_channel_demo.dart';
 import 'demos/rebuild_activity_capture_screen.dart';
 import 'demos/rebuild_hotspot_demo.dart';
@@ -396,6 +397,13 @@ class DemoHome extends StatelessWidget {
             subtitle: 'platform_channel_traffic warning bracket',
             color: Colors.blueGrey,
             builder: (_) => const PlatformChannelCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.brush,
+            title: 'Repaint',
+            subtitle: 'excessive_repaint warning bracket',
+            color: Colors.pink,
+            builder: (_) => const RepaintCaptureScreen(),
           ),
         ],
       ),

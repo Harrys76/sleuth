@@ -72,6 +72,39 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   int _paintEventCount = 0;
   DateTime _windowStart;
 
+  /// Last completed-window aggregate paint count, refreshed every time
+  /// the 1s VM window closes regardless of whether the count crossed
+  /// [paintFrequencyThreshold]. Capture-mode tooling reads this so a
+  /// sub-threshold leg's exported magnitude reflects what the detector
+  /// measured, not the operator's plan.
+  // Window-completion writes this on every tick; resetCaptureState
+  // zeroes it on per-leg boundaries; cannot be final.
+  // ignore: prefer_final_fields
+  int _lastObservedPaintCount = 0;
+
+  /// Peak window aggregate paint count seen since the last
+  /// [resetCaptureState] call. Capture-mode operators export this as
+  /// the leg's magnitude so the value matches the audit gate's
+  /// `'max'` axis reduction across in-span emissions. Without peak
+  /// tracking, [_lastObservedPaintCount] alone reads the most-recent
+  /// (post-workload, near-idle) window and the exported magnitude
+  /// diverges from what the detector actually emitted.
+  // Updated at every window close on a >= comparison; reset at per-leg
+  // boundaries; cannot be final.
+  // ignore: prefer_final_fields
+  int _peakObservedPaintCount = 0;
+
+  /// Detector-measured paint count from the most recent completed 1s
+  /// window. Capture-mode operators export this for sub-threshold legs
+  /// where no `excessive_repaint` issue fires.
+  int get lastObservedPaintCount => _lastObservedPaintCount;
+
+  /// Peak detector-measured paint count seen across all 1s VM windows
+  /// since the last [resetCaptureState] call. Use for capture-mode
+  /// magnitude export so the value matches the audit gate's `'max'`
+  /// axis reduction. Returns 0 if no window has completed since reset.
+  int get peakObservedPaintCount => _peakObservedPaintCount;
+
   // -- Staging fields (nullable = no fresh data) --
 
   /// null = no VM window completed since last evaluate.
@@ -101,6 +134,12 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       _pendingVmWindowCount = null;
       _pendingEnrichedDirtyTotal = 0;
       _stagedEnrichedDirtyTotal = null;
+      // Capture-mode observables also clear on disconnect so a leg
+      // straddling a VM disconnect cannot export a stale peak from
+      // before the drop. Reconnected post-disconnect runs accumulate
+      // a fresh peak from the new windows.
+      _lastObservedPaintCount = 0;
+      _peakObservedPaintCount = 0;
     } else if (!wasConnected) {
       // Reconnect: stage a fresh-zero so the next _evaluate() flushes
       // stale debug issues that are incompatible with VM mode.
@@ -141,6 +180,13 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     final now = _clock();
     if (now.difference(_windowStart).inMilliseconds >= 1000) {
       _pendingVmWindowCount = _paintEventCount;
+      // Refresh capture-mode observable on every window close — captured
+      // BEFORE _evaluateVmData's threshold guard so sub-threshold legs
+      // still expose a measurement to flushPaintEvaluation()/getter.
+      _lastObservedPaintCount = _paintEventCount;
+      if (_paintEventCount > _peakObservedPaintCount) {
+        _peakObservedPaintCount = _paintEventCount;
+      }
       // Stage enrichment atomically with the window count
       _stagedEnrichedDirtyTotal =
           _pendingEnrichedDirtyTotal > 0 ? _pendingEnrichedDirtyTotal : null;
@@ -148,6 +194,57 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       _paintEventCount = 0;
       _windowStart = now;
     }
+  }
+
+  /// Forces an immediate close of the in-flight 1s VM window so capture
+  /// tooling can read [lastObservedPaintCount] without waiting for the
+  /// elapsed timer. Idempotent — re-running with no new paint events
+  /// preserves the prior values. Pure observable refresh; does NOT emit
+  /// issues (issue emission is owned by [_evaluateVmData], reached via
+  /// [_evaluate], which only runs from the scan pipeline).
+  ///
+  /// Updates only [_lastObservedPaintCount] — does NOT update
+  /// [_peakObservedPaintCount]. The peak observable is restricted to
+  /// counts from naturally-completed windows (those that flow through
+  /// [processTimelineData]'s window-close path AND therefore through
+  /// [_evaluate] → [_evaluateVmData] for issue emission). A capture
+  /// screen reading [peakObservedPaintCount] is guaranteed to read a
+  /// value that has a matching `extraTraceArgs.observedPaintCount` arg
+  /// on at least one in-span emission record (modulo threshold-gate
+  /// suppression for sub-threshold peaks). This keeps the audit-gate's
+  /// `observedAxisReduction: 'max'` cross-check on emission records
+  /// honest — the exported `expectedMagnitude.observed` cannot exceed
+  /// every emission's `observedPaintCount` arg.
+  void flushPaintEvaluation() {
+    if (_paintEventCount > 0) {
+      _pendingVmWindowCount = _paintEventCount;
+      _lastObservedPaintCount = _paintEventCount;
+      _stagedEnrichedDirtyTotal =
+          _pendingEnrichedDirtyTotal > 0 ? _pendingEnrichedDirtyTotal : null;
+      _pendingEnrichedDirtyTotal = 0;
+      _paintEventCount = 0;
+      _windowStart = _clock();
+    }
+  }
+
+  /// Clears all per-leg accumulator state so capture screens can
+  /// re-enter a fresh below/at/above leg without leakage from the
+  /// prior leg's paint counts, debug snapshot, or pending issues.
+  /// `_vmConnected` is owned by the controller and intentionally left
+  /// untouched.
+  void resetCaptureState() {
+    _paintEventCount = 0;
+    _pendingVmWindowCount = null;
+    _lastObservedPaintCount = 0;
+    _peakObservedPaintCount = 0;
+    _pendingEnrichedDirtyTotal = 0;
+    _stagedEnrichedDirtyTotal = null;
+    _pendingDebugSnapshot = null;
+    _windowStart = _clock();
+    _issues.clear();
+    _highlights.clear();
+    _hotTypes = const {};
+    _hotCounts.clear();
   }
 
   Map<String, double> _hotTypes = const {};
@@ -292,6 +389,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
 
     final (hint, effort) = FixHintBuilder.excessiveRepaintVm();
 
+    final detectedAt = DateTime.now();
     _issues.add(PerformanceIssue(
       stableId: 'excessive_repaint',
       severity: paintCount > paintFrequencyThreshold * 2
@@ -305,7 +403,12 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       fixHint: hint,
       fixEffort: effort,
       observationSource: ObservationSource.vmTimeline,
-      detectedAt: DateTime.now(),
+      detectedAt: detectedAt,
+      // Audit gate cross-checks `expectedMagnitude.observed` against
+      // this detector-side measurement so a regression in window
+      // accounting cannot certify the wrong magnitude.
+      dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
+      extraTraceArgs: {'observedPaintCount': paintCount.toString()},
       confidenceReason: 'Measured directly from VM timeline paint events',
     ));
   }
@@ -455,17 +558,42 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
             '(per-widget attribution, declared via `parametricFamilies` '
             'since v0.17.3 — concrete `repaint_debug_CustomPaint` credits '
             'the family via the `_` separator matcher). VM → '
-            'TimelineParser → detector boundary exercised since v0.17.6 '
-            'via cross-harness reproducer (raw `List<TimelineEvent>` '
-            'through `parseAndAssertShape` + real `pumpWidget` for the '
-            'debug + structural legs). Animation-owner Gate B suppression '
-            'pinned with broad `expect(issues, isEmpty)` so a regression '
-            'cannot leak through any of the three emission paths. '
-            'Fixtures synthetic, same-author provenance. Not runtime-'
-            'verified against refresh-rate-specific baselines or '
-            'externally cited.',
+            'TimelineParser → detector boundary exercised via '
+            'cross-harness reproducer (raw `List<TimelineEvent>` through '
+            '`parseAndAssertShape` + real `pumpWidget` for the debug + '
+            'structural legs). Animation-owner Gate B suppression pinned '
+            'with broad `expect(issues, isEmpty)` so a regression cannot '
+            'leak through any of the three emission paths. The VM-path '
+            '`excessive_repaint.warning` family is runtime-verified via '
+            '`additionalBrackets[0]` with three iPhone 12 / iOS 17.5 / '
+            'Flutter 3.41.4 captures driven by 32 distinct CustomPainter '
+            'types so the per-widget debug gate stays sub-threshold and '
+            'emission flows through the VM aggregate path; `peakObserved'
+            'PaintCount` populates `expectedMagnitude.observed` so the '
+            'audit-gate `\'max\'` axis reduction matches the emitted '
+            'observedPaintCount. atTolerance 0.50 (at-band [30, 45]) '
+            'absorbs iOS animation-tick scheduler jitter at 60 Hz '
+            'mirroring the request_frequency tolerance. '
+            '`excessive_repaint_debug` and `repaint_debug_<typeName>` '
+            'remain reproducerOnly — no per-widget debug-path captures.',
         reproducerPath: 'test/validation/repaint_reproducer_test.dart',
         coveredStableIds: {'excessive_repaint', 'excessive_repaint_debug'},
         parametricFamilies: {'repaint_debug'},
+        perStableIdTier: {'excessive_repaint': EvidenceTier.runtimeVerified},
+        coveredThresholds: {'excessive_repaint.warning'},
+        profileCapturePaths: [
+          'test/validation/captures/repaint/excessive_repaint_below.json',
+          'test/validation/captures/repaint/excessive_repaint_at.json',
+          'test/validation/captures/repaint/excessive_repaint_above.json',
+        ],
+        bracketThreshold: 30,
+        bracketUnit: 'paints',
+        bracketStableId: 'excessive_repaint',
+        bracketSeverityLabel: 'warning',
+        bracketAtTolerance: 0.50,
+        aboveCeilingMultiplier: 2.0,
+        observedAxisArgKey: 'observedPaintCount',
+        observedAxisTolerance: 0.15,
+        observedAxisReduction: 'max',
       );
 }
