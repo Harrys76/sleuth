@@ -65,9 +65,7 @@ class ProfileCaptureSchema {
   /// documented in `doc/reference_devices.md`. The matrix rotates once per
   /// calendar year in a dedicated release — not silently.
   static const Map<String, Set<String>> approvedDevicePairs = {
-    'iPhone 13 mini': {'iOS 17.6.1'},
     'iPhone 12': {'iOS 17.5'},
-    'Pixel 7': {'Android 14'},
   };
 
   /// Captures must be recorded under a Flutter stable release matching

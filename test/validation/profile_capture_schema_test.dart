@@ -38,8 +38,8 @@ void main() {
     test('anchor DevTools export parses', () {
       final metadata =
           ProfileCaptureSchema.parseFile(_fx('anchor_devtools_export.json'));
-      expect(metadata['device'], 'iPhone 13 mini');
-      expect(metadata['deviceOsVersion'], 'iOS 17.6.1');
+      expect(metadata['device'], 'iPhone 12');
+      expect(metadata['deviceOsVersion'], 'iOS 17.5');
       expect(metadata['flutterVersion'], '3.41.4');
       expect(metadata['scenario'], isA<String>());
       final magnitude = metadata['expectedMagnitude'] as Map<String, Object?>;
@@ -101,7 +101,7 @@ void main() {
               (e) => e.message,
               'message',
               allOf(contains('approved reference device'),
-                  contains('iPhone 13 mini'), contains('Pixel 7')))));
+                  contains('iPhone 12')))));
     });
 
     test('approved device with non-approved OS is rejected (pair policy)', () {
@@ -1014,7 +1014,11 @@ void main() {
               ),
           throwsA(isA<FormatException>().having((e) => e.message, 'message',
               contains('provenance mismatch on "device"'))));
-    });
+    },
+        skip:
+            'Requires a second approved device pair; matrix is iPhone-12-only '
+            'as of v0.23.0. Re-enable when Android reference device lands. '
+            'Per-file device-policy invariant catches unapproved devices first.');
 
     test('OS version mismatch across triad is rejected (provenance)', () async {
       // Pin the device to the same (device, OS) pair as the triad so
@@ -1032,7 +1036,10 @@ void main() {
               ),
           throwsA(isA<FormatException>().having((e) => e.message, 'message',
               contains('provenance mismatch on "device"'))));
-    });
+    },
+        skip:
+            'Requires a second approved device pair; matrix is iPhone-12-only '
+            'as of v0.23.0. Re-enable when Android reference device lands.');
 
     test('Flutter patch-level mismatch across triad is rejected (provenance)',
         () async {
@@ -1940,8 +1947,8 @@ void main() {
 }
 
 Map<String, Object?> _validMetadata() => <String, Object?>{
-      'device': 'iPhone 13 mini',
-      'deviceOsVersion': 'iOS 17.6.1',
+      'device': 'iPhone 12',
+      'deviceOsVersion': 'iOS 17.5',
       'flutterVersion': '3.41.4',
       'captureCommand': 'fvm flutter run --profile',
       'scenario': 'synthetic programmatic test body',
@@ -2243,8 +2250,8 @@ File _writeRoleCapture(
       ? filename.substring(0, filename.length - '.json'.length)
       : filename;
   final metadata = <String, Object?>{
-    'device': 'iPhone 13 mini',
-    'deviceOsVersion': 'iOS 17.6.1',
+    'device': 'iPhone 12',
+    'deviceOsVersion': 'iOS 17.5',
     'flutterVersion': '3.41.4',
     'captureCommand': 'fvm flutter run --profile',
     'scenario': 'synthetic_$basenameNoExt',

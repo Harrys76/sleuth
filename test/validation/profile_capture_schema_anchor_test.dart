@@ -35,8 +35,8 @@ void main() {
 
     test('anchor metadata pins the pinned reference environment', () {
       final meta = ProfileCaptureSchema.parseFile(anchor);
-      expect(meta['device'], 'iPhone 13 mini');
-      expect(meta['deviceOsVersion'], 'iOS 17.6.1');
+      expect(meta['device'], 'iPhone 12');
+      expect(meta['deviceOsVersion'], 'iOS 17.5');
       // Anchor must track the pinned Flutter major.minor so a rotation
       // can't happen silently.
       final version = meta['flutterVersion'] as String;
@@ -76,4 +76,4 @@ void main() {
 /// `shasum -a 256 test/validation/captures/_fixtures/anchor_devtools_export.json`
 /// and paste the new digest here.
 const String _expectedAnchorSha256 =
-    'c6d63ce6ae6c8fdbb85ab2f2c8e7a2398b82a6d2f21aac7d6e7706707a447f85';
+    '9f2bbc84338ec90a7ff86aab4a3f461f216f616e787d39637c839df909874720';

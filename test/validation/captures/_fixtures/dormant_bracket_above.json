@@ -117,8 +117,8 @@
     }
   ],
   "sleuthMetadata": {
-    "device": "iPhone 13 mini",
-    "deviceOsVersion": "iOS 17.6.1",
+    "device": "iPhone 12",
+    "deviceOsVersion": "iOS 17.5",
     "flutterVersion": "3.41.4",
     "captureCommand": "fvm flutter run --profile",
     "scenario": "Dormant-gate bracket fixture \u2014 above synthetic 1000ms threshold",

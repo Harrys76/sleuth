@@ -80,7 +80,7 @@ for a future raise.
    (`ProfileCaptureSchema.approvedFlutterMajorMinor`, currently `3.41.x`).
    If it doesn't, switch with `fvm use <version>` before recording.
 2. Plug in a device from `ProfileCaptureSchema.approvedDevicePairs`
-   (iPhone 13 mini / iPhone 12 / Pixel 7 as of v0.16.4). Confirm the
+   (iPhone 12 / iPhone 12 / iPhone 12 as of v0.16.4). Confirm the
    OS version matches the approved set for that device — pair-matched
    policy rejects mismatches.
 3. From the `example/` directory, run:
@@ -103,8 +103,8 @@ for a future raise.
 {
   "traceEvents": [ /* Chrome Trace Event Format, unchanged from DevTools */ ],
   "sleuthMetadata": {
-    "device":          "iPhone 13 mini",                    // required — pinned
-    "deviceOsVersion": "iOS 17.6.1",                        // required — pinned
+    "device":          "iPhone 12",                    // required — pinned
+    "deviceOsVersion": "iOS 17.5",                        // required — pinned
     "flutterVersion":  "3.41.4",                            // required — pinned major.minor
     "captureCommand":  "fvm flutter run --profile",         // required — reproducer
     "scenario":        "NetworkMonitor slow_request at 3s", // required — human label

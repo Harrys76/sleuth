@@ -151,7 +151,7 @@ On a platform where VM+ connects:
 | # | Check | Result | Notes |
 |---|-------|--------|-------|
 | 1 | With VM+ active, issues tab shows VM-backed issues (e.g., rebuild count, repaint data) | | |
-| 2 | Structural issues (ListView, Opacity, etc.) are always present regardless of VM | | |
+| 2 | Structural issues (ListView, RepaintBoundary, etc.) are always present regardless of VM | | |
 | 3 | Verdict includes phase breakdown (build/layout/paint/raster) in VM+ mode | | |
 | 4 | Mode badge shows "VM+" in green | | |
 
@@ -183,14 +183,10 @@ Navigate to each demo screen and verify the expected detector fires in the Issue
 | LayoutBottleneck | IntrinsicHeight Abuse | "IntrinsicHeight" or layout issue | |
 | CustomPainter | Always-Repaint CustomPainter | "shouldRepaint returns true" | |
 | ImageMemory | Uncached Images | "Uncached image" or memory issue | |
-| GlobalKey | GlobalKey Overuse | "GlobalKey count exceeds threshold" | |
-| NestedScroll | Nested Scroll | "Nested scrollable" detected | |
-| HeavyCompute | Heavy Compute (VM+ only) | "Heavy computation" on main thread | |
+| HeavyCompute | CSV Import (VM+ only) | "Heavy computation" on main thread | |
 | KeepAlive | KeepAlive Overuse | "KeepAlive" overuse detected | |
-| Opacity | Opacity Zero | "Opacity 0.0" or invisible widget | |
-| AnimatedBuilder | AnimatedBuilder No Child | "AnimatedBuilder without child" | |
-| ShallowRebuildRisk | Shallow Rebuild Risk | "Shallow rebuild risk" at depth ≤3 | |
 | FontLoading | Font Loading Stress | "Custom font families" count | |
+| RepaintBoundary | Missing RepaintBoundary | "Expensive widget without RepaintBoundary" | |
 | Repaint | Repaint Stress (VM+/debug) | "High repaint activity" | |
 | ShaderJank | (natural, first run) | Shader compilation detected (VM+ only) | |
 | MemoryPressure | (natural, under GC pressure) | GC pressure detected (VM+ only) | |

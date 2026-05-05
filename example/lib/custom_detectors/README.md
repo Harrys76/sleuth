@@ -65,5 +65,5 @@ Start at the top of this decision tree and stop at the first "yes":
   `finalizeScan` plus `processTimelineData` and `vmConnected`).
 - [`SimpleStructuralDetector`](../../../lib/src/models/simple_structural_detector.dart)
   — the helper used by file 01.
-- [`lib/src/detectors/`](../../../lib/src/detectors/) — the 23 built-in
+- [`lib/src/detectors/`](../../../lib/src/detectors/) — the 18 built-in
   detectors, each a production-quality reference implementation.

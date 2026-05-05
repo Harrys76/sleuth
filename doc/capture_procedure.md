@@ -197,9 +197,10 @@ capture will fail `ProfileCaptureSchema.parseFile` with a precise
 error message.
 
 Plug in a device from `ProfileCaptureSchema.approvedDevicePairs` (as
-of v0.18.0: iPhone 13 mini / iOS 17.6.1, iPhone 12 / iOS 17.5,
-Pixel 7 / Android 14). The device + OS pair must match — membership in
-each set independently is not enough.
+of v0.23.0: iPhone 12 / iOS 17.5 only — see
+`doc/reference_devices.md` for the matrix policy + Android coverage gap).
+The device + OS pair must match — membership in each set independently
+is not enough.
 
 ## 1. Launch in profile mode WITH capture mode
 

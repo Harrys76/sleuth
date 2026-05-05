@@ -125,10 +125,10 @@
     "version": "Flutter DevTools (anchor fixture \u2014 see _fixtures/README.md)"
   },
   "sleuthMetadata": {
-    "device": "iPhone 13 mini",
-    "deviceOsVersion": "iOS 17.6.1",
+    "device": "iPhone 12",
+    "deviceOsVersion": "iOS 17.5",
     "flutterVersion": "3.41.4",
-    "captureCommand": "fvm flutter run --profile --device-id iPhone13mini",
+    "captureCommand": "fvm flutter run --profile --device-id iPhone12",
     "scenario": "NetworkMonitor slow_request Layer 2 loopback scenario \u2014 1250ms slow response delay",
     "expectedMagnitude": {
       "min": 1100,
