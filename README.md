@@ -418,6 +418,22 @@ Each detector carries a `DetectorMetadata` record declaring the strongest eviden
 
 The per-detector ledger lives at [`doc/validation_ledger.md`](https://github.com/Harrys76/sleuth/blob/main/doc/validation_ledger.md) — it names each detector's current tier, links to its reproducer when one exists, and explains what would raise it. Tier raises land the supporting reproducer or capture evidence in the same PR.
 
+## MCP Roadmap
+
+MCP support is planned but not shipped in v0.23.0. The current package has
+no `ext.sleuth.*` VM service extensions, no `sleuth_mcp` sidecar binary, and
+no MCP transport dependency.
+
+| Milestone | Scope | Status |
+|-----------|-------|--------|
+| M1 | Register `ext.sleuth.*` VM service extensions from the main `sleuth` package so external tools can read live snapshots, issues, route health, and connection state. | Planned |
+| M2 | Ship a separate `sleuth_mcp` sidecar package that exposes those VM service extensions as MCP tools/resources over stdio. | Planned |
+| M3 | Publish a versioned MCP schema document and audit tests so external clients can rely on stable response shapes. | Planned |
+
+MCP clients will use the same live-app signals as Sleuth itself. During VM
+warmup or degraded VM connectivity, responses must report `connectionMode`
+honestly instead of returning empty data as if no issues exist.
+
 ## What This Does Better Than DevTools
 
 - **Always on**: no separate tool window, no connection setup — one-line install, visible while you use the app
