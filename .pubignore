@@ -6,5 +6,6 @@ example/web/
 example/linux/
 example/windows/
 doc/
+test/validation/captures/**/*.json
 *.iml
 CLAUDE.md
