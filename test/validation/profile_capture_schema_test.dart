@@ -1944,6 +1944,90 @@ void main() {
       );
     });
   });
+
+  group('stream_resource_growth extraTraceArgs survival', () {
+    // Regression guard: confirms the schema's keys-tolerant design lets
+    // a `sleuth.issue.stream_resource_growth.warning` trace event carry
+    // the 4 detector-side keys (`topGrowthClass`, `topGrowthDelta`,
+    // `watchlistClassesGrowing`, `samplesInWindow`) through `parseFile`
+    // without rejection or silent drop. Without this guard, a future
+    // schema tightening that introduces an extraTraceArgs key allowlist
+    // could silently disable detector-side cross-checks for this
+    // family.
+    test('parseFile accepts a synthesized capture carrying all 4 keys', () {
+      final dir = Directory.systemTemp.createTempSync('stream_resource_v0241');
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      // Start from the anchor capture so all schema invariants
+      // (≥10 events, valid metadata, approved device pair, correct
+      // process/thread metadata) are satisfied. Append the
+      // stream_resource_growth issue event with the 4 detector-side
+      // keys; mutate scenario to match the basename.
+      //
+      // Anchor-fixture dependency: a future replacement of
+      // `anchor_devtools_export.json` (e.g. re-recorded for a new SDK)
+      // must keep its event count ≥10 and its metadata schema-valid;
+      // otherwise this test breaks for orthogonal reasons. The test
+      // appends one event so the floor is `anchor_event_count + 1`.
+      final anchor = jsonDecode(
+        File('test/validation/captures/_fixtures/anchor_devtools_export.json')
+            .readAsStringSync(),
+      ) as Map<String, dynamic>;
+      final events = (anchor['traceEvents'] as List).cast<dynamic>().toList();
+      events.add({
+        'ph': 'i',
+        'cat': 'Sleuth',
+        'name': 'sleuth.issue.stream_resource_growth.warning',
+        'pid': 1,
+        'tid': 39,
+        'ts': 999999,
+        's': 'p',
+        'args': {
+          'topGrowthClass': 'StreamSubscription',
+          'topGrowthDelta': '120',
+          'watchlistClassesGrowing':
+              'StreamSubscription,_BroadcastSubscription',
+          'samplesInWindow': '4',
+        },
+      });
+      final metadata =
+          Map<String, dynamic>.from(anchor['sleuthMetadata'] as Map);
+      metadata['scenario'] = 'stream_resource_growth_at';
+
+      final file = File('${dir.path}/stream_resource_growth_at.json');
+      file.writeAsStringSync(jsonEncode({
+        'traceEvents': events,
+        'sleuthMetadata': metadata,
+      }));
+
+      expect(() => ProfileCaptureSchema.parseFile(file), returnsNormally);
+
+      // Round-trip preservation: re-decode the file's JSON and confirm
+      // all 4 detector-side keys survive verbatim. parseFile validates
+      // structure but does not return the trace event payload, so the
+      // round-trip check goes through the file itself.
+      final reread =
+          jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      final issueEvent = (reread['traceEvents'] as List).firstWhere((e) =>
+          e is Map &&
+          (e['name'] as String)
+              .startsWith('sleuth.issue.stream_resource_growth.warning'));
+      final args = (issueEvent as Map)['args'] as Map<String, dynamic>;
+      expect(args.keys.toSet(), {
+        'topGrowthClass',
+        'topGrowthDelta',
+        'watchlistClassesGrowing',
+        'samplesInWindow',
+      });
+      expect(args['topGrowthClass'], 'StreamSubscription');
+      expect(args['topGrowthDelta'], '120');
+      expect(args['samplesInWindow'], '4');
+      expect(
+        args['watchlistClassesGrowing'],
+        'StreamSubscription,_BroadcastSubscription',
+      );
+    });
+  });
 }
 
 Map<String, Object?> _validMetadata() => <String, Object?>{

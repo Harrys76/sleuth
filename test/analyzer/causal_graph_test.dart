@@ -1073,6 +1073,72 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // Memory fan-in single-owner annotation
+  // ---------------------------------------------------------------------------
+
+  // Pins the single-owner annotation contract for the 3-cause × 3-effect
+  // memory fan-in introduced in v0.24.1: when stream_resource_growth,
+  // uncached_images, and excessive_keep_alive:foo all co-fire alongside
+  // heap_growing, heap_near_capacity, and gc_pressure, exactly ONE root
+  // claims each downstream. Losing roots stand alone with downstreamIds
+  // null. activeEdges() reports all 9 edges (export path); apply() picks
+  // one owner per effect (UI annotation path). Multi-parent UI rendering
+  // is deferred — if a future PR introduces it, this test should be
+  // rewritten to assert per-effect parents.
+  group('memory fan-in single-owner annotation', () {
+    test(
+        '3 causes × 3 effects: each effect annotated by exactly one root, '
+        'losing roots stand alone', () {
+      // All warning-severity, so severity ties → root index ascending
+      // wins. The first cause in the list (stream_resource_growth) is
+      // the winning root.
+      final issues = [
+        makeIssue(
+            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+        makeIssue(stableId: 'uncached_images', category: IssueCategory.memory),
+        makeIssue(
+            stableId: 'excessive_keep_alive:foo',
+            category: IssueCategory.memory),
+        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
+        makeIssue(
+            stableId: 'heap_near_capacity', category: IssueCategory.memory),
+        makeIssue(stableId: 'gc_pressure', category: IssueCategory.memory),
+      ];
+      final result = rule.apply(issues);
+
+      PerformanceIssue findById(String id) =>
+          result.firstWhere((i) => i.stableId == id);
+
+      // Each effect annotated with exactly one rootCauseId (the winner).
+      const winner = 'stream_resource_growth';
+      expect(findById('heap_growing').rootCauseId, winner);
+      expect(findById('heap_near_capacity').rootCauseId, winner);
+      expect(findById('gc_pressure').rootCauseId, winner);
+
+      // Winning root carries downstreamIds for all 3 effects.
+      final winnerIssue = findById(winner);
+      expect(
+        winnerIssue.downstreamIds,
+        containsAll(['heap_growing', 'heap_near_capacity', 'gc_pressure']),
+      );
+      expect(winnerIssue.downstreamIds, hasLength(3));
+      expect(winnerIssue.rootCauseId, isNull);
+
+      // Losing roots stand alone — their downstreams were claimed by
+      // the winner, so apply() leaves both rootCauseId and
+      // downstreamIds null on them.
+      for (final losing in ['uncached_images', 'excessive_keep_alive:foo']) {
+        final issue = findById(losing);
+        expect(issue.rootCauseId, isNull,
+            reason: '$losing has no incoming edges → not a downstream');
+        expect(issue.downstreamIds, isNull,
+            reason:
+                '$losing lost the severity-then-index race — downstreams claimed by $winner');
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // activeEdges static method (v0.10.7 — 3b.9 Session Summary Export)
   // ---------------------------------------------------------------------------
 
@@ -1174,6 +1240,83 @@ void main() {
       expect(hasEdge(edges, 'setstate_scope', 'heavy_compute'), isTrue);
       expect(
           hasEdge(edges, 'setstate_scope', 'rebuild_debug_MyWidget'), isTrue);
+    });
+
+    test('stream_resource_growth → heap_growing edge surfaces on co-fire', () {
+      final issues = [
+        makeIssue(
+            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+      expect(hasEdge(edges, 'stream_resource_growth', 'heap_growing'), isTrue);
+    });
+
+    test('stream_resource_growth → heap_near_capacity edge surfaces on co-fire',
+        () {
+      final issues = [
+        makeIssue(
+            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+        makeIssue(
+            stableId: 'heap_near_capacity', category: IssueCategory.memory),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+      expect(hasEdge(edges, 'stream_resource_growth', 'heap_near_capacity'),
+          isTrue);
+    });
+
+    test('stream_resource_growth → gc_pressure edge surfaces on co-fire', () {
+      final issues = [
+        makeIssue(
+            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+        makeIssue(stableId: 'gc_pressure', category: IssueCategory.memory),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+      expect(hasEdge(edges, 'stream_resource_growth', 'gc_pressure'), isTrue);
+    });
+
+    test(
+        'stream_resource_growth alone surfaces no causal edges (negative control)',
+        () {
+      final issues = [
+        makeIssue(
+            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+      expect(edges, isEmpty);
+    });
+
+    test(
+        'multi-cause + multi-effect memory co-fire surfaces every parallel '
+        'edge', () {
+      // 3 causes × 3 effects. Each cause→effect pair must surface as a
+      // distinct edge so the UI's "Caused by" section can list all
+      // three causes for any one of the three effects.
+      final issues = [
+        makeIssue(
+            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+        makeIssue(stableId: 'uncached_images', category: IssueCategory.memory),
+        makeIssue(
+            stableId: 'excessive_keep_alive:foo',
+            category: IssueCategory.memory),
+        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
+        makeIssue(
+            stableId: 'heap_near_capacity', category: IssueCategory.memory),
+        makeIssue(stableId: 'gc_pressure', category: IssueCategory.memory),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+      const causes = [
+        'stream_resource_growth',
+        'uncached_images',
+        'excessive_keep_alive:foo',
+      ];
+      const effects = ['heap_growing', 'heap_near_capacity', 'gc_pressure'];
+      for (final cause in causes) {
+        for (final effect in effects) {
+          expect(hasEdge(edges, cause, effect), isTrue,
+              reason: 'Expected $cause → $effect edge to surface on co-fire.');
+        }
+      }
     });
   });
 }

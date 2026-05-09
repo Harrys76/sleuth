@@ -59,7 +59,9 @@ test/
 
 ## Current state
 
-**v0.24.0** (current) — New `StreamResourceDetector` (vmOnly): heuristic flag for retained async resources via `getAllocationProfile` class-instance diff over a K=4 sample window, gated on `MemoryPressureDetector.isHeapGrowingActive([windowMicros])` (new public getter, default 30s recency window). Emits `stream_resource_growth.warning` when ≥2 watchlist suffixes show ≥3 of 3 ascending transitions AND sum of net deltas > `streamResourceMinDelta` (default 50) AND heap_growing co-fire. Confidence `likely`. Tier `reproducerOnly`. Suffix-match (`endsWith`) + library-URI gate for rxdart Subjects. 20s warmup, re-entrancy guard, 60s backoff after 3 null fetches, 3-cycle cooldown holds `dedupIdentityMicros` stable. New `Sleuth.streamResourceDetector` accessor. 18 → 19 detectors.
+**v0.24.1** (current) — Cross-detector polish for `stream_resource_growth`. 3 new `CausalGraphRule` edges (`stream_resource_growth → heap_growing` / `heap_near_capacity` / `gc_pressure`). Markdown export (`activeEdges`) lists every parallel cause→effect pair; UI annotation (`apply()`) remains single-owner — each downstream gets one `rootCauseId` (severity-then-index). Schema regression guard for the 4 detector-side extraTraceArgs keys.
+
+**v0.24.0** — New `StreamResourceDetector` (vmOnly): retained async-resource flag via `getAllocationProfile` class-instance diff over K=4 window, gated on recent `MemoryPressureDetector.heap_growing`. New `MemoryPressureDetector.isHeapGrowingActive([windowMicros])`. New `Sleuth.streamResourceDetector` accessor. 18 → 19 detectors.
 
 **v0.23.0** — `GpuPressureDetector.raster_dominance` idle false-positive fixed (MAX-of-frame numerator + `maxFrameRasterFloorUs` gate). `HeavyComputeDetector` emissions persist via monotonic Stopwatch (`emissionPersistence`, default 10s). New `PerformanceIssue.sourceRoute`: persisted issues stamp route at emission; aggregator prefers `sourceRoute` over live route. Wired through heavy_compute + platform_channel via `sourceRouteProvider`. CSV Import demo capped at 500K.
 

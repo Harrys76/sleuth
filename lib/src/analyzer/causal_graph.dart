@@ -108,6 +108,20 @@ class CausalGraphRule extends CorrelationRule {
     // Keep-alive → GC pressure (complements existing → heap_growing/heap_near_capacity)
     CausalRule('excessive_keep_alive:*', 'gc_pressure'),
 
+    // Stream resource leaks → memory-pressure family. Same shape as the
+    // uncached_images / excessive_keep_alive rules above: a retention
+    // anti-pattern propagates to all three memory effects. Emission is
+    // already gated on co-firing `heap_growing`, so the heap_growing
+    // edge surfaces immediately; the other two surface when the
+    // respective gates fire on the same scan.
+    //
+    // TODO(v0.24.2+): consider an explicit co-escalation rule that
+    // hardens stream_resource_growth severity when heap_near_capacity
+    // also fires. Out of scope for v0.24.1.
+    CausalRule('stream_resource_growth', 'heap_growing'),
+    CausalRule('stream_resource_growth', 'heap_near_capacity'),
+    CausalRule('stream_resource_growth', 'gc_pressure'),
+
     // AnimatedBuilder without child → excessive repaints
     CausalRule('animated_builder_no_child', 'excessive_repaint'),
     CausalRule('animated_builder_no_child', 'excessive_repaint_debug'),
