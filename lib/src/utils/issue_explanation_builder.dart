@@ -418,6 +418,7 @@ class IssueExplanationBuilder {
       relatedIssues: [
         'excessive_keep_alive',
         'heap_growing',
+        'stream_resource_growth',
         'sustained_jank',
         'uncached_images'
       ],
@@ -469,7 +470,64 @@ class IssueExplanationBuilder {
         'excessive_keep_alive',
         'gc_pressure',
         'heap_near_capacity',
+        'stream_resource_growth',
         'uncached_images'
+      ],
+    ),
+
+    'stream_resource_growth': (
+      displayName: 'Stream Resources Growing',
+      category: IssueCategory.memory,
+      whatItIs: 'Watchlist async resource classes (StreamSubscription, '
+          'StreamController, WebSocketChannel, optional rxdart Subjects) '
+          'are accumulating across a 4-sample VM allocation profile '
+          'window AND `heap_growing` is currently active. The pattern '
+          'suggests retained subscriptions, undisposed StreamControllers, '
+          'or open WebSocket channels — though the VM cannot prove '
+          'ownership intent, so confidence is "likely" rather than '
+          '"confirmed".',
+      readingTheData:
+          'Like noticing both the water bill rising AND a list of taps '
+          'that keep getting installed. Either alone is suggestive; '
+          'together they argue strongly for a leak.\n\n'
+          '• Top growth class — The watchlist class with the largest '
+          'instance delta across the window.\n\n'
+          '• Watchlist classes growing — Comma-joined list of suffixes '
+          'that showed monotonic growth.\n\n'
+          '• Samples in window — Default 4 (≈40 s of history at 10 s '
+          'cadence).\n\n'
+          '• Source: VM Service `getAllocationProfile` polled at most '
+          'once per `streamResourceSampleSeconds` (default 10 s).',
+      whyItMatters: 'Stream resource leaks are one of the most common Flutter '
+          'memory bugs: a forgotten `cancel()` on a `StreamSubscription` '
+          'or `close()` on a `StreamController` retains every closure '
+          'and captured widget reference along the subscription chain. '
+          'The leak compounds as users navigate routes, eventually '
+          'crashing the app or triggering OS-level kills on '
+          'memory-constrained devices.',
+      howToFix: 'Audit dispose/cancel paths in recently navigated routes:\n\n'
+          '• `StreamSubscription` returned by `Stream.listen()` — call '
+          '`cancel()` in `State.dispose()`.\n'
+          '• `StreamController` — call `close()` when ownership ends.\n'
+          '• `WebSocketChannel` — call `sink.close()`.\n'
+          '• rxdart `Subject` family — call `close()` when ownership '
+          'ends.\n'
+          '• Cubit/Bloc — close in `State.dispose()` when scoped to a '
+          'widget.\n\n'
+          'If the listed classes are intentionally retained (long-lived '
+          'service singletons, app-scoped event buses), cross-reference '
+          '`heap_growing` and `native_memory_growing` for alternative '
+          'memory-pressure causes (cache bloat, image decode, GPU '
+          'textures).',
+      whenToIgnore: 'A small steady-state retention of broadcast subscriptions '
+          '(route observers, animation tickers, app-scoped streams) is '
+          'normal. Concern starts when growth continues after the app '
+          'reaches steady state, or when the top growth class points to '
+          'a feature you recently navigated.',
+      relatedIssues: [
+        'heap_growing',
+        'native_memory_growing',
+        'gc_pressure',
       ],
     ),
 
@@ -546,7 +604,11 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Initial image loading causes expected native memory growth. '
           'Concern arises when it grows continuously without plateau.',
-      relatedIssues: ['heap_near_capacity', 'uncached_images'],
+      relatedIssues: [
+        'heap_near_capacity',
+        'stream_resource_growth',
+        'uncached_images',
+      ],
     ),
 
     // ── Rebuild & Repaint ─────────────────────────────────────────────────

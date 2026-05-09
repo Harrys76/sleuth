@@ -164,6 +164,11 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
     {'raster_dominance', 'expensive_gpu_nodes'},
     null,
   ),
+  DetectorType.streamResource: (
+    'test/validation/stream_resource_reproducer_test.dart',
+    {'stream_resource_growth'},
+    null,
+  ),
   // RepaintDetector lifted out of the v0.17.4 reproducerOnly batch:
   // base stays reproducerOnly but the `excessive_repaint.warning`
   // family is raised to runtimeVerified via perStableIdTier on top of

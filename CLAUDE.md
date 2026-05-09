@@ -1,6 +1,6 @@
 # Sleuth
 
-Runtime performance diagnostics package for Flutter mobile apps. 18 detectors across 4 lifecycle types (runtime, vmOnly, hybrid, structural).
+Runtime performance diagnostics package for Flutter mobile apps. 19 detectors across 4 lifecycle types (runtime, vmOnly, hybrid, structural).
 
 ## Commands
 
@@ -59,7 +59,9 @@ test/
 
 ## Current state
 
-**v0.23.0** (current) — `GpuPressureDetector.raster_dominance` idle false-positive fixed (MAX-of-frame numerator + `maxFrameRasterFloorUs` gate). `HeavyComputeDetector` emissions persist via monotonic Stopwatch (`emissionPersistence`, default 10s). New `PerformanceIssue.sourceRoute`: persisted issues stamp route at emission; aggregator prefers `sourceRoute` over live route. Wired through heavy_compute + platform_channel via `sourceRouteProvider`. CSV Import demo capped at 500K.
+**v0.24.0** (current) — New `StreamResourceDetector` (vmOnly): heuristic flag for retained async resources via `getAllocationProfile` class-instance diff over a K=4 sample window, gated on `MemoryPressureDetector.isHeapGrowingActive([windowMicros])` (new public getter, default 30s recency window). Emits `stream_resource_growth.warning` when ≥2 watchlist suffixes show ≥3 of 3 ascending transitions AND sum of net deltas > `streamResourceMinDelta` (default 50) AND heap_growing co-fire. Confidence `likely`. Tier `reproducerOnly`. Suffix-match (`endsWith`) + library-URI gate for rxdart Subjects. 20s warmup, re-entrancy guard, 60s backoff after 3 null fetches, 3-cycle cooldown holds `dedupIdentityMicros` stable. New `Sleuth.streamResourceDetector` accessor. 18 → 19 detectors.
+
+**v0.23.0** — `GpuPressureDetector.raster_dominance` idle false-positive fixed (MAX-of-frame numerator + `maxFrameRasterFloorUs` gate). `HeavyComputeDetector` emissions persist via monotonic Stopwatch (`emissionPersistence`, default 10s). New `PerformanceIssue.sourceRoute`: persisted issues stamp route at emission; aggregator prefers `sourceRoute` over live route. Wired through heavy_compute + platform_channel via `sourceRouteProvider`. CSV Import demo capped at 500K.
 
 **v0.22.0** — `sustained_jank.critical` raise withdrawn; bracket axis (sliding 240-frame-window severeCount) non-composable with operator-claimed K. Captures + capture screen + retainedOrphans entries removed. Reproducer-tier coverage retained.
 
@@ -71,7 +73,7 @@ test/
 
 **v0.20.0** — BREAKING: 5 low-value detectors removed (`animatedBuilder`, `opacity`, `shallowRebuildRisk`, `nestedScroll`, `globalKey`); 23 → 18 detectors.
 
-**Distribution (current)**: 16/18 reproducerOnly base + 2/18 runtimeVerified base, 12 effective runtimeVerified family-severity pairs across 9 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}, excessive_repaint.warning).
+**Distribution (current)**: 17/19 reproducerOnly base + 2/19 runtimeVerified base, 12 effective runtimeVerified family-severity pairs across 9 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}, excessive_repaint.warning).
 
 ### Recent releases (one-line)
 

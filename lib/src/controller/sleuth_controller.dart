@@ -29,6 +29,7 @@ import '../detectors/shader_jank_detector.dart';
 import '../detectors/heavy_compute_detector.dart';
 import '../detectors/platform_channel_detector.dart';
 import '../detectors/memory_pressure_detector.dart';
+import '../detectors/stream_resource_detector.dart';
 import '../detectors/repaint_detector.dart';
 import '../detectors/rebuild_detector.dart';
 import '../detectors/setstate_scope_detector.dart';
@@ -149,6 +150,7 @@ class SleuthController {
   // Typed access for detectors with methods beyond BaseDetector
   late final FrameTimingDetector _frameTiming;
   late final MemoryPressureDetector _memoryPressure;
+  late final StreamResourceDetector _streamResource;
   late final NetworkMonitorDetector _networkMonitor;
   late final RebuildDetector _rebuildDetector;
 
@@ -706,6 +708,18 @@ class SleuthController {
       capacityThresholdPercent: config.thresholds.memoryCapacityPercent,
     )..isEnabled = enabled.contains(DetectorType.memoryPressure);
 
+    _streamResource = StreamResourceDetector(
+      vmClient: _vmClient,
+      heapGrowingStateProvider: () => _memoryPressure.isHeapGrowingActive(
+        config.thresholds.streamResourceHeapGrowingRecencyMicros,
+      ),
+      sampleSeconds: config.thresholds.streamResourceSampleSeconds,
+      minDelta: config.thresholds.streamResourceMinDelta,
+      warmupSeconds: config.thresholds.streamResourceWarmupSeconds,
+      pollFailureBackoffSeconds:
+          config.thresholds.streamResourcePollFailureBackoffSeconds,
+    )..isEnabled = enabled.contains(DetectorType.streamResource);
+
     _networkMonitor = NetworkMonitorDetector(
       slowThresholdMs: config.slowRequestThresholdMs,
       criticalSlowThresholdMs: config.criticalSlowRequestThresholdMs,
@@ -772,6 +786,11 @@ class SleuthController {
       for (final entry in factories.entries)
         if (enabled.contains(entry.key)) entry.value()..isEnabled = true,
       _memoryPressure,
+      // Order matters: StreamResourceDetector reads
+      // MemoryPressureDetector.isHeapGrowingActive in its emission
+      // gate. Listing it AFTER _memoryPressure means the heap-growing
+      // recency stamp from this scan tick is current at evaluation.
+      _streamResource,
       _networkMonitor,
       _rebuildDetector,
       // Custom detectors.
@@ -824,6 +843,10 @@ class SleuthController {
       _memoryPressure.isEnabled = true;
       return;
     }
+    if (type == DetectorType.streamResource) {
+      _streamResource.isEnabled = true;
+      return;
+    }
     if (type == DetectorType.networkMonitor) {
       _networkMonitor.isEnabled = true;
       return;
@@ -861,6 +884,10 @@ class SleuthController {
     }
     if (type == DetectorType.memoryPressure) {
       _memoryPressure.isEnabled = false;
+      return;
+    }
+    if (type == DetectorType.streamResource) {
+      _streamResource.isEnabled = false;
       return;
     }
     if (type == DetectorType.networkMonitor) {
@@ -1107,6 +1134,15 @@ class SleuthController {
       if (d is RepaintDetector) return d;
     }
     return null;
+  }
+
+  /// Public accessor for the [StreamResourceDetector] instance.
+  /// Returns null if [DetectorType.streamResource] was excluded from
+  /// [SleuthConfig.enabledDetectors] at init time, or if the
+  /// controller has not yet finished initialisation.
+  StreamResourceDetector? get streamResourceDetector {
+    if (!_detectorsReady) return null;
+    return _streamResource;
   }
 
   /// Last reason [exportCaptureJson] returned null. Set immediately
@@ -1425,6 +1461,10 @@ class SleuthController {
     // so the next scenario reads detector-measured rate from leg-N's
     // workload only.
     _rebuildDetector.resetCaptureState();
+    // Clear StreamResourceDetector's per-class window + warmup so a
+    // back-to-back leg's gating starts fresh on scenario allocation
+    // only.
+    _streamResource.resetCaptureState();
   }
 
   Future<String?> exportCaptureJson({

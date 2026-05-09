@@ -30,7 +30,32 @@ class DetectorThresholds {
     this.coldStartShaderWindowSeconds = 5,
     this.shaderKeyframeWindowMs = 100,
     this.startupPhaseWindowSeconds = 5,
+    this.streamResourceSampleSeconds = 10,
+    this.streamResourceMinDelta = 50,
+    this.streamResourceWarmupSeconds = 20,
+    this.streamResourceHeapGrowingRecencyMicros = 30000000,
+    this.streamResourcePollFailureBackoffSeconds = 60,
   })  : assert(
+          streamResourceSampleSeconds > 0,
+          'streamResourceSampleSeconds must be > 0.',
+        ),
+        assert(
+          streamResourceMinDelta > 0,
+          'streamResourceMinDelta must be > 0.',
+        ),
+        assert(
+          streamResourceWarmupSeconds >= 0,
+          'streamResourceWarmupSeconds must be >= 0.',
+        ),
+        assert(
+          streamResourceHeapGrowingRecencyMicros > 0,
+          'streamResourceHeapGrowingRecencyMicros must be > 0.',
+        ),
+        assert(
+          streamResourcePollFailureBackoffSeconds > 0,
+          'streamResourcePollFailureBackoffSeconds must be > 0.',
+        ),
+        assert(
           shaderJankMs >= 0,
           'shaderJankMs must be >= 0 (got a negative value).',
         ),
@@ -242,4 +267,65 @@ class DetectorThresholds {
   /// (database migrations, large asset loads). **Lower this** (e.g.
   /// 2000 ms) for stricter startup audits.
   final int startupTtffCriticalMs;
+
+  /// Polling cadence in seconds for `StreamResourceDetector`.
+  /// `getAllocationProfile` is called at most once per this interval.
+  ///
+  /// **Default:** 10 seconds. Low enough to detect leaks within a
+  /// minute, high enough to keep the VM-service request rate
+  /// sub-percent of frame budget.
+  ///
+  /// **Raise this** (e.g. 20 s) on slower devices where the VM
+  /// AllocationProfile request adds measurable overhead. **Lower
+  /// this** (e.g. 5 s) for faster detection in dev workflows.
+  final int streamResourceSampleSeconds;
+
+  /// Minimum sum of per-class instance growth (across watchlist
+  /// classes that monotone-up across the sample window) above which
+  /// `StreamResourceDetector` emits `stream_resource_growth.warning`.
+  ///
+  /// **Default:** 50 instances. Below this, growth is indistinguishable
+  /// from normal route-stack subscription churn.
+  ///
+  /// **Raise this** for noisy apps with many legitimate broadcast
+  /// streams. **Lower this** for stricter leak hunts.
+  final int streamResourceMinDelta;
+
+  /// Warmup window in seconds during which `StreamResourceDetector`
+  /// suppresses emissions, measured from the detector's first
+  /// post-init evaluation tick. Resets on `pause()`/`resume()` and
+  /// `resetCaptureState()`.
+  ///
+  /// **Default:** 20 seconds. Cold-start subscription accumulation
+  /// (route observers, animation tickers, image streams) inflates
+  /// every watchlist class above the at-band purely from app boot.
+  /// 20 s is enough to reach steady-state on most devices.
+  ///
+  /// **Raise this** for apps with extended initialization. **Lower
+  /// this** for snappy startup paths where leak signal can dominate
+  /// boot growth sooner.
+  final int streamResourceWarmupSeconds;
+
+  /// Recency window in microseconds within which a `heap_growing`
+  /// emission is considered "active" for `StreamResourceDetector`'s
+  /// co-fire gate. `MemoryPressureDetector.isHeapGrowingActive`
+  /// returns true iff the last heap_growing emission landed within
+  /// this window.
+  ///
+  /// **Default:** 30_000_000 µs (30 s). Longer than any single
+  /// `MemoryPressureDetector` evaluation cycle so a transient
+  /// no-growth tick does not flip the gate; shorter than typical
+  /// session minutes so a long-resolved heap_growing does not
+  /// permanently latch the stream-resource gate.
+  final int streamResourceHeapGrowingRecencyMicros;
+
+  /// Backoff in seconds applied to `StreamResourceDetector` polling
+  /// after consecutive AllocationProfile fetch failures. Three
+  /// consecutive null returns (VmService disconnect, isolate sentinel,
+  /// timeout) pause polling for this duration.
+  ///
+  /// **Default:** 60 seconds. Long enough to ride out a typical hot
+  /// restart; short enough that a transient disconnect does not
+  /// silence the detector for the rest of the session.
+  final int streamResourcePollFailureBackoffSeconds;
 }

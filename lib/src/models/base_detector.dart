@@ -7,7 +7,7 @@ import 'widget_highlight.dart';
 
 /// Available detector types for configuration via [SleuthConfig.enabledDetectors].
 ///
-/// Each value corresponds to one of the 18 performance detectors.
+/// Each value corresponds to one of the 19 performance detectors.
 /// Pass a subset to [SleuthConfig] to enable only specific detectors.
 enum DetectorType {
   frameTiming,
@@ -15,6 +15,7 @@ enum DetectorType {
   heavyCompute,
   platformChannel,
   memoryPressure,
+  streamResource,
   repaint,
   rebuild,
   setStateScope,

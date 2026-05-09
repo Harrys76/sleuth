@@ -113,6 +113,7 @@ DetectorLifecycle _lifecycleOf(DetectorType type) {
     case DetectorType.heavyCompute:
     case DetectorType.platformChannel:
     case DetectorType.memoryPressure:
+    case DetectorType.streamResource:
       return DetectorLifecycle.vmOnly;
     case DetectorType.repaint:
     case DetectorType.rebuild:

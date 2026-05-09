@@ -63,6 +63,8 @@ import 'src/detectors/network_monitor_detector.dart'
     show NetworkMonitorDetector;
 import 'src/detectors/rebuild_detector.dart' show RebuildDetector;
 import 'src/detectors/repaint_detector.dart' show RepaintDetector;
+import 'src/detectors/stream_resource_detector.dart'
+    show StreamResourceDetector;
 import 'src/models/fix_verification_result.dart';
 import 'src/models/route_session.dart';
 import 'src/models/session_snapshot.dart';
@@ -101,6 +103,8 @@ export 'src/network/request_record.dart';
 export 'src/detectors/network_monitor_detector.dart'
     show NetworkMonitorDetector;
 export 'src/detectors/rebuild_detector.dart' show RebuildDetector;
+export 'src/detectors/stream_resource_detector.dart'
+    show StreamResourceDetector;
 export 'src/utils/fix_hint_builder.dart';
 export 'src/utils/session_markdown_exporter.dart';
 export 'src/models/startup_metrics.dart';
@@ -544,6 +548,15 @@ class Sleuth {
   static RepaintDetector? get repaintDetector {
     if (kReleaseMode) return null;
     return _controller?.repaintDetector;
+  }
+
+  /// Public accessor for the [StreamResourceDetector] instance.
+  /// Returns null when [Sleuth] has not been initialised, in release
+  /// mode, or when [DetectorType.streamResource] was excluded from
+  /// [SleuthConfig.enabledDetectors].
+  static StreamResourceDetector? get streamResourceDetector {
+    if (kReleaseMode) return null;
+    return _controller?.streamResourceDetector;
   }
 
   /// Reason the most recent [exportCaptureJson] call returned null.

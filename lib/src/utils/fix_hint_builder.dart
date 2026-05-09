@@ -427,6 +427,29 @@ class FixHintBuilder {
     );
   }
 
+  static (String, FixEffort) streamResourceGrowth({
+    required List<String> growingClassSuffixes,
+    int? topGrowthDelta,
+  }) {
+    final suffixList = growingClassSuffixes.take(3).join(', ');
+    final deltaInfo =
+        topGrowthDelta != null ? ' (top class +$topGrowthDelta instances)' : '';
+    return (
+      'Async resources accumulating: $suffixList$deltaInfo. '
+          'Audit dispose/cancel paths in recently navigated routes:\n'
+          '  • StreamSubscription returned by Stream.listen() — call cancel()\n'
+          '  • StreamController — call close() in dispose()\n'
+          '  • WebSocketChannel — call sink.close()\n'
+          '  • rxdart Subject — call close() when ownership ends\n'
+          '  • Cubit/Bloc — close in State.dispose()\n'
+          'If these classes are intentionally retained, also check '
+          'heap_growing and native_memory_growing for alternative '
+          'memory-pressure causes (cache bloat, image decode, GPU '
+          'textures).',
+      FixEffort.medium,
+    );
+  }
+
   static (String, FixEffort) nativeMemoryGrowth() {
     return (
       'Process memory outside the Dart heap is growing. '

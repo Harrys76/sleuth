@@ -115,6 +115,32 @@ class MemoryPressureDetector extends BaseDetector
   /// so the top-allocator data survives issue rebuilds.
   List<AllocationEntry>? _lastTopAllocators;
 
+  // Last wall-clock micros at which an `heap_growing` issue was emitted
+  // by [_evaluateHeapTrend]. Read by [isHeapGrowingActive] for cross-
+  // detector gating (StreamResourceDetector co-fire). Stamped on every
+  // emission so a sustained-growth window of N consecutive ticks keeps
+  // the recency clock fresh; cleared on slope-drop reset and on
+  // [vmConnected]=false / [reset] / [dispose] so a stale latch from a
+  // prior session cannot mis-trigger downstream gating.
+  int? _lastHeapGrowingEmittedAtMicros;
+  static const int _defaultHeapGrowingRecencyMicros = 30000000;
+
+  /// Whether `heap_growing` was emitted within the recency window.
+  ///
+  /// Returns false when no `heap_growing` has fired this session, or
+  /// when the most recent emission is older than [windowMicros]
+  /// (default 30 s). Distinct from the boolean "is the issue still in
+  /// `_issues`?" — IssueRanker rotation and other persistence rules
+  /// are not load-bearing for the recency claim. Used by
+  /// `StreamResourceDetector` to gate its co-fire emission.
+  bool isHeapGrowingActive([int? windowMicros]) {
+    final last = _lastHeapGrowingEmittedAtMicros;
+    if (last == null) return false;
+    final window = windowMicros ?? _defaultHeapGrowingRecencyMicros;
+    final now = _clock().microsecondsSinceEpoch;
+    return now - last <= window;
+  }
+
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
@@ -156,6 +182,7 @@ class MemoryPressureDetector extends BaseDetector
       _sustainedNativeGrowthStart = null;
       _gcOverageStart = null;
       _firstHeapSampleTime = null;
+      _lastHeapGrowingEmittedAtMicros = null;
       _evaluate();
     }
     super.vmConnected = value;
@@ -361,6 +388,7 @@ class MemoryPressureDetector extends BaseDetector
           topAllocators: _lastTopAllocators,
           confidenceReason: 'Heap trend analysis + sustained growth regression',
         ));
+        _lastHeapGrowingEmittedAtMicros = _clock().microsecondsSinceEpoch;
       }
     } else {
       _sustainedGrowthStart = null;
@@ -536,6 +564,7 @@ class MemoryPressureDetector extends BaseDetector
     _gcOverageStart = null;
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
+    _lastHeapGrowingEmittedAtMicros = null;
     _capacityWindow.clear();
     _issues.clear();
   }
@@ -549,6 +578,7 @@ class MemoryPressureDetector extends BaseDetector
     _gcOverageStart = null;
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
+    _lastHeapGrowingEmittedAtMicros = null;
     _capacityWindow.clear();
     _issues.clear();
   }

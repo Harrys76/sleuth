@@ -43,7 +43,7 @@ flutter run
 
 ## Debug vs Profile Mode
 
-Both modes run the full overlay, all 18 detectors, and the AI chat. The difference is **what data each mode can access** and **how accurate the timing is**.
+Both modes run the full overlay, all 19 detectors, and the AI chat. The difference is **what data each mode can access** and **how accurate the timing is**.
 
 | Capability | Debug | Profile | Release |
 |------------|:-----:|:-------:|:-------:|
@@ -414,13 +414,13 @@ In-app Startup Metrics page has full methodology + per-phase breakdown.
 
 ## Validation Ledger
 
-Each detector carries a `DetectorMetadata` record declaring the strongest evidence backing its current thresholds and heuristics, ordered across four tiers: `unvalidated` → `reproducerOnly` → `runtimeVerified` → `externallyCited`. As of v0.23.0, **16/18 detectors ship at `reproducerOnly` base and 2/18 at `runtimeVerified` base**, with **12 effective `runtimeVerified` family-severity pairs across 9 unique stableIds** (`slow_request {warning + critical}`, `large_response.warning`, `request_frequency.warning`, `heap_growing.warning`, `platform_channel_traffic.warning`, `jank_detected.warning`, `rebuild_activity {warning + critical}`, `heavy_compute {warning + critical}`, `excessive_repaint.warning`). Zero detectors at `unvalidated`. The CI audit gate at `test/validation/detector_metadata_audit_test.dart` enforces the contract on every test run.
+Each detector carries a `DetectorMetadata` record declaring the strongest evidence backing its current thresholds and heuristics, ordered across four tiers: `unvalidated` → `reproducerOnly` → `runtimeVerified` → `externallyCited`. As of v0.24.0, **17/19 detectors ship at `reproducerOnly` base and 2/19 at `runtimeVerified` base**, with **12 effective `runtimeVerified` family-severity pairs across 9 unique stableIds** (`slow_request {warning + critical}`, `large_response.warning`, `request_frequency.warning`, `heap_growing.warning`, `platform_channel_traffic.warning`, `jank_detected.warning`, `rebuild_activity {warning + critical}`, `heavy_compute {warning + critical}`, `excessive_repaint.warning`). Zero detectors at `unvalidated`. The CI audit gate at `test/validation/detector_metadata_audit_test.dart` enforces the contract on every test run.
 
 The per-detector ledger lives at [`doc/validation_ledger.md`](https://github.com/Harrys76/sleuth/blob/main/doc/validation_ledger.md) — it names each detector's current tier, links to its reproducer when one exists, and explains what would raise it. Tier raises land the supporting reproducer or capture evidence in the same PR.
 
 ## MCP Roadmap
 
-MCP support is planned but not shipped in v0.23.0. The current package has
+MCP support is planned but not shipped in v0.24.0. The current package has
 no `ext.sleuth.*` VM service extensions, no `sleuth_mcp` sidecar binary, and
 no MCP transport dependency.
 
@@ -437,7 +437,7 @@ honestly instead of returning empty data as if no issues exist.
 ## What This Does Better Than DevTools
 
 - **Always on**: no separate tool window, no connection setup — one-line install, visible while you use the app
-- **18 detectors**: structural anti-patterns DevTools does not flag (non-lazy lists, uncached images, missing RepaintBoundary, intrinsic-height layout cost)
+- **19 detectors**: structural anti-patterns DevTools does not flag (non-lazy lists, uncached images, missing RepaintBoundary, intrinsic-height layout cost, retained stream subscriptions)
 - **Inline Rebuild Stats**: live rebuild counter with top-3 widget breakdown and full-list drilldown when `enableDeepDebugInstrumentation: true`
 - **Confidence explanations**: every issue explains *why* its confidence is confirmed/likely/possible — what evidence was used, what would upgrade it
 - **Causal issue graph**: 44 rules link root causes to downstream effects — see why an issue matters, not just that it exists
@@ -461,7 +461,7 @@ Sleuth is best used for **fast in-app triage** — catch the problem, understand
 
 To set clear expectations:
 
-- This package is **not a replacement** for DevTools heap snapshots or interactive flame charts — it covers breadth (18 detectors, encyclopedia, AI chat) but not the depth of object-level introspection or zoomable timelines
+- This package is **not a replacement** for DevTools heap snapshots or interactive flame charts — it covers breadth (19 detectors, encyclopedia, AI chat) but not the depth of object-level introspection or zoomable timelines
 - **Widget attribution varies by mode** — debug mode provides exact per-widget rebuild/paint counts and source file:line locations. Profile mode provides per-widget-type attribution via VM timeline dirty lists (when VM is connected), falling back to structural heuristics when unavailable. See [Debug vs Profile Mode](#debug-vs-profile-mode) for the full matrix
 - **VM full mode availability** depends on runtime environment and is not guaranteed on all platforms
 - **Memory pressure detection** monitors GC frequency, heap growth trends (linear regression), and capacity thresholds. When growth is detected, enriches the issue with per-class allocation deltas — but does not track individual object leaks or retention paths
