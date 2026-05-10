@@ -108,6 +108,7 @@ DetectorLifecycle _lifecycleOf(DetectorType type) {
   switch (type) {
     case DetectorType.frameTiming:
     case DetectorType.networkMonitor:
+    case DetectorType.trackedResource:
       return DetectorLifecycle.runtime;
     case DetectorType.shaderJank:
     case DetectorType.heavyCompute:

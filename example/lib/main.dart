@@ -31,6 +31,7 @@ import 'demos/repaint_boundary_demo.dart';
 import 'demos/repaint_stress_demo.dart';
 import 'demos/stream_resource_capture_screen.dart';
 import 'demos/stream_resource_demo.dart';
+import 'demos/tracked_resource_demo.dart';
 import 'demos/shader_jank_demo.dart';
 import 'demos/uncached_image_demo.dart';
 
@@ -277,6 +278,13 @@ class DemoHome extends StatelessWidget {
             subtitle: 'StreamResource detector (Timer + Controller leaks)',
             color: Colors.deepPurple,
             builder: (_) => const StreamResourceDemo(),
+          ),
+          _DemoRoute(
+            icon: Icons.bookmark_added,
+            title: 'Tracked Resource Leaks',
+            subtitle: 'Sleuth.trackResource opt-in retention tracking',
+            color: Colors.indigo,
+            builder: (_) => const TrackedResourceDemo(),
           ),
         ],
       ),

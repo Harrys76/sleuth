@@ -205,6 +205,7 @@ const _singleDetectorAnchors = <DetectorType>{
   DetectorType.rebuild,
   DetectorType.repaint,
   DetectorType.streamResource,
+  DetectorType.trackedResource,
 };
 
 void main() {
@@ -1374,6 +1375,43 @@ void main() {
       expect(meta.coveredStableIds, equals(const {'stream_resource_growth'}));
       expect(meta.parametricFamilies, isNull);
       expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
+      expect(meta.additionalBrackets, isNull);
+    });
+
+    test('TrackedResourceDetector pinned at reproducerOnly', () {
+      // Pure-Dart detector. Two stableIds (concurrent + long_lived);
+      // confirmed confidence; no perStableIdTier raise. Reproducer
+      // is hermetic via internal simulateFinalizerForTest seam — no
+      // dependency on real Finalizer timing.
+      final BaseDetector? tr = controller.detectorsForAudit
+          .where((d) => d.type == DetectorType.trackedResource)
+          .cast<BaseDetector?>()
+          .firstWhere((_) => true, orElse: () => null);
+      expect(tr, isNotNull);
+      expect(tr, isA<DetectorMetadataProvider>());
+      final meta = (tr as DetectorMetadataProvider).validationMetadata;
+      expect(meta.tier, EvidenceTier.reproducerOnly);
+      expect(meta.effectiveMaxTier, EvidenceTier.reproducerOnly);
+      expect(meta.reproducerPath,
+          equals('test/validation/tracked_resource_reproducer_test.dart'));
+      expect(meta.citationUrl, isNull);
+      expect(meta.profileCapturePaths, isNull);
+      expect(meta.bracketThreshold, isNull);
+      expect(meta.bracketUnit, isNull);
+      expect(meta.bracketStableId, isNull);
+      expect(meta.bracketSeverityLabel, isNull);
+      expect(meta.bracketAtTolerance, isNull);
+      expect(meta.aboveCeilingMultiplier, isNull);
+      expect(meta.observedAxisArgKey, isNull);
+      expect(meta.coveredThresholds, isNull);
+      expect(
+          meta.coveredStableIds,
+          equals(const {
+            'tracked_resource_concurrent',
+            'tracked_resource_long_lived',
+          }));
+      expect(meta.parametricFamilies, isNull);
+      expect(meta.perStableIdTier, isNull);
       expect(meta.additionalBrackets, isNull);
     });
 

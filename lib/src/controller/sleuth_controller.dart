@@ -30,6 +30,7 @@ import '../detectors/heavy_compute_detector.dart';
 import '../detectors/platform_channel_detector.dart';
 import '../detectors/memory_pressure_detector.dart';
 import '../detectors/stream_resource_detector.dart';
+import '../detectors/tracked_resource_detector.dart';
 import '../detectors/repaint_detector.dart';
 import '../detectors/rebuild_detector.dart';
 import '../detectors/setstate_scope_detector.dart';
@@ -151,6 +152,7 @@ class SleuthController {
   late final FrameTimingDetector _frameTiming;
   late final MemoryPressureDetector _memoryPressure;
   late final StreamResourceDetector _streamResource;
+  late final TrackedResourceDetector _trackedResource;
   late final NetworkMonitorDetector _networkMonitor;
   late final RebuildDetector _rebuildDetector;
 
@@ -733,6 +735,14 @@ class SleuthController {
       largeResponseBytes: config.largeResponseThresholdBytes,
     )..isEnabled = enabled.contains(DetectorType.networkMonitor);
 
+    _trackedResource = TrackedResourceDetector(
+      maxConcurrent: config.thresholds.trackedResourceMaxConcurrent,
+      longLivedSeconds: config.thresholds.trackedResourceLongLivedSeconds,
+      maxDistinctNames: config.thresholds.trackedResourceMaxDistinctNames,
+      sweepIntervalSeconds:
+          config.thresholds.trackedResourceSweepIntervalSeconds,
+    )..isEnabled = enabled.contains(DetectorType.trackedResource);
+
     _rebuildDetector = RebuildDetector(
       rebuildsPerSecThreshold: config.rebuildThreshold,
       startupPhaseWindowSeconds: config.thresholds.startupPhaseWindowSeconds,
@@ -797,6 +807,7 @@ class SleuthController {
       // gate. Listing it AFTER _memoryPressure means the heap-growing
       // recency stamp from this scan tick is current at evaluation.
       _streamResource,
+      _trackedResource,
       _networkMonitor,
       _rebuildDetector,
       // Custom detectors.
@@ -861,6 +872,10 @@ class SleuthController {
       _rebuildDetector.isEnabled = true;
       return;
     }
+    if (type == DetectorType.trackedResource) {
+      _trackedResource.isEnabled = true;
+      return;
+    }
     // Defer list mutation if we're mid-iteration.
     if (_isIteratingDetectors) {
       _pendingDetectorMutations.add(() => enableDetector(type));
@@ -902,6 +917,10 @@ class SleuthController {
     }
     if (type == DetectorType.rebuild) {
       _rebuildDetector.isEnabled = false;
+      return;
+    }
+    if (type == DetectorType.trackedResource) {
+      _trackedResource.isEnabled = false;
       return;
     }
     // Defer list mutation if we're mid-iteration.
@@ -1149,6 +1168,17 @@ class SleuthController {
   StreamResourceDetector? get streamResourceDetector {
     if (!_detectorsReady) return null;
     return _streamResource;
+  }
+
+  /// Public accessor for the [TrackedResourceDetector] instance.
+  /// Returns null when the controller has not finished initialisation.
+  /// When [DetectorType.trackedResource] is excluded from
+  /// [SleuthConfig.enabledDetectors], the singleton is returned with
+  /// `isEnabled = false` — track/untrack calls no-op via the disabled
+  /// flag rather than the accessor.
+  TrackedResourceDetector? get trackedResourceDetector {
+    if (!_detectorsReady) return null;
+    return _trackedResource;
   }
 
   /// Capture-pipeline wrapper around

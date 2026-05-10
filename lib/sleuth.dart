@@ -67,6 +67,8 @@ import 'src/detectors/rebuild_detector.dart' show RebuildDetector;
 import 'src/detectors/repaint_detector.dart' show RepaintDetector;
 import 'src/detectors/stream_resource_detector.dart'
     show StreamResourceDetector, StreamResourcePollResult;
+import 'src/detectors/tracked_resource_detector.dart'
+    show TrackedResourceDetector;
 import 'src/models/fix_verification_result.dart';
 import 'src/models/route_session.dart';
 import 'src/models/session_snapshot.dart';
@@ -577,6 +579,55 @@ class Sleuth {
   static StreamResourceDetector? get streamResourceDetector {
     if (kReleaseMode) return null;
     return _controller?.streamResourceDetector;
+  }
+
+  /// Public accessor for the [TrackedResourceDetector] instance.
+  /// Returns null when [Sleuth] has not been initialised or in
+  /// release mode. When [DetectorType.trackedResource] is excluded
+  /// from [SleuthConfig.enabledDetectors], the detector is
+  /// constructed but disabled — `Sleuth.trackResource` /
+  /// `Sleuth.untrackResource` no-op via the disabled flag.
+  static TrackedResourceDetector? get trackedResourceDetector {
+    if (kReleaseMode) return null;
+    return _controller?.trackedResourceDetector;
+  }
+
+  /// Register [resource] under [name] for opt-in retention tracking.
+  /// The tracker holds only a [WeakReference] so registration cannot
+  /// prevent garbage collection. Cross-isolate calls are no-ops.
+  ///
+  /// Emits `tracked_resource_concurrent.warning` when more than
+  /// [DetectorThresholds.trackedResourceMaxConcurrent] live instances
+  /// share the same name, and `tracked_resource_long_lived.warning`
+  /// when a single instance has been alive longer than
+  /// [DetectorThresholds.trackedResourceLongLivedSeconds] without
+  /// being finalised by the GC.
+  ///
+  /// [resource] must be a class instance — primitives ([num],
+  /// [String], [bool], [Symbol]) and records are silently dropped
+  /// (debug builds assert). [Future], [Stream], and closures are
+  /// technically tracked but typically not the right target; track
+  /// the owning service / repository / subscription instead.
+  ///
+  /// No-op in release mode and when [Sleuth] has not been
+  /// initialised. Pre-init calls do not retain any reference to
+  /// [resource].
+  static void trackResource(String name, Object resource) {
+    if (kReleaseMode) return;
+    _controller?.trackedResourceDetector?.track(name, resource);
+  }
+
+  /// Best-effort decrement: removes a registration whose target is
+  /// `identical` to [resource] from the bucket named [name]. Silent
+  /// no-op when [name] is unknown or the identity does not match
+  /// any tracked instance.
+  ///
+  /// Optional — the GC + Finalizer wiring decrements automatically
+  /// when [resource] is reclaimed. Call [untrackResource] when you
+  /// want to signal explicit dispose ahead of the next GC cycle.
+  static void untrackResource(String name, Object resource) {
+    if (kReleaseMode) return;
+    _controller?.trackedResourceDetector?.untrack(name, resource);
   }
 
   /// Capture-pipeline shortcut: trigger one immediate

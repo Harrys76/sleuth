@@ -1389,6 +1389,69 @@ void main() {
       expect(edges, isEmpty);
     });
 
+    test('tracked_resource_concurrent → heap_growing edge surfaces on co-fire',
+        () {
+      final issues = [
+        makeIssue(
+            stableId: 'tracked_resource_concurrent:chat_socket',
+            category: IssueCategory.memory),
+        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+      expect(
+          hasEdge(
+              edges, 'tracked_resource_concurrent:chat_socket', 'heap_growing'),
+          isTrue);
+    });
+
+    test('tracked_resource_long_lived → heap_growing edge surfaces on co-fire',
+        () {
+      final issues = [
+        makeIssue(
+            stableId: 'tracked_resource_long_lived:chat_socket',
+            category: IssueCategory.memory),
+        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+      expect(
+          hasEdge(
+              edges, 'tracked_resource_long_lived:chat_socket', 'heap_growing'),
+          isTrue);
+    });
+
+    test('tracked_resource alone surfaces no causal edges (negative control)',
+        () {
+      final issues = [
+        makeIssue(
+            stableId: 'tracked_resource_concurrent:chat_socket',
+            category: IssueCategory.memory),
+        makeIssue(
+            stableId: 'tracked_resource_long_lived:chat_socket',
+            category: IssueCategory.memory),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+      expect(edges, isEmpty);
+    });
+
+    test(
+        'tracked_resource_concurrent + stream_resource_growth co-firing on '
+        'heap_growing both surface as parents', () {
+      final issues = [
+        makeIssue(
+            stableId: 'tracked_resource_concurrent:chat_socket',
+            category: IssueCategory.memory),
+        makeIssue(
+            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
+      expect(
+          hasEdge(
+              edges, 'tracked_resource_concurrent:chat_socket', 'heap_growing'),
+          isTrue);
+      expect(hasEdge(edges, 'stream_resource_growth', 'heap_growing'), isTrue);
+    });
+
     test(
         'multi-cause + multi-effect memory co-fire surfaces every parallel '
         'edge', () {

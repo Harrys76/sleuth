@@ -21,22 +21,23 @@ void main() {
       );
       controller.initializeDetectorsForTest();
 
-      // 5 typed detectors (frameTiming, memoryPressure, streamResource,
-      // networkMonitor, rebuild) are always constructed. enabledDetectors
-      // restricts only factory-map detectors. Total: 5 typed + 0 factory = 5.
-      expect(controller.detectorCountForTest, 5);
+      // 6 typed detectors (frameTiming, memoryPressure, streamResource,
+      // trackedResource, networkMonitor, rebuild) are always constructed.
+      // enabledDetectors restricts only factory-map detectors. Total:
+      // 6 typed + 0 factory = 6.
+      expect(controller.detectorCountForTest, 6);
 
       controller.dispose();
     });
 
-    testWidgets('default config constructs all 19 detectors', (tester) async {
+    testWidgets('default config constructs all 20 detectors', (tester) async {
       await tester.pumpWidget(buildMixedTree(50));
 
       final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
-      // 5 typed + 14 factory = 19 total.
-      expect(controller.detectorCountForTest, 19);
+      // 6 typed + 14 factory = 20 total.
+      expect(controller.detectorCountForTest, 20);
 
       controller.dispose();
     });
@@ -54,11 +55,11 @@ void main() {
         ),
       );
       controller.initializeDetectorsForTest();
-      expect(controller.detectorCountForTest, 5); // 5 typed only
+      expect(controller.detectorCountForTest, 6); // 6 typed only
 
       // Enable opacity at runtime.
       controller.enableDetector(DetectorType.customPainter);
-      expect(controller.detectorCountForTest, 6);
+      expect(controller.detectorCountForTest, 7);
 
       // Verify it participates in a scan.
       controller.runTreeScanForTest(context);
@@ -79,10 +80,10 @@ void main() {
         ),
       );
       controller.initializeDetectorsForTest();
-      expect(controller.detectorCountForTest, 6); // 5 typed + opacity
+      expect(controller.detectorCountForTest, 7); // 6 typed + opacity
 
       controller.disableDetector(DetectorType.customPainter);
-      expect(controller.detectorCountForTest, 5); // opacity removed
+      expect(controller.detectorCountForTest, 6); // opacity removed
 
       controller.dispose();
     });
@@ -124,8 +125,8 @@ void main() {
       );
       controller.initializeDetectorsForTest();
 
-      // 5 typed + 0 factory + 1 custom = 6.
-      expect(controller.detectorCountForTest, 6);
+      // 6 typed + 0 factory + 1 custom = 7.
+      expect(controller.detectorCountForTest, 7);
 
       controller.dispose();
     });

@@ -130,6 +130,12 @@ class CausalGraphRule extends CorrelationRule {
     CausalRule('stream_resource_growth', 'heap_near_capacity'),
     CausalRule('stream_resource_growth', 'gc_pressure'),
 
+    // Tracked-resource leaks (user-confirmed via Sleuth.trackResource)
+    // are direct causes of heap_growing — each retained instance keeps
+    // its captured state alive past the GC root the user expected.
+    CausalRule('tracked_resource_concurrent:*', 'heap_growing'),
+    CausalRule('tracked_resource_long_lived:*', 'heap_growing'),
+
     // AnimatedBuilder without child → excessive repaints
     CausalRule('animated_builder_no_child', 'excessive_repaint'),
     CausalRule('animated_builder_no_child', 'excessive_repaint_debug'),

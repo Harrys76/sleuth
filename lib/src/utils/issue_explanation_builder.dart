@@ -476,6 +476,8 @@ class IssueExplanationBuilder {
         'gc_pressure',
         'heap_near_capacity',
         'stream_resource_growth',
+        'tracked_resource_concurrent',
+        'tracked_resource_long_lived',
         'uncached_images'
       ],
     ),
@@ -533,6 +535,92 @@ class IssueExplanationBuilder {
         'heap_growing',
         'native_memory_growing',
         'gc_pressure',
+      ],
+    ),
+
+    'tracked_resource_concurrent': (
+      displayName: 'Tracked Resource Concurrent',
+      category: IssueCategory.memory,
+      whatItIs: 'Multiple live instances are registered under the same name '
+          'via `Sleuth.trackResource(name, resource)`, exceeding the '
+          'configured concurrent threshold. The tracker holds only a '
+          '`WeakReference`, so each counted instance is reachable from '
+          'somewhere outside Sleuth — confirmed retention.',
+      readingTheData: 'Like signing a guest book on entry: if the book shows 8 '
+          'guests still inside an hour after the meeting ended, '
+          'someone forgot to leave.\n\n'
+          '• Resource name — the string passed to '
+          '`Sleuth.trackResource`. Stable taxonomy (one per service '
+          'class) is the intended use.\n\n'
+          '• Live instance count — number of registered targets the '
+          'GC has not yet finalised.\n\n'
+          '• Source: pure Dart `WeakReference` + `Finalizer`. No VM '
+          'service required.',
+      whyItMatters: 'A confirmed leak: the user explicitly opted into tracking '
+          'this name, so the live count represents a real ownership '
+          'claim. Each retained instance keeps its captured closures '
+          'alive — common offenders are HTTP clients with connection '
+          'pools, repository singletons stacked across feature scopes, '
+          'and chat-socket-style services kept alive past their flow.',
+      howToFix: 'Audit dispose / cancel paths for the named resource:\n\n'
+          '• Find every `Sleuth.trackResource(name, ...)` call site.\n'
+          '• Verify a matching `Sleuth.untrackResource` OR a clear '
+          'ownership boundary (state.dispose, scope close, isolate '
+          'death) where the GC will reclaim it.\n'
+          '• If the resource is intentionally pooled (HTTP connection '
+          'pool, isolate worker pool), raise '
+          '`SleuthConfig.thresholds.trackedResourceMaxConcurrent` '
+          'to the expected pool size.',
+      whenToIgnore: 'A pooled resource where the count IS the design (database '
+          'connection pool, prerendered tile cache). Tune the '
+          'threshold rather than dispose what should be retained.',
+      relatedIssues: [
+        'heap_growing',
+        'tracked_resource_long_lived',
+      ],
+    ),
+
+    'tracked_resource_long_lived': (
+      displayName: 'Tracked Resource Long-Lived',
+      category: IssueCategory.memory,
+      whatItIs: 'A single instance registered via `Sleuth.trackResource` has '
+          'been alive longer than the configured long-lived threshold '
+          '(default 5 minutes wall-clock). The Finalizer has not '
+          'fired, so the GC has not reclaimed the target — something '
+          'outside the tracker is holding it.',
+      readingTheData:
+          'Like a meeting-room booking that never gets released: if '
+          'a "30 minute" booking is still active 5 hours later, '
+          'either the booking system is wrong or someone forgot to '
+          'check out.\n\n'
+          '• Resource name — the string passed to '
+          '`Sleuth.trackResource`.\n\n'
+          '• Oldest instance age — wall-clock seconds since the '
+          'first surviving registration.\n\n'
+          '• Source: pure Dart `WeakReference` + `Finalizer` against '
+          'the user-tracked target.',
+      whyItMatters: 'Long-lived retention is a confirmed ownership claim. If '
+          'the resource was meant to be scope-bound (per-route '
+          'service, per-feature subscription), the long lifetime '
+          'indicates the owning scope never released it. If the '
+          'resource was meant to be session-long (DI singleton, '
+          'app-scope event bus), the warning is noise — exclude that '
+          'name from tracking.',
+      howToFix: 'Decide the intent for the resource name:\n\n'
+          '• Scope-bound (route, feature, screen) — find the missing '
+          'dispose call. Ownership boundaries: `State.dispose`, '
+          '`Cubit.close`, `provider` autoDispose, isolate teardown.\n\n'
+          '• Session-long (singleton, app-scope) — stop tracking that '
+          'name OR raise '
+          '`SleuthConfig.thresholds.trackedResourceLongLivedSeconds` '
+          'past the longest legitimate session.',
+      whenToIgnore: 'Singletons. Tracking is opt-in by name; if a name is '
+          'always meant to live the whole session, untrack it after '
+          'the deliberate construction (one-shot tracking still '
+          'catches accidental re-construction).',
+      relatedIssues: [
+        'heap_growing',
+        'tracked_resource_concurrent',
       ],
     ),
 

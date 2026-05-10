@@ -35,7 +35,27 @@ class DetectorThresholds {
     this.streamResourceWarmupSeconds = 20,
     this.streamResourceHeapGrowingRecencyMicros = 30000000,
     this.streamResourcePollFailureBackoffSeconds = 60,
+    this.trackedResourceMaxConcurrent = 5,
+    this.trackedResourceLongLivedSeconds = 300,
+    this.trackedResourceMaxDistinctNames = 1000,
+    this.trackedResourceSweepIntervalSeconds = 10,
   })  : assert(
+          trackedResourceMaxConcurrent >= 1,
+          'trackedResourceMaxConcurrent must be >= 1.',
+        ),
+        assert(
+          trackedResourceLongLivedSeconds > 0,
+          'trackedResourceLongLivedSeconds must be > 0.',
+        ),
+        assert(
+          trackedResourceMaxDistinctNames >= 1,
+          'trackedResourceMaxDistinctNames must be >= 1.',
+        ),
+        assert(
+          trackedResourceSweepIntervalSeconds > 0,
+          'trackedResourceSweepIntervalSeconds must be > 0.',
+        ),
+        assert(
           streamResourceSampleSeconds > 0,
           'streamResourceSampleSeconds must be > 0.',
         ),
@@ -328,4 +348,52 @@ class DetectorThresholds {
   /// restart; short enough that a transient disconnect does not
   /// silence the detector for the rest of the session.
   final int streamResourcePollFailureBackoffSeconds;
+
+  /// Maximum concurrent live instances of a tracked-resource name
+  /// before `TrackedResourceDetector` emits
+  /// `tracked_resource_concurrent.warning`. Counts only registrations
+  /// the GC has not yet finalised.
+  ///
+  /// **Default:** 5. Most leak patterns concentrate on a single
+  /// service / subscription / socket — 5 concurrent instances
+  /// indicates 5× the expected lifetime overlap.
+  ///
+  /// **Raise this** for apps that legitimately retain N pooled
+  /// instances (e.g. connection-pool size). **Lower this** for
+  /// stricter leak hunts.
+  final int trackedResourceMaxConcurrent;
+
+  /// Wall-clock seconds a tracked instance must remain alive before
+  /// `TrackedResourceDetector` emits `tracked_resource_long_lived.warning`.
+  ///
+  /// **Default:** 300 seconds (5 minutes). Distinguishes legitimate
+  /// session-long resources (DI singletons, app-scope services) from
+  /// scope-bound resources that should have been disposed by now.
+  ///
+  /// **Raise this** for apps with long-lived feature flows (24h
+  /// chat session, multi-hour video editor). **Lower this** for
+  /// stricter scope-bound discipline.
+  final int trackedResourceLongLivedSeconds;
+
+  /// Maximum distinct names retained in the tracker map. When
+  /// exceeded, the least-recently-emitted bucket is evicted to
+  /// bound memory under name-fuzz misuse (e.g. `track('item-${i++}')`).
+  ///
+  /// **Default:** 1000. Real apps should have <100 distinct
+  /// stable names (one per service class). The cap defends against
+  /// per-instance-identity name patterns that would grow the map
+  /// unboundedly.
+  ///
+  /// **Lower this** for memory-tight apps. **Raise this** only when
+  /// a legitimate use case has >1000 stable names.
+  final int trackedResourceMaxDistinctNames;
+
+  /// Sweep cadence in seconds for `TrackedResourceDetector`. Each
+  /// sweep prunes finalised references and evaluates concurrent /
+  /// long-lived thresholds.
+  ///
+  /// **Default:** 10 seconds. Low enough to detect a leak within a
+  /// minute, high enough that the sweep cost is sub-millisecond on
+  /// any realistic tracker size.
+  final int trackedResourceSweepIntervalSeconds;
 }

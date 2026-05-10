@@ -870,4 +870,35 @@ class FixHintBuilder {
     if (widgetName != null) return 'In $widgetName: ';
     return 'At $ancestorChain: ';
   }
+
+  static (String, FixEffort) trackedResourceConcurrent({
+    required String name,
+    required int liveCount,
+  }) {
+    return (
+      '$liveCount live "$name" instances are reachable from app code. '
+          'The tracker holds only WeakReferences, so each one is retained '
+          'by something outside Sleuth. Audit dispose / cancel paths in '
+          'recently navigated routes for "$name". If "$name" is a pool '
+          '(connection pool, worker pool) and $liveCount is expected, '
+          'raise `SleuthConfig.thresholds.trackedResourceMaxConcurrent` '
+          'or untrack the pooled instances.',
+      FixEffort.medium,
+    );
+  }
+
+  static (String, FixEffort) trackedResourceLongLived({
+    required String name,
+    required int ageSeconds,
+  }) {
+    return (
+      'Instance of "$name" has been alive for $ageSeconds seconds. '
+          'WeakReference + Finalizer confirm the GC has not reclaimed '
+          'it — something outside the tracker is holding it. If this is '
+          'a deliberate session-long resource (DI singleton, app-scope '
+          'service), exclude "$name" from tracking or raise '
+          '`SleuthConfig.thresholds.trackedResourceLongLivedSeconds`.',
+      FixEffort.medium,
+    );
+  }
 }

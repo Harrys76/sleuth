@@ -1,3 +1,17 @@
+## 0.27.0
+
+New `TrackedResourceDetector` (runtime, opt-in) + public `Sleuth.trackResource` / `Sleuth.untrackResource` API. 19 → 20 detectors.
+
+- `Sleuth.trackResource(name, resource)` registers; tracker keeps `WeakReference` + Finalizer token + first-seen timestamp per registration. Token is the registration identity (allocation-unique, collision-resistant); shared `Finalizer` dispatches release on GC reclaim. `Sleuth.untrackResource(name, resource)` is the optional explicit decrement.
+- Two emission paths, both `confirmed`:
+  - `tracked_resource_concurrent.warning` — live count under one name > `trackedResourceMaxConcurrent` (default 5).
+  - `tracked_resource_long_lived.warning` — single instance alive past `trackedResourceLongLivedSeconds` (default 300 s).
+- LRU cap (`trackedResourceMaxDistinctNames`, default 1000) bounds the in-memory bucket map; eviction detaches per-ref Finalizer entries so VM-side state stays bounded. Periodic sweep (`trackedResourceSweepIntervalSeconds`, default 10 s) drives evaluation.
+- Pure Dart — no VM service dependency. Cross-isolate registration is a no-op (one controller per isolate).
+- Primitive / record targets silently dropped via `droppedTargetsCount`.
+- New `CausalGraphRule` edges `tracked_resource_concurrent → heap_growing` and `tracked_resource_long_lived → heap_growing`.
+- Tier `reproducerOnly`.
+
 ## 0.26.0
 
 `stream_resource_growth.warning` raised to runtimeVerified; `gc_pressure` default 30 → 60/min.
