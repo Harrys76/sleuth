@@ -1536,7 +1536,12 @@ class ProfileCaptureSchema {
   // versioning and `flutter --version` output both include suffixes, so a
   // strict `^3\.41\.\d+$` regex rejected legitimate author-entered values.
   // The pin is still on major.minor (3.41); patch and suffix are free.
+  // IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
+  // (fires only on subclassing). Remove when analyzer-server recognizes the
+  // implement-only kind.
+  // ignore: deprecated_member_use
   static final RegExp _flutterVersionPattern =
+      // ignore: deprecated_member_use
       RegExp(r'^3\.41\.\d+(?:[-+][0-9A-Za-z.\-]+)?$');
 
   static void _validateFlutterVersion(Map<String, Object?> metadata) {
@@ -1722,6 +1727,10 @@ class ProfileCaptureSchema {
   // `Thh:mm:ss[.fraction][offset]`, where offset is `Z`, `+HH:MM`, `-HH:MM`,
   // `+HHMM`, or `-HHMM`. Enough to extract literal components for
   // range-checking; `DateTime.tryParse` does the final validity pass.
+  // IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
+  // (fires only on subclassing). Remove when analyzer-server recognizes the
+  // implement-only kind.
+  // ignore: deprecated_member_use
   static final RegExp _captureDatePattern = RegExp(
     r'^(\d{4})-(\d{2})-(\d{2})'
     r'(?:[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?'

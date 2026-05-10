@@ -67,6 +67,10 @@ class IssueExplanationBuilder {
     );
   }
 
+  // IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
+  // (fires only on subclassing). Remove when analyzer-server recognizes the
+  // implement-only kind.
+  // ignore: deprecated_member_use
   static final RegExp _countExtractor = RegExp(r'(\d+)');
 
   static String _substitutePlaceholders(String text, PerformanceIssue issue) {

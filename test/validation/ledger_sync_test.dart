@@ -1,3 +1,7 @@
+// IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
+// (fires only on subclassing). Remove when analyzer-server recognizes the
+// implement-only kind.
+// ignore_for_file: deprecated_member_use
 // CODEX-R4-1: ledger-sync gate.
 //
 // `doc/validation_ledger.md` is the public reliability statement — it

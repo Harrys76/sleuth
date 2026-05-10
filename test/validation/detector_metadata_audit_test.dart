@@ -1,3 +1,7 @@
+// IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
+// (fires only on subclassing). Remove when analyzer-server recognizes the
+// implement-only kind.
+// ignore_for_file: deprecated_member_use
 // Audit gate for the v0.16 validation-methodology contract.
 //
 // Walks every detector registered on a default [SleuthController] (minus

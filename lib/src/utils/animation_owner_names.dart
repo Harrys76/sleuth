@@ -87,6 +87,10 @@ const Set<String> animationOwnerNames = <String>{
 /// `'AnimatedBuilder'`.
 ///
 /// Used by [chainContainsAnimationOwner] for ascending-chain inspection.
+// IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
+// (fires only on subclassing). Remove when analyzer-server recognizes the
+// implement-only kind.
+// ignore: deprecated_member_use
 final RegExp animationOwnerRegex = RegExp(
   r'\b(' + animationOwnerNames.join('|') + r')\b',
 );

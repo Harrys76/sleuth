@@ -269,6 +269,10 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   ///
   /// `_GaussianBlurImageFilter` is private — `toString()` returns
   /// `'ImageFilter.blur(sigmaX, sigmaY, TileMode.clamp)'`.
+  // IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
+  // (fires only on subclassing). Remove when analyzer-server recognizes the
+  // implement-only kind.
+  // ignore: deprecated_member_use
   static final _blurSigmaRegExp =
       RegExp(r'ImageFilter\.blur\((\d+\.?\d*),\s*(\d+\.?\d*)');
 

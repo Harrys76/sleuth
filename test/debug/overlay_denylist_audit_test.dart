@@ -1,3 +1,7 @@
+// IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
+// (fires only on subclassing). Remove when analyzer-server recognizes the
+// implement-only kind.
+// ignore_for_file: deprecated_member_use
 // v0.15.1 hotfix CI audit — KDD-10 Framework widget contamination.
 //
 // The `_frameworkWidgetDenyList` in `debug_instrumentation_coordinator.dart`
