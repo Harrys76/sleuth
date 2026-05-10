@@ -211,7 +211,7 @@ class PerformanceIssue {
   final List<String>? rootCauseIds;
 
   /// Canonical read accessor for the multi-parent causal annotation.
-  /// Falls back from [rootCauseIds] (plural, v0.24.2+) to [rootCauseId]
+  /// Falls back from [rootCauseIds] (plural, v0.24.2+) to `rootCauseId`
   /// (singular, deprecated, v0.24.1-) coerced as a singleton list. Use
   /// this accessor in consumers — direct field access on [rootCauseIds]
   /// bypasses the back-compat coercion and silently breaks for callers
@@ -306,8 +306,10 @@ class PerformanceIssue {
         // legacy-stamped issue.
         if (rootCauseIds != null && rootCauseIds!.isNotEmpty)
           'rootCauseId': rootCauseIds!.first,
-        // ignore: deprecated_member_use_from_same_package
-        if (rootCauseIds == null && rootCauseId != null)
+        if (rootCauseIds == null &&
+            // ignore: deprecated_member_use_from_same_package
+            rootCauseId != null)
+          // ignore: deprecated_member_use_from_same_package
           'rootCauseId': rootCauseId,
         if (rootCauseIds != null) 'rootCauseIds': rootCauseIds,
         if (downstreamIds != null) 'downstreamIds': downstreamIds,

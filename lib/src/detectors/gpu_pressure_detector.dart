@@ -272,8 +272,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   // IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
   // (fires only on subclassing). Remove when analyzer-server recognizes the
   // implement-only kind.
-  // ignore: deprecated_member_use
   static final _blurSigmaRegExp =
+      // ignore: deprecated_member_use
       RegExp(r'ImageFilter\.blur\((\d+\.?\d*),\s*(\d+\.?\d*)');
 
   static double? _extractMaxBlurSigma(ui.ImageFilter? filter) {
