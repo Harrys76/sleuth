@@ -59,7 +59,7 @@ test/
 
 ## Current state
 
-**v0.25.0** (current, BREAKING) — Multi-parent causal UI surface + removal of deprecated `PerformanceIssue.rootCauseId` singular. Issue cards render a "Caused by" section listing every reaching upstream root (multi-parent ≥2 surfaces standalone always; single-parent legacy collapse preserved). New `IssueCard.parentIssues` + `suppressedParentCount` fields wire into the section, with "(+N suppressed)" annotation when resolved parents are fewer than the issue's `rootCauseIds`. `computeVisibleIssues` filter: ≥2 parents → visible; 1 parent → hide if visible, surface if suppressed. BREAKING: singular `rootCauseId` field, JSON key, `fromJson` read, and `effectiveRootCauseIds` getter all removed. v0.24.x snapshots with only the singular key must re-export through v0.24.2 before import on v0.25.0+.
+**v0.25.0** (current, BREAKING) — Multi-parent causal UI + removal of `rootCauseId` singular. `IssueCard.parentIssues` + `_causedBySection` widget (cap 5, "(+N suppressed)" annotation). `computeVisibleIssues`: ≥2 parents always visible; 1 parent collapses or surfaces orphan; 0 parents visible. BREAKING: singular `rootCauseId` field, JSON key, `fromJson` read, `effectiveRootCauseIds` getter — all removed. v0.24.x-only snapshots must re-export through v0.24.2 before import. `rootCauseIds` invariant: null or non-empty (fromJson coerces empty → null).
 
 **v0.24.2** — Multi-parent causal-graph annotation (data model layer). `CausalGraphRule.apply()` writes `rootCauseIds: List<String>?` plural; every reaching root claims each downstream. `toJson` dual-emitted singular for v0.24.1-reader back-compat (removed v0.25.0).
 

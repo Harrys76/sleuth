@@ -1,7 +1,7 @@
-# Detector Threshold Audit — Adversarial Investigation
+# Detector Threshold Audit
 
-**Date (pass 1):** 2026-04-14 — guide-mode audit, documentation cross-reference only.
-**Date (pass 2):** 2026-04-15 — grill-mode meta-investigation; pass 1 verdicts regraded against detector source. See §7 for the regrade and §1 for the inline verdict updates (`²` markers).
+**Date (pass 1):** 2026-04-14 — documentation cross-reference.
+**Date (pass 2):** 2026-04-15 — meta-investigation; pass 1 verdicts regraded against detector source. See §7 for the regrade and §1 for the inline verdict updates (`²` markers).
 **Against:** Sleuth v0.15.2 (23 detectors)
 **Scope:** Every numeric/duration/ratio threshold in `lib/src/detectors/`, cross-referenced against 2025–2026 Flutter performance, Android Vitals, Impeller, and mobile-API sources, then verified against the detector source.
 
@@ -67,18 +67,18 @@ These themes recurred across detectors and deserve attention before any single-d
 
 ### C4. Rate-based detectors without "is this widget an intentional animation?" filter
 **Affected:** RepaintDetector, RebuildDetector, CustomPainterDetector, possibly AnimatedBuilderDetector.
-**Adversarial question:** A `CircularProgressIndicator` legitimately paints at `fpsTarget` frequency. A `Ticker`-driven game loop legitimately rebuilds every frame. Do these detectors exempt that case?
+**Question:** A `CircularProgressIndicator` legitimately paints at `fpsTarget` frequency. A `Ticker`-driven game loop legitimately rebuilds every frame. Do these detectors exempt that case?
 **Evidence:** Grep for `Ticker`/`AnimationController`/`Animated*`/`TransitionBuilder` ancestor filters would answer this; I did not find such a filter in the threshold inventory. If a `CircularProgressIndicator` in the app's top bar is firing "repaint rate 60/s" every session, users will disable the detector or dismiss Sleuth entirely — that is the worst kind of false positive: the one that erodes trust in ALL detectors.
 **Recommendation:** Highest-priority "investigate before tune" item. If the ancestor filter exists, I missed it — confirm from source. If it doesn't, adding one is more valuable than any threshold change.
 
 ### C5. "2× threshold = critical" as a universal pattern
 **Affected:** Nearly every detector uses `threshold`, `2 * threshold`, `3 * threshold` as the warning / critical / escalated-critical ladder.
-**Adversarial:** Severity should reflect cost and confidence, not arithmetic doubling. Jank at 17 ms (warning) vs 34 ms (critical) is physically different — a missed frame vs a visibly dropped one. But "1.5 MB/s native growth" vs "2 MB/s" is a factor-of-2 in count, not in user impact. The pattern is convenient, not justified.
+**Critique:** Severity should reflect cost and confidence, not arithmetic doubling. Jank at 17 ms (warning) vs 34 ms (critical) is physically different — a missed frame vs a visibly dropped one. But "1.5 MB/s native growth" vs "2 MB/s" is a factor-of-2 in count, not in user impact. The pattern is convenient, not justified.
 **Recommendation:** Low priority — the convention is fine for most cases — but flag in the spec as an area where individual detectors may deviate.
 
 ---
 
-## 3. Per-detector adversarial analyses (detail)
+## 3. Per-detector analyses (detail)
 
 Below are the detectors whose thresholds survived less well on scrutiny, with the reasoning in full. Detectors not listed here earned a ✅ in §1.
 
@@ -243,9 +243,9 @@ The practical false-positive surface is therefore much larger on the Repaint sid
 
 **Asymmetry vs RebuildDetector (KDD-4) is deliberate**: full exemption (RepaintDetector) vs 3× multiplier (RebuildDetector). A `CircularProgressIndicator` is *supposed* to paint at the device refresh rate — there is no rate that's "too high" for it; the right answer is "don't fire at all." A high *rebuild* rate on the same widget is more ambiguous (could be a parent re-mounting it 60×/sec by mistake), so a multiplier rather than full exemption.
 
-**Test coverage:** 10 hand-rolled fixture tests in `test/detectors/repaint_detector_test.dart` exercise gate algebra against synthetic chains. ONE real-widget anti-tautology test in `test/detectors/repaint_animation_filter_real_widget_test.dart` pumps an actual `CircularProgressIndicator` through `DebugInstrumentationCoordinator`, asserts captured chains contain `'CircularProgressIndicator'`, then re-pins `elapsed: 100ms` to push per-widget rates to ~100/sec (well over the 30/sec threshold) so Gate A is exercised — not just Gate C suppression. The real-widget test exists specifically because hand-rolled fixtures would encode whatever chain format the test author *thinks* the coordinator produces, so they cannot catch a bug where the filter relies on a chain key/string format the coordinator never emits in practice (adversarial-investigation Tactic 9).
+**Test coverage:** 10 hand-rolled fixture tests in `test/detectors/repaint_detector_test.dart` exercise gate algebra against synthetic chains. ONE real-widget anti-tautology test in `test/detectors/repaint_animation_filter_real_widget_test.dart` pumps an actual `CircularProgressIndicator` through `DebugInstrumentationCoordinator`, asserts captured chains contain `'CircularProgressIndicator'`, then re-pins `elapsed: 100ms` to push per-widget rates to ~100/sec (well over the 30/sec threshold) so Gate A is exercised — not just Gate C suppression. The real-widget test exists specifically because hand-rolled fixtures would encode whatever chain format the test author *thinks* the coordinator produces, so they cannot catch a bug where the filter relies on a chain key/string format the coordinator never emits in practice.
 
-**Post-impl hardening pass (C1–C5 from `/adversarial-review`):** five
+**Hardening pass against the v0.15.3 ship (C1–C5):** five
 critical findings landed against the original v0.15.3 ship. All five
 shared an architectural root cause: ownership decisions were made by
 inspecting a cached chain-string keyed on `runtimeType`, but the chain
@@ -311,8 +311,7 @@ against the live `Element`.
   generic-stripping bug in `hasAnimationOwnerDescendant` —
   `'TweenAnimationBuilder<double>'` was being looked up against a Set
   containing `'TweenAnimationBuilder'`, exactly the class of bug the
-  anti-tautology tests exist to catch (adversarial-investigation
-  Tactic 9).
+  real-widget tests exist to catch.
 
 **Architectural follow-ups discovered during C5:**
 
