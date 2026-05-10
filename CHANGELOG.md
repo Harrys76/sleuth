@@ -1,3 +1,24 @@
+## 0.25.0 (BREAKING)
+
+Multi-parent causal UI surface + removal of the deprecated `rootCauseId` singular field. Issue cards now show a "Caused by" section listing every reaching upstream root, mirroring the existing "Related effects" downstream section. Multi-parent downstreams (≥2 reaching roots) surface standalone with the badge regardless of parent visibility — bidirectional discoverability. Single-parent downstreams continue to collapse under their visible parent (legacy behaviour preserved).
+
+**BREAKING** — `PerformanceIssue.rootCauseId` (singular, deprecated since v0.24.2) is removed entirely: field, constructor parameter, copyWith parameter, JSON wire format key, and `fromJson` read. The `effectiveRootCauseIds` getter (back-compat shim) is also removed; consumers read `rootCauseIds` directly.
+
+**Migration** for external consumers:
+- Code constructing `PerformanceIssue(rootCauseId: 'x')` directly: rename to `rootCauseIds: ['x']`. Compile error otherwise.
+- Code reading the deprecated `issue.rootCauseId` getter: replace with `issue.rootCauseIds?.firstOrNull`. Compile error otherwise.
+- Code reading the JSON `rootCauseId` key: read `rootCauseIds` instead. v0.24.x-or-earlier snapshots that carry only the singular key must be re-exported through v0.24.2 (which coerces singular → plural at deserialization) before importing on v0.25.0+.
+- Code writing JSON with the `rootCauseId` key: emit `rootCauseIds` plural only. v0.25.0 readers do not see the singular key.
+
+Other changes:
+
+- `IssueCard`: new `parentIssues: List<PerformanceIssue>?` field + `_causedBySection` widget (mirrors `_downstreamSection`, capped 5 + "and N more"). Renders above "Related effects" when non-empty. New `suppressedParentCount` field surfaces "(+N suppressed)" annotation when the resolved parent list is shorter than the issue's `rootCauseIds` (some parents not in the visible set).
+- `computeVisibleIssues` filter (`floating_issues_card.dart`): ≥2 parents → visible (multi-parent badge case); 1 parent → hide if parent in visible set, surface as orphan if missing; 0 parents → visible. Single-parent legacy collapse preserved.
+- `FloatingIssuesCard`: resolves `parentIssues` via the existing `stableIdToIssue` map (O(1) lookup); counts unresolved parents into `suppressedParentCount`.
+- `AiContextBuilder`: reads `rootCauseIds` directly (was `effectiveRootCauseIds`).
+- `PerformanceIssue.rootCauseIds` documented invariant: must be either null or non-empty. Empty-list ambiguity with no-parent semantics is a producer-side responsibility.
+- Tests: +5 IssueCard `_causedBySection` render scenarios (header, cap-at-5, suppressed annotation, missing-section, all-suppressed orphan). Visibility-filter triad updated for multi-parent always-surface semantic. ~10 test sites migrated singular → plural; singular-only regression tests removed (now compile errors).
+
 ## 0.24.2
 
 Multi-parent causal-graph annotation (metadata layer). `CausalGraphRule.apply` now claims every reaching root for each downstream effect, removing the v0.24.1 export-vs-UI asymmetry at the data model layer. Top-level UI rendering of multi-parent badges is deferred to v0.25.0+ — the visibility filter still collapses each downstream under any visible reaching root.

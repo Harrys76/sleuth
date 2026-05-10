@@ -56,7 +56,7 @@ class AiContextBuilder {
     if (issue.fixEffort != null) {
       buf.writeln('Estimated fix effort: ${issue.fixEffort!.name}');
     }
-    final causeIds = issue.effectiveRootCauseIds;
+    final causeIds = issue.rootCauseIds;
     if (causeIds != null && causeIds.isNotEmpty) {
       // Multi-parent (v0.24.2+): every co-firing upstream cause is listed.
       // Cap at 5 + "(+N more)" so a long fan-in does not flood the prompt

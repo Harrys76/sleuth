@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'allocation_entry.dart';
 
 /// Severity levels for detected performance issues.
@@ -86,7 +88,6 @@ class PerformanceIssue {
     this.topAllocators,
     this.rankingScore,
     this.rankingBreakdown,
-    this.rootCauseId,
     this.rootCauseIds,
     this.downstreamIds,
     this.confidenceReason,
@@ -185,20 +186,6 @@ class PerformanceIssue {
   /// Each value is the weighted contribution to [rankingScore].
   final Map<String, int>? rankingBreakdown;
 
-  /// StableId of the single root-cause issue that explains this one.
-  ///
-  /// **Deprecated** in v0.24.2 in favor of [rootCauseIds] (plural). The
-  /// multi-parent annotation pipeline writes only [rootCauseIds]; this
-  /// field is no longer populated by [CausalGraphRule.apply]. Existing
-  /// readers should migrate to [rootCauseIds]. Removed in v0.25.0.
-  ///
-  /// Null for root issues, standalone issues, and any issue produced
-  /// after v0.24.2.
-  @Deprecated(
-      'Use rootCauseIds (plural). Removed in v0.25.0. apply() writes only '
-      'the plural field starting v0.24.2.')
-  final String? rootCauseId;
-
   /// StableIds of every root-cause issue that explains this one.
   /// Multiple parents are possible when distinct upstream causes co-fire
   /// against the same downstream effect (e.g. `stream_resource_growth`,
@@ -208,20 +195,14 @@ class PerformanceIssue {
   /// Null for root issues and standalone issues (no causal chain). Set by
   /// [CausalGraphRule] during cross-detector correlation. Order is
   /// deterministic: severity descending, then stableId ascending.
+  ///
+  /// **Invariant**: must be either null or non-empty. An empty list is
+  /// ambiguous with no-parent semantics and would silently break the
+  /// visibility filter and the "Caused by" UI section. Producers
+  /// ([CausalGraphRule.apply], [PerformanceIssue.fromJson]) guarantee
+  /// non-empty when set; callers reading the field can assume the
+  /// invariant.
   final List<String>? rootCauseIds;
-
-  /// Canonical read accessor for the multi-parent causal annotation.
-  /// Falls back from [rootCauseIds] (plural, v0.24.2+) to `rootCauseId`
-  /// (singular, deprecated, v0.24.1-) coerced as a singleton list. Use
-  /// this accessor in consumers — direct field access on [rootCauseIds]
-  /// bypasses the back-compat coercion and silently breaks for callers
-  /// still on the deprecated singular constructor.
-  List<String>? get effectiveRootCauseIds {
-    if (rootCauseIds != null) return rootCauseIds;
-    // ignore: deprecated_member_use_from_same_package
-    final singular = rootCauseId;
-    return singular == null ? null : <String>[singular];
-  }
 
   /// StableIds of downstream issues caused by this root issue.
   /// Null for non-root issues and standalone issues.
@@ -300,17 +281,6 @@ class PerformanceIssue {
         if (rankingScore != null) 'rankingScore': rankingScore,
         if (rankingBreakdown != null) 'rankingBreakdown': rankingBreakdown,
         // Canonical post-v0.24.2 emission: derive singular from plural so
-        // v0.24.1-and-earlier readers see the first reaching root (sorted
-        // severity desc → stableId asc). Eliminates drift between the two
-        // fields when apply() rewrites only the plural form on a previously
-        // legacy-stamped issue.
-        if (rootCauseIds != null && rootCauseIds!.isNotEmpty)
-          'rootCauseId': rootCauseIds!.first,
-        if (rootCauseIds == null &&
-            // ignore: deprecated_member_use_from_same_package
-            rootCauseId != null)
-          // ignore: deprecated_member_use_from_same_package
-          'rootCauseId': rootCauseId,
         if (rootCauseIds != null) 'rootCauseIds': rootCauseIds,
         if (downstreamIds != null) 'downstreamIds': downstreamIds,
         if (confidenceReason != null) 'confidenceReason': confidenceReason,
@@ -339,87 +309,100 @@ class PerformanceIssue {
   /// First-class import with explicit drift semantics (skip-on-drift or
   /// throw-on-drift with caller control) ships in v0.17 alongside the MCP
   /// server milestone.
-  factory PerformanceIssue.fromJson(Map<String, dynamic> json) =>
-      PerformanceIssue(
-        // Required enums fall back to neutral defaults on schema drift
-        // (renamed value, numeric coercion, missing key) instead of
-        // throwing and poisoning the whole snapshot. Matches the
-        // per-entry defensive-cast policy applied to `topAllocators`.
-        severity: _tryParseEnum(IssueSeverity.values, json['severity']) ??
-            IssueSeverity.warning,
-        category: _tryParseEnum(IssueCategory.values, json['category']) ??
-            IssueCategory.build,
-        confidence: _tryParseEnum(IssueConfidence.values, json['confidence']) ??
-            IssueConfidence.possible,
-        title: json['title'] as String,
-        detail: json['detail'] as String,
-        fixHint: json['fixHint'] as String,
-        stableId: json['stableId'] as String?,
-        widgetName: json['widgetName'] as String?,
-        routeName: json['routeName'] as String?,
-        observationSource:
-            _tryParseEnum(ObservationSource.values, json['observationSource']),
-        interactionContext: _tryParseEnum(
-            InteractionContext.values, json['interactionContext']),
-        debugModeDisclaimer: json['debugModeDisclaimer'] as bool? ?? false,
-        // Guard against FormatException on malformed ISO strings (e.g. a
-        // JS consumer stamping a non-ISO date, an IDE MCP re-exporter
-        // truncating to date-only, or any hand-crafted payload). Same
-        // schema-drift tolerance as the enum fields above — drops to
-        // null instead of poisoning the whole snapshot.
-        detectedAt: json['detectedAt'] is String
-            ? DateTime.tryParse(json['detectedAt'] as String)
-            : null,
-        ancestorChain: json['ancestorChain'] as String?,
-        fixEffort: _tryParseEnum(FixEffort.values, json['fixEffort']),
-        // Defensive per-entry parsing: `AllocationEntry.fromJson` uses
-        // strict `as` casts on every required field, so a single malformed
-        // entry (e.g. `{'className': 42}` from a JS consumer that coerced
-        // a stringified class name, or a schema drift that renamed a key)
-        // would throw and poison the entire deserialization. Wrap each
-        // entry in a try/catch and drop offenders instead of failing the
-        // whole snapshot.
-        topAllocators: json['topAllocators'] is List
-            ? _tryParseAllocationEntries(json['topAllocators'] as List)
-            : null,
-        rankingScore:
-            json['rankingScore'] is int ? json['rankingScore'] as int : null,
-        rankingBreakdown: json['rankingBreakdown'] is Map<String, dynamic>
-            ? {
-                for (final entry
-                    in (json['rankingBreakdown'] as Map<String, dynamic>)
-                        .entries)
-                  if (entry.value is int) entry.key: entry.value as int,
-              }
-            : null,
-        // Plural takes precedence; singular falls back as a singleton list
-        // for v0.24.1-and-earlier snapshots that only carried `rootCauseId`.
-        // Both keys never coexist in v0.24.2+ output, but the dual-read
-        // path means re-importing an old snapshot composes cleanly with
-        // multi-parent UI rendering.
-        // ignore: deprecated_member_use_from_same_package
-        rootCauseId: json['rootCauseId'] as String?,
-        rootCauseIds: json['rootCauseIds'] is List
-            ? (json['rootCauseIds'] as List).whereType<String>().toList()
-            : (json['rootCauseId'] is String
-                ? <String>[json['rootCauseId'] as String]
-                : null),
-        downstreamIds: json['downstreamIds'] is List
-            ? (json['downstreamIds'] as List).whereType<String>().toList()
-            : null,
-        confidenceReason: json['confidenceReason'] as String?,
-        packageName: json['packageName'] as String?,
-        // Defensive casts: malformed JSON (e.g. scaffoldHashKey serialised as
-        // a string by a 53-bit-limited JavaScript consumer, or tabVisitIndex
-        // arriving as a double) would crash `as int?`. Coerce non-int values
-        // to null so one bad payload doesn't poison the whole snapshot.
-        scaffoldHashKey: json['scaffoldHashKey'] is int
-            ? json['scaffoldHashKey'] as int
-            : null,
-        tabVisitIndex:
-            json['tabVisitIndex'] is int ? json['tabVisitIndex'] as int : null,
-        sourceRoute: json['sourceRoute'] as String?,
+  factory PerformanceIssue.fromJson(Map<String, dynamic> json) {
+    // v0.25.0 dropped the legacy `rootCauseId` (singular) JSON key. Snapshots
+    // produced by v0.24.x-or-earlier readers carry only the singular key and
+    // silently lose causal annotation on import. Surface the loss in debug
+    // builds so consumers notice before the missing badge confuses them.
+    if (kDebugMode &&
+        json.containsKey('rootCauseId') &&
+        !json.containsKey('rootCauseIds')) {
+      debugPrint(
+        'sleuth: legacy snapshot detected — JSON contains "rootCauseId" '
+        '(singular) but no "rootCauseIds" (plural). Causal annotation '
+        'will be dropped. Re-export through v0.24.2 to upgrade '
+        'singular → plural before importing on v0.25.0+.',
       );
+    }
+    return PerformanceIssue(
+      // Required enums fall back to neutral defaults on schema drift
+      // (renamed value, numeric coercion, missing key) instead of
+      // throwing and poisoning the whole snapshot. Matches the
+      // per-entry defensive-cast policy applied to `topAllocators`.
+      severity: _tryParseEnum(IssueSeverity.values, json['severity']) ??
+          IssueSeverity.warning,
+      category: _tryParseEnum(IssueCategory.values, json['category']) ??
+          IssueCategory.build,
+      confidence: _tryParseEnum(IssueConfidence.values, json['confidence']) ??
+          IssueConfidence.possible,
+      title: json['title'] as String,
+      detail: json['detail'] as String,
+      fixHint: json['fixHint'] as String,
+      stableId: json['stableId'] as String?,
+      widgetName: json['widgetName'] as String?,
+      routeName: json['routeName'] as String?,
+      observationSource:
+          _tryParseEnum(ObservationSource.values, json['observationSource']),
+      interactionContext:
+          _tryParseEnum(InteractionContext.values, json['interactionContext']),
+      debugModeDisclaimer: json['debugModeDisclaimer'] as bool? ?? false,
+      // Guard against FormatException on malformed ISO strings (e.g. a
+      // JS consumer stamping a non-ISO date, an IDE MCP re-exporter
+      // truncating to date-only, or any hand-crafted payload). Same
+      // schema-drift tolerance as the enum fields above — drops to
+      // null instead of poisoning the whole snapshot.
+      detectedAt: json['detectedAt'] is String
+          ? DateTime.tryParse(json['detectedAt'] as String)
+          : null,
+      ancestorChain: json['ancestorChain'] as String?,
+      fixEffort: _tryParseEnum(FixEffort.values, json['fixEffort']),
+      // Defensive per-entry parsing: `AllocationEntry.fromJson` uses
+      // strict `as` casts on every required field, so a single malformed
+      // entry (e.g. `{'className': 42}` from a JS consumer that coerced
+      // a stringified class name, or a schema drift that renamed a key)
+      // would throw and poison the entire deserialization. Wrap each
+      // entry in a try/catch and drop offenders instead of failing the
+      // whole snapshot.
+      topAllocators: json['topAllocators'] is List
+          ? _tryParseAllocationEntries(json['topAllocators'] as List)
+          : null,
+      rankingScore:
+          json['rankingScore'] is int ? json['rankingScore'] as int : null,
+      rankingBreakdown: json['rankingBreakdown'] is Map<String, dynamic>
+          ? {
+              for (final entry
+                  in (json['rankingBreakdown'] as Map<String, dynamic>).entries)
+                if (entry.value is int) entry.key: entry.value as int,
+            }
+          : null,
+      // Empty-after-filter coerces to null to honor the never-empty
+      // invariant documented on the field. An incoming `"rootCauseIds": []`
+      // or a list of all non-string entries (`[42, null, false]`) would
+      // otherwise admit an empty list — invalid per contract and a silent
+      // schema-drift hazard.
+      rootCauseIds: () {
+        final raw = json['rootCauseIds'];
+        if (raw is! List) return null;
+        final filtered = raw.whereType<String>().toList();
+        return filtered.isEmpty ? null : filtered;
+      }(),
+      downstreamIds: json['downstreamIds'] is List
+          ? (json['downstreamIds'] as List).whereType<String>().toList()
+          : null,
+      confidenceReason: json['confidenceReason'] as String?,
+      packageName: json['packageName'] as String?,
+      // Defensive casts: malformed JSON (e.g. scaffoldHashKey serialised as
+      // a string by a 53-bit-limited JavaScript consumer, or tabVisitIndex
+      // arriving as a double) would crash `as int?`. Coerce non-int values
+      // to null so one bad payload doesn't poison the whole snapshot.
+      scaffoldHashKey: json['scaffoldHashKey'] is int
+          ? json['scaffoldHashKey'] as int
+          : null,
+      tabVisitIndex:
+          json['tabVisitIndex'] is int ? json['tabVisitIndex'] as int : null,
+      sourceRoute: json['sourceRoute'] as String?,
+    );
+  }
 
   PerformanceIssue copyWith({
     IssueSeverity? severity,
@@ -442,7 +425,6 @@ class PerformanceIssue {
     List<AllocationEntry>? topAllocators,
     int? rankingScore,
     Map<String, int>? rankingBreakdown,
-    String? rootCauseId,
     List<String>? rootCauseIds,
     List<String>? downstreamIds,
     String? confidenceReason,
@@ -477,8 +459,6 @@ class PerformanceIssue {
       topAllocators: topAllocators ?? this.topAllocators,
       rankingScore: rankingScore ?? this.rankingScore,
       rankingBreakdown: rankingBreakdown ?? this.rankingBreakdown,
-      // ignore: deprecated_member_use_from_same_package
-      rootCauseId: rootCauseId ?? this.rootCauseId,
       rootCauseIds: rootCauseIds ?? this.rootCauseIds,
       downstreamIds: downstreamIds ?? this.downstreamIds,
       confidenceReason: confidenceReason ?? this.confidenceReason,

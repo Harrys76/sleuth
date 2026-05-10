@@ -23,22 +23,19 @@ import 'sleuth_theme.dart';
 /// Filters the live issue list to the set of cards that actually render
 /// in the overlay.
 ///
-/// Two transformations are collapsed here:
+/// Three transformations are collapsed here:
 ///
-///  1. Downstream issues (with non-empty `rootCauseIds`) are nested under
-///     a root card and never appear as standalone rows, so they're
-///     removed from the top-level list.
-///  2. If every root listed in `rootCauseIds` was suppressed (e.g. deduped
-///     by the ranker), the downstream re-surfaces standalone so users
-///     don't lose visibility into an orphan effect. The check requires
-///     ANY parent to be visible — a single visible parent is enough,
-///     because that parent's expanded card will list this downstream as
-///     a sub-item.
-///
-/// v0.24.2 multi-parent contract: a downstream may carry multiple root
-/// causes. The visibility filter is "show if no parent is visible" —
-/// pre-v0.24.2 semantics extended naturally because the singleton-parent
-/// case still hides when its sole parent is present.
+///  1. Multi-parent downstream (≥2 causes in `rootCauseIds`) ALWAYS
+///     surfaces standalone with a "Caused by" badge. Surfacing
+///     bidirectionally lets the user see the multi-cause relationship
+///     at a glance from the top-level list — without it, multi-cause
+///     issues are only visible by expanding one of their parent cards.
+///  2. Single-parent downstream collapses under its parent when that
+///     parent is visible (legacy v0.24.x behaviour) — the parent's
+///     expanded "Related effects" sub-list shows it. If the parent is
+///     suppressed (not in the visible set), the downstream re-surfaces
+///     standalone so an orphan effect is not silently lost.
+///  3. 0-parent issues (roots, standalone) always surface.
 ///
 /// Extracted in v0.15.5 so [_pruneStaleState] and [_buildIssuesList] agree
 /// on what "visible" means — pin ids keyed against the visible list must
@@ -57,13 +54,17 @@ List<PerformanceIssue> computeVisibleIssues(List<PerformanceIssue> issues) {
     for (final i in issues) i.stableId ?? i.title,
   };
   return issues.where((i) {
-    final parents = i.effectiveRootCauseIds;
+    final parents = i.rootCauseIds;
     if (parents == null || parents.isEmpty) return true;
-    // Hide downstream from top-level only when at least one parent is
-    // visible (that parent's card will list this issue as a sub-item).
-    // If every parent was suppressed, surface standalone so the issue is
-    // not lost.
-    return !parents.any(allIds.contains);
+    // Multi-parent downstream always visible — the "Caused by" badge
+    // surface is the user's primary discoverability path for multi-cause
+    // relationships. Same downstream may also appear nested in each
+    // visible parent's "Related effects" list — bidirectional info,
+    // accepted redundancy.
+    if (parents.length >= 2) return true;
+    // Single-parent: collapse under visible parent (legacy); surface as
+    // orphan when parent suppressed.
+    return !allIds.contains(parents.first);
   }).toList();
 }
 
@@ -1198,6 +1199,29 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                       }
                     }
 
+                    // Resolve parent issues for the multi-parent "Caused
+                    // by" badge. parentIssues is null when no annotation
+                    // exists or when every parent is suppressed by the
+                    // ranker. Suppressed-but-annotated parents surface
+                    // as a count for the IssueCard's "(+N suppressed)"
+                    // annotation so a partial parent list does not look
+                    // complete.
+                    List<PerformanceIssue>? parents;
+                    var suppressedParentCount = 0;
+                    final parentIds = issue.rootCauseIds;
+                    if (parentIds != null && parentIds.isNotEmpty) {
+                      parents = <PerformanceIssue>[];
+                      for (final parentId in parentIds) {
+                        final found = stableIdToIssue[parentId];
+                        if (found != null) {
+                          parents.add(found);
+                        } else {
+                          suppressedParentCount++;
+                        }
+                      }
+                      if (parents.isEmpty) parents = null;
+                    }
+
                     // Capture the build-time `index` into a local so the
                     // `onExpandedChanged` closure closes over a
                     // deterministic value instead of whatever `index`
@@ -1255,6 +1279,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                       jankCorrelated: _cachedJankKeys.contains(issueKey),
                       jankFlash: false,
                       downstreamIssues: downstream,
+                      parentIssues: parents,
+                      suppressedParentCount: suppressedParentCount,
                       onLearnMore:
                           IssueExplanationBuilder.explain(issue.stableId) !=
                                   null

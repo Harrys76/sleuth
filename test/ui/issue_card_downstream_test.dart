@@ -27,7 +27,7 @@ void main() {
     detail: 'D',
     fixHint: 'F',
     stableId: 'heavy_compute',
-    rootCauseId: 'setstate_scope',
+    rootCauseIds: ['setstate_scope'],
   );
 
   const downstream2 = PerformanceIssue(
@@ -38,7 +38,7 @@ void main() {
     detail: 'D',
     fixHint: 'F',
     stableId: 'rebuild_activity',
-    rootCauseId: 'setstate_scope',
+    rootCauseIds: ['setstate_scope'],
   );
 
   group('IssueCard downstream rendering', () {

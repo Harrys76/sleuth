@@ -28,10 +28,15 @@ class IssueCard extends StatefulWidget {
     this.jankCorrelated = false,
     this.jankFlash = false,
     this.downstreamIssues,
+    this.parentIssues,
+    this.suppressedParentCount = 0,
     this.recurrenceTrend,
     this.onLearnMore,
     this.onAskAi,
-  });
+  }) : assert(
+            suppressedParentCount >= 0,
+            'suppressedParentCount must be >= 0; negative values produce '
+            'incorrect "Caused by (N):" header counts');
 
   final PerformanceIssue issue;
 
@@ -64,6 +69,19 @@ class IssueCard extends StatefulWidget {
   /// Downstream issues caused by this root issue, collapsed into expanded
   /// detail. Null or empty for non-root and standalone issues.
   final List<PerformanceIssue>? downstreamIssues;
+
+  /// Resolved upstream root-cause issues, rendered in a "Caused by" section
+  /// when non-empty. Sorted severity desc → stableId asc by the resolver.
+  /// Null or empty for issues that are roots themselves or whose parents
+  /// are all suppressed by the ranker.
+  final List<PerformanceIssue>? parentIssues;
+
+  /// Count of upstream root causes that exist in the issue's
+  /// `rootCauseIds` annotation but were NOT resolved into [parentIssues]
+  /// (e.g., suppressed by the ranker upstream of the overlay). Renders as
+  /// "(+N suppressed)" in the "Caused by" section so a partial parent list
+  /// does not silently look complete. Zero when every parent resolved.
+  final int suppressedParentCount;
 
   /// Called when the user taps "Learn more" — navigates to the full-screen
   /// detail page. Null hides the link (e.g. for custom detector issues).
@@ -376,6 +394,12 @@ class _IssueCardState extends State<IssueCard> {
             ],
           ),
         ),
+      // Caused by section (multi-parent causal graph). Renders above
+      // Related effects so users see "what caused this" before "what this
+      // causes" in the chain.
+      if ((widget.parentIssues != null && widget.parentIssues!.isNotEmpty) ||
+          widget.suppressedParentCount > 0)
+        _causedBySection(theme),
       // Downstream effects section (causal graph)
       if (widget.downstreamIssues != null &&
           widget.downstreamIssues!.isNotEmpty)
@@ -579,6 +603,90 @@ class _IssueCardState extends State<IssueCard> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _causedBySection(SleuthThemeData theme) {
+    final parents = widget.parentIssues ?? const <PerformanceIssue>[];
+    final suppressed = widget.suppressedParentCount;
+    final totalParents = parents.length + suppressed;
+    final visibleCount = parents.length > 5 ? 5 : parents.length;
+    final overflow = parents.length - visibleCount;
+
+    return Padding(
+      padding: EdgeInsets.only(top: theme.spacingSm),
+      child: Container(
+        padding: EdgeInsets.all(theme.spacingMd),
+        decoration: BoxDecoration(
+          color: theme.aboutBackground,
+          borderRadius: BorderRadius.circular(theme.radiusMd),
+        ),
+        child: Semantics(
+          label: '$totalParents '
+              '${totalParents == 1 ? "cause" : "causes"} for this issue',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Caused by ($totalParents):',
+                style: TextStyle(
+                  color: theme.effectsBadge,
+                  fontSize: theme.fontSm,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: theme.spacingXs),
+              for (var i = 0; i < visibleCount; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Row(
+                    children: [
+                      _severityIcon(parents[i].severity, theme),
+                      SizedBox(width: theme.spacingXs),
+                      _categoryBadge(parents[i].category, theme),
+                      SizedBox(width: theme.spacingXs),
+                      Expanded(
+                        child: Text(
+                          parents[i].title,
+                          style: TextStyle(
+                            color: theme.textTertiary,
+                            fontSize: theme.fontSm,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (overflow > 0)
+                Padding(
+                  padding: EdgeInsets.only(top: theme.spacingXxs),
+                  child: Text(
+                    'and $overflow more...',
+                    style: TextStyle(
+                      color: theme.textQuaternary,
+                      fontSize: theme.fontXs,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              if (suppressed > 0)
+                Padding(
+                  padding: EdgeInsets.only(top: theme.spacingXxs),
+                  child: Text(
+                    '(+$suppressed suppressed)',
+                    style: TextStyle(
+                      color: theme.textQuaternary,
+                      fontSize: theme.fontXs,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

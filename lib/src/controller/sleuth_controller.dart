@@ -3617,9 +3617,10 @@ class SleuthController {
   /// severity-at-correlation-time. `_applyDurationEscalation` can later
   /// promote a tied warning-parent to critical without re-sorting. This
   /// pass restores the invariant `rootCauseIds[0]` is the
-  /// highest-severity reaching root by current severity, so
-  /// [PerformanceIssue.toJson] derives a fresh legacy `rootCauseId`
-  /// emission for v0.24.1 readers.
+  /// highest-severity reaching root by current severity, which the
+  /// "Caused by" UI section relies on to render the strongest cause first
+  /// and the AI-context prompt's cap-at-5 truncation relies on to keep
+  /// the most relevant causes when the full list overflows.
   ///
   /// Sort key matches [CausalGraphRule.apply]: severity descending, then
   /// stableId ascending. Parents missing from [issues] (suppressed by the

@@ -12,12 +12,8 @@ PerformanceIssue _pinIssue({
   required String id,
   IssueSeverity severity = IssueSeverity.warning,
   IssueConfidence confidence = IssueConfidence.confirmed,
-  String? rootCauseId,
   List<String>? rootCauseIds,
 }) {
-  // v0.24.2: visible-filter and UI cards read `rootCauseIds` (plural). The
-  // legacy `rootCauseId` singular is preserved for back-compat callers and
-  // coerced into a singleton list when the plural form is not supplied.
   return PerformanceIssue(
     severity: severity,
     category: IssueCategory.build,
@@ -26,32 +22,7 @@ PerformanceIssue _pinIssue({
     detail: 'Detail',
     fixHint: 'Fix',
     stableId: id,
-    rootCauseIds:
-        rootCauseIds ?? (rootCauseId == null ? null : <String>[rootCauseId]),
-  );
-}
-
-// Constructs an issue with ONLY the deprecated singular `rootCauseId` set
-// — no plural coercion. Exercises the back-compat path through
-// `effectiveRootCauseIds`. Used to verify singular-only callers (legacy
-// detectors, tests written before v0.24.2) still get correct UI nesting
-// and AI prompt context without migrating to plural.
-PerformanceIssue _singularPinIssue({
-  required String id,
-  required String rootCauseId,
-  IssueSeverity severity = IssueSeverity.warning,
-  IssueConfidence confidence = IssueConfidence.confirmed,
-}) {
-  // ignore: deprecated_member_use_from_same_package
-  return PerformanceIssue(
-    severity: severity,
-    category: IssueCategory.build,
-    confidence: confidence,
-    title: id,
-    detail: 'Detail',
-    fixHint: 'Fix',
-    stableId: id,
-    rootCauseId: rootCauseId,
+    rootCauseIds: rootCauseIds,
   );
 }
 
@@ -744,7 +715,7 @@ void main() {
     test('downstream issues nested under present root are hidden', () {
       final issues = [
         _pinIssue(id: 'A'),
-        _pinIssue(id: 'B', rootCauseId: 'A'),
+        _pinIssue(id: 'B', rootCauseIds: ['A']),
         _pinIssue(id: 'C'),
       ];
       final visible = computeVisibleIssues(issues);
@@ -754,7 +725,7 @@ void main() {
     test('downstream issues whose root is missing re-surface as standalone',
         () {
       final issues = [
-        _pinIssue(id: 'orphan', rootCauseId: 'missing-root'),
+        _pinIssue(id: 'orphan', rootCauseIds: ['missing-root']),
         _pinIssue(id: 'A'),
       ];
       final visible = computeVisibleIssues(issues);
@@ -769,7 +740,7 @@ void main() {
     test('result preserves input order for visible issues', () {
       final issues = [
         _pinIssue(id: 'A'),
-        _pinIssue(id: 'child', rootCauseId: 'A'),
+        _pinIssue(id: 'child', rootCauseIds: ['A']),
         _pinIssue(id: 'B'),
         _pinIssue(id: 'C'),
       ];
@@ -777,31 +748,32 @@ void main() {
       expect(visible.map((i) => i.stableId).toList(), ['A', 'B', 'C']);
     });
 
-    // v0.24.2 multi-parent visibility — pinpoints the contract that a
-    // downstream is hidden when ANY parent is visible, and re-surfaces
-    // only when EVERY parent is missing.
-    test('multi-parent: hidden when any parent is visible', () {
+    // v0.25.0 multi-parent visibility: ≥2 parents ALWAYS surfaces
+    // standalone with the "Caused by" badge, regardless of how many of
+    // those parents are individually visible. The bidirectional surface
+    // is the user's primary discoverability path for multi-cause
+    // relationships. Single-parent legacy collapse-under-parent
+    // behaviour is preserved.
+    test('multi-parent: surfaces standalone even when all parents visible', () {
       final issues = [
         _pinIssue(id: 'A'),
         _pinIssue(id: 'B'),
         _pinIssue(id: 'child', rootCauseIds: ['A', 'B']),
       ];
       final visible = computeVisibleIssues(issues);
-      expect(visible.map((i) => i.stableId).toList(), ['A', 'B']);
+      expect(visible.map((i) => i.stableId).toList(), ['A', 'B', 'child']);
     });
 
-    test(
-        'multi-parent: hidden when at least one parent is visible (others '
-        'suppressed)', () {
+    test('multi-parent: surfaces standalone with mixed parent visibility', () {
       final issues = [
         _pinIssue(id: 'A'),
         _pinIssue(id: 'child', rootCauseIds: ['A', 'missing-B', 'missing-C']),
       ];
       final visible = computeVisibleIssues(issues);
-      expect(visible.map((i) => i.stableId).toList(), ['A']);
+      expect(visible.map((i) => i.stableId).toList(), ['A', 'child']);
     });
 
-    test('multi-parent: re-surfaces only when EVERY parent is suppressed', () {
+    test('multi-parent: surfaces when every parent is suppressed', () {
       final issues = [
         _pinIssue(id: 'orphan', rootCauseIds: ['missing-A', 'missing-B']),
         _pinIssue(id: 'C'),
@@ -812,28 +784,6 @@ void main() {
         ['orphan', 'C'],
         reason:
             'A multi-parent downstream re-surfaces only when no parent is in the visible set — preserves orphan-resurface semantics from v0.15.5',
-      );
-    });
-
-    test(
-        'singular-only back-compat: an issue constructed with ONLY the '
-        'deprecated `rootCauseId` (no plural) is hidden when the singular '
-        'parent is in the visible set', () {
-      // Exercises the `effectiveRootCauseIds` accessor — without the
-      // singular→plural fallback, the filter would treat this issue as
-      // having no parent and surface it standalone, breaking the
-      // collapsed-under-root rendering for legacy callers.
-      final issues = [
-        _pinIssue(id: 'A'),
-        _singularPinIssue(id: 'B', rootCauseId: 'A'),
-        _pinIssue(id: 'C'),
-      ];
-      final visible = computeVisibleIssues(issues);
-      expect(
-        visible.map((i) => i.stableId).toList(),
-        ['A', 'C'],
-        reason:
-            'B with singular-only rootCauseId must collapse under A via the effectiveRootCauseIds fallback',
       );
     });
   });

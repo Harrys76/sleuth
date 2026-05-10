@@ -1596,11 +1596,11 @@ void main() {
         detail: 'D',
         fixHint: 'F',
         stableId: 'heavy_compute',
-        rootCauseId: 'setstate_scope',
+        rootCauseIds: ['setstate_scope'],
       );
 
       final json = downstream.toJson();
-      expect(json['rootCauseId'], 'setstate_scope');
+      expect(json['rootCauseIds'], ['setstate_scope']);
       expect(json.containsKey('downstreamIds'), isFalse);
 
       final restored = PerformanceIssue.fromJson(json);
@@ -1621,6 +1621,77 @@ void main() {
       final json = issue.toJson();
       expect(json.containsKey('rootCauseId'), isFalse);
       expect(json.containsKey('downstreamIds'), isFalse);
+    });
+
+    test('fromJson coerces literal empty rootCauseIds to null', () {
+      // Documented never-empty invariant: rootCauseIds is null or non-empty.
+      // External tools may write `"rootCauseIds": []`; fromJson must not
+      // admit invalid empty state through the import boundary.
+      final json = {
+        'severity': 'warning',
+        'category': 'build',
+        'confidence': 'possible',
+        'title': 'T',
+        'detail': 'D',
+        'fixHint': 'F',
+        'debugModeDisclaimer': false,
+        'rootCauseIds': <dynamic>[],
+      };
+
+      final issue = PerformanceIssue.fromJson(json);
+      expect(issue.rootCauseIds, isNull);
+    });
+
+    test(
+        'fromJson coerces all-non-string rootCauseIds list to null '
+        '(whereType<String> filters everything out)', () {
+      final json = {
+        'severity': 'warning',
+        'category': 'build',
+        'confidence': 'possible',
+        'title': 'T',
+        'detail': 'D',
+        'fixHint': 'F',
+        'debugModeDisclaimer': false,
+        'rootCauseIds': <dynamic>[42, null, false],
+      };
+
+      final issue = PerformanceIssue.fromJson(json);
+      expect(issue.rootCauseIds, isNull);
+    });
+
+    test(
+        'fromJson preserves valid string entries, drops mixed-type invalid '
+        'entries from rootCauseIds', () {
+      final json = {
+        'severity': 'warning',
+        'category': 'build',
+        'confidence': 'possible',
+        'title': 'T',
+        'detail': 'D',
+        'fixHint': 'F',
+        'debugModeDisclaimer': false,
+        'rootCauseIds': <dynamic>['valid', 42, 'also-valid'],
+      };
+
+      final issue = PerformanceIssue.fromJson(json);
+      expect(issue.rootCauseIds, ['valid', 'also-valid']);
+    });
+
+    test('round-trip preserves non-empty rootCauseIds', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        stableId: 'heap_growing',
+        rootCauseIds: ['x'],
+      );
+
+      final restored = PerformanceIssue.fromJson(issue.toJson());
+      expect(restored.rootCauseIds, ['x']);
     });
 
     test('fromJson defaults causal fields to null (v1 compat)', () {
