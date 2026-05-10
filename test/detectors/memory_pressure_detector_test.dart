@@ -28,7 +28,14 @@ void main() {
       fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
       detector = MemoryPressureDetector(
         clock: () => fakeNow,
-        warmupDurationMs: 0, // Disable warmup for existing tests
+        warmupDurationMs: 0, // Disable warmup for existing tests.
+        // Existing tests in this group exercise the GC pressure mechanism
+        // around 60 GC/min (10 cycles in the 10 s window). Pin the
+        // threshold to 30/min — the pre-v0.26.0 default — so the
+        // 60-vs-threshold relationship remains "above" and these
+        // mechanism-focused assertions continue to hold. The new 60/min
+        // default lives in its own group below.
+        gcRateThresholdPerMin: 30,
       );
     });
 
@@ -98,6 +105,62 @@ void main() {
       }
 
       expect(detector.issues.first.detail, contains('/min'));
+    });
+
+    // -- GC threshold parameterisation (default 60/min + opt-in 30/min) --
+
+    test('default 60/min threshold suppresses normal-cadence GC', () {
+      // 10 cycles in 10 s = exactly 60/min. Strict-greater-than the
+      // default threshold means this MUST NOT fire.
+      final defaultDetector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 0,
+      );
+      for (var i = 0; i < 10; i++) {
+        defaultDetector.recordGcCycle();
+      }
+      expect(
+        defaultDetector.issues.where((i) => i.stableId == 'gc_pressure'),
+        isEmpty,
+        reason: 'gcPerMinute == 60 must not fire when threshold is 60 '
+            '(strictly-greater-than gate). Young-gen scavenges at this '
+            'cadence are normal Dart UI behaviour.',
+      );
+    });
+
+    test('default 60/min threshold fires above baseline', () {
+      // 11 cycles in 10 s = 66/min, above the default 60/min threshold.
+      final defaultDetector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 0,
+      );
+      for (var i = 0; i < 11; i++) {
+        defaultDetector.recordGcCycle();
+      }
+      expect(
+        defaultDetector.issues.where((i) => i.stableId == 'gc_pressure'),
+        hasLength(1),
+        reason: 'gcPerMinute > 60 must fire at the new default.',
+      );
+    });
+
+    test('opt-in 30/min threshold restores pre-v0.26.0 sensitivity', () {
+      // 6 cycles in 10 s = 36/min — above 30, below 60. Confirms the
+      // escape valve for users on the older sensitivity actually engages
+      // and is not silently overridden by another gate.
+      final legacyDetector = MemoryPressureDetector(
+        clock: () => fakeNow,
+        warmupDurationMs: 0,
+        gcRateThresholdPerMin: 30,
+      );
+      for (var i = 0; i < 6; i++) {
+        legacyDetector.recordGcCycle();
+      }
+      expect(
+        legacyDetector.issues.where((i) => i.stableId == 'gc_pressure'),
+        hasLength(1),
+        reason: 'gcPerMinute == 36 must fire when threshold is 30.',
+      );
     });
 
     // -- Heap Trend (heap_growing) --
@@ -798,6 +861,7 @@ void main() {
       final warmupDetector = MemoryPressureDetector(
         clock: () => fakeNow,
         warmupDurationMs: 5000,
+        gcRateThresholdPerMin: 30,
       );
 
       // Advance clock and feed GC cycles during warmup period.

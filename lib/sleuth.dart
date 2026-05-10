@@ -61,10 +61,12 @@ import 'package:flutter/widgets.dart';
 import 'src/controller/sleuth_controller.dart';
 import 'src/detectors/network_monitor_detector.dart'
     show NetworkMonitorDetector;
+import 'src/detectors/memory_pressure_detector.dart'
+    show MemoryPressureDetector;
 import 'src/detectors/rebuild_detector.dart' show RebuildDetector;
 import 'src/detectors/repaint_detector.dart' show RepaintDetector;
 import 'src/detectors/stream_resource_detector.dart'
-    show StreamResourceDetector;
+    show StreamResourceDetector, StreamResourcePollResult;
 import 'src/models/fix_verification_result.dart';
 import 'src/models/route_session.dart';
 import 'src/models/session_snapshot.dart';
@@ -81,6 +83,8 @@ export 'src/models/widget_highlight.dart';
 export 'src/models/capture_buffer.dart';
 export 'src/models/session_snapshot.dart';
 export 'src/controller/sleuth_controller.dart' show SleuthConfig;
+export 'src/detectors/stream_resource_detector.dart'
+    show StreamResourcePollResult;
 export 'src/controller/detector_thresholds.dart';
 export 'src/ui/sleuth_theme.dart' show SleuthThemeData;
 export 'src/debug/debug_instrumentation_config.dart';
@@ -550,13 +554,60 @@ class Sleuth {
     return _controller?.repaintDetector;
   }
 
-  /// Public accessor for the [StreamResourceDetector] instance.
-  /// Returns null when [Sleuth] has not been initialised, in release
-  /// mode, or when [DetectorType.streamResource] was excluded from
+  /// Public accessor for the [MemoryPressureDetector] instance. Capture
+  /// screens read [MemoryPressureDetector.isHeapGrowingActive] to gate
+  /// scenario.begin on the heap-pressure precondition required by
+  /// downstream detectors. Returns null when [Sleuth] has not been
+  /// initialised, in release mode, or when [DetectorType.memoryPressure]
+  /// was excluded from [SleuthConfig.enabledDetectors].
+  static MemoryPressureDetector? get memoryPressureDetector {
+    if (kReleaseMode) return null;
+    return _controller?.memoryPressureDetector;
+  }
+
+  /// Public accessor for the [StreamResourceDetector] instance. Capture
+  /// screens read [StreamResourceDetector.lastObservedTopGrowthDelta]
+  /// after driving a leak workload and call
+  /// [StreamResourceDetector.flushStreamResourceEvaluation] so the
+  /// wrapped magnitude reflects the detector-measured K=4 window delta
+  /// rather than the operator's plan. Returns null when [Sleuth] has
+  /// not been initialised, in release mode, or when
+  /// [DetectorType.streamResource] was excluded from
   /// [SleuthConfig.enabledDetectors].
   static StreamResourceDetector? get streamResourceDetector {
     if (kReleaseMode) return null;
     return _controller?.streamResourceDetector;
+  }
+
+  /// Capture-pipeline shortcut: trigger one immediate
+  /// `getAllocationProfile` RPC + window ingestion on the
+  /// [StreamResourceDetector]. Awaits any in-flight automatic poll
+  /// before running its own — the explicit poll cannot be silently
+  /// skipped behind the auto-path. Returns a [StreamResourcePollResult]
+  /// with diagnostic counters (member count, matched count, RPC
+  /// elapsed, error reason) so capture screens can log per-poll
+  /// evolution and diagnose empty-window failures without another
+  /// 50-second on-device session.
+  ///
+  /// Returns a `disabled` result in release mode, when [Sleuth] has
+  /// not been initialised, or when the detector is off. See
+  /// [StreamResourceDetector.pollAllocationProfileNow].
+  static Future<StreamResourcePollResult>
+      pollStreamResourceAllocationProfileNow() async {
+    if (kReleaseMode) {
+      return const StreamResourcePollResult(
+        succeeded: false,
+        errorReason: 'release_mode',
+      );
+    }
+    final controller = _controller;
+    if (controller == null) {
+      return const StreamResourcePollResult(
+        succeeded: false,
+        errorReason: 'disabled',
+      );
+    }
+    return controller.pollStreamResourceAllocationProfileNowWithCapture();
   }
 
   /// Reason the most recent [exportCaptureJson] call returned null.

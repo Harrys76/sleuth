@@ -37,6 +37,11 @@ void main() {
       detector = MemoryPressureDetector(
         clock: () => now,
         warmupDurationMs: 0,
+        // Reproducer pins the pre-v0.26.0 30/min threshold so the
+        // rate-axis assertions below (6 cycles → 36/min fires;
+        // 5 cycles → 30/min suppresses) remain anchored to the
+        // mechanism under test rather than tracking the new default.
+        gcRateThresholdPerMin: 30,
       );
       detector.vmConnected = true;
     });

@@ -706,10 +706,16 @@ class SleuthController {
       warmupDurationMs: config.memoryWarmupDurationMs,
       growthThresholdBytesPerSec: config.thresholds.memoryGrowthBytesPerSec,
       capacityThresholdPercent: config.thresholds.memoryCapacityPercent,
+      gcRateThresholdPerMin: config.gcRateThresholdPerMin,
     )..isEnabled = enabled.contains(DetectorType.memoryPressure);
 
     _streamResource = StreamResourceDetector(
-      vmClient: _vmClient,
+      // Lazy getter — `_vmClient` is null at this construction call
+      // because `_initializeDetectors()` runs before the controller
+      // assigns the live VmServiceClient. The detector reads through
+      // this closure on every poll, picking up the live reference
+      // once `initialize()` completes its connection setup.
+      vmClientProvider: () => _vmClient,
       heapGrowingStateProvider: () => _memoryPressure.isHeapGrowingActive(
         config.thresholds.streamResourceHeapGrowingRecencyMicros,
       ),
@@ -1143,6 +1149,42 @@ class SleuthController {
   StreamResourceDetector? get streamResourceDetector {
     if (!_detectorsReady) return null;
     return _streamResource;
+  }
+
+  /// Capture-pipeline wrapper around
+  /// [StreamResourceDetector.pollAllocationProfileNow]. Triggers an
+  /// allocation-profile poll AND immediately records any newly-emitted
+  /// issues into the capture trace (`Timeline.timeSync` write).
+  ///
+  /// The detector itself only writes to its in-memory `_issues` list;
+  /// trace recording is the controller's job and normally fires from
+  /// scan/timeline/heap-sample paths. Without this wrapper, issues
+  /// emitted by an explicit capture poll only land in the trace at the
+  /// next 500 ms timeline-poll tick — typically AFTER
+  /// `markScenarioEnd`, putting them outside the scenario span and
+  /// causing `exportCaptureJson` to refuse the role-vs-records gate.
+  Future<StreamResourcePollResult>
+      pollStreamResourceAllocationProfileNowWithCapture() async {
+    if (!_detectorsReady) {
+      return const StreamResourcePollResult(
+        succeeded: false,
+        errorReason: 'disabled',
+      );
+    }
+    final result = await _streamResource.pollAllocationProfileNow();
+    _recordIssuesForCapture(const <BaseDetector>{});
+    return result;
+  }
+
+  /// Public accessor for the [MemoryPressureDetector] instance.
+  /// Capture screens read [MemoryPressureDetector.isHeapGrowingActive]
+  /// to gate scenario.begin on the heap-pressure precondition that
+  /// downstream detectors (e.g. [StreamResourceDetector]) require for
+  /// emission. Returns null if the controller has not yet finished
+  /// initialisation.
+  MemoryPressureDetector? get memoryPressureDetector {
+    if (!_detectorsReady) return null;
+    return _memoryPressure;
   }
 
   /// Last reason [exportCaptureJson] returned null. Set immediately
@@ -4140,6 +4182,7 @@ class SleuthConfig {
     this.largeResponseThresholdBytes = 1048576,
     this.networkExcludePatterns,
     this.memoryWarmupDurationMs = 3000,
+    this.gcRateThresholdPerMin = 60,
     this.frameTimingWarmupFrameCount = 0,
     this.frameTimingWarmupDuration = const Duration(seconds: 3),
     this.platformChannelDurationThresholdMs = 8,
@@ -4205,6 +4248,12 @@ class SleuthConfig {
         assert(
           memoryWarmupDurationMs >= 0,
           'memoryWarmupDurationMs must be >= 0.',
+        ),
+        assert(
+          gcRateThresholdPerMin >= 1,
+          'gcRateThresholdPerMin must be at least 1. To disable '
+          'gc_pressure detection entirely, exclude '
+          'DetectorType.memoryPressure from enabledDetectors instead.',
         ),
         assert(
           frameTimingWarmupFrameCount >= 0,
@@ -4549,6 +4598,20 @@ class SleuthConfig {
   /// allocation tracking from sample zero.
   final int memoryWarmupDurationMs;
 
+  /// GC events per minute (extrapolated from a 10s sliding window) above
+  /// which `gc_pressure` fires.
+  ///
+  /// **Default:** 60. Dart's `EventStreams.kGC` emits one event per
+  /// every GC cycle, including high-frequency new-space scavenges. A
+  /// moderately allocating UI produces ≈30/min at steady state without
+  /// any real pressure, so the previous default of 30 fired on routine
+  /// animation rebuilds and incremental scrolling. 60/min clears the
+  /// young-gen scavenge baseline.
+  ///
+  /// **Set to 30** to opt back into the pre-v0.26.0 sensitivity if your
+  /// app relies on the older threshold for regression alerting.
+  final int gcRateThresholdPerMin;
+
   /// Legacy frame-count gate for jank-evaluation warmup suppression.
   ///
   /// **Default:** 0 (disabled). The wall-clock
@@ -4754,6 +4817,7 @@ class SleuthConfig {
     int? largeResponseThresholdBytes,
     Object? networkExcludePatterns = _sentinel,
     int? memoryWarmupDurationMs,
+    int? gcRateThresholdPerMin,
     int? frameTimingWarmupFrameCount,
     Duration? frameTimingWarmupDuration,
     int? platformChannelDurationThresholdMs,
@@ -4803,6 +4867,8 @@ class SleuthConfig {
           : networkExcludePatterns as List<String>?,
       memoryWarmupDurationMs:
           memoryWarmupDurationMs ?? this.memoryWarmupDurationMs,
+      gcRateThresholdPerMin:
+          gcRateThresholdPerMin ?? this.gcRateThresholdPerMin,
       frameTimingWarmupFrameCount:
           frameTimingWarmupFrameCount ?? this.frameTimingWarmupFrameCount,
       frameTimingWarmupDuration:

@@ -29,6 +29,8 @@ import 'demos/rebuild_activity_capture_screen.dart';
 import 'demos/rebuild_hotspot_demo.dart';
 import 'demos/repaint_boundary_demo.dart';
 import 'demos/repaint_stress_demo.dart';
+import 'demos/stream_resource_capture_screen.dart';
+import 'demos/stream_resource_demo.dart';
 import 'demos/shader_jank_demo.dart';
 import 'demos/uncached_image_demo.dart';
 
@@ -269,6 +271,13 @@ class DemoHome extends StatelessWidget {
             color: Colors.pink,
             builder: (_) => const KeepAliveDemo(),
           ),
+          _DemoRoute(
+            icon: Icons.stream,
+            title: 'Stream Resource Leaks',
+            subtitle: 'StreamResource detector (Timer + Controller leaks)',
+            color: Colors.deepPurple,
+            builder: (_) => const StreamResourceDemo(),
+          ),
         ],
       ),
 
@@ -396,6 +405,13 @@ class DemoHome extends StatelessWidget {
             subtitle: 'excessive_repaint warning bracket',
             color: Colors.pink,
             builder: (_) => const RepaintCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.stream,
+            title: 'StreamResource',
+            subtitle: 'stream_resource_growth warning bracket',
+            color: Colors.deepPurple,
+            builder: (_) => const StreamResourceCaptureScreen(),
           ),
         ],
       ),

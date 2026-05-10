@@ -1650,7 +1650,7 @@ class ProfileCaptureSchema {
     'bytes', 'kb', 'mb',
     // Counts
     'frames', 'requests', 'gcevents', 'paints', 'rebuilds', 'builds',
-    'events',
+    'events', 'instances',
     // Rates (size-per-time) — used by MemoryPressureDetector.heap_growing
     // (slope), and any future detector measuring throughput.
     'bytes/sec',

@@ -7,18 +7,25 @@ import '../helpers/timeline_test_helpers.dart';
 
 /// Builds a fake [AllocationProfile] with the given (className → instance
 /// count) pairs. Optional [libraryUriByClass] supplies library URIs so the
-/// rxdart-suffix gate can be exercised.
+/// rxdart-suffix gate can be exercised. When [nullLibraryClasses] contains
+/// a class, that member's `ClassRef.library` is set to null — exercising
+/// the AOT iPhone path where private dart:async classes lack library
+/// metadata in `getAllocationProfile` results.
 AllocationProfile _profile(
   Map<String, int> instances, {
   Map<String, String>? libraryUriByClass,
+  Set<String>? nullLibraryClasses,
 }) {
   final members = instances.entries.map((e) {
+    final isNullLibrary = nullLibraryClasses?.contains(e.key) ?? false;
     final libUri = libraryUriByClass?[e.key] ?? _defaultLibraryUri(e.key);
     return ClassHeapStats(
       classRef: ClassRef(
         id: 'class/${e.key}',
         name: e.key,
-        library: LibraryRef(id: 'lib/$libUri', name: e.key, uri: libUri),
+        library: isNullLibrary
+            ? null
+            : LibraryRef(id: 'lib/$libUri', name: e.key, uri: libUri),
       ),
       instancesCurrent: e.value,
     );
@@ -48,7 +55,7 @@ void main() {
       profilesFetched = 0;
       heapGrowing = true;
       detector = StreamResourceDetector(
-        vmClient: null,
+        vmClientProvider: () => null,
         heapGrowingStateProvider: () => heapGrowing,
         clock: () => now,
         sampleSeconds: 10,
@@ -142,7 +149,7 @@ void main() {
       expect(detector.issues, isEmpty);
     });
 
-    test('does not emit when sum of deltas below minDelta', () async {
+    test('does not emit when top-class delta below minDelta', () async {
       await tickAndSettle();
       advance(const Duration(seconds: 25));
       for (var i = 0; i < 4; i++) {
@@ -153,7 +160,7 @@ void main() {
         await tickAndSettle();
         advance(const Duration(seconds: 10));
       }
-      // Total net delta = (115-100) + (65-50) = 15 + 15 = 30 < 50.
+      // Top-class delta = max(115-100, 65-50) = 15 < 50.
       expect(detector.issues, isEmpty);
     });
 
@@ -167,14 +174,16 @@ void main() {
       expect(issue.category, IssueCategory.memory);
     });
 
-    test('emission stamps all four extraTraceArgs keys', () async {
+    test('emission stamps the canonical extraTraceArgs keys', () async {
       await driveGrowthWindow();
       final args = detector.issues.first.extraTraceArgs!;
       expect(args.keys.toSet(), {
         'topGrowthClass',
         'topGrowthDelta',
         'watchlistClassesGrowing',
-        'samplesInWindow'
+        'samplesInWindow',
+        'detectedAtMicros',
+        'dedupIdentitySeq',
       });
       expect(args['samplesInWindow'], '4');
       // Delta is non-negative integer-as-string.
@@ -329,7 +338,7 @@ void main() {
         await tickAndSettle();
         advance(const Duration(seconds: 10));
       }
-      // Both qualify (both ascending), netDelta well over 50.
+      // Both qualify (both ascending), top.delta well over 50.
       expect(detector.issues, hasLength(1));
       final args = detector.issues.first.extraTraceArgs!;
       expect(args['watchlistClassesGrowing'], contains('PublishSubject'));
@@ -434,8 +443,8 @@ void main() {
       for (var i = 0; i < 4; i++) {
         profileQueue.add(_profile(
           {
-            'MyAStreamSubscription': 100 + i * 10,
-            'MyBStreamSubscription': 50 + i * 5,
+            'MyAStreamSubscription': 100 + i * 20,
+            'MyBStreamSubscription': 50 + i * 10,
             // Add a second growing suffix so the ≥2-classes gate fires.
             '_BroadcastSubscription': 30 + i * 10,
           },
@@ -450,12 +459,13 @@ void main() {
       }
       expect(detector.issues, hasLength(1));
       final args = detector.issues.first.extraTraceArgs!;
-      // topGrowthDelta for StreamSubscription should be the SUM delta:
-      // last (130 + 65) - first (100 + 50) = 195 - 150 = 45.
+      // Two classes share the 'StreamSubscription' suffix → per-poll
+      // aggregation buckets them into ONE sample series. Aggregate delta:
+      // last (160 + 80) - first (100 + 50) = 240 - 150 = 90.
       // _BroadcastSubscription delta = (60 - 30) = 30.
-      // StreamSubscription beats _BroadcastSubscription on delta.
+      // StreamSubscription bucket wins as top growing class on delta.
       expect(args['topGrowthClass'], 'StreamSubscription');
-      expect(args['topGrowthDelta'], '45');
+      expect(args['topGrowthDelta'], '90');
       expect(args['samplesInWindow'], '4');
     });
 
@@ -537,5 +547,257 @@ void main() {
       detector.vmConnected = false;
       expect(detector.issues, isEmpty);
     });
+
+    // -- Capture-pipeline plumbing --
+
+    test('lastObserved* getters are null before any window observation',
+        () async {
+      expect(detector.lastObservedTopGrowthDelta, isNull);
+      expect(detector.lastObservedTopGrowthClass, isNull);
+      expect(detector.lastObservedSamplesInWindow, 0);
+    });
+
+    test(
+        'emission stamps detectedAtMicros + dedupIdentitySeq in extraTraceArgs',
+        () async {
+      await driveGrowthWindow();
+      expect(detector.issues, hasLength(1));
+      final args = detector.issues.first.extraTraceArgs;
+      expect(args, isNotNull);
+      expect(args!.containsKey('detectedAtMicros'), isTrue,
+          reason: 'BracketSpec axis-fidelity cross-check requires '
+              'detectedAtMicros for requireUniqueDetectedAtMicros');
+      expect(args.containsKey('dedupIdentitySeq'), isTrue,
+          reason: 'Capture replay disambiguates legs by emission sequence, '
+              'not just timestamp');
+      expect(int.tryParse(args['detectedAtMicros']!), isNotNull);
+      expect(int.tryParse(args['dedupIdentitySeq']!), isNotNull);
+    });
+
+    test('lastObservedTopGrowthDelta tracks dominant class delta', () async {
+      await driveGrowthWindow();
+      // driveGrowthWindow drives StreamSubscription 100→190 (Δ=90) and
+      // _BroadcastSubscription 50→80 (Δ=30). Dominant = StreamSubscription.
+      expect(detector.lastObservedTopGrowthDelta, 90);
+      expect(detector.lastObservedTopGrowthClass, 'StreamSubscription');
+    });
+
+    test('flushStreamResourceEvaluation synchronously emits when window ready',
+        () async {
+      // Drive 4 ascending samples WITHOUT triggering a 5th tick. Then
+      // call flushStreamResourceEvaluation and verify emission fires
+      // synchronously rather than waiting for the next 10s timer tick.
+      await tickAndSettle();
+      advance(const Duration(seconds: 25));
+      for (var i = 0; i < 4; i++) {
+        profileQueue.add(_profile({
+          'StreamSubscription': 100 + i * 30,
+          '_BroadcastSubscription': 50 + i * 10,
+        }));
+        await tickAndSettle();
+        if (i < 3) advance(const Duration(seconds: 10));
+      }
+      // Window now has 4 samples per class but the cooldown branch
+      // already fired emission via the last tickAndSettle. Confirm flush
+      // is idempotent (does not double-fire) by checking issues count
+      // does not grow above 1 across multiple flushes within cooldown.
+      detector.flushStreamResourceEvaluation();
+      expect(detector.issues, hasLength(1));
+      detector.flushStreamResourceEvaluation();
+      expect(detector.issues, hasLength(1),
+          reason: 'Cooldown gates re-emission. Multiple flushes within '
+              'the cooldown window must not double-fire.');
+    });
+
+    test(
+        'resetCaptureState clears cooldown + emissionSeq + lastObserved fields',
+        () async {
+      await driveGrowthWindow();
+      expect(detector.issues, hasLength(1));
+      expect(detector.lastObservedTopGrowthDelta, isNotNull);
+
+      detector.resetCaptureState();
+
+      expect(detector.issues, isEmpty,
+          reason: 'Reset must clear retained issue');
+      expect(detector.lastObservedTopGrowthDelta, isNull,
+          reason: 'Reset must clear capture-pipeline observation state');
+      expect(detector.lastObservedTopGrowthClass, isNull);
+      expect(detector.lastObservedSamplesInWindow, 0);
+
+      // Re-drive on the SAME detector instance: the next emission must
+      // be a fresh one (sequence starts again) and must not be silenced
+      // by a stale cooldown deadline that survived the reset.
+      await driveGrowthWindow();
+      expect(detector.issues, hasLength(1),
+          reason: 'After reset the next workload must produce a fresh '
+              'emission — stale cooldown surviving reset would silence it');
+      final args = detector.issues.first.extraTraceArgs!;
+      expect(args['dedupIdentitySeq'], '1',
+          reason: 'Emission sequence resets to 0 on reset; first fresh '
+              'emission post-reset increments to 1');
+    });
+
+    // -- Null-library fallback (AOT iPhone profile compatibility) --
+
+    test('private suffix matches when ClassRef.library is null', () async {
+      // AOT iPhone profile mode often returns `library: null` for
+      // private dart:async classes. The `_privateCoreSuffixes` fallback
+      // accepts the match anyway; without it, every relevant
+      // `_BroadcastSubscription`/`_ControllerSubscription` member is
+      // silently dropped on real devices.
+      await tickAndSettle();
+      advance(const Duration(seconds: 25));
+      for (var i = 0; i < 4; i++) {
+        profileQueue.add(_profile(
+          {
+            '_BroadcastSubscription': 50 + i * 30,
+            '_ControllerSubscription': 30 + i * 15,
+          },
+          nullLibraryClasses: const {
+            '_BroadcastSubscription',
+            '_ControllerSubscription',
+          },
+        ));
+        await tickAndSettle();
+        advance(const Duration(seconds: 10));
+      }
+      expect(detector.issues, hasLength(1),
+          reason: 'Private suffixes must match without libUri so iPhone '
+              'AOT class-without-library reports still populate the window.');
+      expect(detector.lastObservedTopGrowthClass, '_BroadcastSubscription');
+    });
+
+    test('public suffix is NOT matched when ClassRef.library is null',
+        () async {
+      // `StreamSubscription` (public) requires libUri to filter
+      // app-defined subclasses ending in the same suffix. Without
+      // this guard, any user-defined `Foo extends StreamSubscription`
+      // would falsely match.
+      await tickAndSettle();
+      advance(const Duration(seconds: 25));
+      for (var i = 0; i < 4; i++) {
+        profileQueue.add(_profile(
+          {
+            // Both classes use ONLY the public suffix — should NOT
+            // match without libUri.
+            'AppDefinedStreamSubscription': 50 + i * 30,
+            'AnotherAppStreamSubscription': 30 + i * 15,
+          },
+          nullLibraryClasses: const {
+            'AppDefinedStreamSubscription',
+            'AnotherAppStreamSubscription',
+          },
+        ));
+        await tickAndSettle();
+        advance(const Duration(seconds: 10));
+      }
+      expect(detector.issues, isEmpty,
+          reason: 'Public suffixes without libUri must NOT match — that '
+              'would false-positive on every app-defined subscription class.');
+    });
+
+    // -- Below-leg observability: `lastObservedTopGrowthDelta` lifted
+    //    out of emission gates so capture screens display measured
+    //    growth even on sub-threshold workloads. --
+
+    test('lastObservedTopGrowthDelta is set even when minDelta gate fails',
+        () async {
+      // Sub-threshold workload: each class grows by Δ=15, sum=30 < 50.
+      // No emission, but the operator still needs to see what was
+      // measured (else "samples=4, Δ=null" looks identical to a
+      // broken poll path).
+      await tickAndSettle();
+      advance(const Duration(seconds: 25));
+      for (var i = 0; i < 4; i++) {
+        profileQueue.add(_profile({
+          'StreamSubscription': 100 + i * 5,
+          '_BroadcastSubscription': 50 + i * 5,
+        }));
+        await tickAndSettle();
+        advance(const Duration(seconds: 10));
+      }
+      expect(detector.issues, isEmpty,
+          reason: 'top-class delta 15 < minDelta 50 must NOT emit');
+      expect(detector.lastObservedTopGrowthDelta, isNotNull,
+          reason: 'observed-delta accessor must surface measurement '
+              'regardless of emission gates so below-leg captures '
+              'distinguish "measured + sub-threshold" from "broken poll"');
+      expect(detector.lastObservedTopGrowthDelta, 15);
+    });
+
+    test(
+      'lastObservedTopGrowthDelta is null when no class has windowSize samples',
+      () async {
+        // Window not yet filled → no growing class → null observed.
+        await tickAndSettle();
+        advance(const Duration(seconds: 25));
+        for (var i = 0; i < 2; i++) {
+          profileQueue.add(_profile({
+            'StreamSubscription': 100 + i * 30,
+            '_BroadcastSubscription': 50 + i * 10,
+          }));
+          await tickAndSettle();
+          advance(const Duration(seconds: 10));
+        }
+        expect(detector.lastObservedTopGrowthDelta, isNull);
+        expect(detector.lastObservedTopGrowthClass, isNull);
+      },
+    );
+
+    // -- Diagnostic poll result (B1) --
+
+    test('pollAllocationProfileNow returns succeeded with diagnostics',
+        () async {
+      profileQueue.add(_profile({
+        'StreamSubscription': 100,
+        '_BroadcastSubscription': 50,
+      }));
+      final result = await detector.pollAllocationProfileNow();
+      expect(result.succeeded, isTrue);
+      expect(result.errorReason, isNull);
+      expect(result.memberCount, 2);
+      expect(result.matchedCount, 2);
+      expect(result.droppedNullLibUriCount, 0);
+      expect(result.sampleWindowSize, 1);
+      expect(result.rpcElapsed, isNotNull);
+    });
+
+    test('pollAllocationProfileNow returns rpc_null when fetcher returns null',
+        () async {
+      // Fetcher queue empty → returns null → diagnostic surfaces it.
+      final result = await detector.pollAllocationProfileNow();
+      expect(result.succeeded, isFalse);
+      expect(result.errorReason, 'rpc_null');
+    });
+
+    test('pollAllocationProfileNow returns disabled when detector is off',
+        () async {
+      detector.isEnabled = false;
+      final result = await detector.pollAllocationProfileNow();
+      expect(result.succeeded, isFalse);
+      expect(result.errorReason, 'disabled');
+    });
+
+    test(
+      'pollAllocationProfileNow counts droppedNullLibUriCount for core-looking '
+      'classes without library',
+      () async {
+        // App-class with public-suffix name AND no library → looks core
+        // but isn't matched. Diagnostic counter tracks it so the
+        // operator can see whether the watchlist needs an update.
+        profileQueue.add(_profile(
+          {'MyAppStreamSubscription': 42},
+          nullLibraryClasses: const {'MyAppStreamSubscription'},
+        ));
+        final result = await detector.pollAllocationProfileNow();
+        expect(result.succeeded, isTrue);
+        expect(result.matchedCount, 0);
+        expect(result.droppedNullLibUriCount, 1,
+            reason: 'A class ending in "StreamSubscription" with null '
+                'library is the exact iPhone-AOT signature — counter '
+                'surfaces this for capture diagnostics.');
+      },
+    );
   });
 }

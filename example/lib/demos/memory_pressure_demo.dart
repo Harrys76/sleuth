@@ -22,7 +22,8 @@ import '../demo_scaffold.dart';
 ///   (`nativeBytes = rss - heapUsage`).
 /// * **GC pressure** — continuously churn short-lived allocations via a
 ///   periodic timer to force the scavenger to run repeatedly, triggering
-///   `gc_pressure` (>30 GC/min).
+///   `gc_pressure` (>60 GC/min default; configurable via
+///   `SleuthConfig.gcRateThresholdPerMin`).
 class MemoryPressureDemo extends StatefulWidget {
   const MemoryPressureDemo({super.key});
 
@@ -281,8 +282,9 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
           '▶ Tap "Native +10MB" several times over 15 seconds to trigger '
           '`native_memory_growing` (FFI-allocated, outside the Dart heap).\n'
           '▶ Toggle "GC Churn" on for ~5 seconds to trigger `gc_pressure` '
-          '(>30 GC/min). The "Retained (Dart)" counter stays at 0 during '
-          'churn because the allocations are intentionally transient.\n\n'
+          '(>60 GC/min default; configurable). The "Retained (Dart)" '
+          'counter stays at 0 during churn because the allocations are '
+          'intentionally transient.\n\n'
           '▶ Flip to Fixed Pattern — retained memory is capped at '
           '${_fixedPoolCapMB}MB, sustained growth is halted, and churn is '
           'replaced with a reusable pool.\n\n'

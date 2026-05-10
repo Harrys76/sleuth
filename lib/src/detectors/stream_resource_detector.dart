@@ -11,6 +11,92 @@ import '../validation/evidence_tier.dart';
 import '../vm/timeline_parser.dart';
 import '../vm/vm_service_client.dart';
 
+/// Diagnostic result of a single allocation-profile poll triggered by
+/// [StreamResourceDetector.pollAllocationProfileNow]. Capture screens
+/// log this every poll so an empty K=4 window can be diagnosed
+/// without a second 50-second on-device session.
+///
+/// [errorReason] values when [succeeded] is false:
+/// `'disabled'` (detector off), `'no_vm_client'` (no fetcher and no
+/// VM service), `'rpc_null'` (RPC returned null — timeout, sentinel,
+/// or caught exception), `'reset_during_poll'` (capture state cleared
+/// mid-poll, result discarded).
+@immutable
+class StreamResourcePollResult {
+  const StreamResourcePollResult({
+    required this.succeeded,
+    this.memberCount,
+    this.matchedCount,
+    this.droppedNullLibUriCount,
+    this.sampleWindowSize,
+    this.rpcElapsed,
+    this.errorReason,
+    this.skippedInFlight = false,
+    this.bucketStates,
+  });
+
+  /// Profile fetched, members iterated, window updated. False when
+  /// [errorReason] is set.
+  final bool succeeded;
+
+  /// `profile.members.length` on success. null on failure.
+  final int? memberCount;
+
+  /// Number of members whose class matched the watchlist this poll.
+  final int? matchedCount;
+
+  /// Number of members dropped because `classRef.library` was null AND
+  /// the class name didn't match a private-suffix fallback (capture
+  /// procedure indicator: high counts here suggest the watchlist's
+  /// `_privateCoreSuffixes` is incomplete relative to current Dart SDK).
+  final int? droppedNullLibUriCount;
+
+  /// Maximum sample count across all per-class windows after this
+  /// poll's ingestion. Reaches `windowSize` (default 4) once at least
+  /// one watchlist class has been observed across all K samples.
+  final int? sampleWindowSize;
+
+  /// Wall-clock duration of the `getAllocationProfile` RPC call.
+  final Duration? rpcElapsed;
+
+  /// Failure category when [succeeded] is false.
+  final String? errorReason;
+
+  /// True when an automatic poll was already in flight; the explicit
+  /// caller awaited it instead of starting its own (barrier semantics).
+  /// The result reflects the awaited poll's outcome.
+  final bool skippedInFlight;
+
+  /// Snapshot of per-suffix sliding window after this poll's ingest.
+  /// Keys are watchlist suffixes (e.g. `_BroadcastSubscription`,
+  /// `StreamSubscription`); values are the most-recent-N
+  /// `instancesCurrent` aggregates with N up to `windowSize`. Empty
+  /// when no class matched. Capture screens use this to diagnose why
+  /// a leg's K=4 window contains stable counts (workload allocations
+  /// not landing in any expected bucket — suggests AOT class-name
+  /// drift or GC reclaiming unreferenced subscriptions).
+  final Map<String, List<int>>? bucketStates;
+
+  @override
+  String toString() {
+    if (!succeeded) {
+      return 'StreamResourcePollResult(failed: $errorReason'
+          '${skippedInFlight ? ", skipped_in_flight" : ""}'
+          '${rpcElapsed != null ? ", rpc=${rpcElapsed!.inMilliseconds}ms" : ""})';
+    }
+    final buckets = bucketStates;
+    final bucketsStr = (buckets == null || buckets.isEmpty)
+        ? ''
+        : ', buckets={${buckets.entries.map((e) => "${e.key}:${e.value}").join(", ")}}';
+    return 'StreamResourcePollResult(ok, members=$memberCount, '
+        'matched=$matchedCount, droppedNullLib=$droppedNullLibUriCount, '
+        'samples=$sampleWindowSize'
+        '${rpcElapsed != null ? ", rpc=${rpcElapsed!.inMilliseconds}ms" : ""}'
+        '${skippedInFlight ? ", awaited_in_flight" : ""}'
+        '$bucketsStr)';
+  }
+}
+
 /// Detects likely retained async resources (Stream subscriptions,
 /// StreamControllers, WebSocket channels, optional rxdart Subjects)
 /// via `getAllocationProfile` class-instance diff over a sliding
@@ -25,19 +111,20 @@ import '../vm/vm_service_client.dart';
 /// (a) heap_growing is currently in its recency window,
 /// (b) ≥2 watchlist classes show ≥3 of 3 ascending transitions
 ///     across the K=4 sample window, and
-/// (c) sum of per-class net deltas exceeds
-///     [DetectorThresholds.streamResourceMinDelta].
+/// (c) the dominant growing class's net delta exceeds
+///     [DetectorThresholds.streamResourceMinDelta] (single-class
+///     magnitude gate; multi-class growth in (b) is a structural
+///     confidence escalator only).
 ///
 /// Confidence is `IssueConfidence.likely` — runtime allocation-
 /// profile evidence + structural watchlist + runtime co-fire.
-/// Evidence tier is `reproducerOnly`: the detector logic is hermetic-
-/// reproducer covered, but a tier raise to runtimeVerified requires
-/// on-device class-instance capture infrastructure that does not
-/// exist yet.
+/// Base tier `reproducerOnly`; `stream_resource_growth.warning`
+/// raised to runtimeVerified via `perStableIdTier` on top of three
+/// on-device captures.
 class StreamResourceDetector extends BaseDetector
     with DetectorMetadataProvider {
   StreamResourceDetector({
-    required VmServiceClient? vmClient,
+    required VmServiceClient? Function() vmClientProvider,
     required bool Function() heapGrowingStateProvider,
     DateTime Function()? clock,
     this.sampleSeconds = 10,
@@ -51,7 +138,7 @@ class StreamResourceDetector extends BaseDetector
   })  : assert(windowSize >= 2,
             'windowSize must be >= 2 (need at least one transition).'),
         assert(cooldownSeconds >= 0, 'cooldownSeconds must be >= 0.'),
-        _vmClient = vmClient,
+        _vmClientProvider = vmClientProvider,
         _heapGrowingStateProvider = heapGrowingStateProvider,
         _clock = clock ?? DateTime.now,
         _allocationProfileFetcherForTest = allocationProfileFetcherForTest,
@@ -67,8 +154,11 @@ class StreamResourceDetector extends BaseDetector
   /// fetch per this interval.
   final int sampleSeconds;
 
-  /// Minimum sum of per-class net deltas required to emit. Below
-  /// this, growth is indistinguishable from normal route-stack churn.
+  /// Minimum dominant-class net delta to emit. Gates on the largest
+  /// growing class (`growing.first` after descending sort) so the
+  /// bracketed axis (`topGrowthDelta`) matches the firing axis. The
+  /// ≥2-classes-growing precondition is structural, not part of the
+  /// magnitude.
   final int minDelta;
 
   /// Warmup window in seconds. Suppresses emissions for this duration
@@ -92,7 +182,11 @@ class StreamResourceDetector extends BaseDetector
   /// "growing". Must be >= 2.
   final int windowSize;
 
-  final VmServiceClient? _vmClient;
+  // Lazy getter so the detector observes the live `VmServiceClient`
+  // reference held by the controller. Direct injection at construction
+  // time would capture null because `_initializeDetectors()` runs
+  // before the controller assigns its `_vmClient` field.
+  final VmServiceClient? Function() _vmClientProvider;
   final bool Function() _heapGrowingStateProvider;
   final DateTime Function() _clock;
   final Future<AllocationProfile?> Function()? _allocationProfileFetcherForTest;
@@ -112,6 +206,23 @@ class StreamResourceDetector extends BaseDetector
     'WebSocketChannel',
   ];
 
+  // Subset of `_coreSuffixes` that are PRIVATE (start with `_`). When
+  // the VM's `getAllocationProfile` reports a class with `library == null`
+  // (Dart 3.6+ AOT does this for private dart:async classes), the
+  // library-URI scope check in `_matchWatchlist` cannot run — we accept
+  // the match anyway IF the suffix is in this private list. Public
+  // suffixes (`StreamSubscription`, `StreamController`, `WebSocketChannel`)
+  // still require a non-null libUri because app-defined subclasses ending
+  // in those names are common and would false-positive without library
+  // scoping.
+  static const List<String> _privateCoreSuffixes = <String>[
+    '_BroadcastSubscription',
+    '_ControllerSubscription',
+    '_SyncBroadcastStreamController',
+    '_AsyncBroadcastStreamController',
+    '_WebSocketImpl',
+  ];
+
   static const List<String> _rxdartSuffixes = <String>[
     'PublishSubject',
     'BehaviorSubject',
@@ -125,7 +236,15 @@ class StreamResourceDetector extends BaseDetector
   int? _lastSampleAtMicros;
   int? _pollPausedUntilMicros;
   int _consecutivePollFailures = 0;
-  bool _pollInFlight = false;
+
+  // Future of the currently-resolving poll, or null when no poll is in
+  // flight. Both the automatic poll path (driven by `processTimelineData`)
+  // AND the explicit capture-pipeline path (`pollAllocationProfileNow`)
+  // store/await this. Without barrier semantics, the explicit path's
+  // `if (_pollInFlight) return` could silently no-op when the auto-path
+  // grabbed the slot moments earlier — capture screen advances thinking
+  // the poll succeeded, but no fresh sample lands.
+  Future<StreamResourcePollResult>? _pollInFlight;
 
   // Bumped on every `_clearRetainedState`. An in-flight poll snapshots
   // this at start; if the value differs at completion, the poll's
@@ -139,6 +258,93 @@ class StreamResourceDetector extends BaseDetector
   // record. Distinct from the sliding `_perClassWindow` start (which
   // advances every sample).
   int? _emissionStartMicros;
+
+  // Monotonic per-detector emission sequence. Incremented on every
+  // fresh emission (NOT on cooldown re-emits — those preserve the
+  // dedup identity). Stamped into `extraTraceArgs.dedupIdentitySeq` so
+  // BracketSpec's `requireUniqueDetectedAtMicros` can cross-check that
+  // the 3 capture legs come from distinct emissions, not one emission
+  // replayed across the cooldown window.
+  int _emissionSeq = 0;
+
+  // Last observed top-class delta within the K=4 window, set on every
+  // window evaluation (regardless of whether emission fired). Capture-
+  // pipeline accessor for cross-checking the emission axis against the
+  // captured BracketSpec axis arg.
+  int? _lastObservedTopGrowthDelta;
+  String? _lastObservedTopGrowthClass;
+  int _lastObservedSamplesInWindow = 0;
+
+  /// Last delta of the dominant growing class within the K=4 window,
+  /// or null if no classes have hit `windowSize` yet. Updated on every
+  /// poll regardless of whether emission fires.
+  int? get lastObservedTopGrowthDelta => _lastObservedTopGrowthDelta;
+
+  /// Class-name suffix of the dominant growing class, or null.
+  String? get lastObservedTopGrowthClass => _lastObservedTopGrowthClass;
+
+  /// Maximum sample count any tracked class has accumulated within the
+  /// current window. Reaches `windowSize` (4) when at least one class
+  /// has been observed across all K samples — the capture screen uses
+  /// this to gate next-leg activation.
+  int get lastObservedSamplesInWindow => _lastObservedSamplesInWindow;
+
+  /// Synchronously re-run the window evaluation against the current
+  /// `_perClassWindow` snapshot, without waiting for the next 10 s
+  /// poll tick. Capture-pipeline hook: `markScenarioBegin` →
+  /// workload → `flushTimelineNow()` → `flushStreamResourceEvaluation()`
+  /// → `markScenarioEnd()` → `composeCapture()`. Emission state is
+  /// updated as if a real poll had completed; cooldown semantics
+  /// apply normally.
+  void flushStreamResourceEvaluation() {
+    if (!isEnabled) return;
+    _evaluateWindow();
+  }
+
+  /// Capture-pipeline hook: trigger an immediate `getAllocationProfile`
+  /// RPC and ingest the result, bypassing the timeline-tick gate that
+  /// drives [processTimelineData]. The capture screen calls this once
+  /// per intended K=4 sample so the window populates regardless of
+  /// whether the VM timeline buffer is producing parseable events.
+  ///
+  /// Returns a [StreamResourcePollResult] capturing the outcome —
+  /// success/failure, member count, matched count, RPC duration. The
+  /// capture screen logs this every poll so an empty K=4 window can
+  /// be diagnosed without another blind capture session.
+  ///
+  /// **Barrier semantics.** If an automatic poll is already in flight
+  /// (driven by [processTimelineData] from `VmServiceClient`'s 500 ms
+  /// timer), this call awaits that poll's completion AND THEN runs a
+  /// guaranteed fresh poll. Without this barrier, the explicit call
+  /// would silently no-op behind the auto-path, and the capture screen
+  /// would advance thinking it captured a sample.
+  ///
+  /// Bypasses the warmup gate (the capture flow has its own heap-
+  /// pressure precondition) and the sample-rate gate (the caller is
+  /// responsible for spacing calls ≥ [sampleSeconds] apart). Honors
+  /// the `isEnabled` guard — returns a `disabled` result without
+  /// running anything when the detector is off.
+  Future<StreamResourcePollResult> pollAllocationProfileNow() async {
+    if (!_isEnabled) {
+      return const StreamResourcePollResult(
+        succeeded: false,
+        errorReason: 'disabled',
+      );
+    }
+    final inFlight = _pollInFlight;
+    if (inFlight != null) {
+      // Wait for the auto-path's poll to finish, then run a fresh one
+      // so the capture caller is guaranteed to see a post-await sample.
+      await inFlight;
+    }
+    _lastSampleAtMicros = _clock().microsecondsSinceEpoch;
+    _activatedAtMicros ??= _lastSampleAtMicros;
+    _maybeExpireCooldown(_lastSampleAtMicros!);
+    final freshPoll = _pollAllocationProfile();
+    _pollInFlight = freshPoll;
+    return freshPoll;
+  }
+
   // Wall-clock deadline at which `_lastEmittedIssue` expires. Wall-
   // clock semantics survive a VmService disconnect (or a long poll-
   // failure backoff) without leaving a stale issue pinned to
@@ -195,33 +401,60 @@ class StreamResourceDetector extends BaseDetector
     }
 
     // Re-entrancy guard: a prior async poll is still resolving.
-    if (_pollInFlight) return;
+    if (_pollInFlight != null) return;
 
-    _pollInFlight = true;
     _lastSampleAtMicros = nowMicros;
     // Expire a wall-clock cooldown that lapsed silently (e.g. during a
     // VmService disconnect that ran out the cooldown window without
     // any non-null poll arriving to drain it). Without this, a stale
     // `_lastEmittedIssue` survives in `_issues` past its intended TTL.
     _maybeExpireCooldown(nowMicros);
-    unawaited(_pollAllocationProfile());
+    final autoPoll = _pollAllocationProfile();
+    _pollInFlight = autoPoll;
+    unawaited(autoPoll);
   }
 
-  Future<void> _pollAllocationProfile() async {
+  Future<StreamResourcePollResult> _pollAllocationProfile() async {
     final pollGeneration = _resetGeneration;
+    final stopwatch = Stopwatch()..start();
     try {
       AllocationProfile? profile;
+      final vmClient = _vmClientProvider();
       if (_allocationProfileFetcherForTest != null) {
         profile = await _allocationProfileFetcherForTest();
-      } else if (_vmClient != null) {
-        profile = await _vmClient.getAllocationProfile();
+      } else if (vmClient != null) {
+        // Capture mode benefits from a longer timeout: first iPhone
+        // call enumerates thousands of classes and easily exceeds
+        // the default 500ms. The detector has no signal that it's
+        // running under capture vs. ambient monitoring, so we use a
+        // generous fixed 5s — non-capture polls only run every
+        // [sampleSeconds] anyway, and the auto-path's
+        // `_consecutivePollFailures` backoff still protects against
+        // a permanently broken VM.
+        profile = await vmClient.getAllocationProfile(
+          timeout: const Duration(seconds: 5),
+        );
+      } else {
+        stopwatch.stop();
+        return StreamResourcePollResult(
+          succeeded: false,
+          errorReason: 'no_vm_client',
+          rpcElapsed: stopwatch.elapsed,
+        );
       }
+      stopwatch.stop();
       // Discard results from a generation that has been reset since
       // the poll was scheduled. Without this guard, a poll's post-
       // await continuation can write leg-N-1 sample data into the
       // freshly-cleared `_perClassWindow` of leg-N (capture-mode
       // scenario isolation invariant).
-      if (pollGeneration != _resetGeneration) return;
+      if (pollGeneration != _resetGeneration) {
+        return StreamResourcePollResult(
+          succeeded: false,
+          errorReason: 'reset_during_poll',
+          rpcElapsed: stopwatch.elapsed,
+        );
+      }
       if (profile == null) {
         _consecutivePollFailures++;
         if (_consecutivePollFailures >= 3) {
@@ -229,13 +462,37 @@ class StreamResourceDetector extends BaseDetector
               pollFailureBackoffSeconds * 1000000;
           _consecutivePollFailures = 0;
         }
-        return;
+        return StreamResourcePollResult(
+          succeeded: false,
+          errorReason: 'rpc_null',
+          rpcElapsed: stopwatch.elapsed,
+        );
       }
       _consecutivePollFailures = 0;
-      _ingestProfile(profile);
+      final ingested = _ingestProfile(profile);
       _evaluateWindow();
+      // Snapshot per-suffix windows so capture screens can see exactly
+      // which buckets matched and how their counts evolved across polls.
+      // A flat constant (e.g. `[18, 18, 18, 18]`) on every poll despite
+      // a workload that should grow allocations means the workload's
+      // class isn't landing in this bucket — either AOT renamed the
+      // class, GC reclaimed the instances, or the watchlist suffix is
+      // stale relative to the current Dart SDK.
+      final bucketSnapshot = <String, List<int>>{
+        for (final e in _perClassWindow.entries)
+          e.key: List<int>.unmodifiable(e.value),
+      };
+      return StreamResourcePollResult(
+        succeeded: true,
+        memberCount: ingested.memberCount,
+        matchedCount: ingested.matchedCount,
+        droppedNullLibUriCount: ingested.droppedNullLibUriCount,
+        sampleWindowSize: _lastObservedSamplesInWindow,
+        rpcElapsed: stopwatch.elapsed,
+        bucketStates: bucketSnapshot,
+      );
     } finally {
-      _pollInFlight = false;
+      _pollInFlight = null;
     }
   }
 
@@ -259,9 +516,15 @@ class StreamResourceDetector extends BaseDetector
     _issues.clear();
   }
 
-  void _ingestProfile(AllocationProfile profile) {
+  _IngestStats _ingestProfile(AllocationProfile profile) {
     final members = profile.members;
-    if (members == null) return;
+    if (members == null) {
+      return const _IngestStats(
+        memberCount: 0,
+        matchedCount: 0,
+        droppedNullLibUriCount: 0,
+      );
+    }
 
     // Per-poll aggregation: sum `instancesCurrent` across every class
     // that maps to the same suffix bucket. Without this aggregation,
@@ -271,6 +534,8 @@ class StreamResourceDetector extends BaseDetector
     // samples per poll instead of one — corrupting the ascending-
     // transitions check.
     final perPollAggregates = <String, int>{};
+    var matched = 0;
+    var droppedNullLibUri = 0;
     for (final m in members) {
       final classRef = m.classRef;
       if (classRef == null) continue;
@@ -278,7 +543,18 @@ class StreamResourceDetector extends BaseDetector
       if (name == null || name.isEmpty) continue;
       final libUri = classRef.library?.uri;
       final suffix = _matchWatchlist(name, libUri);
-      if (suffix == null) continue;
+      if (suffix == null) {
+        // Track classes that look watchlist-relevant (suffix matches a
+        // public core suffix) but were dropped because libUri was null
+        // and no private fallback applied. High counts here indicate
+        // `_privateCoreSuffixes` is missing entries the current Dart
+        // SDK reports without library metadata.
+        if (libUri == null && _looksLikeCoreClass(name)) {
+          droppedNullLibUri++;
+        }
+        continue;
+      }
+      matched++;
       final instancesCurrent = m.instancesCurrent ?? 0;
       perPollAggregates[suffix] =
           (perPollAggregates[suffix] ?? 0) + instancesCurrent;
@@ -308,6 +584,24 @@ class StreamResourceDetector extends BaseDetector
     _perClassWindow.removeWhere(
       (_, w) => w.length == windowSize && w.every((v) => v == 0),
     );
+
+    return _IngestStats(
+      memberCount: members.length,
+      matchedCount: matched,
+      droppedNullLibUriCount: droppedNullLibUri,
+    );
+  }
+
+  // Heuristic for diagnostic counting only: does the class name end
+  // with any watchlist suffix (public OR private)? Used to count
+  // null-libUri members that look core-relevant but were dropped
+  // because the private-suffix fallback didn't recognise them. NOT
+  // used for matching — emits-eligibility goes through `_matchWatchlist`.
+  bool _looksLikeCoreClass(String name) {
+    for (final suffix in _coreSuffixes) {
+      if (name.endsWith(suffix)) return true;
+    }
+    return false;
   }
 
   String? _matchWatchlist(String className, String? libUri) {
@@ -326,6 +620,19 @@ class StreamResourceDetector extends BaseDetector
     // them.
     if (libUri != null && _isCoreLibrary(className, libUri)) {
       final match = _longestMatch(className, _coreSuffixes);
+      if (match != null) return match;
+    }
+    // Null-library fallback: AOT VMs (Flutter 3.6+ on iPhone profile
+    // mode) often report `ClassRef.library = null` for private
+    // dart:async classes. Without this branch, every relevant
+    // `_BroadcastSubscription` / `_ControllerSubscription` / similar
+    // member is silently dropped on real devices, leaving the K=4
+    // window empty even when the workload is legitimate. Restricted
+    // to PRIVATE suffixes — public suffixes (`StreamSubscription`,
+    // `StreamController`) without library scoping would falsely match
+    // app-defined subclasses.
+    if (libUri == null) {
+      final match = _longestMatch(className, _privateCoreSuffixes);
       if (match != null) return match;
     }
     if (libUri != null && libUri.contains('rxdart')) {
@@ -381,8 +688,12 @@ class StreamResourceDetector extends BaseDetector
     }
 
     final growing = <_GrowingClass>[];
+    var maxSamplesObserved = 0;
     for (final entry in _perClassWindow.entries) {
       final window = entry.value;
+      if (window.length > maxSamplesObserved) {
+        maxSamplesObserved = window.length;
+      }
       if (window.length < windowSize) continue;
       var ascendingCount = 0;
       for (var i = 1; i < window.length; i++) {
@@ -394,14 +705,33 @@ class StreamResourceDetector extends BaseDetector
       if (delta <= 0) continue;
       growing.add(_GrowingClass(suffix: entry.key, delta: delta));
     }
+    _lastObservedSamplesInWindow = maxSamplesObserved;
+
+    // Update observed-delta accessors on EVERY evaluation, regardless
+    // of whether emission gates pass. Capture screens display this so
+    // the operator can see actual measured growth even on the below-
+    // bracket leg (which intentionally fails the minDelta gate). When
+    // no class is growing, both fields go null so a broken poll path
+    // produces visibly distinct evidence (`samples=0, Δ=null`) from a
+    // legitimate sub-threshold workload (`samples=4, Δ=25`).
+    if (growing.isNotEmpty) {
+      growing.sort((a, b) => b.delta.compareTo(a.delta));
+      _lastObservedTopGrowthDelta = growing.first.delta;
+      _lastObservedTopGrowthClass = growing.first.suffix;
+    } else {
+      _lastObservedTopGrowthDelta = null;
+      _lastObservedTopGrowthClass = null;
+    }
 
     if (growing.length < 2) {
       _dropEmissionState();
       return;
     }
 
-    final netDelta = growing.fold<int>(0, (sum, g) => sum + g.delta);
-    if (netDelta < minDelta) {
+    // `growing` already sorted descending by the
+    // `_lastObservedTopGrowthDelta` update above.
+    final top = growing.first;
+    if (top.delta < minDelta) {
       _dropEmissionState();
       return;
     }
@@ -411,11 +741,11 @@ class StreamResourceDetector extends BaseDetector
       return;
     }
 
-    growing.sort((a, b) => b.delta.compareTo(a.delta));
-    final top = growing.first;
+    final netDelta = growing.fold<int>(0, (sum, g) => sum + g.delta);
     final suffixes = growing.map((g) => g.suffix).toList(growable: false);
 
     _emissionStartMicros = _clock().microsecondsSinceEpoch;
+    _emissionSeq++;
     final (hint, effort) = FixHintBuilder.streamResourceGrowth(
       growingClassSuffixes: suffixes,
       topGrowthDelta: top.delta,
@@ -426,7 +756,8 @@ class StreamResourceDetector extends BaseDetector
       category: IssueCategory.memory,
       confidence: IssueConfidence.likely,
       title: 'Stream Resources Growing: '
-          '${growing.length} classes, +$netDelta instances',
+          '${top.suffix} +${top.delta} instances '
+          '(${growing.length} classes, $netDelta total)',
       detail: 'Watchlist async resource classes are accumulating across '
           'the sample window AND `heap_growing` is currently active. '
           'Top growth: ${top.suffix} (+${top.delta} instances). '
@@ -447,6 +778,8 @@ class StreamResourceDetector extends BaseDetector
         'topGrowthDelta': top.delta.toString(),
         'watchlistClassesGrowing': suffixes.join(','),
         'samplesInWindow': windowSize.toString(),
+        'detectedAtMicros': _emissionStartMicros!.toString(),
+        'dedupIdentitySeq': _emissionSeq.toString(),
       },
       confidenceReason: 'Allocation profile diff + heap_growing co-fire',
     );
@@ -473,6 +806,10 @@ class StreamResourceDetector extends BaseDetector
     _emissionStartMicros = null;
     _cooldownExpiresAtMicros = null;
     _lastEmittedIssue = null;
+    _emissionSeq = 0;
+    _lastObservedTopGrowthDelta = null;
+    _lastObservedTopGrowthClass = null;
+    _lastObservedSamplesInWindow = 0;
     _issues.clear();
     // _pollInFlight intentionally NOT reset — the in-flight future
     // will set it back to false in its own `finally`. Forcing it
@@ -487,34 +824,63 @@ class StreamResourceDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'VM-only detector. Heuristic flag for retained async '
-            'resources (streams, subscriptions, sockets) via '
-            '`getAllocationProfile` class-instance diff over a K=4 '
-            'sample window, gated on a recent `heap_growing` emission. '
-            'Watchlist matches dart:async, dart:io, and '
-            'web_socket_channel class-name suffixes (suffix match '
-            'shields against private-class renames across Flutter SDK '
-            'versions); rxdart Subject family is included only when '
-            '`classRef.library.uri` contains `rxdart`. Emission '
-            'requires (a) `MemoryPressureDetector.isHeapGrowingActive` '
-            'returns true within the recency window (default 30 s), '
-            '(b) ≥2 watchlist classes show ≥3 of 3 ascending '
-            'transitions across the window, and (c) sum of per-class '
-            'net deltas exceeds the configured threshold (default 50 '
-            'instances). Confidence is `likely`: runtime allocation-'
-            'profile evidence is circumstantial — class growth alone '
-            'cannot prove ownership intent. A 3-cycle cooldown holds '
-            'the emission stable across multiple polls so the '
-            'producer-side dedup composite key collapses successive '
-            'fires to one trace record. Tier raise to runtimeVerified '
-            'is deferred until on-device class-instance capture '
-            'infrastructure exists; the current schema brackets '
-            'detector emissions on a single observed-axis numeric '
-            'magnitude (ms, bytes/sec, count) and does not yet model '
-            'the multi-class delta axis this detector operates on.',
+        rationale: 'VM-only detector. Flags retained async resources '
+            '(streams, subscriptions, sockets) via `getAllocationProfile` '
+            'class-instance diff over a K=4 sample window, gated on a '
+            'recent `heap_growing` emission. Watchlist suffix-matches '
+            'dart:async / dart:io / web_socket_channel class names '
+            '(shields against private-class renames across SDK versions); '
+            'rxdart Subjects included only when `classRef.library.uri` '
+            'contains `rxdart`. Emission requires (a) `isHeapGrowingActive` '
+            'true within recency window (default 30 s), (b) ≥2 watchlist '
+            'classes show ≥3 of 3 ascending transitions (structural '
+            'precondition), (c) the dominant growing class\'s net delta '
+            '> `streamResourceMinDelta` (default 50). Single-class '
+            'magnitude gate so the firing axis matches the bracketed '
+            'axis (`extraTraceArgs.topGrowthDelta`). Confidence `likely` '
+            '— class growth alone is circumstantial. 3-cycle cooldown '
+            'collapses successive fires to one trace record via '
+            'producer-side dedup keyed on `_emissionStartMicros`.\n'
+            '\n'
+            '`stream_resource_growth.warning` is runtimeVerified via '
+            '`perStableIdTier`, backed by three iPhone 12 / iOS 17.5 / '
+            'Flutter 3.41.4 captures bracketing threshold 50 instances. '
+            'atTolerance 0.6 (at-band [50, 80]); aboveCeilingMultiplier '
+            '3.0 (ceiling 150) — wider than NetworkMonitor / Repaint to '
+            'absorb in-scenario heap_growing readiness-wait variance. '
+            'Single-family detector — no critical tier, ceiling set by '
+            'schema sanity bound. `requireUniqueDetectedAtMicros: true`.',
         reproducerPath: 'test/validation/stream_resource_reproducer_test.dart',
         coveredStableIds: {'stream_resource_growth'},
+        perStableIdTier: {
+          'stream_resource_growth': EvidenceTier.runtimeVerified,
+        },
+        coveredThresholds: {'stream_resource_growth.warning'},
+        profileCapturePaths: [
+          'test/validation/captures/stream_resource_growth/below.json',
+          'test/validation/captures/stream_resource_growth/at.json',
+          'test/validation/captures/stream_resource_growth/above.json',
+        ],
+        bracketStableId: 'stream_resource_growth',
+        bracketSeverityLabel: 'warning',
+        bracketThreshold: 50,
+        bracketUnit: 'instances',
+        bracketAtTolerance: 0.6,
+        aboveCeilingMultiplier: 3.0,
+        observedAxisArgKey: 'topGrowthDelta',
+        bracketRequireUniqueDetectedAtMicros: true,
       );
+}
+
+class _IngestStats {
+  const _IngestStats({
+    required this.memberCount,
+    required this.matchedCount,
+    required this.droppedNullLibUriCount,
+  });
+  final int memberCount;
+  final int matchedCount;
+  final int droppedNullLibUriCount;
 }
 
 class _GrowingClass {

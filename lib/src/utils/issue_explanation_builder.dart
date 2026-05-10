@@ -395,7 +395,8 @@ class IssueExplanationBuilder {
           'empty small trash cans — each visit is brief, but they add up and '
           'break concentration.\n\n'
           '• GC/min — Garbage collection events per minute. '
-          'Normal: <10 idle, <20 during interaction. Alert: >30/min.\n\n'
+          'Normal: <10 idle, <20 during interaction. Alert: >60/min '
+          '(default; configurable via SleuthConfig.gcRateThresholdPerMin).\n\n'
           '• The title number (e.g. "45 GC/min") is the rolling rate over '
           'the monitoring window.\n\n'
           '• Source: VM Timeline GC events.',

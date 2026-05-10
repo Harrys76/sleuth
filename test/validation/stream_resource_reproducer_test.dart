@@ -7,8 +7,9 @@
 //   2. Sample-rate gate enforces ≥[streamResourceSampleSeconds] between
 //      polls.
 //   3. Sliding K=4 window with ≥3 of 3 ascending transitions per class.
-//   4. ≥2 watchlist classes growing AND netDelta > minDelta AND
-//      heap_growing co-fire all required.
+//   4. ≥2 watchlist classes growing (structural confidence escalator)
+//      AND dominant class's net delta >= minDelta AND heap_growing
+//      co-fire all required. Magnitude gate is single-class top.delta.
 //   5. Cooldown holds dedupIdentityMicros stable for 3 cycles.
 //
 // Tier limitation: this reproducer mocks the AllocationProfile shape;
@@ -64,7 +65,7 @@ void main() {
       profileQueue = [];
       heapGrowing = true;
       detector = StreamResourceDetector(
-        vmClient: null,
+        vmClientProvider: () => null,
         heapGrowingStateProvider: () => heapGrowing,
         clock: () => now,
         sampleSeconds: 10,
@@ -118,6 +119,8 @@ void main() {
         'topGrowthDelta',
         'watchlistClassesGrowing',
         'samplesInWindow',
+        'detectedAtMicros',
+        'dedupIdentitySeq',
       });
       expect(args['samplesInWindow'], '4');
       expect(args['topGrowthClass'], 'StreamSubscription');

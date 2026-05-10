@@ -766,6 +766,7 @@ class VmServiceClient {
   /// Only called on-demand when heap growth is detected — not continuous.
   Future<AllocationProfile?> getAllocationProfile({
     bool reset = false,
+    Duration timeout = const Duration(milliseconds: 500),
   }) async {
     final service = _service;
     final isolateId = _mainIsolateId;
@@ -774,7 +775,7 @@ class VmServiceClient {
     try {
       return await service
           .getAllocationProfile(isolateId, reset: reset)
-          .timeout(const Duration(milliseconds: 500));
+          .timeout(timeout);
     } on SentinelException {
       _mainIsolateId = await _resolveMainIsolateId();
       return null;

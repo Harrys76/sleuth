@@ -59,7 +59,9 @@ test/
 
 ## Current state
 
-**v0.25.0** (current, BREAKING) — Multi-parent causal UI + removal of `rootCauseId` singular. `IssueCard.parentIssues` + `_causedBySection` widget (cap 5, "(+N suppressed)" annotation). `computeVisibleIssues`: ≥2 parents always visible; 1 parent collapses or surfaces orphan; 0 parents visible. BREAKING: singular `rootCauseId` field, JSON key, `fromJson` read, `effectiveRootCauseIds` getter — all removed. v0.24.x-only snapshots must re-export through v0.24.2 before import. `rootCauseIds` invariant: null or non-empty (fromJson coerces empty → null).
+**v0.26.0** (current) — `stream_resource_growth.warning` raised to runtimeVerified (iPhone 12 / iOS 17.5 / Flutter 3.41.4 capture triad; threshold 50 instances on `topGrowthDelta` axis, atTolerance 0.6, aboveCeilingMultiplier 3.0). Detector magnitude gate switched from summed `netDelta` to dominant-class `top.delta` so firing axis matches bracket axis; multi-class growth (≥2 watchlist classes ascending) stays as structural precondition. `MemoryPressureDetector.gcRateThresholdPerMin` default 30 → 60 (young-gen scavenge baseline ~30/min was firing on routine rebuilds; opt back in via `SleuthConfig(gcRateThresholdPerMin: 30)`). `'instances'` added to `ProfileCaptureSchema.approvedUnits`. `StreamResourceCaptureScreen`: 1024 KB/sec byte pressure, in-scenario heap_growing readiness wait, JSON post-process aligns `expectedMagnitude.observed` to detector-stamped `topGrowthDelta`.
+
+**v0.25.0** (BREAKING) — Multi-parent causal UI + removal of `rootCauseId` singular. `IssueCard.parentIssues` + `_causedBySection` widget (cap 5, "(+N suppressed)" annotation). `computeVisibleIssues`: ≥2 parents always visible; 1 parent collapses or surfaces orphan; 0 parents visible. BREAKING: singular `rootCauseId` field, JSON key, `fromJson` read, `effectiveRootCauseIds` getter — all removed. v0.24.x-only snapshots must re-export through v0.24.2 before import. `rootCauseIds` invariant: null or non-empty (fromJson coerces empty → null).
 
 **v0.24.2** — Multi-parent causal-graph annotation (data model layer). `CausalGraphRule.apply()` writes `rootCauseIds: List<String>?` plural; every reaching root claims each downstream. `toJson` dual-emitted singular for v0.24.1-reader back-compat (removed v0.25.0).
 
@@ -79,10 +81,11 @@ test/
 
 **v0.20.0** — BREAKING: 5 low-value detectors removed (`animatedBuilder`, `opacity`, `shallowRebuildRisk`, `nestedScroll`, `globalKey`); 23 → 18 detectors.
 
-**Distribution (current)**: 17/19 reproducerOnly base + 2/19 runtimeVerified base, 12 effective runtimeVerified family-severity pairs across 9 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}, excessive_repaint.warning).
+**Distribution (current)**: 17/19 reproducerOnly base + 2/19 runtimeVerified base, 13 effective runtimeVerified family-severity pairs across 10 unique stableIds (slow_request {warning + critical}, large_response.warning, request_frequency.warning, heap_growing.warning, platform_channel_traffic.warning, jank_detected.warning, rebuild_activity {warning + critical}, heavy_compute {warning + critical}, excessive_repaint.warning, stream_resource_growth.warning).
 
 ### Recent releases (one-line)
 
+- **v0.26.0** — `stream_resource_growth.warning` runtimeVerified (iPhone 12 capture triad). Detector gate switched to single-class `top.delta` so firing axis matches bracket axis. `gcRateThresholdPerMin` 30 → 60. `'instances'` unit added.
 - **v0.22.0** — `sustained_jank.critical` raise withdrawn (bracket axis non-composable with operator-claimed K). Captures + capture screen + retainedOrphans entries removed; reproducer-tier coverage retained.
 - **v0.21.0** — `RepaintDetector.excessive_repaint.warning` raised to runtimeVerified via `perStableIdTier` (32-distinct-`CustomPaint` workload routes through VM aggregate path). `Sleuth.repaintDetector` + `Sleuth.lastCaptureExportFailure` static accessors; `peakObservedPaintCount` + `flushPaintEvaluation()` + `resetCaptureState()` plumbing.
 - **v0.20.2** — Example-app polish: tile subtitles ≤40 chars; heavy_compute description drops hard "300 ms" claim; network_stress search uses `Uri.replace(queryParameters)` (RFC 3986).

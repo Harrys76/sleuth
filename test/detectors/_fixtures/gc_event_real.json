@@ -1,0 +1,14 @@
+{
+  "type": "Event",
+  "kind": "GC",
+  "isolate": {
+    "type": "@Isolate",
+    "fixedId": true,
+    "id": "isolates/4072751591953895",
+    "name": "main",
+    "number": "4072751591953895",
+    "isSystemIsolate": false,
+    "isolateGroupId": "isolateGroups/14728739541870823495"
+  },
+  "timestamp": 1715357200123
+}

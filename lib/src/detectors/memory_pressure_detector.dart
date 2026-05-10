@@ -29,6 +29,7 @@ class MemoryPressureDetector extends BaseDetector
     this.warmupDurationMs = 3000,
     this.growthThresholdBytesPerSec = 512000,
     this.capacityThresholdPercent = 0.80,
+    this.gcRateThresholdPerMin = _defaultGcRateThresholdPerMin,
   })  : _clock = clock ?? DateTime.now,
         super(
           type: DetectorType.memoryPressure,
@@ -48,6 +49,19 @@ class MemoryPressureDetector extends BaseDetector
   /// heap_near_capacity is flagged.
   final double capacityThresholdPercent;
 
+  /// GC events per minute (extrapolated from a 10s sliding window) above
+  /// which `gc_pressure` fires. Default 60 clears the young-gen scavenge
+  /// baseline — Dart's `EventStreams.kGC` emits one event per *every* GC
+  /// cycle including new-space scavenges, so a moderately allocating UI
+  /// produces ~5 events per 10s (≈30/min) at steady state without any
+  /// real pressure. The previous default of 30 fired on routine animation
+  /// rebuilds and incremental scrolling. Apps that want the older
+  /// sensitivity can opt back in by passing 30 through `SleuthConfig.
+  /// gcRateThresholdPerMin`.
+  final int gcRateThresholdPerMin;
+
+  static const int _defaultGcRateThresholdPerMin = 60;
+
   final DateTime Function() _clock;
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
@@ -59,9 +73,10 @@ class MemoryPressureDetector extends BaseDetector
   // Tracks GC batches received within the last [_gcWindowDuration]. Without
   // a sliding window, a long-running app dilutes any recent GC burst: a user
   // who explores other demos for 60s and then hits a churn-heavy demo would
-  // see `(N events / 60s+ elapsed) * 60` fall below the 30/min threshold even
-  // though N events in the last ~5s clearly indicates pressure. The window
-  // gives us an "events per 10 seconds" rate that responds to real bursts.
+  // see `(N events / 60s+ elapsed) * 60` fall below the per-minute threshold
+  // even though N events in the last ~5s clearly indicates pressure. The
+  // window gives us an "events per 10 seconds" rate that responds to real
+  // bursts.
   static const Duration _gcWindowDuration = Duration(seconds: 10);
   final Queue<({DateTime ts, int count})> _gcWindow = Queue();
 
@@ -295,7 +310,7 @@ class MemoryPressureDetector extends BaseDetector
     // the rate stable under bursty traffic and prevents a lone event
     // from registering as "infinite rate" before the window has filled.
     final gcPerMinute = (windowEvents / _gcWindowDuration.inSeconds) * 60;
-    if (gcPerMinute > 30) {
+    if (gcPerMinute > gcRateThresholdPerMin) {
       // Pin overage-start on first cross. Persists across consecutive
       // re-emissions during the same overage so CaptureHelper's
       // dedup collapses them to one trace record. Cleared in the
@@ -323,11 +338,11 @@ class MemoryPressureDetector extends BaseDetector
         confidenceReason: 'VM GC frequency elevated + object churn rate',
       ));
     } else {
-      // Below the >30/min threshold (windowEvents <= 5). Clearing here
-      // (instead of only on windowEvents == 0) ensures two distinct
-      // overage episodes separated by a sub-threshold dip do not share
-      // identity — the second emission needs a fresh _gcOverageStart so
-      // dedup does not collapse two episodes into one trace record.
+      // Below the per-minute threshold. Clearing here (instead of only on
+      // windowEvents == 0) ensures two distinct overage episodes separated
+      // by a sub-threshold dip do not share identity — the second emission
+      // needs a fresh _gcOverageStart so dedup does not collapse two
+      // episodes into one trace record.
       _gcOverageStart = null;
     }
   }
@@ -588,8 +603,9 @@ class MemoryPressureDetector extends BaseDetector
         tier: EvidenceTier.reproducerOnly,
         rationale: 'VM-only detector. 4 families pinned by hermetic '
             'reproducer at detector entrypoints (`processHeapSample` + '
-            '`recordGcCycle`): `gc_pressure` (>5 cycles / 10s sliding '
-            'window = >30/min rate), `heap_growing` (slope > 512KB/s '
+            '`recordGcCycle`): `gc_pressure` (>10 cycles / 10s sliding '
+            'window = >60/min rate, default; configurable), '
+            '`heap_growing` (slope > 512KB/s '
             'sustained ≥10s), `heap_near_capacity` (>80% AND 4-of-5 '
             'samples over AND correlated heap_growing), '
             '`native_memory_growing` (RSS-heap gap slope > 1MB/s '

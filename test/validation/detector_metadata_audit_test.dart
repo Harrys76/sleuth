@@ -168,11 +168,9 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
     {'raster_dominance', 'expensive_gpu_nodes'},
     null,
   ),
-  DetectorType.streamResource: (
-    'test/validation/stream_resource_reproducer_test.dart',
-    {'stream_resource_growth'},
-    null,
-  ),
+  // StreamResourceDetector — base reproducerOnly + perStableIdTier raise
+  // on `stream_resource_growth.warning`; pinned by dedicated anchor
+  // below.
   // RepaintDetector lifted out of the v0.17.4 reproducerOnly batch:
   // base stays reproducerOnly but the `excessive_repaint.warning`
   // family is raised to runtimeVerified via perStableIdTier on top of
@@ -206,6 +204,7 @@ const _singleDetectorAnchors = <DetectorType>{
   DetectorType.platformChannel,
   DetectorType.rebuild,
   DetectorType.repaint,
+  DetectorType.streamResource,
 };
 
 void main() {
@@ -1328,6 +1327,54 @@ void main() {
       expect(meta.parametricFamilies, equals(const {'repaint_debug'}),
           reason: 'Parametric `repaint_debug_<typeName>` family unchanged — '
               'debug per-widget path stays at base reproducerOnly.');
+    });
+
+    test(
+        'StreamResourceDetector pinned at runtimeVerified for '
+        'stream_resource_growth', () {
+      // Base reproducerOnly + perStableIdTier raise on warning. Single-
+      // family — perStableIdTier sits beside the canonical tier so the
+      // audit walks `effectiveMaxTier` for bracket-field requirements.
+      final BaseDetector? sr = controller.detectorsForAudit
+          .where((d) => d.type == DetectorType.streamResource)
+          .cast<BaseDetector?>()
+          .firstWhere((_) => true, orElse: () => null);
+      expect(sr, isNotNull);
+      expect(sr, isA<DetectorMetadataProvider>());
+      final meta = (sr as DetectorMetadataProvider).validationMetadata;
+      expect(meta.tier, EvidenceTier.reproducerOnly);
+      expect(meta.perStableIdTier?['stream_resource_growth'],
+          EvidenceTier.runtimeVerified);
+      expect(meta.effectiveTierFor('stream_resource_growth'),
+          EvidenceTier.runtimeVerified);
+      expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified);
+      expect(meta.reproducerPath,
+          equals('test/validation/stream_resource_reproducer_test.dart'));
+      expect(meta.citationUrl, isNull);
+      expect(
+          meta.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/stream_resource_growth/below.json',
+            'test/validation/captures/stream_resource_growth/at.json',
+            'test/validation/captures/stream_resource_growth/above.json',
+          ]));
+      expect(meta.bracketThreshold, equals(50));
+      expect(meta.bracketUnit, equals('instances'));
+      expect(meta.bracketStableId, equals('stream_resource_growth'));
+      expect(meta.bracketSeverityLabel, equals('warning'));
+      expect(meta.bracketAtTolerance, equals(0.6),
+          reason: 'at-band [50, 80] absorbs in-scenario heap_growing '
+              'readiness-wait variance without overlapping ceiling.');
+      expect(meta.aboveCeilingMultiplier, equals(3.0),
+          reason: 'ceiling 150; single-tier family bounds via schema '
+              'sanity bound, not adjacent severity.');
+      expect(meta.observedAxisArgKey, equals('topGrowthDelta'));
+      expect(meta.coveredThresholds,
+          equals(const {'stream_resource_growth.warning'}));
+      expect(meta.coveredStableIds, equals(const {'stream_resource_growth'}));
+      expect(meta.parametricFamilies, isNull);
+      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
+      expect(meta.additionalBrackets, isNull);
     });
 
     test('PlatformChannelDetector pinned at runtimeVerified (v0.19.4)', () {
