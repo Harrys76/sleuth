@@ -25,11 +25,20 @@ import 'sleuth_theme.dart';
 ///
 /// Two transformations are collapsed here:
 ///
-///  1. Downstream issues (`rootCauseId != null`) are nested under their
-///     root card and never appear as standalone rows, so they're removed.
-///  2. If the root was suppressed (e.g. deduped by the ranker), the
-///     downstream re-surfaces as standalone — that's what the
-///     `!allIds.contains(i.rootCauseId)` clause handles.
+///  1. Downstream issues (with non-empty `rootCauseIds`) are nested under
+///     a root card and never appear as standalone rows, so they're
+///     removed from the top-level list.
+///  2. If every root listed in `rootCauseIds` was suppressed (e.g. deduped
+///     by the ranker), the downstream re-surfaces standalone so users
+///     don't lose visibility into an orphan effect. The check requires
+///     ANY parent to be visible — a single visible parent is enough,
+///     because that parent's expanded card will list this downstream as
+///     a sub-item.
+///
+/// v0.24.2 multi-parent contract: a downstream may carry multiple root
+/// causes. The visibility filter is "show if no parent is visible" —
+/// pre-v0.24.2 semantics extended naturally because the singleton-parent
+/// case still hides when its sole parent is present.
 ///
 /// Extracted in v0.15.5 so [_pruneStaleState] and [_buildIssuesList] agree
 /// on what "visible" means — pin ids keyed against the visible list must
@@ -47,9 +56,15 @@ List<PerformanceIssue> computeVisibleIssues(List<PerformanceIssue> issues) {
   final allIds = <String>{
     for (final i in issues) i.stableId ?? i.title,
   };
-  return issues
-      .where((i) => i.rootCauseId == null || !allIds.contains(i.rootCauseId))
-      .toList();
+  return issues.where((i) {
+    final parents = i.effectiveRootCauseIds;
+    if (parents == null || parents.isEmpty) return true;
+    // Hide downstream from top-level only when at least one parent is
+    // visible (that parent's card will list this issue as a sub-item).
+    // If every parent was suppressed, surface standalone so the issue is
+    // not lost.
+    return !parents.any(allIds.contains);
+  }).toList();
 }
 
 /// Composes the frozen-zone list for an expanded render.
@@ -1090,10 +1105,11 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
         }
 
         // Filter: show only root + standalone issues. Downstream issues
-        // (rootCauseId != null) are collapsed under their root card.
-        // Exception: if the root was suppressed (not in list), show the
-        // downstream as standalone. Centralized in v0.15.5 so prune and
-        // render agree on the "visible" set.
+        // (non-empty rootCauseIds) are collapsed under any visible root
+        // card. Exception: if every parent was suppressed (none in list),
+        // the downstream re-surfaces as standalone so an orphan effect
+        // is not lost. Centralized in v0.15.5; multi-parent semantics
+        // extended in v0.24.2.
         final visibleIssues = computeVisibleIssues(issues);
 
         // Apply the freeze zone AFTER the summary bar reads the flow
@@ -1106,6 +1122,17 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
           orderSnapshot: _orderSnapshot,
           expandedIndices: _expandedIndices,
         );
+
+        // Pre-build stableId → issue map across the FULL live list (not
+        // just `orderedIssues` — downstream/parent issues collapsed under
+        // a root card are filtered out of the visible set but still need
+        // to render inside that card). Used by both downstream and parent
+        // resolution below; without this, each itemBuilder pass would do
+        // O(n) inner scans, dropping FloatingIssuesCard rebuild cost on
+        // every scan-tick to O(n²).
+        final stableIdToIssue = <String, PerformanceIssue>{
+          for (final i in issues) (i.stableId ?? i.title): i,
+        };
 
         // Pre-build key → index map for `findChildIndexCallback`. Without
         // this, the callback would scan `orderedIssues` linearly for
@@ -1158,18 +1185,16 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                         _selectedIssueId == issueKey;
 
                     // Look up downstream issue objects for root issues.
+                    // Uses the precomputed stableId→issue map (O(1) per
+                    // lookup) so this resolution does not blow up to
+                    // O(n²) on tall overlays.
                     List<PerformanceIssue>? downstream;
                     if (issue.downstreamIds != null &&
                         issue.downstreamIds!.isNotEmpty) {
                       downstream = <PerformanceIssue>[];
                       for (final downId in issue.downstreamIds!) {
-                        for (final candidate in issues) {
-                          if ((candidate.stableId ?? candidate.title) ==
-                              downId) {
-                            downstream.add(candidate);
-                            break;
-                          }
-                        }
+                        final found = stableIdToIssue[downId];
+                        if (found != null) downstream.add(found);
                       }
                     }
 

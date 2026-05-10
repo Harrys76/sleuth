@@ -59,7 +59,9 @@ test/
 
 ## Current state
 
-**v0.24.1** (current) — Cross-detector polish for `stream_resource_growth`. 3 new `CausalGraphRule` edges (`stream_resource_growth → heap_growing` / `heap_near_capacity` / `gc_pressure`). Markdown export (`activeEdges`) lists every parallel cause→effect pair; UI annotation (`apply()`) remains single-owner — each downstream gets one `rootCauseId` (severity-then-index). Schema regression guard for the 4 detector-side extraTraceArgs keys.
+**v0.24.2** (current) — Multi-parent causal-graph annotation (data model layer). `CausalGraphRule.apply()` rewritten from single-owner (`Map<int, int>`) to multi-parent (`Map<int, Set<int>>`); every reaching root now claims each downstream. New `PerformanceIssue.rootCauseIds: List<String>?` plural field; singular `rootCauseId` `@Deprecated`, removed v0.25.0. `toJson` derives singular from `rootCauseIds.first` so v0.24.1 readers see highest-severity root after re-export. `FloatingIssuesCard` precomputes `stableIdToIssue` map (O(1) downstream lookup); `computeVisibleIssues` hides downstream when ANY reaching root visible, re-surfaces only when EVERY parent suppressed. `AiContextBuilder` caps multi-parent prompt at 5 + `(+N more)`. Top-level UI rendering of multi-parent badges deferred to v0.25.0+.
+
+**v0.24.1** — Cross-detector polish for `stream_resource_growth`. 3 new `CausalGraphRule` edges (`stream_resource_growth → heap_growing` / `heap_near_capacity` / `gc_pressure`). Markdown export (`activeEdges`) lists every parallel cause→effect pair; UI annotation in v0.24.1 was single-owner (severity-then-index); v0.24.2 lifts the UI to multi-parent. Schema regression guard for the 4 detector-side extraTraceArgs keys.
 
 **v0.24.0** — New `StreamResourceDetector` (vmOnly): retained async-resource flag via `getAllocationProfile` class-instance diff over K=4 window, gated on recent `MemoryPressureDetector.heap_growing`. New `MemoryPressureDetector.isHeapGrowingActive([windowMicros])`. New `Sleuth.streamResourceDetector` accessor. 18 → 19 detectors.
 

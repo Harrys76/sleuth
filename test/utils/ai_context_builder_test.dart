@@ -18,6 +18,7 @@ void main() {
     ObservationSource? observationSource,
     FixEffort? fixEffort,
     String? rootCauseId,
+    List<String>? rootCauseIds,
     List<String>? downstreamIds,
   }) {
     return PerformanceIssue(
@@ -34,7 +35,8 @@ void main() {
       interactionContext: interactionContext,
       observationSource: observationSource,
       fixEffort: fixEffort,
-      rootCauseId: rootCauseId,
+      rootCauseIds:
+          rootCauseIds ?? (rootCauseId == null ? null : <String>[rootCauseId]),
       downstreamIds: downstreamIds,
     );
   }
@@ -187,15 +189,67 @@ void main() {
       expect(otherSection, contains('Other'));
     });
 
-    test('includes downstream and rootCause when present', () {
+    test('includes downstream and single rootCause when present', () {
       final prompt = AiContextBuilder.buildSystemPrompt(
         issue: makeIssue(
-          rootCauseId: 'rebuild_activity',
+          rootCauseIds: ['rebuild_activity'],
           downstreamIds: ['gc_pressure', 'heap_growing'],
         ),
       );
       expect(prompt, contains('Root cause issue: rebuild_activity'));
       expect(prompt, contains('gc_pressure, heap_growing'));
+    });
+
+    test(
+        'multi-parent: lists every cause, plural label, no truncation '
+        'under 5', () {
+      final prompt = AiContextBuilder.buildSystemPrompt(
+        issue: makeIssue(
+          rootCauseIds: ['stream_resource_growth', 'uncached_images'],
+        ),
+      );
+      expect(
+          prompt,
+          contains(
+              'Root cause issues: stream_resource_growth, uncached_images'));
+      expect(prompt, isNot(contains('more)')));
+    });
+
+    test('multi-parent: caps at 5 with "+N more" suffix', () {
+      final prompt = AiContextBuilder.buildSystemPrompt(
+        issue: makeIssue(
+          rootCauseIds: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+        ),
+      );
+      expect(prompt, contains('Root cause issues: a, b, c, d, e (+2 more)'));
+      expect(prompt, isNot(contains('f, g')));
+    });
+
+    test(
+        'singular-only back-compat: an issue constructed with ONLY the '
+        'deprecated `rootCauseId` (no plural) surfaces "Root cause issue: X" '
+        'in the prompt via effectiveRootCauseIds fallback', () {
+      // Direct construction skipping makeIssue's coercion — `_pinIssue`
+      // and `makeIssue` helpers already coerce singular → plural at call
+      // boundary, so this test bypasses those to exercise the production
+      // back-compat path through `effectiveRootCauseIds`.
+      // ignore: deprecated_member_use_from_same_package
+      final singularRootCauseIssue = PerformanceIssue(
+        title: 'Heap Growing',
+        detail: '512 KB/s growth',
+        fixHint: 'Cache decoded images',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.memory,
+        confidence: IssueConfidence.confirmed,
+        stableId: 'heap_growing',
+        rootCauseId: 'rebuild_activity',
+      );
+      final prompt = AiContextBuilder.buildSystemPrompt(
+        issue: singularRootCauseIssue,
+      );
+      expect(prompt, contains('Root cause issue: rebuild_activity'),
+          reason:
+              'Singular-only construction must still surface the cause label via the effectiveRootCauseIds accessor');
     });
 
     test('includes response instructions', () {

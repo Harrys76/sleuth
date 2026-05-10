@@ -38,7 +38,7 @@ void main() {
     test('single issue returns unchanged', () {
       final result = rule.apply([makeIssue(stableId: 'setstate_scope')]);
       expect(result, hasLength(1));
-      expect(result[0].rootCauseId, isNull);
+      expect(result[0].rootCauseIds, isNull);
       expect(result[0].downstreamIds, isNull);
     });
 
@@ -51,7 +51,7 @@ void main() {
       final result = rule.apply(issues);
       expect(result, hasLength(3));
       for (final issue in result) {
-        expect(issue.rootCauseId, isNull);
+        expect(issue.rootCauseIds, isNull);
         expect(issue.downstreamIds, isNull);
       }
     });
@@ -78,10 +78,10 @@ void main() {
 
       // setstate_scope is root
       expect(result[0].downstreamIds, ['heavy_compute']);
-      expect(result[0].rootCauseId, isNull);
+      expect(result[0].rootCauseIds, isNull);
 
       // heavy_compute is downstream
-      expect(result[1].rootCauseId, 'setstate_scope');
+      expect(result[1].rootCauseIds, ['setstate_scope']);
       expect(result[1].downstreamIds, isNull);
     });
 
@@ -100,7 +100,7 @@ void main() {
       ];
       final result = rule.apply(issues);
       expect(result[0].downstreamIds, ['heap_growing']);
-      expect(result[1].rootCauseId, 'uncached_images');
+      expect(result[1].rootCauseIds, ['uncached_images']);
     });
 
     test('always_repaint_painter → raster_dominance', () {
@@ -116,7 +116,7 @@ void main() {
       ];
       final result = rule.apply(issues);
       expect(result[0].downstreamIds, ['raster_dominance']);
-      expect(result[1].rootCauseId, 'always_repaint_painter');
+      expect(result[1].rootCauseIds, ['always_repaint_painter']);
     });
 
     test('non_lazy_list does NOT collapse layout_bottleneck', () {
@@ -133,7 +133,7 @@ void main() {
       final result = rule.apply(issues);
       // layout_bottleneck is independently actionable — not downstream
       expect(result[0].downstreamIds, isNull);
-      expect(result[1].rootCauseId, isNull);
+      expect(result[1].rootCauseIds, isNull);
     });
   });
 
@@ -154,14 +154,14 @@ void main() {
       final result = rule.apply(issues);
 
       // non_lazy_list is root with both downstream
-      expect(result[0].rootCauseId, isNull);
+      expect(result[0].rootCauseIds, isNull);
       expect(result[0].downstreamIds, isNotNull);
       expect(result[0].downstreamIds,
           containsAll(['rebuild_activity', 'heavy_compute']));
 
       // Both are downstream of non_lazy_list
-      expect(result[1].rootCauseId, 'non_lazy_list');
-      expect(result[2].rootCauseId, 'non_lazy_list');
+      expect(result[1].rootCauseIds, ['non_lazy_list']);
+      expect(result[2].rootCauseIds, ['non_lazy_list']);
     });
 
     test('animated_builder_no_child → rebuild_debug_MyWidget → heavy_compute',
@@ -180,8 +180,8 @@ void main() {
       expect(result[0].downstreamIds, isNotNull);
       expect(result[0].downstreamIds,
           containsAll(['rebuild_debug_MyWidget', 'heavy_compute']));
-      expect(result[1].rootCauseId, 'animated_builder_no_child');
-      expect(result[2].rootCauseId, 'animated_builder_no_child');
+      expect(result[1].rootCauseIds, ['animated_builder_no_child']);
+      expect(result[2].rootCauseIds, ['animated_builder_no_child']);
     });
   });
 
@@ -199,7 +199,7 @@ void main() {
 
       // rebuild_debug_* → heavy_compute rule fires
       expect(result[0].downstreamIds, ['heavy_compute']);
-      expect(result[1].rootCauseId, 'rebuild_debug_MyWidget');
+      expect(result[1].rootCauseIds, ['rebuild_debug_MyWidget']);
     });
 
     test('rebuild_debug_* matches multiple widget types', () {
@@ -220,7 +220,7 @@ void main() {
       // heavy_compute is claimed by the first (higher index or severity tiebreak)
       final heavyCompute =
           result.firstWhere((i) => i.stableId == 'heavy_compute');
-      expect(heavyCompute.rootCauseId, isNotNull);
+      expect(heavyCompute.rootCauseIds, isNotNull);
     });
   });
 
@@ -238,7 +238,7 @@ void main() {
 
       // setstate_scope: outgoing edge to heavy_compute, no incoming → root
       expect(result[0].downstreamIds, isNotNull);
-      expect(result[0].rootCauseId, isNull);
+      expect(result[0].rootCauseIds, isNull);
     });
 
     test('issue with only incoming edges is downstream, not root', () {
@@ -249,7 +249,7 @@ void main() {
       final result = rule.apply(issues);
 
       // heavy_compute: incoming from setstate_scope, no outgoing → downstream
-      expect(result[1].rootCauseId, 'setstate_scope');
+      expect(result[1].rootCauseIds, ['setstate_scope']);
       expect(result[1].downstreamIds, isNull);
     });
   });
@@ -276,7 +276,7 @@ void main() {
       expect(result[0].downstreamIds, isNull);
 
       // Downstream still gets rootCauseId (hidden from main list)
-      expect(result[1].rootCauseId, 'setstate_scope');
+      expect(result[1].rootCauseIds, ['setstate_scope']);
     });
 
     test('likely downstream shown when root is confirmed', () {
@@ -293,7 +293,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['heavy_compute']);
-      expect(result[1].rootCauseId, 'setstate_scope');
+      expect(result[1].rootCauseIds, ['setstate_scope']);
     });
 
     test('possible downstream shown when root is also possible', () {
@@ -310,7 +310,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['heavy_compute']);
-      expect(result[1].rootCauseId, 'setstate_scope');
+      expect(result[1].rootCauseIds, ['setstate_scope']);
     });
   });
 
@@ -336,11 +336,11 @@ void main() {
 
       // Chain 1: setstate_scope → heavy_compute
       expect(result[0].downstreamIds, ['heavy_compute']);
-      expect(result[1].rootCauseId, 'setstate_scope');
+      expect(result[1].rootCauseIds, ['setstate_scope']);
 
       // Chain 2: uncached_images → heap_growing
       expect(result[2].downstreamIds, ['heap_growing']);
-      expect(result[3].rootCauseId, 'uncached_images');
+      expect(result[3].rootCauseIds, ['uncached_images']);
     });
   });
 
@@ -349,8 +349,14 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('multiple roots same downstream', () {
-    test('higher severity root claims downstream', () {
-      // Both setstate_scope and non_lazy_list → heavy_compute
+    test(
+        'every co-firing root claims downstream (multi-parent, severity-sorted)',
+        () {
+      // Both setstate_scope (direct rule) and non_lazy_list (multi-hop via
+      // rebuild_activity) reach heavy_compute. Multi-parent annotation
+      // (v0.24.2+) lists every reaching root in rootCauseIds; sort key is
+      // severity desc then stableId asc, so the critical root precedes
+      // the warning root.
       final issues = [
         makeIssue(
           stableId: 'setstate_scope',
@@ -364,14 +370,16 @@ void main() {
       ];
       final result = rule.apply(issues);
 
-      // heavy_compute claimed by critical root
       final heavyCompute =
           result.firstWhere((i) => i.stableId == 'heavy_compute');
-      expect(heavyCompute.rootCauseId, 'setstate_scope');
+      expect(heavyCompute.rootCauseIds, ['setstate_scope', 'non_lazy_list'],
+          reason: 'critical-severity root sorts before warning-severity root');
 
-      // setstate_scope has heavy_compute as downstream
+      // Both roots have heavy_compute as downstream.
       final setState = result.firstWhere((i) => i.stableId == 'setstate_scope');
       expect(setState.downstreamIds, contains('heavy_compute'));
+      final nonLazy = result.firstWhere((i) => i.stableId == 'non_lazy_list');
+      expect(nonLazy.downstreamIds, contains('heavy_compute'));
     });
   });
 
@@ -400,7 +408,7 @@ void main() {
       // Should complete without infinite loop
       expect(result, hasLength(3));
       // non_lazy_list is root
-      expect(result[0].rootCauseId, isNull);
+      expect(result[0].rootCauseIds, isNull);
       expect(result[0].downstreamIds, isNotNull);
     });
   });
@@ -426,12 +434,12 @@ void main() {
       final result = rule.apply(issues);
 
       // null-stableId issue passes through unchanged
-      expect(result[0].rootCauseId, isNull);
+      expect(result[0].rootCauseIds, isNull);
       expect(result[0].downstreamIds, isNull);
 
       // Chain still works for issues with stableIds
       expect(result[1].downstreamIds, ['heavy_compute']);
-      expect(result[2].rootCauseId, 'setstate_scope');
+      expect(result[2].rootCauseIds, ['setstate_scope']);
     });
   });
 
@@ -454,8 +462,8 @@ void main() {
       // layout_bottleneck is independently actionable — only heavy_compute
       // is downstream of setstate_scope
       expect(result[0].downstreamIds, ['heavy_compute']);
-      expect(result[1].rootCauseId, 'setstate_scope');
-      expect(result[2].rootCauseId, isNull);
+      expect(result[1].rootCauseIds, ['setstate_scope']);
+      expect(result[2].rootCauseIds, isNull);
     });
   });
 
@@ -481,7 +489,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['heavy_compute']);
-      expect(result[1].rootCauseId, 'setstate_scope');
+      expect(result[1].rootCauseIds, ['setstate_scope']);
     });
   });
 
@@ -505,10 +513,10 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, isNull);
-      expect(result[0].rootCauseId, isNull);
+      expect(result[0].rootCauseIds, isNull);
       // heavy_compute is possible, root is confirmed → confidence suppression
       // removes it from downstreamIds, but it still has rootCauseId
-      expect(result[1].rootCauseId, 'slow_request');
+      expect(result[1].rootCauseIds, ['slow_request']);
     });
 
     test('request_frequency → rebuild_activity causal chain', () {
@@ -526,7 +534,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['rebuild_activity']);
-      expect(result[1].rootCauseId, 'request_frequency');
+      expect(result[1].rootCauseIds, ['request_frequency']);
     });
   });
 
@@ -551,8 +559,8 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['heap_growing']);
-      expect(result[0].rootCauseId, isNull);
-      expect(result[1].rootCauseId, 'excessive_keep_alive:0');
+      expect(result[0].rootCauseIds, isNull);
+      expect(result[1].rootCauseIds, ['excessive_keep_alive:0']);
       expect(result[1].downstreamIds, isNull);
     });
   });
@@ -579,7 +587,7 @@ void main() {
 
       // layout_bottleneck is independently actionable — standalone
       expect(result[0].downstreamIds, isNull);
-      expect(result[1].rootCauseId, isNull);
+      expect(result[1].rootCauseIds, isNull);
     });
 
     test('nested_scroll_same_axis → rebuild_activity', () {
@@ -597,7 +605,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['rebuild_activity']);
-      expect(result[1].rootCauseId, 'nested_scroll_same_axis');
+      expect(result[1].rootCauseIds, ['nested_scroll_same_axis']);
     });
 
     test('nested_scroll_same_axis does NOT collapse layout_bottleneck', () {
@@ -617,7 +625,7 @@ void main() {
 
       // layout_bottleneck is independently actionable — standalone
       expect(result[0].downstreamIds, isNull);
-      expect(result[1].rootCauseId, isNull);
+      expect(result[1].rootCauseIds, isNull);
     });
 
     test('nested_scroll → rebuild_activity', () {
@@ -635,7 +643,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['rebuild_activity']);
-      expect(result[1].rootCauseId, 'nested_scroll');
+      expect(result[1].rootCauseIds, ['nested_scroll']);
     });
   });
 
@@ -659,7 +667,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['rebuild_activity']);
-      expect(result[1].rootCauseId, 'non_lazy_listview');
+      expect(result[1].rootCauseIds, ['non_lazy_listview']);
     });
 
     test('non_lazy_gridview → heavy_compute', () {
@@ -677,7 +685,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['heavy_compute']);
-      expect(result[1].rootCauseId, 'non_lazy_gridview');
+      expect(result[1].rootCauseIds, ['non_lazy_gridview']);
     });
 
     test('non_lazy_listview does NOT collapse layout_bottleneck', () {
@@ -697,7 +705,7 @@ void main() {
 
       // layout_bottleneck is independently actionable — standalone
       expect(result[0].downstreamIds, isNull);
-      expect(result[1].rootCauseId, isNull);
+      expect(result[1].rootCauseIds, isNull);
     });
 
     test('non_lazy_gridview → rebuild_activity', () {
@@ -715,7 +723,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['rebuild_activity']);
-      expect(result[1].rootCauseId, 'non_lazy_gridview');
+      expect(result[1].rootCauseIds, ['non_lazy_gridview']);
     });
   });
 
@@ -740,8 +748,8 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['request_frequency']);
-      expect(result[0].rootCauseId, isNull);
-      expect(result[1].rootCauseId, 'http_error_spike');
+      expect(result[0].rootCauseIds, isNull);
+      expect(result[1].rootCauseIds, ['http_error_spike']);
       expect(result[1].downstreamIds, isNull);
     });
   });
@@ -767,7 +775,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['excessive_repaint']);
-      expect(result[1].rootCauseId, 'missing_repaint_boundary');
+      expect(result[1].rootCauseIds, ['missing_repaint_boundary']);
     });
 
     test('missing_repaint_boundary → raster_dominance chain', () {
@@ -786,7 +794,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['raster_dominance']);
-      expect(result[1].rootCauseId, 'missing_repaint_boundary');
+      expect(result[1].rootCauseIds, ['missing_repaint_boundary']);
     });
   });
 
@@ -809,7 +817,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['rebuild_debug_Column']);
-      expect(result[1].rootCauseId, 'setstate_scope');
+      expect(result[1].rootCauseIds, ['setstate_scope']);
     });
 
     test('uncached_images → gc_pressure', () {
@@ -828,7 +836,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['gc_pressure']);
-      expect(result[1].rootCauseId, 'uncached_images');
+      expect(result[1].rootCauseIds, ['uncached_images']);
     });
 
     test('excessive_keep_alive:* → gc_pressure', () {
@@ -847,7 +855,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['gc_pressure']);
-      expect(result[1].rootCauseId, 'excessive_keep_alive:0');
+      expect(result[1].rootCauseIds, ['excessive_keep_alive:0']);
     });
 
     test('animated_builder_no_child → excessive_repaint', () {
@@ -866,7 +874,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['excessive_repaint']);
-      expect(result[1].rootCauseId, 'animated_builder_no_child');
+      expect(result[1].rootCauseIds, ['animated_builder_no_child']);
     });
 
     test('animated_builder_no_child → excessive_repaint_debug', () {
@@ -885,7 +893,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['excessive_repaint_debug']);
-      expect(result[1].rootCauseId, 'animated_builder_no_child');
+      expect(result[1].rootCauseIds, ['animated_builder_no_child']);
     });
 
     test('layout_bottleneck → sustained_jank', () {
@@ -903,7 +911,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['sustained_jank']);
-      expect(result[1].rootCauseId, 'layout_bottleneck');
+      expect(result[1].rootCauseIds, ['layout_bottleneck']);
     });
 
     test('layout_bottleneck → jank_detected', () {
@@ -921,7 +929,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['jank_detected']);
-      expect(result[1].rootCauseId, 'layout_bottleneck');
+      expect(result[1].rootCauseIds, ['layout_bottleneck']);
     });
 
     test('runtime_font_loading → sustained_jank', () {
@@ -939,7 +947,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['sustained_jank']);
-      expect(result[1].rootCauseId, 'runtime_font_loading');
+      expect(result[1].rootCauseIds, ['runtime_font_loading']);
     });
 
     test('multiple_custom_fonts → jank_detected', () {
@@ -957,7 +965,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['jank_detected']);
-      expect(result[1].rootCauseId, 'multiple_custom_fonts');
+      expect(result[1].rootCauseIds, ['multiple_custom_fonts']);
     });
 
     test('platform_channel_traffic → heavy_compute', () {
@@ -975,7 +983,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['heavy_compute']);
-      expect(result[1].rootCauseId, 'platform_channel_traffic');
+      expect(result[1].rootCauseIds, ['platform_channel_traffic']);
     });
 
     test('high_frequency_same_path:* → rebuild_activity', () {
@@ -993,7 +1001,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['rebuild_activity']);
-      expect(result[1].rootCauseId, 'high_frequency_same_path:0');
+      expect(result[1].rootCauseIds, ['high_frequency_same_path:0']);
     });
 
     test('high_frequency_same_path:* → rebuild_debug_*', () {
@@ -1011,7 +1019,7 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['rebuild_debug_MyWidget']);
-      expect(result[1].rootCauseId, 'high_frequency_same_path:0');
+      expect(result[1].rootCauseIds, ['high_frequency_same_path:0']);
     });
 
     test('no false chain when only one side present', () {
@@ -1029,7 +1037,7 @@ void main() {
       final result = rule.apply(issues);
 
       for (final issue in result) {
-        expect(issue.rootCauseId, isNull);
+        expect(issue.rootCauseIds, isNull);
         expect(issue.downstreamIds, isNull);
       }
     });
@@ -1073,25 +1081,21 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // Memory fan-in single-owner annotation
+  // Memory fan-in multi-parent annotation (v0.24.2+)
   // ---------------------------------------------------------------------------
 
-  // Pins the single-owner annotation contract for the 3-cause × 3-effect
-  // memory fan-in introduced in v0.24.1: when stream_resource_growth,
-  // uncached_images, and excessive_keep_alive:foo all co-fire alongside
-  // heap_growing, heap_near_capacity, and gc_pressure, exactly ONE root
-  // claims each downstream. Losing roots stand alone with downstreamIds
-  // null. activeEdges() reports all 9 edges (export path); apply() picks
-  // one owner per effect (UI annotation path). Multi-parent UI rendering
-  // is deferred — if a future PR introduces it, this test should be
-  // rewritten to assert per-effect parents.
-  group('memory fan-in single-owner annotation', () {
+  // Pins the multi-parent annotation contract for the 3-cause × 3-effect
+  // memory fan-in: when stream_resource_growth, uncached_images, and
+  // excessive_keep_alive:foo all co-fire alongside heap_growing,
+  // heap_near_capacity, and gc_pressure, EVERY effect carries ALL three
+  // upstream causes in rootCauseIds, and EVERY cause lists ALL three
+  // effects in downstreamIds. Replaces the v0.24.1 single-owner pin —
+  // apply() now fully mirrors activeEdges()'s 9-edge enumeration on the
+  // UI annotation path.
+  group('memory fan-in multi-parent annotation', () {
     test(
-        '3 causes × 3 effects: each effect annotated by exactly one root, '
-        'losing roots stand alone', () {
-      // All warning-severity, so severity ties → root index ascending
-      // wins. The first cause in the list (stream_resource_growth) is
-      // the winning root.
+        '3 causes × 3 effects: every effect carries all 3 parents; every '
+        'cause lists all 3 downstreams', () {
       final issues = [
         makeIssue(
             stableId: 'stream_resource_growth', category: IssueCategory.memory),
@@ -1109,31 +1113,130 @@ void main() {
       PerformanceIssue findById(String id) =>
           result.firstWhere((i) => i.stableId == id);
 
-      // Each effect annotated with exactly one rootCauseId (the winner).
-      const winner = 'stream_resource_growth';
-      expect(findById('heap_growing').rootCauseId, winner);
-      expect(findById('heap_near_capacity').rootCauseId, winner);
-      expect(findById('gc_pressure').rootCauseId, winner);
+      // Severity is tied (all warning), so deterministic order is
+      // stableId ascending.
+      const causes = [
+        'excessive_keep_alive:foo',
+        'stream_resource_growth',
+        'uncached_images',
+      ];
+      const effects = ['gc_pressure', 'heap_growing', 'heap_near_capacity'];
 
-      // Winning root carries downstreamIds for all 3 effects.
-      final winnerIssue = findById(winner);
-      expect(
-        winnerIssue.downstreamIds,
-        containsAll(['heap_growing', 'heap_near_capacity', 'gc_pressure']),
-      );
-      expect(winnerIssue.downstreamIds, hasLength(3));
-      expect(winnerIssue.rootCauseId, isNull);
-
-      // Losing roots stand alone — their downstreams were claimed by
-      // the winner, so apply() leaves both rootCauseId and
-      // downstreamIds null on them.
-      for (final losing in ['uncached_images', 'excessive_keep_alive:foo']) {
-        final issue = findById(losing);
-        expect(issue.rootCauseId, isNull,
-            reason: '$losing has no incoming edges → not a downstream');
-        expect(issue.downstreamIds, isNull,
+      // Every effect carries all 3 causes in rootCauseIds (alphabetical).
+      for (final effectId in effects) {
+        final effect = findById(effectId);
+        expect(effect.rootCauseIds, causes,
             reason:
-                '$losing lost the severity-then-index race — downstreams claimed by $winner');
+                '$effectId must list every co-firing cause, sorted by stableId');
+        expect(effect.downstreamIds, isNull,
+            reason: '$effectId is a leaf — no further downstream');
+      }
+
+      // Every cause lists all 3 effects in downstreamIds.
+      for (final causeId in causes) {
+        final cause = findById(causeId);
+        expect(cause.rootCauseIds, isNull,
+            reason: '$causeId is a root — no incoming edges');
+        expect(
+          cause.downstreamIds,
+          containsAll(effects),
+          reason: '$causeId reaches every memory effect via direct edge',
+        );
+        expect(cause.downstreamIds, hasLength(3));
+      }
+    });
+
+    test(
+        'multi-parent rule-ordering invariant: shuffling input issue order '
+        'does not change rootCauseIds membership', () {
+      // Pre-v0.24.2 single-owner annotation depended on input order via
+      // the severity-then-index tie break, so shuffling caused the
+      // "owner" of each effect to change. Multi-parent annotation MUST
+      // be order-independent: every parent that reaches a downstream
+      // appears in rootCauseIds regardless of input order.
+      final ids = [
+        'stream_resource_growth',
+        'uncached_images',
+        'excessive_keep_alive:foo',
+        'heap_growing',
+        'heap_near_capacity',
+        'gc_pressure',
+      ];
+      List<PerformanceIssue> build(List<String> order) => [
+            for (final id in order)
+              makeIssue(stableId: id, category: IssueCategory.memory),
+          ];
+
+      final ascending = rule.apply(build(ids));
+      final reversed = rule.apply(build(ids.reversed.toList()));
+
+      Set<String> parentsOf(List<PerformanceIssue> result, String id) =>
+          result.firstWhere((i) => i.stableId == id).rootCauseIds!.toSet();
+
+      for (final effect in [
+        'heap_growing',
+        'heap_near_capacity',
+        'gc_pressure',
+      ]) {
+        expect(parentsOf(ascending, effect), parentsOf(reversed, effect),
+            reason:
+                'rootCauseIds membership for $effect must be input-order independent');
+      }
+    });
+
+    test(
+        'multi-parent confidence suppression: possible downstream with '
+        'any-stronger parent is dropped from downstreamIds but retains '
+        'rootCauseIds', () {
+      // 3 causes, 1 possible-confidence downstream. Two causes are likely
+      // (stronger), one is possible (same tier). Suppression rule:
+      // possible downstream skipped from EVERY likely parent's
+      // downstreamIds; possible parent's downstreamIds also skipped
+      // (because ANY stronger parent triggers global suppression).
+      final issues = [
+        makeIssue(
+            stableId: 'stream_resource_growth',
+            category: IssueCategory.memory,
+            confidence: IssueConfidence.likely),
+        makeIssue(
+            stableId: 'uncached_images',
+            category: IssueCategory.memory,
+            confidence: IssueConfidence.likely),
+        makeIssue(
+            stableId: 'excessive_keep_alive:foo',
+            category: IssueCategory.memory,
+            confidence: IssueConfidence.possible),
+        makeIssue(
+            stableId: 'heap_growing',
+            category: IssueCategory.memory,
+            confidence: IssueConfidence.possible),
+      ];
+      final result = rule.apply(issues);
+
+      PerformanceIssue findById(String id) =>
+          result.firstWhere((i) => i.stableId == id);
+
+      // Downstream still carries rootCauseIds — UI annotation works.
+      final downstream = findById('heap_growing');
+      expect(
+        downstream.rootCauseIds,
+        containsAll([
+          'stream_resource_growth',
+          'uncached_images',
+          'excessive_keep_alive:foo',
+        ]),
+      );
+
+      // No parent lists this downstream in downstreamIds — suppressed
+      // because at least one parent is likely-confidence.
+      for (final parentId in [
+        'stream_resource_growth',
+        'uncached_images',
+        'excessive_keep_alive:foo',
+      ]) {
+        expect(findById(parentId).downstreamIds, isNull,
+            reason:
+                '$parentId must not list possible-downstream when any-stronger parent suppresses');
       }
     });
   });

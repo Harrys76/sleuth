@@ -562,7 +562,7 @@ void main() {
 
       final heavyCompute =
           result.firstWhere((i) => i.stableId == 'heavy_compute');
-      expect(heavyCompute.rootCauseId, 'setstate_scope');
+      expect(heavyCompute.rootCauseIds, ['setstate_scope']);
     });
 
     test('existing rules still work unchanged with causal graph', () {
@@ -590,7 +590,65 @@ void main() {
       expect(painter.downstreamIds, ['raster_dominance']);
 
       final raster = result.firstWhere((i) => i.stableId == 'raster_dominance');
-      expect(raster.rootCauseId, 'always_repaint_painter');
+      expect(raster.rootCauseIds, ['always_repaint_painter']);
+    });
+
+    test(
+        'multi-parent end-to-end: 3-cause memory fan-in flows through '
+        'correlator and surfaces every parent on the downstream effect', () {
+      // Smoke test the full v0.24.2 pipeline (correlator → multi-parent
+      // apply() → resulting issues are renderable). The detector_correlator
+      // path is the same one FloatingIssuesCard reads from, so this also
+      // validates the visible-filter and parent-resolution wiring.
+      final issues = [
+        makeIssue(
+          stableId: 'stream_resource_growth',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'uncached_images',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'excessive_keep_alive:foo',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'heap_growing',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = correlator.correlate(issues);
+
+      final downstream = result.firstWhere((i) => i.stableId == 'heap_growing');
+      expect(
+        downstream.rootCauseIds,
+        containsAll([
+          'stream_resource_growth',
+          'uncached_images',
+          'excessive_keep_alive:foo',
+        ]),
+        reason:
+            'Every co-firing cause must annotate the downstream effect via the full pipeline',
+      );
+      expect(downstream.rootCauseIds, hasLength(3));
+
+      // Every parent owns the downstream in its downstreamIds (no
+      // confidence suppression because confirmed > likely is the
+      // expected escalation, not the other way around).
+      for (final parentId in [
+        'stream_resource_growth',
+        'uncached_images',
+        'excessive_keep_alive:foo',
+      ]) {
+        final parent = result.firstWhere((i) => i.stableId == parentId);
+        expect(parent.downstreamIds, contains('heap_growing'),
+            reason: '$parentId must list heap_growing as downstream');
+      }
     });
   });
 

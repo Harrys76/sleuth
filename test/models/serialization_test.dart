@@ -1584,7 +1584,7 @@ void main() {
 
       final restored = PerformanceIssue.fromJson(json);
       expect(restored.downstreamIds, ['heavy_compute', 'rebuild_activity']);
-      expect(restored.rootCauseId, isNull);
+      expect(restored.rootCauseIds, isNull);
     });
 
     test('roundtrip with rootCauseId set', () {
@@ -1604,7 +1604,7 @@ void main() {
       expect(json.containsKey('downstreamIds'), isFalse);
 
       final restored = PerformanceIssue.fromJson(json);
-      expect(restored.rootCauseId, 'setstate_scope');
+      expect(restored.rootCauseIds, ['setstate_scope']);
       expect(restored.downstreamIds, isNull);
     });
 
@@ -1635,7 +1635,7 @@ void main() {
       };
 
       final issue = PerformanceIssue.fromJson(json);
-      expect(issue.rootCauseId, isNull);
+      expect(issue.rootCauseIds, isNull);
       expect(issue.downstreamIds, isNull);
     });
 

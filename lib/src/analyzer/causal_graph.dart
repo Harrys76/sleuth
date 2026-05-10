@@ -19,17 +19,25 @@ class CausalRule {
 // ---------------------------------------------------------------------------
 
 /// Builds a directed graph of issue relationships, identifies root causes,
-/// and annotates issues with [rootCauseId] / [downstreamIds].
+/// and annotates issues with [PerformanceIssue.rootCauseIds] /
+/// [PerformanceIssue.downstreamIds].
 ///
 /// Runs after the 5 existing correlation rules, operating on the
 /// merged/escalated/deduplicated issue set. Does NOT remove issues — only
 /// adds metadata. The UI uses this metadata to collapse downstream issues
-/// under their root cause.
+/// under their root causes.
 ///
-/// **Confidence suppression:** When a root is `confirmed` or `likely`,
-/// downstream issues with `possible` confidence are excluded from
-/// [downstreamIds] (they still receive [rootCauseId] so the UI hides them
-/// from the main list, but they don't appear as sub-items under the root).
+/// **Multi-parent annotation (v0.24.2+):** every reaching root claims each
+/// downstream effect. A downstream with N upstream roots carries all N
+/// stableIds in `rootCauseIds`, sorted severity desc then stableId asc.
+/// Intermediate nodes in a multi-hop chain are not annotated as parents —
+/// only the originating roots are.
+///
+/// **Confidence suppression:** When any reaching root is `confirmed` or
+/// `likely`, downstream issues with `possible` confidence are excluded
+/// from every root's [PerformanceIssue.downstreamIds] (they still receive
+/// `rootCauseIds` so the UI hides them from the main list, but they
+/// don't appear as sub-items under the root).
 class CausalGraphRule extends CorrelationRule {
   const CausalGraphRule();
 
@@ -200,8 +208,13 @@ class CausalGraphRule extends CorrelationRule {
     });
 
     // 4. BFS from each root to collect downstream, with cycle-safe visited set.
-    // Track which root claims each downstream (first root wins — highest severity).
-    final downstreamOwner = <int, int>{}; // downstream index → root index
+    // Multi-parent annotation (v0.24.2+): every reachable root claims each
+    // downstream. A downstream effect with N upstream causes carries all N
+    // roots in `rootCauseIds`. Pre-v0.24.2 single-owner semantics (first
+    // root wins by severity-then-index) is replaced — UI now renders the
+    // full parent set.
+    final downstreamOwners =
+        <int, Set<int>>{}; // downstream index → set of root indices
 
     for (final rootIdx in roots) {
       final visited = <int>{rootIdx};
@@ -211,8 +224,8 @@ class CausalGraphRule extends CorrelationRule {
         final current = queue.removeAt(0);
         if (!visited.add(current)) continue; // cycle safety
 
-        // Only claim if not already claimed by a higher-severity root.
-        downstreamOwner.putIfAbsent(current, () => rootIdx);
+        // Accumulate every root that reaches this downstream.
+        (downstreamOwners[current] ??= <int>{}).add(rootIdx);
 
         // Continue BFS through this node's outgoing edges.
         final children = outgoing[current];
@@ -222,40 +235,79 @@ class CausalGraphRule extends CorrelationRule {
       }
     }
 
-    if (downstreamOwner.isEmpty) return issues;
+    if (downstreamOwners.isEmpty) return issues;
 
     // 5. Build root → downstream mapping with confidence suppression.
+    // Suppression rule (multi-parent): skip a `possible`-confidence
+    // downstream from a root's downstreamIds list when ANY reaching
+    // root for that downstream is `confirmed` or `likely`. The check
+    // operates on the union of REACHING ROOTS (the BFS sources), not
+    // the immediate graph-parents of the downstream — but the
+    // user-visible effect is the same because pre-existing causal
+    // chains are short (≤ 2 hops in current rules). The downstream
+    // still carries rootCauseIds for UI annotation; the suppression
+    // only prevents the root from listing it as a sub-item in the
+    // main list rendering.
     final rootDownstream =
         <int, List<String>>{}; // root index → downstream stableIds
 
-    for (final entry in downstreamOwner.entries) {
+    for (final entry in downstreamOwners.entries) {
       final downIdx = entry.key;
-      final rootIdx = entry.value;
-      final root = issues[rootIdx];
+      final ownerIndices = entry.value;
       final downstream = issues[downIdx];
       final downId = downstream.stableId ?? downstream.title;
 
-      // Confidence suppression: skip possible downstream when root is
-      // confirmed or likely. They still get rootCauseId (hidden from main
-      // list) but aren't shown as sub-items.
-      if (downstream.confidence == IssueConfidence.possible &&
-          root.confidence != IssueConfidence.possible) {
-        continue;
-      }
+      final anyStrongerParent = ownerIndices.any(
+        (rootIdx) => issues[rootIdx].confidence != IssueConfidence.possible,
+      );
+      final shouldSuppress =
+          downstream.confidence == IssueConfidence.possible &&
+              anyStrongerParent;
 
-      (rootDownstream[rootIdx] ??= []).add(downId);
+      for (final rootIdx in ownerIndices) {
+        if (shouldSuppress) continue;
+        (rootDownstream[rootIdx] ??= []).add(downId);
+      }
     }
 
     // 6. Annotate issues via copyWith.
     final result = <PerformanceIssue>[];
     for (var i = 0; i < issues.length; i++) {
-      final owner = downstreamOwner[i];
+      final owners = downstreamOwners[i];
       final downstream = rootDownstream[i];
 
-      if (owner != null) {
-        // This issue is downstream of a root.
-        final rootId = issues[owner].stableId ?? issues[owner].title;
-        result.add(issues[i].copyWith(rootCauseId: rootId));
+      if (owners != null && owners.isNotEmpty) {
+        // This issue is downstream of one or more roots. Sort root ids
+        // deterministically: severity descending (critical first), then
+        // stableId ascending. Title fallback below is defensive — the
+        // root indexing at the top of apply() filters out null-stableId
+        // issues, so a root with non-null stableId is guaranteed in
+        // current code paths. The fallback exists in case a future
+        // refactor admits null-stableId nodes into the BFS.
+        final sortedRoots = owners.toList()
+          ..sort((a, b) {
+            final sa = _severityRank(issues[a].severity);
+            final sb = _severityRank(issues[b].severity);
+            if (sa != sb) return sb.compareTo(sa);
+            final ka = issues[a].stableId ?? issues[a].title;
+            final kb = issues[b].stableId ?? issues[b].title;
+            return ka.compareTo(kb);
+          });
+        final rootIds = [
+          for (final rootIdx in sortedRoots)
+            issues[rootIdx].stableId ?? issues[rootIdx].title,
+        ];
+        // Also propagate downstreamIds if this issue is itself a root for
+        // some other downstream (a node can be both downstream and root in
+        // a chain like A→B→C).
+        if (downstream != null && downstream.isNotEmpty) {
+          result.add(issues[i].copyWith(
+            rootCauseIds: rootIds,
+            downstreamIds: downstream,
+          ));
+        } else {
+          result.add(issues[i].copyWith(rootCauseIds: rootIds));
+        }
       } else if (downstream != null && downstream.isNotEmpty) {
         // This issue is a root with downstream effects.
         result.add(issues[i].copyWith(downstreamIds: downstream));

@@ -3555,6 +3555,16 @@ class SleuthController {
     // Uses cumulative presentCount (not consecutive) to avoid oscillation.
     _applyDurationEscalation(visible);
 
+    // Re-sort each downstream's `rootCauseIds` by post-escalation severity
+    // so [PerformanceIssue.toJson] derives its singular emission from the
+    // currently-highest-severity reaching root, not the
+    // annotation-time-sorted first element. Without this, a tied warning
+    // pair gets alphabetical order at correlation, and a later
+    // duration-escalation of the lexically-later parent silently leaves
+    // the lexically-earlier parent at index 0 — exporting a stale legacy
+    // root.
+    _resortRootCauseIdsByCurrentSeverity(visible);
+
     // Rank by impact: severity dominates, then frame impact, confidence,
     // recurrence. See IssueRanker for score formula and tier guarantees.
     final ranked = _ranker.rank(visible, _buildRankingContext());
@@ -3592,6 +3602,66 @@ class SleuthController {
         severity: IssueSeverity.critical,
         confidenceReason: reason,
       );
+    }
+  }
+
+  @visibleForTesting
+  void resortRootCauseIdsByCurrentSeverityForTest(
+          List<PerformanceIssue> issues) =>
+      _resortRootCauseIdsByCurrentSeverity(issues);
+
+  /// Re-sorts `rootCauseIds` on every issue using current (post-escalation)
+  /// severity ranks.
+  ///
+  /// `CausalGraphRule.apply` sorts the multi-parent root list by
+  /// severity-at-correlation-time. `_applyDurationEscalation` can later
+  /// promote a tied warning-parent to critical without re-sorting. This
+  /// pass restores the invariant `rootCauseIds[0]` is the
+  /// highest-severity reaching root by current severity, so
+  /// [PerformanceIssue.toJson] derives a fresh legacy `rootCauseId`
+  /// emission for v0.24.1 readers.
+  ///
+  /// Sort key matches [CausalGraphRule.apply]: severity descending, then
+  /// stableId ascending. Parents missing from [issues] (suppressed by the
+  /// ranker upstream) sort last with severity rank 0. Mutates [issues]
+  /// in place; only allocates a copyWith when the order actually changed.
+  void _resortRootCauseIdsByCurrentSeverity(List<PerformanceIssue> issues) {
+    final severityById = <String, IssueSeverity>{
+      for (final i in issues)
+        if (i.stableId != null) i.stableId!: i.severity,
+    };
+
+    int rank(IssueSeverity s) => switch (s) {
+          IssueSeverity.critical => 2,
+          IssueSeverity.warning => 1,
+          IssueSeverity.ok => 0,
+        };
+
+    for (var i = 0; i < issues.length; i++) {
+      final issue = issues[i];
+      final rootIds = issue.rootCauseIds;
+      if (rootIds == null || rootIds.length < 2) continue;
+
+      final sorted = [...rootIds]..sort((a, b) {
+          final sa = severityById[a];
+          final sb = severityById[b];
+          // Missing parents sort last (rank 0) so present parents lead.
+          final ra = sa == null ? -1 : rank(sa);
+          final rb = sb == null ? -1 : rank(sb);
+          if (ra != rb) return rb.compareTo(ra);
+          return a.compareTo(b);
+        });
+
+      var changed = false;
+      for (var j = 0; j < rootIds.length; j++) {
+        if (rootIds[j] != sorted[j]) {
+          changed = true;
+          break;
+        }
+      }
+      if (changed) {
+        issues[i] = issue.copyWith(rootCauseIds: sorted);
+      }
     }
   }
 

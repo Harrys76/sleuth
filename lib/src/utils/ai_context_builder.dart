@@ -56,8 +56,19 @@ class AiContextBuilder {
     if (issue.fixEffort != null) {
       buf.writeln('Estimated fix effort: ${issue.fixEffort!.name}');
     }
-    if (issue.rootCauseId != null) {
-      buf.writeln('Root cause issue: ${issue.rootCauseId}');
+    final causeIds = issue.effectiveRootCauseIds;
+    if (causeIds != null && causeIds.isNotEmpty) {
+      // Multi-parent (v0.24.2+): every co-firing upstream cause is listed.
+      // Cap at 5 + "(+N more)" so a long fan-in does not flood the prompt
+      // window. The full set is preserved on the issue object for any
+      // consumer that needs it; this is a UI-shaped truncation.
+      const cap = 5;
+      final display = causeIds.length <= cap
+          ? causeIds.join(', ')
+          : '${causeIds.take(cap).join(', ')} (+${causeIds.length - cap} more)';
+      final label =
+          causeIds.length == 1 ? 'Root cause issue' : 'Root cause issues';
+      buf.writeln('$label: $display');
     }
     if (issue.downstreamIds != null && issue.downstreamIds!.isNotEmpty) {
       buf.writeln('Downstream effects: ${issue.downstreamIds!.join(', ')}');

@@ -87,6 +87,7 @@ class PerformanceIssue {
     this.rankingScore,
     this.rankingBreakdown,
     this.rootCauseId,
+    this.rootCauseIds,
     this.downstreamIds,
     this.confidenceReason,
     this.packageName,
@@ -184,10 +185,43 @@ class PerformanceIssue {
   /// Each value is the weighted contribution to [rankingScore].
   final Map<String, int>? rankingBreakdown;
 
-  /// StableId of the root-cause issue that explains this one.
-  /// Null for root issues and standalone issues (no causal chain).
-  /// Set by [CausalGraphRule] during cross-detector correlation.
+  /// StableId of the single root-cause issue that explains this one.
+  ///
+  /// **Deprecated** in v0.24.2 in favor of [rootCauseIds] (plural). The
+  /// multi-parent annotation pipeline writes only [rootCauseIds]; this
+  /// field is no longer populated by [CausalGraphRule.apply]. Existing
+  /// readers should migrate to [rootCauseIds]. Removed in v0.25.0.
+  ///
+  /// Null for root issues, standalone issues, and any issue produced
+  /// after v0.24.2.
+  @Deprecated(
+      'Use rootCauseIds (plural). Removed in v0.25.0. apply() writes only '
+      'the plural field starting v0.24.2.')
   final String? rootCauseId;
+
+  /// StableIds of every root-cause issue that explains this one.
+  /// Multiple parents are possible when distinct upstream causes co-fire
+  /// against the same downstream effect (e.g. `stream_resource_growth`,
+  /// `uncached_images`, and `excessive_keep_alive:*` all causing
+  /// `heap_growing`).
+  ///
+  /// Null for root issues and standalone issues (no causal chain). Set by
+  /// [CausalGraphRule] during cross-detector correlation. Order is
+  /// deterministic: severity descending, then stableId ascending.
+  final List<String>? rootCauseIds;
+
+  /// Canonical read accessor for the multi-parent causal annotation.
+  /// Falls back from [rootCauseIds] (plural, v0.24.2+) to [rootCauseId]
+  /// (singular, deprecated, v0.24.1-) coerced as a singleton list. Use
+  /// this accessor in consumers — direct field access on [rootCauseIds]
+  /// bypasses the back-compat coercion and silently breaks for callers
+  /// still on the deprecated singular constructor.
+  List<String>? get effectiveRootCauseIds {
+    if (rootCauseIds != null) return rootCauseIds;
+    // ignore: deprecated_member_use_from_same_package
+    final singular = rootCauseId;
+    return singular == null ? null : <String>[singular];
+  }
 
   /// StableIds of downstream issues caused by this root issue.
   /// Null for non-root issues and standalone issues.
@@ -265,7 +299,17 @@ class PerformanceIssue {
           'topAllocators': topAllocators!.map((a) => a.toJson()).toList(),
         if (rankingScore != null) 'rankingScore': rankingScore,
         if (rankingBreakdown != null) 'rankingBreakdown': rankingBreakdown,
-        if (rootCauseId != null) 'rootCauseId': rootCauseId,
+        // Canonical post-v0.24.2 emission: derive singular from plural so
+        // v0.24.1-and-earlier readers see the first reaching root (sorted
+        // severity desc → stableId asc). Eliminates drift between the two
+        // fields when apply() rewrites only the plural form on a previously
+        // legacy-stamped issue.
+        if (rootCauseIds != null && rootCauseIds!.isNotEmpty)
+          'rootCauseId': rootCauseIds!.first,
+        // ignore: deprecated_member_use_from_same_package
+        if (rootCauseIds == null && rootCauseId != null)
+          'rootCauseId': rootCauseId,
+        if (rootCauseIds != null) 'rootCauseIds': rootCauseIds,
         if (downstreamIds != null) 'downstreamIds': downstreamIds,
         if (confidenceReason != null) 'confidenceReason': confidenceReason,
         if (packageName != null) 'packageName': packageName,
@@ -346,7 +390,18 @@ class PerformanceIssue {
                   if (entry.value is int) entry.key: entry.value as int,
               }
             : null,
+        // Plural takes precedence; singular falls back as a singleton list
+        // for v0.24.1-and-earlier snapshots that only carried `rootCauseId`.
+        // Both keys never coexist in v0.24.2+ output, but the dual-read
+        // path means re-importing an old snapshot composes cleanly with
+        // multi-parent UI rendering.
+        // ignore: deprecated_member_use_from_same_package
         rootCauseId: json['rootCauseId'] as String?,
+        rootCauseIds: json['rootCauseIds'] is List
+            ? (json['rootCauseIds'] as List).whereType<String>().toList()
+            : (json['rootCauseId'] is String
+                ? <String>[json['rootCauseId'] as String]
+                : null),
         downstreamIds: json['downstreamIds'] is List
             ? (json['downstreamIds'] as List).whereType<String>().toList()
             : null,
@@ -386,6 +441,7 @@ class PerformanceIssue {
     int? rankingScore,
     Map<String, int>? rankingBreakdown,
     String? rootCauseId,
+    List<String>? rootCauseIds,
     List<String>? downstreamIds,
     String? confidenceReason,
     String? packageName,
@@ -419,7 +475,9 @@ class PerformanceIssue {
       topAllocators: topAllocators ?? this.topAllocators,
       rankingScore: rankingScore ?? this.rankingScore,
       rankingBreakdown: rankingBreakdown ?? this.rankingBreakdown,
+      // ignore: deprecated_member_use_from_same_package
       rootCauseId: rootCauseId ?? this.rootCauseId,
+      rootCauseIds: rootCauseIds ?? this.rootCauseIds,
       downstreamIds: downstreamIds ?? this.downstreamIds,
       confidenceReason: confidenceReason ?? this.confidenceReason,
       packageName: packageName ?? this.packageName,
