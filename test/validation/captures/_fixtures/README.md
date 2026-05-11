@@ -24,10 +24,11 @@ the capture command used so the fixture is reproducible.
 
 ## Replacing the anchor with a real export
 
-When the first v0.16.4 `runtimeVerified` capture lands, replace the
-anchor in-place with a real DevTools export from the pinned iPhone 13
-mini (iOS 17.5) and update this file's row with the actual capture
-date and the detector scenario it was recorded for. Keep the anchor's
+When the first `runtimeVerified` capture lands, replace the anchor
+in-place with a real DevTools export from the pinned reference device
+(iPhone 12 / iOS 17.5; see `doc/reference_devices.md`) and update this
+file's row with the actual capture date and the detector scenario it
+was recorded for. Keep the anchor's
 `sleuthMetadata` wrapper shape intact — only the `traceEvents`, the
 `scenario`, and the `expectedMagnitude.observed` should change.
 

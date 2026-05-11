@@ -228,7 +228,7 @@ Built-in adapters automatically exclude their provider URLs from network monitor
 
 ## Custom Detectors
 
-Plug in domain-specific detectors alongside the built-in 18. Three shapes are supported:
+Plug in domain-specific detectors alongside the built-in 20. Three shapes are supported:
 
 **Structural** — inspect widgets during the tree walk using `SimpleStructuralDetector`:
 
@@ -380,6 +380,7 @@ In-app Startup Metrics page has full methodology + per-phase breakdown.
 |----------|-------------|-----------|------------|-------------------|
 | Frame Timing | FrameTiming API | Frame exceeded budget, thread attribution (UI-bound/raster-bound/pipeline stall) | Confirmed | Cannot attribute to specific widget |
 | Network Monitor | HttpOverrides | Slow, excessive, oversized, error-spiking, or high-frequency same-path HTTP requests | Confirmed | Only intercepts dart:io HttpClient (not package:http directly) |
+| Tracked Resource | `Sleuth.trackResource(name, ref)` + `WeakReference` + Finalizer | Concurrent retention (`> 5` live instances same name) and long-lived retention (single instance alive `> 300 s`) | Confirmed | Opt-in: user code must call `Sleuth.trackResource`. Cross-isolate registration is a no-op |
 
 ### VM-Only Detectors (require VM connection)
 
@@ -389,6 +390,7 @@ In-app Startup Metrics page has full methodology + per-phase breakdown.
 | Heavy Compute | VM Timeline | Long UI-thread event | Confirmed | Requires VM connection |
 | Platform Channel | VM Timeline | High call frequency | Confirmed | Requires VM connection and `debugProfilePlatformChannels` |
 | Memory Pressure | VM GC events + heap polling | GC frequency elevated, heap growing steadily (linear regression), heap near capacity (>80%) | Likely / Confirmed | Requires VM connection |
+| Stream Resource | `getAllocationProfile` class-instance diff (K=4 window) | Retained async resources (dart:async / dart:io / web_socket_channel / rxdart subjects) when `heap_growing` co-fires | Likely | Requires VM connection. Gated on `MemoryPressureDetector.isHeapGrowingActive` |
 
 ### Hybrid Detectors (VM + tree scan, degrade without VM)
 
@@ -420,8 +422,8 @@ The per-detector ledger lives at [`doc/validation_ledger.md`](https://github.com
 
 ## MCP Roadmap
 
-MCP support is planned but not shipped in v0.24.0. The current package has
-no `ext.sleuth.*` VM service extensions, no `sleuth_mcp` sidecar binary, and
+MCP support is planned but not yet shipped. The current package has no
+`ext.sleuth.*` VM service extensions, no `sleuth_mcp` sidecar binary, and
 no MCP transport dependency.
 
 | Milestone | Scope | Status |

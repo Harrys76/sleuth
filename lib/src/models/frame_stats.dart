@@ -301,7 +301,6 @@ class FrameStatsBuffer {
   }
 
   /// Alias for [throughputFps] retained for backward compatibility.
-  /// Scheduled for removal in v0.18.0. See CHANGELOG v0.17.0.
   double get averageFps => throughputFps;
 
   int get jankCount => _buffer.where((f) => f.isJank).length;

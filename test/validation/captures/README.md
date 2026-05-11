@@ -65,14 +65,12 @@ window so `observed` refers to the span *you claim it refers to*.
 
 Emit them from Dart with `developer.Timeline.instantSync('sleuth.scenario.begin')`
 / `developer.Timeline.instantSync('sleuth.scenario.end')`. The
-`NetworkMonitor Capture Helper` screen under `example/lib/demos/` is
-a ready-made subject for the planned v0.16.5 `externallyCited` raise on
+`NetworkMonitor Capture Helper` screen under `example/lib/demos/` records
 the `slow_request` WARNING tier (1000 ms) — three preset delay knobs
-(800 / 1020 / 1500 ms) already emit the markers and hit a loopback
-server for deterministic bracket magnitudes. The `above` preset is
-deliberately inside `[1000, 2000)` so the artifact cannot ambiently
-bracket the 3000 ms critical tier; a critical-tier protocol is reserved
-for a future raise.
+(800 / 1020 / 1500 ms) emit the markers and hit a loopback server for
+deterministic bracket magnitudes. The `above` preset stays inside
+`[1000, 2000)` so the artifact cannot ambiently bracket the 3000 ms
+critical tier.
 
 ## Recording a capture (pinned device)
 

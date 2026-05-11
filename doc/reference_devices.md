@@ -8,7 +8,7 @@ the repo, boot the same hardware and Flutter version, and re-record a
 capture that satisfies the same schema. Anything more permissive than
 that is aspirational.
 
-## Current matrix (v0.23.0)
+## Current matrix (v0.30.0)
 
 | Role | Device | SoC | OS | Flutter stable |
 |---|---|---|---|---|

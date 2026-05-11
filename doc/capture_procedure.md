@@ -135,10 +135,9 @@ nothing. The schema audit then rejects the resulting capture as
 
 VM service is reachable in three configurations:
 
-- **Wireless iPhone debugging** (Path A target). Pair the iPhone with
-  Xcode via USB once, enable "Connect via network," then unplug. The
-  VM service port routes over WiFi and `VmServiceClient` connects from
-  the host. Procedure: detailed in the Path A section below (TBD).
+- **Wireless iPhone debugging**. Pair the iPhone with Xcode via USB
+  once, enable "Connect via network," then unplug. The VM service port
+  routes over WiFi and `VmServiceClient` connects from the host.
 - **iOS Simulator on Mac**. VM service is always reachable. Performance
   characteristics differ from real iPhone hardware though, so simulator
   captures are NOT a substitute for real-device evidence — only useful
@@ -197,7 +196,7 @@ capture will fail `ProfileCaptureSchema.parseFile` with a precise
 error message.
 
 Plug in a device from `ProfileCaptureSchema.approvedDevicePairs` (as
-of v0.23.0: iPhone 12 / iOS 17.5 only — see
+of v0.30.0: iPhone 12 / iOS 17.5 only — see
 `doc/reference_devices.md` for the matrix policy + Android coverage gap).
 The device + OS pair must match — membership in each set independently
 is not enough.

@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
-/// Capture helper for the planned `runtimeVerified` per-family-tier raise on
-/// `MemoryPressureDetector.heap_growing` **WARNING tier** (threshold =
-/// 512 000 bytes/sec sustained ≥ 10 s).
+/// Capture helper for `MemoryPressureDetector.heap_growing.warning`
+/// (threshold = 512 000 bytes/sec sustained ≥ 10 s; runtimeVerified via
+/// `perStableIdTier`).
 ///
 /// **VM-service connection required.** This screen produces captures that
 /// satisfy `ProfileCaptureSchema.validateBracket(...

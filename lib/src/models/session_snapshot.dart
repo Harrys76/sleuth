@@ -261,8 +261,7 @@ class FrameStatsSummary {
   /// Added in v5. Backfills from `averageFps` when reading a v4 snapshot.
   final double throughputFps;
 
-  /// Alias for [throughputFps] retained for v4 consumers.
-  /// Scheduled for removal in v0.18.0. See CHANGELOG v0.17.0.
+  /// Alias for [throughputFps] retained for v4 snapshot back-compat.
   final double averageFps;
 
   /// Duration of the worst single frame in microseconds.

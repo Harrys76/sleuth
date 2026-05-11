@@ -38,13 +38,12 @@ import 'demos/uncached_image_demo.dart';
 
 void main() {
   Sleuth.init();
-  // Phase A v0.18.0a — capture mode is gated behind a dart-define so
-  // ordinary profile-mode runs see no extra Timeline.instantSync
-  // traffic. Flip it on for the runtimeVerified capture procedure:
+  // Capture mode gated behind a dart-define so ordinary profile-mode runs
+  // see no extra Timeline.instantSync traffic. Flip on for the
+  // runtimeVerified capture procedure:
   //   fvm flutter run --profile --dart-define=SLEUTH_CAPTURE_MODE=true
-  // The HeavyCompute / NetworkMonitor capture screens rely on this to
-  // emit `sleuth.scenario.{begin,end}` and
-  // `sleuth.issue.<id>.<severity>` instant events.
+  // Capture screens emit `sleuth.scenario.{begin,end}` +
+  // `sleuth.issue.<id>.<severity>` instant events while enabled.
   const captureMode = bool.fromEnvironment('SLEUTH_CAPTURE_MODE');
   runApp(
     Sleuth.track(
@@ -79,18 +78,13 @@ void main() {
         // so no rebuild issue of any kind will ever surface — including
         // the Rebuild Hotspot (Dashboard) demo.
         //
-        // **Capture-mode caveat (v0.18.0)**: deep debug instrumentation
-        // flips Flutter's `debugProfileBuildsEnabledUserWidgets`, which
-        // switches BUILD timeline events from sync `X` (with `dur`) to
-        // async `b/e` (no `dur`). `TimelineParser._isBuild` only
-        // registers BUILD as `PhaseEvent` when `ph == 'X'`, so
-        // HeavyComputeDetector goes silent and the
-        // `sleuth.issue.heavy_compute.warning` trace record never
-        // emits — breaking the runtimeVerified capture triad. Disable
-        // deep instrumentation when captureMode is on so BUILD lands
-        // as `X` and the detector observes its work. Capture mode is
-        // a single-purpose run; rebuild-stats UI is not needed during
-        // the procedure.
+        // Capture-mode caveat: deep debug instrumentation flips
+        // `debugProfileBuildsEnabledUserWidgets`, switching BUILD events
+        // from sync `X` (with `dur`) to async `b/e`. `TimelineParser._isBuild`
+        // only registers BUILD as `PhaseEvent` when `ph == 'X'`, so
+        // HeavyComputeDetector goes silent and capture trace records never
+        // emit. Disable deep instrumentation under captureMode so BUILD
+        // lands as `X`.
         enableDebugCallbacks: !captureMode,
         enableDeepDebugInstrumentation: !captureMode,
         // Cookbook custom detectors — see example/lib/custom_detectors/.

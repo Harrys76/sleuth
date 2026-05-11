@@ -222,7 +222,7 @@ fvm flutter test test/benchmark/
 | Validator | | | |
 | Reviewer | | | |
 
-**Package Version:** 0.2.0
+**Package Version:** 0.30.0
 **Flutter Version:** _______________
 **All automated tests pass:** [ ] Yes / [ ] No (_________ failures)
 **All primary platform/mode grids complete:** [ ] Yes / [ ] No

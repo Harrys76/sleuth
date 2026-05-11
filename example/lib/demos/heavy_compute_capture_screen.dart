@@ -11,13 +11,13 @@ import 'package:sleuth/sleuth.dart';
 ///
 /// Two tier-stack brackets are recorded from this screen:
 ///
-///  - **Warning** (threshold = 8 ms, shipped v0.18.2). Below/at/above
-///    captures bracket the 8 ms strict-greater warning fire.
-///  - **Critical** (threshold = 16 ms = 2× warning, planned v0.19.13).
-///    Below/at/above captures bracket the 16 ms strict-greater critical
-///    fire. Below leg sits between 8 ms and 16 ms so the detector emits
-///    `.warning` (which the schema's `_requireNoIssueTraceRecord(critical)`
-///    accepts via its name-scoped filter) but not `.critical`.
+///  - **Warning** (threshold = 8 ms). Below/at/above captures bracket the
+///    8 ms strict-greater warning fire.
+///  - **Critical** (threshold = 16 ms = 2× warning). Below/at/above
+///    captures bracket the 16 ms strict-greater critical fire. Below leg
+///    sits between 8 ms and 16 ms so the detector emits `.warning` (which
+///    the schema's `_requireNoIssueTraceRecord(critical)` accepts via its
+///    name-scoped filter) but not `.critical`.
 ///
 /// Pick the active tier via the dropdown at the top of the screen. The
 /// scenario name, capture file naming, and per-leg target ms switch

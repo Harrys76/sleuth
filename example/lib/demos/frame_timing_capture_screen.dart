@@ -7,9 +7,9 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
-/// Capture helper for the planned v0.19.7 `runtimeVerified` per-family-tier
-/// raise on `FrameTimingDetector.jank_detected` **WARNING tier**
-/// (`jankPercent > 15` over the steady-state 240-frame buffer).
+/// Capture helper for `FrameTimingDetector.jank_detected.warning`
+/// (`jankPercent > 15` over the steady-state 240-frame buffer; runtimeVerified
+/// via `perStableIdTier`).
 ///
 /// **VM-service connection required.** Captures satisfy
 /// `ProfileCaptureSchema.validateBracket(... requireDetectorTraceRecord:
