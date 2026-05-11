@@ -31,6 +31,7 @@ import 'demos/repaint_boundary_demo.dart';
 import 'demos/repaint_stress_demo.dart';
 import 'demos/stream_resource_capture_screen.dart';
 import 'demos/stream_resource_demo.dart';
+import 'demos/tracked_resource_capture_screen.dart';
 import 'demos/tracked_resource_demo.dart';
 import 'demos/shader_jank_demo.dart';
 import 'demos/uncached_image_demo.dart';
@@ -420,6 +421,13 @@ class DemoHome extends StatelessWidget {
             subtitle: 'stream_resource_growth warning bracket',
             color: Colors.deepPurple,
             builder: (_) => const StreamResourceCaptureScreen(),
+          ),
+          _DemoRoute(
+            icon: Icons.track_changes,
+            title: 'TrackedResource',
+            subtitle: 'tracked_resource_concurrent warning bracket',
+            color: Colors.teal,
+            builder: (_) => const TrackedResourceCaptureScreen(),
           ),
         ],
       ),

@@ -1378,11 +1378,15 @@ void main() {
       expect(meta.additionalBrackets, isNull);
     });
 
-    test('TrackedResourceDetector pinned at reproducerOnly', () {
-      // Pure-Dart detector. Two stableIds (concurrent + long_lived);
-      // confirmed confidence; no perStableIdTier raise. Reproducer
-      // is hermetic via internal simulateFinalizerForTest seam — no
-      // dependency on real Finalizer timing.
+    test(
+        'TrackedResourceDetector pinned at runtimeVerified for '
+        'tracked_resource_concurrent', () {
+      // Base reproducerOnly + perStableIdTier raise on
+      // `tracked_resource_concurrent.warning`. Long-lived stays
+      // reproducerOnly. Bracket threshold 6 (smallest count > default
+      // `maxConcurrent` 5), atTolerance 0.5, aboveCeilingMultiplier 3.0.
+      // Parametric emission routes through `captureTraceStableId` so
+      // the bracket validator's byte-exact filter matches.
       final BaseDetector? tr = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.trackedResource)
           .cast<BaseDetector?>()
@@ -1390,20 +1394,30 @@ void main() {
       expect(tr, isNotNull);
       expect(tr, isA<DetectorMetadataProvider>());
       final meta = (tr as DetectorMetadataProvider).validationMetadata;
-      expect(meta.tier, EvidenceTier.reproducerOnly);
-      expect(meta.effectiveMaxTier, EvidenceTier.reproducerOnly);
+      expect(meta.tier, EvidenceTier.reproducerOnly,
+          reason: 'Base tier stays reproducerOnly; concurrent family '
+              'lifted via perStableIdTier so long_lived stays at base.');
+      expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified);
       expect(meta.reproducerPath,
           equals('test/validation/tracked_resource_reproducer_test.dart'));
       expect(meta.citationUrl, isNull);
-      expect(meta.profileCapturePaths, isNull);
-      expect(meta.bracketThreshold, isNull);
-      expect(meta.bracketUnit, isNull);
-      expect(meta.bracketStableId, isNull);
-      expect(meta.bracketSeverityLabel, isNull);
-      expect(meta.bracketAtTolerance, isNull);
-      expect(meta.aboveCeilingMultiplier, isNull);
-      expect(meta.observedAxisArgKey, isNull);
-      expect(meta.coveredThresholds, isNull);
+      expect(
+          meta.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/tracked_resource_concurrent/below.json',
+            'test/validation/captures/tracked_resource_concurrent/at.json',
+            'test/validation/captures/tracked_resource_concurrent/above.json',
+          ]));
+      expect(meta.bracketStableId, equals('tracked_resource_concurrent'));
+      expect(meta.bracketSeverityLabel, equals('warning'));
+      expect(meta.bracketThreshold, equals(6));
+      expect(meta.bracketUnit, equals('instances'));
+      expect(meta.bracketAtTolerance, equals(0.5));
+      expect(meta.aboveCeilingMultiplier, equals(3.0));
+      expect(meta.observedAxisArgKey, equals('liveInstanceCount'));
+      expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
+      expect(meta.coveredThresholds,
+          equals(const {'tracked_resource_concurrent.warning'}));
       expect(
           meta.coveredStableIds,
           equals(const {
@@ -1411,7 +1425,12 @@ void main() {
             'tracked_resource_long_lived',
           }));
       expect(meta.parametricFamilies, isNull);
-      expect(meta.perStableIdTier, isNull);
+      expect(
+          meta.perStableIdTier,
+          equals(const {
+            'tracked_resource_concurrent': EvidenceTier.runtimeVerified,
+          }),
+          reason: 'long-lived family stays reproducerOnly');
       expect(meta.additionalBrackets, isNull);
     });
 

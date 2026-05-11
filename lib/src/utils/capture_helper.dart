@@ -46,7 +46,9 @@ class CaptureHelper {
   /// passed and only does payload construction so it stays directly
   /// testable.
   static CaptureIssueEvent? composeIssueEvent(PerformanceIssue issue) {
-    final stableId = issue.stableId;
+    // Parametric-stableId detectors route through `captureTraceStableId`
+    // (bare family) so the bracket validator's byte-exact filter matches.
+    final stableId = issue.captureTraceStableId ?? issue.stableId;
     if (stableId == null || stableId.isEmpty) return null;
     // Prefer the detector-supplied dedup identity (monotonic VM event
     // timestamp) over wall-clock detectedAt. Detectors observing VM

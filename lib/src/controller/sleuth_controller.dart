@@ -1537,6 +1537,9 @@ class SleuthController {
     // back-to-back leg's gating starts fresh on scenario allocation
     // only.
     _streamResource.resetCaptureState();
+    // Per-leg observables + every bucket's first-cross micros so the
+    // next leg's emission stamps a fresh `dedupIdentityMicros`.
+    _trackedResource.resetCaptureState();
   }
 
   Future<String?> exportCaptureJson({

@@ -91,6 +91,42 @@ class TrackedResourceDetector extends BaseDetector
 
   final List<PerformanceIssue> _issues = [];
 
+  /// Per-name last-observed live count from the most recent `_sweep()`.
+  final Map<String, int> _lastObservedLiveCountByName = {};
+
+  /// Per-name monotonic peak since the last [resetCaptureState].
+  final Map<String, int> _peakObservedLiveCountByName = {};
+
+  /// Aggregate last-observed peak across every bucket. Broader than the
+  /// capture-procedure scope — use [lastObservedLiveCountFor] inside a
+  /// capture screen.
+  int get lastObservedLiveCount {
+    if (_lastObservedLiveCountByName.isEmpty) return 0;
+    return _lastObservedLiveCountByName.values.reduce((a, b) => a > b ? a : b);
+  }
+
+  /// Aggregate monotonic high-water mark across every bucket. Broader than
+  /// the capture-procedure scope — use [peakObservedLiveCountFor] inside
+  /// a capture screen so an ambient bucket cannot contaminate the magnitude
+  /// the bracket validator cross-checks against.
+  int get peakObservedLiveCount {
+    if (_peakObservedLiveCountByName.isEmpty) return 0;
+    return _peakObservedLiveCountByName.values.reduce((a, b) => a > b ? a : b);
+  }
+
+  /// Last-observed live count for [name]. Returns 0 when the name has
+  /// never been swept or all refs were finalised.
+  int lastObservedLiveCountFor(String name) =>
+      _lastObservedLiveCountByName[name] ?? 0;
+
+  /// Monotonic high-water mark of [lastObservedLiveCountFor] since the
+  /// last [resetCaptureState]. The bracket validator's `'max'` axis
+  /// reduction cross-checks `expectedMagnitude.observed` against this
+  /// value; capture screens MUST read the name-scoped value so the
+  /// exported magnitude matches the scenario's intended bucket.
+  int peakObservedLiveCountFor(String name) =>
+      _peakObservedLiveCountByName[name] ?? 0;
+
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
 
@@ -272,6 +308,47 @@ class TrackedResourceDetector extends BaseDetector
     }
   }
 
+  /// Drops every ref under [name] + detaches each [Finalizer] token +
+  /// clears the per-name observables. Capture screens call this between
+  /// legs to isolate each leg's workload. Silent no-op when [name] is
+  /// unknown. Preserves the per-name threshold override (clear via
+  /// `Sleuth.setResourceThreshold(name)`).
+  void untrackAll(String name) {
+    if (!_isEnabled) return;
+    final bucket = _buckets[name];
+    if (bucket == null) return;
+    _dropBucketsAndDetachAllRefs([bucket]);
+    _buckets.remove(name);
+    _lastObservedLiveCountByName.remove(name);
+    _peakObservedLiveCountByName.remove(name);
+  }
+
+  /// Synchronous sweep — prunes finalised refs, evaluates emission state,
+  /// refreshes observables. Capture screens call this AFTER the workload
+  /// registers all refs and BEFORE `markScenarioEnd` so the in-span trace
+  /// record carries the scenario's steady-state count, not a partial
+  /// first-cross.
+  void flushConcurrentEvaluation() {
+    if (!_isEnabled) return;
+    _sweep();
+  }
+
+  /// Clears per-leg observable state + every bucket's
+  /// `concurrentFirstCrossMicros` / `longLivedFirstCrossMicros` so the
+  /// next post-reset emission stamps a fresh `dedupIdentityMicros` and
+  /// is not collapsed by the controller's composite-key dedup against
+  /// the prior leg. Does NOT clear `_buckets` — call [untrackAll] per
+  /// name when leg isolation requires it.
+  void resetCaptureState() {
+    _lastObservedLiveCountByName.clear();
+    _peakObservedLiveCountByName.clear();
+    _issues.clear();
+    for (final bucket in _buckets.values) {
+      bucket.concurrentFirstCrossMicros = null;
+      bucket.longLivedFirstCrossMicros = null;
+    }
+  }
+
   /// Test seam matching the production [Finalizer] callback path.
   /// Locates the registration whose target is `identical` to [resource]
   /// under [name], then dispatches `_recordRelease(token)` against its
@@ -349,7 +426,14 @@ class TrackedResourceDetector extends BaseDetector
       bucket.pruneFinalised();
       if (bucket.isEmpty) {
         emptyKeys.add(name);
+        _lastObservedLiveCountByName[name] = 0;
         continue;
+      }
+      final liveCount = bucket.liveCount;
+      _lastObservedLiveCountByName[name] = liveCount;
+      final priorPeak = _peakObservedLiveCountByName[name] ?? 0;
+      if (liveCount > priorPeak) {
+        _peakObservedLiveCountByName[name] = liveCount;
       }
       final concurrentIssue = _evaluateConcurrent(name, bucket, nowMicros);
       if (concurrentIssue != null) newIssues.add(concurrentIssue);
@@ -380,10 +464,11 @@ class TrackedResourceDetector extends BaseDetector
       );
       return PerformanceIssue(
         // Parametric stableId so distinct names render as distinct
-        // issue cards. Without this, two names sharing the bare
-        // family stableId collide in stableId-keyed UI maps and only
-        // the last-emitted bucket surfaces.
+        // issue cards (stableId-keyed UI maps would collapse otherwise).
         stableId: '$concurrentStableId:$name',
+        // Bare family for the capture trace event so the bracket
+        // validator's byte-exact filter matches every member.
+        captureTraceStableId: concurrentStableId,
         severity: IssueSeverity.warning,
         category: IssueCategory.memory,
         confidence: IssueConfidence.confirmed,
@@ -441,6 +526,11 @@ class TrackedResourceDetector extends BaseDetector
     );
     return PerformanceIssue(
       stableId: '$longLivedStableId:$name',
+      // No `captureTraceStableId` — family is reproducerOnly. Routing
+      // through the bare family in capture mode would land unclaimed
+      // `sleuth.issue.tracked_resource_long_lived.warning` events the
+      // audit cannot validate. Add the override when the family gains
+      // its own bracket.
       severity: IssueSeverity.warning,
       category: IssueCategory.memory,
       confidence: IssueConfidence.confirmed,
@@ -485,28 +575,57 @@ class TrackedResourceDetector extends BaseDetector
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
         tier: EvidenceTier.reproducerOnly,
-        rationale: 'Pure-Dart, opt-in. User registers via '
-            '`Sleuth.trackResource(name, resource)`; tracker keeps '
-            '`WeakReference` + Finalizer token + first-seen timestamp '
-            'per registration. Token is the registration identity '
-            '(allocation-unique, collision-resistant); shared `Finalizer` '
-            'dispatches `_recordRelease(token)` on GC reclaim so bucket '
-            'count matches reality without retaining the target. '
-            'Periodic sweep (default 10 s) evaluates two thresholds: '
+        rationale: 'Pure-Dart, opt-in. `Sleuth.trackResource(name, resource)` '
+            'registers a `WeakReference` + Finalizer token + first-seen '
+            'timestamp. Token is the registration identity '
+            '(allocation-unique); shared `Finalizer` dispatches '
+            '`_recordRelease(token)` on GC reclaim so bucket count matches '
+            'reality without retaining targets. Periodic sweep '
+            '(default 10 s) evaluates two thresholds: '
             '`tracked_resource_concurrent.warning` when live count > '
-            '`maxConcurrent` (default 5); `tracked_resource_long_lived'
-            '.warning` when the oldest instance has been alive past '
-            '`longLivedSeconds` (default 300). Both `confirmed` '
-            'confidence — opt-in registration is an explicit ownership '
-            'claim. LRU cap (default 1000) bounds the in-memory bucket '
-            'map; eviction also detaches per-ref Finalizer entries so '
-            'VM-side state stays bounded. Cross-isolate registration is '
-            'a no-op (each isolate has its own controller).',
+            '`maxConcurrent` (default 5); '
+            '`tracked_resource_long_lived.warning` when the oldest instance '
+            'is alive past `longLivedSeconds` (default 300). Both '
+            '`confirmed` confidence. LRU cap (default 1000) bounds the '
+            'bucket map; eviction detaches per-ref Finalizer entries. '
+            'Cross-isolate registration is a no-op.\n'
+            '\n'
+            '`tracked_resource_concurrent.warning` is runtimeVerified via '
+            '`perStableIdTier` (three iPhone 12 / iOS 17.5 / Flutter 3.41.4 '
+            'captures). Threshold 6 (smallest count > default 5 that '
+            'triggers emission); atTolerance 0.5 (at-band [6, 9] absorbs '
+            'discrete-count quantisation); aboveCeilingMultiplier 3.0 '
+            '(ceiling 18). `PerformanceIssue.captureTraceStableId` routes '
+            'parametric `tracked_resource_concurrent:<name>` emissions to '
+            'the bare family so the bracket validator matches every '
+            'member. `requireUniqueDetectedAtMicros: true`. Long-lived '
+            'stays reproducerOnly — 300 s threshold exceeds the scenario '
+            'window; long-lived emissions deliberately omit '
+            '`captureTraceStableId`.',
         reproducerPath: 'test/validation/tracked_resource_reproducer_test.dart',
         coveredStableIds: {
           concurrentStableId,
           longLivedStableId,
         },
+        coveredThresholds: {
+          'tracked_resource_concurrent.warning',
+        },
+        perStableIdTier: {
+          concurrentStableId: EvidenceTier.runtimeVerified,
+        },
+        profileCapturePaths: [
+          'test/validation/captures/tracked_resource_concurrent/below.json',
+          'test/validation/captures/tracked_resource_concurrent/at.json',
+          'test/validation/captures/tracked_resource_concurrent/above.json',
+        ],
+        bracketStableId: concurrentStableId,
+        bracketSeverityLabel: 'warning',
+        bracketThreshold: 6,
+        bracketUnit: 'instances',
+        bracketAtTolerance: 0.5,
+        aboveCeilingMultiplier: 3.0,
+        observedAxisArgKey: 'liveInstanceCount',
+        bracketRequireUniqueDetectedAtMicros: true,
       );
 }
 

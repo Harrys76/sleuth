@@ -75,6 +75,7 @@ class PerformanceIssue {
     required this.detail,
     required this.fixHint,
     this.stableId,
+    this.captureTraceStableId,
     this.widgetName,
     this.routeName,
     this.observationSource,
@@ -119,6 +120,15 @@ class PerformanceIssue {
   /// update (e.g. rebuild counts, GC frequency). Used by the UI to maintain
   /// checkbox selection across scan cycles. When null, falls back to [title].
   final String? stableId;
+
+  /// Optional override for the capture trace-event stableId.
+  /// `CaptureHelper.composeIssueEvent` uses it (instead of [stableId])
+  /// when composing the `sleuth.issue.<id>.<severity>` event name.
+  /// Detectors emitting parametric stableIds (e.g.
+  /// `tracked_resource_concurrent:<name>`) set this to the bare family
+  /// so the bracket validator's byte-exact filter matches. UI cards +
+  /// equality + hashCode continue to key on [stableId].
+  final String? captureTraceStableId;
 
   /// Name of the widget most relevant to this issue (if attributable).
   final String? widgetName;
@@ -266,6 +276,8 @@ class PerformanceIssue {
         'detail': detail,
         'fixHint': fixHint,
         if (stableId != null) 'stableId': stableId,
+        if (captureTraceStableId != null)
+          'captureTraceStableId': captureTraceStableId,
         if (widgetName != null) 'widgetName': widgetName,
         if (routeName != null) 'routeName': routeName,
         if (observationSource != null)
@@ -339,6 +351,7 @@ class PerformanceIssue {
       detail: json['detail'] as String,
       fixHint: json['fixHint'] as String,
       stableId: json['stableId'] as String?,
+      captureTraceStableId: json['captureTraceStableId'] as String?,
       widgetName: json['widgetName'] as String?,
       routeName: json['routeName'] as String?,
       observationSource:
@@ -412,6 +425,7 @@ class PerformanceIssue {
     String? detail,
     String? fixHint,
     String? stableId,
+    String? captureTraceStableId,
     String? widgetName,
     String? routeName,
     ObservationSource? observationSource,
@@ -441,6 +455,7 @@ class PerformanceIssue {
       detail: detail ?? this.detail,
       fixHint: fixHint ?? this.fixHint,
       stableId: stableId ?? this.stableId,
+      captureTraceStableId: captureTraceStableId ?? this.captureTraceStableId,
       widgetName: widgetName ?? this.widgetName,
       routeName: routeName ?? this.routeName,
       observationSource: observationSource ?? this.observationSource,
