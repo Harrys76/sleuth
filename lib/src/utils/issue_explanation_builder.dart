@@ -123,6 +123,14 @@ class IssueExplanationBuilder {
 
   /// Strip dynamic suffixes: `foo:3` → `foo`, `rebuild_debug_MyWidget` →
   /// `rebuild_debug`, `repaint_debug_MyWidget` → `repaint_debug`.
+  /// Normalises a [PerformanceIssue.stableId] to the encyclopedia key —
+  /// strips parametric colon-suffix (`tracked_resource_concurrent:foo` →
+  /// `tracked_resource_concurrent`) and dynamic widget-type suffix
+  /// (`repaint_debug_MyWidget` → `repaint_debug`). Use this before
+  /// looking up keys in [allExplanations] or before passing a stableId
+  /// to [IssueEncyclopediaPage.scrollToStableId].
+  static String canonicalId(String id) => _baseId(id);
+
   static String _baseId(String id) {
     // Colon-suffixed IDs (excessive_keep_alive:3, excessive_global_keys:0)
     final colonIdx = id.indexOf(':');

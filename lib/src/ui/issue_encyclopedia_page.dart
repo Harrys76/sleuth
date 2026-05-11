@@ -61,6 +61,16 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
   /// Whether the initial scroll-to target has completed its scroll.
   bool _scrollTargetScrolled = false;
 
+  /// Encyclopedia key resolved from [widget.scrollToStableId] (strips
+  /// parametric `:<param>` / dynamic-widget suffixes via
+  /// [IssueExplanationBuilder.canonicalId]). Null when no target was
+  /// requested.
+  String? get _scrollTargetKey {
+    final raw = widget.scrollToStableId;
+    if (raw == null) return null;
+    return IssueExplanationBuilder.canonicalId(raw);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -69,12 +79,15 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
       vsync: this,
     )..forward();
 
-    // Pre-expand and prepare scroll-to target.
-    if (widget.scrollToStableId != null &&
-        IssueExplanationBuilder.allExplanations
-            .containsKey(widget.scrollToStableId)) {
-      _expandedEntries.add(widget.scrollToStableId!);
-      _entryKeys[widget.scrollToStableId!] = GlobalKey();
+    // Pre-expand and prepare scroll-to target. Normalise to the
+    // encyclopedia key (strips parametric `:<param>` / dynamic
+    // `widget-type` suffixes) so a parametric stableId like
+    // `tracked_resource_concurrent:foo` resolves to the bare-family entry.
+    final scrollTarget = _scrollTargetKey;
+    if (scrollTarget != null &&
+        IssueExplanationBuilder.allExplanations.containsKey(scrollTarget)) {
+      _expandedEntries.add(scrollTarget);
+      _entryKeys[scrollTarget] = GlobalKey();
     }
 
     _searchController.addListener(_onSearchChanged);
@@ -99,8 +112,9 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
   }
 
   void _scrollToTarget() {
-    if (_scrollTargetScrolled || widget.scrollToStableId == null) return;
-    final key = _entryKeys[widget.scrollToStableId!];
+    final target = _scrollTargetKey;
+    if (_scrollTargetScrolled || target == null) return;
+    final key = _entryKeys[target];
     if (key?.currentContext == null) return;
     _scrollTargetScrolled = true;
     Scrollable.ensureVisible(
@@ -358,7 +372,7 @@ class _IssueEncyclopediaPageState extends State<IssueEncyclopediaPage>
     SleuthThemeData theme,
   ) {
     final isExpanded = _expandedEntries.contains(stableId);
-    final isScrollTarget = stableId == widget.scrollToStableId;
+    final isScrollTarget = stableId == _scrollTargetKey;
 
     // Apply contextual substitution. When a real issue is available (the
     // scroll target), placeholders resolve to its data. For all other entries
