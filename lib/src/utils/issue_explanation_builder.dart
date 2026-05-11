@@ -568,9 +568,11 @@ class IssueExplanationBuilder {
           'ownership boundary (state.dispose, scope close, isolate '
           'death) where the GC will reclaim it.\n'
           '• If the resource is intentionally pooled (HTTP connection '
-          'pool, isolate worker pool), raise '
-          '`SleuthConfig.thresholds.trackedResourceMaxConcurrent` '
-          'to the expected pool size.',
+          'pool, isolate worker pool), raise the threshold either '
+          'globally via `SleuthConfig.thresholds.trackedResourceMaxConcurrent` '
+          'OR per-name via `Sleuth.setResourceThreshold(name, '
+          'maxConcurrent: N)` (per-name overrides survive bucket '
+          'eviction).',
       whenToIgnore: 'A pooled resource where the count IS the design (database '
           'connection pool, prerendered tile cache). Tune the '
           'threshold rather than dispose what should be retained.',
@@ -611,9 +613,10 @@ class IssueExplanationBuilder {
           'dispose call. Ownership boundaries: `State.dispose`, '
           '`Cubit.close`, `provider` autoDispose, isolate teardown.\n\n'
           '• Session-long (singleton, app-scope) — stop tracking that '
-          'name OR raise '
+          'name OR raise the threshold globally via '
           '`SleuthConfig.thresholds.trackedResourceLongLivedSeconds` '
-          'past the longest legitimate session.',
+          'OR per-name via `Sleuth.setResourceThreshold(name, '
+          'longLivedSeconds: N)` past the longest legitimate session.',
       whenToIgnore: 'Singletons. Tracking is opt-in by name; if a name is '
           'always meant to live the whole session, untrack it after '
           'the deliberate construction (one-shot tracking still '

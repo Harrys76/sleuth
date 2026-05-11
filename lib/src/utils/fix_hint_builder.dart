@@ -881,8 +881,10 @@ class FixHintBuilder {
           'by something outside Sleuth. Audit dispose / cancel paths in '
           'recently navigated routes for "$name". If "$name" is a pool '
           '(connection pool, worker pool) and $liveCount is expected, '
-          'raise `SleuthConfig.thresholds.trackedResourceMaxConcurrent` '
-          'or untrack the pooled instances.',
+          'raise the threshold globally via '
+          '`SleuthConfig.thresholds.trackedResourceMaxConcurrent` OR '
+          'per-name via `Sleuth.setResourceThreshold("$name", '
+          'maxConcurrent: N)`, or untrack the pooled instances.',
       FixEffort.medium,
     );
   }
@@ -896,8 +898,11 @@ class FixHintBuilder {
           'WeakReference + Finalizer confirm the GC has not reclaimed '
           'it — something outside the tracker is holding it. If this is '
           'a deliberate session-long resource (DI singleton, app-scope '
-          'service), exclude "$name" from tracking or raise '
-          '`SleuthConfig.thresholds.trackedResourceLongLivedSeconds`.',
+          'service), exclude "$name" from tracking or raise the '
+          'threshold globally via '
+          '`SleuthConfig.thresholds.trackedResourceLongLivedSeconds` '
+          'OR per-name via `Sleuth.setResourceThreshold("$name", '
+          'longLivedSeconds: N)`.',
       FixEffort.medium,
     );
   }

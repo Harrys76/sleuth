@@ -59,7 +59,9 @@ test/
 
 ## Current state
 
-**v0.27.0** (current) — New `TrackedResourceDetector` (runtime, opt-in). Public `Sleuth.trackResource(name, resource)` / `Sleuth.untrackResource(name, resource)` API. Two stableIds, both `confirmed`: `tracked_resource_concurrent.warning` (>5 live instances same name) + `tracked_resource_long_lived.warning` (single instance alive past 5 min). Pure Dart — `WeakReference` + Finalizer token-keyed bookkeeping so registration cannot prevent GC; cross-isolate calls no-op. LRU cap (default 1000) bounds the in-memory bucket map; eviction detaches per-ref Finalizer entries. Causal-graph edges `tracked_resource_{concurrent,long_lived} → heap_growing`. Tier `reproducerOnly`. 19 → 20 detectors.
+**v0.28.0** (current) — New `Sleuth.setResourceThreshold(name, {maxConcurrent, longLivedSeconds})` per-name override for `TrackedResourceDetector`. Merge semantics — omitted/invalid axis preserves prior; explicit both-null clears. Override stored in separate map → survives empty-bucket sweep, LRU eviction, and `isEnabled=false` toggle; `dispose()` clears. Issue `extraTraceArgs` always stamps `effectiveMaxConcurrent`/`effectiveLongLivedSeconds` + `thresholdSource` (`override`/`global`). Non-positive + cap-overflow silently drop via `droppedOverridesCount` (runtime guard). Pre-init calls warn once-per-session.
+
+**v0.27.0** — New `TrackedResourceDetector` (runtime, opt-in). `Sleuth.trackResource(name, resource)` / `Sleuth.untrackResource(name, resource)` API. Two stableIds, both `confirmed`: `tracked_resource_concurrent:<name>.warning` (>5 live instances same name) + `tracked_resource_long_lived:<name>.warning` (single instance alive past 5 min). Pure Dart — `WeakReference` + Finalizer token-keyed bookkeeping; cross-isolate calls no-op. LRU cap (default 1000) bounds in-memory bucket map; eviction detaches per-ref Finalizer entries. Causal edges `tracked_resource_{concurrent,long_lived}:* → heap_growing`. Tier `reproducerOnly`. 19 → 20 detectors.
 
 **v0.26.0** — `stream_resource_growth.warning` raised to runtimeVerified (iPhone 12 / iOS 17.5 / Flutter 3.41.4 capture triad; threshold 50 instances on `topGrowthDelta` axis, atTolerance 0.6, aboveCeilingMultiplier 3.0). Detector gate switched from summed `netDelta` to single-class `top.delta`. `MemoryPressureDetector.gcRateThresholdPerMin` default 30 → 60.
 
@@ -87,7 +89,8 @@ test/
 
 ### Recent releases (one-line)
 
-- **v0.27.0** — New `TrackedResourceDetector` (runtime, opt-in) + `Sleuth.trackResource` / `Sleuth.untrackResource` API. WeakRef + token-keyed Finalizer; two `confirmed` stableIds (`tracked_resource_concurrent.warning`, `tracked_resource_long_lived.warning`). Causal edges to `heap_growing`. 19 → 20 detectors.
+- **v0.28.0** — `Sleuth.setResourceThreshold(name, ...)` per-name override. Merge semantics; bucket-independent; survives `isEnabled` toggle. Always stamps `extraTraceArgs.effective{MaxConcurrent,LongLivedSeconds}/thresholdSource`.
+- **v0.27.0** — New `TrackedResourceDetector` (runtime, opt-in) + `Sleuth.trackResource` / `Sleuth.untrackResource` API. WeakRef + token-keyed Finalizer; two `confirmed` parametric stableIds. Causal edges to `heap_growing`. 19 → 20 detectors.
 - **v0.26.0** — `stream_resource_growth.warning` runtimeVerified (iPhone 12 capture triad). Detector gate switched to single-class `top.delta` so firing axis matches bracket axis. `gcRateThresholdPerMin` 30 → 60. `'instances'` unit added.
 - **v0.22.0** — `sustained_jank.critical` raise withdrawn (bracket axis non-composable with operator-claimed K). Captures + capture screen + retainedOrphans entries removed; reproducer-tier coverage retained.
 - **v0.21.0** — `RepaintDetector.excessive_repaint.warning` raised to runtimeVerified via `perStableIdTier` (32-distinct-`CustomPaint` workload routes through VM aggregate path). `Sleuth.repaintDetector` + `Sleuth.lastCaptureExportFailure` static accessors; `peakObservedPaintCount` + `flushPaintEvaluation()` + `resetCaptureState()` plumbing.

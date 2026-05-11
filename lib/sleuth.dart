@@ -149,6 +149,11 @@ class Sleuth {
   /// Survives hot restart (intentional — warm VM numbers are misleading).
   static bool _initCalled = false;
 
+  /// Print-once throttle on pre-init [setResourceThreshold] warning;
+  /// multi-name pre-init would otherwise spam the debug console.
+  // ignore: prefer_final_fields
+  static bool _preInitWarned = false;
+
   /// Dart entry timestamp captured by [init].
   static DateTime? _dartEntryTimestamp;
 
@@ -628,6 +633,53 @@ class Sleuth {
   static void untrackResource(String name, Object resource) {
     if (kReleaseMode) return;
     _controller?.trackedResourceDetector?.untrack(name, resource);
+  }
+
+  /// Override concurrent / long-lived thresholds for resource [name].
+  /// Call AFTER [Sleuth.init] — pre-init calls log a once-per-session
+  /// debug warning and drop.
+  ///
+  /// Merge semantics: omitted or invalid axis preserves the prior
+  /// value; explicit both-null clears the override and reverts to
+  /// global defaults. Updates land on one axis without losing the
+  /// other.
+  ///
+  /// ```dart
+  /// Sleuth.setResourceThreshold('http_pool', maxConcurrent: 50);
+  /// Sleuth.setResourceThreshold('http_pool', longLivedSeconds: 3600);
+  /// // (max: 50, long: 3600) — first call's value preserved.
+  /// Sleuth.setResourceThreshold('http_pool'); // clears.
+  /// ```
+  ///
+  /// Does NOT begin tracking — call [trackResource] to register
+  /// instances. Override is bucket-independent: survives empty-bucket
+  /// sweep, LRU drops, and `isEnabled` toggles. Invalid values
+  /// (`<= 0`) drop that axis only and count via
+  /// `Sleuth.trackedResourceDetector!.droppedOverridesCount` (debug
+  /// only). No-op in release mode and from spawned isolates.
+  static void setResourceThreshold(
+    String name, {
+    int? maxConcurrent,
+    int? longLivedSeconds,
+  }) {
+    if (kReleaseMode) return;
+    final detector = _controller?.trackedResourceDetector;
+    if (detector == null) {
+      // Print once per session — subsequent pre-init calls remain
+      // silent to prevent debug-console spam during multi-name init.
+      if (kDebugMode && !_preInitWarned) {
+        _preInitWarned = true;
+        // ignore: avoid_print
+        print('[Sleuth] setResourceThreshold called before Sleuth.init(); '
+            'override(s) dropped. (This warning prints once per session.)');
+      }
+      return;
+    }
+    detector.registerNameOverride(
+      name,
+      maxConcurrent: maxConcurrent,
+      longLivedSeconds: longLivedSeconds,
+    );
   }
 
   /// Capture-pipeline shortcut: trigger one immediate

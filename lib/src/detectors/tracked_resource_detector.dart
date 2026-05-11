@@ -76,6 +76,18 @@ class TrackedResourceDetector extends BaseDetector
   bool _isEnabled = true;
   int _droppedTargets = 0;
   int _evictedNames = 0;
+  // Incremented on rejected register calls.
+  // ignore: prefer_final_fields
+  int _droppedOverrides = 0;
+
+  /// Per-name threshold overrides. Kept separate from `_buckets` so
+  /// override survives empty-bucket sweep + LRU drop — config, not
+  /// registration state.
+  final Map<String, _NameOverride> _nameOverrides = {};
+
+  /// Hard cap on the override map. Guards per-instance-name misuse in
+  /// release builds where `assert` is stripped.
+  static const int _maxNameOverridesCap = 1000;
 
   final List<PerformanceIssue> _issues = [];
 
@@ -113,6 +125,25 @@ class TrackedResourceDetector extends BaseDetector
   @visibleForTesting
   int get evictedNamesCount => _evictedNames;
 
+  /// Diagnostic: count of override-registration calls dropped because
+  /// the value was non-positive or the override map cap was reached.
+  @visibleForTesting
+  int get droppedOverridesCount => _droppedOverrides;
+
+  /// Diagnostic: snapshot of per-name overrides for tests. Does not
+  /// expose the live map.
+  @visibleForTesting
+  Map<String, ({int? maxConcurrent, int? longLivedSeconds})>
+      snapshotNameOverrides() {
+    return {
+      for (final e in _nameOverrides.entries)
+        e.key: (
+          maxConcurrent: e.value.maxConcurrent,
+          longLivedSeconds: e.value.longLivedSeconds,
+        ),
+    };
+  }
+
   /// Snapshot of currently tracked name → live count. For tests +
   /// demo screens; do not mutate the returned map.
   @visibleForTesting
@@ -122,6 +153,60 @@ class TrackedResourceDetector extends BaseDetector
       out[entry.key] = entry.value.liveCount;
     }
     return out;
+  }
+
+  /// Override concurrent / long-lived thresholds for [name]. Survives
+  /// empty-bucket sweep, LRU drops, and `isEnabled = false` — override
+  /// is config, not registration.
+  ///
+  /// Merge: omitted or invalid axis preserves prior. Explicit both-null
+  /// clears. Invalid value (`<= 0`) counts via [droppedOverridesCount].
+  /// New-name overflow past [_maxNameOverridesCap] silently drops +
+  /// counts; updates to existing names always succeed.
+  ///
+  /// Public entry point: `Sleuth.setResourceThreshold`.
+  void registerNameOverride(
+    String name, {
+    int? maxConcurrent,
+    int? longLivedSeconds,
+  }) {
+    // Caller intent: both args literally absent → explicit clear.
+    // Distinct from validation reducing both to null (which preserves).
+    if (maxConcurrent == null && longLivedSeconds == null) {
+      _nameOverrides.remove(name);
+      return;
+    }
+    // Per-axis validation: invalid axis drops + counts.
+    int? validMax = maxConcurrent;
+    int? validLongLived = longLivedSeconds;
+    if (validMax != null && validMax < 1) {
+      _droppedOverrides++;
+      validMax = null;
+    }
+    if (validLongLived != null && validLongLived < 1) {
+      _droppedOverrides++;
+      validLongLived = null;
+    }
+    if (validMax == null && validLongLived == null) {
+      // All supplied axes invalid; preserve prior (axis-level no-op).
+      return;
+    }
+    // Merge: omitted / invalid axis preserves the prior entry's value.
+    final existing = _nameOverrides[name];
+    final mergedMax = validMax ?? existing?.maxConcurrent;
+    final mergedLongLived = validLongLived ?? existing?.longLivedSeconds;
+    if (mergedMax == null && mergedLongLived == null) {
+      // Invalid axes + no prior entry — nothing to store.
+      return;
+    }
+    if (existing == null && _nameOverrides.length >= _maxNameOverridesCap) {
+      _droppedOverrides++;
+      return;
+    }
+    _nameOverrides[name] = _NameOverride(
+      maxConcurrent: mergedMax,
+      longLivedSeconds: mergedLongLived,
+    );
   }
 
   /// Register [resource] under [name]. Repeated `(name, resource)`
@@ -282,7 +367,9 @@ class TrackedResourceDetector extends BaseDetector
   PerformanceIssue? _evaluateConcurrent(
       String name, _Bucket bucket, int nowMicros) {
     final liveCount = bucket.liveCount;
-    if (liveCount > _maxConcurrent) {
+    final overrideMax = _nameOverrides[name]?.maxConcurrent;
+    final effectiveMax = overrideMax ?? _maxConcurrent;
+    if (liveCount > effectiveMax) {
       bucket.concurrentFirstCrossMicros ??= nowMicros;
       // Move bucket to MRU on emission.
       _buckets.remove(name);
@@ -304,7 +391,7 @@ class TrackedResourceDetector extends BaseDetector
             '($liveCount live instances)',
         detail: 'Sleuth.track has $liveCount live instances of "$name" '
             '— the bucket is above the configured threshold of '
-            '$_maxConcurrent concurrent. The tracker holds only '
+            '$effectiveMax concurrent. The tracker holds only '
             'WeakReferences, so this is a confirmed retention by user '
             'code: each instance is reachable from somewhere outside '
             'the tracker. Audit the dispose / cancel paths for "$name".',
@@ -317,6 +404,8 @@ class TrackedResourceDetector extends BaseDetector
           'resourceName': name,
           'liveInstanceCount': liveCount.toString(),
           'detectedAtMicros': bucket.concurrentFirstCrossMicros!.toString(),
+          'effectiveMaxConcurrent': effectiveMax.toString(),
+          'thresholdSource': overrideMax != null ? 'override' : 'global',
         },
         confidenceReason:
             'User-registered Sleuth.track instances exceed concurrent threshold.',
@@ -329,7 +418,9 @@ class TrackedResourceDetector extends BaseDetector
 
   PerformanceIssue? _evaluateLongLived(
       String name, _Bucket bucket, int nowMicros) {
-    final thresholdMicros = _longLivedSeconds * 1000000;
+    final overrideLongLived = _nameOverrides[name]?.longLivedSeconds;
+    final effectiveLongLived = overrideLongLived ?? _longLivedSeconds;
+    final thresholdMicros = effectiveLongLived * 1000000;
     final oldest = bucket.oldestLiveMicros;
     if (oldest == null) {
       bucket.longLivedFirstCrossMicros = null;
@@ -356,7 +447,7 @@ class TrackedResourceDetector extends BaseDetector
       title: 'Tracked Resource Long-Lived: $name alive ${ageSeconds}s',
       detail: 'Sleuth.track instance of "$name" has been alive for '
           '$ageSeconds seconds — past the configured long-lived '
-          'threshold of $_longLivedSeconds seconds. Confirmed retention '
+          'threshold of $effectiveLongLived seconds. Confirmed retention '
           'via WeakReference + Finalizer: the GC has not reclaimed it, '
           'so something outside the tracker is holding it. If this is '
           'intentional (DI singleton, app-scope service), exclude '
@@ -370,6 +461,8 @@ class TrackedResourceDetector extends BaseDetector
         'resourceName': name,
         'oldestInstanceAgeSeconds': ageSeconds.toString(),
         'detectedAtMicros': bucket.longLivedFirstCrossMicros!.toString(),
+        'effectiveLongLivedSeconds': effectiveLongLived.toString(),
+        'thresholdSource': overrideLongLived != null ? 'override' : 'global',
       },
       confidenceReason:
           'User-registered Sleuth.track instance has not been finalised within long-lived threshold.',
@@ -383,6 +476,10 @@ class TrackedResourceDetector extends BaseDetector
     _dropBucketsAndDetachAllRefs(_buckets.values.toList(growable: false));
     _buckets.clear();
     _issues.clear();
+    // dispose() is terminal — drop overrides too. `isEnabled = false`
+    // (non-terminal) deliberately preserves overrides as configuration.
+    _nameOverrides.clear();
+    _droppedOverrides = 0;
   }
 
   @override
@@ -491,4 +588,14 @@ class _FinalizerToken {
 
   final String name;
   final int identityHash;
+}
+
+/// Per-name threshold override. Either field null = fall back to
+/// global default. Both null = no override (entry would be removed
+/// from the map).
+class _NameOverride {
+  _NameOverride({this.maxConcurrent, this.longLivedSeconds});
+
+  final int? maxConcurrent;
+  final int? longLivedSeconds;
 }
