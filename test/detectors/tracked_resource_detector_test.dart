@@ -64,6 +64,40 @@ void main() {
       expect(ids, contains('tracked_resource_long_lived:chat_socket'));
     });
 
+    test('long-lived re-emits each sweep: monotone age + fresh dedup identity',
+        () {
+      // Single instance so only the long-lived path fires. Each sweep above
+      // threshold must emit fresh `dedupIdentityMicros` + current age so
+      // captures see an ascending-age series, not a frozen first-cross value.
+      final keep = _Service(1);
+      detector.track('socket', keep);
+
+      fakeNow = fakeNow.add(const Duration(seconds: 310));
+      detector.evaluateNowForTest();
+      final first = detector.issues.firstWhere(
+          (i) => i.stableId == 'tracked_resource_long_lived:socket');
+      final firstAge =
+          int.parse(first.extraTraceArgs!['oldestInstanceAgeSeconds']!);
+      final firstDedup = first.dedupIdentityMicros!;
+
+      fakeNow = fakeNow.add(const Duration(seconds: 10));
+      detector.evaluateNowForTest();
+      final second = detector.issues.firstWhere(
+          (i) => i.stableId == 'tracked_resource_long_lived:socket');
+      final secondAge =
+          int.parse(second.extraTraceArgs!['oldestInstanceAgeSeconds']!);
+      final secondDedup = second.dedupIdentityMicros!;
+
+      expect(secondAge, greaterThan(firstAge));
+      expect(secondDedup, greaterThan(firstDedup));
+      expect(first.captureTraceStableId,
+          equals(TrackedResourceDetector.longLivedStableId));
+      expect(second.captureTraceStableId,
+          equals(TrackedResourceDetector.longLivedStableId));
+      // Parametric stableId for UI keying; bare family for bracket match.
+      expect(second.stableId, equals('tracked_resource_long_lived:socket'));
+    });
+
     test('dispose clears state + cancels sweep', () {
       detector.track('chat_socket', _Service(1));
       expect(detector.snapshotLiveCounts(), isNotEmpty);

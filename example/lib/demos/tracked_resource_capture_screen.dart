@@ -23,19 +23,39 @@ import 'package:sleuth/sleuth.dart';
 ///     wait for "tap Export now" → tap **Export last leg** → paste
 ///     from clipboard.
 ///
-/// Per-leg targets (allocate N `Object()`s, register each via
+/// Long-lived legs open `sleuth.scenario.begin` 10 s before flush, not
+/// at the start of the wait. The ref is registered before the wait so
+/// `firstSeenMicros` captures elapsed retention; the wait runs without
+/// a span open (no markers to roll off the VM ring buffer); 10 s before
+/// flush the span opens; sweep + flush emit inside the span. The 10 s
+/// span width keeps the schema's inverse-ratio guard
+/// (`expectedMagnitude.observed_micros / span_micros < 100×`) satisfied
+/// for the largest claimed observed value (600 s / 10 s = 60×).
+///
+/// Per-leg targets (register each ref via
 /// `Sleuth.trackResource('capture_tracked_resource', obj)`, hold in a
 /// strong-ref list):
 ///
+/// Concurrent (axis: `liveInstanceCount`):
 /// - **Below** (5): not > threshold, no emission.
 /// - **At** (8): in at-band [6, 9] (atTolerance 0.5).
 /// - **Above** (16): in above-band (9, 18] (aboveCeilingMultiplier 3.0).
 ///
-/// Synchronous allocation is load-bearing — yielding between refs lets
-/// the sweep timer fire at a partial count, locking
+/// Long-lived (axis: `oldestInstanceAgeSeconds`; real wait at the
+/// production 300 s threshold — total operator session ~20 min):
+/// - **Below** (wait 250 s): age 250 s, no emission.
+/// - **At** (wait 380 s): age 380 s, in at-band [300, 450].
+/// - **Above** (wait 600 s): age 600 s, in above-band (450, 900].
+///
+/// Detector re-emits each sweep while age > 300 s so the trace contains
+/// an ascending-age series; `observedAxisReduction: 'max'` picks the
+/// leg-end value.
+///
+/// Concurrent legs: synchronous allocation is load-bearing — yielding
+/// between refs lets the sweep timer fire at a partial count, locking
 /// `concurrentFirstCrossMicros` to a value the controller's composite-key
-/// dedup then uses to collapse later emissions. No `await` between
-/// `markScenarioBegin` and `flushConcurrentEvaluation()`.
+/// dedup uses to collapse later emissions. No `await` between
+/// `markScenarioBegin` and `flushConcurrentEvaluation()` for concurrent.
 const _kResourceName = 'capture_tracked_resource';
 
 class TrackedResourceCaptureScreen extends StatefulWidget {
@@ -46,14 +66,38 @@ class TrackedResourceCaptureScreen extends StatefulWidget {
       _TrackedResourceCaptureScreenState();
 }
 
-enum _Leg {
-  below('below', 5),
-  at('at', 8),
-  above('above', 16);
+enum _LegFamily { concurrent, longLived }
 
-  const _Leg(this.label, this.refCount);
+enum _Leg {
+  // Concurrent legs (axis: `liveInstanceCount`).
+  concurrentBelow('below', _LegFamily.concurrent, refCount: 5, ageSeconds: 0),
+  concurrentAt('at', _LegFamily.concurrent, refCount: 8, ageSeconds: 0),
+  concurrentAbove('above', _LegFamily.concurrent, refCount: 16, ageSeconds: 0),
+  // Long-lived legs (axis: `oldestInstanceAgeSeconds`). Single ref kept
+  // below `maxConcurrent` so concurrent does not fire ambient. Real wait
+  // at the production 300 s threshold; detector re-emits each sweep so
+  // the trace contains an ascending-age series ending at leg-end value
+  // — `observedAxisReduction: 'max'` picks the leg-end value naturally.
+  longLivedBelow('below', _LegFamily.longLived, refCount: 1, ageSeconds: 250),
+  longLivedAt('at', _LegFamily.longLived, refCount: 1, ageSeconds: 380),
+  longLivedAbove('above', _LegFamily.longLived, refCount: 1, ageSeconds: 600);
+
+  const _Leg(
+    this.label,
+    this.family, {
+    required this.refCount,
+    required this.ageSeconds,
+  });
   final String label;
+  final _LegFamily family;
   final int refCount;
+  final int ageSeconds;
+
+  String get scenarioFamily => family == _LegFamily.concurrent
+      ? 'tracked_resource_concurrent'
+      : 'tracked_resource_long_lived';
+  String get bracketUnit =>
+      family == _LegFamily.concurrent ? 'instances' : 'seconds';
 }
 
 class _TrackedResourceCaptureScreenState
@@ -61,6 +105,7 @@ class _TrackedResourceCaptureScreenState
   final List<String> _log = [];
   bool _busy = false;
   String? _lastCompletedLeg;
+  _LegFamily? _lastCompletedLegFamily;
   int? _legObservedPeak;
   String? _inFlightScenarioName;
   // Strong-ref list so GC cannot reclaim the workload mid-scenario.
@@ -86,8 +131,12 @@ class _TrackedResourceCaptureScreenState
       // missed-restore log line on shutdown.
       unawaited(Sleuth.resumeAllTimelineStreams());
     }
-    // Drop refs + bucket so the next route entry starts clean.
+    // Drop refs + bucket so the next route entry starts clean. Also
+    // clear any per-name threshold override the long-lived legs set —
+    // overrides survive `resetCaptureState` by v0.28.0 design and
+    // would otherwise persist for the rest of the app session.
     Sleuth.trackedResourceDetector?.untrackAll(_kResourceName);
+    Sleuth.setResourceThreshold(_kResourceName);
     _heldRefs.clear();
     super.dispose();
   }
@@ -108,6 +157,14 @@ class _TrackedResourceCaptureScreenState
         '[${leg.label}] pre-leg → untrackAll($_kResourceName), '
         'clear heldRefs (${_heldRefs.length})',
       );
+      if (leg.family == _LegFamily.longLived) {
+        _log.add(
+          '[${leg.label}] long-lived leg: register ref → wait '
+          '${leg.ageSeconds - 10} s pre-span → markScenarioBegin → wait '
+          '10 s inside span → flush. Span ~10 s keeps schema inverse-'
+          'ratio under 100× while ring buffer cannot roll markers off.',
+        );
+      }
     });
 
     final detector = Sleuth.trackedResourceDetector;
@@ -125,12 +182,16 @@ class _TrackedResourceCaptureScreenState
 
     // Drop prior-leg refs + bucket so this leg's first-cross identity
     // is unambiguously this leg's; clear strong refs so prior workload
-    // becomes collectible.
+    // becomes collectible. Also clear BOTH override axes so a stale
+    // `Sleuth.setResourceThreshold(...)` cannot leak `effectiveMaxConcurrent`
+    // or `effectiveLongLivedSeconds` into the captured trace event.
     detector.untrackAll(_kResourceName);
     _heldRefs.clear();
+    Sleuth.setResourceThreshold(_kResourceName);
 
-    final scenarioName = 'tracked_resource_concurrent_${leg.label}';
+    final scenarioName = '${leg.scenarioFamily}_${leg.label}';
     final messenger = ScaffoldMessenger.of(context);
+    final unitLabel = leg.bracketUnit;
 
     try {
       // Narrow VM streams BEFORE markScenarioBegin so Embedder/GC churn
@@ -138,21 +199,55 @@ class _TrackedResourceCaptureScreenState
       await Sleuth.suspendNonEssentialTimelineStreams();
       _streamsSuspended = true;
 
-      _inFlightScenarioName = scenarioName;
-      // markScenarioBegin propagates resetCaptureState across detectors.
-      Sleuth.markScenarioBegin(scenarioName);
-
-      // Synchronous allocate + register. Strong-refs keep the detector's
-      // WeakReference targets alive for the scenario span.
-      for (var i = 0; i < leg.refCount; i++) {
-        final obj = Object();
-        _heldRefs.add(obj);
-        Sleuth.trackResource(_kResourceName, obj);
+      // Long-lived legs: scenario span opens 10 s BEFORE flush so the
+      // span width is large enough to satisfy schema AB-1 inverse-ratio
+      // (`expectedMagnitude.observed × unit_micros / span_micros < 100×`).
+      // For 600 s observed, span ≥ 6 s; we pick 10 s for headroom and
+      // to keep span < 600 s so a long real-time wait does not fill the
+      // VM ring buffer before markers are emitted. The ref is
+      // registered BEFORE the wait so its `firstSeenMicros` captures
+      // the elapsed retention. Concurrent legs keep the synchronous
+      // workload/markBegin sequence because their workload is
+      // instantaneous.
+      const longLivedSpanLeadSeconds = 10;
+      if (leg.family == _LegFamily.longLived) {
+        for (var i = 0; i < leg.refCount; i++) {
+          final obj = Object();
+          _heldRefs.add(obj);
+          Sleuth.trackResource(_kResourceName, obj);
+        }
+        // Wait most of the leg's target age WITHOUT a span open.
+        final preSpanWait = leg.ageSeconds - longLivedSpanLeadSeconds;
+        if (preSpanWait > 0) {
+          await Future<void>.delayed(Duration(seconds: preSpanWait));
+        }
+        _inFlightScenarioName = scenarioName;
+        Sleuth.markScenarioBegin(scenarioName);
+        // Then wait the rest INSIDE the span so the periodic sweep can
+        // emit + the JSON observed-vs-span ratio stays under 100×.
+        await Future<void>.delayed(Duration(seconds: longLivedSpanLeadSeconds));
+      } else {
+        _inFlightScenarioName = scenarioName;
+        Sleuth.markScenarioBegin(scenarioName);
+        // Synchronous allocate + register inside span (concurrent).
+        for (var i = 0; i < leg.refCount; i++) {
+          final obj = Object();
+          _heldRefs.add(obj);
+          Sleuth.trackResource(_kResourceName, obj);
+        }
       }
 
-      // Bypass the 10 s sweep timer; emit synchronously so the in-span
-      // trace record carries the full workload count.
+      // Bypass the 10 s sweep timer; emit synchronously inside the new
+      // (short) scenario span.
       detector.flushConcurrentEvaluation();
+
+      // Read peak IMMEDIATELY after flush — before the post-frame yield
+      // gives the periodic sweep timer a window to fire and overwrite.
+      // Name-scoped getter avoids contamination from ambient buckets in
+      // another part of the app.
+      final observed = leg.family == _LegFamily.concurrent
+          ? detector.peakObservedLiveCountFor(_kResourceName)
+          : detector.peakObservedAgeSecondsFor(_kResourceName);
 
       // Yield 3 frames so the controller's post-frame scan tick fires +
       // _recordIssuesForCapture stamps the trace event inside the span.
@@ -162,11 +257,6 @@ class _TrackedResourceCaptureScreenState
 
       await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
 
-      // Name-scoped peak — aggregate `peakObservedLiveCount` would track
-      // an unrelated bucket if another `Sleuth.trackResource(...)`
-      // registration is active in the app session.
-      final observed = detector.peakObservedLiveCountFor(_kResourceName);
-
       _endScenarioOnce(scenarioName);
       // Drain so VM trace buffer settles before exportCaptureJson reads.
       await Future<void>.delayed(const Duration(milliseconds: 600));
@@ -175,16 +265,18 @@ class _TrackedResourceCaptureScreenState
       setState(() {
         _busy = false;
         _lastCompletedLeg = leg.label;
+        _lastCompletedLegFamily = leg.family;
         _legObservedPeak = observed;
         _log.add(
-          '[${leg.label}] scenario.end (peak: $observed live instances) '
-          '— tap "Export last leg" to write the wrapped capture.',
+          '[${leg.scenarioFamily}/${leg.label}] scenario.end '
+          '(peak: $observed $unitLabel) — tap "Export last leg".',
         );
       });
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            '${leg.label} OK (peak $observed instances). Tap Export now.',
+            '${leg.scenarioFamily}/${leg.label} OK '
+            '(peak $observed $unitLabel). Tap Export now.',
           ),
           duration: const Duration(seconds: 4),
         ),
@@ -215,9 +307,10 @@ class _TrackedResourceCaptureScreenState
 
   Future<void> _exportLastLeg() async {
     final leg = _lastCompletedLeg;
+    final family = _lastCompletedLegFamily;
     final observed = _legObservedPeak;
     final messenger = ScaffoldMessenger.of(context);
-    if (leg == null || observed == null) {
+    if (leg == null || family == null || observed == null) {
       setState(() {
         _log.add(
           'Export: no completed leg yet. Tap a leg button and wait '
@@ -232,11 +325,14 @@ class _TrackedResourceCaptureScreenState
       _log.add('[$leg] Export: composing wrapped capture JSON…');
     });
 
-    final scenarioName = 'tracked_resource_concurrent_$leg';
-    // ±1 absorbs any single-instance jitter between detector
-    // measurement and exportCaptureJson read; observed is the
-    // load-bearing value the audit gate cross-checks via
-    // `extraTraceArgs.liveInstanceCount`.
+    final scenarioFamily = family == _LegFamily.concurrent
+        ? 'tracked_resource_concurrent'
+        : 'tracked_resource_long_lived';
+    final scenarioName = '${scenarioFamily}_$leg';
+    final unitLabel = family == _LegFamily.concurrent ? 'instances' : 'seconds';
+    // ±1 unit absorbs single-step jitter between detector measurement
+    // and exportCaptureJson read; observed is load-bearing — bracket
+    // gate cross-checks via the family's observedAxisArgKey.
     final magnitudeMin = (observed - 1).clamp(0, 1 << 30);
     final magnitudeMax = observed + 1;
 
@@ -248,18 +344,18 @@ class _TrackedResourceCaptureScreenState
         magnitudeMin: magnitudeMin,
         magnitudeObserved: observed,
         magnitudeMax: magnitudeMax,
-        unit: 'instances',
+        unit: unitLabel,
         device: 'iPhone 12',
         deviceOsVersion: 'iOS 17.5',
         flutterVersion: '3.41.4',
         captureCommand:
             'fvm flutter run --profile -d "iPhone 12" '
             '--dart-define=SLEUTH_CAPTURE_MODE=true',
-        // Magnitude is the detector's peakObservedLiveCount getter
-        // value — no matching named timeline event the schema can
-        // derive from. Empty string skips event-derivation.
+        // Magnitude is the detector's per-name peak getter value — no
+        // matching named timeline event the schema can derive from.
+        // Empty string skips event-derivation.
         magnitudeSourceEventName: '',
-        bracketStableId: 'tracked_resource_concurrent',
+        bracketStableId: scenarioFamily,
         bracketSeverityLabel: 'warning',
       );
     } catch (e) {
@@ -297,7 +393,7 @@ class _TrackedResourceCaptureScreenState
         _log.add(
           '[$leg] Paste into Notes / Mail / AirDrop → send to Mac. '
           'Save as $leg.json under '
-          'test/validation/captures/tracked_resource_concurrent/.',
+          'test/validation/captures/$scenarioFamily/.',
         );
       });
       messenger.showSnackBar(
@@ -327,49 +423,127 @@ class _TrackedResourceCaptureScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'tracked_resource_concurrent WARNING tier (live count > '
-                'maxConcurrent=5). Each leg synchronously allocates + '
-                'registers N Object() instances and holds them in a '
-                'strong-ref list. The bracket trace event uses the bare '
-                'family stableId (`tracked_resource_concurrent`); UI '
-                'cards retain the parametric `:<name>` suffix.',
-                style: TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 16),
-              _LegButton(
-                label: 'Below (5 instances) — passes',
-                subtitle: 'Sub-threshold; peakObservedLiveCount = 5',
-                enabled: !_busy,
-                onTap: () => _runLeg(_Leg.below),
-              ),
-              const SizedBox(height: 8),
-              _LegButton(
-                label: 'At (8 instances) — warning',
-                subtitle: 'In at-band [6, 9] (atTolerance 0.5)',
-                enabled: !_busy,
-                onTap: () => _runLeg(_Leg.at),
-              ),
-              const SizedBox(height: 8),
-              _LegButton(
-                label: 'Above (16 instances) — warning',
-                subtitle:
-                    'In above-band (9, 18] '
-                    '(aboveCeilingMultiplier 3.0)',
-                enabled: !_busy,
-                onTap: () => _runLeg(_Leg.above),
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _busy ? null : _exportLastLeg,
-                icon: const Icon(Icons.save_alt),
-                label: const Text('Export last leg'),
+              // Scrollable top — six leg buttons + export button overflow
+              // shorter viewports otherwise. Log stays fixed-height at the
+              // bottom so failure reasons are always visible.
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'tracked_resource_concurrent (axis: liveInstanceCount)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _LegButton(
+                        label: 'Below (5 instances) — passes',
+                        subtitle: 'Sub-threshold; peakObservedLiveCount = 5',
+                        enabled: !_busy,
+                        onTap: () => _runLeg(_Leg.concurrentBelow),
+                      ),
+                      const SizedBox(height: 8),
+                      _LegButton(
+                        label: 'At (8 instances) — warning',
+                        subtitle: 'In at-band [6, 9] (atTolerance 0.5)',
+                        enabled: !_busy,
+                        onTap: () => _runLeg(_Leg.concurrentAt),
+                      ),
+                      const SizedBox(height: 8),
+                      _LegButton(
+                        label: 'Above (16 instances) — warning',
+                        subtitle:
+                            'In above-band (9, 18] '
+                            '(aboveCeilingMultiplier 3.0)',
+                        enabled: !_busy,
+                        onTap: () => _runLeg(_Leg.concurrentAbove),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'tracked_resource_long_lived (axis: '
+                        'oldestInstanceAgeSeconds; real wait at 300 s)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _LegButton(
+                        label: 'Below (wait 250 s ≈ 4 min) — passes',
+                        subtitle: 'Sub-threshold; no emission',
+                        enabled: !_busy,
+                        onTap: () => _runLeg(_Leg.longLivedBelow),
+                      ),
+                      const SizedBox(height: 8),
+                      _LegButton(
+                        label: 'At (wait 380 s ≈ 6 min) — warning',
+                        subtitle: 'In at-band [300, 450] (atTolerance 0.5)',
+                        enabled: !_busy,
+                        onTap: () => _runLeg(_Leg.longLivedAt),
+                      ),
+                      const SizedBox(height: 8),
+                      _LegButton(
+                        label: 'Above (wait 600 s = 10 min) — warning',
+                        subtitle:
+                            'In above-band (450, 900] '
+                            '(aboveCeilingMultiplier 3.0)',
+                        enabled: !_busy,
+                        onTap: () => _runLeg(_Leg.longLivedAbove),
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        onPressed: _busy ? null : _exportLastLeg,
+                        icon: const Icon(Icons.save_alt),
+                        label: const Text('Export last leg'),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               const Divider(),
-              const SizedBox(height: 8),
-              const Text('Log', style: TextStyle(fontWeight: FontWeight.w700)),
               const SizedBox(height: 4),
-              Expanded(
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Log',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  if (_log.isNotEmpty)
+                    Builder(
+                      builder: (innerContext) {
+                        return TextButton.icon(
+                          onPressed: () async {
+                            final messenger = ScaffoldMessenger.of(
+                              innerContext,
+                            );
+                            await Clipboard.setData(
+                              ClipboardData(text: _log.reversed.join('\n')),
+                            );
+                            if (!mounted) return;
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                content: Text('Log copied to clipboard.'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.copy, size: 14),
+                          label: const Text(
+                            'Copy log',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                height: 180,
                 child: ListView.builder(
                   reverse: true,
                   itemCount: _log.length,

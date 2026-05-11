@@ -97,6 +97,13 @@ class TrackedResourceDetector extends BaseDetector
   /// Per-name monotonic peak since the last [resetCaptureState].
   final Map<String, int> _peakObservedLiveCountByName = {};
 
+  /// Per-name last-observed long-lived age (seconds) from the most
+  /// recent `_sweep()`.
+  final Map<String, int> _lastObservedAgeSecondsByName = {};
+
+  /// Per-name monotonic peak age since the last [resetCaptureState].
+  final Map<String, int> _peakObservedAgeSecondsByName = {};
+
   /// Aggregate last-observed peak across every bucket. Broader than the
   /// capture-procedure scope — use [lastObservedLiveCountFor] inside a
   /// capture screen.
@@ -126,6 +133,20 @@ class TrackedResourceDetector extends BaseDetector
   /// exported magnitude matches the scenario's intended bucket.
   int peakObservedLiveCountFor(String name) =>
       _peakObservedLiveCountByName[name] ?? 0;
+
+  /// Last-observed oldest-instance age (seconds) for [name] from the
+  /// most recent `_sweep()`. Real elapsed time since the bucket's
+  /// oldest live ref was registered.
+  int lastObservedAgeSecondsFor(String name) =>
+      _lastObservedAgeSecondsByName[name] ?? 0;
+
+  /// Monotonic high-water mark of [lastObservedAgeSecondsFor] since the
+  /// last [resetCaptureState]. The long-lived bracket validator's
+  /// `'max'` axis reduction cross-checks `expectedMagnitude.observed`
+  /// against this value; capture screens read the name-scoped value so
+  /// the exported magnitude matches the scenario's intended bucket.
+  int peakObservedAgeSecondsFor(String name) =>
+      _peakObservedAgeSecondsByName[name] ?? 0;
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -321,6 +342,8 @@ class TrackedResourceDetector extends BaseDetector
     _buckets.remove(name);
     _lastObservedLiveCountByName.remove(name);
     _peakObservedLiveCountByName.remove(name);
+    _lastObservedAgeSecondsByName.remove(name);
+    _peakObservedAgeSecondsByName.remove(name);
   }
 
   /// Synchronous sweep — prunes finalised refs, evaluates emission state,
@@ -342,6 +365,8 @@ class TrackedResourceDetector extends BaseDetector
   void resetCaptureState() {
     _lastObservedLiveCountByName.clear();
     _peakObservedLiveCountByName.clear();
+    _lastObservedAgeSecondsByName.clear();
+    _peakObservedAgeSecondsByName.clear();
     _issues.clear();
     for (final bucket in _buckets.values) {
       bucket.concurrentFirstCrossMicros = null;
@@ -427,6 +452,7 @@ class TrackedResourceDetector extends BaseDetector
       if (bucket.isEmpty) {
         emptyKeys.add(name);
         _lastObservedLiveCountByName[name] = 0;
+        _lastObservedAgeSecondsByName[name] = 0;
         continue;
       }
       final liveCount = bucket.liveCount;
@@ -434,6 +460,15 @@ class TrackedResourceDetector extends BaseDetector
       final priorPeak = _peakObservedLiveCountByName[name] ?? 0;
       if (liveCount > priorPeak) {
         _peakObservedLiveCountByName[name] = liveCount;
+      }
+      final oldest = bucket.oldestLiveMicros;
+      final ageSeconds = oldest == null
+          ? 0
+          : ((nowMicros - oldest) ~/ 1000000).clamp(0, 1 << 31);
+      _lastObservedAgeSecondsByName[name] = ageSeconds;
+      final priorAgePeak = _peakObservedAgeSecondsByName[name] ?? 0;
+      if (ageSeconds > priorAgePeak) {
+        _peakObservedAgeSecondsByName[name] = ageSeconds;
       }
       final concurrentIssue = _evaluateConcurrent(name, bucket, nowMicros);
       if (concurrentIssue != null) newIssues.add(concurrentIssue);
@@ -516,7 +551,10 @@ class TrackedResourceDetector extends BaseDetector
       bucket.longLivedFirstCrossMicros = null;
       return null;
     }
-    bucket.longLivedFirstCrossMicros ??= nowMicros;
+    // Overwrite each sweep so an overshoot emits with the current age. Age
+    // is monotone — dedup-by-first-cross would freeze the trace far below
+    // the real value. Concurrent uses `??=` because liveCount fluctuates.
+    bucket.longLivedFirstCrossMicros = nowMicros;
     _buckets.remove(name);
     _buckets[name] = bucket;
     final ageSeconds = ageMicros ~/ 1000000;
@@ -526,11 +564,9 @@ class TrackedResourceDetector extends BaseDetector
     );
     return PerformanceIssue(
       stableId: '$longLivedStableId:$name',
-      // No `captureTraceStableId` — family is reproducerOnly. Routing
-      // through the bare family in capture mode would land unclaimed
-      // `sleuth.issue.tracked_resource_long_lived.warning` events the
-      // audit cannot validate. Add the override when the family gains
-      // its own bracket.
+      // Bare family for the capture trace event so the bracket
+      // validator's byte-exact filter matches every parametric member.
+      captureTraceStableId: longLivedStableId,
       severity: IssueSeverity.warning,
       category: IssueCategory.memory,
       confidence: IssueConfidence.confirmed,
@@ -598,10 +634,18 @@ class TrackedResourceDetector extends BaseDetector
             '(ceiling 18). `PerformanceIssue.captureTraceStableId` routes '
             'parametric `tracked_resource_concurrent:<name>` emissions to '
             'the bare family so the bracket validator matches every '
-            'member. `requireUniqueDetectedAtMicros: true`. Long-lived '
-            'stays reproducerOnly — 300 s threshold exceeds the scenario '
-            'window; long-lived emissions deliberately omit '
-            '`captureTraceStableId`.',
+            'member. `requireUniqueDetectedAtMicros: true`.\n'
+            '\n'
+            '`tracked_resource_long_lived.warning` is runtimeVerified via '
+            '`additionalBrackets[0]` (separate axis: '
+            '`oldestInstanceAgeSeconds`, unit `seconds`). Three iPhone 12 / '
+            'iOS 17.5 / Flutter 3.41.4 captures recorded with real waits '
+            'past the default 300 s threshold. atTolerance 0.5 '
+            '(at-band [300, 450]); aboveCeilingMultiplier 3.0 (ceiling '
+            '900). Detector re-emits each sweep while age > threshold so '
+            'the trace contains an ascending-age series ending at the '
+            'leg-end value; observedAxisReduction `max` picks the leg-end '
+            'value naturally. `requireUniqueDetectedAtMicros: true`.',
         reproducerPath: 'test/validation/tracked_resource_reproducer_test.dart',
         coveredStableIds: {
           concurrentStableId,
@@ -612,6 +656,7 @@ class TrackedResourceDetector extends BaseDetector
         },
         perStableIdTier: {
           concurrentStableId: EvidenceTier.runtimeVerified,
+          longLivedStableId: EvidenceTier.runtimeVerified,
         },
         profileCapturePaths: [
           'test/validation/captures/tracked_resource_concurrent/below.json',
@@ -626,6 +671,25 @@ class TrackedResourceDetector extends BaseDetector
         aboveCeilingMultiplier: 3.0,
         observedAxisArgKey: 'liveInstanceCount',
         bracketRequireUniqueDetectedAtMicros: true,
+        additionalBrackets: [
+          BracketSpec(
+            stableId: longLivedStableId,
+            severityLabel: 'warning',
+            threshold: 300,
+            unit: 'seconds',
+            coveredThresholds: {'tracked_resource_long_lived.warning'},
+            profileCapturePaths: [
+              'test/validation/captures/tracked_resource_long_lived/below.json',
+              'test/validation/captures/tracked_resource_long_lived/at.json',
+              'test/validation/captures/tracked_resource_long_lived/above.json',
+            ],
+            atTolerance: 0.5,
+            aboveCeilingMultiplier: 3.0,
+            observedAxisArgKey: 'oldestInstanceAgeSeconds',
+            requireUniqueDetectedAtMicros: true,
+            requireDetectorTraceRecord: true,
+          ),
+        ],
       );
 }
 

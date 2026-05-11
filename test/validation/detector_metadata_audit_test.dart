@@ -1379,14 +1379,15 @@ void main() {
     });
 
     test(
-        'TrackedResourceDetector pinned at runtimeVerified for '
-        'tracked_resource_concurrent', () {
-      // Base reproducerOnly + perStableIdTier raise on
-      // `tracked_resource_concurrent.warning`. Long-lived stays
-      // reproducerOnly. Bracket threshold 6 (smallest count > default
-      // `maxConcurrent` 5), atTolerance 0.5, aboveCeilingMultiplier 3.0.
-      // Parametric emission routes through `captureTraceStableId` so
-      // the bracket validator's byte-exact filter matches.
+        'TrackedResourceDetector pinned at runtimeVerified for both '
+        'concurrent + long_lived', () {
+      // Base reproducerOnly + perStableIdTier raises on BOTH families.
+      // Concurrent canonical bracket: threshold 6 (smallest count >
+      // default `maxConcurrent` 5), atTolerance 0.5, aboveCeilingMultiplier
+      // 3.0. Long-lived `additionalBrackets[0]`: threshold 300 s on
+      // `oldestInstanceAgeSeconds` axis, real-wait captures past the
+      // production default. Detector re-emits each sweep while age >
+      // threshold so the trace contains an ascending-age series.
       final BaseDetector? tr = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.trackedResource)
           .cast<BaseDetector?>()
@@ -1395,8 +1396,8 @@ void main() {
       expect(tr, isA<DetectorMetadataProvider>());
       final meta = (tr as DetectorMetadataProvider).validationMetadata;
       expect(meta.tier, EvidenceTier.reproducerOnly,
-          reason: 'Base tier stays reproducerOnly; concurrent family '
-              'lifted via perStableIdTier so long_lived stays at base.');
+          reason: 'Base tier stays reproducerOnly; both families lifted '
+              'via perStableIdTier + additionalBrackets.');
       expect(meta.effectiveMaxTier, EvidenceTier.runtimeVerified);
       expect(meta.reproducerPath,
           equals('test/validation/tracked_resource_reproducer_test.dart'));
@@ -1429,9 +1430,30 @@ void main() {
           meta.perStableIdTier,
           equals(const {
             'tracked_resource_concurrent': EvidenceTier.runtimeVerified,
-          }),
-          reason: 'long-lived family stays reproducerOnly');
-      expect(meta.additionalBrackets, isNull);
+            'tracked_resource_long_lived': EvidenceTier.runtimeVerified,
+          }));
+      expect(meta.additionalBrackets, isNotNull);
+      expect(meta.additionalBrackets!.length, equals(1));
+      final longLivedSpec = meta.additionalBrackets!.first;
+      expect(longLivedSpec.stableId, equals('tracked_resource_long_lived'));
+      expect(longLivedSpec.severityLabel, equals('warning'));
+      expect(longLivedSpec.threshold, equals(300));
+      expect(longLivedSpec.unit, equals('seconds'));
+      expect(longLivedSpec.atTolerance, equals(0.5));
+      expect(longLivedSpec.aboveCeilingMultiplier, equals(3.0));
+      expect(
+          longLivedSpec.observedAxisArgKey, equals('oldestInstanceAgeSeconds'));
+      expect(longLivedSpec.coveredThresholds,
+          equals(const {'tracked_resource_long_lived.warning'}));
+      expect(
+          longLivedSpec.profileCapturePaths,
+          equals(const [
+            'test/validation/captures/tracked_resource_long_lived/below.json',
+            'test/validation/captures/tracked_resource_long_lived/at.json',
+            'test/validation/captures/tracked_resource_long_lived/above.json',
+          ]));
+      expect(longLivedSpec.requireUniqueDetectedAtMicros, isTrue);
+      expect(longLivedSpec.requireDetectorTraceRecord, isTrue);
     });
 
     test('PlatformChannelDetector pinned at runtimeVerified (v0.19.4)', () {
