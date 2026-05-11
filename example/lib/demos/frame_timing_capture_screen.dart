@@ -110,14 +110,14 @@ class FrameTimingCaptureScreen extends StatefulWidget {
 // Detector emits at rounded jankPercent > 15 (strict). First reachable
 // observed value is 16 (37/240 rounds to 15 → no fire; 38/240 rounds to
 // 16 → fires). bracketThreshold = 16 aligns audit contract with detector
-// reality (off-by-one fix per N6).
+// reality.
 const _bracketThresholdPercent = 16;
 
 // Percent-axis bracket bands. Denominator-independent — robust to buffer
 // underfill. bracketAtTolerance: 0.50 → at-band [16, 24].
 // aboveCeilingMultiplier: 1.85 → above-band (24, 29.6]. All bands stay
-// well under the implicit `severeCount >= 3` critical co-fire (Option B
-// permits parallel emission so co-fire is benign for the bracket axis).
+// well under the implicit `severeCount >= 3` critical co-fire. Parallel
+// emission of both stableIds keeps the co-fire benign for the bracket axis.
 //   below band [0, 12]   → target 5%  (deep silence; detector silent)
 //   at    band [16, 24]  → target 20% (mid-band — ±20 % stays in band)
 //   above band [25, 29]  → target 27% (mid-band — ±7 % stays in band)
@@ -135,8 +135,8 @@ const _aboveTargetJankPercent = 27;
 // severe (33ms) by a thin margin; cooler devices may drift over. If the
 // validator rejects with "severe co-fire" persistently, consider a
 // shorter spin or accept that calibrated above-leg can occasionally
-// trigger sustained_jank.critical co-fire (Option B parallel emission
-// keeps that benign for the bracket axis).
+// trigger sustained_jank.critical co-fire (parallel emission keeps
+// that benign for the bracket axis).
 const _spinPerFrameMs = 18;
 
 // Scenario span. At 60 Hz the buffer holds 240 frames. Rate-based spin
@@ -506,8 +506,8 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
     // is non-monotone — early small-sample-size ratios can spike high,
     // settle lower as buffer fills, then drift down on eviction. MAX
     // would pick the early transient; LAST picks the post-settle steady
-    // state. Mirrors the planned `observedAxisReduction: 'last'`
-    // schema-side selection. Also tracks bufferSize on the selected
+    // state. Mirrors the `observedAxisReduction: 'last'` schema-side
+    // selection. Also tracks bufferSize on the selected
     // record for the freshness invariant.
     var jankWarningCount = 0;
     int lastJankTs = -1;
@@ -544,9 +544,9 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
       }
     }
 
-    // Sustained_jank.critical co-fire is BENIGN under Option B parallel-
-    // emission semantics — both stableIds report on the same frames; the
-    // bracket axis (jank_detected.warning) is independent. Helper does
+    // Sustained_jank.critical co-fire is BENIGN under parallel-emission
+    // semantics — both stableIds report on the same frames; the bracket
+    // axis (jank_detected.warning) is independent. Helper does
     // NOT reject on co-fire (audit pipeline doesn't enforce mutual
     // exclusion either).
 
@@ -669,7 +669,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
               'observed value is 16). Bracket bands: at [16, 24], '
               'above (24, 29.6]. Sustained_jank.critical may co-fire on '
               'noisy devices — that is benign for this bracket axis under '
-              'Option B parallel-emission semantics. See class docstring + '
+              'parallel-emission semantics. See class docstring + '
               'doc/capture_procedure.md for full protocol.',
               style: TextStyle(fontSize: 13),
             ),

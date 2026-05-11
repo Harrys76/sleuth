@@ -116,10 +116,9 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   ///
   /// Kept for callers that want an explicit frame-based floor. Default is 0
   /// (disabled) — the refresh-rate-independent [warmupDuration] gate is the
-  /// primary warmup mechanism as of v0.16.0. See v0.16.0 C1 fix: the old
-  /// default of 180 frames meant warmup ended in 1.5 s on 120 Hz displays,
-  /// which misattributed startup jank as real jank on every iPad Pro /
-  /// Pixel 8 Pro session.
+  /// primary warmup mechanism. A fixed frame count ends warmup faster on
+  /// 120 Hz displays than on 60 Hz, misattributing startup jank as real
+  /// jank on high-refresh devices.
   final int warmupFrameCount;
 
   /// Wall-clock gate suppressing jank evaluation during app warmup
