@@ -1,3 +1,10 @@
+## 0.30.1
+
+pub.dev README polish — no detector or distribution change.
+
+- `doc/logo.png` now ships in the published archive (`.pubignore` whitelist) so the README hero image renders on pub.dev instead of falling back to the alt text.
+- Tests-passing badge refreshed to the current count (3,001).
+
 ## 0.30.0
 
 `TrackedResourceDetector.tracked_resource_long_lived.warning` raised to runtimeVerified via `additionalBrackets[0]`. Distribution: 15/20 effective runtimeVerified family-severity pairs across 12 unique stableIds.
