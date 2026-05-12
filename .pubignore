@@ -5,7 +5,9 @@ example/.fvm/
 example/web/
 example/linux/
 example/windows/
-doc/
+doc/*
+!doc/screenshots/
 test/validation/captures/**/*.json
 *.iml
 CLAUDE.md
+CHANGELOG.archive.md
