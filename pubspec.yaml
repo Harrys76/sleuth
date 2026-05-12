@@ -14,10 +14,13 @@ platforms:
   android:
   ios:
 
-# Uncomment after adding a screenshot image:
-# screenshots:
-#   - description: 'Sleuth overlay showing live FPS chart and detected performance issues'
-#     path: doc/screenshots/overlay.png
+screenshots:
+  - description: 'Sleuth — in-app performance diagnostics overlay for Flutter.'
+    path: doc/screenshots/cover.png
+  - description: 'Live issue list (dark theme): jank, rebuilds, memory, network, GPU, structural anti-patterns — each with a fix hint.'
+    path: doc/screenshots/overlay-dark.png
+  - description: 'Same overlay in light theme — auto-detects the host app theme.'
+    path: doc/screenshots/overlay-light.png
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
@@ -36,9 +39,7 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   fake_async: any
   crypto: any
-  # Bundle I (AGR-3 + R3-NEW-2): the shared audit-invariant helpers use
-  # `package:analyzer` to parse reproducer test files at AST level, so a
-  # string literal like `'uses XyzDetector'` or `'test("fake")'` can no
-  # longer masquerade as a real token reference / real `test(...)` call.
-  # Dev-only dependency — not re-exported via the public barrel.
+  # Audit-invariant helpers parse reproducer test files via `package:analyzer`
+  # AST so string literals can't masquerade as real token / `test(...)` calls.
+  # Dev-only — not re-exported via the public barrel.
   analyzer: ^6.0.0

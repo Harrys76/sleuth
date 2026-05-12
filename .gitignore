@@ -36,3 +36,5 @@ migrate_working_dir/
 # Local workflow artifacts (per-developer, not shared)
 .advanced-adversarial-review/
 .local-tools/
+# Local agent scheduling state
+.claude/scheduled_tasks.lock
