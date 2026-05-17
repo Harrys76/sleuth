@@ -48,9 +48,10 @@ void main() {
       await process.stdin.flush();
       final listResp = jsonDecode(await responses.next) as Map<String, Object?>;
       final tools = (listResp['result'] as Map)['tools'] as List;
-      expect(tools, hasLength(8));
+      expect(tools, hasLength(13));
       final names = tools.map((t) => (t as Map)['name']).toSet();
       expect(names, {
+        // diagnostic tools
         'connect',
         'get_snapshot',
         'get_issues',
@@ -59,6 +60,12 @@ void main() {
         'compare_snapshots',
         'check_budgets',
         'diagnose',
+        // attach-mode lifecycle tools
+        'attach_app',
+        'detach_app',
+        'app_status',
+        'list_devices',
+        'hot_reload',
       });
 
       await process.stdin.close();

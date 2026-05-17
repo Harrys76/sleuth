@@ -32,6 +32,20 @@ abstract class VmBridge {
   /// second round-trip.
   Map<String, Object?>? get lastDiagnoseEnvelope;
 
+  /// Re-fetches `ext.sleuth.diagnose` without disposing the service.
+  /// Updates the last-diagnose envelope and bumps `baselineGeneration`.
+  ///
+  /// Throws [SessionChangedException] on sessionUuid rotation unless
+  /// [acceptSessionRotation] is true. Callers that orchestrated the
+  /// rotation (hot-restart) opt in; everyone else gets the safety net
+  /// that `callExtension` relies on.
+  Future<void> refreshBaseline({bool acceptSessionRotation = false});
+
+  /// Monotonic counter incremented on every successful baseline update
+  /// (connect or refreshBaseline). Resources key their caches on this
+  /// to drop stale envelopes after a hot-restart.
+  int get baselineGeneration;
+
   bool get isConnected;
 
   Future<void> disconnect();
@@ -84,6 +98,7 @@ class RealVmBridge implements VmBridge {
   String? _baselineSessionUuid;
   Map<String, Object?>? _lastDiagnoseEnvelope;
   Uri? _wsUri;
+  int _baselineGeneration = 0;
   final Lock _connectLock = Lock();
   Future<void>? _reconnectInFlight;
 
@@ -92,6 +107,9 @@ class RealVmBridge implements VmBridge {
 
   @override
   Map<String, Object?>? get lastDiagnoseEnvelope => _lastDiagnoseEnvelope;
+
+  @override
+  int get baselineGeneration => _baselineGeneration;
 
   @override
   bool get isConnected => _service != null && _mainIsolateId != null;
@@ -133,10 +151,22 @@ class RealVmBridge implements VmBridge {
     } catch (e) {
       throw VmBridgeException('failed to connect: $e');
     }
-    final vmInfo = await _service!.getVM();
-    final isolates = vmInfo.isolates ?? <vm.IsolateRef>[];
+    // Post-hot-restart, flutter daemon may ACK `app.restart` before the
+    // new main isolate finishes registering. Retry until isolate appears
+    // or the budget expires (Android emulator full-restart can take >5s).
+    // Caller's responsibility to pass a LIVE wsUri — if the underlying
+    // VM service has rotated to a new port, retrying against the stale
+    // URI returns empty isolates indefinitely.
+    List<vm.IsolateRef> isolates = const <vm.IsolateRef>[];
+    for (var attempt = 0; attempt < 80; attempt++) {
+      final vmInfo = await _service!.getVM();
+      isolates = vmInfo.isolates ?? <vm.IsolateRef>[];
+      if (isolates.isNotEmpty) break;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
     if (isolates.isEmpty) {
-      throw VmBridgeException('no isolates on target VM service');
+      throw VmBridgeException(
+          'no isolates on target VM service after 20s wait');
     }
     final override = _targetIsolateIdOverride;
     if (override != null) {
@@ -157,7 +187,37 @@ class RealVmBridge implements VmBridge {
     }
     _baselineSessionUuid = uuid;
     _lastDiagnoseEnvelope = diag;
+    _baselineGeneration++;
     return true;
+  }
+
+  @override
+  Future<void> refreshBaseline({bool acceptSessionRotation = false}) {
+    return _connectLock.synchronized(
+      () => _refreshBaselineUnlocked(acceptSessionRotation),
+    );
+  }
+
+  Future<void> _refreshBaselineUnlocked(bool acceptSessionRotation) async {
+    if (_service == null || _mainIsolateId == null) {
+      throw VmBridgeException('cannot refresh — bridge disconnected');
+    }
+    final diag = await _callExtensionRaw('ext.sleuth.diagnose');
+    final uuid = diag['sessionUuid'];
+    if (uuid is! String) {
+      throw VmBridgeException(
+        'ext.sleuth.diagnose returned no sessionUuid on refresh',
+      );
+    }
+    final prior = _baselineSessionUuid;
+    if (!acceptSessionRotation && prior != null && uuid != prior) {
+      // Caller did not opt into rotation — surface so callExtension's
+      // hot-restart detection contract holds.
+      throw SessionChangedException(baseline: prior, current: uuid);
+    }
+    _baselineSessionUuid = uuid;
+    _lastDiagnoseEnvelope = diag;
+    _baselineGeneration++;
   }
 
   @override
@@ -230,6 +290,16 @@ class RealVmBridge implements VmBridge {
       if (msg.startsWith('Service connection disposed')) {
         throw _TransportClosed('$method against disposed service');
       }
+      // Method-not-found on ext.sleuth.diagnose means the app didn't call
+      // `Sleuth.track()`. Surface a clear actionable error rather than the
+      // raw RPC message.
+      if (e.code == vm.RPCErrorKind.kMethodNotFound.code &&
+          method == 'ext.sleuth.diagnose') {
+        throw VmBridgeException(
+          'Sleuth package not initialized in target app — '
+          'ensure Sleuth.track() is called in main()',
+        );
+      }
       throw VmBridgeException('$method rejected: $msg (code ${e.code})');
     } on vm.SentinelException catch (e) {
       throw VmBridgeException('$method against expired isolate: $e');
@@ -280,6 +350,7 @@ class FakeVmBridge implements VmBridge {
   final String fakeSessionUuid;
   final Map<String, Map<String, Object?>> _envelopes;
   String _baseline;
+  int _baselineGeneration = 0;
   bool _connected = false;
   bool _sessionDrifted = false;
 
@@ -302,12 +373,24 @@ class FakeVmBridge implements VmBridge {
       _envelopes['ext.sleuth.diagnose'];
 
   @override
+  int get baselineGeneration => _baselineGeneration;
+
+  @override
   bool get isConnected => _connected;
 
   @override
   Future<bool> connect(Uri wsUri) async {
     _connected = true;
+    _baselineGeneration++;
     return true;
+  }
+
+  @override
+  Future<void> refreshBaseline({bool acceptSessionRotation = false}) async {
+    if (!_connected) {
+      throw VmBridgeException('cannot refresh — bridge disconnected');
+    }
+    _baselineGeneration++;
   }
 
   @override

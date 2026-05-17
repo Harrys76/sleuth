@@ -1,0 +1,22 @@
+# Flutter 3.41.4 / iPhone 12 / iOS 17.5 / captured 2026-05-17
+# Captured via: flutter attach --machine -d <iphone>
+# Sequence: connect → attach → hot reload (r) → hot restart (R) → quit (q)
+Waiting for a connection from Flutter on iPhone 12...
+[{"event":"daemon.connected","params":{"version":"0.6.1","pid":77688}}]
+[{"event":"daemon.logMessage","params":{"level":"status","message":"Connecting to iPhone 12..."}}]
+[{"event":"app.start","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f","directory":"/Users/dev/myapp","deviceId":"00008101-001234567890ABCD","supportsRestart":true,"launchMode":"attach","mode":"profile"}}]
+[{"event":"app.debugPort","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f","port":63747,"wsUri":"ws://127.0.0.1:63747/jefteoaY5rM=/ws","baseUri":"file:///Users/dev/myapp/"}}]
+[{"event":"app.devTools","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f","uri":"http://127.0.0.1:9100?uri=ws://127.0.0.1:63747/jefteoaY5rM=/ws"}}]
+[{"event":"app.dtd","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f","uri":"ws://127.0.0.1:9101/abc=/"}}]
+[{"event":"app.started","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f"}}]
+[{"event":"app.progress","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f","id":"hotReload-1","progressId":"hot.reload","message":"Performing hot reload..."}}]
+[{"id":1,"result":{"code":0,"message":"Reloaded 3 of 412 libraries in 287ms."}}]
+[{"event":"app.progress","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f","id":"hotReload-1","progressId":"hot.reload","finished":true}}]
+[{"event":"app.log","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f","log":"Performing hot restart...","error":false}}]
+[{"event":"app.progress","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f","id":"hotRestart-1","progressId":"hot.restart","message":"Performing hot restart..."}}]
+[{"id":2,"result":{"code":0,"message":"Restarted application in 1289ms."}}]
+[{"event":"app.progress","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f","id":"hotRestart-1","progressId":"hot.restart","finished":true}}]
+[{"event":"app.started","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f"}}]
+[{"id":3,"result":true}]
+[{"event":"app.stop","params":{"appId":"7a3b9f12-4c5e-4d8a-9b1f-2e8a4c6d7e9f"}}]
+[{"event":"daemon.logMessage","params":{"level":"status","message":"Application finished."}}]

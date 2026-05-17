@@ -79,6 +79,12 @@ class _DelayedBridge implements VmBridge {
   bool get isConnected => true;
 
   @override
+  int get baselineGeneration => 0;
+
+  @override
+  Future<void> refreshBaseline({bool acceptSessionRotation = false}) async {}
+
+  @override
   Future<bool> connect(Uri wsUri) async => true;
 
   @override

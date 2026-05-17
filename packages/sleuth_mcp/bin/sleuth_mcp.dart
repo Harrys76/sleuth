@@ -12,6 +12,16 @@ String _redactUri(String s) =>
     s.replaceAll(RegExp(_redactRegex), r'$1<REDACTED>$2');
 
 Future<void> main(List<String> argv) async {
+  // Subcommand routing: `sleuth_mcp install [--remove]` registers the
+  // server in `~/.claude.json` and exits. Bare invocation (no subcommand
+  // or any flag) starts the stdio MCP server as before.
+  if (argv.isNotEmpty && argv.first == 'install') {
+    final result = await runInstallCommand(args: argv.skip(1).toList());
+    stdout.writeln(result.message);
+    exitCode = result.exitCode;
+    return;
+  }
+
   final parser = ArgParser()
     ..addOption('uri',
         help:
@@ -74,6 +84,12 @@ Future<void> main(List<String> argv) async {
     toolTimeout: Duration(seconds: timeoutSeconds),
     logger: logger,
   )..registerDefaults();
+  final session = DaemonSession(
+    bridge: bridge,
+    server: server,
+    logger: logger,
+  );
+  server.setDaemonSession(session);
 
   // Cooperative exit — signal handlers ask the server to drain, then
   // `serve()` returns once pending dispatches and the write chain settle.

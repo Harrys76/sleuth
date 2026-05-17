@@ -23,7 +23,7 @@ const Set<String> supportedMcpProtocolVersions = {
   '2025-06-18',
 };
 
-const String sleuthMcpVersion = '0.1.0';
+const String sleuthMcpVersion = '0.2.0';
 const String sleuthPackageVersionPin = '0.32.0';
 
 /// Tool handler signature. Returns either a `data` map (wrapped as text
@@ -34,16 +34,41 @@ typedef ToolHandler = Future<Object> Function(
   Map<String, Object?> args,
 );
 
+/// Minimal contract that the MCP server depends on. Concrete
+/// `DaemonSession` implementation lives in `lib/src/flutter_daemon/` and
+/// imports `McpServer` for pause/resume coordination — defining the
+/// abstract here breaks the import cycle.
+abstract class DaemonSessionLifecycle {
+  /// Gracefully stop the underlying flutter daemon child + bridge.
+  /// Idempotent. Must be safe to call during sidecar shutdown.
+  Future<void> detach();
+}
+
 class _RegisteredTool {
-  _RegisteredTool({required this.descriptor, required this.handler});
+  _RegisteredTool({
+    required this.descriptor,
+    required this.handler,
+    this.bypassesGenericTimeout = false,
+  });
   final Tool descriptor;
   final ToolHandler handler;
+
+  /// Skips the dispatcher's generic `_toolTimeout` + post-timeout
+  /// `bridge.disconnect()`. Lifecycle tools own their own deadlines.
+  final bool bypassesGenericTimeout;
 }
 
 class _RegisteredResource {
   _RegisteredResource({required this.descriptor, required this.read});
   final Resource descriptor;
   final Future<Map<String, Object?>> Function(VmBridge) read;
+}
+
+class _DeferredFrame {
+  _DeferredFrame(this.event, this.out, this.codec);
+  final Object event;
+  final IOSink out;
+  final McpProtocolCodec codec;
 }
 
 class McpServer {
@@ -65,11 +90,36 @@ class McpServer {
   final Map<String, _RegisteredTool> _tools = {};
   final Map<String, _RegisteredResource> _resources = {};
 
+  DaemonSessionLifecycle? _daemonSession;
+  bool _paused = false;
+  final List<_DeferredFrame> _deferredFrames = <_DeferredFrame>[];
+  Timer? _pauseAutoResumeTimer;
+
+  /// Daemon session currently bound to this server (or null if no
+  /// `attach_app` tool has been invoked). Tool handlers read this via
+  /// closure capture for lifecycle operations.
+  DaemonSessionLifecycle? get daemonSession => _daemonSession;
+
+  /// Bind a daemon session. Set during sidecar startup (`bin/sleuth_mcp.dart`)
+  /// or test setup. Replacing a non-null session does not auto-detach the
+  /// prior one — callers must call `oldSession.detach()` first.
+  void setDaemonSession(DaemonSessionLifecycle? session) {
+    _daemonSession = session;
+  }
+
   void registerDefaults() {
     for (final entry in builtInTools.entries) {
       _tools[entry.key] = _RegisteredTool(
         descriptor: entry.value.descriptor,
         handler: entry.value.handler,
+        bypassesGenericTimeout: entry.value.bypassesGenericTimeout,
+      );
+    }
+    for (final entry in lifecycleTools(this).entries) {
+      _tools[entry.key] = _RegisteredTool(
+        descriptor: entry.value.descriptor,
+        handler: entry.value.handler,
+        bypassesGenericTimeout: entry.value.bypassesGenericTimeout,
       );
     }
     _resources['sleuth://encyclopedia'] = _RegisteredResource(
@@ -138,6 +188,14 @@ class McpServer {
 
   void _handleDecodeEvent(Object event, IOSink out, McpProtocolCodec codec) {
     if (_shuttingDown) return;
+    if (_paused) {
+      _deferredFrames.add(_DeferredFrame(event, out, codec));
+      return;
+    }
+    _dispatchOrError(event, out, codec);
+  }
+
+  void _dispatchOrError(Object event, IOSink out, McpProtocolCodec codec) {
     if (event is DecodeError) {
       if (event.id != null) {
         _writeLocked(
@@ -159,11 +217,79 @@ class McpServer {
     _pendingDispatches.add(fut);
   }
 
+  /// Suspend dispatch — decoded frames queue in `_deferredFrames` until
+  /// [resumeDispatch] runs. Used by attach/hot-restart paths to drain
+  /// in-flight tools before bridge reconnect or refresh.
+  ///
+  /// [autoResumeAfter] guards against a forgotten resume. Callers must
+  /// pass a window that exceeds their longest legitimate hold time —
+  /// otherwise the timer can unpause mid-operation and route deferred
+  /// tool calls against a half-rebuilt bridge.
+  void pauseDispatch({
+    Duration autoResumeAfter = const Duration(seconds: 90),
+  }) {
+    if (_paused) return;
+    _paused = true;
+    _pauseAutoResumeTimer?.cancel();
+    _pauseAutoResumeTimer = Timer(autoResumeAfter, () {
+      if (_paused) {
+        _log('pauseDispatch auto-resume timeout fired after '
+            '${autoResumeAfter.inSeconds}s');
+        resumeDispatch();
+      }
+    });
+  }
+
+  /// Drains pending dispatch futures so a subsequent bridge mutation
+  /// (connect/refreshBaseline) doesn't race with in-flight tool calls.
+  /// Returns when all pending drain OR [timeout] elapses (one stuck
+  /// dispatch shouldn't stall a lifecycle operation indefinitely).
+  Future<void> awaitPendingDrain({
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    if (_pendingDispatches.isEmpty) return;
+    try {
+      await Future.wait(List.of(_pendingDispatches)).timeout(timeout);
+    } on TimeoutException {
+      _log('awaitPendingDrain exceeded ${timeout.inSeconds}s — proceeding');
+    }
+  }
+
+  /// Resume dispatch + drain any frames captured while paused.
+  void resumeDispatch() {
+    if (!_paused) return;
+    _paused = false;
+    _pauseAutoResumeTimer?.cancel();
+    _pauseAutoResumeTimer = null;
+    final deferred = List.of(_deferredFrames);
+    _deferredFrames.clear();
+    for (final frame in deferred) {
+      _dispatchOrError(frame.event, frame.out, frame.codec);
+    }
+  }
+
   /// Cooperative shutdown signal. Stops accepting new frames; `serve()`
   /// drains pending dispatches via its finally block. Callers await
   /// `server.serve(...)` to observe a fully-flushed pipe. Idempotent.
+  ///
+  /// Also tears down any bound daemon session with a bounded timeout so
+  /// the flutter child can't survive sidecar exit.
   void shutdown() {
     _shuttingDown = true;
+    _pauseAutoResumeTimer?.cancel();
+    _pauseAutoResumeTimer = null;
+    final session = _daemonSession;
+    if (session != null) {
+      _daemonSession = null;
+      unawaited(session.detach().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          _log('daemon session detach timed out during shutdown');
+        },
+      ).catchError((Object e) {
+        _log('daemon session detach failed during shutdown: $e');
+      }));
+    }
     final done = _serveDone;
     if (done != null && !done.isCompleted) done.complete();
   }
@@ -339,7 +465,12 @@ class McpServer {
       );
     }
     try {
-      final result = await tool.handler(bridge, args).timeout(_toolTimeout);
+      // Lifecycle tools own the bridge + their own deadlines — skip
+      // the generic timeout to avoid racing the in-flight RPC.
+      final invocation = tool.handler(bridge, args);
+      final result = tool.bypassesGenericTimeout
+          ? await invocation
+          : await invocation.timeout(_toolTimeout);
       final asResult = result is ToolCallResult
           ? result
           : ToolCallResult.text(jsonEncode(result));
@@ -470,6 +601,13 @@ class McpServer {
     }
     final props = schema['properties'];
     if (props is Map<String, Object?>) {
+      // Reject undeclared keys — silently-ignored typos (e.g. `deviceId`
+      // for `device`) otherwise route to defaults with no signal.
+      for (final key in args.keys) {
+        if (!props.containsKey(key)) {
+          return 'arg_unknown: $key (allowed: ${props.keys.join(", ")})';
+        }
+      }
       for (final entry in args.entries) {
         final spec = props[entry.key];
         if (spec is! Map<String, Object?>) continue;

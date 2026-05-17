@@ -1,3 +1,71 @@
+## 0.2.0
+
+Zero-config attach-mode DX. AI agents discover and explore developer-launched
+Flutter apps with no manual VM service URI copy/paste.
+
+### Tools (8 → 13)
+- New lifecycle tools: `attach_app`, `detach_app`, `app_status`,
+  `list_devices`, `hot_reload`. `hot_restart` deferred to v0.2.1 —
+  Android profile-mode isolate re-registration window is not yet
+  reliably observable from the VM service after `app.restart`.
+- `attach_app` wraps `flutter attach --machine`: spawns the daemon child,
+  waits for `daemon.connected` (min protocol `0.6.0`) + `app.debugPort`,
+  connects the VM bridge to the discovered `wsUri`. `debugUrl` escape
+  hatch bypasses daemon discovery.
+- Scope: Android + iOS only. `list_devices` defaults to mobile;
+  `attach_app` rejects non-mobile devices. Mobile filter falls back to
+  `targetPlatform.startsWith('ios'|'android')` when `category` is absent
+  (Flutter 3.41.4 `flutter devices --machine` omits `category`).
+- Hot reload/restart pause dispatch → drain → daemon RPC →
+  `bridge.refreshBaseline()` (or `connect()` if `wsUri` rotated) → resume.
+- `list_devices` caches `flutter devices --machine` for 3s.
+
+### CLI
+- `sleuth_mcp install [--remove]` writes `~/.claude.json` `mcpServers.sleuth`
+  idempotently. OS advisory lock under `${XDG_CACHE_HOME:-~/.cache}/sleuth_mcp/`,
+  atomic rename via `.tmp`, `.bak` preserved.
+- `_writeAtomic` resolves `configFile` symlinks so `.tmp` lands on the
+  resolved target volume — iCloud-symlinked configs no longer trigger EXDEV.
+
+### Bridge + dispatcher
+- `VmBridge.refreshBaseline({acceptSessionRotation})` — default `false`
+  throws `SessionChangedException` on sessionUuid rotation. Hot-restart
+  path opts in.
+- `VmBridge.baselineGeneration` counter — resource caches key on it.
+- Lifecycle tools opt out of the dispatcher's generic `_toolTimeout` +
+  post-timeout `bridge.disconnect()` via `BuiltInTool.bypassesGenericTimeout`.
+  Per-operation deadlines inside `DaemonSession` (`attachTimeout`,
+  `hotRestartTimeout`) govern instead.
+- `pauseDispatch({autoResumeAfter})` — caller-supplied window. Hot restart
+  passes `hotRestartTimeout + 30s`.
+- `_validateArgs` rejects undeclared keys (`arg_unknown: <key>`); typos no
+  longer silently default.
+
+### Daemon protocol layer
+- Sealed `DaemonEvent` hierarchy. `DaemonParser` iterates every frame in
+  batched `[…]` lines, drops non-`[…]` banners + malformed JSON silently,
+  surfaces unknown event names as `UnknownDaemonEvent`.
+- `_sessionGeneration` counter — stale exit-code / stderr listeners from
+  a prior attach cannot flip a fresh session into `error`.
+- Hot-restart settle uses a per-restart `Completer<DaemonEvent>` armed in
+  the parser listener BEFORE the `app.restart` RPC. Daemons emit
+  `app.debugPort` in the same event-loop turn as the response; lazy
+  subscribers miss it.
+- Hot reload (`fullRestart: false`) skips the `app.debugPort`/`app.started`
+  wait — daemon never emits these events for in-place reload.
+- `_cleanup()` clears `appId`/`deviceId`/`launchMode`/`mode` so partial-attach
+  state doesn't leak into the error-state status payload.
+- `app_status.attached` is true only for `ready` (not `restarting`).
+- `attach_app` debugUrl path reports `mode: 'unknown'`.
+- Child reap: SIGTERM → 5s → SIGKILL. Orphan reaping of flutter daemon's
+  subprocesses is best-effort and relies on flutter daemon's own teardown.
+
+### Server architecture
+- `DaemonSessionLifecycle` abstract in `mcp_server.dart` breaks the import
+  cycle with `DaemonSession`. Bound via `McpServer.setDaemonSession`.
+- `McpServer.shutdown()` calls `detach()` with a 2s timeout before draining
+  the dispatch queue.
+
 ## 0.1.0
 
 Initial release. Companion to sleuth v0.32.0.

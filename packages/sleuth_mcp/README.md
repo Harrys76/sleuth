@@ -10,40 +10,20 @@ data during a debug session.
 
 ## Install
 
-```yaml
-# pubspec.yaml — only needed if you want sleuth_mcp installed alongside the
-# main sleuth dep; otherwise install globally below.
-dev_dependencies:
-  sleuth_mcp: ^0.1.0
-```
-
-Or globally:
-
 ```bash
 dart pub global activate sleuth_mcp
+sleuth_mcp install
 ```
 
-## Discovery
+`install` writes `mcpServers.sleuth` to `~/.claude.json` idempotently
+(advisory lock + atomic rename + `.bak`). Reload your MCP client, then
+in conversation: "attach to my Flutter app and explore" — the agent
+calls `list_devices` → `attach_app`, which spawns `flutter attach
+--machine`, discovers the VM service URI, and connects.
 
-The sidecar takes the VM service URI directly via `--uri`. Copy it from
-`flutter run`'s output:
+For project-local installs, add `sleuth_mcp: ^0.2.0` to `dev_dependencies`.
 
-```
-A Dart VM Service on iPhone 12 is available at: http://127.0.0.1:55555/<token>=/
-```
-
-The corresponding WebSocket URI is `ws://127.0.0.1:55555/<token>=/ws`.
-
-Why manual: sleuth targets ios + android, so the app process runs
-inside the device sandbox while the sidecar runs on your host machine.
-There is no shared filesystem for auto-discovery. (DevTools' "Open in
-Browser" workflow has the same constraint.)
-
-## MCP client configuration
-
-### Claude Code
-
-Add to `~/.claude.json` (or per-project `.mcp.json`):
+Manual `--uri` mode (pre-v0.2 workflow) still works:
 
 ```json
 {
@@ -56,13 +36,18 @@ Add to `~/.claude.json` (or per-project `.mcp.json`):
 }
 ```
 
-### Cursor / Zed
+Cursor / Zed: same `command` + entry shape; check upstream docs for
+the per-IDE config path.
 
-Similar pattern — see your IDE's MCP setup docs. The command is
-`sleuth_mcp` plus the same `--uri` arg.
+### Scope (v0.2.0)
 
-The exact config-file format for each MCP client evolves — check
-upstream docs for the current schema if the snippet above is rejected.
+- Android + iOS only. `list_devices` filters by
+  `category == 'mobile'`; pass `mobileOnly: false` to include
+  desktop / web / embedded.
+- One sidecar process owns one `flutter attach --machine` child. Each
+  MCP client spawns its own sidecar.
+- Min daemon protocol version `0.6.0`. Older Flutter SDKs are refused
+  with a clear error.
 
 ## Tools
 
@@ -76,6 +61,11 @@ upstream docs for the current schema if the snippet above is rejected.
 | `compare_snapshots` | `before`, `after` | Pure client-side diff of two snapshots. Use to compare runs before / after a code change. |
 | `check_budgets` | `minFps`, `maxIssues`, `maxCriticalIssues` | Compare live snapshot against thresholds. For CI exit-code gating use the separate `sleuth_check` binary. |
 | `diagnose` | — | Operational health: package version, VM connection, unbound extension names. Use when other tools return empty. |
+| `attach_app` | `device?`, `debugUrl?` | Spawn `flutter attach --machine`, discover VM URI, connect bridge. Replaces manual `--uri`. |
+| `detach_app` | — | Stop the daemon child + disconnect the bridge. Idempotent. |
+| `app_status` | — | `{attached, state, device, appId, sessionUuid, launchMode, mode, lastError}`. |
+| `list_devices` | `mobileOnly?` | `flutter devices --machine`, filtered to mobile by default (android + ios). |
+| `hot_reload` | — | Hot reload (preserves state + sessionUuid). Daemon-spawn sessions only. |
 
 ## Resources
 
@@ -115,39 +105,49 @@ Exits 0 on pass, 1 on budget violation, 2 on connect / handler failure.
 
 ## Version sync rule
 
-`sleuth_mcp` v0.1.x is built against `sleuth` v0.32.x. The `connect`
+`sleuth_mcp` v0.2.x is built against `sleuth` v0.32.x. The `connect`
 tool cross-checks the app's reported package version against the
 sidecar's pin and emits:
 
 - `warning: version_skew_minor` — bump the sidecar or the app to align.
 - `error: version_skew_major` — refuse to serve; bump both together.
 
-## Known limitations (v0.1.0)
+## Known limitations (v0.2.0)
 
-- Auto-discovery deferred. Manual `--uri` only.
-- One sleuth-attached VM connection per sidecar process. Each MCP
+- Android + iOS only. `list_devices` filters non-mobile categories by
+  default; `attach_app` rejects non-mobile devices.
+- One `flutter attach --machine` child per sidecar process. Each MCP
   client spawns its own sidecar.
-- The MCP wire shape is not yet locked behind a schema audit — that
-  lands in sleuth v0.33.0 + sleuth_mcp v0.1.1. Until then, treat the
-  envelope shape as stable but unaudited.
+- The MCP wire shape is not yet locked behind a schema check — that
+  lands in sleuth v0.33.0. Until then, treat the envelope shape as
+  stable but unverified.
 - `compare_snapshots` returns its diff as a JSON-stringified `text`
   content block rather than a structured tool result. Consumers must
-  `JSON.parse(content[0].text)`. Pinning the wire shape to structured
-  content lands in M3 alongside the schema audit.
+  `JSON.parse(content[0].text)`. Structured-content output lands with
+  the schema check.
+- `hot_restart` deferred to v0.2.1. Real-device verification on Android
+  profile-mode showed the new main isolate does not re-register with
+  the VM service within the bridge's reconnect window after
+  `app.restart`. Workaround until v0.2.1 lands: agents call
+  `detach_app` then `attach_app` to reconnect after a manual restart.
+  `hot_reload` (the common dev-loop path) is unaffected.
 
-## Manual smoke test
+## Release verification checklist
 
-When verifying a build, record this in the PR description:
+Record in the PR description before tagging:
 
 ```
-Manual smoke — sleuth_mcp v0.1.0
+sleuth_mcp v0.2.0 verification
 Device:       <android-emu / iPhone 12 / Pixel 7>
 OS:           <Android 14 / iOS 17.5>
 Flutter:      <3.41.4>
 Date:         <YYYY-MM-DD>
-Sidecar got URI:                        yes
-8 tools advertised with inputSchema:    yes
-get_snapshot returns connectionMode:    yes
-Hot-restart raises session_changed:     yes
+sleuth_mcp install → ~/.claude.json updated:  yes
+13 tools advertised with inputSchema:         yes
+list_devices returns mobile devices:          yes
+attach_app on profile-mode app → ready:       yes
+get_snapshot returns connectionMode:          yes
+hot_reload → bridge baselineGeneration bumps: yes
+detach_app → state idle, bridge disconnected: yes
 sleuth_check exits 0 on pass / 1 on violation: yes / yes
 ```

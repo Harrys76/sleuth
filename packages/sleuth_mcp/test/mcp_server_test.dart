@@ -32,12 +32,13 @@ void main() {
       expect(info['version'], sleuthMcpVersion);
     });
 
-    test('tools/list returns 8 tools with inputSchema', () async {
+    test('tools/list returns 14 tools with inputSchema', () async {
       await server.handleForTest(_req('initialize'));
       final resp = await server.handleForTest(_req('tools/list', id: 2));
       final result = resp!.result as Map<String, Object?>;
       final tools = result['tools'] as List;
-      expect(tools, hasLength(8));
+      // 8 diagnostic + 6 lifecycle (attach/detach/status/list_devices/hot_*).
+      expect(tools, hasLength(13));
       for (final t in tools) {
         final tool = t as Map<String, Object?>;
         expect(tool['name'], isA<String>());
@@ -130,6 +131,24 @@ void main() {
       expect(result['isError'], true);
       final content = (result['content'] as List).first as Map<String, Object?>;
       expect((content['text'] as String).toLowerCase(), contains('object'));
+    });
+
+    test('tools/call rejects unknown arg keys (typo guard)', () async {
+      await server.handleForTest(_req('initialize'));
+      final resp = await server.handleForTest(_req(
+        'tools/call',
+        params: {
+          'name': 'attach_app',
+          // typo: `deviceId` should be `device`. Pre-fix the typo was
+          // silently accepted and attach proceeded device-less.
+          'arguments': {'deviceId': 'iPhone 12'},
+        },
+        id: 2,
+      ));
+      final result = resp!.result as Map<String, Object?>;
+      expect(result['isError'], true);
+      final content = (result['content'] as List).first as Map<String, Object?>;
+      expect((content['text'] as String), contains('arg_unknown'));
     });
 
     test('tools/call rejects enum-violation arg', () async {

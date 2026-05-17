@@ -112,7 +112,7 @@ void main() {
       }
       expect(byId.keys, containsAll(<int>[1, 2, 3, 4]));
       expect(((byId[1]!['result']) as Map)['protocolVersion'], '2024-11-05');
-      expect(((byId[2]!['result']) as Map)['tools'], hasLength(8));
+      expect(((byId[2]!['result']) as Map)['tools'], hasLength(13));
       final diagContent = ((byId[3]!['result']) as Map)['content'] as List;
       expect((diagContent.first as Map)['type'], 'text');
       final snapContent = ((byId[4]!['result']) as Map)['content'] as List;
@@ -182,6 +182,12 @@ class _SlowBridge implements VmBridge {
 
   @override
   bool get isConnected => true;
+
+  @override
+  int get baselineGeneration => 0;
+
+  @override
+  Future<void> refreshBaseline({bool acceptSessionRotation = false}) async {}
 
   @override
   Future<bool> connect(Uri wsUri) async => true;
