@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io' show pid;
 
 import 'package:flutter/cupertino.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart';
@@ -64,9 +65,12 @@ import '../models/widget_highlight.dart';
 import '../network/http_monitor.dart';
 import '../ranking/issue_ranker.dart';
 import '../vm/cpu_sample_aggregator.dart';
+import '../vm/discovery_file.dart';
+import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
 import '../utils/capture_helper.dart';
 import '../utils/session_markdown_exporter.dart';
+import '../utils/session_uuid.dart';
 import '../utils/type_name_cache.dart';
 import '../vm/timeline_parser.dart';
 
@@ -96,6 +100,10 @@ class SleuthController {
 
   final SleuthConfig config;
 
+  /// Stamped on `ext.sleuth.*` responses and the discovery file. Used to
+  /// reject stale URIs left by a prior controller (e.g. pid reuse).
+  final String sessionUuid = generateSessionUuid();
+
   // Precompiled suppression patterns (v6.15).
   late final Set<String> _exactSuppressions;
   late final List<String> _prefixSuppressions;
@@ -106,6 +114,22 @@ class SleuthController {
 
   // VM layer
   VmServiceClient? _vmClient;
+
+  /// Set just before `_initialized = true`; nulled in [dispose]. Read by
+  /// `computeConnectionMode` to detect warmup-window expiry.
+  DateTime? _initializedAt;
+  DateTime? get initializedAt => _initializedAt;
+
+  @visibleForTesting
+  void markInitializedAtForTest(DateTime? value) {
+    _initializedAt = value;
+  }
+
+  ServiceExtensionRegistry? _extensionRegistry;
+
+  /// Incremented in [dispose] to veto an in-flight discovery write that
+  /// would otherwise resurrect a stale file post-teardown.
+  int _discoveryWriteGeneration = 0;
 
   // -- First-launch / BASIC-mode recovery --
   //
@@ -569,7 +593,9 @@ class SleuthController {
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
 
+    _initializedAt = DateTime.now();
     _initialized = true;
+    _extensionRegistry = ServiceExtensionRegistry(this)..registerAll();
 
     // BASIC-mode recovery: if the cold-start connect failed, keep trying in
     // the background with exponential backoff. Without this, a first-launch
@@ -3453,6 +3479,20 @@ class SleuthController {
   void _onVmConnectionChanged(bool connected) {
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
+    // Rewrite discovery file on every successful (re)connect. Transient
+    // disconnects leave the file in place; final delete happens in dispose.
+    if (!kReleaseMode && connected) {
+      final wsUri = _vmClient?.serverWebSocketUri;
+      if (wsUri != null) {
+        final gen = _discoveryWriteGeneration;
+        unawaited(DiscoveryFile.write(
+          webSocketUri: wsUri,
+          pid: pid,
+          sessionUuid: sessionUuid,
+          shouldCommit: () => !_disposed && _discoveryWriteGeneration == gen,
+        ));
+      }
+    }
     // Mid-session VM death: VmServiceClient._pollTimeline's catch path runs
     // its own 3-attempt reconnect loop. If that internal loop exhausts, we
     // previously had no recovery — the controller sat in BASIC until the
@@ -4124,6 +4164,15 @@ class SleuthController {
   /// Dispose all resources.
   void dispose() {
     _disposed = true;
+    // Bump generation before the sync delete below so any in-flight async
+    // discovery write aborts its commit instead of resurrecting the file.
+    _discoveryWriteGeneration++;
+    _extensionRegistry?.markDisposed();
+    _extensionRegistry = null;
+    _initializedAt = null;
+    if (!kReleaseMode) {
+      DiscoveryFile.delete(pid);
+    }
     _treeScanTimer?.cancel();
     _scrollIdleTimer?.cancel();
     _typingIdleTimer?.cancel();

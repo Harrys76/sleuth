@@ -325,6 +325,17 @@ class CausalGraphRule extends CorrelationRule {
     return result;
   }
 
+  /// Pre-serialized rule set for external consumers (e.g. the VM service
+  /// extension `ext.sleuth.causalGraph`). Keeps the JSON field names in
+  /// one place so consumers don't need to mirror `CausalRule`'s field
+  /// layout.
+  static List<Map<String, Object?>> get rulesJson => _causalRules
+      .map((r) => <String, Object?>{
+            'trigger': r.causePattern,
+            'effect': r.effectPattern,
+          })
+      .toList(growable: false);
+
   /// Returns the list of active causal edges for the given issues.
   ///
   /// Each edge is a `{cause, effect}` map representing a directed
