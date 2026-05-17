@@ -102,13 +102,6 @@ class VmServiceClient {
   /// Cached main isolate ID, resolved during [connect].
   String? _mainIsolateId;
 
-  /// WebSocket URI of the last successful [connect]. Used by the MCP
-  /// discovery file write — see `lib/src/vm/discovery_file.dart`.
-  Uri? _serverWebSocketUri;
-
-  /// See [_serverWebSocketUri].
-  Uri? get serverWebSocketUri => _serverWebSocketUri;
-
   /// Whether the VM service is connected and streaming data.
   bool get isConnected => _connected;
 
@@ -266,7 +259,6 @@ class VmServiceClient {
         // Start periodic timeline polling
         _startTimelinePolling();
 
-        _serverWebSocketUri = wsUri;
         _connected = true;
         onConnectionChanged?.call(true);
         return true;
@@ -732,7 +724,6 @@ class VmServiceClient {
     _extensionSub?.cancel();
     _extensionSub = null;
     _mainIsolateId = null;
-    _serverWebSocketUri = null;
     _connected = false;
     try {
       _service?.dispose();

@@ -422,19 +422,29 @@ The per-detector ledger lives at [`doc/validation_ledger.md`](https://github.com
 
 ## MCP Roadmap
 
-MCP support is planned but not yet shipped. The current package has no
-`ext.sleuth.*` VM service extensions, no `sleuth_mcp` sidecar binary, and
-no MCP transport dependency.
+Sleuth v0.32.0 ships seven `ext.sleuth.*` VM service extensions plus the
+`sleuth_mcp` v0.1.0 sidecar package that bridges them to MCP stdio
+JSON-RPC clients (Claude Code, Cursor, Zed). The schema audit lands in
+M3 (v0.33.0). Full plan:
+[`doc/spec_mcp.md`](https://github.com/Harrys76/sleuth/blob/main/doc/spec_mcp.md).
 
-| Milestone | Scope | Status |
-|-----------|-------|--------|
-| M1 | Register `ext.sleuth.*` VM service extensions from the main `sleuth` package so external tools can read live snapshots, issues, route health, and connection state. | Planned |
-| M2 | Ship a separate `sleuth_mcp` sidecar package that exposes those VM service extensions as MCP tools/resources over stdio. | Planned |
-| M3 | Publish a versioned MCP schema document and audit tests so external clients can rely on stable response shapes. | Planned |
+| Milestone | Status |
+|-----------|--------|
+| M1 — `ext.sleuth.*` VM service extensions in the main `sleuth` package | Landed in v0.32.0 |
+| M2 — `sleuth_mcp` sidecar package (MCP stdio JSON-RPC) | Landed in v0.32.0 + sleuth_mcp v0.1.0 |
+| M3 — versioned MCP schema doc + audit test | Planned |
 
-MCP clients will use the same live-app signals as Sleuth itself. During VM
-warmup or degraded VM connectivity, responses must report `connectionMode`
-honestly instead of returning empty data as if no issues exist.
+MCP clients use the same live-app signals as the in-app overlay. During
+warmup or degraded VM connectivity, responses report `connectionMode`
+honestly (`correlated` / `full` / `basic` / `warmup` / `disconnected`)
+instead of returning empty data. Sleuth reserves the `ext.sleuth.*`
+extension namespace — other packages should choose a distinct prefix to
+avoid duplicate-name collisions with
+`dart:developer.registerExtension`.
+
+The in-app overlay remains the primary UX. The sidecar is an opt-in
+consumer for AI assistant integration only — most developers will not
+need to install or invoke it.
 
 ## What This Does Better Than DevTools
 

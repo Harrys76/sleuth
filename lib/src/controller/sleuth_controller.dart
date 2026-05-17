@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:io' show pid;
 
 import 'package:flutter/cupertino.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart';
@@ -21,6 +20,7 @@ import '../analyzer/detector_correlator.dart';
 import '../analyzer/frame_event_correlator.dart';
 import '../analyzer/render_pipeline_analyzer.dart';
 import '../models/ai_chat_adapter.dart';
+import '../vm/service_extension_handlers.dart' show kSleuthPackageVersion;
 import 'detector_thresholds.dart';
 import '../debug/debug_instrumentation_config.dart';
 import '../debug/debug_instrumentation_coordinator.dart';
@@ -65,7 +65,6 @@ import '../models/widget_highlight.dart';
 import '../network/http_monitor.dart';
 import '../ranking/issue_ranker.dart';
 import '../vm/cpu_sample_aggregator.dart';
-import '../vm/discovery_file.dart';
 import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
 import '../utils/capture_helper.dart';
@@ -126,10 +125,6 @@ class SleuthController {
   }
 
   ServiceExtensionRegistry? _extensionRegistry;
-
-  /// Incremented in [dispose] to veto an in-flight discovery write that
-  /// would otherwise resurrect a stale file post-teardown.
-  int _discoveryWriteGeneration = 0;
 
   // -- First-launch / BASIC-mode recovery --
   //
@@ -1378,7 +1373,7 @@ class SleuthController {
         worstFrameTimeUs: worstUs,
         fpsPercentiles: percentiles,
       ),
-      packageVersion: '0.17.0',
+      packageVersion: kSleuthPackageVersion,
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
       recentRequests: _initialized &&
@@ -3479,20 +3474,6 @@ class SleuthController {
   void _onVmConnectionChanged(bool connected) {
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
-    // Rewrite discovery file on every successful (re)connect. Transient
-    // disconnects leave the file in place; final delete happens in dispose.
-    if (!kReleaseMode && connected) {
-      final wsUri = _vmClient?.serverWebSocketUri;
-      if (wsUri != null) {
-        final gen = _discoveryWriteGeneration;
-        unawaited(DiscoveryFile.write(
-          webSocketUri: wsUri,
-          pid: pid,
-          sessionUuid: sessionUuid,
-          shouldCommit: () => !_disposed && _discoveryWriteGeneration == gen,
-        ));
-      }
-    }
     // Mid-session VM death: VmServiceClient._pollTimeline's catch path runs
     // its own 3-attempt reconnect loop. If that internal loop exhausts, we
     // previously had no recovery — the controller sat in BASIC until the
@@ -4164,15 +4145,9 @@ class SleuthController {
   /// Dispose all resources.
   void dispose() {
     _disposed = true;
-    // Bump generation before the sync delete below so any in-flight async
-    // discovery write aborts its commit instead of resurrecting the file.
-    _discoveryWriteGeneration++;
     _extensionRegistry?.markDisposed();
     _extensionRegistry = null;
     _initializedAt = null;
-    if (!kReleaseMode) {
-      DiscoveryFile.delete(pid);
-    }
     _treeScanTimer?.cancel();
     _scrollIdleTimer?.cancel();
     _typingIdleTimer?.cancel();

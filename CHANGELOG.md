@@ -1,3 +1,50 @@
+## 0.32.0
+
+MCP support shipped — seven `ext.sleuth.*` VM service extensions in the
+main package plus a standalone `sleuth_mcp` sidecar package
+(`packages/sleuth_mcp/` v0.1.0) bridging them to MCP stdio JSON-RPC
+clients (Claude Code, Cursor, Zed). Debug/profile only; `kReleaseMode`
+is a no-op. Full plan: [`doc/spec_mcp.md`](doc/spec_mcp.md).
+
+- Seven extensions: `snapshot`, `issues`, `routeHealth`, `explain`,
+  `encyclopedia`, `causalGraph`, `diagnose`. Every response stamps
+  `connectionMode` (`correlated` / `full` / `basic` / `warmup` /
+  `disconnected`), `schemaVersion: 1`, and a per-controller-construction
+  `sessionUuid` so consumers can distinguish "no issues observed" from
+  "we couldn't talk to the VM" or "warmup not elapsed".
+- `ConnectionMode` returns `warmup` until `frameTimingWarmupDuration`
+  elapses, regardless of VM-connection state.
+- `ServiceExtensionRegistry` is a process-wide singleton with per-name
+  binding tracking — `dart:developer.registerExtension` is called at
+  most once per name per isolate, surviving hot-restart and serial test
+  setUp/tearDown. `unboundNames` is surfaced via `ext.sleuth.diagnose`
+  so an MCP sidecar can warn when the live surface is degraded.
+- New public surface: `CausalGraphRule.rulesJson`,
+  `SleuthController.sessionUuid`, `SleuthController.initializedAt`,
+  `ConnectionMode`, `ServiceExtensionRegistry` (opt-in barrel export).
+- `envelopeError` strips reserved keys (`connectionMode`,
+  `schemaVersion`, `sessionUuid`, `error`, `stack`) from caller-supplied
+  `extra` so trust fields cannot be overwritten.
+- Sanitiser: identity-based cycle detection, 256-depth cap, `Iterable`
+  branch, `__keyCollision` / `__cycle` / `__truncated` /
+  `__nonSerializable` envelopes; non-encodable leaves wrap as typed
+  envelopes instead of crashing.
+- Sleuth reserves the `ext.sleuth.*` extension namespace.
+
+### sleuth_mcp v0.1.0 (new sidecar package)
+
+Companion Dart CLI at `packages/sleuth_mcp/`. Two binaries: `sleuth_mcp`
+(long-running MCP stdio JSON-RPC server) and `sleuth_check` (one-shot
+CI gate). Discovery is `--uri` only — sleuth targets ios + android, so
+the app process and sidecar do not share a filesystem; the user copies
+the VM service URI from `flutter run`'s output. Eight MCP tools each
+with `inputSchema`: `connect`, `get_snapshot`, `get_issues`,
+`get_route_health`, `explain_issue`, `compare_snapshots`,
+`check_budgets`, `diagnose`. Two MCP resources cached by `sessionUuid`:
+`sleuth://encyclopedia`, `sleuth://causal-graph`. Hot-restart of the
+target app surfaces inline as a `session_changed` error envelope from
+the next tool call — no idle polling.
+
 ## 0.30.1
 
 pub.dev README polish — no detector or distribution change.
