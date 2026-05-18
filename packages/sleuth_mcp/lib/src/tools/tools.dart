@@ -153,25 +153,18 @@ Future<String?> defaultVersionSkewValidator(
   }
 }
 
-/// Defence-in-depth. The production bridge wires
-/// [defaultVersionSkewValidator] into [RealVmBridge.versionSkewValidator],
-/// which enforces refusal at the bridge layer (cannot be bypassed by
-/// reconnect, debugUrl, daemon-spawn, or any future connect path). This
-/// helper STILL runs at the tool layer for two reasons:
-///   (a) Tool tests using a `FakeVmBridge` without a wired validator rely
-///       on this helper for refusal — keeps test harnesses simple.
-///   (b) Defence-in-depth: if a future bridge instantiation forgets the
-///       validator wiring, this helper catches the omission before any
-///       tool call dispatches against an incompatible app.
-/// Refusal messages MUST match [defaultVersionSkewValidator] output
-/// exactly so the `connect` / `attach_app` catch paths handle both
-/// sources uniformly.
+/// Tool-layer mirror of [defaultVersionSkewValidator]. Production
+/// `RealVmBridge` wires the validator at the bridge layer (cannot be
+/// bypassed by reconnect, debugUrl, or daemon-spawn). This helper still
+/// runs at the tool layer so `FakeVmBridge` tests without a wired
+/// validator get the same refusal, and so a future bridge that forgets
+/// to wire the validator is still caught before a tool call dispatches.
+/// Refusal messages MUST match [defaultVersionSkewValidator] exactly so
+/// `connect` / `attach_app` catch paths handle both sources uniformly.
 ///
-/// Returns:
-/// - the cached/fetched diagnose envelope on OK / minor / accepted-prior
-///   lineage drift (caller stamps the appropriate warning);
-/// - a [ToolCallResult] error AND disconnects [bridge] on major skew or
-///   missing packageVersion (fail-closed on unknown lineage).
+/// Returns the cached/fetched diagnose envelope on OK / minor /
+/// accepted-prior lineage drift, or a [ToolCallResult] error after
+/// disconnecting the bridge on major skew / missing packageVersion.
 Future<({Map<String, Object?>? diagnose, ToolCallResult? refusal})>
     _enforceVersionSkew(VmBridge bridge) async {
   final diag = bridge.lastDiagnoseEnvelope ??
@@ -233,10 +226,9 @@ Future<Object> _connectHandler(
   try {
     await bridge.connect(parsed);
   } on VmBridgeException catch (e) {
-    // Bridge-layer validator refused (RealVmBridge with
-    // defaultVersionSkewValidator) — surface as a tool-level error.
-    // FakeVmBridge without a validator falls through to the tool-layer
-    // _enforceVersionSkew check below.
+    // Bridge-layer validator refused — surface as a tool-level error.
+    // Fakes without a wired validator fall through to the tool-layer
+    // `_enforceVersionSkew` below.
     if (e.message.startsWith('version_skew_')) {
       return ToolCallResult.text(e.message, isError: true);
     }
@@ -533,27 +525,22 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     final debugUrl = args['debugUrl'] as String?;
     try {
       final status = await session.attach(device: device, debugUrl: debugUrl);
-      // Bridge-layer version-skew refusal flows through
-      // `DaemonSession.attach`'s `on VmBridgeException` catch block, which
-      // wraps the original `version_skew_…` message into `lastError` as
-      // `'bridge connect failed: version_skew_…'`. Surface that case as
-      // `isError` so MCP clients can distinguish a contract refusal from
-      // generic attach failures (timeout, app.stop, etc.) that flow
-      // through the same non-attached `status.toJson()` return path.
+      // Bridge-layer refusal flows through `DaemonSession.attach`'s
+      // `on VmBridgeException` catch, which wraps `version_skew_…` into
+      // `lastError` as `'bridge connect failed: version_skew_…'`.
+      // Surface that as `isError` so clients distinguish contract
+      // refusal from generic attach failures (timeout, app.stop, etc.)
+      // that share the same non-attached `status.toJson()` return path.
       if (!status.attached) {
         final lastError = status.lastError ?? '';
         if (lastError.contains('version_skew_')) {
           return ToolCallResult.text(lastError, isError: true);
         }
       }
-      // Attach reaches `state: ready` only when `bridge.connect(...)`
-      // succeeded — apply the same version-skew enforcement the `connect`
-      // tool runs. Without this both daemon-spawn and debugUrl paths can
-      // connect silently to a sleuth lineage the sidecar doesn't speak.
-      // (Bridge-layer validation already covers this when
-      // `defaultVersionSkewValidator` is wired into `RealVmBridge` — the
-      // call here is defence-in-depth for fakes / future bridges that
-      // skip validator wiring; see `_enforceVersionSkew` rationale.)
+      // Attach reaches `state: ready` only when `bridge.connect()`
+      // succeeded — run the same skew check `connect` runs. Redundant
+      // when `defaultVersionSkewValidator` is wired into the bridge;
+      // covers fakes / future bridges that skip wiring.
       if (status.attached) {
         final result = await _enforceVersionSkew(bridge);
         if (result.refusal != null) {

@@ -144,10 +144,10 @@
     }
   },
   "notes": [
-    "schemaVersion (envelope) bumps only on breaking change (field rename, removal, type change). Adding optional fields or new handlers does NOT bump.",
-    "Snapshot + RouteSession deep schemas defer to their model classes' toJson() as source-of-truth. v0.34.0 may codify deeper shape.",
-    "MCP tool layer audit (packages/sleuth_mcp/test/schema/) lands in v0.4.0 — sidecar tool transforms over ext.sleuth.* envelopes.",
-    "Initial v0.33.0 schema authored from current handler source. Future drift is caught by the audit, but v0.32.0-era implementation quirks (if any) are locked in. v0.34.0 will rebase the schema from captured real-device output to break this tautology.",
-    "Snapshot fields `recurrenceTrends`, `sessionSummary`, `routeSessions` are documented as opaque containers — nested shape unconstrained. Codification deferred to v0.34.0."
+    "Envelope schemaVersion bumps only on breaking change (rename, removal, type change). New optional fields or handlers do NOT bump.",
+    "Snapshot + RouteSession deep schemas defer to model toJson(). v0.34.0 may codify deeper shape.",
+    "MCP tool-layer audit (packages/sleuth_mcp/test/schema/) lands in v0.4.0.",
+    "v0.33.0 schema authored from current handler source. v0.34.0 will rebase from captured real-device output.",
+    "Snapshot `recurrenceTrends`, `sessionSummary`, `routeSessions` are opaque containers — nested shape unconstrained."
   ]
 }

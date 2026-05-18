@@ -125,24 +125,18 @@ class RealVmBridge implements VmBridge {
   final Lock _connectLock = Lock();
   Future<void>? _reconnectInFlight;
 
-  /// INTERNAL test seam (M11). When non-null, invoked exactly once at the
-  /// pre-dispose snapshot point inside `_connectUnlocked` — AFTER the
-  /// `_validated` / `_service` / `_mainIsolateId` / `_wsUri` unpublish but
-  /// BEFORE `await prior.dispose()`. The probe runs synchronously against
-  /// the bridge's current state so a test can assert the gate is already
-  /// closed before the dispose suspension point opens a race window. Not
-  /// for production use — leave null on real bridges.
+  /// Test seam: invoked once inside `_connectUnlocked` AFTER the
+  /// `_validated` / `_service` / `_mainIsolateId` / `_wsUri` unpublish,
+  /// BEFORE `await prior.dispose()`. Lets tests assert the gate is shut
+  /// before the dispose suspension point opens a race window.
   @visibleForTesting
   void Function(RealVmBridge bridge)? debugPreDisposeProbe;
 
-  /// INTERNAL test seam (M14). Sibling of [debugPreDisposeProbe], wired
-  /// into `_disconnectUnlocked` instead of `_connectUnlocked`. Fires
-  /// synchronously AFTER the disconnect-path unpublish (gate down,
-  /// `_service` / `_mainIsolateId` / `_baselineSessionUuid` /
-  /// `_lastDiagnoseEnvelope` / `_wsUri` cleared) but BEFORE
-  /// `await prior.dispose()`. Distinct from the connect-time probe so a
-  /// single bridge can be wired with one or the other independently —
-  /// otherwise reconnect dispose would also fire the M14 probe.
+  /// Sibling of [debugPreDisposeProbe], wired into `_disconnectUnlocked`.
+  /// Fires AFTER the disconnect-path unpublish (gate down; `_service` /
+  /// `_mainIsolateId` / `_baselineSessionUuid` / `_lastDiagnoseEnvelope`
+  /// / `_wsUri` cleared) but BEFORE `await prior.dispose()`. Kept
+  /// separate so reconnect-dispose doesn't fire the disconnect probe.
   @visibleForTesting
   void Function(RealVmBridge bridge)? debugDisconnectPreDisposeProbe;
 
@@ -197,27 +191,20 @@ class RealVmBridge implements VmBridge {
     Uri wsUri, {
     required bool acceptSessionRotation,
   }) async {
-    // M11: lower the gate AND unpublish refs BEFORE awaiting
-    // `prior.dispose()`. The dispose await is an async suspension point;
-    // if `_validated` / `_service` / `_mainIsolateId` stay populated
-    // across it, a lock-free `callExtension` racing the reconnect can
-    // pass `_callExtensionRaw`'s validated-gate, dispatch against the
-    // prior service, then see it torn down mid-call (`_TransportClosed`)
-    // and trigger an `_ensureReconnected` against a stale `_wsUri`.
-    // Clearing first guarantees concurrent dispatchers see
-    // `bridge not yet validated` and refuse without touching the
-    // service being disposed. `_wsUri` is set to the NEW target so any
-    // racing reconnect coalesces onto the connect already in flight
-    // via `_reconnectInFlight`.
+    // Lower the gate AND unpublish refs BEFORE awaiting `prior.dispose()`.
+    // Dispose is an async suspension point; if `_validated` / `_service`
+    // / `_mainIsolateId` stay populated across it, a lock-free
+    // `callExtension` racing the reconnect can pass the validated gate,
+    // dispatch against the prior service, then see it torn down mid-call
+    // (`_TransportClosed`) and trigger `_ensureReconnected` against a
+    // stale `_wsUri`. Clearing first forces concurrent dispatchers into
+    // the `bridge not yet validated` refusal. `_wsUri` is set to the NEW
+    // target so racing reconnects coalesce via `_reconnectInFlight`.
     _validated = false;
     final prior = _service;
     _service = null;
     _mainIsolateId = null;
     _wsUri = wsUri;
-    // M11 test seam: assert state visible to a hypothetical concurrent
-    // dispatcher right before the dispose suspension point. Guarded by
-    // `assert` so the call site is stripped in release-mode builds and
-    // the probe field is only paid for by tests.
     assert(() {
       final probe = debugPreDisposeProbe;
       if (probe != null) probe(this);
@@ -300,34 +287,27 @@ class RealVmBridge implements VmBridge {
     if (_service == null || _mainIsolateId == null) {
       throw VmBridgeException('cannot refresh — bridge disconnected');
     }
-    // M13: lower the gate BEFORE the diagnose await. `_applyBaseline`
-    // also lowers `_validated` at its top, but only AFTER the diagnose
-    // round-trip resolves. During that round-trip the gate would stay
-    // true (carried over from the prior connect) — a lock-free
-    // `callExtension` racing the refresh would pass `_callExtensionRaw`'s
-    // validated check and dispatch against a soon-to-be-revalidated
-    // target. Same family as the M11 / M12 race; idempotent re-lower
-    // inside `_applyBaseline` is acceptable redundancy because each
-    // write protects a different suspension window.
+    // Lower the gate BEFORE the diagnose await. `_applyBaseline` lowers
+    // it again, but only AFTER the round-trip resolves; without this
+    // pre-await lower a lock-free `callExtension` racing the refresh
+    // would pass the validated check and dispatch against a
+    // soon-to-be-revalidated target. The redundant re-lower inside
+    // `_applyBaseline` protects a different suspension window.
     _validated = false;
     try {
-      // Bootstrap-style diagnose: refresh runs on an already-validated
-      // bridge, but `_applyBaseline` lowers the gate before re-running
-      // the validator, so the diagnose call itself must bypass the gate
-      // for the same reason `_connectUnlocked` does.
+      // `_applyBaseline` lowers the gate before re-running the
+      // validator, so the diagnose call itself must bypass the gate.
       final diag = await _callExtensionRaw(
         'ext.sleuth.diagnose',
         bypassValidatedGate: true,
       );
       await _applyBaseline(diag, acceptSessionRotation: acceptSessionRotation);
     } catch (_) {
-      // Refresh failed mid-flight. `_applyBaseline` disconnects on its
-      // own refusal paths (validator + rotation), but a malformed
-      // diagnose envelope or transport exception bypasses that cleanup
-      // and leaves `_service` + `_mainIsolateId` populated while
-      // `_validated == false`. Tear the bridge down fully so callers
-      // see a clean "not connected" state instead of a partially-valid
-      // bridge that the next refresh attempt would inherit.
+      // `_applyBaseline` disconnects on its own refusal paths
+      // (validator + rotation), but a malformed envelope or transport
+      // exception bypasses that cleanup. Tear down fully so callers see
+      // "not connected" instead of a half-valid bridge that the next
+      // refresh would inherit.
       if (_service != null) {
         try {
           await _disconnectUnlocked();
@@ -339,25 +319,18 @@ class RealVmBridge implements VmBridge {
     }
   }
 
-  /// Single chokepoint for every code path that publishes a fresh
-  /// diagnose envelope as the new baseline. Connect, reconnect, and
-  /// refresh all route through here so the version-skew validator +
-  /// session-rotation guard cover every baseline mutation uniformly —
-  /// no future baseline-mutation path can bypass either gate by
-  /// accident.
+  /// Single chokepoint for publishing a fresh diagnose envelope as the
+  /// new baseline. Connect, reconnect, and refresh all route through
+  /// here so the version-skew validator + session-rotation guard cover
+  /// every baseline mutation uniformly.
   ///
   /// Lowers `_validated` BEFORE running the validator so concurrent
-  /// dispatchers (including refresh-time ones) cannot observe a stale
-  /// "ready" bridge while the validator is in flight against a newly-
-  /// fetched envelope.
-  ///
-  /// Refusal disconnects the bridge and throws [VmBridgeException]
-  /// BEFORE publishing baseline, so concurrent dispatchers cannot
-  /// observe a partially-applied unsafe baseline.
+  /// dispatchers cannot observe a stale "ready" bridge while validation
+  /// is in flight against a newly-fetched envelope. Refusal disconnects
+  /// and throws BEFORE publishing baseline.
   ///
   /// [acceptSessionRotation] — when false, throws
-  /// [SessionChangedException] if the new sessionUuid differs from the
-  /// prior baseline (caller did not opt into hot-restart rotation).
+  /// [SessionChangedException] on sessionUuid mismatch.
   Future<void> _applyBaseline(
     Map<String, Object?> diag, {
     required bool acceptSessionRotation,
@@ -369,17 +342,14 @@ class RealVmBridge implements VmBridge {
       );
     }
     final priorBaseline = _baselineSessionUuid;
-    // Lower the gate BEFORE running the validator. On the refresh
-    // path the bridge is already validated; without this, a concurrent
+    // Lower the gate BEFORE running the validator. On the refresh path
+    // the bridge is already validated; without this, a concurrent
     // dispatcher could observe `isConnected == true` while the
-    // validator is awaiting against a newly-fetched envelope. Symmetric
-    // with `_connectUnlocked`'s pre-dispose unpublish — same race,
-    // different code path.
+    // validator awaits a newly-fetched envelope.
     _validated = false;
     // Validator runs BEFORE the session-rotation check so a skew
-    // refusal surfaces first — its message is more actionable. Refusal
-    // collapses the connection in place; rotation throws after publish
-    // is suppressed by the try/catch in the caller.
+    // refusal surfaces first (more actionable). Refusal collapses the
+    // connection in place; rotation throws.
     final validator = _versionSkewValidator;
     if (validator != null) {
       final refusal = await validator(diag);
@@ -531,21 +501,15 @@ class RealVmBridge implements VmBridge {
   }
 
   Future<void> _disconnectUnlocked() async {
-    // M14: lower the gate AND unpublish every observable bridge field
-    // BEFORE awaiting `prior.dispose()`. The dispose await is an async
-    // suspension point; if `_validated` / `_service` / `_mainIsolateId`
-    // stay populated across it, a lock-free `callExtension` racing the
-    // teardown can pass `_callExtensionRaw`'s validated-gate, dispatch
-    // against the about-to-be-disposed service, observe the transport
-    // close mid-call (`_TransportClosed`), and trigger
-    // `_ensureReconnected` against the still-published `_wsUri` — which
-    // would republish the bridge after an explicit caller-requested
+    // Lower the gate AND unpublish every observable bridge field BEFORE
+    // awaiting `prior.dispose()`. Without this, a lock-free
+    // `callExtension` racing the teardown could pass the validated gate,
+    // observe `_TransportClosed` mid-call, and trigger
+    // `_ensureReconnected` against the still-published `_wsUri` —
+    // republishing the bridge after an explicit caller-requested
     // disconnect. Clearing `_wsUri` first makes `_ensureReconnected`
-    // return `Future.error(VmBridgeException('no wsUri for reconnect'))`
-    // instead of looping back through `_connectUnlocked`. Concurrent
-    // dispatchers see `_validated == false` (→ `bridge not yet
-    // validated`) or `_service == null` (→ `not connected`); either
-    // outcome blocks dispatch against the disposed service.
+    // return `no wsUri for reconnect` instead of looping back into
+    // `_connectUnlocked`.
     _validated = false;
     final prior = _service;
     _service = null;
@@ -553,9 +517,6 @@ class RealVmBridge implements VmBridge {
     _baselineSessionUuid = null;
     _lastDiagnoseEnvelope = null;
     _wsUri = null;
-    // M14 test seam: same role as `debugPreDisposeProbe` but wired into
-    // the disconnect path. Assert-only call site so it's stripped from
-    // release-mode builds.
     assert(() {
       final probe = debugDisconnectPreDisposeProbe;
       if (probe != null) probe(this);

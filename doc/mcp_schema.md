@@ -166,13 +166,12 @@ shapes as a stable best-effort contract:
 - `compare_snapshots`, `check_budgets` — pure client-side, no app call;
   return shapes documented in `packages/sleuth_mcp/lib/src/tools/`.
 
-The v0.4.0 audit will lock these shapes byte-for-byte. Adopt the above
-shapes today knowing that breaking changes (renames, removals, type
-changes) will bump the sidecar minor version before they ship.
+v0.4.0 will lock these shapes byte-for-byte. Breaking changes bump the
+sidecar minor version.
 
-## Deferred to follow-up releases
+## Deferred
 
-- Deeper schema for `snapshot` + `routeHealth` (currently delegated to model `toJson()` source).
-- MCP tool-layer audit (sidecar tool transforms over these envelopes). Lands with `packages/sleuth_mcp/test/schema/` audit.
-- Initial v0.33.0 schema authored from current handler source. Future drift is caught by the audit, but v0.32.0-era implementation quirks (if any) are locked in. v0.34.0 will rebase from captured real-device output to break this tautology.
-- Snapshot fields `recurrenceTrends`, `sessionSummary`, `routeSessions` are documented as opaque containers — nested shape unconstrained.
+- Deeper schema for `snapshot` + `routeHealth` (currently delegated to model `toJson()`).
+- MCP tool-layer audit. Lands with `packages/sleuth_mcp/test/schema/`.
+- v0.33.0 schema authored from current handler source. v0.34.0 will rebase from captured real-device output.
+- `recurrenceTrends`, `sessionSummary`, `routeSessions` are opaque containers — nested shape unconstrained.

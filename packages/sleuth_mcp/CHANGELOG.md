@@ -1,41 +1,36 @@
 ## 0.3.0
 
-Companion release to sleuth v0.33.0 — wire-schema lock.
+Companion to sleuth v0.33.0 — wire-schema lock.
 
-- `sleuthPackageVersionPin` bumps 0.32.0 → 0.33.0. `sleuthMcpVersion`
+- `sleuthPackageVersionPin` 0.32.0 → 0.33.0. `sleuthMcpVersion`
   0.2.0 → 0.3.0.
-- Version-skew enforcement now runs from a shared helper on every
-  `bridge.connect()` chokepoint: the `connect` tool AND the
-  `attach_app` tool (both daemon-spawn and `debugUrl` paths). Prior
-  to v0.3.0 only the `connect` tool gated lineage drift, so AI
-  agents using `attach_app` could silently attach to a sleuth
-  lineage the sidecar pin couldn't speak.
+- Version-skew enforcement runs on every `bridge.connect()` — both
+  the `connect` tool and `attach_app` (daemon-spawn and `debugUrl`).
+  Previously only `connect` gated lineage drift; `attach_app` could
+  attach to a lineage the sidecar pin couldn't speak.
 - `_enforceVersionSkew` returns the cached `ext.sleuth.diagnose`
-  envelope on OK / minor skew and a refusal `ToolCallResult` (with
-  `bridge.disconnect()` already executed) on major skew. The
-  `attach_app` handler calls `session.detach()` before returning the
-  refusal so the daemon child + bridge tear down cleanly.
-- `acceptedPriorLineages` in `version_lineage.dart` lets the sidecar
-  tolerate sleuth 0.32.x apps for one release cycle: drift surfaces as
+  envelope on OK / minor skew, or a refusal `ToolCallResult` (after
+  `bridge.disconnect()`) on major skew. `attach_app` calls
+  `session.detach()` before returning the refusal so the daemon
+  child tears down cleanly.
+- `acceptedPriorLineages` in `version_lineage.dart` tolerates sleuth
+  0.32.x apps for one release cycle — drift surfaces as
   `version_skew_minor` (warning), not `version_skew_major` (refusal),
-  so users mid-upgrade don't lose access. Drop in v0.4.0.
-- VmBridge baseline mutations route through a single `_applyBaseline`
-  chokepoint; validator + rotation guard cover connect, reconnect, AND
-  refresh paths uniformly. `_validated` lowers before the validator
-  runs on the refresh path too, so a lock-free dispatcher cannot
-  observe `isConnected == true` while the validator is in flight
-  against a newly-fetched envelope.
+  so users mid-upgrade aren't locked out. Drop in v0.4.0.
+- Baseline mutations route through one `_applyBaseline` chokepoint;
+  validator + rotation guard cover connect, reconnect, and refresh
+  uniformly. `_validated` lowers before the validator runs on the
+  refresh path so a lock-free dispatcher can't observe
+  `isConnected == true` mid-validation.
 - Schema doc mirrored at `packages/sleuth_mcp/doc/mcp_schema.{json,md}`
-  so external pub.dev consumers can read the contract.
-- Tool-layer audit (`test/schema/`) deferred to v0.4.0. Sidecar tool
-  return shapes (`connect`, `attach_app`, etc.) documented under the
-  "Sidecar tool layer" section of `doc/mcp_schema.md` as a stable
-  best-effort contract until v0.4.0 locks them byte-for-byte.
-- After v0.3.0 is published, existing v0.2.0 sidecar users hit
-  `version_skew_major` on attach to a v0.33.0 app — their pin
-  (`0.32.0`) predates the new `acceptedPriorLineages` transition
-  fallback. Recovery: `dart pub global activate sleuth_mcp`
-  (>= 0.3.0). For local builds before publish, activate from path:
+  for pub.dev consumers.
+- Tool-layer audit (`test/schema/`) deferred to v0.4.0. Tool return
+  shapes documented in `doc/mcp_schema.md` "Sidecar tool layer" as a
+  stable best-effort contract until v0.4.0 locks them byte-for-byte.
+- After v0.3.0 ships, v0.2.0 sidecars hit `version_skew_major` on
+  attach to a v0.33.0 app — their pin (`0.32.0`) predates
+  `acceptedPriorLineages`. Recovery:
+  `dart pub global activate sleuth_mcp` (>= 0.3.0). Local pre-publish:
   `dart pub global activate --source path packages/sleuth_mcp`.
 
 ## 0.2.0

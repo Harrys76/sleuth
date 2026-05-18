@@ -1,8 +1,7 @@
 import 'package:sleuth_mcp/sleuth_mcp.dart';
 
-/// Build a `FakeVmBridge` pre-populated with realistic envelopes covering
-/// the seven `ext.sleuth.*` extensions. Shapes mirror what M1 handlers
-/// produce.
+/// Build a `FakeVmBridge` pre-populated with realistic envelopes for
+/// the seven `ext.sleuth.*` extensions.
 FakeVmBridge defaultFakeBridge() {
   final bridge = FakeVmBridge(fakeSessionUuid: 'fake-uuid');
   bridge.setEnvelope('ext.sleuth.diagnose', {

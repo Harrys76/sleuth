@@ -214,13 +214,13 @@ void main() {
       'bridge-layer refusal flowing through daemon catch path surfaces as '
       'isError (defaultVersionSkewValidator wired into bridge)',
       () async {
-        // Exercises the M6 fix: when the bridge has `defaultVersionSkewValidator`
-        // wired, `bridge.connect()` throws `VmBridgeException('version_skew_…')`.
+        // When the bridge has `defaultVersionSkewValidator` wired,
+        // `bridge.connect()` throws `VmBridgeException('version_skew_…')`.
         // `DaemonSession.attach()` catches it and stamps the error into
         // `status.lastError` as `'bridge connect failed: version_skew_…'`,
-        // returning a non-attached status. `attachHandler` must detect the
-        // wrapped substring and return `ToolCallResult(isError: true)` rather
-        // than the silent `status.toJson()` payload.
+        // returning a non-attached status. `attachHandler` must detect
+        // the wrapped substring and return `ToolCallResult(isError: true)`
+        // rather than the silent `status.toJson()` payload.
         final bridge = FakeVmBridge(
           fakeSessionUuid: 'fake-uuid',
           envelopes: {

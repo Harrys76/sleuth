@@ -39,15 +39,13 @@ Manual `--uri` mode (pre-v0.2 workflow) still works:
 Cursor / Zed: same `command` + entry shape; check upstream docs for
 the per-IDE config path.
 
-### Scope (v0.2.0)
+### Scope
 
-- Android + iOS only. `list_devices` filters by
-  `category == 'mobile'`; pass `mobileOnly: false` to include
-  desktop / web / embedded.
+- Android + iOS only. `list_devices` filters by `category == 'mobile'`;
+  pass `mobileOnly: false` to include desktop / web / embedded.
 - One sidecar process owns one `flutter attach --machine` child. Each
   MCP client spawns its own sidecar.
-- Min daemon protocol version `0.6.0`. Older Flutter SDKs are refused
-  with a clear error.
+- Min daemon protocol version `0.6.0`. Older Flutter SDKs refused.
 
 ## Tools
 
@@ -114,42 +112,16 @@ sidecar's pin and emits:
 - `warning: version_skew_minor` — bump the sidecar or the app to align.
 - `error: version_skew_major` — refuse to serve; bump both together.
 
-## Known limitations (v0.2.0)
+## Known limitations
 
-- Android + iOS only. `list_devices` filters non-mobile categories by
-  default; `attach_app` rejects non-mobile devices.
+- Android + iOS only. `list_devices` filters non-mobile by default;
+  `attach_app` rejects non-mobile devices.
 - One `flutter attach --machine` child per sidecar process. Each MCP
   client spawns its own sidecar.
-- The MCP wire shape is not yet locked behind a schema check — that
-  lands in sleuth v0.33.0. Until then, treat the envelope shape as
-  stable but unverified.
 - `compare_snapshots` returns its diff as a JSON-stringified `text`
-  content block rather than a structured tool result. Consumers must
-  `JSON.parse(content[0].text)`. Structured-content output lands with
-  the schema check.
-- `hot_restart` deferred to v0.2.1. Real-device verification on Android
-  profile-mode showed the new main isolate does not re-register with
-  the VM service within the bridge's reconnect window after
-  `app.restart`. Workaround until v0.2.1 lands: agents call
-  `detach_app` then `attach_app` to reconnect after a manual restart.
-  `hot_reload` (the common dev-loop path) is unaffected.
-
-## Release verification checklist
-
-Record in the PR description before tagging:
-
-```
-sleuth_mcp v0.2.0 verification
-Device:       <android-emu / iPhone 12 / Pixel 7>
-OS:           <Android 14 / iOS 17.5>
-Flutter:      <3.41.4>
-Date:         <YYYY-MM-DD>
-sleuth_mcp install → ~/.claude.json updated:  yes
-13 tools advertised with inputSchema:         yes
-list_devices returns mobile devices:          yes
-attach_app on profile-mode app → ready:       yes
-get_snapshot returns connectionMode:          yes
-hot_reload → bridge baselineGeneration bumps: yes
-detach_app → state idle, bridge disconnected: yes
-sleuth_check exits 0 on pass / 1 on violation: yes / yes
-```
+  content block. Consumers must `JSON.parse(content[0].text)`.
+  Structured-content output lands with the v0.4.0 tool-layer audit.
+- `hot_restart` deferred. Android profile-mode does not re-register the
+  new main isolate within the bridge's reconnect window after
+  `app.restart`. Workaround: `detach_app` + `attach_app`. `hot_reload`
+  is unaffected.

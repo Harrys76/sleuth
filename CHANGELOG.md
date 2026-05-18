@@ -1,64 +1,49 @@
 ## 0.33.0
 
-MCP wire-shape lock. Adds `doc/mcp_schema.json` (structured contract) and
-`doc/mcp_schema.md` (human view); both ship in the pub archive. The new
-`test/validation/mcp_schema_audit_test.dart` enforces that handler output
-keys match documented keys bidirectionally — any rename, removal, or type
+MCP wire-shape lock. `doc/mcp_schema.json` (structured contract) +
+`doc/mcp_schema.md` (human view) ship in the pub archive.
+`test/validation/mcp_schema_audit_test.dart` enforces bidirectional key
+match for the 7 `ext.sleuth.*` handlers — rename, removal, or type
 change breaks the test.
 
-- `kSleuthPackageVersion` bump 0.32.0 → 0.33.0. `kMcpEnvelopeSchemaVersion`
-  stays at `1`: this release defines the canonical wire contract; a
-  future field rename / removal / type change will bump.
-- Breaking (within the unpublished MCP surface): `ext.sleuth.routeHealth`
-  match-route response now wraps `RouteSession` under
-  `{route: <session>}` for parity with the absent-route `{routes: [...]}`
-  shape. Sidecar v0.3.0's `get_route_health` tool layer normalizes the
-  inline v0.32.x response into the canonical wrapper automatically for
-  apps listed under `acceptedPriorLineages`.
-- Schema covers all 7 handlers (`diagnose`, `snapshot`, `issues`,
-  `routeHealth`, `explain`, `encyclopedia`, `causalGraph`) — envelope keys,
-  error envelope shape, data field-by-field, connectionMode enum.
+- `kSleuthPackageVersion` 0.32.0 → 0.33.0. Envelope `schemaVersion`
+  stays at `1` (additive release).
+- Breaking inside the MCP surface: `ext.sleuth.routeHealth` match-route
+  now wraps `RouteSession` under `{route: <session>}` for parity with
+  the absent-route `{routes: [...]}` shape. Sidecar v0.3.0's
+  `get_route_health` normalizes the legacy v0.32.x inline response.
+- Schema covers all 7 handlers — envelope keys, error envelope, data
+  field-by-field, `connectionMode` enum.
 - `kSleuthPackageVersion` + `kMcpEnvelopeSchemaVersion` re-exported from
-  `package:sleuth/sleuth.dart` so external consumers can import the
-  contract constants without `package:sleuth/src/...` paths.
-- `ext.sleuth.snapshot` schema gains `suppressedCount` (present when > 0)
-  and `startupMetrics` (present when `Sleuth.init` captured first-frame
-  data). Audit group exercises both conditional emissions via the
-  public `suppressedCountNotifier` + `setStartupMetricsForTest` seams,
-  plus presence drive-tests for `recentRequests`, `heapSamples`,
-  `phaseEvents`, `gcEvents`, `platformChannelEvents`, `recentFrames`,
-  and `sessionSummary`. A drift-guard test enforces that every
-  documented optional key is either presence-tested or listed under an
-  explicit `auditUnreachable` rationale.
-- Schema `presence` predicates for the snapshot enrichment fields
-  (`recentRequests`, `heapSamples`, `phaseEvents`, `gcEvents`,
-  `platformChannelEvents`, `recentFrames`, `widgetHeatMap`) now describe
-  the actual emission gates (buffer non-emptiness / detector enablement)
-  instead of the previous mode-based phrasing, which did not match the
-  runtime predicate.
-- Deep `snapshot` + `routeHealth` data fields delegate to their model
-  classes' `toJson()` source (deeper codification deferred to v0.34.0).
-- Sidecar tool-layer audit (envelope transforms in sleuth_mcp) deferred
-  to a follow-up release alongside `packages/sleuth_mcp/test/schema/`.
-  Tool return shapes documented under "Sidecar tool layer" in
-  `doc/mcp_schema.md` as a stable best-effort contract.
-- Sidecar v0.3.0 bridge layer owns version-skew refusal. `RealVmBridge`
-  accepts a `versionSkewValidator` callback invoked on every successful
-  connect / reconnect; non-null return collapses the connection in place
-  and throws `VmBridgeException`. The default validator fails closed on
-  missing or non-String `packageVersion`. Tool-layer enforcement still
-  runs for `FakeVmBridge` paths and as a defence-in-depth check.
-- VmBridge baseline mutations route through a single `_applyBaseline`
-  chokepoint; validator + rotation guard cover connect, reconnect, AND
-  refresh paths uniformly. `_validated` lowers before the validator
-  runs on the refresh path too, so a lock-free dispatcher cannot
-  observe `isConnected == true` while the validator is in flight
-  against a newly-fetched envelope.
-- After v0.3.0 is published, existing `sleuth_mcp` v0.2.0 sidecar users
-  hit `version_skew_major` on attach to a v0.33.0 app — their pin
-  (`0.32.0`) predates the new `acceptedPriorLineages` transition fallback.
-  Recovery: `dart pub global activate sleuth_mcp` (>= 0.3.0). For local
-  builds before publish, activate from path:
+  `package:sleuth/sleuth.dart`.
+- `ext.sleuth.snapshot` adds `suppressedCount` (when > 0) and
+  `startupMetrics` (when `Sleuth.init` captured first-frame data).
+  Audit drives both via `suppressedCountNotifier` +
+  `setStartupMetricsForTest`, plus presence tests for `recentRequests`,
+  `heapSamples`, `phaseEvents`, `gcEvents`, `platformChannelEvents`,
+  `recentFrames`, `sessionSummary`. Drift guard fails when an optional
+  key lacks either a presence test or an `auditUnreachable` rationale.
+- Snapshot `presence` predicates corrected to describe the real
+  emission gates (buffer non-empty / detector enabled), replacing the
+  inaccurate mode-based phrasing.
+- Deep `snapshot` + `routeHealth` shapes still delegate to model
+  `toJson()`; deeper codification in v0.34.0.
+- Sidecar tool-layer audit deferred to v0.4.0. Tool return shapes
+  documented under "Sidecar tool layer" in `doc/mcp_schema.md` as a
+  stable best-effort contract.
+- Sidecar v0.3.0 puts version-skew refusal at the bridge layer.
+  `RealVmBridge` accepts a `versionSkewValidator` invoked on every
+  successful connect / reconnect; non-null return disconnects in place
+  and throws `VmBridgeException`. Default validator fails closed on
+  missing or non-String `packageVersion`.
+- Baseline mutations route through a single `_applyBaseline`; validator
+  + rotation guard cover connect, reconnect, and refresh uniformly.
+  `_validated` lowers before the validator runs (refresh path too) so a
+  lock-free dispatcher can't observe `isConnected == true` mid-validation.
+- After v0.3.0 ships, v0.2.0 sidecars hit `version_skew_major` on
+  attach to a v0.33.0 app — their pin (`0.32.0`) predates
+  `acceptedPriorLineages`. Recovery:
+  `dart pub global activate sleuth_mcp` (>= 0.3.0). Local pre-publish:
   `dart pub global activate --source path packages/sleuth_mcp`.
 
 ## 0.32.0
