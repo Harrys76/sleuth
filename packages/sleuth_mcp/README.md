@@ -50,7 +50,7 @@ the per-IDE config path.
 ## Tools
 
 | Tool | Args | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `connect` | `uri` | Attach to a running Flutter app. Always call first. Returns `connectionMode`, `sessionUuid`, and a `warning` if sidecar / app versions are skewed. |
 | `get_snapshot` | — | Full performance snapshot (issues, frame stats, route history). |
 | `get_issues` | `route?`, `severityAtLeast?` | Currently-aggregated issues. Optional route filter and case-insensitive severity gate (`ok` / `warning` / `critical`). |
@@ -95,7 +95,7 @@ Exits 0 on pass, 1 on budget violation, 2 on connect / handler failure.
 ## Tools vs `sleuth_check`
 
 | Use case | Mechanism |
-|---|---|
+| --- | --- |
 | Conversational diagnosis with an AI assistant | `sleuth_mcp` stdio server, tools/resources |
 | Comparing two snapshots side-by-side in an AI conversation | `compare_snapshots` MCP tool |
 | Pass/fail gate inside a CI script | `sleuth_check` one-shot binary |
