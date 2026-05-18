@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
-import 'package:sleuth/src/vm/service_extension_handlers.dart'
-    show kSleuthPackageVersion;
 import 'package:sleuth/sleuth.dart';
 
 import '../helpers/timeline_test_helpers.dart';

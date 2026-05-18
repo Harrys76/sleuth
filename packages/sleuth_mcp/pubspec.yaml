@@ -1,6 +1,6 @@
 name: sleuth_mcp
 description: MCP stdio sidecar exposing ext.sleuth.* VM service extensions to AI clients.
-version: 0.2.0
+version: 0.3.0
 homepage: https://github.com/Harrys76/sleuth
 repository: https://github.com/Harrys76/sleuth
 issue_tracker: https://github.com/Harrys76/sleuth/issues

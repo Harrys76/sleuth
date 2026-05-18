@@ -15,7 +15,7 @@ import 'service_extension_registry.dart';
 const int kMcpEnvelopeSchemaVersion = 1;
 
 /// Stamped on `ext.sleuth.diagnose`. Keep in sync with `pubspec.yaml`.
-const String kSleuthPackageVersion = '0.32.0';
+const String kSleuthPackageVersion = '0.33.0';
 
 typedef ExtensionHandler = FutureOr<Map<String, Object?>> Function(
   SleuthController controller,
@@ -196,9 +196,11 @@ FutureOr<Map<String, Object?>> extIssuesHandler(
 
 /// `ext.sleuth.routeHealth` — per-route health rollup.
 ///
-/// Without `route`, returns the full `routeHistoryNotifier` value as a
-/// `routes: [...]` list. With `route`, returns a single matching session
-/// (most recent if multiple share the name) or `error: 'unknown_route'`.
+/// Without `route`, `data` is `{routes: List<RouteSession.toJson()>}`.
+/// With `route` and a match, `data` is `{route: RouteSession.toJson()}`
+/// — wrapper consistent with the no-arg shape so consumers can branch on
+/// the `routes` vs `route` key rather than tasting the value's runtime
+/// shape. With no match, returns `error: 'unknown_route'`.
 FutureOr<Map<String, Object?>> extRouteHealthHandler(
   SleuthController controller,
   Map<String, String> args,
@@ -221,7 +223,9 @@ FutureOr<Map<String, Object?>> extRouteHealthHandler(
       extra: <String, Object?>{'route': route},
     );
   }
-  return envelopeOk(controller: controller, data: match.toJson());
+  return envelopeOk(controller: controller, data: <String, Object?>{
+    'route': match.toJson(),
+  });
 }
 
 /// `ext.sleuth.explain` — encyclopedia entry for a `stableId`. Parametric /

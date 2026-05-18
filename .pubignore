@@ -8,6 +8,8 @@ example/windows/
 doc/*
 !doc/screenshots/
 !doc/logo.png
+!doc/mcp_schema.md
+!doc/mcp_schema.json
 test/validation/captures/**/*.json
 *.iml
 CLAUDE.md

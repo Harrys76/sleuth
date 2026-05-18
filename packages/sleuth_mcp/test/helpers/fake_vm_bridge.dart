@@ -10,7 +10,7 @@ FakeVmBridge defaultFakeBridge() {
     'schemaVersion': 1,
     'sessionUuid': 'fake-uuid',
     'data': {
-      'packageVersion': '0.32.0',
+      'packageVersion': '0.33.0',
       'initializedAtMicros': 0,
       'vmConnected': true,
       'captureMode': false,

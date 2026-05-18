@@ -70,6 +70,154 @@ Future<Object> _passThrough(
   return envelope;
 }
 
+/// Outcome of inspecting a connect-time `ext.sleuth.diagnose` envelope
+/// against [sleuthPackageVersionPin]. Drives both the bridge-layer
+/// validator (refusal collapses the connection in place) and the tool
+/// layer's warning-stamping branch for the connect tool's return shape.
+enum _SkewClass {
+  /// `packageVersion` exactly matches the sidecar pin.
+  exact,
+
+  /// Same major.minor lineage as the pin, differing patch — wire
+  /// contract holds; emit `version_skew_minor` as advisory.
+  sameLineagePatch,
+
+  /// Cross-lineage drift that [acceptedPriorLineages] explicitly
+  /// permits — emit `version_skew_prior_lineage` so an upgrading user
+  /// knows the transition fallback is what kept the connection alive.
+  toleratedCrossLineage,
+
+  /// Lineage drift outside the accepted set — refuse to serve.
+  refused,
+
+  /// `packageVersion` was missing or non-String. Cannot prove
+  /// wire-shape compatibility — fail closed.
+  unknown,
+}
+
+_SkewClass _classifySkew(Map<String, Object?>? diagnoseEnvelope) {
+  if (diagnoseEnvelope == null) return _SkewClass.unknown;
+  final data = diagnoseEnvelope['data'];
+  if (data is! Map<String, Object?>) return _SkewClass.unknown;
+  final raw = data['packageVersion'];
+  if (raw is! String || raw.isEmpty) return _SkewClass.unknown;
+  if (raw == sleuthPackageVersionPin) return _SkewClass.exact;
+  final appLineage = versionLineage(raw);
+  final pinLineage = versionLineage(sleuthPackageVersionPin);
+  if (appLineage == pinLineage) return _SkewClass.sameLineagePatch;
+  if (acceptedPriorLineages.contains(appLineage)) {
+    return _SkewClass.toleratedCrossLineage;
+  }
+  return _SkewClass.refused;
+}
+
+String _skewRefusalMessage(Map<String, Object?>? diag, String reason) {
+  final data = diag?['data'];
+  String? appVersion;
+  if (data is Map<String, Object?>) {
+    final v = data['packageVersion'];
+    if (v is String) appVersion = v;
+  }
+  switch (reason) {
+    case 'version_skew_unknown':
+      return 'version_skew_unknown: diagnose envelope missing packageVersion '
+          'stamp — cannot verify wire contract. Bridge disconnected.';
+    default:
+      return 'version_skew_major: app=${appVersion ?? '<missing>'} '
+          'sidecar-pin=$sleuthPackageVersionPin — refusing to serve; align '
+          'sleuth dep with sidecar version. Bridge disconnected.';
+  }
+}
+
+/// Bridge-layer validator. Returns a refusal string when the diagnose
+/// envelope reports a packageVersion the sidecar refuses to talk to;
+/// returns null on exact, same-lineage patch, or accepted-prior-lineage
+/// drift (warning surfacing is the tool layer's job).
+///
+/// The validator is the canonical chokepoint — bridge `_connectUnlocked`
+/// invokes it after every successful connect/reconnect and disconnects
+/// the bridge in place on non-null return.
+Future<String?> defaultVersionSkewValidator(
+  Map<String, Object?> diagnoseEnvelope,
+) async {
+  final clazz = _classifySkew(diagnoseEnvelope);
+  switch (clazz) {
+    case _SkewClass.exact:
+    case _SkewClass.sameLineagePatch:
+    case _SkewClass.toleratedCrossLineage:
+      return null;
+    case _SkewClass.unknown:
+      return _skewRefusalMessage(diagnoseEnvelope, 'version_skew_unknown');
+    case _SkewClass.refused:
+      return _skewRefusalMessage(diagnoseEnvelope, 'version_skew_major');
+  }
+}
+
+/// Defence-in-depth. The production bridge wires
+/// [defaultVersionSkewValidator] into [RealVmBridge.versionSkewValidator],
+/// which enforces refusal at the bridge layer (cannot be bypassed by
+/// reconnect, debugUrl, daemon-spawn, or any future connect path). This
+/// helper STILL runs at the tool layer for two reasons:
+///   (a) Tool tests using a `FakeVmBridge` without a wired validator rely
+///       on this helper for refusal — keeps test harnesses simple.
+///   (b) Defence-in-depth: if a future bridge instantiation forgets the
+///       validator wiring, this helper catches the omission before any
+///       tool call dispatches against an incompatible app.
+/// Refusal messages MUST match [defaultVersionSkewValidator] output
+/// exactly so the `connect` / `attach_app` catch paths handle both
+/// sources uniformly.
+///
+/// Returns:
+/// - the cached/fetched diagnose envelope on OK / minor / accepted-prior
+///   lineage drift (caller stamps the appropriate warning);
+/// - a [ToolCallResult] error AND disconnects [bridge] on major skew or
+///   missing packageVersion (fail-closed on unknown lineage).
+Future<({Map<String, Object?>? diagnose, ToolCallResult? refusal})>
+    _enforceVersionSkew(VmBridge bridge) async {
+  final diag = bridge.lastDiagnoseEnvelope ??
+      await bridge.callExtension('ext.sleuth.diagnose');
+  final clazz = _classifySkew(diag);
+  switch (clazz) {
+    case _SkewClass.exact:
+    case _SkewClass.sameLineagePatch:
+    case _SkewClass.toleratedCrossLineage:
+      return (diagnose: diag, refusal: null);
+    case _SkewClass.unknown:
+      await bridge.disconnect();
+      return (
+        diagnose: null,
+        refusal: ToolCallResult.text(
+          _skewRefusalMessage(diag, 'version_skew_unknown'),
+          isError: true,
+        ),
+      );
+    case _SkewClass.refused:
+      await bridge.disconnect();
+      return (
+        diagnose: null,
+        refusal: ToolCallResult.text(
+          _skewRefusalMessage(diag, 'version_skew_major'),
+          isError: true,
+        ),
+      );
+  }
+}
+
+/// Picks the warning string the connect tool should stamp on the response.
+/// Returns null when no warning is appropriate.
+String? _connectWarningFor(_SkewClass clazz) {
+  switch (clazz) {
+    case _SkewClass.sameLineagePatch:
+      return 'version_skew_minor';
+    case _SkewClass.toleratedCrossLineage:
+      return 'version_skew_prior_lineage';
+    case _SkewClass.exact:
+    case _SkewClass.unknown:
+    case _SkewClass.refused:
+      return null;
+  }
+}
+
 Future<Object> _connectHandler(
     VmBridge bridge, Map<String, Object?> args) async {
   final uri = args['uri'];
@@ -82,30 +230,26 @@ Future<Object> _connectHandler(
   } on FormatException catch (e) {
     return ToolCallResult.text('invalid_uri: $e', isError: true);
   }
-  await bridge.connect(parsed);
-  // Reuse the bridge's connect-time diagnose envelope to avoid a second
-  // round-trip.
-  final diag = bridge.lastDiagnoseEnvelope ??
-      await bridge.callExtension('ext.sleuth.diagnose');
+  try {
+    await bridge.connect(parsed);
+  } on VmBridgeException catch (e) {
+    // Bridge-layer validator refused (RealVmBridge with
+    // defaultVersionSkewValidator) — surface as a tool-level error.
+    // FakeVmBridge without a validator falls through to the tool-layer
+    // _enforceVersionSkew check below.
+    if (e.message.startsWith('version_skew_')) {
+      return ToolCallResult.text(e.message, isError: true);
+    }
+    rethrow;
+  }
+  final result = await _enforceVersionSkew(bridge);
+  if (result.refusal != null) return result.refusal!;
+  final diag = result.diagnose!;
   final data = diag['data'];
   String? appVersion;
   if (data is Map<String, Object?>) {
     final v = data['packageVersion'];
     if (v is String) appVersion = v;
-  }
-  if (appVersion != null && appVersion != sleuthPackageVersionPin) {
-    final lineageMismatch =
-        versionLineage(appVersion) != versionLineage(sleuthPackageVersionPin);
-    if (lineageMismatch) {
-      // Envelope shape may differ across lineage boundary — refuse and
-      // drop the bridge so later tools don't hit an incompatible app.
-      await bridge.disconnect();
-      return ToolCallResult.text(
-        'version_skew_major: app=$appVersion sidecar-pin=$sleuthPackageVersionPin — '
-        'refusing to serve; align sleuth dep with sidecar version. Bridge disconnected.',
-        isError: true,
-      );
-    }
   }
   final connectResult = <String, Object?>{
     'connected': true,
@@ -115,8 +259,9 @@ Future<Object> _connectHandler(
     'sidecarVersion': sleuthMcpVersion,
     'appPackageVersion': appVersion,
   };
-  if (appVersion != null && appVersion != sleuthPackageVersionPin) {
-    connectResult['warning'] = 'version_skew_minor';
+  final warning = _connectWarningFor(_classifySkew(diag));
+  if (warning != null) {
+    connectResult['warning'] = warning;
   }
   return connectResult;
 }
@@ -173,8 +318,42 @@ Future<Object> _getRouteHealthHandler(
 ) async {
   final extArgs = <String, dynamic>{};
   final route = args['route'];
-  if (route is String && route.isNotEmpty) extArgs['route'] = route;
-  return _passThrough(bridge, 'ext.sleuth.routeHealth', extArgs);
+  final hasRouteArg = route is String && route.isNotEmpty;
+  if (hasRouteArg) extArgs['route'] = route;
+  final envelope =
+      await bridge.callExtension('ext.sleuth.routeHealth', args: extArgs);
+  // Passthrough untouched for:
+  //   - error envelopes (no `data` block);
+  //   - absent-route shape (caller asked for the full route list and the
+  //     wrapper logic only applies to single-match responses).
+  if (!hasRouteArg) return envelope;
+  if (envelope['error'] != null) return envelope;
+  final data = envelope['data'];
+  if (data is! Map<String, Object?>) return envelope;
+  final hasRouteKey = data.containsKey('route');
+  final hasRouteNameKey = data.containsKey('routeName');
+  if (hasRouteKey && hasRouteNameKey) {
+    // Defensive: under either the canonical v0.33 wrapper or the inline
+    // v0.32 shape this state is impossible. Surface via the bridge logger
+    // when available; never double-wrap.
+    return envelope;
+  }
+  if (hasRouteKey) {
+    // Canonical v0.33 shape — already wrapped, leave alone.
+    return envelope;
+  }
+  if (hasRouteNameKey) {
+    // v0.32 inline shape from an `acceptedPriorLineages` app. Wrap so the
+    // sidecar's downstream consumers always see the canonical
+    // `{route: <session>}` shape regardless of which lineage the app
+    // speaks.
+    final wrapped = Map<String, Object?>.from(data);
+    final rewritten = Map<String, Object?>.from(envelope)
+      ..['data'] = <String, Object?>{'route': wrapped};
+    return rewritten;
+  }
+  // Ambiguous / empty match — return untouched.
+  return envelope;
 }
 
 Future<Object> _explainIssueHandler(
@@ -354,6 +533,34 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     final debugUrl = args['debugUrl'] as String?;
     try {
       final status = await session.attach(device: device, debugUrl: debugUrl);
+      // Bridge-layer version-skew refusal flows through
+      // `DaemonSession.attach`'s `on VmBridgeException` catch block, which
+      // wraps the original `version_skew_…` message into `lastError` as
+      // `'bridge connect failed: version_skew_…'`. Surface that case as
+      // `isError` so MCP clients can distinguish a contract refusal from
+      // generic attach failures (timeout, app.stop, etc.) that flow
+      // through the same non-attached `status.toJson()` return path.
+      if (!status.attached) {
+        final lastError = status.lastError ?? '';
+        if (lastError.contains('version_skew_')) {
+          return ToolCallResult.text(lastError, isError: true);
+        }
+      }
+      // Attach reaches `state: ready` only when `bridge.connect(...)`
+      // succeeded — apply the same version-skew enforcement the `connect`
+      // tool runs. Without this both daemon-spawn and debugUrl paths can
+      // connect silently to a sleuth lineage the sidecar doesn't speak.
+      // (Bridge-layer validation already covers this when
+      // `defaultVersionSkewValidator` is wired into `RealVmBridge` — the
+      // call here is defence-in-depth for fakes / future bridges that
+      // skip validator wiring; see `_enforceVersionSkew` rationale.)
+      if (status.attached) {
+        final result = await _enforceVersionSkew(bridge);
+        if (result.refusal != null) {
+          await session.detach();
+          return result.refusal!;
+        }
+      }
       return status.toJson();
     } on StateError catch (e) {
       return ToolCallResult.text(e.message, isError: true);

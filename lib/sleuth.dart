@@ -95,6 +95,8 @@ export 'src/models/base_detector.dart'
 export 'src/models/simple_structural_detector.dart';
 export 'src/vm/timeline_parser.dart' show ParsedTimelineData;
 export 'src/vm/connection_mode.dart' show ConnectionMode;
+export 'src/vm/service_extension_handlers.dart'
+    show kMcpEnvelopeSchemaVersion, kSleuthPackageVersion;
 export 'src/vm/service_extension_registry.dart' show ServiceExtensionRegistry;
 export 'src/debug/debug_snapshot.dart' show DebugSnapshot, RebuildCountSource;
 export 'src/models/allocation_entry.dart';

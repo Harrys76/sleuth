@@ -14,6 +14,24 @@ void main() {
     expect(sleuthPackageVersionPin, isNotEmpty);
   });
 
+  test('sleuthPackageVersionPin matches kSleuthPackageVersion in sleuth source',
+      () {
+    // The sidecar can't `package:sleuth` import (sleuth pulls the Flutter
+    // SDK; sidecar is a Flutter-free Dart CLI). Instead, parse the sleuth
+    // source file at test-time and assert the literal matches. Drift between
+    // the two declarations is caught here as a test failure rather than as
+    // a silent runtime `version_skew_major` refusal.
+    final sleuthSource = _resolveSleuthSourceFile();
+    final text = sleuthSource.readAsStringSync();
+    final match = RegExp(r"const String kSleuthPackageVersion = '([^']+)';")
+        .firstMatch(text);
+    expect(match, isNotNull,
+        reason: 'kSleuthPackageVersion declaration not found in source');
+    expect(match!.group(1), sleuthPackageVersionPin,
+        reason: 'sleuthPackageVersionPin (sidecar) drifted from '
+            'kSleuthPackageVersion (sleuth). Re-pin both to the same value.');
+  });
+
   test(
     'binary spawns, initialize + tools/list returns 8 tool names',
     () async {
@@ -73,6 +91,40 @@ void main() {
       await responses.cancel();
     },
     timeout: const Timeout(Duration(seconds: 120)),
+  );
+}
+
+/// Resolves `lib/src/vm/service_extension_handlers.dart` in the sleuth
+/// root regardless of test-runner cwd. Walks up from `Directory.current`
+/// and from the test script location looking for a `pubspec.yaml` that
+/// names the sleuth package (`name: sleuth\n`). The cwd-walk pattern
+/// mirrors `_resolveSchemaFile` in
+/// `test/validation/mcp_schema_audit_test.dart`.
+File _resolveSleuthSourceFile() {
+  const relPath = 'lib/src/vm/service_extension_handlers.dart';
+  for (final start in <Directory>[
+    Directory.current,
+    File.fromUri(Platform.script).parent,
+  ]) {
+    var dir = start;
+    for (var i = 0; i < 8; i++) {
+      final pubspec = File('${dir.path}/pubspec.yaml');
+      final candidate = File('${dir.path}/$relPath');
+      if (pubspec.existsSync() && candidate.existsSync()) {
+        // Disambiguate the sleuth root from sibling packages — only the
+        // sleuth root publishes `name: sleuth`.
+        if (pubspec.readAsStringSync().contains('name: sleuth\n')) {
+          return candidate;
+        }
+      }
+      final parent = dir.parent;
+      if (parent.path == dir.path) break;
+      dir = parent;
+    }
+  }
+  throw StateError(
+    'service_extension_handlers.dart not found by walking up from cwd or '
+    'test file. Sidecar smoke test must run from inside the sleuth repo.',
   );
 }
 

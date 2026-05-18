@@ -45,33 +45,25 @@ Future<void> main(List<String> argv) async {
       int.tryParse(parsed['max-critical-issues'] as String) ?? 0;
   final emitJson = parsed['json'] as bool;
 
-  final bridge = RealVmBridge();
+  // Bridge-layer skew validator handles refusal (incl. missing
+  // packageVersion fail-closed) before the first snapshot fetch — the
+  // budget evaluator must never see an envelope from an out-of-lineage
+  // or unverifiable app.
+  final bridge =
+      RealVmBridge(versionSkewValidator: defaultVersionSkewValidator);
   try {
     await bridge.connect(Uri.parse(uri));
-  } catch (e) {
-    stderr.writeln('connect failed: $e');
+  } on VmBridgeException catch (e) {
+    if (e.message.startsWith('version_skew_')) {
+      stderr.writeln(e.message);
+      exitCode = 2;
+      return;
+    }
+    stderr.writeln('connect failed: ${e.message}');
     exitCode = 2;
     return;
-  }
-
-  // Refuse on lineage skew — envelope shape may differ across boundaries.
-  final diag = bridge.lastDiagnoseEnvelope;
-  String? appVersion;
-  if (diag != null) {
-    final data = diag['data'];
-    if (data is Map<String, Object?>) {
-      final v = data['packageVersion'];
-      if (v is String) appVersion = v;
-    }
-  }
-  if (appVersion != null &&
-      versionLineage(appVersion) != versionLineage(sleuthPackageVersionPin)) {
-    stderr.writeln(
-      'version skew: app=$appVersion sidecar-pin=$sleuthPackageVersionPin — '
-      'budgets may be evaluated against a wrong envelope shape. Refusing to '
-      'run; align sleuth dep with sleuth_check version.',
-    );
-    await bridge.disconnect();
+  } catch (e) {
+    stderr.writeln('connect failed: $e');
     exitCode = 2;
     return;
   }

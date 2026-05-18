@@ -1,0 +1,153 @@
+{
+  "_doc": "Wire schema for ext.sleuth.* VM service extensions. Load-bearing source for test/validation/ext_sleuth_schema_audit_test.dart. Markdown render at doc/mcp_schema.md.",
+  "schemaVersion": 1,
+  "envelope": {
+    "ok": {
+      "connectionMode": {
+        "type": "String",
+        "required": true,
+        "nullable": false,
+        "values": ["disconnected", "warmup", "basic", "full", "correlated"]
+      },
+      "schemaVersion": {"type": "int", "required": true, "nullable": false, "value": 1},
+      "sessionUuid": {"type": "String", "required": true, "nullable": false},
+      "data": {"type": "Map<String, Object?>", "required": true, "nullable": false}
+    },
+    "error": {
+      "connectionMode": {
+        "type": "String",
+        "required": true,
+        "nullable": false,
+        "values": ["disconnected", "warmup", "basic", "full", "correlated"]
+      },
+      "schemaVersion": {"type": "int", "required": true, "nullable": false, "value": 1},
+      "sessionUuid": {"type": "String", "required": true, "nullable": false},
+      "error": {"type": "String", "required": true, "nullable": false},
+      "stack": {"type": "String", "required": false, "nullable": false}
+    }
+  },
+  "handlers": {
+    "ext.sleuth.diagnose": {
+      "args": {},
+      "data": {
+        "packageVersion": {"type": "String", "required": true, "nullable": false},
+        "initializedAtMicros": {"type": "int", "required": true, "nullable": true},
+        "vmConnected": {"type": "bool", "required": true, "nullable": false},
+        "captureMode": {"type": "bool", "required": true, "nullable": false},
+        "lastCaptureExportFailure": {"type": "String", "required": true, "nullable": true},
+        "unboundExtensionNames": {"type": "List<String>", "required": true, "nullable": false}
+      }
+    },
+    "ext.sleuth.snapshot": {
+      "args": {},
+      "data": {
+        "_shape_source": "SessionSnapshot.toJson() — lib/src/models/session_snapshot.dart",
+        "schemaVersion": {"type": "int", "required": true, "nullable": false},
+        "exportedAt": {"type": "String (ISO-8601)", "required": true, "nullable": false},
+        "packageVersion": {"type": "String", "required": true, "nullable": false},
+        "isVmConnected": {"type": "bool", "required": true, "nullable": false},
+        "isDebugMode": {"type": "bool", "required": true, "nullable": false},
+        "frameStatsSummary": {"type": "Map<String, Object?>", "required": true, "nullable": false},
+        "capturedFrames": {"type": "List<Map>", "required": true, "nullable": false},
+        "currentIssues": {"type": "List<Map>", "required": true, "nullable": false},
+        "suppressedCount": {"type": "int", "required": false, "nullable": false, "presence": "only when > 0"},
+        "recentRequests": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when NetworkMonitorDetector is enabled and the request ring buffer is non-empty"},
+        "heapSamples": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when MemoryPressureDetector has at least one sample buffered"},
+        "phaseEvents": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when the controller's rolling timeline-event buffer is non-empty"},
+        "gcEvents": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when GC events have been observed on the timeline stream"},
+        "platformChannelEvents": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when platform-channel events have been observed on the timeline stream"},
+        "recentFrames": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when the frame-stats buffer is non-empty"},
+        "widgetHeatMap": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when at least one issue has been ranked (heat-map is derived from ranked issues)"},
+        "recurrenceTrends": {"type": "Map<String, Object?>", "required": false, "nullable": false, "presence": "when populated"},
+        "sessionSummary": {"type": "Map<String, Object?>", "required": false, "nullable": false, "presence": "when populated"},
+        "startupMetrics": {"type": "Map<String, Object?>", "required": false, "nullable": false, "presence": "when Sleuth.init captured first-frame data"},
+        "routeSessions": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when route history non-empty"}
+      }
+    },
+    "ext.sleuth.issues": {
+      "args": {
+        "route": {"type": "String", "required": false, "nullable": false, "doc": "Empty string treated as absent"}
+      },
+      "data": {
+        "issues": {"type": "List<Map>", "required": true, "nullable": false, "item_shape": "PerformanceIssue.toJson()"},
+        "route": {"type": "String", "required": false, "nullable": false, "presence": "only when route arg was non-empty"}
+      }
+    },
+    "ext.sleuth.routeHealth": {
+      "args": {
+        "route": {"type": "String", "required": false, "nullable": false, "doc": "Empty string treated as absent"}
+      },
+      "data": {
+        "_shape_source": "RouteSession.toJson() — lib/src/models/route_session.dart",
+        "routes": {"type": "List<Map>", "required": false, "nullable": false, "presence": "only when route arg absent", "item_shape": "RouteSession.toJson()"},
+        "route": {"type": "Map<String, Object?>", "required": false, "nullable": false, "presence": "only when route arg matches a session", "value_shape": "RouteSession.toJson()"}
+      },
+      "errors": [
+        {"error": "unknown_route", "extra": {"route": "String — echoes the arg"}}
+      ]
+    },
+    "ext.sleuth.explain": {
+      "args": {
+        "stableId": {"type": "String", "required": true, "nullable": false, "minLength": 1}
+      },
+      "data": {
+        "stableId": {"type": "String", "required": true, "nullable": false},
+        "canonical": {"type": "String", "required": true, "nullable": false},
+        "explanation": {
+          "type": "Map<String, Object?>",
+          "required": true,
+          "nullable": false,
+          "shape": {
+            "displayName": {"type": "String", "required": true, "nullable": false},
+            "category": {"type": "String", "required": true, "nullable": false},
+            "whatItIs": {"type": "String", "required": true, "nullable": false},
+            "readingTheData": {"type": "String", "required": true, "nullable": false},
+            "whyItMatters": {"type": "String", "required": true, "nullable": false},
+            "howToFix": {"type": "String", "required": true, "nullable": false},
+            "whenToIgnore": {"type": "String", "required": true, "nullable": false},
+            "relatedIssues": {"type": "List<String>", "required": true, "nullable": false}
+          }
+        }
+      },
+      "errors": [
+        {"error": "missing_required_arg", "extra": {"arg": "stableId"}},
+        {"error": "unknown_stable_id", "extra": {"stableId": "String", "canonical": "String"}}
+      ]
+    },
+    "ext.sleuth.encyclopedia": {
+      "args": {},
+      "data": {
+        "count": {"type": "int", "required": true, "nullable": false},
+        "entries": {
+          "type": "Map<String, Map>",
+          "required": true,
+          "nullable": false,
+          "key": "canonical stableId",
+          "value_shape": "same as ext.sleuth.explain.data.explanation"
+        }
+      }
+    },
+    "ext.sleuth.causalGraph": {
+      "args": {},
+      "data": {
+        "count": {"type": "int", "required": true, "nullable": false},
+        "rules": {
+          "type": "List<Map>",
+          "required": true,
+          "nullable": false,
+          "item_shape": {
+            "trigger": {"type": "String", "required": true, "nullable": false},
+            "effect": {"type": "String", "required": true, "nullable": false}
+          }
+        }
+      }
+    }
+  },
+  "notes": [
+    "schemaVersion (envelope) bumps only on breaking change (field rename, removal, type change). Adding optional fields or new handlers does NOT bump.",
+    "Snapshot + RouteSession deep schemas defer to their model classes' toJson() as source-of-truth. v0.34.0 may codify deeper shape.",
+    "MCP tool layer audit (packages/sleuth_mcp/test/schema/) lands in v0.4.0 — sidecar tool transforms over ext.sleuth.* envelopes.",
+    "Initial v0.33.0 schema authored from current handler source. Future drift is caught by the audit, but v0.32.0-era implementation quirks (if any) are locked in. v0.34.0 will rebase the schema from captured real-device output to break this tautology.",
+    "Snapshot fields `recurrenceTrends`, `sessionSummary`, `routeSessions` are documented as opaque containers — nested shape unconstrained. Codification deferred to v0.34.0."
+  ]
+}

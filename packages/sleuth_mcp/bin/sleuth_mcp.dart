@@ -63,6 +63,11 @@ Future<void> main(List<String> argv) async {
   final bridge = RealVmBridge(
     callTimeout: Duration(seconds: timeoutSeconds),
     logger: logger,
+    // Bridge-layer skew validator. Connect / reconnect paths funnel
+    // through `_connectUnlocked` — putting refusal here closes the
+    // window where a transport-close reconnect could quietly bind to an
+    // incompatible app between two tool calls.
+    versionSkewValidator: defaultVersionSkewValidator,
   );
   final uri = parsed['uri'] as String?;
   if (uri != null && uri.isNotEmpty) {

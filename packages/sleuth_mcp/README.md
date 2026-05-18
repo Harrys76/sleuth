@@ -21,7 +21,7 @@ in conversation: "attach to my Flutter app and explore" — the agent
 calls `list_devices` → `attach_app`, which spawns `flutter attach
 --machine`, discovers the VM service URI, and connects.
 
-For project-local installs, add `sleuth_mcp: ^0.2.0` to `dev_dependencies`.
+For project-local installs, add `sleuth_mcp: ^0.3.0` to `dev_dependencies`.
 
 Manual `--uri` mode (pre-v0.2 workflow) still works:
 
@@ -105,7 +105,9 @@ Exits 0 on pass, 1 on budget violation, 2 on connect / handler failure.
 
 ## Version sync rule
 
-`sleuth_mcp` v0.2.x is built against `sleuth` v0.32.x. The `connect`
+`sleuth_mcp` v0.3.x is built against `sleuth` v0.33.x. The sidecar
+tolerates one prior lineage (`sleuth 0.32.x`) during the transition
+window — drift surfaces as `version_skew_minor` (warning). The `connect`
 tool cross-checks the app's reported package version against the
 sidecar's pin and emits:
 

@@ -21,7 +21,9 @@ export 'src/bridge/vm_bridge.dart'
         RealVmBridge,
         FakeVmBridge,
         VmBridgeException,
-        SessionChangedException;
+        SessionChangedException,
+        VersionSkewValidator;
+export 'src/tools/tools.dart' show defaultVersionSkewValidator;
 export 'src/flutter_daemon/app_status.dart'
     show AppStatusPayload, AppSessionState;
 export 'src/flutter_daemon/daemon_events.dart';
