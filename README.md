@@ -109,6 +109,41 @@ Sleuth reports the frame total duration (build-to-raster span) from Flutter's `F
 
 **VM full mode** adds sub-phase breakdown (build vs layout vs paint vs raster) but depends on VM service connectivity, which varies by platform. The package falls back gracefully to frame timing mode when VM is unavailable. On cold start, a background reconnect ladder (500 ms → 30 s, 7 attempts) automatically upgrades to full mode once the VM web server binds — no manual action needed.
 
+### Reaching full mode
+
+`flutter run` keeps a host-side daemon holding the VM service as an exclusive observer on both Android and iOS, which blocks sleuth's in-process `Service.controlWebServer(enable: true)` call. The package stays in frame-timing mode for the entire session.
+
+Workaround — launch the installed binary directly so no host daemon competes:
+
+**Android:**
+```bash
+# 1. Build + install ONCE via flutter run; immediately quit (q).
+fvm flutter run --profile -d <device-id>
+
+# 2. Re-launch the installed APK directly.
+adb -s <device-id> shell am start -n com.example.example/.MainActivity
+
+# 3. Read the VM service URI from device logcat.
+adb -s <device-id> logcat -d | grep "Dart VM service"
+
+# 4. Forward the device port to the host (for sleuth_mcp / external tooling).
+adb -s <device-id> forward tcp:<port> tcp:<port>
+```
+
+**iOS simulator:**
+```bash
+# 1. Build + install ONCE via flutter run; immediately quit (q).
+fvm flutter run --profile -d <simulator-id>
+
+# 2. Re-launch the installed app directly.
+xcrun simctl launch booted com.example.example
+
+# 3. VM service URI is printed by Flutter to the device's stdout —
+#    capture via `xcrun simctl spawn booted log stream` or `idevicesyslog`.
+```
+
+After step 2, `Sleuth.diagnose()` (or `sleuth_mcp`'s `diagnose` tool) reports `connectionMode: full` or `correlated`.
+
 ## Configuration
 
 ### Quick start

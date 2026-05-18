@@ -47,6 +47,63 @@ the per-IDE config path.
   MCP client spawns its own sidecar.
 - Min daemon protocol version `0.6.0`. Older Flutter SDKs refused.
 
+### Connection modes — `basic` vs `full` / `correlated`
+
+`diagnose` returns a `connectionMode`:
+
+- `basic` — sleuth's in-app `VmServiceClient` could not self-connect to
+  the host VM service. FrameTiming + structural detectors fire;
+  vmOnly detectors (`excessive_repaint`, `gc_pressure`, `heap_growing`,
+  `heavy_compute`, `stream_resource_growth`) stay silent. Causal-graph
+  rootCauseIds / downstreamIds inactive. Confidence stays at `possible`
+  for structural emissions.
+- `full` / `correlated` — VM connected. vmOnly detectors fire,
+  confidence escalates to `likely` or `confirmed` with VM evidence,
+  causal-graph rootCauseIds / downstreamIds wire across emissions.
+
+On both Android and iOS, `flutter run` keeps the host-side daemon
+holding the VM service as an exclusive observer, which blocks sleuth's
+in-process `Service.controlWebServer(enable: true)` call. Result:
+`basic` mode permanently. Workaround — launch the installed binary
+directly so no host daemon competes:
+
+**Android:**
+```bash
+# 1. Build + install ONCE via flutter run; immediately quit (q).
+fvm flutter run --profile -d <device-id>
+
+# 2. Re-launch the installed APK directly. Repeat as needed.
+adb -s <device-id> shell am start -n com.example.example/.MainActivity
+
+# 3. Read the VM service URI from device logcat.
+adb -s <device-id> logcat -d | grep "Dart VM service"
+# → I/flutter: The Dart VM service is listening on http://127.0.0.1:33999/<token>=/
+
+# 4. Forward the device port to the host.
+adb -s <device-id> forward tcp:33999 tcp:33999
+
+# 5. attach_app(debugUrl: "ws://127.0.0.1:33999/<token>=/ws")
+```
+
+**iOS simulator:**
+```bash
+# 1. Build + install ONCE via flutter run; immediately quit (q).
+fvm flutter run --profile -d <simulator-id>
+
+# 2. Re-launch the installed app directly.
+xcrun simctl launch booted com.example.example
+
+# 3. Capture VM service URI from simulator log stream.
+xcrun simctl spawn booted log stream --predicate 'process == "Runner"' \
+  | grep "Dart VM service"
+
+# 4. attach_app(debugUrl: "ws://127.0.0.1:<port>/<token>=/ws")
+#    (simulator shares localhost with host — no forward needed)
+```
+
+`diagnose` should now report `connectionMode: full` (or `correlated`
+once the per-frame timeline correlator warms up).
+
 ## Tools
 
 | Tool | Args | Purpose |
