@@ -15,6 +15,30 @@ export 'src/cli/install_command.dart'
         defaultMcpServerName,
         defaultMcpEntry,
         defaultConfigFile;
+export 'src/cli/attach_ios_command.dart'
+    show
+        runAttachIosCommand,
+        AttachIosResult,
+        BonjourAnnouncement,
+        IosTransport,
+        collectBonjourAnnouncements,
+        detectIosTransport,
+        parseReachedAtLine,
+        parseAuthCodeLine,
+        pidfileForSession,
+        PidfileLockGuard,
+        reclaimStaleIproxy,
+        selectUsbAnnouncement,
+        withPidfileLock;
+export 'src/cli/ios_attach_pipeline.dart'
+    show
+        IosAttachErrorKind,
+        IosAttachException,
+        IosAttachOrigin,
+        IosAttachPhase,
+        IosAttachProgress,
+        IosAttachResult,
+        IosAttacher;
 export 'src/bridge/vm_bridge.dart'
     show
         VmBridge,

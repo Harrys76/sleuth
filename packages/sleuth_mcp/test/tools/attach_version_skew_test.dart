@@ -267,15 +267,15 @@ void main() {
       '(transition-window fallback fires from attach path)',
       () async {
         // `acceptedPriorLineages` lets the sidecar tolerate one prior
-        // sleuth minor — e.g. v0.3.0 sidecar attached to v0.32.x app.
-        // The attach path must honour the same fallback so a mid-upgrade
-        // user can attach via `attach_app` (not just `connect`).
+        // sleuth minor (mid-upgrade transition window). The attach path
+        // must honour the same fallback so a mid-upgrade user can attach
+        // via `attach_app` (not just `connect`).
         final bridge = defaultFakeBridge()
           ..setEnvelope('ext.sleuth.diagnose', {
             'connectionMode': 'basic',
             'schemaVersion': 1,
             'sessionUuid': 'fake-uuid',
-            'data': {'packageVersion': '0.32.0'},
+            'data': {'packageVersion': '0.33.0'},
           });
         final server = McpServer(bridge: bridge)..registerDefaults();
         await server.handleForTest(JsonRpcMessage(

@@ -18,7 +18,8 @@ String versionLineage(String semver) {
 /// Drop the entry one release after the matching app version stops
 /// being supported. Each entry has a deadline-style comment for that.
 const Set<String> acceptedPriorLineages = {
-  // Drop in v0.4.0 — covers users still on sleuth 0.32.x while sleuth_mcp
-  // is already on 0.3.x.
-  '0.32',
+  // One-cycle fallback for apps still on the previous sleuth lineage
+  // while the sidecar pin has advanced. Drop the entry one release
+  // after the matching app version stops being supported.
+  '0.33',
 };

@@ -15,7 +15,7 @@ import 'service_extension_registry.dart';
 const int kMcpEnvelopeSchemaVersion = 1;
 
 /// Stamped on `ext.sleuth.diagnose`. Keep in sync with `pubspec.yaml`.
-const String kSleuthPackageVersion = '0.33.0';
+const String kSleuthPackageVersion = '0.34.0';
 
 typedef ExtensionHandler = FutureOr<Map<String, Object?>> Function(
   SleuthController controller,

@@ -104,6 +104,67 @@ xcrun simctl spawn booted log stream --predicate 'process == "Runner"' \
 `diagnose` should now report `connectionMode: full` (or `correlated`
 once the per-frame timeline correlator warms up).
 
+**iOS real device — one-command attach:**
+
+```bash
+# Prerequisite once: brew install libimobiledevice  (provides iproxy
+# for USB-tethered attach; not required for wireless / "Connect via
+# network" pairings).
+
+# Build + install the app ONCE via flutter run; immediately quit (q).
+fvm flutter run --profile -d <udid>
+```
+
+**Quick start (recommended).** From the MCP client, one call:
+
+```
+attach_app(udid: "<udid>", bundle: "com.example.example")
+→ {attached: true, state: "ready", launchMode: "ios-direct",
+   transportMode: "wired"|"wireless", wsUri: "ws://...", sessionUuid: ...}
+```
+
+The sidecar runs the full pipeline (devicectl launch → Bonjour resolve
+→ iproxy tunnel on USB, or direct `.local` host on wireless → bridge
+connect) and returns the attached envelope. `detach_app()` tears down
+the bridge and the iproxy child in order.
+
+Transport defaults to `auto` (parsed from `xcrun devicectl list devices`'s
+`transportType`). Override with `transport: "usb"` or `transport:
+"wireless"`. On multi-pairing USB ambiguity, pass `authOverride: "<code>"`
+selected from the `ios_ambiguous_pairings` error's `distinctAuthCodes`.
+
+**Standalone CLI (no MCP client).** For CI bootstrap or ad-hoc shells:
+
+```bash
+# One-command attach — launches the installed app, resolves Bonjour,
+# spawns iproxy as a child process, prints the wsUri.
+sleuth_mcp attach-ios <udid> --bundle com.example.example
+# → wsUri: ws://127.0.0.1:<port>/<token>=/ws
+#   iproxy running (pid 12345). Press Ctrl-C to tear down.
+
+# Paste the wsUri into your agent: attach_app(debugUrl: "<paste>")
+```
+
+If WebSocket attach is refused (403 / closed), re-run with
+`--auth <code>` choosing one of the printed pairings — Bonjour
+ordering between USB and WiFi paths is non-deterministic and the
+WiFi-bridged authCode is refused when reached through the USB tunnel.
+
+**No-Dart alternative.** CI bootstrap scripts and ad-hoc shells that
+don't have `sleuth_mcp` pub-activated can run the equivalent bash
+wrapper:
+
+```bash
+./packages/sleuth_mcp/tool/attach_ios.sh <udid> --bundle com.example.example
+```
+
+Same flags (`--bundle`, `--port`, `--auth`), same output, same
+USB-vs-WiFi Bonjour caveat. Requires `brew install libimobiledevice`
+(for `iproxy`); no `coreutils` needed — the script uses `/usr/bin/perl`
+for its dns-sd timeout. The Dart subcommand remains the canonical
+entry; the bash wrapper exists for parity + as a readable reference
+for the `devicectl → dns-sd → iproxy` pipeline.
+
 ## Tools
 
 | Tool | Args | Purpose |
@@ -116,7 +177,7 @@ once the per-frame timeline correlator warms up).
 | `compare_snapshots` | `before`, `after` | Pure client-side diff of two snapshots. Use to compare runs before / after a code change. |
 | `check_budgets` | `minFps`, `maxIssues`, `maxCriticalIssues` | Compare live snapshot against thresholds. For CI exit-code gating use the separate `sleuth_check` binary. |
 | `diagnose` | — | Operational health: package version, VM connection, unbound extension names. Use when other tools return empty. |
-| `attach_app` | `device?`, `debugUrl?` | Spawn `flutter attach --machine`, discover VM URI, connect bridge. Replaces manual `--uri`. |
+| `attach_app` | `device?`, `debugUrl?`, `udid?`, `bundle?`, `transport?`, `authOverride?` | Three routing modes: `udid` drives the iOS attach pipeline directly (devicectl + Bonjour + iproxy); `debugUrl` connects to a known WebSocket URI; `device` spawns `flutter attach --machine`. iOS-direct sessions report `transportMode` + `wsUri` on the response. |
 | `detach_app` | — | Stop the daemon child + disconnect the bridge. Idempotent. |
 | `app_status` | — | `{attached, state, device, appId, sessionUuid, launchMode, mode, lastError}`. |
 | `list_devices` | `mobileOnly?` | `flutter devices --machine`, filtered to mobile by default (android + ios). |
@@ -131,6 +192,16 @@ once the per-frame timeline correlator warms up).
 
 Both are cached per `sessionUuid` and refresh inline on hot-restart of
 the target app.
+
+Wire-shape contracts:
+
+- [`doc/mcp_schema.json`](doc/mcp_schema.json) +
+  [`doc/mcp_schema.md`](doc/mcp_schema.md) — `ext.sleuth.*` envelope
+  shapes (mirrored from the root sleuth package).
+- [`doc/mcp_tool_schema.json`](doc/mcp_tool_schema.json) +
+  [`doc/mcp_tool_schema.md`](doc/mcp_tool_schema.md) — sidecar
+  tool-call return shapes (success `data:` + error `errors:`) for the
+  13 MCP tools.
 
 ## `sleuth_check` — one-shot CI gate
 

@@ -33,6 +33,7 @@ The overlay appears in debug and profile mode. Completely disabled in release bu
 
 ## Running
 
+- If the Agent tool is available, do this inside a subagent so the full output stays out of your main context. Give it the instruction above verbatim, and be explicit about what it must return
 ```bash
 # Profile mode (recommended — accurate timing data)
 flutter run --profile

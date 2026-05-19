@@ -527,6 +527,26 @@ class SleuthController {
     _syncVmState(connected);
   }
 
+  /// Drive the recurrence trend for [stableId] to N consecutive present
+  /// observations at [severity], so the exported `recurrenceTrends` map
+  /// surfaces a populated entry without running the full scan loop.
+  ///
+  /// Exercised by `test/validation/mcp_schema_audit_test.dart` to confirm
+  /// the nested shape contract (trend / totalOccurrences / totalObserved /
+  /// lastSeenCycle / severityStats) without depending on real detectors.
+  @visibleForTesting
+  void recordRecurrenceForTest(
+    String stableId,
+    IssueSeverity severity,
+    int cycle,
+  ) {
+    final trend = _recurrenceTrends.putIfAbsent(stableId, RecurrenceTrend.new);
+    final severityIndex = _severityToIndex(severity);
+    for (var i = 1; i <= cycle; i++) {
+      trend.recordPresent(i, severityIndex: severityIndex);
+    }
+  }
+
   /// Merges user-configured [SleuthConfig.networkExcludePatterns] with
   /// adapter-provided [AiChatAdapter.networkExcludePatterns] without mutating
   /// either source list.
@@ -1281,6 +1301,18 @@ class SleuthController {
   @visibleForTesting
   List<RouteSession> get routeHistoryForTest =>
       List.unmodifiable(_routeHistory);
+
+  /// Replace the route history deque with [sessions] so the export path
+  /// emits a populated `routeSessions` list without running the real
+  /// route observer. Also republishes through [routeHistoryNotifier] so
+  /// downstream listeners see the seeded state.
+  @visibleForTesting
+  void seedRouteHistoryForTest(List<RouteSession> sessions) {
+    _routeHistory
+      ..clear()
+      ..addAll(sessions);
+    routeHistoryNotifier.value = List<RouteSession>.unmodifiable(sessions);
+  }
 
   /// Injects a (typically fake) [DebugInstrumentationCoordinator] so M12
   /// controller tests can observe `snapshot()` invocations and feed

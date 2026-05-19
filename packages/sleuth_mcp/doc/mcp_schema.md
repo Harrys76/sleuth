@@ -66,11 +66,54 @@ Full `SessionSnapshot.toJson()`. No args. Underlying shape in `lib/src/models/se
 | `gcEvents` | List\<Map\> | no | when GC events have been observed on the timeline stream |
 | `platformChannelEvents` | List\<Map\> | no | when platform-channel events have been observed on the timeline stream |
 | `recentFrames` | List\<Map\> | no | when the frame-stats buffer is non-empty |
-| `widgetHeatMap` | List\<Map\> | no | when at least one issue has been ranked (heat-map is derived from ranked issues) |
-| `recurrenceTrends` | Map | no | when populated |
+| `widgetHeatMap` | List\<Map\> | no | when at least one issue has been ranked (heat-map is derived from ranked issues) — **opaque** (item-shape intentionally undocumented pending a sidecar consumer) |
+| `recurrenceTrends` | Map\<String, Map\> | no | when populated |
 | `sessionSummary` | Map | no | when populated |
 | `startupMetrics` | Map | no | when `Sleuth.init` captured first-frame data |
 | `routeSessions` | List\<Map\> | no | when route history non-empty |
+
+#### `recurrenceTrends.<stableId>` sub-shape
+
+| Key | Type | Required | Presence |
+|---|---|---|---|
+| `trend` | String | yes | one of `stable` / `worsening` / `improving` / `intermittent` |
+| `totalOccurrences` | int | yes | always |
+| `totalObserved` | int | yes | always |
+| `lastSeenCycle` | int | yes | always (nullable when the buffer is empty) |
+| `severityStats` | Map | no | when the trend has at least one present observation — shape `{min: int, max: int}` |
+
+#### `sessionSummary` sub-shape
+
+| Key | Type | Required | Presence |
+|---|---|---|---|
+| `topIssues` | List\<Map\> | yes | always; item shape `{stableId, title, severity, confidence, confidenceReason, rankingScore}` |
+| `frameHistogram` | Map\<String, int\> | yes | fixed buckets `<16ms`, `16-33ms`, `33-50ms`, `50-100ms`, `>100ms` |
+| `detectorHitRates` | Map\<String, int\> | yes | always |
+| `memoryTrendSummary` | Map | no | when MemoryPressureDetector has accumulated at least one sample — shape `{startBytes, endBytes, peakBytes, growthRatePerSec, sampleCount}` |
+| `causalEdges` | List\<Map\> | no | when CausalGraphRule.apply produced at least one active edge — item shape `{cause, effect}` |
+
+#### `routeSessions[]` item shape
+
+| Key | Type | Required | Presence |
+|---|---|---|---|
+| `routeName` | String | yes | always |
+| `scaffoldHashKey` | int | no | when the session was created from an Element subtree carrying a visible Scaffold (always true for real-device captures; absent for scaffold-free overlay sessions) |
+| `tabVisitIndex` | int | yes | always |
+| `hotReloadGeneration` | int | no | only when > 0 (i.e. session created after at least one hot reload) |
+| `startedAt` | String (ISO-8601) | yes | always |
+| `endedAt` | String (ISO-8601) | no | once the session has been closed |
+| `healthScore` | num | yes | always |
+| `durationSeconds` | num | yes | always |
+| `scanCycles` | int | yes | always |
+| `frameStats` | Map | yes | shape `{totalFrames, jankFrames, averageFps, p50?, p95?, p99?}` — p-values present only when `frameStats.length >= 2` |
+| `issueCount` | int | yes | always |
+| `criticalCount` | int | yes | always |
+| `warningCount` | int | yes | always |
+| `issues` | List\<String\> | yes | stableIds only — not full issue maps |
+| `rebuildCountsByType` | Map\<String, int\> | no | when RebuildDetector accumulated per-type counts during the session |
+| `totalRebuilds` | int | no | when RebuildDetector accumulated per-type counts during the session |
+
+Derivation procedure + capture provenance: [`mcp_schema_derivation.md`](mcp_schema_derivation.md).
 
 ### `ext.sleuth.issues`
 
@@ -91,13 +134,13 @@ shape.
 
 | `data` key | Type | Presence |
 |---|---|---|
-| `routes` | List\<Map\> | only when `route` arg absent — item shape = `RouteSession.toJson()` |
-| `route` | Map | only when `route` arg matches a session — shape = `RouteSession.toJson()` |
+| `routes` | List\<Map\> | only when `route` arg absent — item shape mirrors `snapshot.data.routeSessions[]` above |
+| `route` | Map | only when `route` arg matches a session — same shape as the `routes` item above |
 
 **Errors:** `unknown_route` (extra: `{route: String}`) when the `route`
 arg has no matching session.
 
-Underlying shape: `RouteSession.toJson()` in `lib/src/models/route_session.dart`.
+Underlying shape: `RouteSession.toJson()` in `lib/src/models/route_session.dart`. Wire item shape is documented in the `snapshot.data.routeSessions[]` table above.
 
 ### `ext.sleuth.explain`
 
@@ -146,32 +189,19 @@ Rule set linking trigger stableIds to downstream effects. No args.
 
 The `sleuth_mcp` sidecar exposes 13 MCP tools that wrap (or transform)
 the `ext.sleuth.*` envelopes above. Tool-call return shapes are
-**sidecar-tool-layer responsibility** and will be schema-locked in
-`sleuth_mcp` v0.4.0 alongside the `packages/sleuth_mcp/test/schema/`
-audit. Until that release lands, consumers can rely on the following
-shapes as a stable best-effort contract:
+schema-locked in [`packages/sleuth_mcp/doc/mcp_tool_schema.json`](../packages/sleuth_mcp/doc/mcp_tool_schema.json)
+(human-readable render at [`mcp_tool_schema.md`](../packages/sleuth_mcp/doc/mcp_tool_schema.md))
+and audited by `packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart`.
+That file is sidecar-only — the sleuth root carries no parallel
+`mcp_tool_schema.{json,md}` and the parity audit asserts the absence.
 
-- `connect` — `{connected: bool, vmServiceUri: String, sessionUuid: String,
-  connectionMode: String, sidecarVersion: String, appPackageVersion: String,
-  warning?: 'version_skew_minor'}`. Major lineage skew returns an error
-  `ToolCallResult` with text prefix `version_skew_major:`.
-- `attach_app`, `detach_app`, `app_status`, `hot_reload` — JSON-encoded
-  `AppStatusPayload.toJson()` (`packages/sleuth_mcp/lib/src/flutter_daemon/app_status.dart`).
-- `list_devices` — `{devices: List, count: int, filteredBy: String}`.
-- `get_snapshot`, `get_issues`, `get_route_health`, `explain_issue` — pass
-  through the corresponding `ext.sleuth.*` envelope verbatim (or with a
-  documented filter overlay, e.g. `get_issues` adds `severityAtLeast`).
-- `diagnose` — wraps `ext.sleuth.diagnose` and augments `data` with
-  `sidecarVersion` + `sidecarBuiltAgainstSleuth`.
-- `compare_snapshots`, `check_budgets` — pure client-side, no app call;
-  return shapes documented in `packages/sleuth_mcp/lib/src/tools/`.
+Passthrough tools (`get_snapshot`, `get_issues`, `get_route_health`,
+`explain_issue`) preserve the wire envelopes above verbatim, with one
+documented shim: `get_route_health` normalizes the legacy v0.32 inline
+`RouteSession` shape into the v0.33 `{route: <session>}` wrapper when an
+`acceptedPriorLineages` app is connected.
 
-v0.4.0 will lock these shapes byte-for-byte. Breaking changes bump the
-sidecar minor version.
+## Notes
 
-## Deferred
-
-- Deeper schema for `snapshot` + `routeHealth` (currently delegated to model `toJson()`).
-- MCP tool-layer audit. Lands with `packages/sleuth_mcp/test/schema/`.
-- v0.33.0 schema authored from current handler source. v0.34.0 will rebase from captured real-device output.
-- `recurrenceTrends`, `sessionSummary`, `routeSessions` are opaque containers — nested shape unconstrained.
+- Snapshot nested shapes derived from on-device captures in `test/validation/captures/`. See [`mcp_schema_derivation.md`](mcp_schema_derivation.md) for the procedure and device-context limitations.
+- The MCP tool-layer schema lives in the sidecar archive only; the root sleuth package does not ship `mcp_tool_schema.{json,md}`.

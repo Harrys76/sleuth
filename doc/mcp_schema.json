@@ -57,11 +57,117 @@
         "gcEvents": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when GC events have been observed on the timeline stream"},
         "platformChannelEvents": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when platform-channel events have been observed on the timeline stream"},
         "recentFrames": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when the frame-stats buffer is non-empty"},
-        "widgetHeatMap": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when at least one issue has been ranked (heat-map is derived from ranked issues)"},
-        "recurrenceTrends": {"type": "Map<String, Object?>", "required": false, "nullable": false, "presence": "when populated"},
-        "sessionSummary": {"type": "Map<String, Object?>", "required": false, "nullable": false, "presence": "when populated"},
+        "widgetHeatMap": {"type": "List<Map>", "required": false, "nullable": false, "opaque": true, "presence": "when at least one issue has been ranked (heat-map is derived from ranked issues)", "_opaque_reason": "item-shape intentionally left undocumented pending a sidecar consumer that relies on its keys"},
+        "recurrenceTrends": {
+          "type": "Map<String, Map>",
+          "required": false,
+          "nullable": false,
+          "presence": "when populated",
+          "value_shape": {
+            "trend": {"type": "String", "required": true, "nullable": false, "values": ["stable", "worsening", "improving", "intermittent"]},
+            "totalOccurrences": {"type": "int", "required": true, "nullable": false},
+            "totalObserved": {"type": "int", "required": true, "nullable": false},
+            "lastSeenCycle": {"type": "int", "required": true, "nullable": true},
+            "severityStats": {
+              "type": "Map",
+              "required": false,
+              "nullable": false,
+              "presence": "when the trend has at least one present observation",
+              "shape": {
+                "min": {"type": "int", "required": true, "nullable": false},
+                "max": {"type": "int", "required": true, "nullable": false}
+              }
+            }
+          }
+        },
+        "sessionSummary": {
+          "type": "Map",
+          "required": false,
+          "nullable": false,
+          "presence": "when populated",
+          "shape": {
+            "topIssues": {
+              "type": "List<Map>",
+              "required": true,
+              "nullable": false,
+              "item_shape": {
+                "stableId": {"type": "String", "required": true, "nullable": false},
+                "title": {"type": "String", "required": true, "nullable": false},
+                "severity": {"type": "String", "required": true, "nullable": false},
+                "confidence": {"type": "String", "required": true, "nullable": false},
+                "confidenceReason": {"type": "String", "required": true, "nullable": false},
+                "rankingScore": {"type": "int", "required": true, "nullable": false}
+              }
+            },
+            "frameHistogram": {
+              "type": "Map<String, int>",
+              "required": true,
+              "nullable": false,
+              "buckets": ["<16ms", "16-33ms", "33-50ms", "50-100ms", ">100ms"]
+            },
+            "detectorHitRates": {"type": "Map<String, int>", "required": true, "nullable": false},
+            "memoryTrendSummary": {
+              "type": "Map",
+              "required": false,
+              "nullable": false,
+              "presence": "when MemoryPressureDetector has accumulated at least one sample",
+              "shape": {
+                "startBytes": {"type": "int", "required": true, "nullable": false},
+                "endBytes": {"type": "int", "required": true, "nullable": false},
+                "peakBytes": {"type": "int", "required": true, "nullable": false},
+                "growthRatePerSec": {"type": "num", "required": true, "nullable": false},
+                "sampleCount": {"type": "int", "required": true, "nullable": false}
+              }
+            },
+            "causalEdges": {
+              "type": "List<Map>",
+              "required": false,
+              "nullable": false,
+              "presence": "when CausalGraphRule.apply produced at least one active edge",
+              "item_shape": {
+                "cause": {"type": "String", "required": true, "nullable": false},
+                "effect": {"type": "String", "required": true, "nullable": false}
+              }
+            }
+          }
+        },
         "startupMetrics": {"type": "Map<String, Object?>", "required": false, "nullable": false, "presence": "when Sleuth.init captured first-frame data"},
-        "routeSessions": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when route history non-empty"}
+        "routeSessions": {
+          "type": "List<Map>",
+          "required": false,
+          "nullable": false,
+          "presence": "when route history non-empty",
+          "item_shape": {
+            "routeName": {"type": "String", "required": true, "nullable": false},
+            "scaffoldHashKey": {"type": "int", "required": false, "nullable": false, "presence": "when the session was created from an Element subtree carrying a visible Scaffold (always true for real-device captures; absent for scaffold-free overlay sessions)"},
+            "tabVisitIndex": {"type": "int", "required": true, "nullable": false},
+            "hotReloadGeneration": {"type": "int", "required": false, "nullable": false, "presence": "only when > 0 (i.e. session created after at least one hot reload)"},
+            "startedAt": {"type": "String (ISO-8601)", "required": true, "nullable": false},
+            "endedAt": {"type": "String (ISO-8601)", "required": false, "nullable": false, "presence": "once the session has been closed"},
+            "healthScore": {"type": "num", "required": true, "nullable": false},
+            "durationSeconds": {"type": "num", "required": true, "nullable": false},
+            "scanCycles": {"type": "int", "required": true, "nullable": false},
+            "frameStats": {
+              "type": "Map",
+              "required": true,
+              "nullable": false,
+              "shape": {
+                "totalFrames": {"type": "int", "required": true, "nullable": false},
+                "jankFrames": {"type": "int", "required": true, "nullable": false},
+                "averageFps": {"type": "num", "required": true, "nullable": false},
+                "p50": {"type": "num", "required": false, "nullable": false, "presence": "when frameStats.length >= 2"},
+                "p95": {"type": "num", "required": false, "nullable": false, "presence": "when frameStats.length >= 2"},
+                "p99": {"type": "num", "required": false, "nullable": false, "presence": "when frameStats.length >= 2"}
+              }
+            },
+            "issueCount": {"type": "int", "required": true, "nullable": false},
+            "criticalCount": {"type": "int", "required": true, "nullable": false},
+            "warningCount": {"type": "int", "required": true, "nullable": false},
+            "issues": {"type": "List<String>", "required": true, "nullable": false, "item_shape": "stableId"},
+            "rebuildCountsByType": {"type": "Map<String, int>", "required": false, "nullable": false, "presence": "when RebuildDetector accumulated per-type counts during the session"},
+            "totalRebuilds": {"type": "int", "required": false, "nullable": false, "presence": "when RebuildDetector accumulated per-type counts during the session"}
+          }
+        }
       }
     },
     "ext.sleuth.issues": {
@@ -78,9 +184,9 @@
         "route": {"type": "String", "required": false, "nullable": false, "doc": "Empty string treated as absent"}
       },
       "data": {
-        "_shape_source": "RouteSession.toJson() — lib/src/models/route_session.dart",
-        "routes": {"type": "List<Map>", "required": false, "nullable": false, "presence": "only when route arg absent", "item_shape": "RouteSession.toJson()"},
-        "route": {"type": "Map<String, Object?>", "required": false, "nullable": false, "presence": "only when route arg matches a session", "value_shape": "RouteSession.toJson()"}
+        "_shape_source": "RouteSession.toJson() — lib/src/models/route_session.dart. Item shape mirrors snapshot.routeSessions[] documented above.",
+        "routes": {"type": "List<Map>", "required": false, "nullable": false, "presence": "only when route arg absent", "item_shape": "see ext.sleuth.snapshot.data.routeSessions item_shape"},
+        "route": {"type": "Map<String, Object?>", "required": false, "nullable": false, "presence": "only when route arg matches a session", "value_shape": "see ext.sleuth.snapshot.data.routeSessions item_shape"}
       },
       "errors": [
         {"error": "unknown_route", "extra": {"route": "String — echoes the arg"}}
@@ -145,9 +251,7 @@
   },
   "notes": [
     "Envelope schemaVersion bumps only on breaking change (rename, removal, type change). New optional fields or handlers do NOT bump.",
-    "Snapshot + RouteSession deep schemas defer to model toJson(). v0.34.0 may codify deeper shape.",
-    "MCP tool-layer audit (packages/sleuth_mcp/test/schema/) lands in v0.4.0.",
-    "v0.33.0 schema authored from current handler source. v0.34.0 will rebase from captured real-device output.",
-    "Snapshot `recurrenceTrends`, `sessionSummary`, `routeSessions` are opaque containers — nested shape unconstrained."
+    "Snapshot nested shapes (recurrenceTrends, sessionSummary, routeSessions) derived from on-device captures in test/validation/captures/. See doc/mcp_schema_derivation.md for the procedure and device-context limitations.",
+    "MCP tool-layer schema lives at packages/sleuth_mcp/doc/mcp_tool_schema.{json,md} (sidecar-only). The corresponding audit is packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart."
   ]
 }

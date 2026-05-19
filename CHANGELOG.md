@@ -1,3 +1,53 @@
+## 0.34.0
+
+MCP snapshot wire-shape deepening + sidecar tool-layer audit.
+`doc/mcp_schema.json` + `.md` now codify nested shapes for
+`recurrenceTrends`, `sessionSummary`, `routeSessions` (plus
+`routeHealth.routes[]`), derived from on-device captures (real iPhone,
+iOS 17.5) under `test/validation/captures/mcp_snapshots/`. See
+`doc/mcp_schema_derivation.md` for the derivation procedure.
+
+- `kSleuthPackageVersion` 0.33.0 → 0.34.0. Envelope `schemaVersion`
+  stays at `1` (additive release).
+- `recurrenceTrends.<stableId>` value shape locked: `trend`,
+  `totalOccurrences`, `totalObserved`, `lastSeenCycle` required;
+  `severityStats` (`{min, max}`) optional, present when the trend has
+  at least one present observation.
+- `sessionSummary` shape locked: `topIssues` (item shape includes
+  `stableId`, `title`, `severity`, `confidence`, `confidenceReason`,
+  `rankingScore`), `frameHistogram` (fixed buckets), `detectorHitRates`
+  required; `memoryTrendSummary`, `causalEdges` conditional.
+- `routeSessions[]` + `routeHealth` route item shape locked:
+  `routeName`, `tabVisitIndex`, `startedAt`, `healthScore`,
+  `durationSeconds`, `scanCycles`, `frameStats`, `issueCount`,
+  `criticalCount`, `warningCount`, `issues` required; `scaffoldHashKey`,
+  `endedAt`, `hotReloadGeneration`, `rebuildCountsByType`,
+  `totalRebuilds`, and `frameStats.{p50,p95,p99}` conditional with
+  documented presence predicates. `frameStats` summary shape:
+  `totalFrames`, `jankFrames`, `averageFps` required (per-route summary,
+  distinct from the top-level `frameStatsSummary`).
+- New `checkSnapshotCapturesMatchSchema` invariant in
+  `test/validation/mcp_schema_audit_test.dart` cross-checks every
+  documented `required: true` snapshot key against every on-device
+  capture; `recurrenceTrends` + `routeSessions` audit seams replace the
+  prior `auditUnreachable` entries. `widgetHeatMap` remains seam-deferred
+  (present in 5 of 6 device captures).
+- `recordRecurrenceForTest` + `seedRouteHistoryForTest`
+  `@visibleForTesting` seams on `SleuthController` so the audit can
+  drive `recurrenceTrends` + `routeSessions` without running the real
+  scan loop.
+- Sidecar tool-layer audit lands as
+  `packages/sleuth_mcp/doc/mcp_tool_schema.{json,md}` plus
+  `packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart`.
+  Documents success-path keys + error codes for the 9 first-class tools
+  (`connect`, `attach_app`, `detach_app`, `app_status`, `hot_reload`,
+  `list_devices`, `compare_snapshots`, `check_budgets`, `diagnose`) and
+  shim contracts for the 4 passthroughs (`get_snapshot`, `get_issues`,
+  `get_route_health`, `explain_issue`). Mirror-parity audit asserts the
+  tool schema is sidecar-only — root sleuth ships no parallel copy.
+- Sidecar v0.4.0 pins to 0.34.0; `acceptedPriorLineages = {'0.33'}`
+  one-cycle fallback for 0.33.x apps mid-upgrade. Drop on next release.
+
 ## 0.33.0
 
 MCP wire-shape lock. `doc/mcp_schema.json` (structured contract) +

@@ -21,6 +21,11 @@ Future<void> main(List<String> argv) async {
     exitCode = result.exitCode;
     return;
   }
+  if (argv.isNotEmpty && argv.first == 'attach-ios') {
+    final result = await runAttachIosCommand(args: argv.skip(1).toList());
+    exitCode = result.exitCode;
+    return;
+  }
 
   final parser = ArgParser()
     ..addOption('uri',

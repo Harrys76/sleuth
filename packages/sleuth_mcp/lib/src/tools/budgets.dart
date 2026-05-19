@@ -4,6 +4,11 @@ import '../mcp/mcp_types.dart';
 /// Evaluate live snapshot against FPS / issue-count budgets. Returns a
 /// `{passed, violations, observed}` shape. Pure data — no exit code
 /// (sidecar is long-running stdio; CI gate is `sleuth_check` binary).
+///
+/// Schema-drift behaviour: this tool consumes `currentIssues[].severity`
+/// and `frameStatsSummary.averageFps | actualFps`. If those nested
+/// fields are missing or malformed the tool returns an error envelope
+/// rather than silently treating the input as zero-issue / null-fps.
 Future<Object> checkBudgetsHandler(
   VmBridge bridge,
   Map<String, Object?> args,
@@ -41,34 +46,83 @@ Future<Object> checkBudgetsHandler(
 }
 
 /// Evaluate budgets against a snapshot payload. Exposed for `sleuth_check`
-/// one-shot binary reuse.
-Map<String, Object?> evaluateBudgets({
+/// one-shot binary reuse. Returns either a budget result map or a
+/// `ToolCallResult` error envelope on schema drift.
+Object evaluateBudgets({
   required Map<String, Object?> snapshot,
   required double minFps,
   required int maxIssues,
   required int maxCriticalIssues,
 }) {
   final issues = snapshot['currentIssues'];
+  if (issues == null) {
+    return ToolCallResult.text(
+      'snapshot missing required currentIssues',
+      isError: true,
+    );
+  }
+  if (issues is! List) {
+    return ToolCallResult.text(
+      'snapshot currentIssues must be List, got ${issues.runtimeType}',
+      isError: true,
+    );
+  }
   int issueCount = 0;
   int criticalCount = 0;
-  if (issues is List) {
-    for (final i in issues) {
-      if (i is! Map<String, Object?>) continue;
-      issueCount++;
-      final sev = i['severity'];
-      if (sev is String && sev.toLowerCase() == 'critical') {
-        criticalCount++;
-      }
+  for (var i = 0; i < issues.length; i++) {
+    final entry = issues[i];
+    if (entry is! Map<String, Object?>) {
+      return ToolCallResult.text(
+        'snapshot currentIssues[$i] must be Map, got ${entry.runtimeType}',
+        isError: true,
+      );
+    }
+    final sev = entry['severity'];
+    if (sev is! String) {
+      return ToolCallResult.text(
+        'snapshot currentIssues[$i] missing required severity '
+        '(got ${sev.runtimeType})',
+        isError: true,
+      );
+    }
+    issueCount++;
+    if (sev.toLowerCase() == 'critical') {
+      criticalCount++;
     }
   }
-  double? observedFps;
   final summary = snapshot['frameStatsSummary'];
-  if (summary is Map<String, Object?>) {
-    final fps = summary['averageFps'] ?? summary['actualFps'];
-    if (fps is num) observedFps = fps.toDouble();
+  if (summary == null) {
+    return ToolCallResult.text(
+      'snapshot missing required frameStatsSummary',
+      isError: true,
+    );
   }
+  if (summary is! Map<String, Object?>) {
+    return ToolCallResult.text(
+      'snapshot frameStatsSummary must be Map, got ${summary.runtimeType}',
+      isError: true,
+    );
+  }
+  final avg = summary['averageFps'];
+  final actual = summary['actualFps'];
+  if (avg == null && actual == null) {
+    return ToolCallResult.text(
+      'snapshot frameStatsSummary missing both averageFps and actualFps '
+      '— schema drift',
+      isError: true,
+    );
+  }
+  final fpsRaw = avg ?? actual;
+  if (fpsRaw is! num) {
+    return ToolCallResult.text(
+      'snapshot frameStatsSummary.averageFps/actualFps must be num, '
+      'got ${fpsRaw.runtimeType}',
+      isError: true,
+    );
+  }
+  final observedFps = fpsRaw.toDouble();
   final violations = <Map<String, Object?>>[];
-  if (observedFps != null && observedFps < minFps) {
+  if (observedFps < minFps) {
     violations.add({
       'budget': 'minFps',
       'expected': minFps,
@@ -89,10 +143,10 @@ Map<String, Object?> evaluateBudgets({
       'observed': criticalCount,
     });
   }
-  return {
+  return <String, Object?>{
     'passed': violations.isEmpty,
     'violations': violations,
-    'observed': {
+    'observed': <String, Object?>{
       'fps': observedFps,
       'issueCount': issueCount,
       'criticalCount': criticalCount,

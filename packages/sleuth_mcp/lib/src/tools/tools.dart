@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:synchronized/synchronized.dart';
 
 import '../bridge/vm_bridge.dart';
+import '../cli/attach_ios_command.dart' show IosTransport;
+import '../cli/ios_attach_pipeline.dart'
+    show IosAttachErrorKind, IosAttachException;
 import '../flutter_daemon/daemon_session.dart';
 import '../mcp/mcp_server.dart';
 import '../mcp/mcp_types.dart';
@@ -521,8 +525,114 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
       VmBridge bridge, Map<String, Object?> args) async {
     final session = server.daemonSession;
     if (session is! DaemonSession) return sessionMissing();
-    final device = args['device'] as String?;
-    final debugUrl = args['debugUrl'] as String?;
+    // Trim at boundary so whitespace-only values (`udid: ' '`) don't
+    // pass `.isNotEmpty` and slip into iOS-direct routing.
+    final device = (args['device'] as String?)?.trim();
+    final debugUrl = (args['debugUrl'] as String?)?.trim();
+    final udid = (args['udid'] as String?)?.trim();
+    final bundle = (args['bundle'] as String?)?.trim();
+    final transportRaw = (args['transport'] as String?)?.trim();
+    final authOverride = (args['authOverride'] as String?)?.trim();
+    final forceRelaunch = args['forceRelaunch'] == true;
+
+    // iOS-direct path: drive the full attach-ios pipeline.
+    if (udid != null && udid.isNotEmpty) {
+      if ((device != null && device.isNotEmpty) ||
+          (debugUrl != null && debugUrl.isNotEmpty)) {
+        return _iosErrorEnvelope(
+          'ios_ambiguous_args',
+          '`udid` cannot be combined with `device` or `debugUrl`. Pick '
+              'one routing mode.',
+        );
+      }
+      if (bundle == null || bundle.isEmpty) {
+        return _iosErrorEnvelope(
+          'ios_missing_bundle',
+          '`udid` requires `bundle` (iOS bundle identifier). Example: '
+              '`com.example.app`.',
+        );
+      }
+      IosTransport? transportOverride;
+      switch (transportRaw) {
+        case null:
+        case '':
+        case 'auto':
+          transportOverride = null;
+          break;
+        case 'usb':
+          transportOverride = IosTransport.wired;
+          break;
+        case 'wireless':
+          transportOverride = IosTransport.wireless;
+          break;
+        default:
+          return _iosErrorEnvelope(
+            'ios_invalid_transport',
+            '`transport` must be one of: auto, usb, wireless. Got '
+                '`$transportRaw`.',
+            data: const <String, Object?>{
+              'allowed': ['auto', 'usb', 'wireless'],
+            },
+          );
+      }
+      try {
+        final status = await session.attachViaIos(
+          udid: udid,
+          bundle: bundle,
+          authOverride: authOverride,
+          transportOverride: transportOverride,
+          forceRelaunch: forceRelaunch,
+        );
+        if (status.attached) {
+          final result = await _enforceVersionSkew(bridge);
+          if (result.refusal != null) {
+            await session.detach();
+            return result.refusal!;
+          }
+        } else {
+          final lastError = status.lastError ?? '';
+          if (lastError.contains('version_skew_')) {
+            return ToolCallResult.text(lastError, isError: true);
+          }
+          if (lastError.startsWith('ios_vmservice_busy:')) {
+            return _iosErrorEnvelope(
+              'ios_vmservice_busy',
+              lastError,
+              data: const <String, Object?>{
+                'remedy': 'swipe the app off the device home screen and '
+                    'rerun attach_app; or rebuild the profile binary',
+              },
+            );
+          }
+          if (lastError.startsWith('ios_vmservice_unreachable:')) {
+            return _iosErrorEnvelope(
+              'ios_vmservice_unreachable',
+              lastError,
+              data: const <String, Object?>{
+                'remedy': 'wait ~30s for mDNS cache to clear, or swipe '
+                    'the app off the device and rerun attach_app',
+              },
+            );
+          }
+        }
+        return status.toJson();
+      } on IosAttachException catch (e) {
+        return _iosErrorEnvelope(
+          _iosErrorKindToTypedName(e.kind),
+          e.message,
+          data: e.data,
+        );
+      } on StateError catch (e) {
+        // `attach_in_progress` from the concurrency mutex gets the same
+        // typed-envelope treatment as the other iOS-typed errors so MCP
+        // clients introspecting `structured.error` see it uniformly.
+        if (e.message.startsWith('attach_in_progress:')) {
+          return _iosErrorEnvelope('attach_in_progress', e.message);
+        }
+        return ToolCallResult.text(e.message, isError: true);
+      }
+    }
+
     try {
       final status = await session.attach(device: device, debugUrl: debugUrl);
       // Bridge-layer refusal flows through `DaemonSession.attach`'s
@@ -598,6 +708,21 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
       VmBridge bridge, Map<String, Object?> args) async {
     final session = server.daemonSession;
     if (session is! DaemonSession) return sessionMissing();
+    // iOS-direct sessions bypass the flutter daemon, so the daemon's
+    // `app.restart` RPC isn't reachable. Surface a typed error with a
+    // remedy rather than a confusing StateError from the daemon path.
+    if (session.status.launchMode == 'ios-direct') {
+      return _iosErrorEnvelope(
+        'hot_reload_unsupported',
+        'hot_reload is not available on iOS-direct sessions '
+            '(`attach_app(udid: ...)`). Re-attach via the flutter daemon '
+            'using `attach_app(device: <name>)` to enable hot reload.',
+        data: const <String, Object?>{
+          'remedy': 'detach_app then attach_app(device: <device-name>); the '
+              'daemon path supports hot_reload',
+        },
+      );
+    }
     try {
       final status = await session.hotReload();
       return status.toJson();
@@ -610,25 +735,59 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     'attach_app': BuiltInTool(
       descriptor: const Tool(
         name: 'attach_app',
-        description:
-            'Attach to a running Flutter app via `flutter attach --machine`. '
+        description: 'Attach to a running Flutter app. Three routing modes:\n'
+            '  • `udid` (iOS UDID) — drives devicectl launch + Bonjour '
+            'resolve + iproxy tunnel internally; one round-trip replaces '
+            'the standalone `sleuth_mcp attach-ios` CLI. Requires `bundle`.\n'
+            '  • `debugUrl` — direct WebSocket URI; bypasses both daemon '
+            'and the iOS pipeline.\n'
+            '  • `device` (name or id from list_devices) — routes via '
+            '`flutter attach --machine` daemon (Android + iOS daemon path).\n'
             'Connects bridge to the app\'s VM service. Call before any '
-            'diagnostic tools. Hot-restart after first attach is automatic.',
+            'diagnostic tools.',
         inputSchema: {
           'type': 'object',
           'properties': {
             'device': {
               'type': 'string',
               'description':
-                  'Device id or name from list_devices. Required when more '
-                      'than one device is connected.',
+                  'Device id or name from list_devices. Routes via flutter '
+                      'daemon. Required when more than one device is connected '
+                      'AND neither `udid` nor `debugUrl` is set.',
             },
             'debugUrl': {
               'type': 'string',
               'description':
                   'Escape hatch: connect directly to a known VM service '
-                      'WebSocket URI, bypassing flutter daemon discovery. Takes '
-                      'precedence over `device` if both are provided.',
+                      'WebSocket URI, bypassing flutter daemon discovery.',
+            },
+            'udid': {
+              'type': 'string',
+              'description': 'iOS device UDID. When set, drives the iOS attach '
+                  'pipeline directly (no flutter daemon). Requires `bundle`. '
+                  'Mutually exclusive with `device` / `debugUrl`.',
+            },
+            'bundle': {
+              'type': 'string',
+              'description':
+                  'iOS bundle identifier (required with `udid`). Example: '
+                      '`com.example.app`.',
+            },
+            'transport': {
+              'type': 'string',
+              'enum': ['auto', 'usb', 'wireless'],
+              'description':
+                  'Override iOS transport auto-detection. `usb` forces '
+                      'iproxy tunnel; `wireless` connects directly to '
+                      '`.local` host; `auto` (default) inspects `xcrun '
+                      'devicectl list devices`.',
+            },
+            'authOverride': {
+              'type': 'string',
+              'description':
+                  'iOS only: pin the Bonjour authCode (used when more '
+                      'than one pairing is announced — see error '
+                      '`ios_ambiguous_pairings`).',
             },
           },
           'required': <String>[],
@@ -698,3 +857,70 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     // manually until the underlying behavior is fully understood.
   };
 }
+
+/// Map [IosAttachErrorKind] to a stable typed-error name surfaced over
+/// the MCP envelope. The names are part of the tool contract — bump
+/// the `mcp_tool_schema.json` lock when adding or renaming.
+String _iosErrorKindToTypedName(IosAttachErrorKind kind) {
+  switch (kind) {
+    case IosAttachErrorKind.missingTool:
+      return 'ios_missing_tool';
+    case IosAttachErrorKind.launchFailed:
+      return 'ios_launch_failed';
+    case IosAttachErrorKind.bonjourTimeout:
+      return 'ios_bonjour_timeout';
+    case IosAttachErrorKind.ambiguousPairings:
+      return 'ios_ambiguous_pairings';
+    case IosAttachErrorKind.noMatchingAuth:
+      return 'ios_no_matching_auth';
+    case IosAttachErrorKind.iproxyFailedSpawn:
+      return 'ios_iproxy_failed';
+    case IosAttachErrorKind.iproxyReadinessFailed:
+      return 'ios_iproxy_failed';
+    case IosAttachErrorKind.cancelled:
+      return 'ios_cancelled';
+  }
+}
+
+/// Construct an iOS-typed error envelope. The text content carries
+/// the typed name + message so clients without structured-error
+/// parsing still see a useful string; the structured `data` block
+/// carries the error name + supplemental info (remedy, allowed
+/// values, etc.) for clients that introspect.
+ToolCallResult _iosErrorEnvelope(
+  String errorName,
+  String message, {
+  Map<String, Object?>? data,
+}) {
+  final payload = <String, Object?>{
+    'error': errorName,
+    'message': message,
+    if (data != null) ...data,
+  };
+  // Serialise as text content (MCP standard for error envelopes is
+  // text-with-isError); embed JSON so structured consumers can parse.
+  // See doc/mcp_tool_schema.md → attach_app errors.
+  return ToolCallResult(
+    isError: true,
+    content: [
+      {
+        'type': 'text',
+        'text': '$errorName: $message',
+      },
+      {
+        'type': 'text',
+        'text': _encodeIosErrorData(payload),
+      },
+    ],
+  );
+}
+
+String _encodeIosErrorData(Map<String, Object?> payload) {
+  try {
+    return _iosErrorJsonEncoder.convert(payload);
+  } catch (_) {
+    return '{"error":"${payload['error']}"}';
+  }
+}
+
+final _iosErrorJsonEncoder = JsonEncoder();

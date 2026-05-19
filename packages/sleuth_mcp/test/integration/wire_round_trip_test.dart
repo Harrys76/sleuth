@@ -32,7 +32,7 @@ void main() {
           'sessionUuid': 'wire-test-uuid',
           // Literal — interpolating sleuthPackageVersionPin would let a typo
           // in the production const silently pass the fixture check.
-          'data': {'packageVersion': '0.33.0'},
+          'data': {'packageVersion': '0.34.0'},
         }));
       });
 

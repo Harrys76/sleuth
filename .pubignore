@@ -10,6 +10,7 @@ doc/*
 !doc/logo.png
 !doc/mcp_schema.md
 !doc/mcp_schema.json
+!doc/mcp_schema_derivation.md
 test/validation/captures/**/*.json
 *.iml
 CLAUDE.md

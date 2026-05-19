@@ -7,6 +7,7 @@ import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/base_detector.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/heap_sample.dart';
+import 'package:sleuth/src/models/performance_issue.dart' show IssueSeverity;
 import 'package:sleuth/src/models/route_session.dart';
 import 'package:sleuth/src/network/request_record.dart';
 import 'package:sleuth/src/vm/connection_mode.dart';
@@ -70,6 +71,7 @@ const Set<String> _schemaMetaKeys = {
   '_shape_source',
   '_modes',
   '_doc',
+  '_opaque_reason',
 };
 
 bool _isSchemaMeta(String key) => _schemaMetaKeys.contains(key);
@@ -92,6 +94,104 @@ Set<String> _requiredKeys(Map<String, Object?> handlerSchema) {
     }
   }
   return out;
+}
+
+/// Recursive validator for `ext.sleuth.snapshot` captures.
+///
+/// Walks the schema's `shape` definition for the snapshot `data` block
+/// and descends through every documented nested container:
+///
+///   * `shape`            → Map keyed by field name. Validate each
+///                          required key against the matching field in
+///                          [payload].
+///   * `item_shape` (Map) → Apply the shape to every item of a
+///                          `List<Map>` field.
+///   * `value_shape` (Map)→ Apply the shape to every value of a
+///                          `Map<*, Map>` field.
+///   * `item_shape` (String) / `value_shape` (String) → opaque
+///                          reference; record in [skipped] and stop
+///                          recursing. These are the residual coverage
+///                          gap surfaced by the schema-DSL audit.
+///
+/// `required: true` keys missing from [payload] (or from nested
+/// containers) accumulate into [errors] with their full dotted path.
+/// Optional (`required: false`) keys are skipped — their presence is
+/// scenario-dependent and tracked by the optional-key presence test.
+void _validateRequiredNested({
+  required Map<String, Object?> schemaShape,
+  required Object? payload,
+  required String path,
+  required List<String> errors,
+  required Set<String> skipped,
+}) {
+  if (payload is! Map) {
+    // Caller passed a non-Map where a shape was expected — record as
+    // a structural error so it's not silently dropped.
+    errors.add('$path: expected Map but got ${payload.runtimeType}');
+    return;
+  }
+  for (final entry in schemaShape.entries) {
+    final key = entry.key;
+    if (_isSchemaMeta(key)) continue;
+    final spec = entry.value;
+    if (spec is! Map<String, Object?>) continue;
+    final required = spec['required'] == true;
+    final present = payload.containsKey(key);
+    if (required && !present) {
+      errors.add('$path.$key missing (documented required)');
+      continue;
+    }
+    if (!present) continue;
+    final value = payload[key];
+    final nestedShape = spec['shape'];
+    final itemShape = spec['item_shape'];
+    final valueShape = spec['value_shape'];
+    if (nestedShape is Map<String, Object?>) {
+      _validateRequiredNested(
+        schemaShape: nestedShape,
+        payload: value,
+        path: '$path.$key',
+        errors: errors,
+        skipped: skipped,
+      );
+    }
+    if (itemShape is Map<String, Object?>) {
+      if (value is! List) {
+        errors.add('$path.$key: expected List for item_shape but got '
+            '${value.runtimeType}');
+        continue;
+      }
+      for (var i = 0; i < value.length; i++) {
+        _validateRequiredNested(
+          schemaShape: itemShape,
+          payload: value[i],
+          path: '$path.$key[$i]',
+          errors: errors,
+          skipped: skipped,
+        );
+      }
+    } else if (itemShape is String) {
+      skipped.add('$path.$key (item_shape="$itemShape")');
+    }
+    if (valueShape is Map<String, Object?>) {
+      if (value is! Map) {
+        errors.add('$path.$key: expected Map for value_shape but got '
+            '${value.runtimeType}');
+        continue;
+      }
+      for (final mapEntry in value.entries) {
+        _validateRequiredNested(
+          schemaShape: valueShape,
+          payload: mapEntry.value,
+          path: '$path.$key[${mapEntry.key}]',
+          errors: errors,
+          skipped: skipped,
+        );
+      }
+    } else if (valueShape is String) {
+      skipped.add('$path.$key (value_shape="$valueShape")');
+    }
+  }
 }
 
 void main() {
@@ -299,27 +399,104 @@ void main() {
               'histogram builder');
     });
 
-    // widgetHeatMap, recurrenceTrends, routeSessions: see `_audit_unreachable`
-    // declaration below. These fields require either issue aggregation
-    // (depends on full scan pipeline) or write-access to a private deque
-    // (`_routeHistory`) that has no public setter. Adding a test-only
-    // seam for them was deliberately out of scope for this audit; the
-    // schema's `presence` predicate is documented and exercised at
-    // `SessionSnapshot.toJson()` level in test/models/serialization_test.dart.
+    test('recurrenceTrends emits + nested shape matches documented required',
+        () async {
+      // Drive the recurrence trend through the visibleForTesting seam so
+      // the bucket fills without running the real scan loop. Required
+      // keys per the documented value_shape:
+      //   trend / totalOccurrences / totalObserved / lastSeenCycle
+      // (severityStats is optional — present when ≥ 1 present obs).
+      final c = _newController();
+      c.recordRecurrenceForTest('jank_detected', IssueSeverity.warning, 6);
+      final env = await extSnapshotHandler(c, const {});
+      final data = env['data'] as Map<String, Object?>;
+      expect(data.keys, contains('recurrenceTrends'));
+      final trends = data['recurrenceTrends'] as Map<String, Object?>;
+      final jank = trends['jank_detected'] as Map<String, Object?>;
+      const requiredNested = <String>{
+        'trend',
+        'totalOccurrences',
+        'totalObserved',
+        'lastSeenCycle',
+      };
+      expect(jank.keys.toSet(), containsAll(requiredNested),
+          reason: 'recurrenceTrends nested shape missing documented '
+              'required keys: ${requiredNested.difference(jank.keys.toSet())}');
+      // Driven by 6 successive presents -> totalOccurrences == 6.
+      expect(jank['totalOccurrences'], 6);
+      expect(jank['lastSeenCycle'], 6);
+    });
+
+    test('routeSessions emits + item shape matches documented required',
+        () async {
+      // Drive `_routeHistory` via the visibleForTesting seam so the
+      // export path emits a populated `routeSessions` list. The seam
+      // also republishes through `routeHistoryNotifier` for downstream
+      // listeners, matching the production write order.
+      final c = _newController();
+      final session = RouteSession(
+        routeName: 'home',
+        startedAt: DateTime.now(),
+        scaffoldHashKey: 12345,
+      );
+      c.seedRouteHistoryForTest([session]);
+      final env = await extSnapshotHandler(c, const {});
+      final data = env['data'] as Map<String, Object?>;
+      expect(data.keys, contains('routeSessions'));
+      final routes = data['routeSessions'] as List;
+      expect(routes, isNotEmpty);
+      final first = routes.first as Map<String, Object?>;
+      // Required item-shape keys per mcp_schema.json routeSessions.item_shape.
+      // scaffoldHashKey + p-percentiles are conditional (see schema); not
+      // included here.
+      const requiredItemKeys = <String>{
+        'routeName',
+        'tabVisitIndex',
+        'startedAt',
+        'healthScore',
+        'durationSeconds',
+        'scanCycles',
+        'frameStats',
+        'issueCount',
+        'criticalCount',
+        'warningCount',
+        'issues',
+      };
+      expect(first.keys.toSet(), containsAll(requiredItemKeys),
+          reason: 'routeSessions item missing documented required keys: '
+              '${requiredItemKeys.difference(first.keys.toSet())}');
+      // Optional scaffoldHashKey emits when non-null — verify the seam
+      // surfaces it.
+      expect(first['scaffoldHashKey'], 12345);
+      // frameStats sub-shape required keys (p50/p95/p99 are conditional).
+      final frameStats = first['frameStats'] as Map<String, Object?>;
+      const requiredFrameStatsKeys = <String>{
+        'totalFrames',
+        'jankFrames',
+        'averageFps',
+      };
+      expect(frameStats.keys.toSet(), containsAll(requiredFrameStatsKeys),
+          reason: 'frameStats sub-shape missing documented required keys: '
+              '${requiredFrameStatsKeys.difference(frameStats.keys.toSet())}');
+    });
+
+    // widgetHeatMap remains seam-deferred — see `auditUnreachable` below.
+    // Present in 5 of 6 device captures
+    // (`snapshot_repaint`, `_heavy_compute`, `_recurrence`, `_routes`,
+    // `_memory`); absent from `snapshot_idle`. Structurally documented
+    // as opaque List<Map>, but seam-driving the underlying aggregated
+    // PerformanceIssue list was deliberately out of scope for v0.34.0.
 
     /// Conditional fields the audit deliberately does not drive from the
     /// handler seam. Each entry must have a rationale + a pointer to the
     /// model-level coverage that does exercise it.
     const auditUnreachable = <String, String>{
       'widgetHeatMap':
-          'requires aggregated PerformanceIssue list — populated only via the '
-              'real scan pipeline. Covered in test/controller/export_snapshot_test.dart',
-      'recurrenceTrends': 'requires _recurrenceTrends to fill from repeated '
-          'issue emissions across scan cycles. Covered in '
-          'test/controller/sleuth_controller_test.dart recurrence groups.',
-      'routeSessions':
-          '_routeHistory is private + has no public setter. Covered in '
-              'test/models/serialization_test.dart SessionSnapshot v4 group.',
+          'Conditional on aggregated PerformanceIssue list with widget '
+              'attribution. Present in 5 of 6 device captures '
+              '(snapshot_repaint, _heavy_compute, _recurrence, _routes, _memory); '
+              'structurally documented but seam-driving deferred. Covered in '
+              'test/controller/export_snapshot_test.dart.',
     };
 
     test('every optional schema key is exercised or explicitly deferred', () {
@@ -348,12 +525,80 @@ void main() {
         'platformChannelEvents',
         'recentFrames',
         'sessionSummary',
+        'recurrenceTrends',
+        'routeSessions',
       };
       final covered = {...exercisedHere, ...auditUnreachable.keys};
       final uncovered = optionalKeys.difference(covered);
       expect(uncovered, isEmpty,
           reason: 'optional snapshot keys without presence coverage or '
               'an `auditUnreachable` rationale: $uncovered');
+    });
+
+    test(
+        'checkSnapshotCapturesMatchSchema — every required snapshot key '
+        '(top-level + nested) is present in every on-device capture', () {
+      // Cross-check on-device captures against the documented required
+      // set. Captures live in
+      // test/validation/captures/mcp_snapshots/snapshot_*.json
+      // (real iPhone iOS 17.5; see doc/mcp_schema_derivation.md). Each
+      // capture is the raw ext.sleuth.snapshot.data payload — required
+      // keys must appear in every file at every documented depth.
+      //
+      // The validator descends through `shape` (object), `item_shape`
+      // (Map → applied to each list item), and `value_shape` (Map →
+      // applied to each map value). String values for `item_shape` /
+      // `value_shape` are intentionally opaque references — they are
+      // recorded as `skipped` entries so the audit isn't silently
+      // incomplete.
+      final schemaFile = _resolveSchemaFile();
+      final repoRoot = schemaFile.parent.parent;
+      final capturesDir =
+          Directory('${repoRoot.path}/test/validation/captures/mcp_snapshots');
+      expect(capturesDir.existsSync(), isTrue,
+          reason: 'mcp_snapshots/ directory missing — schema cross-check '
+              'disabled. Re-record via the procedure in '
+              'doc/mcp_schema_derivation.md.');
+      final snapshotSchema =
+          handlers['ext.sleuth.snapshot'] as Map<String, Object?>;
+      final snapshotDataSchema = snapshotSchema['data'] as Map<String, Object?>;
+      final captureFiles = capturesDir
+          .listSync()
+          .whereType<File>()
+          .where((f) =>
+              f.path.endsWith('.json') &&
+              f.uri.pathSegments.last.startsWith('snapshot_'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
+      expect(captureFiles, isNotEmpty,
+          reason: 'no snapshot_*.json captures found — cross-check vacuous');
+      final errors = <String>[];
+      final skipped = <String>{};
+      for (final file in captureFiles) {
+        final name = file.uri.pathSegments.last;
+        final payload =
+            jsonDecode(file.readAsStringSync()) as Map<String, Object?>;
+        _validateRequiredNested(
+          schemaShape: snapshotDataSchema,
+          payload: payload,
+          path: name,
+          errors: errors,
+          skipped: skipped,
+        );
+      }
+      expect(errors, isEmpty,
+          reason: 'snapshot captures violate documented nested required '
+              'keys:\n  ${errors.join("\n  ")}');
+      // Surface the opaque-ref skips so they remain visible — they are
+      // the residual coverage gap until the schema DSL is normalised.
+      if (skipped.isNotEmpty) {
+        // ignore: avoid_print
+        print(
+          'checkSnapshotCapturesMatchSchema — opaque item_shape/value_shape '
+          'references skipped (recursive enforcement deferred):\n  '
+          '${skipped.join("\n  ")}',
+        );
+      }
     });
   });
 

@@ -19,6 +19,8 @@ class AppStatusPayload {
     this.launchMode,
     this.mode,
     this.lastError,
+    this.transportMode,
+    this.wsUri,
   });
 
   /// True iff the bridge is currently connected and serving tool calls.
@@ -46,14 +48,35 @@ class AppStatusPayload {
   /// Human-readable description set when `state == 'error'`. Null otherwise.
   final String? lastError;
 
-  Map<String, Object?> toJson() => <String, Object?>{
-        'attached': attached,
-        'state': state,
-        if (device != null) 'device': device,
-        if (appId != null) 'appId': appId,
-        if (sessionUuid != null) 'sessionUuid': sessionUuid,
-        if (launchMode != null) 'launchMode': launchMode,
-        if (mode != null) 'mode': mode,
-        if (lastError != null) 'lastError': lastError,
-      };
+  /// `'wired'` | `'wireless'` | `'unknown'` — set on iOS-direct
+  /// sessions (`launchMode == 'ios-direct'`). Null otherwise.
+  final String? transportMode;
+
+  /// VM service WebSocket URI consumed by the bridge. Set on
+  /// iOS-direct sessions so MCP clients can identify the connection.
+  /// Null on daemon-attach (the daemon-provided wsUri is not exposed
+  /// at this layer for compatibility with existing consumers).
+  final String? wsUri;
+
+  Map<String, Object?> toJson() {
+    // transportMode + wsUri are part of the iOS-direct contract only.
+    // Stripping them on other launch modes prevents accidental leakage
+    // if a caller constructs a payload with both populated (e.g. a
+    // partially-cleaned-up session struct during teardown). The
+    // documented presence rule is "when launchMode == 'ios-direct'";
+    // enforcement here makes the contract self-honouring.
+    final isIosDirect = launchMode == 'ios-direct';
+    return <String, Object?>{
+      'attached': attached,
+      'state': state,
+      if (device != null) 'device': device,
+      if (appId != null) 'appId': appId,
+      if (sessionUuid != null) 'sessionUuid': sessionUuid,
+      if (launchMode != null) 'launchMode': launchMode,
+      if (mode != null) 'mode': mode,
+      if (lastError != null) 'lastError': lastError,
+      if (isIosDirect && transportMode != null) 'transportMode': transportMode,
+      if (isIosDirect && wsUri != null) 'wsUri': wsUri,
+    };
+  }
 }

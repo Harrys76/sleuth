@@ -76,12 +76,24 @@ Future<void> main(List<String> argv) async {
       exitCode = 2;
       return;
     }
-    final report = evaluateBudgets(
+    final result = evaluateBudgets(
       snapshot: data,
       minFps: minFps,
       maxIssues: maxIssues,
       maxCriticalIssues: maxCritical,
     );
+    if (result is ToolCallResult) {
+      // Schema drift / malformed snapshot — surface the error envelope
+      // text and exit with code 2 so CI fails loudly rather than
+      // misreading it as a passing budget.
+      for (final block in result.content) {
+        final text = block['text'];
+        if (text is String) stderr.writeln(text);
+      }
+      exitCode = 2;
+      return;
+    }
+    final report = result as Map<String, Object?>;
     final passed = report['passed'] == true;
 
     if (emitJson) {

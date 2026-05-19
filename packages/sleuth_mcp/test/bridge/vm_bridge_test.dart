@@ -138,10 +138,10 @@ void main() {
 
     test('defaultVersionSkewValidator passes on accepted prior lineage',
         () async {
-      // `acceptedPriorLineages` contains '0.32' — transition window.
+      // `acceptedPriorLineages` contains the previous lineage — transition window.
       final refusal = await defaultVersionSkewValidator({
         'sessionUuid': 'uuid',
-        'data': {'packageVersion': '0.32.5'},
+        'data': {'packageVersion': '0.33.5'},
       });
       expect(refusal, isNull,
           reason: 'cross-lineage tolerance must not surface as bridge-layer '

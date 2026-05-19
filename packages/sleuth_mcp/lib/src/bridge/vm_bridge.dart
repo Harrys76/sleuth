@@ -238,7 +238,16 @@ class RealVmBridge implements VmBridge {
       // indefinitely.
       List<vm.IsolateRef> isolates = const <vm.IsolateRef>[];
       for (var attempt = 0; attempt < 80; attempt++) {
-        final vmInfo = await _service!.getVM();
+        // Per-call timeout: the 80x retry only counts attempts that
+        // COMPLETE, so a half-open VM service that never returns
+        // `getVM` would otherwise hang forever.
+        final vmInfo = await _service!.getVM().timeout(
+              const Duration(seconds: 3),
+              onTimeout: () => throw VmBridgeException(
+                'getVM bootstrap RPC timed out after 3s — VM service may '
+                'be half-open (WS accepted but RPC never returns)',
+              ),
+            );
         isolates = vmInfo.isolates ?? <vm.IsolateRef>[];
         if (isolates.isNotEmpty) break;
         await Future<void>.delayed(const Duration(milliseconds: 250));

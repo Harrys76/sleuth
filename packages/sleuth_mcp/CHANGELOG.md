@@ -1,3 +1,146 @@
+## 0.5.1
+
+iOS-direct attach hardening. No wire-shape change.
+
+- `attach_app(udid:, bundle:, forceRelaunch:)` new arg skips the Bonjour
+  probe and drives `xcrun devicectl process launch` directly. Auto-
+  retries internally when the probe returns a wsUri whose
+  `bridge.connect` fails with `Connection refused` — recovers from
+  stale iOS mDNS without sidecar restart.
+- `bridge.connect` end-to-end timeout-bounded (10s) inside
+  `DaemonSession.attachViaIos`; bootstrap `getVM()` bounded per-RPC at
+  3s. Half-open VM services that accept the WS but never return RPC
+  no longer wedge the attach mutex; surfaces as
+  `ios_vmservice_unreachable: bridge connect timed out`.
+- `IosAttachException` thrown by the pipeline records `state: error` +
+  typed `lastError` before rethrow, so `app_status` after a failed
+  attach reflects the failure instead of staying `attaching`. Next
+  `attach_app` auto-recovers.
+- `withPidfileLock` gains `PidfileLockGuard.registerSpawn(process,
+  pidfile)`. Lock timeout after spawn but before pidfile write
+  SIGKILLs the registered child + deletes the pidfile, preventing
+  unreapable orphans.
+- `mapBridgeConnectErrorToLastError` adds wireless pins:
+  `Operation not permitted`, `Network is unreachable`,
+  `Failed host lookup` → `ios_vmservice_unreachable` with wireless
+  remedy text.
+- `attach_app` trims all routing args at the handler boundary so
+  whitespace-only values don't slip into iOS-direct routing.
+- `_cleanup` iOS-teardown budget 3s → 6s so outer exceeds inner
+  grace + SIGKILL + pidfile-delete; back-to-back detach/reattach no
+  longer races on a bound port.
+- Schema doc adds `attach_app.args.forceRelaunch` and
+  `hot_reload.errors.hot_reload_unsupported`.
+
+## 0.5.0
+
+- `attach_app` MCP tool gains iOS-direct routing: passing `udid` + `bundle`
+  drives the full attach pipeline (devicectl launch → Bonjour resolve →
+  iproxy tunnel → bridge.connect) in a single round-trip, removing the
+  separate `sleuth_mcp attach-ios` CLI + manual `attach_app(debugUrl:)`
+  copy-paste step. The standalone CLI remains for non-MCP workflows.
+- New `attach_app` args: `udid`, `bundle`, `transport` (`auto`|`usb`|
+  `wireless`), `authOverride`. `udid` is mutually exclusive with `device`
+  and `debugUrl`; daemon and direct-WS paths are unchanged.
+- New `AppStatusPayload` fields: `transportMode` (`wired`|`wireless`|
+  `unknown`) and `wsUri`, populated only on iOS-direct sessions.
+- Typed error envelopes for the iOS path: `ios_missing_bundle`,
+  `ios_ambiguous_args`, `ios_invalid_transport`, `ios_missing_tool`,
+  `ios_launch_failed`, `ios_bonjour_timeout`, `ios_ambiguous_pairings`,
+  `ios_no_matching_auth`, `ios_iproxy_failed`, `ios_cancelled`,
+  `ios_vmservice_busy`. Each carries a structured `data` block with
+  remedy text when applicable.
+- `detach_app` extended with a bounded state machine: `bridge.disconnect`
+  (2s timeout) → iproxy teardown (3s timeout) → pidfile removal.
+  Partial state always clears even if either phase hangs.
+- `hot_reload` MCP tool returns the typed `hot_reload_unsupported`
+  error on iOS-direct sessions (no flutter daemon child to invoke
+  `app.restart`); remedy is to detach + reattach via `device:`.
+- New `IosAttacher` class (`lib/src/cli/ios_attach_pipeline.dart`)
+  encapsulates the pipeline with the same injection seams the CLI uses;
+  callers receive `IosAttachResult` + teardown callback. The pipeline
+  throws `IosAttachException(kind, message, data)` for categorised
+  failure mapping by callers.
+- Detects the device-side VM service "Connection reset post-handshake"
+  symptom that occurs after the first MCP attach + detach on a single
+  app instance and surfaces it as `ios_vmservice_busy` with a remedy
+  (swipe-kill the app on device or rebuild the profile binary).
+
+## 0.4.2
+
+- `attach-ios`: bump Bonjour collect window 4s → 8s so the USB-interface
+  authCode (which announces later than WiFi on iOS 17.5) is captured
+  before selection.
+- `attach-ios`: print all collected announcements before selection so
+  re-running with `--auth <code>` is one copy-paste away when the
+  heuristic picks wrong.
+- `tool/attach_ios.sh` mirrors the same selector + diagnostic output.
+
+## 0.4.1
+
+- New `sleuth_mcp attach-ios <udid> [--bundle <id>] [--port <n>] [--auth <code>]`
+  subcommand. Bundles `xcrun devicectl process launch
+  --terminate-existing`, Bonjour resolution via `dns-sd -L`, and
+  `iproxy` tunneling into a single command. Prints the WebSocket URI
+  for `attach_app(debugUrl:)` and holds the iproxy child open until
+  Ctrl-C tears it down. Replaces the six-step manual iOS-on-real-device
+  flow documented in the README.
+- New `tool/attach_ios.sh` bash wrapper mirroring the same flow for
+  users without a Dart runtime / pub-activated sidecar (CI bootstrap,
+  ad-hoc shell). Bash 3.2+, no `coreutils` dependency (uses
+  `/usr/bin/perl` for the dns-sd timeout). The Dart subcommand remains
+  the canonical entry; the wrapper is a no-Dart fallback + readable
+  reference for the `devicectl → dns-sd → iproxy` pipeline.
+- Requires `libimobiledevice` (`brew install libimobiledevice`) for
+  `iproxy`. macOS-only.
+- Selection between USB-bridged and WiFi-bridged Bonjour pairings is
+  first-pairing-wins by default; pass `--auth <code>` to override when
+  the heuristic picks the WiFi pairing (the WiFi authCode is refused by
+  the on-device WebSocket gate when reached through the USB tunnel).
+- No wire-shape changes — `sleuthPackageVersionPin` stays at `0.34.0`,
+  `acceptedPriorLineages` stays at `{0.33}`.
+
+## 0.4.0
+
+Companion to sleuth v0.34.0 — tool-layer schema lock + snapshot deep
+shape.
+
+- `sleuthPackageVersionPin` 0.33.0 → 0.34.0. `sleuthMcpVersion`
+  0.3.0 → 0.4.0.
+- New `doc/mcp_tool_schema.json` (structured contract) + `.md`
+  (human view) ship in the pub archive — locks tool-call return shapes
+  for the 13 MCP tools. Success-path `data:` keys and error-path
+  `errors:` codes documented per tool. `connect`, `attach_app`,
+  `detach_app`, `app_status`, `hot_reload`, `list_devices`,
+  `compare_snapshots`, `check_budgets`, `diagnose` are first-class;
+  `get_snapshot`, `get_issues`, `get_route_health`, `explain_issue`
+  passthrough the corresponding `ext.sleuth.*` envelope with documented
+  shims (`severity_filter` on `get_issues`, `lineage_route_wrapper` on
+  `get_route_health`).
+- New `test/schema/mcp_tool_schema_audit_test.dart` enforces the
+  contract — drives FakeVmBridge through every documented error code,
+  asserts success-path keys ⊆ documented, and tests the
+  `get_route_health` lineage shim against canonical + legacy inline
+  shapes. Mirror-parity audit asserts root sleuth ships no parallel
+  `mcp_tool_schema.{json,md}` (sidecar-only file).
+- `acceptedPriorLineages` rolled from `{'0.32'}` to `{'0.33'}` — one
+  release cycle of fallback for 0.33.x apps mid-upgrade. Drop on next
+  release.
+- Snapshot deep shapes (`recurrenceTrends`, `sessionSummary`,
+  `routeSessions`) now codified in the upstream
+  `doc/mcp_schema.{json,md}` (mirrored at
+  `packages/sleuth_mcp/doc/mcp_schema.{json,md}`). Derived from
+  on-device captures — see sleuth's
+  `doc/mcp_schema_derivation.md` for the derivation procedure and
+  device-context limitations.
+- Drift-guard regex in `test/sleuth_mcp_smoke_test.dart` tightened to
+  tolerate whitespace and `multiLine` matching.
+- After v0.4.0 ships, v0.3.0 sidecars hit `version_skew_major` on
+  attach to a v0.34.0 app — their pin (`0.33.0`) is in the prior
+  lineage. Recovery:
+  `dart pub global activate sleuth_mcp` (>= 0.4.0). Local pre-publish:
+  `dart pub global activate --source path packages/sleuth_mcp`.
+
 ## 0.3.0
 
 Companion to sleuth v0.33.0 — wire-schema lock.

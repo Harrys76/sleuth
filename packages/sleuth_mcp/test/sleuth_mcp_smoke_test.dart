@@ -23,8 +23,10 @@ void main() {
     // a silent runtime `version_skew_major` refusal.
     final sleuthSource = _resolveSleuthSourceFile();
     final text = sleuthSource.readAsStringSync();
-    final match = RegExp(r"const String kSleuthPackageVersion = '([^']+)';")
-        .firstMatch(text);
+    final match = RegExp(
+      r"const\s+String\s+kSleuthPackageVersion\s*=\s*'([^']+)'\s*;",
+      multiLine: true,
+    ).firstMatch(text);
     expect(match, isNotNull,
         reason: 'kSleuthPackageVersion declaration not found in source');
     expect(match!.group(1), sleuthPackageVersionPin,

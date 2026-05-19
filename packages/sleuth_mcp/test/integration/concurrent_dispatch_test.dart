@@ -177,7 +177,7 @@ class _SlowBridge implements VmBridge {
         'connectionMode': 'basic',
         'schemaVersion': 1,
         'sessionUuid': 'baseline',
-        'data': <String, Object?>{'packageVersion': '0.32.0'},
+        'data': <String, Object?>{'packageVersion': '0.33.0'},
       };
 
   @override
@@ -202,7 +202,7 @@ class _SlowBridge implements VmBridge {
       'connectionMode': 'basic',
       'schemaVersion': 1,
       'sessionUuid': 'baseline',
-      'data': <String, Object?>{'packageVersion': '0.32.0'},
+      'data': <String, Object?>{'packageVersion': '0.33.0'},
     };
   }
 

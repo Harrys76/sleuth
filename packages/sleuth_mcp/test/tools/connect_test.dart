@@ -19,14 +19,14 @@ void main() {
 
   test('connect tool flags minor version skew on same-lineage patch drift',
       () async {
-    // Same major.minor (0.33) as the sidecar pin, differing patch.
+    // Same major.minor as the sidecar pin, differing patch.
     // Wire contract holds — surface `version_skew_minor` advisory.
     final bridge = FakeVmBridge(fakeSessionUuid: 'uuid')
       ..setEnvelope('ext.sleuth.diagnose', {
         'connectionMode': 'basic',
         'schemaVersion': 1,
         'sessionUuid': 'uuid',
-        'data': {'packageVersion': '0.33.99'},
+        'data': {'packageVersion': '0.34.99'},
       });
     final handler = builtInTools['connect']!.handler;
     final result = await handler(bridge, {'uri': 'ws://localhost/ws'});
@@ -106,15 +106,15 @@ void main() {
 
   test('connect tool stamps version_skew_prior_lineage on accepted-prior drift',
       () async {
-    // `acceptedPriorLineages` (v0.32) — the connection is allowed but
-    // the warning string distinguishes "patch drift on the same
-    // lineage" from "transition-window cross-lineage tolerance".
+    // `acceptedPriorLineages` (one-cycle fallback) — the connection is
+    // allowed but the warning string distinguishes "patch drift on the
+    // same lineage" from "transition-window cross-lineage tolerance".
     final bridge = FakeVmBridge(fakeSessionUuid: 'uuid')
       ..setEnvelope('ext.sleuth.diagnose', {
         'connectionMode': 'basic',
         'schemaVersion': 1,
         'sessionUuid': 'uuid',
-        'data': {'packageVersion': '0.32.0'},
+        'data': {'packageVersion': '0.33.0'},
       });
     final handler = builtInTools['connect']!.handler;
     final result = await handler(bridge, {'uri': 'ws://localhost/ws'});

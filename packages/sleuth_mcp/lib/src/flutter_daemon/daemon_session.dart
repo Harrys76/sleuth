@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../bridge/vm_bridge.dart';
+import '../cli/attach_ios_command.dart' show IosTransport;
+import '../cli/ios_attach_pipeline.dart'
+    show IosAttachException, IosAttachOrigin, IosAttacher, IosAttachProgress;
 import '../mcp/mcp_server.dart';
 import '../util/device_filter.dart';
 import 'app_status.dart';
@@ -67,6 +70,18 @@ class DaemonSession implements DaemonSessionLifecycle {
   Process? _child;
   DaemonRpc? _rpc;
   Uri? _lastWsUri;
+
+  /// iOS-direct attach owns an iproxy child + pidfile on USB, or no
+  /// child at all on wireless. The teardown callback returned by
+  /// `IosAttacher` encapsulates either case — set when
+  /// `launchMode == 'ios-direct'`, invoked from `_cleanup()`.
+  Future<void> Function()? _iosTeardown;
+  IosTransport? _iosTransport;
+  String? _iosWsUri;
+
+  /// Serialises concurrent `attachViaIos` calls so two MCP requests
+  /// in flight don't race on iproxy spawn / pidfile write.
+  Completer<void>? _iosAttachInFlight;
   StreamSubscription<DaemonEvent>? _eventSub;
   StreamSubscription<String>? _stderrSub;
   StreamController<DaemonEvent>? _eventsForSession;
@@ -101,6 +116,14 @@ class DaemonSession implements DaemonSessionLifecycle {
         launchMode: _launchMode,
         mode: _mode,
         lastError: _lastError,
+        transportMode: _iosTransport == null
+            ? null
+            : (_iosTransport == IosTransport.wireless
+                ? 'wireless'
+                : _iosTransport == IosTransport.wired
+                    ? 'wired'
+                    : 'unknown'),
+        wsUri: _iosWsUri,
       );
 
   /// Returns devices reported by `flutter devices --machine`. Each entry
@@ -321,6 +344,149 @@ class DaemonSession implements DaemonSessionLifecycle {
     }
   }
 
+  /// iOS-direct attach. Drives [IosAttacher] (devicectl launch →
+  /// Bonjour → iproxy → wsUri) then connects the bridge — one MCP
+  /// round-trip.
+  ///
+  /// [IosAttachException] is rethrown to the tool handler (which maps
+  /// to a typed envelope); `_state` is set to `error` + `_lastError`
+  /// before rethrow so `app_status` reflects the failure.
+  ///
+  /// Concurrent calls serialise via [_iosAttachInFlight]; second call
+  /// waits or rejects via [StateError] when `failFastOnConcurrent`.
+  Future<AppStatusPayload> attachViaIos({
+    required String udid,
+    required String bundle,
+    String? authOverride,
+    IosTransport? transportOverride,
+    IosAttacher? attacher,
+    IosAttachProgress? onProgress,
+    Stream<void>? cancelSignal,
+    bool failFastOnConcurrent = true,
+    bool forceRelaunch = false,
+    Duration bridgeConnectTimeout = const Duration(seconds: 10),
+  }) async {
+    if (_state != AppSessionState.idle && _state != AppSessionState.error) {
+      throw StateError(
+        'already attached or attaching (state=${_state.name}); '
+        'call detach_app first',
+      );
+    }
+    final inFlight = _iosAttachInFlight;
+    if (inFlight != null && !inFlight.isCompleted) {
+      if (failFastOnConcurrent) {
+        throw StateError('attach_in_progress: another iOS attach is running');
+      }
+      await inFlight.future;
+    }
+    final completer = Completer<void>();
+    _iosAttachInFlight = completer;
+
+    _state = AppSessionState.attaching;
+    _lastError = null;
+    _detachRequested = false;
+    final gen = ++_sessionGeneration;
+
+    final effectiveAttacher = attacher ?? IosAttacher();
+    try {
+      try {
+        var attempt = 0;
+        var useForceRelaunch = forceRelaunch;
+        while (true) {
+          attempt++;
+          final result = await effectiveAttacher.attach(
+            udid: udid,
+            bundle: bundle,
+            authOverride: authOverride,
+            transportOverride: transportOverride,
+            onProgress: onProgress,
+            cancelSignal: cancelSignal,
+            forceRelaunch: useForceRelaunch,
+          );
+          if (gen != _sessionGeneration) {
+            // Detach raced us — release the teardown immediately.
+            await result.teardown();
+            return status;
+          }
+          _iosTeardown = result.teardown;
+          _iosTransport = result.transport;
+          _iosWsUri = result.wsUri;
+          _deviceId = udid;
+          _launchMode = 'ios-direct';
+          _mode = 'profile';
+
+          try {
+            // Bound the handshake end-to-end. A half-open VM service
+            // (WS accepted, getVM never returns) would otherwise pin
+            // the mutex indefinitely.
+            await bridge
+                .connect(Uri.parse(result.wsUri))
+                .timeout(bridgeConnectTimeout);
+          } on TimeoutException {
+            await result.teardown();
+            _iosTeardown = null;
+            _iosTransport = null;
+            _iosWsUri = null;
+            _deviceId = null;
+            _launchMode = null;
+            _mode = null;
+            if (_detachRequested) return status;
+            _state = AppSessionState.error;
+            _lastError = 'ios_vmservice_unreachable: bridge connect timed '
+                'out after ${bridgeConnectTimeout.inSeconds}s. Common cause: '
+                'half-open VM service that accepts the WS handshake but '
+                'never returns `getVM`. Swipe the app off the device and '
+                're-run, or rebuild the profile binary.';
+            return status;
+          } catch (e) {
+            final message = '$e';
+            // Stale-Bonjour auto-recovery: probe returned a wsUri whose
+            // port is dead (iOS retained prior session's mDNS record).
+            // Retry once with forceRelaunch so devicectl drives a fresh
+            // launch instead of trusting the cache.
+            final isStaleProbe = attempt == 1 &&
+                !useForceRelaunch &&
+                result.origin == IosAttachOrigin.probedExisting &&
+                message.contains('Connection refused');
+            await result.teardown();
+            _iosTeardown = null;
+            _iosTransport = null;
+            _iosWsUri = null;
+            _deviceId = null;
+            _launchMode = null;
+            _mode = null;
+            if (_detachRequested) return status;
+            if (isStaleProbe) {
+              useForceRelaunch = true;
+              continue;
+            }
+            _state = AppSessionState.error;
+            // Substring → typed-name mapping lives in
+            // [mapBridgeConnectErrorToLastError] so SDK wording drift
+            // surfaces as a unit-test failure, not silent envelope
+            // degradation.
+            _lastError = mapBridgeConnectErrorToLastError(message);
+            return status;
+          }
+          _lastWsUri = Uri.parse(result.wsUri);
+          _state = AppSessionState.ready;
+          return status;
+        }
+      } on IosAttachException catch (e) {
+        // Record state before rethrow so a follow-up `app_status`
+        // reports `state: error` + `lastError` instead of a wedged-
+        // looking `attaching`. Next `attach_app` recovers automatically.
+        if (gen == _sessionGeneration && !_detachRequested) {
+          _state = AppSessionState.error;
+          _lastError = '${e.kind.name}: ${e.message}';
+        }
+        rethrow;
+      }
+    } finally {
+      if (!completer.isCompleted) completer.complete();
+    }
+  }
+
   Future<AppStatusPayload> hotReload() => _restart(fullRestart: false);
 
   Future<AppStatusPayload> hotRestart() => _restart(fullRestart: true);
@@ -484,7 +650,68 @@ class DaemonSession implements DaemonSessionLifecycle {
     }
     _child = null;
     try {
-      await bridge.disconnect();
+      await bridge.disconnect().timeout(const Duration(seconds: 2));
+    } on TimeoutException {
+      // Bridge disconnect can hang if the device-side VM service has
+      // crashed or the iproxy tunnel is half-open. Bound the wait so
+      // the iOS teardown below still gets a chance to release the
+      // iproxy child + pidfile.
     } catch (_) {/* best effort */}
+    // iOS-direct teardown — kill iproxy + remove pidfile. 6s outer
+    // must exceed inner 3s grace + SIGKILL + pidfile-delete; otherwise
+    // a back-to-back `attach_app` races the still-bound port.
+    final iosTeardown = _iosTeardown;
+    if (iosTeardown != null) {
+      try {
+        await iosTeardown().timeout(const Duration(seconds: 6));
+      } on TimeoutException {
+        // iproxy refused to exit within budget; SIGKILL fallback is
+        // already wired inside the teardown callback.
+      } catch (_) {/* best effort */}
+      _iosTeardown = null;
+    }
+    _iosTransport = null;
+    _iosWsUri = null;
+  }
+
+  /// Test seam: indicates whether an `attachViaIos` callback installed
+  /// an iproxy teardown. True iff `launchMode == 'ios-direct'` and the
+  /// session has not yet been cleaned up.
+  bool get debugHasIosTeardown => _iosTeardown != null;
+
+  /// Test seam: returns the typed exception class name used by
+  /// `IosAttachException` so test wrappers can grep without importing.
+  static String get debugIosAttachExceptionName => '$IosAttachException';
+
+  /// Maps a `bridge.connect` exception message to the iOS-direct
+  /// `lastError`. Exposed for unit testing so SDK wording drift
+  /// surfaces as a test failure, not silent envelope degradation.
+  static String mapBridgeConnectErrorToLastError(String exceptionMessage) {
+    if (exceptionMessage.contains('Connection reset') ||
+        exceptionMessage.contains('Connection closed before full header')) {
+      return 'ios_vmservice_busy: $exceptionMessage — swipe the app off '
+          'the device and re-run, or rebuild the profile binary';
+    }
+    if (exceptionMessage.contains('Connection refused')) {
+      return 'ios_vmservice_unreachable: $exceptionMessage — the iproxy '
+          'tunnel is open but nothing is listening on the device side. '
+          'Common cause: stale Bonjour cache pinned a dead port. Wait '
+          "~30s for mDNS to clear or swipe the app and re-run.";
+    }
+    // Wireless-mode failures: `.local` DNS lookup failure +
+    // `Operation not permitted` (iOS Local Network permission denied).
+    // Surface as `ios_vmservice_unreachable` with wireless remedy.
+    if (exceptionMessage.contains('Operation not permitted') ||
+        exceptionMessage.contains('Network is unreachable') ||
+        exceptionMessage.contains('Failed host lookup') ||
+        exceptionMessage.contains('No address associated with hostname')) {
+      return 'ios_vmservice_unreachable: $exceptionMessage — wireless '
+          "attach can't reach the device. Common causes: iOS Local "
+          'Network permission denied for the launching app, the host '
+          'and device are on different Wi-Fi networks, or the device '
+          'left the network. Switch to USB (transport: wired) or '
+          'grant Local Network permission and retry.';
+    }
+    return 'bridge connect failed: $exceptionMessage';
   }
 }
