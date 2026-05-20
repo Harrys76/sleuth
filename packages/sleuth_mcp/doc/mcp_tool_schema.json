@@ -174,7 +174,9 @@
       },
       "errors": [
         {"code": "arg_before_not_object", "doc": "`before` arg not a Map", "messagePrefix": "arg \"before\" must be object"},
-        {"code": "arg_after_not_object", "doc": "`after` arg not a Map", "messagePrefix": "arg \"after\" must be object"}
+        {"code": "arg_after_not_object", "doc": "`after` arg not a Map", "messagePrefix": "arg \"after\" must be object"},
+        {"code": "arg_capped_issues_uncomparable", "doc": "one/both snapshots projected with maxIssueCount — a truncated top-N issue window can't be diffed (left-window vs resolved are indistinguishable)", "messagePrefix": "arg_capped_issues_uncomparable:"},
+        {"code": "arg_section_mismatch", "doc": "the two snapshots were projected to different sections or different pagination limits", "messagePrefix": "arg_section_mismatch:"}
       ]
     },
     "check_budgets": {
@@ -212,7 +214,9 @@
         {"code": "arg_minFps_not_number", "doc": "`minFps` arg not a num", "messagePrefix": "minFps must be number"},
         {"code": "arg_maxIssues_not_int", "doc": "`maxIssues` arg not an int", "messagePrefix": "maxIssues must be integer"},
         {"code": "arg_maxCriticalIssues_not_int", "doc": "`maxCriticalIssues` arg not an int", "messagePrefix": "maxCriticalIssues must be integer"},
-        {"code": "snapshot_envelope_no_data", "doc": "snapshot extension returned a malformed envelope", "messagePrefix": "snapshot envelope had no data field"}
+        {"code": "snapshot_envelope_no_data", "doc": "snapshot extension returned a malformed envelope", "messagePrefix": "snapshot envelope had no data field"},
+        {"code": "arg_capped_issues_unbudgetable", "doc": "snapshot projected with maxIssueCount — truncated issue list would make budget counts wrong", "messagePrefix": "arg_capped_issues_unbudgetable:"},
+        {"code": "arg_missing_required_section", "doc": "snapshot projected without a section budgets need (currentIssues/frameStatsSummary)", "messagePrefix": "arg_missing_required_section:"}
       ]
     },
     "diagnose": {
@@ -235,10 +239,25 @@
     "get_snapshot": {
       "kind": "passthrough",
       "passthrough": "ext.sleuth.snapshot",
-      "args": {},
-      "shims": [],
+      "args": {
+        "sections": {"type": "List<String>", "required": false, "nullable": false, "doc": "Subset of payload sections; forwarded to ext.sleuth.snapshot as a comma-joined string. Omit for full payload."},
+        "maxIssueCount": {"type": "int", "required": false, "nullable": false, "doc": "Keep top-N already-ranked issues."},
+        "maxRouteCount": {"type": "int", "required": false, "nullable": false, "doc": "Keep N most-recent routes by startedAt."},
+        "diskHandoff": {"type": "bool", "required": false, "nullable": false, "doc": "When true, write the envelope to a temp file; the tool returns {path, sizeBytes, sha256, _projectedSections?, _projectionLimits?, _projectionApplied?} instead of inline data."}
+      },
+      "shims": [
+        {
+          "name": "disk_handoff",
+          "doc": "When `diskHandoff` is true the sidecar serializes the snapshot envelope to a per-process Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json file (128-bit Random.secure name). The per-pid dir is created 0700 and the file 0600, both verified via FileStat; if owner-only perms cannot be set+verified on POSIX the file is deleted and a `disk_handoff_failed` error is returned (fail-closed). On Windows POSIX modes don't apply. The payload MAY contain mildly-sensitive data (e.g. recentRequests[].url with query tokens), hence the fail-closed perms. Returns {path, sizeBytes, sha256} plus any projection metadata, rather than the inline `data` block. Files are deleted on detach_app, on sidecar shutdown, and aged files (30 min) in the process's own dir are swept on each new write (per-pid dir prevents cross-instance sweeps). When `diskHandoff` is false/absent the envelope passes through unmodified. Lineage fallback: if the app predates projection support and a projection arg was requested, the sidecar stamps `_projectionApplied: by_sidecar_fallback` on the disk-handoff path; on the inline path it returns `projection_unsupported_by_app` instead (the full payload would overflow the response cap)."
+        }
+      ],
       "errors": [
-        {"code": "extension_error_envelope", "doc": "ext.sleuth.snapshot returned an error envelope — passed through unmodified"}
+        {"code": "extension_error_envelope", "doc": "ext.sleuth.snapshot returned an error envelope — surfaced inline, never disk-handed-off"},
+        {"code": "arg_invalid_section", "doc": "ext.sleuth.snapshot: a `sections` token is not a known SnapshotSection"},
+        {"code": "arg_invalid_int", "doc": "ext.sleuth.snapshot: maxIssueCount/maxRouteCount not a non-negative integer"},
+        {"code": "arg_pagination_unused", "doc": "ext.sleuth.snapshot: a cap targets a section omitted from `sections`"},
+        {"code": "projection_unsupported_by_app", "doc": "projection requested but the app predates projection (sleuth < 0.35); inline full payload would overflow the response cap — re-request with diskHandoff:true or upgrade the app"},
+        {"code": "disk_handoff_failed", "doc": "diskHandoff:true but the temp dir/file could not be locked to owner-only perms (fail-closed); nothing written"}
       ]
     },
     "get_issues": {

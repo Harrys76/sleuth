@@ -86,7 +86,7 @@ void main() {
             'connectionMode': 'basic',
             'schemaVersion': 1,
             'sessionUuid': 'fake-uuid',
-            'data': {'packageVersion': '0.33.99'},
+            'data': {'packageVersion': '0.34.99'},
           });
         final server = McpServer(bridge: bridge)..registerDefaults();
         await server.handleForTest(JsonRpcMessage(
@@ -275,7 +275,7 @@ void main() {
             'connectionMode': 'basic',
             'schemaVersion': 1,
             'sessionUuid': 'fake-uuid',
-            'data': {'packageVersion': '0.33.0'},
+            'data': {'packageVersion': '0.34.0'},
           });
         final server = McpServer(bridge: bridge)..registerDefaults();
         await server.handleForTest(JsonRpcMessage(

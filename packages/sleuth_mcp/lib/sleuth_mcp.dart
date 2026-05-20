@@ -47,7 +47,9 @@ export 'src/bridge/vm_bridge.dart'
         VmBridgeException,
         SessionChangedException,
         VersionSkewValidator;
-export 'src/tools/tools.dart' show defaultVersionSkewValidator;
+export 'src/tools/tools.dart'
+    show defaultVersionSkewValidator, snapshotDiskHandoff;
+export 'src/tools/snapshot_disk_handoff.dart' show SnapshotDiskHandoff;
 export 'src/flutter_daemon/app_status.dart'
     show AppStatusPayload, AppSessionState;
 export 'src/flutter_daemon/daemon_events.dart';

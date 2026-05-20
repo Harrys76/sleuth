@@ -118,6 +118,7 @@ Future<void> main(List<String> argv) async {
   } finally {
     await sigintSub.cancel();
     await sigtermSub.cancel();
+    snapshotDiskHandoff.cleanupAll();
     try {
       await bridge.disconnect().timeout(const Duration(seconds: 2));
     } catch (e) {

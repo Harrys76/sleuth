@@ -50,4 +50,109 @@ void main() {
     final firstText = (tc.content.first['text'] as String);
     expect(firstText, contains('must be object'));
   });
+
+  test('compare_snapshots rejects mismatched _projectedSections', () async {
+    final bridge = defaultFakeBridge();
+    final handler = builtInTools['compare_snapshots']!.handler;
+    final before = {
+      'currentIssues': <Map<String, Object?>>[],
+      'frameStatsSummary': {'averageFps': 60.0},
+      '_projectedSections': ['currentIssues', 'frameStatsSummary'],
+    };
+    final after = {
+      'currentIssues': <Map<String, Object?>>[],
+      'frameStatsSummary': {'averageFps': 60.0},
+      '_projectedSections': ['currentIssues'],
+    };
+    final result = await handler(bridge, {'before': before, 'after': after});
+    final tc = result as ToolCallResult;
+    expect(tc.isError, isTrue);
+    expect(tc.content.first['text'] as String,
+        startsWith('arg_section_mismatch:'));
+  });
+
+  test('compare_snapshots accepts identical projection (set-order agnostic)',
+      () async {
+    final bridge = defaultFakeBridge();
+    final handler = builtInTools['compare_snapshots']!.handler;
+    final before = {
+      'currentIssues': <Map<String, Object?>>[],
+      'frameStatsSummary': {'averageFps': 60.0},
+      '_projectedSections': ['currentIssues', 'frameStatsSummary'],
+    };
+    final after = {
+      'currentIssues': <Map<String, Object?>>[],
+      'frameStatsSummary': {'averageFps': 55.0},
+      // Same set, different list order — must NOT trip the mismatch guard.
+      '_projectedSections': ['frameStatsSummary', 'currentIssues'],
+    };
+    final result = await handler(bridge, {'before': before, 'after': after});
+    expect(result, isA<Map<String, Object?>>());
+    expect((result as Map<String, Object?>)['fpsDelta'], -5.0);
+  });
+
+  test('compare_snapshots rejects mismatched pagination limits', () async {
+    // Use maxRouteCount limits: maxIssueCount would trip the
+    // capped-issues guard first (covered separately below).
+    final bridge = defaultFakeBridge();
+    final handler = builtInTools['compare_snapshots']!.handler;
+    final before = {
+      'currentIssues': <Map<String, Object?>>[],
+      'frameStatsSummary': {'averageFps': 60.0},
+      '_projectionLimits': {'maxRouteCount': 5},
+    };
+    final after = {
+      'currentIssues': <Map<String, Object?>>[],
+      'frameStatsSummary': {'averageFps': 60.0},
+      '_projectionLimits': {'maxRouteCount': 10},
+    };
+    final result = await handler(bridge, {'before': before, 'after': after});
+    final tc = result as ToolCallResult;
+    expect(tc.isError, isTrue);
+    expect(tc.content.first['text'] as String,
+        startsWith('arg_section_mismatch:'));
+  });
+
+  test('compare_snapshots rejects maxIssueCount-capped inputs', () async {
+    final bridge = defaultFakeBridge();
+    final handler = builtInTools['compare_snapshots']!.handler;
+    final capped = {
+      'currentIssues': <Map<String, Object?>>[],
+      'frameStatsSummary': {'averageFps': 60.0},
+      '_projectionLimits': {'maxIssueCount': 5},
+    };
+    final full = {
+      'currentIssues': <Map<String, Object?>>[],
+      'frameStatsSummary': {'averageFps': 60.0},
+    };
+    final result = await handler(bridge, {'before': capped, 'after': full});
+    final tc = result as ToolCallResult;
+    expect(tc.isError, isTrue);
+    expect(tc.content.first['text'] as String,
+        startsWith('arg_capped_issues_uncomparable:'));
+  });
+
+  test('compare_snapshots diffs normally when only maxRouteCount capped',
+      () async {
+    final bridge = defaultFakeBridge();
+    final handler = builtInTools['compare_snapshots']!.handler;
+    final before = {
+      'currentIssues': [
+        {'stableId': 'a', 'severity': 'warning'}
+      ],
+      'frameStatsSummary': {'averageFps': 60.0},
+      '_projectionLimits': {'maxRouteCount': 3},
+    };
+    final after = {
+      'currentIssues': [
+        {'stableId': 'a', 'severity': 'warning'}
+      ],
+      'frameStatsSummary': {'averageFps': 55.0},
+      '_projectionLimits': {'maxRouteCount': 3},
+    };
+    final result = await handler(bridge, {'before': before, 'after': after});
+    expect(result, isA<Map<String, Object?>>(),
+        reason: 'maxRouteCount cap does not affect the issue diff');
+    expect((result as Map<String, Object?>)['fpsDelta'], -5.0);
+  });
 }

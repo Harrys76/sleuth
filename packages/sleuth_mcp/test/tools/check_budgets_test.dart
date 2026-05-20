@@ -59,4 +59,72 @@ void main() {
     });
     expect((result as ToolCallResult).isError, isTrue);
   });
+
+  test(
+      'evaluateBudgets returns arg_missing_required_section on a projected '
+      'snapshot lacking frameStatsSummary', () {
+    final result = evaluateBudgets(
+      snapshot: {
+        'currentIssues': <Map<String, Object?>>[],
+        '_projectedSections': ['currentIssues'],
+      },
+      minFps: 55,
+      maxIssues: 10,
+      maxCriticalIssues: 0,
+    );
+    final tc = result as ToolCallResult;
+    expect(tc.isError, isTrue);
+    expect(tc.content.first['text'] as String,
+        startsWith('arg_missing_required_section:'));
+  });
+
+  test(
+      'evaluateBudgets keeps generic error when section absent + not '
+      'projected (genuine drift)', () {
+    final result = evaluateBudgets(
+      snapshot: {'currentIssues': <Map<String, Object?>>[]},
+      minFps: 55,
+      maxIssues: 10,
+      maxCriticalIssues: 0,
+    );
+    final tc = result as ToolCallResult;
+    expect(tc.isError, isTrue);
+    expect(tc.content.first['text'] as String,
+        'snapshot missing required frameStatsSummary');
+  });
+
+  test('evaluateBudgets rejects a maxIssueCount-capped snapshot', () {
+    final result = evaluateBudgets(
+      snapshot: {
+        'currentIssues': [
+          {'severity': 'warning'}
+        ],
+        'frameStatsSummary': {'averageFps': 60.0},
+        '_projectionLimits': {'maxIssueCount': 3},
+      },
+      minFps: 55,
+      maxIssues: 10,
+      maxCriticalIssues: 0,
+    );
+    final tc = result as ToolCallResult;
+    expect(tc.isError, isTrue);
+    expect(tc.content.first['text'] as String,
+        startsWith('arg_capped_issues_unbudgetable:'));
+  });
+
+  test('evaluateBudgets evaluates normally when only maxRouteCount capped', () {
+    final result = evaluateBudgets(
+      snapshot: {
+        'currentIssues': <Map<String, Object?>>[],
+        'frameStatsSummary': {'averageFps': 60.0},
+        '_projectionLimits': {'maxRouteCount': 3},
+      },
+      minFps: 55,
+      maxIssues: 10,
+      maxCriticalIssues: 0,
+    );
+    expect(result, isA<Map<String, Object?>>(),
+        reason: 'maxRouteCount cap does not affect budget correctness');
+    expect((result as Map<String, Object?>)['passed'], isTrue);
+  });
 }

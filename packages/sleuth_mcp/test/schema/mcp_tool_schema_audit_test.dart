@@ -115,6 +115,29 @@ void main() {
       expect(union.difference(documented), isEmpty,
           reason: 'handlers exist for tools missing from tool schema');
     });
+
+    test(
+        'attach_app: every documented arg is declared in the live '
+        'inputSchema (allowlist drift guard)', () {
+      // The arg allowlist that `_validateArgs` enforces is the tool's
+      // inputSchema.properties. A doc that lists an arg the descriptor
+      // omits means callers get `arg_unknown` for a documented arg —
+      // exactly how `forceRelaunch` was unreachable. Cross-check both.
+      final attachDoc = tools['attach_app'] as Map<String, Object?>;
+      final docArgs = (attachDoc['args'] as Map<String, Object?>).keys.toSet();
+
+      final bridge = defaultFakeBridge();
+      final server = McpServer(bridge: bridge);
+      final descriptor = lifecycleTools(server)['attach_app']!.descriptor;
+      final schemaMap = descriptor.inputSchema;
+      final props =
+          (schemaMap['properties'] as Map<String, Object?>).keys.toSet();
+
+      expect(docArgs.difference(props), isEmpty,
+          reason: 'mcp_tool_schema documents attach_app args the live '
+              'inputSchema does not declare — callers hit arg_unknown: '
+              '${docArgs.difference(props)}');
+    });
   });
 
   group('connect', () {

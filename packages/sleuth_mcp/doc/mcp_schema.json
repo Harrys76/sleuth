@@ -39,17 +39,26 @@
       }
     },
     "ext.sleuth.snapshot": {
-      "args": {},
+      "args": {
+        "sections": {"type": "String", "required": false, "nullable": false, "doc": "comma-separated SnapshotSection keys (case-insensitive, whitespace-tolerant); only listed payload sections serialize, metadata always does; omit for full payload. Unknown name → arg_invalid_section"},
+        "maxIssueCount": {"type": "String (int)", "required": false, "nullable": false, "doc": "keep top-N already-ranked currentIssues; non-negative integer; non-numeric → arg_invalid_int; set without currentIssues in sections → arg_pagination_unused"},
+        "maxRouteCount": {"type": "String (int)", "required": false, "nullable": false, "doc": "keep N most-recent routeSessions by startedAt; non-negative integer; non-numeric → arg_invalid_int; set without routeSessions in sections → arg_pagination_unused"}
+      },
+      "errors": ["arg_invalid_section", "arg_invalid_int", "arg_pagination_unused"],
       "data": {
         "_shape_source": "SessionSnapshot.toJson() — lib/src/models/session_snapshot.dart",
+        "_projection_note": "When any projection arg is set, payload-bearing fields are present only if their SnapshotSection is in _projectedSections. Metadata keys (schemaVersion, exportedAt, packageVersion, isVmConnected, isDebugMode, suppressedCount) always serialize.",
+        "_projectedSections": {"type": "List<String>", "required": false, "nullable": false, "presence": "when any projection arg (sections/maxIssueCount/maxRouteCount) was set; alphabetically sorted SnapshotSection keys included in this payload"},
+        "_projectionLimits": {"type": "Map", "required": false, "nullable": false, "presence": "when maxIssueCount or maxRouteCount was set", "shape": {"maxIssueCount": {"type": "int", "required": false, "nullable": false}, "maxRouteCount": {"type": "int", "required": false, "nullable": false}}},
+        "_projectionApplied": {"type": "String", "required": false, "nullable": false, "presence": "when any projection arg was set", "values": ["by_app", "by_sidecar_fallback"]},
         "schemaVersion": {"type": "int", "required": true, "nullable": false},
         "exportedAt": {"type": "String (ISO-8601)", "required": true, "nullable": false},
         "packageVersion": {"type": "String", "required": true, "nullable": false},
         "isVmConnected": {"type": "bool", "required": true, "nullable": false},
         "isDebugMode": {"type": "bool", "required": true, "nullable": false},
-        "frameStatsSummary": {"type": "Map<String, Object?>", "required": true, "nullable": false},
-        "capturedFrames": {"type": "List<Map>", "required": true, "nullable": false},
-        "currentIssues": {"type": "List<Map>", "required": true, "nullable": false},
+        "frameStatsSummary": {"type": "Map<String, Object?>", "required": true, "nullable": false, "presence": "always, unless projected out via sections"},
+        "capturedFrames": {"type": "List<Map>", "required": true, "nullable": false, "presence": "always, unless projected out via sections"},
+        "currentIssues": {"type": "List<Map>", "required": true, "nullable": false, "presence": "always, unless projected out via sections"},
         "suppressedCount": {"type": "int", "required": false, "nullable": false, "presence": "only when > 0"},
         "recentRequests": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when NetworkMonitorDetector is enabled and the request ring buffer is non-empty"},
         "heapSamples": {"type": "List<Map>", "required": false, "nullable": false, "presence": "when MemoryPressureDetector has at least one sample buffered"},

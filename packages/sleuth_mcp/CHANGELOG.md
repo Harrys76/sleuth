@@ -1,3 +1,51 @@
+## 0.6.0
+
+Snapshot projection + pagination + disk-handoff. Pins sleuth 0.35.0.
+
+- `get_snapshot` gains optional `sections` (List<String>),
+  `maxIssueCount`, `maxRouteCount` — forwarded to `ext.sleuth.snapshot`
+  so a long-session snapshot can be trimmed below the MCP response
+  token cap. Typed errors `arg_invalid_section` / `arg_invalid_int` /
+  `arg_pagination_unused` pass through.
+- New `diskHandoff: bool` arg. When true the sidecar writes the
+  envelope to a `Directory.systemTemp` file (mode 0600, crypto-random
+  name) and returns `{path, sizeBytes, sha256}` plus projection
+  metadata instead of inline `data`. Files are deleted on `detach_app`,
+  on sidecar shutdown, and swept by age (30 min) on each write. When
+  the app predates projection support the sidecar stamps
+  `_projectionApplied: by_sidecar_fallback`.
+- `compare_snapshots` rejects diffing differently-projected snapshots
+  (`arg_section_mismatch`) — compared as a Set so list order of
+  `_projectedSections` is irrelevant; also cross-checks
+  `_projectionLimits`. Rejects `maxIssueCount`-capped inputs entirely
+  (`arg_capped_issues_uncomparable`): a truncated top-N window can't be
+  diffed since an issue leaving the window looks identical to one that
+  resolved.
+- `evaluateBudgets` returns `arg_missing_required_section` (instead of a
+  generic drift error) when a projected snapshot omits a section budgets
+  need, and `arg_capped_issues_unbudgetable` when the snapshot was
+  projected with `maxIssueCount` (truncated issue list would make budget
+  counts wrong). `maxRouteCount`-only projections still budget normally.
+- `get_snapshot` surfaces app error envelopes inline even under
+  `diskHandoff: true` (never writes an error to a temp file). On the
+  lineage-fallback path against a pre-0.35 app, the inline path returns
+  `projection_unsupported_by_app` (the full payload would overflow the
+  response cap) while the disk-handoff path writes + stamps
+  `by_sidecar_fallback`. Empty `sections: []` is treated as a full-payload
+  request, not a projection.
+- Disk-handoff is fail-closed: the per-pid temp dir (`0700`) and file
+  (`0600`) are `FileStat`-verified; if owner-only perms can't be
+  established on POSIX the file is deleted and `disk_handoff_failed` is
+  returned. The payload may carry `recentRequests[].url` (query tokens),
+  so loose permissions are refused rather than tolerated.
+- `sleuthMcpVersion` 0.5.1 → 0.6.0; `sleuthPackageVersionPin` 0.34.0 →
+  0.35.0; `acceptedPriorLineages = {0.34}` one-cycle fallback.
+- Adds `crypto` dependency (sha256 for the handoff pointer).
+- `attach_app` now declares `forceRelaunch` in its `inputSchema`, so the
+  documented stale-mDNS-recovery arg is reachable over MCP (was rejected
+  as `arg_unknown`). An audit cross-checks documented `attach_app` args
+  against the live `inputSchema` to prevent allowlist drift.
+
 ## 0.5.1
 
 iOS-direct attach hardening. No wire-shape change.

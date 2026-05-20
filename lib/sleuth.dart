@@ -84,6 +84,7 @@ export 'src/models/frame_verdict.dart';
 export 'src/models/widget_highlight.dart';
 export 'src/models/capture_buffer.dart';
 export 'src/models/session_snapshot.dart';
+export 'src/models/snapshot_sections.dart';
 export 'src/controller/sleuth_controller.dart' show SleuthConfig;
 export 'src/detectors/stream_resource_detector.dart'
     show StreamResourcePollResult;

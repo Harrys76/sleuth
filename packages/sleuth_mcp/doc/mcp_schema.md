@@ -47,18 +47,31 @@ Operational health snapshot. No args.
 
 ### `ext.sleuth.snapshot`
 
-Full `SessionSnapshot.toJson()`. No args. Underlying shape in `lib/src/models/session_snapshot.dart`.
+`SessionSnapshot.toJson()`. Underlying shape in `lib/src/models/session_snapshot.dart`.
+
+**Args** (all optional; absent = full payload, backward-compatible):
+
+| arg | Type | Notes |
+|---|---|---|
+| `sections` | String | comma-separated `SnapshotSection` keys (case-insensitive, whitespace-tolerant). Only listed payload sections serialize; metadata keys always do. Unknown name → `arg_invalid_section`. |
+| `maxIssueCount` | String (int) | keep top-N already-ranked `currentIssues`. Non-negative integer; non-numeric → `arg_invalid_int`; set without `currentIssues` in `sections` → `arg_pagination_unused`. |
+| `maxRouteCount` | String (int) | keep N most-recent `routeSessions` by `startedAt`. Same error semantics as `maxIssueCount`. |
+
+When any projection arg is set, payload-bearing fields are present only if their section is in `_projectedSections`. Metadata keys (`schemaVersion`, `exportedAt`, `packageVersion`, `isVmConnected`, `isDebugMode`, `suppressedCount`) always serialize.
 
 | `data` key | Type | Required | Presence |
 |---|---|---|---|
+| `_projectedSections` | List\<String\> | no | when any projection arg was set; alphabetically sorted included section keys |
+| `_projectionLimits` | Map | no | when `maxIssueCount` or `maxRouteCount` was set |
+| `_projectionApplied` | String | no | when any projection arg was set; `by_app` or `by_sidecar_fallback` |
 | `schemaVersion` | int | yes | always |
 | `exportedAt` | String (ISO-8601) | yes | always |
 | `packageVersion` | String | yes | always |
 | `isVmConnected` | bool | yes | always |
 | `isDebugMode` | bool | yes | always |
-| `frameStatsSummary` | Map | yes | always |
-| `capturedFrames` | List\<Map\> | yes | always |
-| `currentIssues` | List\<Map\> | yes | always |
+| `frameStatsSummary` | Map | yes | always, unless projected out via sections |
+| `capturedFrames` | List\<Map\> | yes | always, unless projected out via sections |
+| `currentIssues` | List\<Map\> | yes | always, unless projected out via sections |
 | `suppressedCount` | int | no | only when > 0 |
 | `recentRequests` | List\<Map\> | no | when NetworkMonitorDetector is enabled and the request ring buffer is non-empty |
 | `heapSamples` | List\<Map\> | no | when MemoryPressureDetector has at least one sample buffered |

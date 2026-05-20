@@ -151,6 +151,8 @@ Pure client-side. Args: `before` (Map, required, snapshot `data` block), `after`
 
 - `arg "before" must be object (SessionSnapshot data)`
 - `arg "after" must be object (SessionSnapshot data)`
+- `arg_capped_issues_uncomparable` — one/both inputs projected with `maxIssueCount`; a truncated top-N window can't be diffed (an issue leaving the window is indistinguishable from one resolved)
+- `arg_section_mismatch` — inputs projected to different sections or different pagination limits
 
 ## check_budgets
 
@@ -168,6 +170,8 @@ Wraps `ext.sleuth.snapshot`. Args: `minFps` (num, required), `maxIssues` (int, r
 - `maxIssues must be integer`
 - `maxCriticalIssues must be integer`
 - `snapshot envelope had no data field` — bridge returned a malformed envelope
+- `arg_capped_issues_unbudgetable` — snapshot projected with `maxIssueCount`; truncated issue list would make budget counts wrong
+- `arg_missing_required_section` — snapshot projected without a section budgets need (`currentIssues` / `frameStatsSummary`)
 
 ## diagnose
 
@@ -183,7 +187,13 @@ Augments the extension's `data` block with two sidecar-stamped keys:
 
 ## get_snapshot
 
-Passthrough for `ext.sleuth.snapshot`. No args, no shims. Error envelopes pass through unmodified.
+Passthrough for `ext.sleuth.snapshot`. Args: `sections` (List\<String\>, optional — forwarded comma-joined; empty list or absent = full payload, not metadata-only), `maxIssueCount` (int, optional), `maxRouteCount` (int, optional), `diskHandoff` (bool, optional).
+
+**Shim — `disk_handoff`.** When `diskHandoff` is true the sidecar serializes the envelope to a per-process `Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json` file and returns `{path, sizeBytes, sha256}` plus any projection metadata instead of the inline `data` block — use for large snapshots that exceed the response token cap. The filename is 128-bit `Random.secure()`. The per-pid dir is created `0700` and the file `0600`, both verified via `FileStat`; if owner-only perms can't be set + verified on POSIX, the file is deleted and `disk_handoff_failed` is returned (fail-closed). Windows has no POSIX mode — that verification is skipped. The payload MAY contain mildly-sensitive data (e.g. `recentRequests[].url` carrying query tokens), which is why perms are fail-closed rather than best-effort. Files are deleted on `detach_app`, on sidecar shutdown, and aged files (30 min) in the process's own dir are swept on each new write — the per-pid dir keeps concurrent sidecar instances from sweeping each other's in-flight handoffs. When `diskHandoff` is false/absent the envelope passes through unmodified.
+
+**Lineage fallback (app predates projection, sleuth < 0.35):** the app ignores projection args and returns the full payload. On the **disk-handoff** path the sidecar writes it and stamps `_projectionApplied: by_sidecar_fallback`. On the **inline** path it returns `projection_unsupported_by_app` instead — the full inline payload would overflow the response cap that projection exists to avoid.
+
+**Errors:** `arg_invalid_section`, `arg_invalid_int`, `arg_pagination_unused` (forwarded from `ext.sleuth.snapshot`); `projection_unsupported_by_app` (inline projection vs a pre-0.35 app); `disk_handoff_failed` (temp file couldn't be locked to owner-only perms).
 
 Underlying shape: see `mcp_schema.md` § `ext.sleuth.snapshot`.
 

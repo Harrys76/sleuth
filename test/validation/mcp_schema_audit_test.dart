@@ -499,6 +499,50 @@ void main() {
               'test/controller/export_snapshot_test.dart.',
     };
 
+    test(
+        'projection args emit _projectedSections/_projectionLimits/'
+        '_projectionApplied; no-arg call omits them', () async {
+      final c = _newController();
+      final session = RouteSession(
+        routeName: 'home',
+        startedAt: DateTime.now(),
+        scaffoldHashKey: 12345,
+      );
+      c.seedRouteHistoryForTest([session]);
+
+      // No-arg: metadata absent (backward-compat).
+      final full = (await extSnapshotHandler(c, const {}))['data']
+          as Map<String, Object?>;
+      expect(full.containsKey('_projectedSections'), isFalse);
+      expect(full.containsKey('_projectionApplied'), isFalse);
+
+      // Projected: currentIssues-only with caps.
+      final projected = (await extSnapshotHandler(c, const {
+        'sections': 'currentIssues,routeSessions',
+        'maxIssueCount': '5',
+        'maxRouteCount': '3',
+      }))['data'] as Map<String, Object?>;
+      expect(projected['_projectedSections'],
+          equals(['currentIssues', 'routeSessions']));
+      expect(projected['_projectionApplied'], 'by_app');
+      final limits = projected['_projectionLimits'] as Map<String, Object?>;
+      expect(limits['maxIssueCount'], 5);
+      expect(limits['maxRouteCount'], 3);
+      // Omitted section absent.
+      expect(projected.containsKey('frameStatsSummary'), isFalse);
+
+      // Typed errors.
+      final badSection =
+          await extSnapshotHandler(c, const {'sections': 'bogus'});
+      expect(badSection['error'], startsWith('arg_invalid_section:'));
+      final badInt = await extSnapshotHandler(
+          c, const {'sections': 'currentIssues', 'maxIssueCount': 'NaN'});
+      expect(badInt['error'], startsWith('arg_invalid_int:'));
+      final unused = await extSnapshotHandler(
+          c, const {'sections': 'currentIssues', 'maxRouteCount': '2'});
+      expect(unused['error'], startsWith('arg_pagination_unused:'));
+    });
+
     test('every optional schema key is exercised or explicitly deferred', () {
       // Bidirectional drift guard. Every documented optional key must
       // either get a test above (presence-driven) or sit in
@@ -527,6 +571,9 @@ void main() {
         'sessionSummary',
         'recurrenceTrends',
         'routeSessions',
+        '_projectedSections',
+        '_projectionLimits',
+        '_projectionApplied',
       };
       final covered = {...exercisedHere, ...auditUnreachable.keys};
       final uncovered = optionalKeys.difference(covered);

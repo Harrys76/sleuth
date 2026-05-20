@@ -34,6 +34,19 @@ void main() {
             'kSleuthPackageVersion (sleuth). Re-pin both to the same value.');
   });
 
+  test('sidecar pubspec version matches sleuthMcpVersion', () {
+    // The published package version (pubspec) and the runtime-advertised
+    // version (`sleuthMcpVersion`) must agree, or `dart pub publish` ships
+    // the API under a mislabeled version.
+    final pubspec = _resolveSidecarPubspec().readAsStringSync();
+    final match =
+        RegExp(r'^version:\s*(\S+)\s*$', multiLine: true).firstMatch(pubspec);
+    expect(match, isNotNull, reason: 'version: not found in sidecar pubspec');
+    expect(match!.group(1), sleuthMcpVersion,
+        reason: 'sidecar pubspec version drifted from sleuthMcpVersion '
+            'constant — bump both to the same value before publishing.');
+  });
+
   test(
     'binary spawns, initialize + tools/list returns 8 tool names',
     () async {
@@ -128,6 +141,28 @@ File _resolveSleuthSourceFile() {
     'service_extension_handlers.dart not found by walking up from cwd or '
     'test file. Sidecar smoke test must run from inside the sleuth repo.',
   );
+}
+
+/// Resolves the sidecar's own `pubspec.yaml` (the one declaring
+/// `name: sleuth_mcp`) regardless of test-runner cwd.
+File _resolveSidecarPubspec() {
+  for (final start in <Directory>[
+    Directory.current,
+    File.fromUri(Platform.script).parent,
+  ]) {
+    var dir = start;
+    for (var i = 0; i < 8; i++) {
+      final pubspec = File('${dir.path}/pubspec.yaml');
+      if (pubspec.existsSync() &&
+          pubspec.readAsStringSync().contains('name: sleuth_mcp\n')) {
+        return pubspec;
+      }
+      final parent = dir.parent;
+      if (parent.path == dir.path) break;
+      dir = parent;
+    }
+  }
+  throw StateError('sleuth_mcp pubspec.yaml not found from cwd or test file');
 }
 
 class StreamQueue<T> {

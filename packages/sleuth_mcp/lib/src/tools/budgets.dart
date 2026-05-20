@@ -54,12 +54,23 @@ Object evaluateBudgets({
   required int maxIssues,
   required int maxCriticalIssues,
 }) {
-  final issues = snapshot['currentIssues'];
-  if (issues == null) {
+  // A maxIssueCount-capped snapshot carries a truncated currentIssues list;
+  // counting it would under-report and let a failing budget pass. Refuse.
+  // (maxRouteCount doesn't affect budgets — routes aren't counted here.)
+  final limits = snapshot['_projectionLimits'];
+  if (limits is Map && limits['maxIssueCount'] != null) {
     return ToolCallResult.text(
-      'snapshot missing required currentIssues',
+      'arg_capped_issues_unbudgetable: this snapshot was projected with '
+      'maxIssueCount=${limits['maxIssueCount']}, so its issue list is '
+      'truncated and budget counts would be wrong. Re-capture get_snapshot '
+      'without maxIssueCount.',
       isError: true,
     );
+  }
+
+  final issues = snapshot['currentIssues'];
+  if (issues == null) {
+    return _missingSection(snapshot, 'currentIssues');
   }
   if (issues is! List) {
     return ToolCallResult.text(
@@ -92,10 +103,7 @@ Object evaluateBudgets({
   }
   final summary = snapshot['frameStatsSummary'];
   if (summary == null) {
-    return ToolCallResult.text(
-      'snapshot missing required frameStatsSummary',
-      isError: true,
-    );
+    return _missingSection(snapshot, 'frameStatsSummary');
   }
   if (summary is! Map<String, Object?>) {
     return ToolCallResult.text(
@@ -152,4 +160,24 @@ Object evaluateBudgets({
       'criticalCount': criticalCount,
     },
   };
+}
+
+/// A required section is absent. When the snapshot carries projection
+/// metadata, this is a caller error (they projected the section away),
+/// so return the typed `arg_missing_required_section`. Otherwise it's
+/// genuine schema drift.
+ToolCallResult _missingSection(Map<String, Object?> snapshot, String section) {
+  final projected = snapshot.containsKey('_projectedSections');
+  if (projected) {
+    return ToolCallResult.text(
+      'arg_missing_required_section: budgets need "$section" but the '
+      'snapshot was projected without it — re-capture get_snapshot '
+      'including "$section" (or omit `sections` for the full payload)',
+      isError: true,
+    );
+  }
+  return ToolCallResult.text(
+    'snapshot missing required $section',
+    isError: true,
+  );
 }

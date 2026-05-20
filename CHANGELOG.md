@@ -1,3 +1,29 @@
+## 0.35.0
+
+MCP snapshot projection + pagination. `ext.sleuth.snapshot` accepts
+optional args so long-session snapshots no longer overflow the MCP
+client's per-response token cap. Backward-compatible: no args = full
+payload (unchanged).
+
+- New args on `ext.sleuth.snapshot`: `sections` (comma-separated
+  `SnapshotSection` keys — only listed payload sections serialize,
+  metadata always does), `maxIssueCount` (keep top-N already-ranked
+  issues), `maxRouteCount` (keep N most-recent routes by `startedAt`).
+  Typed errors: `arg_invalid_section`, `arg_invalid_int`,
+  `arg_pagination_unused`.
+- When any projection arg is set the envelope gains `_projectedSections`
+  (alphabetically sorted), `_projectionLimits`, and `_projectionApplied`
+  so consumers can detect a partial payload.
+- New `SnapshotSection` enum (`lib/src/models/snapshot_sections.dart`,
+  exported) is the single source of truth for projectable section keys;
+  a drift test cross-checks it against both `SessionSnapshot.toJson` and
+  `doc/mcp_schema.json`.
+- `kSleuthPackageVersion` 0.34.0 → 0.35.0. Envelope `schemaVersion`
+  stays at `1` (additive).
+- `doc/mcp_schema.{json,md}` document the args + metadata fields;
+  `checkSnapshotCapturesMatchSchema` gates per-section required checks
+  on `_projectedSections`.
+
 ## 0.34.0
 
 MCP snapshot wire-shape deepening + sidecar tool-layer audit.

@@ -7,6 +7,7 @@ import 'package:meta/meta.dart';
 import '../analyzer/causal_graph.dart';
 import '../controller/sleuth_controller.dart';
 import '../models/route_session.dart';
+import '../models/snapshot_sections.dart';
 import '../utils/issue_explanation_builder.dart';
 import 'connection_mode.dart';
 import 'service_extension_registry.dart';
@@ -15,7 +16,7 @@ import 'service_extension_registry.dart';
 const int kMcpEnvelopeSchemaVersion = 1;
 
 /// Stamped on `ext.sleuth.diagnose`. Keep in sync with `pubspec.yaml`.
-const String kSleuthPackageVersion = '0.34.0';
+const String kSleuthPackageVersion = '0.35.0';
 
 typedef ExtensionHandler = FutureOr<Map<String, Object?>> Function(
   SleuthController controller,
@@ -166,13 +167,88 @@ Object? _sanitize(Object? value, Set<Object> visited, int depth) {
 
 // Handlers — one per ext.sleuth.* extension. Pure over controller state.
 
-/// `ext.sleuth.snapshot` — full `SessionSnapshot.toJson()` payload.
+/// `ext.sleuth.snapshot` — `SessionSnapshot.toJson()` payload.
+///
+/// Optional projection args (all absent = full payload, backward-compat):
+/// - `sections`: comma-separated [SnapshotSection] keys; only those
+///   serialize (metadata always does). Unknown name → `arg_invalid_section`.
+/// - `maxIssueCount` / `maxRouteCount`: decimal caps. Non-numeric →
+///   `arg_invalid_int`. Capping a section that `sections` omits →
+///   `arg_pagination_unused`.
 FutureOr<Map<String, Object?>> extSnapshotHandler(
   SleuthController controller,
   Map<String, String> args,
 ) {
+  Set<SnapshotSection>? include;
+  final rawSections = _nullIfEmpty(args['sections']);
+  if (rawSections != null) {
+    include = <SnapshotSection>{};
+    for (final token in rawSections.split(',')) {
+      if (token.trim().isEmpty) continue;
+      final section = SnapshotSection.fromString(token);
+      if (section == null) {
+        return envelopeError(
+          controller: controller,
+          error: 'arg_invalid_section: "${token.trim()}" is not a known '
+              'section. Valid: ${SnapshotSection.values.map((s) => s.jsonKey).join(', ')}',
+        );
+      }
+      include.add(section);
+    }
+    if (include.isEmpty) include = null; // "sections=," ⇒ treat as full
+  }
+
+  int? parseCap(String key) {
+    final raw = _nullIfEmpty(args[key]);
+    if (raw == null) return null;
+    final n = int.tryParse(raw);
+    if (n == null || n < 0) {
+      throw const FormatException('invalid');
+    }
+    return n;
+  }
+
+  int? maxIssueCount;
+  int? maxRouteCount;
+  try {
+    maxIssueCount = parseCap('maxIssueCount');
+    maxRouteCount = parseCap('maxRouteCount');
+  } on FormatException {
+    return envelopeError(
+      controller: controller,
+      error: 'arg_invalid_int: maxIssueCount/maxRouteCount must be a '
+          'non-negative integer',
+    );
+  }
+
+  if (include != null) {
+    if (maxIssueCount != null &&
+        !include.contains(SnapshotSection.currentIssues)) {
+      return envelopeError(
+        controller: controller,
+        error: 'arg_pagination_unused: maxIssueCount set but currentIssues '
+            'is not in sections',
+      );
+    }
+    if (maxRouteCount != null &&
+        !include.contains(SnapshotSection.routeSessions)) {
+      return envelopeError(
+        controller: controller,
+        error: 'arg_pagination_unused: maxRouteCount set but routeSessions '
+            'is not in sections',
+      );
+    }
+  }
+
   final snapshot = controller.exportSnapshot();
-  return envelopeOk(controller: controller, data: snapshot.toJson());
+  return envelopeOk(
+    controller: controller,
+    data: snapshot.toJson(
+      include: include,
+      maxIssueCount: maxIssueCount,
+      maxRouteCount: maxRouteCount,
+    ),
+  );
 }
 
 /// `ext.sleuth.issues` — currently-aggregated issues, optional `route` filter

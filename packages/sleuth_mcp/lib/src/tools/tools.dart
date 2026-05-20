@@ -15,6 +15,7 @@ import '../util/device_filter.dart';
 import '../util/version_lineage.dart';
 import 'budgets.dart';
 import 'compare_snapshots.dart';
+import 'snapshot_disk_handoff.dart';
 
 final Lock _listDevicesLock = Lock();
 
@@ -262,11 +263,83 @@ Future<Object> _connectHandler(
   return connectResult;
 }
 
+/// Disk-handoff store, shared across `get_snapshot` calls. Cleaned up on
+/// `detach_app` and sidecar shutdown.
+final snapshotDiskHandoff = SnapshotDiskHandoff();
+
 Future<Object> _getSnapshotHandler(
   VmBridge bridge,
   Map<String, Object?> args,
 ) async {
-  return _passThrough(bridge, 'ext.sleuth.snapshot');
+  final extArgs = <String, dynamic>{};
+
+  // Empty list / blank string = full payload, NOT a projection request —
+  // forwarding an empty `sections` would make the fallback check below
+  // misread the resulting full payload as a stale-app response.
+  final rawSections = args['sections'];
+  if (rawSections is List && rawSections.isNotEmpty) {
+    extArgs['sections'] = rawSections.map((e) => '$e').join(',');
+  } else if (rawSections is String && rawSections.trim().isNotEmpty) {
+    extArgs['sections'] = rawSections;
+  }
+  final maxIssueCount = args['maxIssueCount'];
+  if (maxIssueCount != null) extArgs['maxIssueCount'] = '$maxIssueCount';
+  final maxRouteCount = args['maxRouteCount'];
+  if (maxRouteCount != null) extArgs['maxRouteCount'] = '$maxRouteCount';
+
+  final projectionRequested = extArgs.isNotEmpty;
+  final diskHandoff = args['diskHandoff'] == true;
+  final envelope =
+      await bridge.callExtension('ext.sleuth.snapshot', args: extArgs);
+
+  // App errors carry a top-level `error` key — surface inline, never
+  // disk-hand-off (would hide the error behind a file pointer).
+  if (envelope.containsKey('error')) return envelope;
+
+  final rawData = envelope['data'];
+  final isFallback = projectionRequested &&
+      rawData is Map<String, Object?> &&
+      !rawData.containsKey('_projectedSections') &&
+      !rawData.containsKey('_projectionApplied');
+
+  if (isFallback && !diskHandoff) {
+    // Pre-0.35 app ignored the projection args and returned the full
+    // payload; inline it would overflow the response cap projection
+    // exists to avoid. Refuse with guidance instead.
+    return ToolCallResult.text(
+      'projection_unsupported_by_app: the attached app predates snapshot '
+      'projection (sleuth < 0.35), so projection args were ignored and the '
+      'full payload would overflow the response. Re-request with '
+      'diskHandoff: true, or upgrade the app to sleuth 0.35+.',
+      isError: true,
+    );
+  }
+
+  // Stamp fallback provenance so the on-disk payload is detectable as
+  // unprojected. Fresh map — never mutate the bridge-returned envelope
+  // (the fake bridge shares its instance across calls).
+  var out = envelope;
+  if (isFallback) {
+    out = <String, Object?>{
+      ...envelope,
+      'data': <String, Object?>{
+        ...rawData,
+        '_projectionApplied': 'by_sidecar_fallback',
+      },
+    };
+  }
+
+  if (!diskHandoff) return out;
+  try {
+    return await snapshotDiskHandoff.write(out);
+  } on StateError catch (e) {
+    // Fail-closed: handoff refused because it couldn't lock the temp
+    // dir/file to owner-only perms. Surface inline, no loose file.
+    return ToolCallResult.text(
+      'disk_handoff_failed: ${e.message}',
+      isError: true,
+    );
+  }
 }
 
 Future<Object> _getIssuesHandler(
@@ -403,9 +476,37 @@ final Map<String, BuiltInTool> builtInTools = {
   'get_snapshot': BuiltInTool(
     descriptor: const Tool(
       name: 'get_snapshot',
-      description:
-          'Full performance snapshot — issues, frame stats, route history.',
-      inputSchema: _emptyObjectSchema,
+      description: 'Performance snapshot — issues, frame stats, route history. '
+          'Optional projection: `sections` (subset of payload), '
+          '`maxIssueCount`/`maxRouteCount` (caps), `diskHandoff` (write to '
+          'a temp file and return {path, sizeBytes, sha256} instead of '
+          'inline data — use for large snapshots that exceed the response '
+          'token cap).',
+      inputSchema: <String, Object?>{
+        'type': 'object',
+        'properties': <String, Object?>{
+          'sections': <String, Object?>{
+            'type': 'array',
+            'items': <String, Object?>{'type': 'string'},
+            'description': 'Subset of payload sections to include '
+                '(metadata always returns). Omit for full payload.',
+          },
+          'maxIssueCount': <String, Object?>{
+            'type': 'integer',
+            'description': 'Keep top-N already-ranked issues.',
+          },
+          'maxRouteCount': <String, Object?>{
+            'type': 'integer',
+            'description': 'Keep N most-recent routes by startedAt.',
+          },
+          'diskHandoff': <String, Object?>{
+            'type': 'boolean',
+            'description': 'Write the envelope to a temp file; response '
+                'becomes {path, sizeBytes, sha256, _projectedSections?}.',
+          },
+        },
+        'required': <String>[],
+      },
     ),
     handler: _getSnapshotHandler,
   ),
@@ -671,6 +772,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     final session = server.daemonSession;
     if (session is! DaemonSession) return sessionMissing();
     await session.detach();
+    snapshotDiskHandoff.cleanupAll();
     return session.status.toJson();
   }
 
@@ -788,6 +890,15 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
                   'iOS only: pin the Bonjour authCode (used when more '
                       'than one pairing is announced — see error '
                       '`ios_ambiguous_pairings`).',
+            },
+            'forceRelaunch': {
+              'type': 'boolean',
+              'description':
+                  'iOS only: skip the Bonjour probe and drive a fresh '
+                      '`xcrun devicectl process launch`. Recovers from a '
+                      'stale mDNS cache pinning a dead VM service port '
+                      '(`ios_vmservice_busy` / `ios_vmservice_unreachable`) '
+                      'without a sidecar restart.',
             },
           },
           'required': <String>[],
