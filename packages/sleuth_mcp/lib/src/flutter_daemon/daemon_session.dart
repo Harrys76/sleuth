@@ -5,7 +5,7 @@ import 'dart:io';
 import '../bridge/vm_bridge.dart';
 import '../cli/attach_ios_command.dart' show IosTransport;
 import '../cli/ios_attach_pipeline.dart'
-    show IosAttachException, IosAttachOrigin, IosAttacher, IosAttachProgress;
+    show IosAttachException, IosAttacher, IosAttachProgress;
 import '../mcp/mcp_server.dart';
 import '../util/device_filter.dart';
 import 'app_status.dart';
@@ -365,6 +365,7 @@ class DaemonSession implements DaemonSessionLifecycle {
     bool failFastOnConcurrent = true,
     bool forceRelaunch = false,
     Duration bridgeConnectTimeout = const Duration(seconds: 10),
+    Duration attachBudget = const Duration(seconds: 90),
   }) async {
     if (_state != AppSessionState.idle && _state != AppSessionState.error) {
       throw StateError(
@@ -388,10 +389,18 @@ class DaemonSession implements DaemonSessionLifecycle {
     final gen = ++_sessionGeneration;
 
     final effectiveAttacher = attacher ?? IosAttacher();
+    // Original connect error from the attempt that triggered recovery;
+    // surfaced if recovery finds no live port. Outside the inner try so
+    // the IosAttachException catch can read it.
+    String? recoveryConnectError;
     try {
       try {
         var attempt = 0;
         var useForceRelaunch = forceRelaunch;
+        var retryExcludePorts = const <int>{};
+        // Gates recovery initiation only; per-attempt inner timeouts bound
+        // actual runtime.
+        final attachStopwatch = Stopwatch()..start();
         while (true) {
           attempt++;
           final result = await effectiveAttacher.attach(
@@ -402,6 +411,7 @@ class DaemonSession implements DaemonSessionLifecycle {
             onProgress: onProgress,
             cancelSignal: cancelSignal,
             forceRelaunch: useForceRelaunch,
+            excludePorts: retryExcludePorts,
           );
           if (gen != _sessionGeneration) {
             // Detach raced us — release the teardown immediately.
@@ -440,14 +450,14 @@ class DaemonSession implements DaemonSessionLifecycle {
             return status;
           } catch (e) {
             final message = '$e';
-            // Stale-Bonjour auto-recovery: probe returned a wsUri whose
-            // port is dead (iOS retained prior session's mDNS record).
-            // Retry once with forceRelaunch so devicectl drives a fresh
-            // launch instead of trusting the cache.
-            final isStaleProbe = attempt == 1 &&
-                !useForceRelaunch &&
-                result.origin == IosAttachOrigin.probedExisting &&
-                message.contains('Connection refused');
+            // Stale-mDNS recovery: selection landed on a dead cached port
+            // (iOS retains the prior session's record ~1-2 min). Retry once,
+            // re-resolving with that port excluded so a coexisting live
+            // announcement wins.
+            final deadPort = result.selected.port;
+            final canRecover = attempt == 1 &&
+                attachStopwatch.elapsed < attachBudget &&
+                _isStaleRecoverable(message);
             await result.teardown();
             _iosTeardown = null;
             _iosTransport = null;
@@ -456,8 +466,13 @@ class DaemonSession implements DaemonSessionLifecycle {
             _launchMode = null;
             _mode = null;
             if (_detachRequested) return status;
-            if (isStaleProbe) {
-              useForceRelaunch = true;
+            if (canRecover) {
+              // forceRelaunch:false re-probes; excluding the dead port
+              // redirects selection. A second cached-dead port can still be
+              // picked on this single retry, ending on the busy error.
+              recoveryConnectError = mapBridgeConnectErrorToLastError(message);
+              useForceRelaunch = false;
+              retryExcludePorts = {deadPort};
               continue;
             }
             _state = AppSessionState.error;
@@ -478,6 +493,13 @@ class DaemonSession implements DaemonSessionLifecycle {
         // looking `attaching`. Next `attach_app` recovers automatically.
         if (gen == _sessionGeneration && !_detachRequested) {
           _state = AppSessionState.error;
+          if (recoveryConnectError != null) {
+            // Recovery found no live port; surface the original connect
+            // failure (names the real cause) instead of the fallback's
+            // generic launch/bonjour error. Return so the tool maps it.
+            _lastError = recoveryConnectError;
+            return status;
+          }
           _lastError = '${e.kind.name}: ${e.message}';
         }
         rethrow;
@@ -683,35 +705,75 @@ class DaemonSession implements DaemonSessionLifecycle {
   /// `IosAttachException` so test wrappers can grep without importing.
   static String get debugIosAttachExceptionName => '$IosAttachException';
 
+  /// True when the failure looks like a dead/stale device port
+  /// (recoverable by re-resolving Bonjour with that port excluded), not a
+  /// wireless-transport failure. Derived from [_classifyBridgeConnectError]
+  /// so it cannot drift from [mapBridgeConnectErrorToLastError].
+  static bool _isStaleRecoverable(String message) {
+    final failure = _classifyBridgeConnectError(message);
+    return failure == _BridgeConnectFailure.busy ||
+        failure == _BridgeConnectFailure.devicePortDead;
+  }
+
   /// Maps a `bridge.connect` exception message to the iOS-direct
   /// `lastError`. Exposed for unit testing so SDK wording drift
   /// surfaces as a test failure, not silent envelope degradation.
   static String mapBridgeConnectErrorToLastError(String exceptionMessage) {
-    if (exceptionMessage.contains('Connection reset') ||
-        exceptionMessage.contains('Connection closed before full header')) {
-      return 'ios_vmservice_busy: $exceptionMessage — swipe the app off '
-          'the device and re-run, or rebuild the profile binary';
+    switch (_classifyBridgeConnectError(exceptionMessage)) {
+      case _BridgeConnectFailure.busy:
+        return 'ios_vmservice_busy: $exceptionMessage — swipe the app off '
+            'the device and re-run, or rebuild the profile binary';
+      case _BridgeConnectFailure.devicePortDead:
+        return 'ios_vmservice_unreachable: $exceptionMessage — the iproxy '
+            'tunnel is open but nothing is listening on the device side. '
+            'Common cause: stale Bonjour cache pinned a dead port. Wait '
+            "~30s for mDNS to clear or swipe the app and re-run.";
+      case _BridgeConnectFailure.wirelessUnreachable:
+        return 'ios_vmservice_unreachable: $exceptionMessage — wireless '
+            "attach can't reach the device. Common causes: iOS Local "
+            'Network permission denied for the launching app, the host '
+            'and device are on different Wi-Fi networks, or the device '
+            'left the network. Switch to USB (transport: wired) or '
+            'grant Local Network permission and retry.';
+      case _BridgeConnectFailure.unknown:
+        return 'bridge connect failed: $exceptionMessage';
     }
-    if (exceptionMessage.contains('Connection refused')) {
-      return 'ios_vmservice_unreachable: $exceptionMessage — the iproxy '
-          'tunnel is open but nothing is listening on the device side. '
-          'Common cause: stale Bonjour cache pinned a dead port. Wait '
-          "~30s for mDNS to clear or swipe the app and re-run.";
-    }
-    // Wireless-mode failures: `.local` DNS lookup failure +
-    // `Operation not permitted` (iOS Local Network permission denied).
-    // Surface as `ios_vmservice_unreachable` with wireless remedy.
-    if (exceptionMessage.contains('Operation not permitted') ||
-        exceptionMessage.contains('Network is unreachable') ||
-        exceptionMessage.contains('Failed host lookup') ||
-        exceptionMessage.contains('No address associated with hostname')) {
-      return 'ios_vmservice_unreachable: $exceptionMessage — wireless '
-          "attach can't reach the device. Common causes: iOS Local "
-          'Network permission denied for the launching app, the host '
-          'and device are on different Wi-Fi networks, or the device '
-          'left the network. Switch to USB (transport: wired) or '
-          'grant Local Network permission and retry.';
-    }
-    return 'bridge connect failed: $exceptionMessage';
   }
+}
+
+/// Classifies a `bridge.connect` failure. Both the `lastError` mapping and
+/// recovery eligibility derive from it, so they can't disagree.
+enum _BridgeConnectFailure {
+  /// Tunnel reset/closed mid-handshake — the device refused the iproxy
+  /// channel because the announced port is dead (stale mDNS).
+  busy,
+
+  /// Nothing listening on the device port (`Connection refused`).
+  devicePortDead,
+
+  /// Wireless transport can't reach the device (permission/network) —
+  /// re-resolving Bonjour won't help.
+  wirelessUnreachable,
+
+  /// Unrecognised wording — surfaced verbatim, not recovered.
+  unknown,
+}
+
+/// Precedence: reset/closed → busy, then refused, then wireless, then
+/// unknown. Order matters — refused is checked before wireless markers.
+_BridgeConnectFailure _classifyBridgeConnectError(String message) {
+  if (message.contains('Connection reset') ||
+      message.contains('Connection closed before full header')) {
+    return _BridgeConnectFailure.busy;
+  }
+  if (message.contains('Connection refused')) {
+    return _BridgeConnectFailure.devicePortDead;
+  }
+  if (message.contains('Operation not permitted') ||
+      message.contains('Network is unreachable') ||
+      message.contains('Failed host lookup') ||
+      message.contains('No address associated with hostname')) {
+    return _BridgeConnectFailure.wirelessUnreachable;
+  }
+  return _BridgeConnectFailure.unknown;
 }

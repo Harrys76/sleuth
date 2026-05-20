@@ -201,6 +201,8 @@ class IosAttacher {
     Stream<void>? cancelSignal,
     Map<String, String>? environment,
     bool forceRelaunch = false,
+    Set<int> excludePorts = const <int>{},
+    Duration devicectlTimeout = const Duration(seconds: 20),
   }) async {
     final env = environment ?? Platform.environment;
     final envCollect = int.tryParse(env['SLEUTH_MCP_BONJOUR_COLLECT'] ?? '');
@@ -232,7 +234,15 @@ class IosAttacher {
       if (transportOverride != null) {
         transport = transportOverride;
       } else {
-        final detected = await detectIosTransport(udid: udid, run: run);
+        final detected = await detectIosTransport(udid: udid, run: run)
+            .timeout(devicectlTimeout, onTimeout: () {
+          throw IosAttachException(
+            IosAttachErrorKind.launchFailed,
+            'devicectl list devices timed out after '
+            '${devicectlTimeout.inSeconds}s — the device may have '
+            'disconnected or device services stalled.',
+          );
+        });
         transport =
             detected == IosTransport.unknown ? IosTransport.wired : detected;
       }
@@ -286,6 +296,12 @@ class IosAttacher {
           announcements = const <BonjourAnnouncement>[];
         }
       }
+      // Drop excluded (dead) ports before the launch-skip check, so an
+      // empty result after exclusion triggers a fresh launch.
+      if (excludePorts.isNotEmpty) {
+        announcements =
+            announcements.where((a) => !excludePorts.contains(a.port)).toList();
+      }
       throwIfCancelled();
 
       if (announcements.isEmpty) {
@@ -307,7 +323,14 @@ class IosAttacher {
           '--device',
           udid,
           bundle,
-        ]);
+        ]).timeout(devicectlTimeout, onTimeout: () {
+          throw IosAttachException(
+            IosAttachErrorKind.launchFailed,
+            'devicectl process launch timed out after '
+            '${devicectlTimeout.inSeconds}s — the device may have '
+            'disconnected or device services stalled.',
+          );
+        });
         throwIfCancelled();
         if (launch.exitCode != 0) {
           throw IosAttachException(
@@ -337,6 +360,11 @@ class IosAttacher {
             '${bonjourTimeout.inSeconds}s — is the app actually running '
             'with --enable-vm-service (profile/debug build)?',
           );
+        }
+        if (excludePorts.isNotEmpty) {
+          announcements = announcements
+              .where((a) => !excludePorts.contains(a.port))
+              .toList();
         }
         throwIfCancelled();
       }

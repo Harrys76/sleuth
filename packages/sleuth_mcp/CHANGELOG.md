@@ -1,3 +1,27 @@
+## 0.6.1
+
+iOS attach mDNS-staleness auto-recovery. Sidecar-only; pins sleuth 0.35.0.
+
+- `attach_app(udid:, bundle:)` now recovers automatically when the iOS
+  mDNS cache pins a dead VM-service port from a prior session. On a
+  `bridge.connect` failure that looks like a dead device port
+  (`Connection reset` — iproxy resets the tunnel when the device refuses
+  the channel — or `Connection refused`), the attach retries once,
+  re-resolving Bonjour with the dead port excluded so selection lands on
+  the live service, which announces a different port within the same
+  staleness window. Falls through to a plain relaunch only if no live
+  port is announced. No manual `devicectl` relaunch needed.
+- Wireless-transport failures and half-open VM services (connect
+  timeout) are not recovered — re-resolving can't help those.
+- `IosAttacher.attach` gains `excludePorts` and bounds each `xcrun
+  devicectl` call with a `devicectlTimeout` (default 20s), so a
+  disconnected device or stalled device-services can't hang the attach
+  (and the single-attach mutex) indefinitely. `DaemonSession.attachViaIos`
+  gains an `attachBudget` (default 90s) gating whether recovery is
+  attempted. An attach that recovers holds the mutex (`attach_in_progress`)
+  until it completes.
+- `sleuthMcpVersion` 0.6.0 → 0.6.1.
+
 ## 0.6.0
 
 Snapshot projection + pagination + disk-handoff. Pins sleuth 0.35.0.

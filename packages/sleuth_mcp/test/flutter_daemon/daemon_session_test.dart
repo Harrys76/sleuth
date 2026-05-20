@@ -466,6 +466,116 @@ void main() {
       );
     });
   });
+
+  group('DaemonSession.attachViaIos stale-mDNS recovery', () {
+    Future<Process> noSpawn(String e, List<String> a,
+            {String? workingDirectory, Map<String, String>? environment}) =>
+        throw StateError('iOS-direct attach must not spawn flutter');
+
+    DaemonSession sessionFor(_FlakyConnectBridge bridge) => DaemonSession(
+          bridge: bridge,
+          server: McpServer(bridge: bridge)..registerDefaults(),
+          processFactory: noSpawn,
+        );
+
+    test(
+        'Connection reset on a dead port recovers by re-resolving with the '
+        'dead port excluded', () async {
+      final bridge = _FlakyConnectBridge(
+          failPort: 62994, failError: 'Connection reset by peer');
+      final attacher = _FakeIosAttacher([_result(62994), _result(63439)]);
+      final status = await sessionFor(bridge)
+          .attachViaIos(udid: 'U', bundle: 'b', attacher: attacher);
+      expect(status.state, 'ready');
+      expect(attacher.calls, hasLength(2));
+      expect(attacher.calls[0].excludePorts, isEmpty);
+      expect(attacher.calls[1].excludePorts, {62994},
+          reason: 'recovery must exclude the dead device port');
+      expect(attacher.calls[1].forceRelaunch, isFalse,
+          reason: 'recovery re-probes; it does not force a launch');
+    });
+
+    test('wireless failure (Operation not permitted) does not recover',
+        () async {
+      final bridge = _FlakyConnectBridge(
+          failPort: 62994, failError: 'Operation not permitted');
+      final attacher = _FakeIosAttacher([_result(62994)]);
+      final status = await sessionFor(bridge)
+          .attachViaIos(udid: 'U', bundle: 'b', attacher: attacher);
+      expect(status.state, 'error');
+      expect(status.lastError, contains('ios_vmservice_unreachable'));
+      expect(attacher.calls, hasLength(1),
+          reason: 'no retry for transport fail');
+    });
+
+    test('exhausted attach budget skips recovery', () async {
+      final bridge = _FlakyConnectBridge(
+          failPort: 62994, failError: 'Connection reset by peer');
+      final attacher = _FakeIosAttacher([_result(62994), _result(63439)]);
+      final status = await sessionFor(bridge).attachViaIos(
+        udid: 'U',
+        bundle: 'b',
+        attacher: attacher,
+        attachBudget: Duration.zero,
+      );
+      expect(status.state, 'error');
+      expect(status.lastError, contains('ios_vmservice_busy'));
+      expect(attacher.calls, hasLength(1), reason: 'budget gate blocks retry');
+    });
+
+    test(
+        'recovery with no live alternative surfaces the original busy '
+        'error, not the fallback bonjour timeout', () async {
+      final bridge = _FlakyConnectBridge(
+          failPort: 62994, failError: 'Connection reset by peer');
+      // Attempt 1: dead port → reset → recover. Attempt 2: re-resolve found
+      // only the (excluded) dead port → pipeline raises bonjourTimeout.
+      final attacher = _FakeIosAttacher([_result(62994), null]);
+      final status = await sessionFor(bridge)
+          .attachViaIos(udid: 'U', bundle: 'b', attacher: attacher);
+      expect(status.state, 'error');
+      expect(status.lastError, startsWith('ios_vmservice_busy:'),
+          reason: 'the dead-port cause is more accurate than bonjourTimeout');
+      expect(attacher.calls, hasLength(2));
+    });
+  });
+
+  group('mapBridgeConnectErrorToLastError classifies real dart:io errors', () {
+    test('SocketException(Connection reset) → ios_vmservice_busy', () {
+      const e = SocketException('Connection reset by peer');
+      expect(DaemonSession.mapBridgeConnectErrorToLastError('$e'),
+          startsWith('ios_vmservice_busy:'));
+    });
+
+    test('HttpException(closed before full header) → ios_vmservice_busy', () {
+      const e = HttpException('Connection closed before full header');
+      expect(DaemonSession.mapBridgeConnectErrorToLastError('$e'),
+          startsWith('ios_vmservice_busy:'));
+    });
+
+    test('SocketException(Connection refused) → device-dead unreachable', () {
+      const e = SocketException('Connection refused');
+      final mapped = DaemonSession.mapBridgeConnectErrorToLastError('$e');
+      expect(mapped, startsWith('ios_vmservice_unreachable:'));
+      expect(mapped, contains('nothing is listening'));
+    });
+
+    test('SocketException(Operation not permitted) → wireless unreachable', () {
+      const e = SocketException('Operation not permitted');
+      final mapped = DaemonSession.mapBridgeConnectErrorToLastError('$e');
+      expect(mapped, startsWith('ios_vmservice_unreachable:'));
+      expect(mapped, contains('wireless'));
+    });
+
+    test('refused takes precedence over a co-present wireless marker', () {
+      // Classifier checks the dead-port markers before the wireless ones,
+      // so a message carrying both resolves to the device-dead remedy.
+      final mapped = DaemonSession.mapBridgeConnectErrorToLastError(
+          'Connection refused; Operation not permitted');
+      expect(mapped, startsWith('ios_vmservice_unreachable:'));
+      expect(mapped, contains('nothing is listening'));
+    });
+  });
 }
 
 /// One-shot fake for `flutter devices --machine`: emits a stdout payload
@@ -501,4 +611,91 @@ class _FakeDevicesProcess implements Process {
   Future<int> get exitCode => _exitCompleter.future;
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => true;
+}
+
+/// Builds an [IosAttachResult] whose selected announcement (and wsUri)
+/// carry [port], so a bridge can key its connect outcome on the port.
+IosAttachResult _result(int port) {
+  final ann = BonjourAnnouncement(
+    interfaceIndex: 24,
+    host: 'Pengen.local.',
+    port: port,
+    authCode: 'auth',
+  );
+  return IosAttachResult(
+    wsUri: 'ws://127.0.0.1:$port/auth=/ws',
+    transport: IosTransport.wired,
+    announcements: [ann],
+    selected: ann,
+    hostPort: port,
+    teardown: () async {},
+    origin: IosAttachOrigin.probedExisting,
+  );
+}
+
+/// Fake attacher returning canned results per call, recording the
+/// `forceRelaunch` / `excludePorts` it was asked for.
+class _FakeIosAttacher extends IosAttacher {
+  _FakeIosAttacher(this._results);
+
+  // A null entry simulates the pipeline raising bonjourTimeout (the
+  // recovery re-resolve found no live port after exclusion).
+  final List<IosAttachResult?> _results;
+  final List<({bool forceRelaunch, Set<int> excludePorts})> calls = [];
+  int _i = 0;
+
+  @override
+  Future<IosAttachResult> attach({
+    required String udid,
+    required String bundle,
+    String? authOverride,
+    int? hostPortOverride,
+    IosTransport? transportOverride,
+    Duration bonjourCollectFor = const Duration(seconds: 8),
+    Duration bonjourTimeout = const Duration(seconds: 20),
+    Duration launchSettle = const Duration(seconds: 1),
+    Duration readinessWindow = const Duration(milliseconds: 300),
+    String pidfileDirectory = '/tmp',
+    IosAttachProgress? onProgress,
+    Stream<void>? cancelSignal,
+    Map<String, String>? environment,
+    bool forceRelaunch = false,
+    Set<int> excludePorts = const <int>{},
+    Duration devicectlTimeout = const Duration(seconds: 20),
+  }) async {
+    calls.add((forceRelaunch: forceRelaunch, excludePorts: excludePorts));
+    final r = _results[_i < _results.length ? _i : _results.length - 1];
+    _i++;
+    if (r == null) {
+      throw IosAttachException(
+          IosAttachErrorKind.bonjourTimeout, 'no Bonjour announcement seen');
+    }
+    return r;
+  }
+}
+
+/// Bridge that throws [failError] when the wsUri targets [failPort], and
+/// connects normally otherwise — models a dead device port resetting the
+/// iproxy tunnel while a live port answers.
+class _FlakyConnectBridge extends FakeVmBridge {
+  _FlakyConnectBridge({required this.failPort, required this.failError})
+      : super(fakeSessionUuid: 'u', envelopes: const {
+          'ext.sleuth.diagnose': {
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': 'u',
+            'data': {'packageVersion': '0.35.0'},
+          },
+        });
+
+  final int failPort;
+  final String failError;
+
+  @override
+  Future<bool> connect(Uri wsUri) async {
+    if (wsUri.toString().contains(':$failPort/')) {
+      throw Exception(failError);
+    }
+    return super.connect(wsUri);
+  }
 }

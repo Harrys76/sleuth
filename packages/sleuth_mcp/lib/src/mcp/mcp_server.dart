@@ -23,7 +23,7 @@ const Set<String> supportedMcpProtocolVersions = {
   '2025-06-18',
 };
 
-const String sleuthMcpVersion = '0.6.0';
+const String sleuthMcpVersion = '0.6.1';
 
 /// Sleuth package version this sidecar is wire-compatible with. Must equal
 /// `kSleuthPackageVersion` in `lib/src/vm/service_extension_handlers.dart`
