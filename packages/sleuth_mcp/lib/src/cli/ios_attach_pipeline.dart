@@ -396,7 +396,10 @@ class IosAttacher {
       // offer and the caller hasn't pinned one. iOS publishes the same
       // service over WiFi + USB; iproxy only accepts the USB token,
       // and interface ordering is not contractual.
+      // Sorted so the daemon-side candidate iteration (and tests) see a
+      // stable order — `Set.toList()` order is otherwise undefined.
       final distinctAuthCodes = announcements.map((a) => a.authCode).toSet();
+      final sortedAuthCodes = distinctAuthCodes.toList()..sort();
       if (distinctAuthCodes.length > 1 &&
           authOverride == null &&
           probe == null) {
@@ -405,9 +408,9 @@ class IosAttacher {
           'ambiguous Bonjour pairings: ${distinctAuthCodes.length} '
           'distinct authCodes were announced. The iproxy tunnel only '
           'accepts the USB-bridged token. Re-run with --auth <code> '
-          'using one of: ${distinctAuthCodes.join(", ")}',
+          'using one of: ${sortedAuthCodes.join(", ")}',
           data: <String, Object?>{
-            'distinctAuthCodes': distinctAuthCodes.toList(),
+            'distinctAuthCodes': sortedAuthCodes,
           },
         );
       }

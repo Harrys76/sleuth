@@ -143,5 +143,34 @@ void main() {
             .having((e) => e.kind, 'kind', IosAttachErrorKind.launchFailed)),
       );
     });
+
+    test('ambiguousPairings exception lists distinctAuthCodes sorted',
+        () async {
+      final attacher = IosAttacher(
+        hasTool: (_) async => true,
+        run: (_, __) async => ProcessResult(1, 0, '', ''),
+        iproxyStart: (_, __) async => _FakeLiveProcess(),
+        bonjourLines: (bundle, service) async* {
+          yield _reachedAt(50001, 25);
+          yield ' authCode=zzz=';
+          yield _reachedAt(50002, 24);
+          yield ' authCode=aaa=';
+        },
+      );
+
+      try {
+        await attacher.attach(
+          udid: 'U',
+          bundle: 'b',
+          transportOverride: IosTransport.wired,
+          pidfileDirectory: tmp.path,
+          launchSettle: Duration.zero,
+        );
+        fail('expected ambiguousPairings');
+      } on IosAttachException catch (e) {
+        expect(e.kind, IosAttachErrorKind.ambiguousPairings);
+        expect(e.data?['distinctAuthCodes'], ['aaa', 'zzz']);
+      }
+    });
   });
 }

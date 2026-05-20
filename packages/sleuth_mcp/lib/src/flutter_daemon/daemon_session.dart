@@ -5,7 +5,12 @@ import 'dart:io';
 import '../bridge/vm_bridge.dart';
 import '../cli/attach_ios_command.dart' show IosTransport;
 import '../cli/ios_attach_pipeline.dart'
-    show IosAttachException, IosAttacher, IosAttachProgress;
+    show
+        IosAttachErrorKind,
+        IosAttachException,
+        IosAttachResult,
+        IosAttacher,
+        IosAttachProgress;
 import '../mcp/mcp_server.dart';
 import '../util/device_filter.dart';
 import 'app_status.dart';
@@ -398,21 +403,60 @@ class DaemonSession implements DaemonSessionLifecycle {
         var attempt = 0;
         var useForceRelaunch = forceRelaunch;
         var retryExcludePorts = const <int>{};
+        // Ambiguous-pairings recovery: when multiple distinct authCodes
+        // coexist (a stale + a fresh service after a relaunch), connect to
+        // each in turn and keep the one whose VM service is live.
+        var candidateQueue = <String>[];
+        String? candidateAuth;
         // Gates recovery initiation only; per-attempt inner timeouts bound
         // actual runtime.
         final attachStopwatch = Stopwatch()..start();
         while (true) {
           attempt++;
-          final result = await effectiveAttacher.attach(
-            udid: udid,
-            bundle: bundle,
-            authOverride: authOverride,
-            transportOverride: transportOverride,
-            onProgress: onProgress,
-            cancelSignal: cancelSignal,
-            forceRelaunch: useForceRelaunch,
-            excludePorts: retryExcludePorts,
-          );
+          final IosAttachResult result;
+          try {
+            result = await effectiveAttacher.attach(
+              udid: udid,
+              bundle: bundle,
+              authOverride: candidateAuth ?? authOverride,
+              transportOverride: transportOverride,
+              onProgress: onProgress,
+              cancelSignal: cancelSignal,
+              forceRelaunch: useForceRelaunch,
+              excludePorts: retryExcludePorts,
+            );
+          } on IosAttachException catch (e) {
+            final detached = _detachRequested || gen != _sessionGeneration;
+            final budgetLeft = attachStopwatch.elapsed < attachBudget;
+            if (!detached && candidateAuth != null) {
+              // Advancing broadly is safe here (unlike the bridge-connect
+              // catch): attach()'s errors are pipeline-only, no contract
+              // failures. Only the fatal-for-all kinds are excluded.
+              final advanceable = e.kind != IosAttachErrorKind.missingTool &&
+                  e.kind != IosAttachErrorKind.cancelled;
+              if (advanceable && candidateQueue.isNotEmpty && budgetLeft) {
+                candidateAuth = candidateQueue.removeAt(0);
+                continue;
+              }
+            } else if (!detached &&
+                e.kind == IosAttachErrorKind.ambiguousPairings &&
+                authOverride == null &&
+                budgetLeft) {
+              // whereType (not cast) so a malformed entry is skipped, not
+              // thrown as an uncaught CastError out of attachViaIos.
+              final codes = (e.data?['distinctAuthCodes'] as List?)
+                      ?.whereType<String>()
+                      .toList() ??
+                  const <String>[];
+              if (codes.isNotEmpty) {
+                candidateQueue = [...codes];
+                candidateAuth = candidateQueue.removeAt(0);
+                useForceRelaunch = false;
+                continue;
+              }
+            }
+            rethrow;
+          }
           if (gen != _sessionGeneration) {
             // Detach raced us — release the teardown immediately.
             await result.teardown();
@@ -441,6 +485,16 @@ class DaemonSession implements DaemonSessionLifecycle {
             _launchMode = null;
             _mode = null;
             if (_detachRequested) return status;
+            if (candidateAuth != null &&
+                candidateQueue.isNotEmpty &&
+                attachStopwatch.elapsed < attachBudget &&
+                gen == _sessionGeneration) {
+              // Half-open candidate (WS accepts, getVM never returns) — a
+              // stale service that times out rather than resets. Try the
+              // next announced candidate; the live one completes getVM.
+              candidateAuth = candidateQueue.removeAt(0);
+              continue;
+            }
             _state = AppSessionState.error;
             _lastError = 'ios_vmservice_unreachable: bridge connect timed '
                 'out after ${bridgeConnectTimeout.inSeconds}s. Common cause: '
@@ -450,14 +504,7 @@ class DaemonSession implements DaemonSessionLifecycle {
             return status;
           } catch (e) {
             final message = '$e';
-            // Stale-mDNS recovery: selection landed on a dead cached port
-            // (iOS retains the prior session's record ~1-2 min). Retry once,
-            // re-resolving with that port excluded so a coexisting live
-            // announcement wins.
             final deadPort = result.selected.port;
-            final canRecover = attempt == 1 &&
-                attachStopwatch.elapsed < attachBudget &&
-                _isStaleRecoverable(message);
             await result.teardown();
             _iosTeardown = null;
             _iosTransport = null;
@@ -466,6 +513,29 @@ class DaemonSession implements DaemonSessionLifecycle {
             _launchMode = null;
             _mode = null;
             if (_detachRequested) return status;
+            if (candidateAuth != null) {
+              // Advance only on a dead-port signal (reset/refused). A
+              // non-stale failure (version-skew, bootstrap, wireless) isn't
+              // evidence the port is dead — surface it so a fail-closed
+              // contract isn't masked.
+              if (_isStaleRecoverable(message) &&
+                  candidateQueue.isNotEmpty &&
+                  attachStopwatch.elapsed < attachBudget &&
+                  gen == _sessionGeneration) {
+                candidateAuth = candidateQueue.removeAt(0);
+                continue;
+              }
+              _state = AppSessionState.error;
+              _lastError = mapBridgeConnectErrorToLastError(message);
+              return status;
+            }
+            // Stale-mDNS recovery: selection landed on a dead cached port
+            // (iOS retains the prior session's record ~1-2 min). Retry once,
+            // re-resolving with that port excluded so a coexisting live
+            // announcement wins.
+            final canRecover = attempt == 1 &&
+                attachStopwatch.elapsed < attachBudget &&
+                _isStaleRecoverable(message);
             if (canRecover) {
               // forceRelaunch:false re-probes; excluding the dead port
               // redirects selection. A second cached-dead port can still be

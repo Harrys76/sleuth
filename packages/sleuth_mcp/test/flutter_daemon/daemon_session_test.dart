@@ -472,7 +472,7 @@ void main() {
             {String? workingDirectory, Map<String, String>? environment}) =>
         throw StateError('iOS-direct attach must not spawn flutter');
 
-    DaemonSession sessionFor(_FlakyConnectBridge bridge) => DaemonSession(
+    DaemonSession sessionFor(FakeVmBridge bridge) => DaemonSession(
           bridge: bridge,
           server: McpServer(bridge: bridge)..registerDefaults(),
           processFactory: noSpawn,
@@ -537,6 +537,100 @@ void main() {
       expect(status.lastError, startsWith('ios_vmservice_busy:'),
           reason: 'the dead-port cause is more accurate than bonjourTimeout');
       expect(attacher.calls, hasLength(2));
+    });
+
+    test('ambiguous pairings: iterates candidates, keeps the live one',
+        () async {
+      // Sorted order tries 'aDead' before 'zLive'.
+      final bridge = _FlakyConnectBridge(
+          failPort: 70001, failError: 'Connection reset by peer');
+      final attacher = _AmbiguousAttacher(
+        candidates: ['aDead', 'zLive'],
+        portFor: (a) => a == 'aDead' ? 70001 : 70002,
+      );
+      final status = await sessionFor(bridge)
+          .attachViaIos(udid: 'U', bundle: 'b', attacher: attacher);
+      expect(status.state, 'ready');
+      expect(attacher.authCalls, [null, 'aDead', 'zLive'],
+          reason: 'seed (null) → dead candidate → live candidate');
+    });
+
+    test('ambiguous pairings: all candidates dead → ios_vmservice_busy',
+        () async {
+      final bridge = _AllDeadBridge('Connection reset by peer');
+      final attacher = _AmbiguousAttacher(
+        candidates: ['a', 'b'],
+        portFor: (a) => a == 'a' ? 70001 : 70002,
+      );
+      final status = await sessionFor(bridge)
+          .attachViaIos(udid: 'U', bundle: 'b', attacher: attacher);
+      expect(status.state, 'error');
+      expect(status.lastError, startsWith('ios_vmservice_busy:'));
+      expect(attacher.authCalls, [null, 'a', 'b']);
+    });
+
+    test('ambiguous pairings: a candidate whose attach throws advances',
+        () async {
+      final bridge = _FlakyConnectBridge(
+          failPort: 70001, failError: 'Connection reset by peer');
+      final attacher = _AmbiguousAttacher(
+        candidates: ['a', 'b'],
+        portFor: (_) => 70002,
+        throwForAuth: 'a', // 'a' attach raises noMatchingAuth → advance
+      );
+      final status = await sessionFor(bridge)
+          .attachViaIos(udid: 'U', bundle: 'b', attacher: attacher);
+      expect(status.state, 'ready');
+      expect(attacher.authCalls, [null, 'a', 'b']);
+    });
+
+    test('user authOverride pins a service — no candidate iteration', () async {
+      final bridge = _FlakyConnectBridge(
+          failPort: 70001, failError: 'Connection reset by peer');
+      final attacher = _AmbiguousAttacher(
+        candidates: ['a', 'b'],
+        portFor: (_) => 70002,
+      );
+      final status = await sessionFor(bridge).attachViaIos(
+          udid: 'U', bundle: 'b', authOverride: 'pinned', attacher: attacher);
+      expect(status.state, 'ready');
+      expect(attacher.authCalls, ['pinned'],
+          reason: 'authOverride set → single attempt, no ambiguity seed');
+    });
+
+    test('candidate version-skew failure surfaces immediately — no advance',
+        () async {
+      final bridge = _FlakyConnectBridge(
+          failPort: 80001, failError: 'version_skew_major: 0.34 vs pin 0.35');
+      final attacher = _AmbiguousAttacher(
+        candidates: ['c1', 'c2'],
+        portFor: (a) => a == 'c1' ? 80001 : 80002,
+      );
+      final status = await sessionFor(bridge)
+          .attachViaIos(udid: 'U', bundle: 'b', attacher: attacher);
+      expect(status.state, 'error');
+      expect(status.lastError, contains('version_skew'),
+          reason: 'fail-closed contract error must not be masked');
+      expect(attacher.authCalls, [null, 'c1'],
+          reason: 'non-stale failure must NOT advance to c2');
+    });
+
+    test('half-open candidate (connect timeout) advances to the live one',
+        () async {
+      final bridge = _TimeoutThenLiveBridge(80001);
+      final attacher = _AmbiguousAttacher(
+        candidates: ['c1', 'c2'],
+        portFor: (a) => a == 'c1' ? 80001 : 80002,
+      );
+      final status = await sessionFor(bridge).attachViaIos(
+        udid: 'U',
+        bundle: 'b',
+        attacher: attacher,
+        bridgeConnectTimeout: const Duration(milliseconds: 150),
+      );
+      expect(status.state, 'ready');
+      expect(attacher.authCalls, [null, 'c1', 'c2'],
+          reason: 'c1 half-open (timeout) → advance to live c2');
     });
   });
 
@@ -695,6 +789,119 @@ class _FlakyConnectBridge extends FakeVmBridge {
   Future<bool> connect(Uri wsUri) async {
     if (wsUri.toString().contains(':$failPort/')) {
       throw Exception(failError);
+    }
+    return super.connect(wsUri);
+  }
+}
+
+/// Like [_result] but carries [auth] in the wsUri so a port-keyed bridge
+/// distinguishes per-candidate connects.
+IosAttachResult _resultAuth(int port, String auth) {
+  final ann = BonjourAnnouncement(
+    interfaceIndex: 24,
+    host: 'Pengen.local.',
+    port: port,
+    authCode: auth,
+  );
+  return IosAttachResult(
+    wsUri: 'ws://127.0.0.1:$port/$auth=/ws',
+    transport: IosTransport.wired,
+    announcements: [ann],
+    selected: ann,
+    hostPort: port,
+    teardown: () async {},
+    origin: IosAttachOrigin.probedExisting,
+  );
+}
+
+/// Fake attacher modeling ambiguous pairings: the no-authOverride call
+/// throws `ambiguousPairings` carrying [candidates]; per-candidate calls
+/// return a result on `portFor(auth)` (or throw `noMatchingAuth` when the
+/// auth is in [throwForAuth], modeling a vanished announcement).
+class _AmbiguousAttacher extends IosAttacher {
+  _AmbiguousAttacher({
+    required this.candidates,
+    required this.portFor,
+    this.throwForAuth,
+  });
+
+  final List<String> candidates;
+  final int Function(String auth) portFor;
+  final String? throwForAuth;
+  final List<String?> authCalls = [];
+
+  @override
+  Future<IosAttachResult> attach({
+    required String udid,
+    required String bundle,
+    String? authOverride,
+    int? hostPortOverride,
+    IosTransport? transportOverride,
+    Duration bonjourCollectFor = const Duration(seconds: 8),
+    Duration bonjourTimeout = const Duration(seconds: 20),
+    Duration launchSettle = const Duration(seconds: 1),
+    Duration readinessWindow = const Duration(milliseconds: 300),
+    String pidfileDirectory = '/tmp',
+    IosAttachProgress? onProgress,
+    Stream<void>? cancelSignal,
+    Map<String, String>? environment,
+    bool forceRelaunch = false,
+    Set<int> excludePorts = const <int>{},
+    Duration devicectlTimeout = const Duration(seconds: 20),
+  }) async {
+    authCalls.add(authOverride);
+    if (authOverride == null) {
+      throw IosAttachException(
+        IosAttachErrorKind.ambiguousPairings,
+        'ambiguous Bonjour pairings',
+        data: <String, Object?>{'distinctAuthCodes': candidates},
+      );
+    }
+    if (authOverride == throwForAuth) {
+      throw IosAttachException(
+          IosAttachErrorKind.noMatchingAuth, 'no announcement matched');
+    }
+    return _resultAuth(portFor(authOverride), authOverride);
+  }
+}
+
+/// Bridge whose every connect fails — models all candidates dead.
+class _AllDeadBridge extends FakeVmBridge {
+  _AllDeadBridge(this.failError)
+      : super(fakeSessionUuid: 'u', envelopes: const {
+          'ext.sleuth.diagnose': {
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': 'u',
+            'data': {'packageVersion': '0.35.0'},
+          },
+        });
+
+  final String failError;
+
+  @override
+  Future<bool> connect(Uri wsUri) async => throw Exception(failError);
+}
+
+/// Bridge whose connect to [timeoutPort] never completes (models a
+/// half-open VM service — WS accepts, getVM hangs); other ports connect.
+class _TimeoutThenLiveBridge extends FakeVmBridge {
+  _TimeoutThenLiveBridge(this.timeoutPort)
+      : super(fakeSessionUuid: 'u', envelopes: const {
+          'ext.sleuth.diagnose': {
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': 'u',
+            'data': {'packageVersion': '0.35.0'},
+          },
+        });
+
+  final int timeoutPort;
+
+  @override
+  Future<bool> connect(Uri wsUri) {
+    if (wsUri.toString().contains(':$timeoutPort/')) {
+      return Completer<bool>().future; // never completes → caller times out
     }
     return super.connect(wsUri);
   }

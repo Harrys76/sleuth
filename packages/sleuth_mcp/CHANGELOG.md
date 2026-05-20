@@ -1,3 +1,16 @@
+## 0.6.2
+
+iOS attach ambiguous-pairings recovery. Sidecar-only; pins sleuth 0.35.0.
+
+- When a stale dead VM-service port and a fresh live port coexist in the
+  iOS mDNS cache after a relaunch (each with a distinct authCode),
+  `attach_app` no longer refuses with `ios_ambiguous_pairings`. It connects
+  to each announced authCode in turn and keeps the one whose VM service is
+  live (the dead port resets). A user-supplied `authOverride` still pins a
+  single service (no iteration). All candidates dead, or 3+ coexisting
+  records, fall back to `ios_vmservice_busy` (swipe the app and re-run).
+- `sleuthMcpVersion` 0.6.1 → 0.6.2.
+
 ## 0.6.1
 
 iOS attach mDNS-staleness auto-recovery. Sidecar-only; pins sleuth 0.35.0.
