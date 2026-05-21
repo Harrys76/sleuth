@@ -138,6 +138,27 @@ void main() {
               'inputSchema does not declare — callers hit arg_unknown: '
               '${docArgs.difference(props)}');
     });
+
+    test('every descriptor declares readOnlyHint matching readOnlyTools', () {
+      final readOnly = (schema['readOnlyTools'] as List).cast<String>().toSet();
+      final bridge = defaultFakeBridge();
+      final server = McpServer(bridge: bridge);
+      final descriptors = <String, dynamic>{
+        for (final e in builtInTools.entries) e.key: e.value.descriptor,
+        for (final e in lifecycleTools(server).entries)
+          e.key: e.value.descriptor,
+      };
+      for (final entry in descriptors.entries) {
+        final hint = entry.value.annotations?.readOnlyHint as bool?;
+        expect(hint, isNotNull,
+            reason: '${entry.key} is missing a readOnlyHint annotation');
+        expect(hint, readOnly.contains(entry.key),
+            reason: '${entry.key} readOnlyHint=$hint disagrees with '
+                'readOnlyTools membership');
+      }
+      expect(readOnly.difference(descriptors.keys.toSet()), isEmpty,
+          reason: 'readOnlyTools names tools that no handler binds');
+    });
   });
 
   group('connect', () {

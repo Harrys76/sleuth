@@ -1,6 +1,7 @@
 {
   "_doc": "Wire schema for sleuth_mcp tool-call return shapes. Sidecar-only — the root sleuth package does not ship a parallel copy. Audit source: packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart. Human-readable render at mcp_tool_schema.md.",
   "schemaVersion": 1,
+  "readOnlyTools": ["app_status", "check_budgets", "compare_snapshots", "diagnose", "explain_issue", "get_issues", "get_route_health", "get_snapshot", "list_devices"],
   "notes": [
     "Error envelopes describe current sidecar handler behavior — each handler returns ToolCallResult.text(...) with `isError: true` and a single text content carrying the message string. Codes listed in `errors[].code` appear verbatim as the prefix of that text. A centralized typed error class is acknowledged debt.",
     "Passthrough tools delegate to bridge.callExtension and return the ext.sleuth.* envelope unmodified. Documented shims (get_route_health v0.32 -> v0.33 wrapper, get_issues severityAtLeast filter) are spelled out explicitly so the audit can assert the shim's behavior.",

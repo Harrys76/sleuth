@@ -87,16 +87,31 @@ class Tool {
     required this.name,
     required this.description,
     required this.inputSchema,
+    this.annotations,
   });
 
   final String name;
   final String description;
   final Map<String, Object?> inputSchema;
+  final ToolAnnotations? annotations;
 
   Map<String, Object?> toJson() => {
         'name': name,
         'description': description,
         'inputSchema': inputSchema,
+        if (annotations != null) 'annotations': annotations!.toJson(),
+      };
+}
+
+/// MCP tool `annotations`. `readOnlyHint: true` marks a tool side-effect-free
+/// so annotation-aware clients can auto-approve it instead of prompting.
+class ToolAnnotations {
+  const ToolAnnotations({this.readOnlyHint});
+
+  final bool? readOnlyHint;
+
+  Map<String, Object?> toJson() => {
+        if (readOnlyHint != null) 'readOnlyHint': readOnlyHint,
       };
 }
 

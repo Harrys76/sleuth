@@ -456,6 +456,7 @@ final Map<String, BuiltInTool> builtInTools = {
   'connect': BuiltInTool(
     descriptor: const Tool(
       name: 'connect',
+      annotations: ToolAnnotations(readOnlyHint: false),
       description:
           'Attach to a running Flutter app via its VM service WebSocket URI. '
           'Must be called before other tools.',
@@ -476,6 +477,7 @@ final Map<String, BuiltInTool> builtInTools = {
   'get_snapshot': BuiltInTool(
     descriptor: const Tool(
       name: 'get_snapshot',
+      annotations: ToolAnnotations(readOnlyHint: true),
       description: 'Performance snapshot — issues, frame stats, route history. '
           'Optional projection: `sections` (subset of payload), '
           '`maxIssueCount`/`maxRouteCount` (caps), `diskHandoff` (write to '
@@ -513,6 +515,7 @@ final Map<String, BuiltInTool> builtInTools = {
   'get_issues': BuiltInTool(
     descriptor: const Tool(
       name: 'get_issues',
+      annotations: ToolAnnotations(readOnlyHint: true),
       description:
           'Currently-aggregated performance issues. Optional route + severity filter.',
       inputSchema: {
@@ -532,6 +535,7 @@ final Map<String, BuiltInTool> builtInTools = {
   'get_route_health': BuiltInTool(
     descriptor: const Tool(
       name: 'get_route_health',
+      annotations: ToolAnnotations(readOnlyHint: true),
       description: 'Per-route health score + FPS + issue counts.',
       inputSchema: {
         'type': 'object',
@@ -546,6 +550,7 @@ final Map<String, BuiltInTool> builtInTools = {
   'explain_issue': BuiltInTool(
     descriptor: const Tool(
       name: 'explain_issue',
+      annotations: ToolAnnotations(readOnlyHint: true),
       description:
           'Encyclopedia entry for a stableId (parametric variants resolve).',
       inputSchema: {
@@ -561,6 +566,7 @@ final Map<String, BuiltInTool> builtInTools = {
   'compare_snapshots': BuiltInTool(
     descriptor: const Tool(
       name: 'compare_snapshots',
+      annotations: ToolAnnotations(readOnlyHint: true),
       description:
           'Pure client-side diff of two snapshots. No app call. Use for AI '
           'conversation context: did this code change regress performance?',
@@ -584,6 +590,7 @@ final Map<String, BuiltInTool> builtInTools = {
   'check_budgets': BuiltInTool(
     descriptor: const Tool(
       name: 'check_budgets',
+      annotations: ToolAnnotations(readOnlyHint: true),
       description:
           'Compare live snapshot against FPS / issue-count budgets. Returns '
           '{passed, violations}. For CI exit-code gating, use the `sleuth_check` '
@@ -603,6 +610,7 @@ final Map<String, BuiltInTool> builtInTools = {
   'diagnose': BuiltInTool(
     descriptor: const Tool(
       name: 'diagnose',
+      annotations: ToolAnnotations(readOnlyHint: true),
       description: 'Operational health — package version, VM connection state, '
           'unbound extension names. Adds sidecar version + pin.',
       inputSchema: _emptyObjectSchema,
@@ -837,6 +845,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     'attach_app': BuiltInTool(
       descriptor: const Tool(
         name: 'attach_app',
+        annotations: ToolAnnotations(readOnlyHint: false),
         description: 'Attach to a running Flutter app. Three routing modes:\n'
             '  • `udid` (iOS UDID) — drives devicectl launch + Bonjour '
             'resolve + iproxy tunnel internally; one round-trip replaces '
@@ -910,6 +919,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     'detach_app': BuiltInTool(
       descriptor: const Tool(
         name: 'detach_app',
+        annotations: ToolAnnotations(readOnlyHint: false),
         description:
             'Detach from the current Flutter app and release the daemon '
             'child. Idempotent — safe to call when not attached.',
@@ -921,6 +931,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     'app_status': BuiltInTool(
       descriptor: const Tool(
         name: 'app_status',
+        annotations: ToolAnnotations(readOnlyHint: true),
         description:
             'Current attach state. Returns {attached, state, device, appId, '
             'sessionUuid, launchMode, mode, lastError}.',
@@ -931,6 +942,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     'list_devices': BuiltInTool(
       descriptor: const Tool(
         name: 'list_devices',
+        annotations: ToolAnnotations(readOnlyHint: true),
         description: 'List connected devices via `flutter devices --machine`. '
             'Defaults to mobile-category only (android + ios). Pass '
             '`mobileOnly: false` to include desktop/web/embedded.',
@@ -952,6 +964,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
     'hot_reload': BuiltInTool(
       descriptor: const Tool(
         name: 'hot_reload',
+        annotations: ToolAnnotations(readOnlyHint: false),
         description:
             'Trigger flutter hot reload (`r`) on a daemon-spawn session. '
             'Preserves app state and sessionUuid. Not available on '

@@ -59,6 +59,8 @@ known VM service URI:
 | `detach_app` | — | Stop the daemon child + disconnect the bridge. Idempotent. |
 | `hot_reload` | — | Hot reload (preserves state + sessionUuid). Daemon-spawn sessions only. |
 
+The read tools (everything except `connect`, `attach_app`, `detach_app`, `hot_reload`) carry `annotations.readOnlyHint: true`, so MCP clients that honor it can auto-approve them instead of prompting per call.
+
 ### Resources
 
 - `sleuth://encyclopedia` — every `IssueExplanation` keyed by canonical stableId.

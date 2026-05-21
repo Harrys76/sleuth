@@ -1,3 +1,14 @@
+## 0.6.3
+
+Tool `readOnlyHint` annotations. Sidecar-only; pins sleuth 0.35.0.
+
+- Every tool descriptor carries an MCP `annotations.readOnlyHint`: `true` for
+  the read-only tools, `false` for the four that mutate connection/app state
+  (`connect`, `attach_app`, `detach_app`, `hot_reload`). Annotation-aware MCP
+  clients can auto-approve reads instead of prompting per call.
+- `readOnlyTools` locked in `doc/mcp_tool_schema.json`, enforced by the schema
+  audit. `sleuthMcpVersion` 0.6.2 → 0.6.3.
+
 ## 0.6.2
 
 iOS attach ambiguous-pairings recovery. Sidecar-only; pins sleuth 0.35.0.

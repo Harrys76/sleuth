@@ -15,6 +15,8 @@ Structured source-of-truth: [`mcp_tool_schema.json`](mcp_tool_schema.json) — t
 - `wraps` — calls one `ext.sleuth.*` extension and reshapes the data.
 - `passthrough` — returns the `ext.sleuth.*` envelope unmodified (or with a documented shim).
 
+**Read-only annotations.** Every descriptor carries `annotations.readOnlyHint` — `true` for read-only tools, `false` for `connect`/`attach_app`/`detach_app`/`hot_reload`. Annotation-aware clients can auto-approve the read-only set. Locked in `mcp_tool_schema.json` (`readOnlyTools`) and enforced by the audit.
+
 ## connect
 
 Direct. Args: `uri` (String, required).
