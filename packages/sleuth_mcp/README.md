@@ -2,28 +2,33 @@
 
 MCP stdio sidecar for [sleuth](https://github.com/Harrys76/sleuth).
 Bridges the `ext.sleuth.*` VM service extensions to AI clients
-(Claude Code, Cursor, Zed) over the Model Context Protocol.
+(Claude Code, Cursor, Zed) over the Model Context Protocol, so your
+assistant can query a running Flutter app's live performance data in
+conversation.
 
-The in-app overlay remains sleuth's primary UX. This sidecar is opt-in,
-for developers who want their AI assistant to query live performance
-data during a debug session.
+The in-app overlay remains sleuth's primary UX. This sidecar is opt-in.
 
-## Install
+## Quickstart
 
 ```bash
 dart pub global activate sleuth_mcp
-sleuth_mcp install
+sleuth_mcp install        # writes mcpServers.sleuth to ~/.claude.json
 ```
 
-`install` writes `mcpServers.sleuth` to `~/.claude.json` idempotently
-(advisory lock + atomic rename + `.bak`). Reload your MCP client, then
-in conversation: "attach to my Flutter app and explore" — the agent
-calls `list_devices` → `attach_app`, which spawns `flutter attach
---machine`, discovers the VM service URI, and connects.
+1. Reload your MCP client.
+2. Run your app: `flutter run` (debug or profile).
+3. In conversation: **"attach to my Flutter app and explore"** — the
+   agent calls `list_devices` → `attach_app`, which spawns
+   `flutter attach --machine`, discovers the VM service URI, and connects.
+4. Ask away: *"what's causing jank on the checkout route?"* The agent
+   calls the tools below against the live session.
 
-For project-local installs, add `sleuth_mcp: ^0.3.0` to `dev_dependencies`.
+`install` is idempotent (advisory lock + atomic rename + `.bak`). For a
+project-local install instead, add `sleuth_mcp: ^0.6.2` to
+`dev_dependencies`.
 
-Manual `--uri` mode (pre-v0.2 workflow) still works:
+**Cursor / Zed** (or manual config) — same `command`, point it at a
+known VM service URI:
 
 ```json
 {
@@ -36,86 +41,46 @@ Manual `--uri` mode (pre-v0.2 workflow) still works:
 }
 ```
 
-Cursor / Zed: same `command` + entry shape; check upstream docs for
-the per-IDE config path.
+## Tools
 
-### Scope
+| Tool | Args | Purpose |
+| --- | --- | --- |
+| `list_devices` | `mobileOnly?` | `flutter devices --machine`, mobile-only by default (android + ios). |
+| `attach_app` | `device?`, `debugUrl?`, `udid?`, `bundle?`, `transport?`, `authOverride?` | Attach. Three modes — see [Attaching](#attaching). |
+| `connect` | `uri` | Attach to a known VM service URI. Returns `connectionMode`, `sessionUuid`, and a `warning` on version skew. |
+| `get_snapshot` | — | Full performance snapshot (issues, frame stats, route history). |
+| `get_issues` | `route?`, `severityAtLeast?` | Currently-aggregated issues. Optional route filter + case-insensitive severity gate (`ok` / `warning` / `critical`). |
+| `get_route_health` | `route?` | Per-route health score + FPS + issue counts. |
+| `explain_issue` | `stableId` | Encyclopedia entry; parametric stableIds resolve through canonical form. |
+| `compare_snapshots` | `before`, `after` | Client-side diff of two snapshots — added / removed / elevated issues, fps delta. |
+| `check_budgets` | `minFps`, `maxIssues`, `maxCriticalIssues` | Compare the live snapshot against thresholds. For CI exit codes use `sleuth_check`. |
+| `diagnose` | — | Operational health: package version, VM connection, unbound extensions. Use when other tools return empty. |
+| `app_status` | — | `{attached, state, device, appId, sessionUuid, launchMode, mode, lastError}`. |
+| `detach_app` | — | Stop the daemon child + disconnect the bridge. Idempotent. |
+| `hot_reload` | — | Hot reload (preserves state + sessionUuid). Daemon-spawn sessions only. |
 
-- Android + iOS only. `list_devices` filters by `category == 'mobile'`;
-  pass `mobileOnly: false` to include desktop / web / embedded.
-- One sidecar process owns one `flutter attach --machine` child. Each
-  MCP client spawns its own sidecar.
-- Min daemon protocol version `0.6.0`. Older Flutter SDKs refused.
+### Resources
 
-### Connection modes — `basic` vs `full` / `correlated`
+- `sleuth://encyclopedia` — every `IssueExplanation` keyed by canonical stableId.
+- `sleuth://causal-graph` — rule set linking trigger stableIds to downstream effects.
 
-`diagnose` returns a `connectionMode`:
+Both cache per `sessionUuid` and refresh inline on hot-restart of the
+target app. Wire shapes are locked in
+[`doc/mcp_tool_schema.md`](doc/mcp_tool_schema.md) (tool returns) and
+[`doc/mcp_schema.md`](doc/mcp_schema.md) (`ext.sleuth.*` envelopes).
 
-- `basic` — sleuth's in-app `VmServiceClient` could not self-connect to
-  the host VM service. FrameTiming + structural detectors fire;
-  vmOnly detectors (`excessive_repaint`, `gc_pressure`, `heap_growing`,
-  `heavy_compute`, `stream_resource_growth`) stay silent. Causal-graph
-  rootCauseIds / downstreamIds inactive. Confidence stays at `possible`
-  for structural emissions.
-- `full` / `correlated` — VM connected. vmOnly detectors fire,
-  confidence escalates to `likely` or `confirmed` with VM evidence,
-  causal-graph rootCauseIds / downstreamIds wire across emissions.
+## Attaching
 
-On both Android and iOS, `flutter run` keeps the host-side daemon
-holding the VM service as an exclusive observer, which blocks sleuth's
-in-process `Service.controlWebServer(enable: true)` call. Result:
-`basic` mode permanently. Workaround — launch the installed binary
-directly so no host daemon competes:
+`attach_app` has three routing modes:
 
-**Android:**
-```bash
-# 1. Build + install ONCE via flutter run; immediately quit (q).
-fvm flutter run --profile -d <device-id>
+- **`device`** — spawns `flutter attach --machine` (the Quickstart path).
+- **`debugUrl`** — connects to a WebSocket URI you already have.
+- **`udid` + `bundle`** — drives the iOS real-device pipeline directly.
 
-# 2. Re-launch the installed APK directly. Repeat as needed.
-adb -s <device-id> shell am start -n com.example.example/.MainActivity
-
-# 3. Read the VM service URI from device logcat.
-adb -s <device-id> logcat -d | grep "Dart VM service"
-# → I/flutter: The Dart VM service is listening on http://127.0.0.1:33999/<token>=/
-
-# 4. Forward the device port to the host.
-adb -s <device-id> forward tcp:33999 tcp:33999
-
-# 5. attach_app(debugUrl: "ws://127.0.0.1:33999/<token>=/ws")
-```
-
-**iOS simulator:**
-```bash
-# 1. Build + install ONCE via flutter run; immediately quit (q).
-fvm flutter run --profile -d <simulator-id>
-
-# 2. Re-launch the installed app directly.
-xcrun simctl launch booted com.example.example
-
-# 3. Capture VM service URI from simulator log stream.
-xcrun simctl spawn booted log stream --predicate 'process == "Runner"' \
-  | grep "Dart VM service"
-
-# 4. attach_app(debugUrl: "ws://127.0.0.1:<port>/<token>=/ws")
-#    (simulator shares localhost with host — no forward needed)
-```
-
-`diagnose` should now report `connectionMode: full` (or `correlated`
-once the per-frame timeline correlator warms up).
-
-**iOS real device — one-command attach:**
-
-```bash
-# Prerequisite once: brew install libimobiledevice  (provides iproxy
-# for USB-tethered attach; not required for wireless / "Connect via
-# network" pairings).
-
-# Build + install the app ONCE via flutter run; immediately quit (q).
-fvm flutter run --profile -d <udid>
-```
-
-**Quick start (recommended).** From the MCP client, one call:
+**iOS real device — one call.** Prerequisite once:
+`brew install libimobiledevice` (provides `iproxy` for USB-tethered
+attach; not needed for wireless pairings). Build + install the app once
+(`flutter run --profile -d <udid>`, then quit), then:
 
 ```
 attach_app(udid: "<udid>", bundle: "com.example.example")
@@ -123,133 +88,101 @@ attach_app(udid: "<udid>", bundle: "com.example.example")
    transportMode: "wired"|"wireless", wsUri: "ws://...", sessionUuid: ...}
 ```
 
-The sidecar runs the full pipeline (devicectl launch → Bonjour resolve
-→ iproxy tunnel on USB, or direct `.local` host on wireless → bridge
-connect) and returns the attached envelope. `detach_app()` tears down
-the bridge and the iproxy child in order.
+The sidecar runs the full pipeline (devicectl launch → Bonjour resolve →
+iproxy tunnel on USB, or direct `.local` host on wireless → bridge
+connect). `detach_app()` tears down the bridge and iproxy child in order.
 
-Transport defaults to `auto` (parsed from `xcrun devicectl list devices`'s
-`transportType`). Override with `transport: "usb"` or `transport:
-"wireless"`. On multi-pairing USB ambiguity, pass `authOverride: "<code>"`
-selected from the `ios_ambiguous_pairings` error's `distinctAuthCodes`.
+Transport defaults to `auto`. Override with `transport: "usb"` /
+`"wireless"`. On multi-pairing USB ambiguity, pass `authOverride: "<code>"`
+from the `ios_ambiguous_pairings` error's `distinctAuthCodes`.
 
-**Standalone CLI (no MCP client).** For CI bootstrap or ad-hoc shells:
+**Standalone CLI** (CI bootstrap or shells with no MCP client):
 
 ```bash
-# One-command attach — launches the installed app, resolves Bonjour,
-# spawns iproxy as a child process, prints the wsUri.
 sleuth_mcp attach-ios <udid> --bundle com.example.example
-# → wsUri: ws://127.0.0.1:<port>/<token>=/ws
-#   iproxy running (pid 12345). Press Ctrl-C to tear down.
-
-# Paste the wsUri into your agent: attach_app(debugUrl: "<paste>")
+# → wsUri: ws://127.0.0.1:<port>/<token>=/ws ; iproxy running (Ctrl-C to tear down)
+# then in your agent: attach_app(debugUrl: "<paste wsUri>")
 ```
 
-If WebSocket attach is refused (403 / closed), re-run with
-`--auth <code>` choosing one of the printed pairings — Bonjour
-ordering between USB and WiFi paths is non-deterministic and the
-WiFi-bridged authCode is refused when reached through the USB tunnel.
+If WebSocket attach is refused (403 / closed), re-run with `--auth <code>`
+— USB-vs-WiFi Bonjour ordering is non-deterministic and the WiFi-bridged
+authCode is refused through the USB tunnel.
 
-**No-Dart alternative.** CI bootstrap scripts and ad-hoc shells that
-don't have `sleuth_mcp` pub-activated can run the equivalent bash
-wrapper:
+### Scope
+
+- Android + iOS only. `list_devices` filters by `category == 'mobile'`;
+  pass `mobileOnly: false` for desktop / web / embedded.
+- One sidecar process owns one `flutter attach --machine` child; each MCP
+  client spawns its own sidecar.
+- Min Flutter daemon protocol version `0.6.0`.
+
+## Connection modes — `basic` vs `full`
+
+`diagnose` reports a `connectionMode`. It reflects whether the **app's
+own** in-process VM connection is live, independent of the sidecar bridge:
+
+- **`basic`** — sleuth couldn't self-connect to the host VM service.
+  FrameTiming + structural detectors fire; vmOnly detectors
+  (`excessive_repaint`, `gc_pressure`, `heap_growing`, `heavy_compute`,
+  `stream_resource_growth`) stay silent; causal-graph links inactive;
+  structural confidence stays `possible`.
+- **`full` / `correlated`** — VM connected. vmOnly detectors fire,
+  confidence escalates to `likely` / `confirmed`, causal-graph links wire.
+
+`flutter run` defaults to **DDS** (Dart Development Service), which claims
+the device's VM service as its sole client and forces `basic` for the
+session. Reach `full` on the first run with `--no-dds`:
 
 ```bash
-./packages/sleuth_mcp/tool/attach_ios.sh <udid> --bundle com.example.example
+flutter run --profile --no-dds
 ```
 
-Same flags (`--bundle`, `--port`, `--auth`), same output, same
-USB-vs-WiFi Bonjour caveat. Requires `brew install libimobiledevice`
-(for `iproxy`); no `coreutils` needed — the script uses `/usr/bin/perl`
-for its dns-sd timeout. The Dart subcommand remains the canonical
-entry; the bash wrapper exists for parity + as a readable reference
-for the `devicectl → dns-sd → iproxy` pipeline.
+The VM service stays multi-client, so sleuth self-connects. Full mode runs
+periodic VM polling on the app isolate — negligible on real devices,
+but it can depress FPS on emulators/simulators; measure frame rates on
+real hardware. Hot reload/restart are unaffected; you lose DDS-only
+niceties (multi-client DevTools, log history).
 
-## Tools
-
-| Tool | Args | Purpose |
-| --- | --- | --- |
-| `connect` | `uri` | Attach to a running Flutter app. Always call first. Returns `connectionMode`, `sessionUuid`, and a `warning` if sidecar / app versions are skewed. |
-| `get_snapshot` | — | Full performance snapshot (issues, frame stats, route history). |
-| `get_issues` | `route?`, `severityAtLeast?` | Currently-aggregated issues. Optional route filter and case-insensitive severity gate (`ok` / `warning` / `critical`). |
-| `get_route_health` | `route?` | Per-route health score + FPS + issue counts. |
-| `explain_issue` | `stableId` | Encyclopedia entry — parametric stableIds resolve through canonical form. |
-| `compare_snapshots` | `before`, `after` | Pure client-side diff of two snapshots. Use to compare runs before / after a code change. |
-| `check_budgets` | `minFps`, `maxIssues`, `maxCriticalIssues` | Compare live snapshot against thresholds. For CI exit-code gating use the separate `sleuth_check` binary. |
-| `diagnose` | — | Operational health: package version, VM connection, unbound extension names. Use when other tools return empty. |
-| `attach_app` | `device?`, `debugUrl?`, `udid?`, `bundle?`, `transport?`, `authOverride?` | Three routing modes: `udid` drives the iOS attach pipeline directly (devicectl + Bonjour + iproxy); `debugUrl` connects to a known WebSocket URI; `device` spawns `flutter attach --machine`. iOS-direct sessions report `transportMode` + `wsUri` on the response. |
-| `detach_app` | — | Stop the daemon child + disconnect the bridge. Idempotent. |
-| `app_status` | — | `{attached, state, device, appId, sessionUuid, launchMode, mode, lastError}`. |
-| `list_devices` | `mobileOnly?` | `flutter devices --machine`, filtered to mobile by default (android + ios). |
-| `hot_reload` | — | Hot reload (preserves state + sessionUuid). Daemon-spawn sessions only. |
-
-## Resources
-
-- `sleuth://encyclopedia` — every `IssueExplanation` keyed by canonical
-  stableId.
-- `sleuth://causal-graph` — full rule set linking trigger stableIds to
-  downstream effects.
-
-Both are cached per `sessionUuid` and refresh inline on hot-restart of
-the target app.
-
-Wire-shape contracts:
-
-- [`doc/mcp_schema.json`](doc/mcp_schema.json) +
-  [`doc/mcp_schema.md`](doc/mcp_schema.md) — `ext.sleuth.*` envelope
-  shapes (mirrored from the root sleuth package).
-- [`doc/mcp_tool_schema.json`](doc/mcp_tool_schema.json) +
-  [`doc/mcp_tool_schema.md`](doc/mcp_tool_schema.md) — sidecar
-  tool-call return shapes (success `data:` + error `errors:`) for the
-  13 MCP tools.
-
-## `sleuth_check` — one-shot CI gate
-
-The stdio MCP server cannot signal CI failure via exit code because it
-runs as a long-lived stdio process. For CI use the separate one-shot
-binary:
+Fallback (when you need DDS + DevTools too): launch the installed binary
+directly, then `attach_app(debugUrl: …)`:
 
 ```bash
-sleuth_check \
-  --uri "ws://127.0.0.1:55555/<token>=/ws" \
-  --min-fps 55 \
-  --max-issues 10 \
-  --max-critical-issues 0 \
-  --json
+# Android — relaunch the installed APK, read the URI, forward the port:
+adb -s <id> shell am start -n com.example.example/.MainActivity
+adb -s <id> logcat -d | grep "Dart VM service"   # → http://127.0.0.1:PORT/<token>=/
+adb -s <id> forward tcp:PORT tcp:PORT
+# attach_app(debugUrl: "ws://127.0.0.1:PORT/<token>=/ws")
+
+# iOS simulator — shares localhost, no forward needed:
+xcrun simctl launch booted com.example.example
+xcrun simctl spawn booted log stream --predicate 'process == "Runner"' | grep "Dart VM service"
+# attach_app(debugUrl: "ws://127.0.0.1:PORT/<token>=/ws")
 ```
 
-Exits 0 on pass, 1 on budget violation, 2 on connect / handler failure.
+`diagnose` then reports `full` (or `correlated` once the per-frame
+timeline correlator warms up).
 
-## Tools vs `sleuth_check`
+## `sleuth_check` — CI gate
 
-| Use case | Mechanism |
-| --- | --- |
-| Conversational diagnosis with an AI assistant | `sleuth_mcp` stdio server, tools/resources |
-| Comparing two snapshots side-by-side in an AI conversation | `compare_snapshots` MCP tool |
-| Pass/fail gate inside a CI script | `sleuth_check` one-shot binary |
-| Live programmatic inspection from a custom Dart tool | Direct `package:vm_service` calls to `ext.sleuth.*` (no sidecar needed) |
+The stdio server can't signal CI failure via exit code, so use the
+one-shot binary:
 
-## Version sync rule
+```bash
+sleuth_check --uri "ws://127.0.0.1:55555/<token>=/ws" \
+  --min-fps 55 --max-issues 10 --max-critical-issues 0 --json
+```
 
-`sleuth_mcp` v0.3.x is built against `sleuth` v0.33.x. The sidecar
-tolerates one prior lineage (`sleuth 0.32.x`) during the transition
-window — drift surfaces as `version_skew_minor` (warning). The `connect`
-tool cross-checks the app's reported package version against the
-sidecar's pin and emits:
+Exits `0` pass, `1` budget violation, `2` connect / handler failure.
 
-- `warning: version_skew_minor` — bump the sidecar or the app to align.
-- `error: version_skew_major` — refuse to serve; bump both together.
+For live programmatic inspection from a custom Dart tool, call
+`ext.sleuth.*` directly via `package:vm_service` — no sidecar needed.
 
 ## Known limitations
 
-- Android + iOS only. `list_devices` filters non-mobile by default;
-  `attach_app` rejects non-mobile devices.
-- One `flutter attach --machine` child per sidecar process. Each MCP
-  client spawns its own sidecar.
+- Android + iOS only; `attach_app` rejects non-mobile devices.
+- One `flutter attach --machine` child per sidecar process.
 - `compare_snapshots` returns its diff as a JSON-stringified `text`
-  content block. Consumers must `JSON.parse(content[0].text)`.
-  Structured-content output lands with the v0.4.0 tool-layer audit.
-- `hot_restart` deferred. Android profile-mode does not re-register the
-  new main isolate within the bridge's reconnect window after
-  `app.restart`. Workaround: `detach_app` + `attach_app`. `hot_reload`
-  is unaffected.
+  content block — parse `content[0].text`.
+- `hot_restart` not supported: Android profile-mode doesn't re-register
+  the new main isolate within the bridge's reconnect window after
+  `app.restart`. Use `detach_app` + `attach_app`. `hot_reload` is fine.
