@@ -1,3 +1,11 @@
+## 0.6.4
+
+Pin sleuth 0.36.0. Sidecar-only.
+
+- `sleuthPackageVersionPin` 0.35.0 → 0.36.0 for the `SleuthConfig.showOverlay`
+  release; `acceptedPriorLineages` {0.34} → {0.35}. `sleuthMcpVersion`
+  0.6.3 → 0.6.4.
+
 ## 0.6.3
 
 Tool `readOnlyHint` annotations. Sidecar-only; pins sleuth 0.35.0.

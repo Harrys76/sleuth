@@ -23,7 +23,7 @@ const Set<String> supportedMcpProtocolVersions = {
   '2025-06-18',
 };
 
-const String sleuthMcpVersion = '0.6.3';
+const String sleuthMcpVersion = '0.6.4';
 
 /// Sleuth package version this sidecar is wire-compatible with. Must equal
 /// `kSleuthPackageVersion` in `lib/src/vm/service_extension_handlers.dart`
@@ -33,7 +33,7 @@ const String sleuthMcpVersion = '0.6.3';
 /// `pinned version matches sleuth source` audit in
 /// `test/sleuth_mcp_smoke_test.dart`, which parses the sleuth source file
 /// and asserts byte-equality with this constant.
-const String sleuthPackageVersionPin = '0.35.0';
+const String sleuthPackageVersionPin = '0.36.0';
 
 /// Tool handler signature. Returns either a `data` map (wrapped as text
 /// content) or a `ToolCallResult` directly when the handler needs full

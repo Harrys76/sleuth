@@ -24,7 +24,7 @@ sleuth_mcp install        # writes mcpServers.sleuth to ~/.claude.json
    calls the tools below against the live session.
 
 `install` is idempotent (advisory lock + atomic rename + `.bak`). For a
-project-local install instead, add `sleuth_mcp: ^0.6.2` to
+project-local install instead, add `sleuth_mcp: ^0.6.4` to
 `dev_dependencies`.
 
 **Cursor / Zed** (or manual config) — same `command`, point it at a

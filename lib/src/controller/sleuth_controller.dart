@@ -4283,6 +4283,7 @@ class SleuthConfig {
     this.showDebugModeBanner = true,
     this.triggerButtonAlignment = Alignment.topRight,
     this.triggerButtonOffset = const Offset(16, 64),
+    this.showOverlay = true,
     this.routeIgnorePatterns = const {},
     this.routeHistoryCapacity = 50,
     this.captureMode = false,
@@ -4829,6 +4830,11 @@ class SleuthConfig {
   /// the top safe area / above the bottom safe area.
   final Offset triggerButtonOffset;
 
+  /// When `false`, hides all in-app overlay UI (trigger button + dashboard)
+  /// while detectors and `ext.sleuth.*` keep running — for MCP-only sessions.
+  /// Default: `true`.
+  final bool showOverlay;
+
   /// Route name patterns to exclude from route session tracking.
   ///
   /// Supports exact match and trailing `*` wildcard (e.g. `/dialog*` matches
@@ -4918,6 +4924,7 @@ class SleuthConfig {
     bool? showDebugModeBanner,
     Alignment? triggerButtonAlignment,
     Offset? triggerButtonOffset,
+    bool? showOverlay,
     Set<String>? routeIgnorePatterns,
     int? routeHistoryCapacity,
     bool? captureMode,
@@ -4975,6 +4982,7 @@ class SleuthConfig {
       triggerButtonAlignment:
           triggerButtonAlignment ?? this.triggerButtonAlignment,
       triggerButtonOffset: triggerButtonOffset ?? this.triggerButtonOffset,
+      showOverlay: showOverlay ?? this.showOverlay,
       routeIgnorePatterns: routeIgnorePatterns ?? this.routeIgnorePatterns,
       routeHistoryCapacity: routeHistoryCapacity ?? this.routeHistoryCapacity,
       captureMode: captureMode ?? this.captureMode,

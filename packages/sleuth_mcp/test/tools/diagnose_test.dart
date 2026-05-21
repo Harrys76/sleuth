@@ -13,6 +13,6 @@ void main() {
     final data = result['data'] as Map<String, Object?>;
     expect(data['sidecarVersion'], sleuthMcpVersion);
     expect(data['sidecarBuiltAgainstSleuth'], isNotNull);
-    expect(data['packageVersion'], '0.35.0');
+    expect(data['packageVersion'], '0.36.0');
   });
 }

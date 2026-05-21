@@ -21,5 +21,5 @@ const Set<String> acceptedPriorLineages = {
   // One-cycle fallback for apps still on the previous sleuth lineage
   // while the sidecar pin has advanced. Drop the entry one release
   // after the matching app version stops being supported.
-  '0.34',
+  '0.35',
 };

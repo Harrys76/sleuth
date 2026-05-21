@@ -1,3 +1,12 @@
+## 0.36.0
+
+`SleuthConfig.showOverlay` (default `true`). Set `false` to hide all in-app
+overlay UI (trigger button + dashboard) while detectors and `ext.sleuth.*`
+keep running — for MCP-only sessions where the AI client is the consumer.
+
+`kSleuthPackageVersion` 0.35.0 → 0.36.0; envelope `schemaVersion` stays `1`.
+Sidecar `sleuth_mcp` 0.6.4 pins 0.36.0.
+
 ## 0.35.0
 
 MCP snapshot projection + pagination. `ext.sleuth.snapshot` accepts

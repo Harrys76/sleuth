@@ -105,7 +105,7 @@ void main() {
         'connectionMode': 'basic',
         'schemaVersion': 1,
         'sessionUuid': 'u',
-        'data': {'packageVersion': '0.35.0'},
+        'data': {'packageVersion': '0.36.0'},
       })
       ..setEnvelope('ext.sleuth.snapshot', {
         'connectionMode': 'basic',
