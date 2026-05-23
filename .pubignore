@@ -8,7 +8,11 @@ example/windows/
 doc/*
 !doc/screenshots/
 !doc/logo.png
-test/validation/captures/**/*.json
+!doc/mcp_schema.md
+!doc/mcp_schema.json
+!doc/mcp_schema_derivation.md
+test/
 *.iml
 CLAUDE.md
+AGENTS.md
 CHANGELOG.archive.md

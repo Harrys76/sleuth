@@ -1,3 +1,193 @@
+## Companion package: sleuth_mcp
+
+`sleuth_mcp` (in `packages/sleuth_mcp/`) is now available — an MCP stdio sidecar
+that exposes the `ext.sleuth.*` VM service extensions to AI clients (Claude Code,
+Cursor, Zed), so an assistant can query a running app's live performance data in
+conversation. The in-app overlay remains sleuth's primary UX; the sidecar is
+opt-in and versioned independently — see
+[`packages/sleuth_mcp/CHANGELOG.md`](packages/sleuth_mcp/CHANGELOG.md) (current
+0.7.2).
+
+## 0.36.0
+
+`SleuthConfig.showOverlay` (default `true`). Set `false` to hide all in-app
+overlay UI (trigger button + dashboard) while detectors and `ext.sleuth.*`
+keep running — for MCP-only sessions where the AI client is the consumer.
+
+`kSleuthPackageVersion` 0.35.0 → 0.36.0; envelope `schemaVersion` stays `1`.
+Sidecar `sleuth_mcp` 0.6.4 pins 0.36.0.
+
+## 0.35.0
+
+MCP snapshot projection + pagination. `ext.sleuth.snapshot` accepts
+optional args so long-session snapshots no longer overflow the MCP
+client's per-response token cap. Backward-compatible: no args = full
+payload (unchanged).
+
+- New args on `ext.sleuth.snapshot`: `sections` (comma-separated
+  `SnapshotSection` keys — only listed payload sections serialize,
+  metadata always does), `maxIssueCount` (keep top-N already-ranked
+  issues), `maxRouteCount` (keep N most-recent routes by `startedAt`).
+  Typed errors: `arg_invalid_section`, `arg_invalid_int`,
+  `arg_pagination_unused`.
+- When any projection arg is set the envelope gains `_projectedSections`
+  (alphabetically sorted), `_projectionLimits`, and `_projectionApplied`
+  so consumers can detect a partial payload.
+- New `SnapshotSection` enum (`lib/src/models/snapshot_sections.dart`,
+  exported) is the single source of truth for projectable section keys;
+  a drift test cross-checks it against both `SessionSnapshot.toJson` and
+  `doc/mcp_schema.json`.
+- `kSleuthPackageVersion` 0.34.0 → 0.35.0. Envelope `schemaVersion`
+  stays at `1` (additive).
+- `doc/mcp_schema.{json,md}` document the args + metadata fields;
+  `checkSnapshotCapturesMatchSchema` gates per-section required checks
+  on `_projectedSections`.
+
+## 0.34.0
+
+MCP snapshot wire-shape deepening + sidecar tool-layer audit.
+`doc/mcp_schema.json` + `.md` now codify nested shapes for
+`recurrenceTrends`, `sessionSummary`, `routeSessions` (plus
+`routeHealth.routes[]`), derived from on-device captures (real iPhone,
+iOS 17.5) under `test/validation/captures/mcp_snapshots/`. See
+`doc/mcp_schema_derivation.md` for the derivation procedure.
+
+- `kSleuthPackageVersion` 0.33.0 → 0.34.0. Envelope `schemaVersion`
+  stays at `1` (additive release).
+- `recurrenceTrends.<stableId>` value shape locked: `trend`,
+  `totalOccurrences`, `totalObserved`, `lastSeenCycle` required;
+  `severityStats` (`{min, max}`) optional, present when the trend has
+  at least one present observation.
+- `sessionSummary` shape locked: `topIssues` (item shape includes
+  `stableId`, `title`, `severity`, `confidence`, `confidenceReason`,
+  `rankingScore`), `frameHistogram` (fixed buckets), `detectorHitRates`
+  required; `memoryTrendSummary`, `causalEdges` conditional.
+- `routeSessions[]` + `routeHealth` route item shape locked:
+  `routeName`, `tabVisitIndex`, `startedAt`, `healthScore`,
+  `durationSeconds`, `scanCycles`, `frameStats`, `issueCount`,
+  `criticalCount`, `warningCount`, `issues` required; `scaffoldHashKey`,
+  `endedAt`, `hotReloadGeneration`, `rebuildCountsByType`,
+  `totalRebuilds`, and `frameStats.{p50,p95,p99}` conditional with
+  documented presence predicates. `frameStats` summary shape:
+  `totalFrames`, `jankFrames`, `averageFps` required (per-route summary,
+  distinct from the top-level `frameStatsSummary`).
+- New `checkSnapshotCapturesMatchSchema` invariant in
+  `test/validation/mcp_schema_audit_test.dart` cross-checks every
+  documented `required: true` snapshot key against every on-device
+  capture; `recurrenceTrends` + `routeSessions` audit seams replace the
+  prior `auditUnreachable` entries. `widgetHeatMap` remains seam-deferred
+  (present in 5 of 6 device captures).
+- `recordRecurrenceForTest` + `seedRouteHistoryForTest`
+  `@visibleForTesting` seams on `SleuthController` so the audit can
+  drive `recurrenceTrends` + `routeSessions` without running the real
+  scan loop.
+- Sidecar tool-layer audit lands as
+  `packages/sleuth_mcp/doc/mcp_tool_schema.{json,md}` plus
+  `packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart`.
+  Documents success-path keys + error codes for the 9 first-class tools
+  (`connect`, `attach_app`, `detach_app`, `app_status`, `hot_reload`,
+  `list_devices`, `compare_snapshots`, `check_budgets`, `diagnose`) and
+  shim contracts for the 4 passthroughs (`get_snapshot`, `get_issues`,
+  `get_route_health`, `explain_issue`). Mirror-parity audit asserts the
+  tool schema is sidecar-only — root sleuth ships no parallel copy.
+- Sidecar v0.4.0 pins to 0.34.0; `acceptedPriorLineages = {'0.33'}`
+  one-cycle fallback for 0.33.x apps mid-upgrade. Drop on next release.
+
+## 0.33.0
+
+MCP wire-shape lock. `doc/mcp_schema.json` (structured contract) +
+`doc/mcp_schema.md` (human view) ship in the pub archive.
+`test/validation/mcp_schema_audit_test.dart` enforces bidirectional key
+match for the 7 `ext.sleuth.*` handlers — rename, removal, or type
+change breaks the test.
+
+- `kSleuthPackageVersion` 0.32.0 → 0.33.0. Envelope `schemaVersion`
+  stays at `1` (additive release).
+- Breaking inside the MCP surface: `ext.sleuth.routeHealth` match-route
+  now wraps `RouteSession` under `{route: <session>}` for parity with
+  the absent-route `{routes: [...]}` shape. Sidecar v0.3.0's
+  `get_route_health` normalizes the legacy v0.32.x inline response.
+- Schema covers all 7 handlers — envelope keys, error envelope, data
+  field-by-field, `connectionMode` enum.
+- `kSleuthPackageVersion` + `kMcpEnvelopeSchemaVersion` re-exported from
+  `package:sleuth/sleuth.dart`.
+- `ext.sleuth.snapshot` adds `suppressedCount` (when > 0) and
+  `startupMetrics` (when `Sleuth.init` captured first-frame data).
+  Audit drives both via `suppressedCountNotifier` +
+  `setStartupMetricsForTest`, plus presence tests for `recentRequests`,
+  `heapSamples`, `phaseEvents`, `gcEvents`, `platformChannelEvents`,
+  `recentFrames`, `sessionSummary`. Drift guard fails when an optional
+  key lacks either a presence test or an `auditUnreachable` rationale.
+- Snapshot `presence` predicates corrected to describe the real
+  emission gates (buffer non-empty / detector enabled), replacing the
+  inaccurate mode-based phrasing.
+- Deep `snapshot` + `routeHealth` shapes still delegate to model
+  `toJson()`; deeper codification in v0.34.0.
+- Sidecar tool-layer audit deferred to v0.4.0. Tool return shapes
+  documented under "Sidecar tool layer" in `doc/mcp_schema.md` as a
+  stable best-effort contract.
+- Sidecar v0.3.0 puts version-skew refusal at the bridge layer.
+  `RealVmBridge` accepts a `versionSkewValidator` invoked on every
+  successful connect / reconnect; non-null return disconnects in place
+  and throws `VmBridgeException`. Default validator fails closed on
+  missing or non-String `packageVersion`.
+- Baseline mutations route through a single `_applyBaseline`; validator
+  + rotation guard cover connect, reconnect, and refresh uniformly.
+  `_validated` lowers before the validator runs (refresh path too) so a
+  lock-free dispatcher can't observe `isConnected == true` mid-validation.
+- After v0.3.0 ships, v0.2.0 sidecars hit `version_skew_major` on
+  attach to a v0.33.0 app — their pin (`0.32.0`) predates
+  `acceptedPriorLineages`. Recovery:
+  `dart pub global activate sleuth_mcp` (>= 0.3.0). Local pre-publish:
+  `dart pub global activate --source path packages/sleuth_mcp`.
+
+## 0.32.0
+
+MCP support shipped — seven `ext.sleuth.*` VM service extensions in the
+main package plus a standalone `sleuth_mcp` sidecar package
+(`packages/sleuth_mcp/` v0.1.0) bridging them to MCP stdio JSON-RPC
+clients (Claude Code, Cursor, Zed). Debug/profile only; `kReleaseMode`
+is a no-op. Full plan: [`doc/spec_mcp.md`](doc/spec_mcp.md).
+
+- Seven extensions: `snapshot`, `issues`, `routeHealth`, `explain`,
+  `encyclopedia`, `causalGraph`, `diagnose`. Every response stamps
+  `connectionMode` (`correlated` / `full` / `basic` / `warmup` /
+  `disconnected`), `schemaVersion: 1`, and a per-controller-construction
+  `sessionUuid` so consumers can distinguish "no issues observed" from
+  "we couldn't talk to the VM" or "warmup not elapsed".
+- `ConnectionMode` returns `warmup` until `frameTimingWarmupDuration`
+  elapses, regardless of VM-connection state.
+- `ServiceExtensionRegistry` is a process-wide singleton with per-name
+  binding tracking — `dart:developer.registerExtension` is called at
+  most once per name per isolate, surviving hot-restart and serial test
+  setUp/tearDown. `unboundNames` is surfaced via `ext.sleuth.diagnose`
+  so an MCP sidecar can warn when the live surface is degraded.
+- New public surface: `CausalGraphRule.rulesJson`,
+  `SleuthController.sessionUuid`, `SleuthController.initializedAt`,
+  `ConnectionMode`, `ServiceExtensionRegistry` (opt-in barrel export).
+- `envelopeError` strips reserved keys (`connectionMode`,
+  `schemaVersion`, `sessionUuid`, `error`, `stack`) from caller-supplied
+  `extra` so trust fields cannot be overwritten.
+- Sanitiser: identity-based cycle detection, 256-depth cap, `Iterable`
+  branch, `__keyCollision` / `__cycle` / `__truncated` /
+  `__nonSerializable` envelopes; non-encodable leaves wrap as typed
+  envelopes instead of crashing.
+- Sleuth reserves the `ext.sleuth.*` extension namespace.
+
+### sleuth_mcp v0.1.0 (new sidecar package)
+
+Companion Dart CLI at `packages/sleuth_mcp/`. Two binaries: `sleuth_mcp`
+(long-running MCP stdio JSON-RPC server) and `sleuth_check` (one-shot
+CI gate). Discovery is `--uri` only — sleuth targets ios + android, so
+the app process and sidecar do not share a filesystem; the user copies
+the VM service URI from `flutter run`'s output. Eight MCP tools each
+with `inputSchema`: `connect`, `get_snapshot`, `get_issues`,
+`get_route_health`, `explain_issue`, `compare_snapshots`,
+`check_budgets`, `diagnose`. Two MCP resources cached by `sessionUuid`:
+`sleuth://encyclopedia`, `sleuth://causal-graph`. Hot-restart of the
+target app surfaces inline as a `session_changed` error envelope from
+the next tool call — no idle polling.
+
 ## 0.30.1
 
 pub.dev README polish — no detector or distribution change.

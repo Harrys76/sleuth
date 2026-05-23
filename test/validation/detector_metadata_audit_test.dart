@@ -2344,6 +2344,13 @@ void main() {
           capturesRoot: Directory('test/validation/captures'),
           referencedPaths: referencedPaths,
           allowlist: retainedOrphans.keys.toSet(),
+          // mcp_snapshots/ holds raw ext.sleuth.snapshot exports used by
+          // the MCP wire-schema cross-check — they are not
+          // detector-reproducer captures and intentionally lack
+          // sleuthMetadata.expectedMagnitude. Owned by
+          // test/validation/mcp_schema_audit_test.dart's
+          // `checkSnapshotCapturesMatchSchema` invariant.
+          excludedSubdirectoryNames: const {'_fixtures', 'mcp_snapshots'},
         );
         expect(failures, isEmpty,
             reason: 'Orphan captures found on disk. If the capture is '
@@ -2366,6 +2373,11 @@ void main() {
       }
       final failures = checkCapturePathPerDirectoryNamingUniformity(
         capturesRoot: Directory('test/validation/captures'),
+        // mcp_snapshots/ holds raw ext.sleuth.snapshot exports — they
+        // are not detector-reproducer captures and intentionally lack
+        // sleuthMetadata.scenario, so the uniformity check does not
+        // apply.
+        excludedSubdirectoryNames: const {'_fixtures', 'mcp_snapshots'},
       );
       expect(failures, isEmpty,
           reason: 'Mixed scenario-name patterns within a capture directory. '

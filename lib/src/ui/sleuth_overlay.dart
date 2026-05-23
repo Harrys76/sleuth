@@ -133,7 +133,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
             // root cause behind the Android-emulator "can't delete with
             // backspace" bug. See
             // packages/flutter/lib/src/widgets/default_text_editing_shortcuts.dart.
-            if (_dashboardOpen)
+            if (widget.controller.config.showOverlay && _dashboardOpen)
               RepaintBoundary(
                 child: Localizations(
                   locale: const Locale('en', 'US'),
@@ -156,7 +156,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
                   ),
                 ),
               )
-            else
+            else if (widget.controller.config.showOverlay)
               Align(
                 alignment: Alignment.topLeft,
                 child: RepaintBoundary(

@@ -44,7 +44,7 @@ class CausalGraphRule extends CorrelationRule {
   @override
   String get name => 'CausalGraph';
 
-  // 44 causal rules. Order doesn't matter — all are evaluated, and the
+  // 48 causal rules. Order doesn't matter — all are evaluated, and the
   // graph is built from the full edge set.
   static const _causalRules = <CausalRule>[
     // setState-triggered chains (rebuild intermediate absorbed by Rule 2)
@@ -324,6 +324,17 @@ class CausalGraphRule extends CorrelationRule {
     }
     return result;
   }
+
+  /// Pre-serialized rule set for external consumers (e.g. the VM service
+  /// extension `ext.sleuth.causalGraph`). Keeps the JSON field names in
+  /// one place so consumers don't need to mirror `CausalRule`'s field
+  /// layout.
+  static List<Map<String, Object?>> get rulesJson => _causalRules
+      .map((r) => <String, Object?>{
+            'trigger': r.causePattern,
+            'effect': r.effectPattern,
+          })
+      .toList(growable: false);
 
   /// Returns the list of active causal edges for the given issues.
   ///

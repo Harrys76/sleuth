@@ -84,6 +84,7 @@ export 'src/models/frame_verdict.dart';
 export 'src/models/widget_highlight.dart';
 export 'src/models/capture_buffer.dart';
 export 'src/models/session_snapshot.dart';
+export 'src/models/snapshot_sections.dart';
 export 'src/controller/sleuth_controller.dart' show SleuthConfig;
 export 'src/detectors/stream_resource_detector.dart'
     show StreamResourcePollResult;
@@ -94,6 +95,10 @@ export 'src/models/base_detector.dart'
     show DetectorType, DetectorLifecycle, BaseDetector;
 export 'src/models/simple_structural_detector.dart';
 export 'src/vm/timeline_parser.dart' show ParsedTimelineData;
+export 'src/vm/connection_mode.dart' show ConnectionMode;
+export 'src/vm/service_extension_handlers.dart'
+    show kMcpEnvelopeSchemaVersion, kSleuthPackageVersion;
+export 'src/vm/service_extension_registry.dart' show ServiceExtensionRegistry;
 export 'src/debug/debug_snapshot.dart' show DebugSnapshot, RebuildCountSource;
 export 'src/models/allocation_entry.dart';
 export 'src/models/cpu_attribution.dart';

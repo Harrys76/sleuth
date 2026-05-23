@@ -20,6 +20,7 @@ import '../analyzer/detector_correlator.dart';
 import '../analyzer/frame_event_correlator.dart';
 import '../analyzer/render_pipeline_analyzer.dart';
 import '../models/ai_chat_adapter.dart';
+import '../vm/service_extension_handlers.dart' show kSleuthPackageVersion;
 import 'detector_thresholds.dart';
 import '../debug/debug_instrumentation_config.dart';
 import '../debug/debug_instrumentation_coordinator.dart';
@@ -64,9 +65,11 @@ import '../models/widget_highlight.dart';
 import '../network/http_monitor.dart';
 import '../ranking/issue_ranker.dart';
 import '../vm/cpu_sample_aggregator.dart';
+import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
 import '../utils/capture_helper.dart';
 import '../utils/session_markdown_exporter.dart';
+import '../utils/session_uuid.dart';
 import '../utils/type_name_cache.dart';
 import '../vm/timeline_parser.dart';
 
@@ -96,6 +99,10 @@ class SleuthController {
 
   final SleuthConfig config;
 
+  /// Stamped on `ext.sleuth.*` responses and the discovery file. Used to
+  /// reject stale URIs left by a prior controller (e.g. pid reuse).
+  final String sessionUuid = generateSessionUuid();
+
   // Precompiled suppression patterns (v6.15).
   late final Set<String> _exactSuppressions;
   late final List<String> _prefixSuppressions;
@@ -106,6 +113,18 @@ class SleuthController {
 
   // VM layer
   VmServiceClient? _vmClient;
+
+  /// Set just before `_initialized = true`; nulled in [dispose]. Read by
+  /// `computeConnectionMode` to detect warmup-window expiry.
+  DateTime? _initializedAt;
+  DateTime? get initializedAt => _initializedAt;
+
+  @visibleForTesting
+  void markInitializedAtForTest(DateTime? value) {
+    _initializedAt = value;
+  }
+
+  ServiceExtensionRegistry? _extensionRegistry;
 
   // -- First-launch / BASIC-mode recovery --
   //
@@ -508,6 +527,26 @@ class SleuthController {
     _syncVmState(connected);
   }
 
+  /// Drive the recurrence trend for [stableId] to N consecutive present
+  /// observations at [severity], so the exported `recurrenceTrends` map
+  /// surfaces a populated entry without running the full scan loop.
+  ///
+  /// Exercised by `test/validation/mcp_schema_audit_test.dart` to confirm
+  /// the nested shape contract (trend / totalOccurrences / totalObserved /
+  /// lastSeenCycle / severityStats) without depending on real detectors.
+  @visibleForTesting
+  void recordRecurrenceForTest(
+    String stableId,
+    IssueSeverity severity,
+    int cycle,
+  ) {
+    final trend = _recurrenceTrends.putIfAbsent(stableId, RecurrenceTrend.new);
+    final severityIndex = _severityToIndex(severity);
+    for (var i = 1; i <= cycle; i++) {
+      trend.recordPresent(i, severityIndex: severityIndex);
+    }
+  }
+
   /// Merges user-configured [SleuthConfig.networkExcludePatterns] with
   /// adapter-provided [AiChatAdapter.networkExcludePatterns] without mutating
   /// either source list.
@@ -569,7 +608,9 @@ class SleuthController {
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
 
+    _initializedAt = DateTime.now();
     _initialized = true;
+    _extensionRegistry = ServiceExtensionRegistry(this)..registerAll();
 
     // BASIC-mode recovery: if the cold-start connect failed, keep trying in
     // the background with exponential backoff. Without this, a first-launch
@@ -1261,6 +1302,18 @@ class SleuthController {
   List<RouteSession> get routeHistoryForTest =>
       List.unmodifiable(_routeHistory);
 
+  /// Replace the route history deque with [sessions] so the export path
+  /// emits a populated `routeSessions` list without running the real
+  /// route observer. Also republishes through [routeHistoryNotifier] so
+  /// downstream listeners see the seeded state.
+  @visibleForTesting
+  void seedRouteHistoryForTest(List<RouteSession> sessions) {
+    _routeHistory
+      ..clear()
+      ..addAll(sessions);
+    routeHistoryNotifier.value = List<RouteSession>.unmodifiable(sessions);
+  }
+
   /// Injects a (typically fake) [DebugInstrumentationCoordinator] so M12
   /// controller tests can observe `snapshot()` invocations and feed
   /// synthetic `flutterTimeline`-source [DebugSnapshot] values through the
@@ -1352,7 +1405,7 @@ class SleuthController {
         worstFrameTimeUs: worstUs,
         fpsPercentiles: percentiles,
       ),
-      packageVersion: '0.17.0',
+      packageVersion: kSleuthPackageVersion,
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
       recentRequests: _initialized &&
@@ -4124,6 +4177,9 @@ class SleuthController {
   /// Dispose all resources.
   void dispose() {
     _disposed = true;
+    _extensionRegistry?.markDisposed();
+    _extensionRegistry = null;
+    _initializedAt = null;
     _treeScanTimer?.cancel();
     _scrollIdleTimer?.cancel();
     _typingIdleTimer?.cancel();
@@ -4227,6 +4283,7 @@ class SleuthConfig {
     this.showDebugModeBanner = true,
     this.triggerButtonAlignment = Alignment.topRight,
     this.triggerButtonOffset = const Offset(16, 64),
+    this.showOverlay = true,
     this.routeIgnorePatterns = const {},
     this.routeHistoryCapacity = 50,
     this.captureMode = false,
@@ -4773,6 +4830,11 @@ class SleuthConfig {
   /// the top safe area / above the bottom safe area.
   final Offset triggerButtonOffset;
 
+  /// When `false`, hides all in-app overlay UI (trigger button + dashboard)
+  /// while detectors and `ext.sleuth.*` keep running — for MCP-only sessions.
+  /// Default: `true`.
+  final bool showOverlay;
+
   /// Route name patterns to exclude from route session tracking.
   ///
   /// Supports exact match and trailing `*` wildcard (e.g. `/dialog*` matches
@@ -4862,6 +4924,7 @@ class SleuthConfig {
     bool? showDebugModeBanner,
     Alignment? triggerButtonAlignment,
     Offset? triggerButtonOffset,
+    bool? showOverlay,
     Set<String>? routeIgnorePatterns,
     int? routeHistoryCapacity,
     bool? captureMode,
@@ -4919,6 +4982,7 @@ class SleuthConfig {
       triggerButtonAlignment:
           triggerButtonAlignment ?? this.triggerButtonAlignment,
       triggerButtonOffset: triggerButtonOffset ?? this.triggerButtonOffset,
+      showOverlay: showOverlay ?? this.showOverlay,
       routeIgnorePatterns: routeIgnorePatterns ?? this.routeIgnorePatterns,
       routeHistoryCapacity: routeHistoryCapacity ?? this.routeHistoryCapacity,
       captureMode: captureMode ?? this.captureMode,

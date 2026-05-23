@@ -421,12 +421,11 @@ class ProfileCaptureSchema {
           'export or misplaced markers. Widen the scenario window to '
           'match the claim.');
     }
-    // v0.16.4 post-review LOW-2: symmetric guard. If the scenario span
-    // is wildly larger than the observed magnitude, the markers are
-    // placed too wide — the window contains unrelated work (cold-start
-    // warmup, idle dwell, follow-up requests), and the "observed"
-    // claim no longer corresponds to what's inside the span. Same
-    // ratio ceiling, inverted direction.
+    // Symmetric guard. If the scenario span is wildly larger than the
+    // observed magnitude, the markers are placed too wide — the window
+    // contains unrelated work (cold-start warmup, idle dwell, follow-up
+    // requests), and the "observed" claim no longer corresponds to
+    // what's inside the span. Same ratio ceiling, inverted direction.
     if (skipInverseRatio) return;
     final inverseRatio = spanMicros / observedMicros;
     if (!inverseRatio.isFinite) {

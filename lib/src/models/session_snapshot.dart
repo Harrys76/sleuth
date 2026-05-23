@@ -8,6 +8,7 @@ import 'heap_sample.dart';
 import 'performance_issue.dart';
 import 'phase_event.dart';
 import 'platform_channel_summary.dart';
+import 'snapshot_sections.dart';
 import 'startup_metrics.dart';
 import 'widget_heat_map_entry.dart';
 
@@ -120,39 +121,117 @@ class SessionSnapshot {
   /// Null for v1/v2/v3 snapshots or when no route history exists.
   final List<Map<String, dynamic>>? routeSessions;
 
-  Map<String, dynamic> toJson() => {
-        'schemaVersion': schemaVersion,
-        'exportedAt': exportedAt.toIso8601String(),
-        'packageVersion': packageVersion,
-        'isVmConnected': isVmConnected,
-        'isDebugMode': isDebugMode,
+  /// Serialize to the JSON envelope.
+  ///
+  /// [include] projects the payload to a subset of [SnapshotSection]s —
+  /// when non-null, only listed sections serialize (metadata keys always
+  /// do). [maxIssueCount] keeps the top-N already-ranked issues;
+  /// [maxRouteCount] keeps the N most-recent routes by `startedAt`. When
+  /// any projection is applied the envelope gains `_projectedSections`
+  /// (sorted), `_projectionLimits`, and `_projectionApplied: 'by_app'`
+  /// so downstream consumers can detect partial payloads.
+  Map<String, dynamic> toJson({
+    Set<SnapshotSection>? include,
+    int? maxIssueCount,
+    int? maxRouteCount,
+  }) {
+    bool inc(SnapshotSection s) => include == null || include.contains(s);
+
+    final issues =
+        (maxIssueCount != null && maxIssueCount < currentIssues.length
+            ? currentIssues.take(maxIssueCount)
+            : currentIssues);
+
+    List<Map<String, dynamic>>? routes = routeSessions;
+    if (routes != null &&
+        maxRouteCount != null &&
+        maxRouteCount < routes.length) {
+      routes = [...routes]..sort((a, b) {
+          final sa = a['startedAt'];
+          final sb = b['startedAt'];
+          final da = sa is String ? DateTime.tryParse(sa) : null;
+          final db = sb is String ? DateTime.tryParse(sb) : null;
+          if (da == null && db == null) return 0;
+          if (da == null) return 1;
+          if (db == null) return -1;
+          return db.compareTo(da); // most-recent first
+        });
+      routes = routes.take(maxRouteCount).toList();
+    }
+
+    final projected =
+        include != null || maxIssueCount != null || maxRouteCount != null;
+
+    return {
+      'schemaVersion': schemaVersion,
+      'exportedAt': exportedAt.toIso8601String(),
+      'packageVersion': packageVersion,
+      'isVmConnected': isVmConnected,
+      'isDebugMode': isDebugMode,
+      if (inc(SnapshotSection.frameStatsSummary))
         'frameStatsSummary': frameStatsSummary.toJson(),
+      if (inc(SnapshotSection.capturedFrames))
         'capturedFrames': capturedFrames.map((e) => e.toJson()).toList(),
-        'currentIssues': currentIssues.map((i) => i.toJson()).toList(),
-        if (recentRequests != null && recentRequests!.isNotEmpty)
-          'recentRequests': recentRequests!.map((r) => r.toJson()).toList(),
-        if (heapSamples != null && heapSamples!.isNotEmpty)
-          'heapSamples': heapSamples!.map((s) => s.toJson()).toList(),
-        if (suppressedCount > 0) 'suppressedCount': suppressedCount,
-        if (phaseEvents != null && phaseEvents!.isNotEmpty)
-          'phaseEvents': phaseEvents!.map((e) => e.toJson()).toList(),
-        if (gcEvents != null && gcEvents!.isNotEmpty)
-          'gcEvents': gcEvents!.map((e) => e.toJson()).toList(),
-        if (platformChannelEvents != null && platformChannelEvents!.isNotEmpty)
-          'platformChannelEvents':
-              platformChannelEvents!.map((e) => e.toJson()).toList(),
-        if (recentFrames != null && recentFrames!.isNotEmpty)
-          'recentFrames': recentFrames!.map((f) => f.toJson()).toList(),
-        if (widgetHeatMap != null && widgetHeatMap!.isNotEmpty)
-          'widgetHeatMap': widgetHeatMap!.map((e) => e.toJson()).toList(),
-        if (recurrenceTrends != null && recurrenceTrends!.isNotEmpty)
-          'recurrenceTrends': recurrenceTrends,
-        if (sessionSummary != null && sessionSummary!.isNotEmpty)
-          'sessionSummary': sessionSummary,
-        if (startupMetrics != null) 'startupMetrics': startupMetrics!.toJson(),
-        if (routeSessions != null && routeSessions!.isNotEmpty)
-          'routeSessions': routeSessions,
-      };
+      if (inc(SnapshotSection.currentIssues))
+        'currentIssues': issues.map((i) => i.toJson()).toList(),
+      if (inc(SnapshotSection.recentRequests) &&
+          recentRequests != null &&
+          recentRequests!.isNotEmpty)
+        'recentRequests': recentRequests!.map((r) => r.toJson()).toList(),
+      if (inc(SnapshotSection.heapSamples) &&
+          heapSamples != null &&
+          heapSamples!.isNotEmpty)
+        'heapSamples': heapSamples!.map((s) => s.toJson()).toList(),
+      if (suppressedCount > 0) 'suppressedCount': suppressedCount,
+      if (inc(SnapshotSection.phaseEvents) &&
+          phaseEvents != null &&
+          phaseEvents!.isNotEmpty)
+        'phaseEvents': phaseEvents!.map((e) => e.toJson()).toList(),
+      if (inc(SnapshotSection.gcEvents) &&
+          gcEvents != null &&
+          gcEvents!.isNotEmpty)
+        'gcEvents': gcEvents!.map((e) => e.toJson()).toList(),
+      if (inc(SnapshotSection.platformChannelEvents) &&
+          platformChannelEvents != null &&
+          platformChannelEvents!.isNotEmpty)
+        'platformChannelEvents':
+            platformChannelEvents!.map((e) => e.toJson()).toList(),
+      if (inc(SnapshotSection.recentFrames) &&
+          recentFrames != null &&
+          recentFrames!.isNotEmpty)
+        'recentFrames': recentFrames!.map((f) => f.toJson()).toList(),
+      if (inc(SnapshotSection.widgetHeatMap) &&
+          widgetHeatMap != null &&
+          widgetHeatMap!.isNotEmpty)
+        'widgetHeatMap': widgetHeatMap!.map((e) => e.toJson()).toList(),
+      if (inc(SnapshotSection.recurrenceTrends) &&
+          recurrenceTrends != null &&
+          recurrenceTrends!.isNotEmpty)
+        'recurrenceTrends': recurrenceTrends,
+      if (inc(SnapshotSection.sessionSummary) &&
+          sessionSummary != null &&
+          sessionSummary!.isNotEmpty)
+        'sessionSummary': sessionSummary,
+      if (inc(SnapshotSection.startupMetrics) && startupMetrics != null)
+        'startupMetrics': startupMetrics!.toJson(),
+      if (inc(SnapshotSection.routeSessions) &&
+          routes != null &&
+          routes.isNotEmpty)
+        'routeSessions': routes,
+      if (projected) ...{
+        '_projectedSections': (include ?? SnapshotSection.values.toSet())
+            .map((s) => s.jsonKey)
+            .toList()
+          ..sort(),
+        if (maxIssueCount != null || maxRouteCount != null)
+          '_projectionLimits': {
+            if (maxIssueCount != null) 'maxIssueCount': maxIssueCount,
+            if (maxRouteCount != null) 'maxRouteCount': maxRouteCount,
+          },
+        '_projectionApplied': 'by_app',
+      },
+    };
+  }
 
   /// Pretty-printed JSON string for export/sharing.
   String toJsonString() => const JsonEncoder.withIndent('  ').convert(toJson());

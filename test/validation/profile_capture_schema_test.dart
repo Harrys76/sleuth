@@ -579,8 +579,8 @@ void main() {
               (e) => e.message, 'message', contains('cross-check failed'))));
     });
 
-    // v0.16.4 post-review LOW-2: symmetric guard — span wildly larger
-    // than observed magnitude means markers bracket unrelated work.
+    // Symmetric guard — span wildly larger than observed magnitude
+    // means markers bracket unrelated work.
     test('inverse ratio 200× (span >> observed) is rejected', () {
       // observedMs=1 → observedMicros=1000; spanMicros=200000 →
       // inverseRatio = 200×.
@@ -661,12 +661,12 @@ void main() {
               contains('Scenario markers inverted'))));
     });
 
-    // v0.16.4 post-review MED-2: pin `ph: 'n'` (async nestable instant)
-    // acceptance. Perfetto `traceconv` converts Dart `Timeline.instantSync`
-    // events to `ph: 'n'` when exporting `.pftrace` → Chrome Trace JSON;
-    // the DevTools-native export path emits `'i'`/`'I'`. v0.16.4 captures
-    // travelled the Perfetto path, so the schema must accept `'n'` for
-    // scenario markers AND as a general allowed phase.
+    // Pin `ph: 'n'` (async nestable instant) acceptance. Perfetto
+    // `traceconv` converts Dart `Timeline.instantSync` events to
+    // `ph: 'n'` when exporting `.pftrace` → Chrome Trace JSON; the
+    // DevTools-native export path emits `'i'`/`'I'`. Captures that
+    // travelled the Perfetto path must accept `'n'` for scenario
+    // markers AND as a general allowed phase.
     test('ph "n" scenario markers are accepted (Perfetto traceconv path)', () {
       final events = _validTraceEvents().map((e) {
         if (e['name'] == 'sleuth.scenario.begin' ||
