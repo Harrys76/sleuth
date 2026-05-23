@@ -9,7 +9,8 @@ import '../helpers/fake_vm_bridge.dart';
 void main() {
   tearDown(snapshotDiskHandoff.cleanupAll);
 
-  test('no args ⇒ full passthrough, no projection stamp', () async {
+  test('no args ⇒ no projection stamp, currentIssues compacted by default',
+      () async {
     final bridge = defaultFakeBridge();
     await bridge.connect(Uri.parse('ws://localhost/ws'));
     final handler = builtInTools['get_snapshot']!.handler;
@@ -17,6 +18,23 @@ void main() {
     expect(result['sessionUuid'], 'fake-uuid');
     final data = result['data'] as Map<String, Object?>;
     expect(data.containsKey('_projectionApplied'), isFalse);
+    final issues = (data['currentIssues'] as List).cast<Map<String, Object?>>();
+    expect(issues, hasLength(2));
+    expect(issues.first['stableId'], 'jank_detected');
+    expect(issues.first.containsKey('rankingScore'), isFalse,
+        reason: 'snapshot issues are compact by default');
+    expect(issues.first.containsKey('title'), isTrue);
+  });
+
+  test('verbose:true keeps full currentIssues fields', () async {
+    final bridge = defaultFakeBridge();
+    await bridge.connect(Uri.parse('ws://localhost/ws'));
+    final handler = builtInTools['get_snapshot']!.handler;
+    final result =
+        await handler(bridge, {'verbose': true}) as Map<String, Object?>;
+    final data = result['data'] as Map<String, Object?>;
+    final issues = (data['currentIssues'] as List).cast<Map<String, Object?>>();
+    expect(issues.first.containsKey('rankingScore'), isTrue);
   });
 
   test('diskHandoff=true returns a file pointer, not inline data', () async {

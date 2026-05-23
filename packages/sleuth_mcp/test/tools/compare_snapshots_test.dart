@@ -1,4 +1,5 @@
 import 'package:sleuth_mcp/sleuth_mcp.dart';
+import 'package:sleuth_mcp/src/tools/issue_projection.dart';
 import 'package:sleuth_mcp/src/tools/tools.dart';
 import 'package:test/test.dart';
 
@@ -154,5 +155,36 @@ void main() {
     expect(result, isA<Map<String, Object?>>(),
         reason: 'maxRouteCount cap does not affect the issue diff');
     expect((result as Map<String, Object?>)['fpsDelta'], -5.0);
+  });
+
+  test('diffs correctly when fed compacted (v0.6.5 default) issue shapes',
+      () async {
+    // The compact projection keeps stableId + severity, so a diff over
+    // compact snapshots must produce the same result as over full ones.
+    final bridge = defaultFakeBridge();
+    final handler = builtInTools['compare_snapshots']!.handler;
+    final before = {
+      'currentIssues': [compactIssue(fullFakeIssues().first)],
+      'frameStatsSummary': {'averageFps': 60.0},
+    };
+    final after = {
+      // Same stableId, severity elevated warning -> critical.
+      'currentIssues': [
+        {...compactIssue(fullFakeIssues().first), 'severity': 'critical'},
+      ],
+      'frameStatsSummary': {'averageFps': 50.0},
+    };
+    final result = await handler(bridge, {'before': before, 'after': after})
+        as Map<String, Object?>;
+    expect(result['added'], isEmpty);
+    expect(result['removed'], isEmpty);
+    final elevated = result['elevatedSeverity'] as List;
+    expect(elevated, hasLength(1));
+    expect(elevated.first, {
+      'stableId': 'jank_detected',
+      'before': 'warning',
+      'after': 'critical',
+    });
+    expect(result['fpsDelta'], -10.0);
   });
 }

@@ -1,6 +1,8 @@
 # MCP Tool Schema — sleuth_mcp wire contract
 
-Locked tool-call return shapes for the 13 MCP tools exposed by `sleuth_mcp`. Consumers (AI clients, CI scripts via `sleuth_check`) can rely on these shapes within `schemaVersion: 1`.
+Locked tool-call return shapes for the 13 MCP tools exposed by `sleuth_mcp`. Consumers (AI clients, CI scripts via `sleuth_check`) can rely on these shapes within `schemaVersion: 2`.
+
+**`schemaVersion: 2` — compact-issue projection.** `get_issues` and `get_snapshot` now trim each issue to an actionable subset by default (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds` — only present keys copied). Pass `verbose: true` for the full ~22-field shape. Compaction is field-only and keeps `stableId` + `severity`, so `compare_snapshots` and `check_budgets` still operate on compact snapshots.
 
 Structured source-of-truth: [`mcp_tool_schema.json`](mcp_tool_schema.json) — that file is what the audit test parses. This markdown is human-readable rendering only.
 
@@ -189,7 +191,9 @@ Augments the extension's `data` block with two sidecar-stamped keys:
 
 ## get_snapshot
 
-Passthrough for `ext.sleuth.snapshot`. Args: `sections` (List\<String\>, optional — forwarded comma-joined; empty list or absent = full payload, not metadata-only), `maxIssueCount` (int, optional), `maxRouteCount` (int, optional), `diskHandoff` (bool, optional).
+Passthrough for `ext.sleuth.snapshot`. Args: `sections` (List\<String\>, optional — forwarded comma-joined; empty list or absent = full payload, not metadata-only), `maxIssueCount` (int, optional), `maxRouteCount` (int, optional), `diskHandoff` (bool, optional), `verbose` (bool, optional, default false).
+
+**Shim — `compact_issues`.** Unless `verbose: true`, the sidecar trims every `data.currentIssues` entry to the compact key set (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`), copying only keys that are present. Runs on both the inline-return and disk-handoff paths from a fresh map (the bridge envelope is never mutated). No-op when `currentIssues` was projected out via `sections` or is absent / non-list. Field shape only — independent of `maxIssueCount`, which caps `currentIssues` lib-side regardless of `verbose`.
 
 **Shim — `disk_handoff`.** When `diskHandoff` is true the sidecar serializes the envelope to a per-process `Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json` file and returns `{path, sizeBytes, sha256}` plus any projection metadata instead of the inline `data` block — use for large snapshots that exceed the response token cap. The filename is 128-bit `Random.secure()`. The per-pid dir is created `0700` and the file `0600`, both verified via `FileStat`; if owner-only perms can't be set + verified on POSIX, the file is deleted and `disk_handoff_failed` is returned (fail-closed). Windows has no POSIX mode — that verification is skipped. The payload MAY contain mildly-sensitive data (e.g. `recentRequests[].url` carrying query tokens), which is why perms are fail-closed rather than best-effort. Files are deleted on `detach_app`, on sidecar shutdown, and aged files (30 min) in the process's own dir are swept on each new write — the per-pid dir keeps concurrent sidecar instances from sweeping each other's in-flight handoffs. When `diskHandoff` is false/absent the envelope passes through unmodified.
 
@@ -201,11 +205,13 @@ Underlying shape: see `mcp_schema.md` § `ext.sleuth.snapshot`.
 
 ## get_issues
 
-Passthrough for `ext.sleuth.issues`. Args: `route` (String, optional), `severityAtLeast` (String, optional, one of `ok` / `warning` / `critical`).
+Passthrough for `ext.sleuth.issues`. Args: `route` (String, optional), `severityAtLeast` (String, optional, one of `ok` / `warning` / `critical`), `maxIssueCount` (int, optional, default 50; 0 = unbounded), `verbose` (bool, optional, default false).
 
-**Shim — `severity_filter`.** When `severityAtLeast` is `warning` or `critical`, the sidecar filters `data.issues` to entries whose severity meets the threshold AND adds a `data.severityAtLeast` key echoing the requested level. When `severityAtLeast` is `ok` or absent, the envelope passes through unmodified.
+**Shim — `severity_filter`.** When `severityAtLeast` is `warning` or `critical`, the sidecar filters `data.issues` to entries whose severity meets the threshold AND adds a `data.severityAtLeast` key echoing the requested level. When `severityAtLeast` is `ok` or absent, no filter + no echo.
 
-Underlying shape: see `mcp_schema.md` § `ext.sleuth.issues`.
+**Shim — `compact_projection`.** After the optional severity filter, `data.issues` is capped to the front `maxIssueCount` entries (default 50; `0` = unbounded; negative is rejected with `arg_invalid_int`, for parity with get_snapshot) of the app's already-ranked order, then — unless `verbose: true` — each kept entry is trimmed to the compact key set (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`). The cap and the field-trim are orthogonal: `verbose` controls field shape only and never disables the cap. Compaction drops fields, not field contents — it is not a hard byte bound; use `maxIssueCount` + `diskHandoff` for size management. When the cap dropped at least one issue, `data` gains `_truncated: true` and `_totalCount` (post-filter, pre-cap count). Error envelopes (no `data` map / no `issues` list) pass through unmodified.
+
+Underlying shape: see `mcp_schema.md` § `ext.sleuth.issues` (compact entries are a key-subset of that shape).
 
 ## get_route_health
 

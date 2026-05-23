@@ -1,3 +1,26 @@
+## 0.6.5
+
+Compact-issue projection for `get_issues` + `get_snapshot`. Sidecar-only;
+pin sleuth 0.36.0 unchanged.
+
+- `get_issues` is now compact by default: each issue is trimmed to the
+  actionable subset (`severity`, `category`, `confidence`, `title`, `detail`,
+  `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`,
+  `confidenceReason`, `rootCauseIds`) and the list is capped to the top 50 of
+  the app's already-ranked order. Pass `verbose: true` for the full
+  ~22-field shape; `maxIssueCount` changes the cap (`0` = unbounded; negative
+  is rejected with `arg_invalid_int`, for parity with `get_snapshot`). When the
+  cap drops issues, `data` carries `_truncated: true` + `_totalCount`
+  (post-filter, pre-cap count). The cap and `verbose` are orthogonal —
+  `verbose` controls field shape only.
+- `get_snapshot` trims each `data.currentIssues` entry to the same compact
+  subset unless `verbose: true`. Applies on both the inline and `diskHandoff`
+  paths from a fresh map. No-op when `currentIssues` is projected out via
+  `sections`. The lib-side `maxIssueCount`/`maxRouteCount` caps are unchanged.
+- Compaction keeps `stableId` + `severity`, so `compare_snapshots` and
+  `check_budgets` still operate on compact snapshots.
+- Tool-schema doc `schemaVersion` 1 → 2. `sleuthMcpVersion` 0.6.4 → 0.6.5.
+
 ## 0.6.4
 
 Pin sleuth 0.36.0. Sidecar-only.

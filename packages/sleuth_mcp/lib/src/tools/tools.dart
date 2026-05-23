@@ -15,6 +15,7 @@ import '../util/device_filter.dart';
 import '../util/version_lineage.dart';
 import 'budgets.dart';
 import 'compare_snapshots.dart';
+import 'issue_projection.dart';
 import 'snapshot_disk_handoff.dart';
 
 final Lock _listDevicesLock = Lock();
@@ -329,6 +330,24 @@ Future<Object> _getSnapshotHandler(
     };
   }
 
+  // Compact each currentIssue unless verbose. Fresh map (never mutate the
+  // bridge envelope); runs before both the inline return and the disk write.
+  if (args['verbose'] != true) {
+    final data = out['data'];
+    if (data is Map<String, Object?> && data['currentIssues'] is List) {
+      out = <String, Object?>{
+        ...out,
+        'data': <String, Object?>{
+          ...data,
+          'currentIssues': [
+            for (final i in data['currentIssues'] as List)
+              if (i is Map<String, Object?>) compactIssue(i) else i,
+          ],
+        },
+      };
+    }
+  }
+
   if (!diskHandoff) return out;
   try {
     return await snapshotDiskHandoff.write(out);
@@ -346,6 +365,24 @@ Future<Object> _getIssuesHandler(
   VmBridge bridge,
   Map<String, Object?> args,
 ) async {
+  // `0` is the only unbounded sentinel; reject negatives here since
+  // projectIssues is lenient on <=0. Validate before the round-trip.
+  final int maxCount;
+  final rawMaxCount = args['maxIssueCount'];
+  if (rawMaxCount == null) {
+    maxCount = 50;
+  } else {
+    final parsed = _asInt(rawMaxCount);
+    if (parsed == null || parsed < 0) {
+      return ToolCallResult.text(
+        'arg_invalid_int: maxIssueCount must be a non-negative integer '
+        '(0 = unbounded)',
+        isError: true,
+      );
+    }
+    maxCount = parsed;
+  }
+
   final extArgs = <String, dynamic>{};
   final route = args['route'];
   if (route is String && route.isNotEmpty) {
@@ -355,15 +392,18 @@ Future<Object> _getIssuesHandler(
     'ext.sleuth.issues',
     args: extArgs,
   );
-  final severityAtLeast = args['severityAtLeast'];
-  if (severityAtLeast is! String) return envelope;
-  final lower = severityAtLeast.toLowerCase();
-  if (lower == 'ok') return envelope;
   final data = envelope['data'];
   if (data is! Map<String, Object?>) return envelope;
   final rawIssues = data['issues'];
   if (rawIssues is! List) return envelope;
-  bool include(Object? severity) {
+
+  // Optional severity gate: `warning` includes `critical`; `ok` / absent =
+  // no gate.
+  final severityAtLeast = args['severityAtLeast'];
+  final lower =
+      severityAtLeast is String ? severityAtLeast.toLowerCase() : null;
+  bool included(Object? severity) {
+    if (lower == null || lower == 'ok') return true;
     if (severity is! String) return false;
     final s = severity.toLowerCase();
     if (lower == 'critical') return s == 'critical';
@@ -373,12 +413,30 @@ Future<Object> _getIssuesHandler(
 
   final filtered = rawIssues
       .whereType<Map<String, Object?>>()
-      .where((i) => include(i['severity']))
+      .where((i) => included(i['severity']))
       .toList();
-  final filteredData = Map<String, Object?>.from(data)
-    ..['issues'] = filtered
-    ..['severityAtLeast'] = lower;
-  return Map<String, Object?>.from(envelope)..['data'] = filteredData;
+
+  // Compact by default + cap to the top-N of the app's already-ranked order.
+  // `verbose` keeps full fields; `maxIssueCount: 0` disables the cap.
+  final verbose = args['verbose'] == true;
+  final projected =
+      projectIssues(filtered, verbose: verbose, maxCount: maxCount);
+
+  final newData = Map<String, Object?>.from(data)
+    ..['issues'] = projected.issues;
+  if (lower != null) newData['severityAtLeast'] = lower;
+  if (projected.truncated) {
+    newData['_truncated'] = true;
+    newData['_totalCount'] = projected.total;
+  }
+  return Map<String, Object?>.from(envelope)..['data'] = newData;
+}
+
+int? _asInt(Object? v) {
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v is String) return int.tryParse(v.trim());
+  return null;
 }
 
 Future<Object> _getRouteHealthHandler(
@@ -506,6 +564,11 @@ final Map<String, BuiltInTool> builtInTools = {
             'description': 'Write the envelope to a temp file; response '
                 'becomes {path, sizeBytes, sha256, _projectedSections?}.',
           },
+          'verbose': <String, Object?>{
+            'type': 'boolean',
+            'description': 'Return full issue fields. Default false trims each '
+                'currentIssue to the actionable subset.',
+          },
         },
         'required': <String>[],
       },
@@ -517,7 +580,9 @@ final Map<String, BuiltInTool> builtInTools = {
       name: 'get_issues',
       annotations: ToolAnnotations(readOnlyHint: true),
       description:
-          'Currently-aggregated performance issues. Optional route + severity filter.',
+          'Currently-aggregated performance issues. Optional route + severity '
+          'filter. Compact by default (actionable fields only, capped at 50); '
+          'pass verbose for full fields, maxIssueCount to change the cap.',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -525,6 +590,17 @@ final Map<String, BuiltInTool> builtInTools = {
           'severityAtLeast': {
             'type': 'string',
             'enum': ['ok', 'warning', 'critical'],
+          },
+          'maxIssueCount': {
+            'type': 'integer',
+            'description': 'Keep top-N already-ranked issues. Default 50; '
+                '0 means unbounded. Applies whether or not verbose is set.',
+          },
+          'verbose': {
+            'type': 'boolean',
+            'description': 'Return full issue fields instead of the compact '
+                'actionable subset. Field shape only — the maxIssueCount cap '
+                'still applies.',
           },
         },
         'required': <String>[],

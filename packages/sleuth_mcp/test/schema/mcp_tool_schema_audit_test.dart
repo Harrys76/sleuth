@@ -92,8 +92,8 @@ void main() {
   });
 
   group('schema sanity', () {
-    test('schemaVersion is locked at 1', () {
-      expect(schema['schemaVersion'], 1);
+    test('schemaVersion is locked at 2', () {
+      expect(schema['schemaVersion'], 2);
     });
 
     test('every documented tool exists in builtInTools or lifecycleTools', () {

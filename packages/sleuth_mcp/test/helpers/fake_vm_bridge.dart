@@ -1,5 +1,59 @@
 import 'package:sleuth_mcp/sleuth_mcp.dart';
 
+/// Two full-shape issues mirroring `PerformanceIssue.toJson` — every
+/// compact keep-field plus the verbose-only noise fields the compact
+/// projection must drop. Used by both `ext.sleuth.issues` and the snapshot's
+/// `currentIssues` so trim + cap behavior is exercisable. Ranked order is
+/// the list order (the app emits already-ranked); index 0 is highest.
+List<Map<String, Object?>> fullFakeIssues() => [
+      {
+        'severity': 'warning',
+        'category': 'build',
+        'confidence': 'confirmed',
+        'title': 'Jank detected',
+        'detail': 'Frame exceeded the 16ms budget.',
+        'fixHint': 'Profile the build method.',
+        'stableId': 'jank_detected',
+        'widgetName': 'HomePage',
+        'routeName': '/home',
+        'sourceRoute': '/home',
+        'confidenceReason': 'observed directly',
+        'rootCauseIds': <String>['heap_growing'],
+        // verbose-only noise — must be dropped by the compact projection.
+        'captureTraceStableId': 'jank_detected',
+        'observationSource': 'frameTiming',
+        'debugModeDisclaimer': 'debug only',
+        'detectedAt': '2026-05-17T00:00:01.000Z',
+        'rankingScore': 88.0,
+        'rankingBreakdown': {'severity': 100, 'recency': 76},
+        'downstreamIds': <String>[],
+        'packageName': 'example_app',
+      },
+      {
+        'severity': 'critical',
+        'category': 'memory',
+        'confidence': 'likely',
+        'title': 'Heap growing',
+        'detail': 'Heap slope exceeded threshold.',
+        'fixHint': 'Look for retained allocations.',
+        'stableId': 'heap_growing',
+        'widgetName': 'FeedList',
+        'routeName': '/feed',
+        'sourceRoute': '/feed',
+        'confidenceReason': 'runtime + structural',
+        // rootCauseIds intentionally omitted (real toJson omits when null) —
+        // exercises compactIssue's "absent stays absent" path.
+        // verbose-only noise.
+        'captureTraceStableId': 'heap_growing',
+        'observationSource': 'vmTimeline',
+        'debugModeDisclaimer': 'debug only',
+        'detectedAt': '2026-05-17T00:00:02.000Z',
+        'rankingScore': 140.0,
+        'rankingBreakdown': {'severity': 200, 'recency': 80},
+        'tabVisitIndex': 1,
+      },
+    ];
+
 /// Build a `FakeVmBridge` pre-populated with realistic envelopes for
 /// the seven `ext.sleuth.*` extensions.
 FakeVmBridge defaultFakeBridge() {
@@ -24,7 +78,7 @@ FakeVmBridge defaultFakeBridge() {
     'data': {
       'schemaVersion': 5,
       'exportedAt': '2026-05-17T00:00:00.000Z',
-      'currentIssues': <Map<String, Object?>>[],
+      'currentIssues': fullFakeIssues(),
       'frameStatsSummary': {'averageFps': 59.5, 'jankFrames': 0},
     },
   });
@@ -33,10 +87,7 @@ FakeVmBridge defaultFakeBridge() {
     'schemaVersion': 1,
     'sessionUuid': 'fake-uuid',
     'data': {
-      'issues': <Map<String, Object?>>[
-        {'stableId': 'jank_detected', 'severity': 'warning'},
-        {'stableId': 'heap_growing', 'severity': 'critical'},
-      ],
+      'issues': fullFakeIssues(),
     },
   });
   bridge.setEnvelope('ext.sleuth.routeHealth', {

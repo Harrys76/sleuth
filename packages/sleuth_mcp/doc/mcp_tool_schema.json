@@ -1,11 +1,12 @@
 {
   "_doc": "Wire schema for sleuth_mcp tool-call return shapes. Sidecar-only — the root sleuth package does not ship a parallel copy. Audit source: packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart. Human-readable render at mcp_tool_schema.md.",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "readOnlyTools": ["app_status", "check_budgets", "compare_snapshots", "diagnose", "explain_issue", "get_issues", "get_route_health", "get_snapshot", "list_devices"],
   "notes": [
     "Error envelopes describe current sidecar handler behavior — each handler returns ToolCallResult.text(...) with `isError: true` and a single text content carrying the message string. Codes listed in `errors[].code` appear verbatim as the prefix of that text. A centralized typed error class is acknowledged debt.",
-    "Passthrough tools delegate to bridge.callExtension and return the ext.sleuth.* envelope unmodified. Documented shims (get_route_health v0.32 -> v0.33 wrapper, get_issues severityAtLeast filter) are spelled out explicitly so the audit can assert the shim's behavior.",
-    "Snapshot / route-session nested shapes live in mcp_schema.{json,md}. This file documents only the tool-layer wrapping."
+    "Passthrough tools delegate to bridge.callExtension and return the ext.sleuth.* envelope unmodified. Documented shims (get_route_health v0.32 -> v0.33 wrapper, get_issues severityAtLeast filter, compact-issue projection on get_issues + get_snapshot) are spelled out explicitly so the audit can assert the shim's behavior.",
+    "Snapshot / route-session nested shapes live in mcp_schema.{json,md}. This file documents only the tool-layer wrapping.",
+    "schemaVersion 2 adds the compact-issue projection: get_issues and get_snapshot trim each issue to the actionable subset by default (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds). Pass verbose:true for the full ~22-field shape. Compaction is field-only and lossless for the diff key (stableId + severity), so compare_snapshots and check_budgets work on compact snapshots."
   ],
   "tools": {
     "connect": {
@@ -242,11 +243,16 @@
       "passthrough": "ext.sleuth.snapshot",
       "args": {
         "sections": {"type": "List<String>", "required": false, "nullable": false, "doc": "Subset of payload sections; forwarded to ext.sleuth.snapshot as a comma-joined string. Omit for full payload."},
-        "maxIssueCount": {"type": "int", "required": false, "nullable": false, "doc": "Keep top-N already-ranked issues."},
+        "maxIssueCount": {"type": "int", "required": false, "nullable": false, "doc": "Keep top-N already-ranked issues (lib-side cap on currentIssues)."},
         "maxRouteCount": {"type": "int", "required": false, "nullable": false, "doc": "Keep N most-recent routes by startedAt."},
-        "diskHandoff": {"type": "bool", "required": false, "nullable": false, "doc": "When true, write the envelope to a temp file; the tool returns {path, sizeBytes, sha256, _projectedSections?, _projectionLimits?, _projectionApplied?} instead of inline data."}
+        "diskHandoff": {"type": "bool", "required": false, "nullable": false, "doc": "When true, write the envelope to a temp file; the tool returns {path, sizeBytes, sha256, _projectedSections?, _projectionLimits?, _projectionApplied?} instead of inline data."},
+        "verbose": {"type": "bool", "required": false, "nullable": false, "default": false, "doc": "When false (default) each data.currentIssues entry is trimmed to the compact actionable subset; true returns full issue fields. Field shape only — independent of the maxIssueCount cap, which is applied lib-side regardless."}
       },
       "shims": [
+        {
+          "name": "compact_issues",
+          "doc": "Unless verbose:true, the sidecar trims every data.currentIssues entry to the compact key set (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds), copying only keys that are present. Runs on both the inline-return and disk-handoff paths from a fresh map (bridge envelope never mutated). No-op when currentIssues was projected out via `sections` or is absent/non-list. Lossless for stableId + severity, so compare_snapshots / check_budgets still operate on compact snapshots."
+        },
         {
           "name": "disk_handoff",
           "doc": "When `diskHandoff` is true the sidecar serializes the snapshot envelope to a per-process Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json file (128-bit Random.secure name). The per-pid dir is created 0700 and the file 0600, both verified via FileStat; if owner-only perms cannot be set+verified on POSIX the file is deleted and a `disk_handoff_failed` error is returned (fail-closed). On Windows POSIX modes don't apply. The payload MAY contain mildly-sensitive data (e.g. recentRequests[].url with query tokens), hence the fail-closed perms. Returns {path, sizeBytes, sha256} plus any projection metadata, rather than the inline `data` block. Files are deleted on detach_app, on sidecar shutdown, and aged files (30 min) in the process's own dir are swept on each new write (per-pid dir prevents cross-instance sweeps). When `diskHandoff` is false/absent the envelope passes through unmodified. Lineage fallback: if the app predates projection support and a projection arg was requested, the sidecar stamps `_projectionApplied: by_sidecar_fallback` on the disk-handoff path; on the inline path it returns `projection_unsupported_by_app` instead (the full payload would overflow the response cap)."
@@ -266,15 +272,29 @@
       "passthrough": "ext.sleuth.issues",
       "args": {
         "route": {"type": "String", "required": false, "nullable": false, "doc": "Empty string treated as absent"},
-        "severityAtLeast": {"type": "String", "required": false, "nullable": false, "values": ["ok", "warning", "critical"]}
+        "severityAtLeast": {"type": "String", "required": false, "nullable": false, "values": ["ok", "warning", "critical"]},
+        "maxIssueCount": {"type": "int", "required": false, "nullable": false, "default": 50, "doc": "Keep the front-N of the app's already-ranked order (post severity filter). 0 means unbounded; negative is rejected with arg_invalid_int. Applies whether or not verbose is set."},
+        "verbose": {"type": "bool", "required": false, "nullable": false, "default": false, "doc": "When false (default) each kept issue in data.issues is trimmed to the compact actionable subset; true returns full issue fields. Field shape only — the maxIssueCount cap still applies."}
       },
+      "data": {
+        "_doc": "Passthrough of ext.sleuth.issues, then field-trimmed + capped. data.issues entries carry the compact key set unless verbose:true. The two keys below are stamped on data only when the cap dropped at least one issue.",
+        "_truncated": {"type": "bool", "required": false, "nullable": false, "presence": "stamped true only when maxIssueCount dropped at least one issue from data.issues"},
+        "_totalCount": {"type": "int", "required": false, "nullable": false, "presence": "post-filter pre-cap issue count; stamped alongside _truncated"},
+        "severityAtLeast": {"type": "String", "required": false, "nullable": false, "presence": "echo stamped only when the severity filter was applied"}
+      },
+      "compactIssueKeys": ["severity", "category", "confidence", "title", "detail", "fixHint", "stableId", "widgetName", "routeName", "sourceRoute", "confidenceReason", "rootCauseIds"],
       "shims": [
         {
           "name": "severity_filter",
-          "doc": "When `severityAtLeast` is `warning` or `critical`, the sidecar filters `data.issues` to entries whose severity meets the threshold AND adds `data.severityAtLeast` echoing the requested level. When `severityAtLeast` is `ok` or absent, the envelope passes through unmodified."
+          "doc": "When `severityAtLeast` is `warning` or `critical`, the sidecar filters `data.issues` to entries whose severity meets the threshold AND adds `data.severityAtLeast` echoing the requested level. When `severityAtLeast` is `ok` or absent, no filter + no echo."
+        },
+        {
+          "name": "compact_projection",
+          "doc": "After the optional severity filter, data.issues is capped to the front maxIssueCount entries (default 50; 0 = unbounded) of the app's already-ranked order, then — unless verbose:true — each kept entry is trimmed to compactIssueKeys (only present keys copied). When the cap dropped any issue, data gains `_truncated:true` + `_totalCount` (post-filter pre-cap count). Error envelopes (no `data` map / no `issues` list) pass through unmodified."
         }
       ],
       "errors": [
+        {"code": "arg_invalid_int", "doc": "maxIssueCount is negative (or non-integer); only 0 disables the cap", "messagePrefix": "arg_invalid_int:"},
         {"code": "extension_error_envelope", "doc": "ext.sleuth.issues returned an error envelope — passed through unmodified"}
       ]
     },
