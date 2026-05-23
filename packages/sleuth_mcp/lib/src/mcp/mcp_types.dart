@@ -137,6 +137,44 @@ class Resource {
       };
 }
 
+/// MCP prompt descriptor (`prompts/list` entry).
+class Prompt {
+  const Prompt({
+    required this.name,
+    required this.description,
+    this.arguments = const [],
+  });
+
+  final String name;
+  final String description;
+  final List<PromptArgument> arguments;
+
+  Map<String, Object?> toJson() => {
+        'name': name,
+        'description': description,
+        'arguments': arguments.map((a) => a.toJson()).toList(),
+      };
+}
+
+/// One declared argument of a [Prompt].
+class PromptArgument {
+  const PromptArgument({
+    required this.name,
+    required this.description,
+    this.required = false,
+  });
+
+  final String name;
+  final String description;
+  final bool required;
+
+  Map<String, Object?> toJson() => {
+        'name': name,
+        'description': description,
+        'required': required,
+      };
+}
+
 /// MCP `tools/call` response shape.
 class ToolCallResult {
   ToolCallResult({

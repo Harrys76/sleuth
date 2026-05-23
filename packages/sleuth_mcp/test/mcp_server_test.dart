@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:sleuth_mcp/sleuth_mcp.dart';
+import 'package:sleuth_mcp/src/prompts/diagnostic_prompts.dart';
+import 'package:sleuth_mcp/src/tools/tools.dart';
 import 'package:test/test.dart';
 
 import 'helpers/fake_vm_bridge.dart';
@@ -335,6 +337,110 @@ void main() {
       expect(result.containsKey('structuredContent'), isFalse,
           reason: 'call started under 2024-11-05 must not gain SC from a '
               'mid-flight upgrade');
+    });
+  });
+
+  group('prompts', () {
+    late FakeVmBridge bridge;
+    late McpServer server;
+
+    setUp(() {
+      bridge = defaultFakeBridge();
+      server = McpServer(bridge: bridge)..registerDefaults();
+    });
+
+    const expectedNames = {
+      'triage_performance',
+      'audit_memory',
+      'release_check',
+    };
+
+    test('initialize advertises the prompts capability', () async {
+      final resp = await server.handleForTest(_req('initialize'));
+      final caps =
+          (resp!.result as Map<String, Object?>)['capabilities'] as Map;
+      expect(caps.containsKey('prompts'), isTrue);
+    });
+
+    test('prompts/list returns the locked set with valid descriptors',
+        () async {
+      await server.handleForTest(_req('initialize'));
+      final resp = await server.handleForTest(_req('prompts/list', id: 2));
+      final prompts =
+          ((resp!.result as Map<String, Object?>)['prompts'] as List)
+              .cast<Map<String, Object?>>();
+      expect(prompts.map((p) => p['name']).toSet(), expectedNames);
+      for (final p in prompts) {
+        expect(p['name'], isA<String>());
+        expect(p['description'], isA<String>());
+        expect(p['arguments'], isA<List<Object?>>());
+      }
+    });
+
+    test('prompts/get returns a valid user-text message per prompt', () async {
+      await server.handleForTest(_req('initialize'));
+      for (final name in expectedNames) {
+        final resp = await server
+            .handleForTest(_req('prompts/get', params: {'name': name}, id: 2));
+        final res = resp!.result as Map<String, Object?>;
+        expect(res['description'], isA<String>());
+        final messages = (res['messages'] as List).cast<Map<String, Object?>>();
+        expect(messages, isNotEmpty);
+        for (final m in messages) {
+          expect(m['role'], anyOf('user', 'assistant'));
+          final content = m['content'] as Map<String, Object?>;
+          expect(content['type'], 'text');
+          expect(content['text'] as String, isNotEmpty);
+        }
+      }
+    });
+
+    test('prompts/get unknown name returns invalidParams', () async {
+      await server.handleForTest(_req('initialize'));
+      final resp = await server
+          .handleForTest(_req('prompts/get', params: {'name': 'nope'}, id: 2));
+      expect(resp!.isError, isTrue);
+      expect(resp.error!.code, JsonRpcError.invalidParams);
+    });
+
+    test('re-initialize keeps the prompt set (static, not invalidated)',
+        () async {
+      await server.handleForTest(_req('initialize'));
+      await server.handleForTest(_req('initialize', id: 2));
+      final resp = await server.handleForTest(_req('prompts/list', id: 3));
+      final prompts =
+          ((resp!.result as Map<String, Object?>)['prompts'] as List)
+              .cast<Map<String, Object?>>();
+      expect(prompts.map((p) => p['name']).toSet(), expectedNames);
+    });
+
+    test('prompt usesTools matches registered tools + text (drift guard)', () {
+      final registered = {
+        ...builtInTools.keys,
+        ...lifecycleTools(server).keys,
+      };
+      for (final prompt in builtInPrompts.values) {
+        // Every declared tool exists — catches a renamed/removed tool.
+        expect(prompt.usesTools.difference(registered), isEmpty,
+            reason: '${prompt.descriptor.name} declares unknown tools: '
+                '${prompt.usesTools.difference(registered)}');
+        // Every declared tool is actually named in the text.
+        for (final tool in prompt.usesTools) {
+          expect(RegExp('\\b$tool\\b').hasMatch(prompt.text), isTrue,
+              reason: '${prompt.descriptor.name} declares $tool but text '
+                  'never names it');
+        }
+        // Reverse: every registered tool named in the text is declared —
+        // catches text referencing a tool absent from usesTools (which would
+        // escape the rename check above).
+        for (final tool in registered) {
+          if (RegExp('\\b$tool\\b').hasMatch(prompt.text)) {
+            expect(prompt.usesTools.contains(tool), isTrue,
+                reason: '${prompt.descriptor.name} text names $tool but '
+                    'usesTools omits it');
+          }
+        }
+      }
     });
   });
 }

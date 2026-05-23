@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:meta/meta.dart';
 
 import '../bridge/vm_bridge.dart';
+import '../prompts/diagnostic_prompts.dart';
 import '../resources/causal_graph.dart';
 import '../resources/encyclopedia.dart';
 import '../tools/tools.dart';
@@ -23,7 +24,7 @@ const Set<String> supportedMcpProtocolVersions = {
   '2025-06-18',
 };
 
-const String sleuthMcpVersion = '0.6.6';
+const String sleuthMcpVersion = '0.7.0';
 
 /// Sleuth package version this sidecar is wire-compatible with. Must equal
 /// `kSleuthPackageVersion` in `lib/src/vm/service_extension_handlers.dart`
@@ -99,6 +100,7 @@ class McpServer {
   String _negotiatedProtocolVersion = mcpProtocolVersion;
   final Map<String, _RegisteredTool> _tools = {};
   final Map<String, _RegisteredResource> _resources = {};
+  final Map<String, DiagnosticPrompt> _prompts = {};
 
   /// MCP 2025-06-18 introduced `structuredContent`. The negotiated version is
   /// always one of [supportedMcpProtocolVersions] (or the default), all of
@@ -158,6 +160,9 @@ class McpServer {
       ),
       read: (b) => _causalGraph.read(),
     );
+    // Prompts are static templates — no bridge, no cache, no re-init
+    // invalidation (unlike resources above).
+    _prompts.addAll(builtInPrompts);
   }
 
   // Serializes writes to stdout so concurrent dispatches can't interleave
@@ -386,6 +391,10 @@ class McpServer {
         return _handleResourcesList(msg);
       case 'resources/read':
         return _handleResourcesRead(msg);
+      case 'prompts/list':
+        return _handlePromptsList(msg);
+      case 'prompts/get':
+        return _handlePromptsGet(msg);
       default:
         return msg.isNotification
             ? null
@@ -430,6 +439,7 @@ class McpServer {
       'capabilities': {
         'tools': const <String, Object?>{},
         'resources': const <String, Object?>{},
+        'prompts': const <String, Object?>{},
       },
     });
   }
@@ -619,6 +629,38 @@ class McpServer {
         ),
       );
     }
+  }
+
+  JsonRpcResponse _handlePromptsList(JsonRpcMessage msg) {
+    final list = _prompts.values.map((p) => p.descriptor.toJson()).toList();
+    return JsonRpcResponse.result(id: msg.id, result: {'prompts': list});
+  }
+
+  JsonRpcResponse _handlePromptsGet(JsonRpcMessage msg) {
+    final name = msg.params['name'];
+    if (name is! String) {
+      return JsonRpcResponse.error(
+        id: msg.id,
+        error: const JsonRpcError(
+          code: JsonRpcError.invalidParams,
+          message: 'missing "name" arg',
+        ),
+      );
+    }
+    final prompt = _prompts[name];
+    if (prompt == null) {
+      return JsonRpcResponse.error(
+        id: msg.id,
+        error: JsonRpcError(
+          code: JsonRpcError.invalidParams,
+          message: 'unknown prompt: $name',
+        ),
+      );
+    }
+    return JsonRpcResponse.result(id: msg.id, result: {
+      'description': prompt.descriptor.description,
+      'messages': prompt.messages(),
+    });
   }
 
   String? _validateArgs(

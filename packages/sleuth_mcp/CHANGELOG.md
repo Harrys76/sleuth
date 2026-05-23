@@ -1,3 +1,18 @@
+## 0.7.0
+
+MCP prompts — guided diagnostics. Sidecar-only; pin sleuth 0.36.0 unchanged.
+
+- Adds the `prompts` capability + `prompts/list` and `prompts/get` methods.
+  Three argument-free prompt templates instruct an MCP client's model to chain
+  the existing tools: `triage_performance` (snapshot → top issues → explain →
+  worst route), `audit_memory` (memory-class issues → explain → remediations),
+  `release_check` (budgets + critical issues → PASS/FAIL).
+- Prompts are static (no bridge, no per-session state). `prompts/get` on an
+  unknown name returns `invalidParams`.
+- A test cross-checks each prompt's referenced tool names against the live tool
+  registry both ways, so a renamed tool can't silently rot a prompt.
+- `sleuthMcpVersion` 0.6.6 → 0.7.0.
+
 ## 0.6.6
 
 Structured tool output (MCP `2025-06-18`). Sidecar-only; pin sleuth 0.36.0

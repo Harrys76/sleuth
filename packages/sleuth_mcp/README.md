@@ -24,7 +24,7 @@ sleuth_mcp install        # writes mcpServers.sleuth to ~/.claude.json
    calls the tools below against the live session.
 
 `install` is idempotent (advisory lock + atomic rename + `.bak`). For a
-project-local install instead, add `sleuth_mcp: ^0.6.6` to
+project-local install instead, add `sleuth_mcp: ^0.7.0` to
 `dev_dependencies`.
 
 **Cursor / Zed** (or manual config) — same `command`, point it at a
@@ -74,6 +74,14 @@ Both cache per `sessionUuid` and refresh inline on hot-restart of the
 target app. Wire shapes are locked in
 [`doc/mcp_tool_schema.md`](doc/mcp_tool_schema.md) (tool returns) and
 [`doc/mcp_schema.md`](doc/mcp_schema.md) (`ext.sleuth.*` envelopes).
+
+### Prompts
+
+Guided-diagnostic templates surfaced via `prompts/list` + `prompts/get`. Each is argument-free and instructs the client's model to chain the tools above:
+
+- `triage_performance` — snapshot → top-ranked issues → explain the worst → worst route.
+- `audit_memory` — memory-class issues (heap growth, retained streams, tracked resources) → explain → remediations.
+- `release_check` — `check_budgets` + critical issues → PASS/FAIL verdict.
 
 ## Attaching
 

@@ -166,6 +166,63 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );
+
+  test(
+    'prompts/list + prompts/get work over the real stdio pipe',
+    () async {
+      final process = await Process.start(
+        Platform.resolvedExecutable,
+        ['run', 'bin/sleuth_mcp.dart'],
+        workingDirectory: Directory.current.path,
+      );
+      final responses = StreamQueue(process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .where((l) => l.trim().isNotEmpty));
+
+      process.stdin.writeln(jsonEncode({
+        'jsonrpc': '2.0',
+        'method': 'initialize',
+        'params': {'protocolVersion': '2024-11-05'},
+        'id': 1,
+      }));
+      await process.stdin.flush();
+      final initResp = jsonDecode(await responses.next) as Map<String, Object?>;
+      final caps = (initResp['result'] as Map)['capabilities'] as Map;
+      expect(caps.containsKey('prompts'), isTrue);
+
+      process.stdin.writeln(jsonEncode({
+        'jsonrpc': '2.0',
+        'method': 'prompts/list',
+        'id': 2,
+      }));
+      await process.stdin.flush();
+      final listResp = jsonDecode(await responses.next) as Map<String, Object?>;
+      final names = ((listResp['result'] as Map)['prompts'] as List)
+          .map((p) => (p as Map)['name'])
+          .toSet();
+      expect(names, {'triage_performance', 'audit_memory', 'release_check'});
+
+      process.stdin.writeln(jsonEncode({
+        'jsonrpc': '2.0',
+        'method': 'prompts/get',
+        'params': {'name': 'triage_performance'},
+        'id': 3,
+      }));
+      await process.stdin.flush();
+      final getResp = jsonDecode(await responses.next) as Map<String, Object?>;
+      final messages = (getResp['result'] as Map)['messages'] as List;
+      expect(messages, isNotEmpty);
+      final content = (messages.first as Map)['content'] as Map;
+      expect(content['type'], 'text');
+      expect(content['text'] as String, isNotEmpty);
+
+      await process.stdin.close();
+      await process.exitCode.timeout(const Duration(seconds: 10));
+      await responses.cancel();
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
 }
 
 /// Resolves `lib/src/vm/service_extension_handlers.dart` in the sleuth
