@@ -160,4 +160,45 @@ void main() {
       expect(status['launchModeAdvisory'], launchAdvisoryBasic);
     });
   });
+
+  group('data tools warn on a degraded session', () {
+    test('get_snapshot stamps the advisory when basic + no VM self-connect',
+        () async {
+      final bridge = defaultFakeBridge(); // snapshot envelope is basic, no VM
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final handler = builtInTools['get_snapshot']!.handler;
+      final result = await handler(bridge, {}) as Map<String, Object?>;
+      final data = result['data'] as Map<String, Object?>;
+      expect(data['launchModeAdvisory'], launchAdvisoryBasic);
+    });
+
+    test('get_snapshot omits the advisory when the VM is connected', () async {
+      final bridge = defaultFakeBridge()
+        ..setEnvelope('ext.sleuth.snapshot', {
+          'connectionMode': 'basic',
+          'schemaVersion': 1,
+          'sessionUuid': 'fake-uuid',
+          'data': {
+            'schemaVersion': 5,
+            'isVmConnected': true, // verdict warming, detectors live
+            'currentIssues': <Map<String, Object?>>[],
+          },
+        });
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final handler = builtInTools['get_snapshot']!.handler;
+      final result = await handler(bridge, {}) as Map<String, Object?>;
+      final data = result['data'] as Map<String, Object?>;
+      expect(data.containsKey('launchModeAdvisory'), isFalse);
+    });
+
+    test('get_issues stamps the advisory when basic + no VM self-connect',
+        () async {
+      final bridge = defaultFakeBridge();
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final handler = builtInTools['get_issues']!.handler;
+      final result = await handler(bridge, {}) as Map<String, Object?>;
+      final data = result['data'] as Map<String, Object?>;
+      expect(data['launchModeAdvisory'], launchAdvisoryBasic);
+    });
+  });
 }

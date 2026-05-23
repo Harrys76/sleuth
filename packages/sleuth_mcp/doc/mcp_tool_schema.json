@@ -279,6 +279,10 @@
           "doc": "When `diskHandoff` is true the sidecar serializes the snapshot envelope to a per-process Directory.systemTemp/sleuth_snapshot_<pid>/<random>.json file (128-bit Random.secure name). The per-pid dir is created 0700 and the file 0600, both verified via FileStat; if owner-only perms cannot be set+verified on POSIX the file is deleted and a `disk_handoff_failed` error is returned (fail-closed). On Windows POSIX modes don't apply. The payload MAY contain mildly-sensitive data (e.g. recentRequests[].url with query tokens), hence the fail-closed perms. Returns {path, sizeBytes, sha256} plus any projection metadata, rather than the inline `data` block. Files are deleted on detach_app, on sidecar shutdown, and aged files (30 min) in the process's own dir are swept on each new write (per-pid dir prevents cross-instance sweeps). When `diskHandoff` is false/absent the envelope passes through unmodified. Lineage fallback: if the app predates projection support and a projection arg was requested, the sidecar stamps `_projectionApplied: by_sidecar_fallback` on the disk-handoff path; on the inline path it returns `projection_unsupported_by_app` instead (the full payload would overflow the response cap)."
         }
       ],
+      "data": {
+        "_doc": "Passthrough of ext.sleuth.snapshot.data; the sidecar adds launchModeAdvisory on a degraded session.",
+        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "stamped in data on a degraded session (connectionMode warmup/disconnected, or basic without a live VM self-connect); warns the snapshot is incomplete (VM-only detectors suppressed). Rides in the written file on the disk-handoff path."}
+      },
       "errors": [
         {"code": "extension_error_envelope", "doc": "ext.sleuth.snapshot returned an error envelope — surfaced inline, never disk-handed-off"},
         {"code": "arg_invalid_section", "doc": "ext.sleuth.snapshot: a `sections` token is not a known SnapshotSection"},
@@ -301,7 +305,8 @@
         "_doc": "Passthrough of ext.sleuth.issues, then field-trimmed + capped. data.issues entries carry the compact key set unless verbose:true. The two keys below are stamped on data only when the cap dropped at least one issue.",
         "_truncated": {"type": "bool", "required": false, "nullable": false, "presence": "stamped true only when maxIssueCount dropped at least one issue from data.issues"},
         "_totalCount": {"type": "int", "required": false, "nullable": false, "presence": "post-filter pre-cap issue count; stamped alongside _truncated"},
-        "severityAtLeast": {"type": "String", "required": false, "nullable": false, "presence": "echo stamped only when the severity filter was applied"}
+        "severityAtLeast": {"type": "String", "required": false, "nullable": false, "presence": "echo stamped only when the severity filter was applied"},
+        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "stamped in data on a degraded session (connectionMode warmup/disconnected, or basic without a live VM self-connect); warns the issue list is incomplete (VM-only detectors suppressed)"}
       },
       "compactIssueKeys": ["severity", "category", "confidence", "title", "detail", "fixHint", "stableId", "widgetName", "routeName", "sourceRoute", "confidenceReason", "rootCauseIds"],
       "shims": [

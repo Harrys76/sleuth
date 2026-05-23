@@ -206,6 +206,8 @@ Passthrough for `ext.sleuth.snapshot`. Args: `sections` (List\<String\>, optiona
 
 **Lineage fallback (app predates projection, sleuth < 0.35):** the app ignores projection args and returns the full payload. On the **disk-handoff** path the sidecar writes it and stamps `_projectionApplied: by_sidecar_fallback`. On the **inline** path it returns `projection_unsupported_by_app` instead — the full inline payload would overflow the response cap that projection exists to avoid.
 
+**Shim — `launch_mode_advisory`.** When the session is degraded (`connectionMode` `warmup` / `disconnected`, or `basic` without a live VM self-connect), the sidecar adds `data.launchModeAdvisory` (alongside the other `data` additions) so a client reading data here — not just via `connect` / `diagnose` — is told VM-only detectors are suppressed. On the disk-handoff path it rides in the written file's `data`.
+
 **Errors:** `arg_invalid_section`, `arg_invalid_int`, `arg_pagination_unused` (forwarded from `ext.sleuth.snapshot`); `projection_unsupported_by_app` (inline projection vs a pre-0.35 app); `disk_handoff_failed` (temp file couldn't be locked to owner-only perms).
 
 Underlying shape: see `mcp_schema.md` § `ext.sleuth.snapshot`.
@@ -217,6 +219,8 @@ Passthrough for `ext.sleuth.issues`. Args: `route` (String, optional), `severity
 **Shim — `severity_filter`.** When `severityAtLeast` is `warning` or `critical`, the sidecar filters `data.issues` to entries whose severity meets the threshold AND adds a `data.severityAtLeast` key echoing the requested level. When `severityAtLeast` is `ok` or absent, no filter + no echo.
 
 **Shim — `compact_projection`.** After the optional severity filter, `data.issues` is capped to the front `maxIssueCount` entries (default 50; `0` = unbounded; negative is rejected with `arg_invalid_int`, for parity with get_snapshot) of the app's already-ranked order, then — unless `verbose: true` — each kept entry is trimmed to the compact key set (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`). The cap and the field-trim are orthogonal: `verbose` controls field shape only and never disables the cap. Compaction drops fields, not field contents — it is not a hard byte bound; use `maxIssueCount` + `diskHandoff` for size management. When the cap dropped at least one issue, `data` gains `_truncated: true` and `_totalCount` (post-filter, pre-cap count). Error envelopes (no `data` map / no `issues` list) pass through unmodified.
+
+**Shim — `launch_mode_advisory`.** On a degraded session (`connectionMode` `warmup` / `disconnected`, or `basic` without a live VM self-connect) the sidecar adds `data.launchModeAdvisory`, warning that VM-only detectors are suppressed so the returned issue list is incomplete.
 
 Underlying shape: see `mcp_schema.md` § `ext.sleuth.issues` (compact entries are a key-subset of that shape).
 

@@ -54,7 +54,11 @@ String? launchModeAdvisoryFor(String? connectionMode, {bool? vmConnected}) {
 String? launchModeAdvisoryForEnvelope(Map<String, Object?> envelope) {
   final connectionMode = envelope['connectionMode'];
   final data = envelope['data'];
-  final vmConnected = data is Map<String, Object?> ? data['vmConnected'] : null;
+  // `diagnose` reports `data.vmConnected`; `snapshot` reports the same flag as
+  // `data.isVmConnected`. Accept either.
+  final vmConnected = data is Map<String, Object?>
+      ? (data['vmConnected'] ?? data['isVmConnected'])
+      : null;
   return launchModeAdvisoryFor(
     connectionMode is String ? connectionMode : null,
     vmConnected: vmConnected is bool ? vmConnected : null,

@@ -353,6 +353,17 @@ Future<Object> _getSnapshotHandler(
     }
   }
 
+  // Degraded-session nudge in `data`: a client reading get_snapshot (not just
+  // connect/diagnose) is told VM-only detectors are suppressed.
+  final advisory = launchModeAdvisoryForEnvelope(out);
+  final outData = out['data'];
+  if (advisory != null && outData is Map<String, Object?>) {
+    out = <String, Object?>{
+      ...out,
+      'data': <String, Object?>{...outData, 'launchModeAdvisory': advisory},
+    };
+  }
+
   if (!diskHandoff) return out;
   try {
     return await snapshotDiskHandoff.write(out);
@@ -434,6 +445,8 @@ Future<Object> _getIssuesHandler(
     newData['_truncated'] = true;
     newData['_totalCount'] = projected.total;
   }
+  final advisory = launchModeAdvisoryForEnvelope(envelope);
+  if (advisory != null) newData['launchModeAdvisory'] = advisory;
   return Map<String, Object?>.from(envelope)..['data'] = newData;
 }
 

@@ -143,12 +143,14 @@ own** in-process VM connection is live, independent of the sidecar bridge:
 - **`full` / `correlated`** — VM connected. vmOnly detectors fire,
   confidence escalates to `likely` / `confirmed`, causal-graph links wire.
 
-`connect`, `attach_app`, and `diagnose` stamp an optional
-`launchModeAdvisory` string when the session is degraded — `warmup`,
-`disconnected`, or `basic` without a live VM self-connect — so an AI client
-is nudged to relaunch with `--no-dds` (below) instead of silently trusting a
-degraded issue list. `warmup` asks the client to re-run `diagnose` once the
-mode settles; a `basic` session whose VM *is* connected gets no nudge.
+`connect`, `attach_app`, `diagnose`, `get_snapshot`, and `get_issues` stamp an
+optional `launchModeAdvisory` string when the session is degraded — `warmup`,
+`disconnected`, or `basic` without a live VM self-connect — so an AI client is
+nudged to relaunch with `--no-dds` (below) instead of silently trusting a
+degraded issue list. Stamping the data tools, not just the connection tools,
+means every issue read carries the warning when VM-only detectors are
+suppressed. `warmup` asks the client to re-run `diagnose` once the mode
+settles; a `basic` session whose VM *is* connected gets no nudge.
 
 `flutter run` defaults to **DDS** (Dart Development Service), which claims
 the device's VM service as its sole client and forces `basic` for the

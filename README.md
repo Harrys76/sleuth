@@ -133,6 +133,8 @@ SleuthConfig(
 
 **VM full mode** adds sub-phase breakdown (build vs layout vs paint vs raster) but depends on VM service connectivity, which varies by platform. The package falls back gracefully to frame timing mode when VM is unavailable. On cold start, a background reconnect ladder (500 ms → 30 s, 7 attempts) automatically upgrades to full mode once the VM web server binds — no manual action needed.
 
+> **Prefer VM+ (full) mode for accurate, complete diagnostics.** In `basic` mode (no VM self-connect) the VM-only detectors stay silent — `heap_growing`, `heavy_compute`, `excessive_repaint`, `gc_pressure`, `stream_resource` never fire, and structural confidence is capped at `possible`. The issue list is real but **incomplete**, so don't trust "no memory/repaint issues" until `Sleuth.diagnose()` reports `full` / `correlated`. Reach it via `--no-dds` (below).
+
 ### Reaching full mode
 
 `flutter run` defaults to starting **DDS** (Dart Development Service), which claims the device's VM service as its sole client. That blocks sleuth's in-process self-connect, so it stays in frame-timing mode for the session.
