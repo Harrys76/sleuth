@@ -1,21 +1,18 @@
-## Companion package: sleuth_mcp
-
-`sleuth_mcp` (in `packages/sleuth_mcp/`) is now available — an MCP stdio sidecar
-that exposes the `ext.sleuth.*` VM service extensions to AI clients (Claude Code,
-Cursor, Zed), so an assistant can query a running app's live performance data in
-conversation. The in-app overlay remains sleuth's primary UX; the sidecar is
-opt-in and versioned independently — see
-[`packages/sleuth_mcp/CHANGELOG.md`](packages/sleuth_mcp/CHANGELOG.md) (current
-0.7.2).
-
 ## 0.36.0
+
+Companion package: `sleuth_mcp` is now available — an MCP stdio sidecar that
+exposes the `ext.sleuth.*` VM service extensions to AI clients (Claude Code,
+Cursor, Zed), so an assistant can query a running app's live performance data in
+conversation. Opt-in and versioned independently (see
+[`packages/sleuth_mcp/CHANGELOG.md`](packages/sleuth_mcp/CHANGELOG.md), current
+0.7.2). The in-app overlay remains sleuth's primary UX.
 
 `SleuthConfig.showOverlay` (default `true`). Set `false` to hide all in-app
 overlay UI (trigger button + dashboard) while detectors and `ext.sleuth.*`
 keep running — for MCP-only sessions where the AI client is the consumer.
 
 `kSleuthPackageVersion` 0.35.0 → 0.36.0; envelope `schemaVersion` stays `1`.
-Sidecar `sleuth_mcp` 0.6.4 pins 0.36.0.
+Sidecar `sleuth_mcp` (current 0.7.2) pins 0.36.0.
 
 ## 0.35.0
 
