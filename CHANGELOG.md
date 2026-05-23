@@ -1,3 +1,13 @@
+## Companion package: sleuth_mcp
+
+`sleuth_mcp` (in `packages/sleuth_mcp/`) is now available — an MCP stdio sidecar
+that exposes the `ext.sleuth.*` VM service extensions to AI clients (Claude Code,
+Cursor, Zed), so an assistant can query a running app's live performance data in
+conversation. The in-app overlay remains sleuth's primary UX; the sidecar is
+opt-in and versioned independently — see
+[`packages/sleuth_mcp/CHANGELOG.md`](packages/sleuth_mcp/CHANGELOG.md) (current
+0.7.2).
+
 ## 0.36.0
 
 `SleuthConfig.showOverlay` (default `true`). Set `false` to hide all in-app
