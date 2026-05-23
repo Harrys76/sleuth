@@ -45,7 +45,8 @@
           "nullable": false,
           "values": ["version_skew_minor", "version_skew_prior_lineage"],
           "presence": "when the connected app's packageVersion lineage differs from the sidecar pin within accepted bounds"
-        }
+        },
+        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup/disconnected, or basic without a live VM self-connect (vmConnected false) — VM-only detectors degraded; nudges a --no-dds relaunch"}
       },
       "errors": [
         {"code": "missing_required_arg", "doc": "uri arg missing or empty", "messagePrefix": "missing_required_arg: uri"},
@@ -76,7 +77,8 @@
         "mode": {"type": "String", "required": false, "nullable": false, "values": ["debug", "profile", "release"]},
         "lastError": {"type": "String", "required": false, "nullable": false, "presence": "when state == 'error'"},
         "transportMode": {"type": "String", "required": false, "nullable": false, "values": ["wired", "wireless", "unknown"], "presence": "when launchMode == 'ios-direct'"},
-        "wsUri": {"type": "String", "required": false, "nullable": false, "presence": "when launchMode == 'ios-direct'"}
+        "wsUri": {"type": "String", "required": false, "nullable": false, "presence": "when launchMode == 'ios-direct'"},
+        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup/disconnected, or basic without a live VM self-connect (vmConnected false) — VM-only detectors degraded; nudges a --no-dds relaunch"}
       },
       "errors": [
         {"code": "session_missing", "doc": "DaemonSession not initialized on this server", "messagePrefix": "internal: daemon session not initialized"},
@@ -252,7 +254,8 @@
         "lastCaptureExportFailure": {"type": "String", "required": true, "nullable": true},
         "unboundExtensionNames": {"type": "List<String>", "required": true, "nullable": false},
         "sidecarVersion": {"type": "String", "required": true, "nullable": false},
-        "sidecarBuiltAgainstSleuth": {"type": "String", "required": true, "nullable": false}
+        "sidecarBuiltAgainstSleuth": {"type": "String", "required": true, "nullable": false},
+        "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup/disconnected, or basic without a live VM self-connect (vmConnected false) — VM-only detectors degraded; nudges a --no-dds relaunch"}
       },
       "errors": []
     },

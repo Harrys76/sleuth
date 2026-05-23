@@ -36,6 +36,7 @@ Direct. Args: `uri` (String, required).
 | `sidecarVersion` | String | yes | sidecar pin |
 | `appPackageVersion` | String | yes (nullable) | app's reported `kSleuthPackageVersion` |
 | `warning` | String | no | `version_skew_minor` (same lineage, different patch) or `version_skew_prior_lineage` (accepted prior lineage) |
+| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` / `disconnected`, or `basic` without a live VM self-connect (VM-only detectors degraded); nudges a `flutter run --profile --no-dds` relaunch |
 
 **Errors:**
 
@@ -82,6 +83,7 @@ Data shape: `AppStatusPayload.toJson()` — see source at `packages/sleuth_mcp/l
 | `lastError` | String | no | when `state == 'error'` |
 | `transportMode` | String | no | `wired` / `wireless` / `unknown`; conditional: present iff `launchMode == 'ios-direct'` |
 | `wsUri` | String | no | iOS-direct sessions only |
+| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` / `disconnected`, or `basic` without a live VM self-connect (VM-only detectors degraded); nudges a `flutter run --profile --no-dds` relaunch |
 
 **Errors:**
 
@@ -192,6 +194,7 @@ Augments the extension's `data` block with two sidecar-stamped keys:
 | (all keys from `ext.sleuth.diagnose.data`) | | | passthrough — see `mcp_schema.md` |
 | `sidecarVersion` | String | yes | `sleuthMcpVersion` |
 | `sidecarBuiltAgainstSleuth` | String | yes | `sleuthPackageVersionPin` |
+| `launchModeAdvisory` | String | no | present when `connectionMode` is `warmup` / `disconnected`, or `basic` without a live VM self-connect (VM-only detectors degraded); nudges a `flutter run --profile --no-dds` relaunch |
 
 ## get_snapshot
 

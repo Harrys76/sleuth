@@ -1,3 +1,22 @@
+## 0.7.2
+
+Launch-mode advisory. `connect`, `attach_app`, and `diagnose` stamp an optional
+`launchModeAdvisory` string when the app's `connectionMode` shows VM-only
+detectors are degraded, nudging a `flutter run --profile --no-dds` relaunch:
+
+- `basic` + `vmConnected == false` → VM-only detectors (heap_growing,
+  heavy_compute, excessive_repaint, gc_pressure, stream_resource) suppressed; no
+  VM self-connect (usually DDS claiming it). VM-connected `basic` (verdict still
+  warming) fires nothing.
+- `warmup` → connectionMode not final; re-run `diagnose`.
+- `disconnected` → no live VM connection.
+- `full` / `correlated` → none.
+
+Separate from the version-skew `warning`; both can coexist. Top-level on
+`connect` / `attach_app`, inside `data` on `diagnose`; `app_status` omits it (no
+bridge call). Malformed `connectionMode` / `vmConnected` degrade to no advisory
+(never throws). Sidecar pin sleuth 0.36.0 unchanged.
+
 ## 0.7.1
 
 Fuller tool annotations. Sidecar-only; pin sleuth 0.36.0 unchanged.

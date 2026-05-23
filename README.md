@@ -86,6 +86,10 @@ Opt-in; most developers only need the in-app overlay. Sleuth reserves the
 `ext.sleuth.*` namespace — other packages should choose a distinct prefix
 to avoid `dart:developer.registerExtension` collisions.
 
+For MCP-only sessions where the AI client is the sole consumer, set
+`SleuthConfig(showOverlay: false)` to hide the trigger button and dashboard
+while detectors and the `ext.sleuth.*` extensions keep running.
+
 ## Debug vs Profile Mode
 
 Both modes run the full overlay, all 20 detectors, and the AI chat. The difference is **what data each mode can access** and **how accurate the timing is**.
@@ -232,6 +236,7 @@ Sleuth.track(
     triggerButtonAlignment: Alignment.bottomRight, // initial trigger button corner
     triggerButtonOffset: Offset(16, 16),           // pixel offset from corner
     showDebugModeBanner: true,         // dismissible debug-mode warning banner
+    showOverlay: true,                 // false hides overlay UI (trigger + dashboard); detectors + ext.sleuth.* keep running — for MCP-only sessions
     routeIgnorePatterns: {'/dialog*'}, // routes to exclude from tracking (exact or trailing *)
     routeHistoryCapacity: 20,          // max route sessions retained (FIFO)
   ),

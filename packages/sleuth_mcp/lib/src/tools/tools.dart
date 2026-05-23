@@ -16,6 +16,7 @@ import '../util/version_lineage.dart';
 import 'budgets.dart';
 import 'compare_snapshots.dart';
 import 'issue_projection.dart';
+import 'launch_mode_advisory.dart';
 import 'snapshot_disk_handoff.dart';
 
 final Lock _listDevicesLock = Lock();
@@ -261,6 +262,10 @@ Future<Object> _connectHandler(
   if (warning != null) {
     connectResult['warning'] = warning;
   }
+  final advisory = launchModeAdvisoryForEnvelope(diag);
+  if (advisory != null) {
+    connectResult['launchModeAdvisory'] = advisory;
+  }
   return connectResult;
 }
 
@@ -502,12 +507,36 @@ Future<Object> _diagnoseHandler(
   Map<String, Object?> args,
 ) async {
   final envelope = await bridge.callExtension('ext.sleuth.diagnose');
+  final advisory = launchModeAdvisoryForEnvelope(envelope);
   final data = envelope['data'];
-  if (data is! Map<String, Object?>) return envelope;
+  if (data is! Map<String, Object?>) {
+    // No `data` block (e.g. the disposed-controller `disconnected` envelope).
+    // Still surface the advisory in its documented `data` location.
+    if (advisory == null) return envelope;
+    return Map<String, Object?>.from(envelope)
+      ..['data'] = <String, Object?>{'launchModeAdvisory': advisory};
+  }
   final augmented = Map<String, Object?>.from(data)
     ..['sidecarVersion'] = sleuthMcpVersion
     ..['sidecarBuiltAgainstSleuth'] = sleuthPackageVersionPin;
+  if (advisory != null) {
+    augmented['launchModeAdvisory'] = advisory;
+  }
   return Map<String, Object?>.from(envelope)..['data'] = augmented;
+}
+
+/// Stamps `launchModeAdvisory` onto an attach `status.toJson()` map when the
+/// post-attach diagnose envelope reports a degraded `connectionMode`. [diag]
+/// is null on the non-attached path, which yields no advisory.
+Map<String, Object?> _withLaunchAdvisory(
+  Map<String, Object?> status,
+  Map<String, Object?>? diag,
+) {
+  final advisory = diag == null ? null : launchModeAdvisoryForEnvelope(diag);
+  if (advisory != null) {
+    status['launchModeAdvisory'] = advisory;
+  }
+  return status;
 }
 
 final Map<String, BuiltInTool> builtInTools = {
@@ -773,12 +802,14 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
           transportOverride: transportOverride,
           forceRelaunch: forceRelaunch,
         );
+        Map<String, Object?>? diag;
         if (status.attached) {
           final result = await _enforceVersionSkew(bridge);
           if (result.refusal != null) {
             await session.detach();
             return result.refusal!;
           }
+          diag = result.diagnose;
         } else {
           final lastError = status.lastError ?? '';
           if (lastError.contains('version_skew_')) {
@@ -805,7 +836,7 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
             );
           }
         }
-        return status.toJson();
+        return _withLaunchAdvisory(status.toJson(), diag);
       } on IosAttachException catch (e) {
         return _iosErrorEnvelope(
           _iosErrorKindToTypedName(e.kind),
@@ -841,14 +872,16 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
       // succeeded — run the same skew check `connect` runs. Redundant
       // when `defaultVersionSkewValidator` is wired into the bridge;
       // covers fakes / future bridges that skip wiring.
+      Map<String, Object?>? diag;
       if (status.attached) {
         final result = await _enforceVersionSkew(bridge);
         if (result.refusal != null) {
           await session.detach();
           return result.refusal!;
         }
+        diag = result.diagnose;
       }
-      return status.toJson();
+      return _withLaunchAdvisory(status.toJson(), diag);
     } on StateError catch (e) {
       return ToolCallResult.text(e.message, isError: true);
     } on DaemonSessionException catch (e) {

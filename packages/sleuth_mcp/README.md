@@ -24,7 +24,7 @@ sleuth_mcp install        # writes mcpServers.sleuth to ~/.claude.json
    calls the tools below against the live session.
 
 `install` is idempotent (advisory lock + atomic rename + `.bak`). For a
-project-local install instead, add `sleuth_mcp: ^0.7.1` to
+project-local install instead, add `sleuth_mcp: ^0.7.2` to
 `dev_dependencies`.
 
 **Cursor / Zed** (or manual config) — same `command`, point it at a
@@ -142,6 +142,13 @@ own** in-process VM connection is live, independent of the sidecar bridge:
   structural confidence stays `possible`.
 - **`full` / `correlated`** — VM connected. vmOnly detectors fire,
   confidence escalates to `likely` / `confirmed`, causal-graph links wire.
+
+`connect`, `attach_app`, and `diagnose` stamp an optional
+`launchModeAdvisory` string when the session is degraded — `warmup`,
+`disconnected`, or `basic` without a live VM self-connect — so an AI client
+is nudged to relaunch with `--no-dds` (below) instead of silently trusting a
+degraded issue list. `warmup` asks the client to re-run `diagnose` once the
+mode settles; a `basic` session whose VM *is* connected gets no nudge.
 
 `flutter run` defaults to **DDS** (Dart Development Service), which claims
 the device's VM service as its sole client and forces `basic` for the
