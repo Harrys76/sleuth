@@ -19,6 +19,8 @@ Structured source-of-truth: [`mcp_tool_schema.json`](mcp_tool_schema.json) — t
 
 **Read-only annotations.** Every descriptor carries `annotations.readOnlyHint` — `true` for read-only tools, `false` for `connect`/`attach_app`/`detach_app`/`hot_reload`. Annotation-aware clients can auto-approve the read-only set. Locked in `mcp_tool_schema.json` (`readOnlyTools`) and enforced by the audit.
 
+**Structured content (transport, cross-cutting).** For clients that negotiate MCP protocol `2025-06-18` or later, every **success** `tools/call` result also carries a top-level `structuredContent` field — the same JSON the text content block carries, as an object — so clients consume it without re-parsing the text. Clients on older protocol versions (`2024-11-05`, `2025-03-26`) receive the text content only. `structuredContent` is never set on error results. This is additive and doesn't alter any per-tool `data`/`args`/`errors` shape, so `schemaVersion` stays `2`.
+
 ## connect
 
 Direct. Args: `uri` (String, required).

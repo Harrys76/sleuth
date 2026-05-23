@@ -1,3 +1,20 @@
+## 0.6.6
+
+Structured tool output (MCP `2025-06-18`). Sidecar-only; pin sleuth 0.36.0
+unchanged.
+
+- For clients that negotiate protocol `2025-06-18` or later, every **success**
+  `tools/call` result now carries a top-level `structuredContent` field — the
+  same JSON the text content block carries, as an object — so clients consume
+  it without re-parsing the text. Clients on `2024-11-05` / `2025-03-26`
+  receive the text content only (additive, backward-compatible).
+- `structuredContent` mirrors the entire tool result (the full envelope for
+  passthrough tools, the file pointer for `diskHandoff`), and is never set on
+  error results.
+- `outputSchema` per-tool declarations are not included in this release.
+- Tool-schema doc `schemaVersion` stays `2` (no per-tool shape changed).
+  `sleuthMcpVersion` 0.6.5 → 0.6.6.
+
 ## 0.6.5
 
 Compact-issue projection for `get_issues` + `get_snapshot`. Sidecar-only;

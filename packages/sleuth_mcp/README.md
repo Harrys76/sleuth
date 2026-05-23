@@ -24,7 +24,7 @@ sleuth_mcp install        # writes mcpServers.sleuth to ~/.claude.json
    calls the tools below against the live session.
 
 `install` is idempotent (advisory lock + atomic rename + `.bak`). For a
-project-local install instead, add `sleuth_mcp: ^0.6.4` to
+project-local install instead, add `sleuth_mcp: ^0.6.6` to
 `dev_dependencies`.
 
 **Cursor / Zed** (or manual config) — same `command`, point it at a
@@ -62,6 +62,8 @@ known VM service URI:
 The read tools (everything except `connect`, `attach_app`, `detach_app`, `hot_reload`) carry `annotations.readOnlyHint: true`, so MCP clients that honor it can auto-approve them instead of prompting per call.
 
 **Compact issues (default).** `get_issues` and `get_snapshot` trim each issue to an actionable subset (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`) so responses stay readable and smaller. Pass `verbose: true` for the full ~22-field shape. Compaction drops fields, not field contents — hard size bounds come from `maxIssueCount` (issue count) and `diskHandoff` (large snapshots), not from field compaction. `get_issues` also caps to the top 50 ranked issues by default and stamps `_truncated` + `_totalCount` when it drops any — raise or disable with `maxIssueCount` (`0` = unbounded; negative is rejected with `arg_invalid_int`). The cap is independent of `verbose`. Compaction keeps `stableId` + `severity`, so `compare_snapshots` and `check_budgets` still work on compact snapshots.
+
+**Structured content (MCP `2025-06-18`+).** Clients that negotiate protocol `2025-06-18` or later get a top-level `structuredContent` field on every **success** `tools/call` result — the same JSON the text block carries, as an object — so there's no need to re-parse the text. Older clients (`2024-11-05`, `2025-03-26`) receive the text content only. `structuredContent` is never set on error results.
 
 ### Resources
 

@@ -23,7 +23,7 @@ const Set<String> supportedMcpProtocolVersions = {
   '2025-06-18',
 };
 
-const String sleuthMcpVersion = '0.6.5';
+const String sleuthMcpVersion = '0.6.6';
 
 /// Sleuth package version this sidecar is wire-compatible with. Must equal
 /// `kSleuthPackageVersion` in `lib/src/vm/service_extension_handlers.dart`
@@ -96,8 +96,16 @@ class McpServer {
   late final CausalGraphResource _causalGraph =
       CausalGraphResource(bridge: bridge);
   bool _initialized = false;
+  String _negotiatedProtocolVersion = mcpProtocolVersion;
   final Map<String, _RegisteredTool> _tools = {};
   final Map<String, _RegisteredResource> _resources = {};
+
+  /// MCP 2025-06-18 introduced `structuredContent`. The negotiated version is
+  /// always one of [supportedMcpProtocolVersions] (or the default), all of
+  /// which are `YYYY-MM-DD`, so a lexicographic compare equals a chronological
+  /// one. Defaults conservative (false) until `initialize` runs.
+  bool get _supportsStructuredContent =>
+      _negotiatedProtocolVersion.compareTo('2025-06-18') >= 0;
 
   DaemonSessionLifecycle? _daemonSession;
   bool _paused = false;
@@ -412,6 +420,7 @@ class McpServer {
       _causalGraph.invalidate();
     }
     _initialized = true;
+    _negotiatedProtocolVersion = negotiated;
     return JsonRpcResponse.result(id: msg.id, result: {
       'protocolVersion': negotiated,
       'serverInfo': {
@@ -473,6 +482,9 @@ class McpServer {
         result: ToolCallResult.text(argError, isError: true).toJson(),
       );
     }
+    // Snapshot the gate before awaiting: dispatch is pipelined, so a
+    // concurrent `initialize` could otherwise flip the protocol mid-call.
+    final supportsStructured = _supportsStructuredContent;
     try {
       // Lifecycle tools own the bridge + their own deadlines — skip
       // the generic timeout to avoid racing the in-flight RPC.
@@ -480,9 +492,26 @@ class McpServer {
       final result = tool.bypassesGenericTimeout
           ? await invocation
           : await invocation.timeout(_toolTimeout);
-      final asResult = result is ToolCallResult
-          ? result
-          : ToolCallResult.text(jsonEncode(result));
+      // Success handlers return a Map; errors/pre-shaped responses return a
+      // ToolCallResult (which we pass through untouched, so errors never carry
+      // structuredContent). On a Map success, mirror the JSON into
+      // structuredContent for 2025-06-18+ clients alongside the text block.
+      final ToolCallResult asResult;
+      if (result is ToolCallResult) {
+        asResult = result;
+      } else if (result is Map<String, Object?>) {
+        asResult = ToolCallResult(
+          content: [
+            {'type': 'text', 'text': jsonEncode(result)},
+          ],
+          structuredContent: supportsStructured ? result : null,
+        );
+      } else {
+        // No success handler returns a non-Map today. A future handler that
+        // returns a List/scalar would land here without structuredContent —
+        // promote it to the Map branch if structured output is wanted.
+        asResult = ToolCallResult.text(jsonEncode(result));
+      }
       return JsonRpcResponse.result(id: msg.id, result: asResult.toJson());
     } on TimeoutException {
       // Drain the bridge so orphan vm_service requests don't accumulate;

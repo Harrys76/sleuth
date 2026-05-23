@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sleuth_mcp/sleuth_mcp.dart';
 import 'package:test/test.dart';
 
@@ -214,6 +216,125 @@ void main() {
       final contents =
           (result['contents'] as List).first as Map<String, Object?>;
       expect((contents['text'] as String), contains('"count":99'));
+    });
+  });
+
+  group('structuredContent (MCP 2025-06-18)', () {
+    late FakeVmBridge bridge;
+    late McpServer server;
+
+    setUp(() {
+      bridge = defaultFakeBridge();
+      server = McpServer(bridge: bridge)..registerDefaults();
+    });
+
+    Future<void> init(String protocol) => server.handleForTest(
+          _req('initialize', params: {'protocolVersion': protocol}),
+        );
+
+    Future<Map<String, Object?>> call(
+      String name,
+      Map<String, Object?> args, {
+      Object? id = 2,
+    }) async {
+      final resp = await server.handleForTest(_req(
+        'tools/call',
+        params: {'name': name, 'arguments': args},
+        id: id,
+      ));
+      return resp!.result as Map<String, Object?>;
+    }
+
+    test('2025-06-18 success: structuredContent mirrors the text block',
+        () async {
+      await init('2025-06-18');
+      final result = await call('connect', {'uri': 'ws://localhost/ws'});
+      expect(result.containsKey('isError'), isFalse);
+      final sc = result['structuredContent'] as Map<String, Object?>;
+      final text = (result['content'] as List).first as Map<String, Object?>;
+      expect(sc, jsonDecode(text['text'] as String));
+      expect(sc['connected'], true);
+    });
+
+    test('2024-11-05: older client receives no structuredContent', () async {
+      await init('2024-11-05');
+      final result = await call('connect', {'uri': 'ws://localhost/ws'});
+      expect(result.containsKey('structuredContent'), isFalse);
+      final text = (result['content'] as List).first as Map<String, Object?>;
+      expect((jsonDecode(text['text'] as String) as Map)['connected'], true);
+    });
+
+    test('error result never carries structuredContent (2025-06-18)', () async {
+      await init('2025-06-18');
+      final result = await call('connect', const <String, Object?>{});
+      expect(result['isError'], true);
+      expect(result.containsKey('structuredContent'), isFalse);
+    });
+
+    test('re-initialize downgrade stops structuredContent emission', () async {
+      await init('2025-06-18');
+      final upgraded =
+          await call('connect', {'uri': 'ws://localhost/ws'}, id: 2);
+      expect(upgraded.containsKey('structuredContent'), isTrue);
+      // Re-init at an older protocol must revert the gate.
+      await init('2024-11-05');
+      final downgraded =
+          await call('connect', {'uri': 'ws://localhost/ws'}, id: 3);
+      expect(downgraded.containsKey('structuredContent'), isFalse);
+    });
+
+    test('passthrough success: structuredContent is the whole envelope',
+        () async {
+      await init('2025-06-18');
+      await call('connect', {'uri': 'ws://localhost/ws'});
+      final result = await call('get_snapshot', const {}, id: 3);
+      final sc = result['structuredContent'] as Map<String, Object?>;
+      expect(sc['sessionUuid'], 'fake-uuid');
+      expect(sc.containsKey('data'), isTrue,
+          reason: 'mirrors the full envelope, not just data');
+    });
+
+    test('pipelined re-init downgrade keeps SC on an in-flight call', () async {
+      await init('2025-06-18');
+      await call('connect', {'uri': 'ws://localhost/ws'});
+      // Hold get_snapshot in-flight at the extension call, then re-init older
+      // concurrently. The response must honor the protocol at request start.
+      final gate = bridge.gateExtension('ext.sleuth.snapshot');
+      final inflight = server.handleForTest(_req(
+        'tools/call',
+        params: {
+          'name': 'get_snapshot',
+          'arguments': const <String, Object?>{}
+        },
+        id: 3,
+      ));
+      await init('2024-11-05');
+      gate.complete();
+      final result = (await inflight)!.result as Map<String, Object?>;
+      expect(result.containsKey('structuredContent'), isTrue,
+          reason: 'call started under 2025-06-18 keeps SC despite mid-flight '
+              'downgrade');
+    });
+
+    test('pipelined re-init upgrade does not add SC to an older-started call',
+        () async {
+      await init('2024-11-05');
+      await call('connect', {'uri': 'ws://localhost/ws'});
+      final gate = bridge.gateExtension('ext.sleuth.snapshot');
+      final inflight = server.handleForTest(_req(
+        'tools/call',
+        params: {
+          'name': 'get_snapshot',
+          'arguments': const <String, Object?>{}
+        },
+        id: 3,
+      ));
+      await init('2025-06-18');
+      gate.complete();
+      final result = (await inflight)!.result as Map<String, Object?>;
+      expect(result.containsKey('structuredContent'), isFalse,
+          reason: 'call started under 2024-11-05 must not gain SC from a '
+              'mid-flight upgrade');
     });
   });
 }

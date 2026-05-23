@@ -139,7 +139,11 @@ class Resource {
 
 /// MCP `tools/call` response shape.
 class ToolCallResult {
-  ToolCallResult({required this.content, this.isError = false});
+  ToolCallResult({
+    required this.content,
+    this.isError = false,
+    this.structuredContent,
+  });
 
   factory ToolCallResult.text(String text, {bool isError = false}) =>
       ToolCallResult(
@@ -152,8 +156,14 @@ class ToolCallResult {
   final List<Map<String, Object?>> content;
   final bool isError;
 
+  /// MCP 2025-06-18 structured output: mirrors the `content` text block as a
+  /// JSON object. Server sets it only on success when the negotiated protocol
+  /// supports it; never on errors.
+  final Map<String, Object?>? structuredContent;
+
   Map<String, Object?> toJson() => {
         'content': content,
         if (isError) 'isError': true,
+        if (structuredContent != null) 'structuredContent': structuredContent,
       };
 }

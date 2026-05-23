@@ -107,6 +107,65 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );
+
+  test(
+    '2025-06-18 client receives structuredContent on a success tools/call',
+    () async {
+      final process = await Process.start(
+        Platform.resolvedExecutable,
+        ['run', 'bin/sleuth_mcp.dart'],
+        workingDirectory: Directory.current.path,
+      );
+      final responses = StreamQueue(process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .where((l) => l.trim().isNotEmpty));
+
+      process.stdin.writeln(jsonEncode({
+        'jsonrpc': '2.0',
+        'method': 'initialize',
+        'params': {'protocolVersion': '2025-06-18'},
+        'id': 1,
+      }));
+      await process.stdin.flush();
+      final initResp = jsonDecode(await responses.next) as Map<String, Object?>;
+      expect((initResp['result'] as Map)['protocolVersion'], '2025-06-18');
+
+      // compare_snapshots is client-side: a deterministic success with no
+      // connected app, so structuredContent is exercised over the real pipe.
+      process.stdin.writeln(jsonEncode({
+        'jsonrpc': '2.0',
+        'method': 'tools/call',
+        'params': {
+          'name': 'compare_snapshots',
+          'arguments': {
+            'before': {
+              'currentIssues': <Object?>[],
+              'frameStatsSummary': {'averageFps': 60.0},
+            },
+            'after': {
+              'currentIssues': <Object?>[],
+              'frameStatsSummary': {'averageFps': 55.0},
+            },
+          },
+        },
+        'id': 2,
+      }));
+      await process.stdin.flush();
+      final callResp = jsonDecode(await responses.next) as Map<String, Object?>;
+      final result = callResp['result'] as Map<String, Object?>;
+      expect(result.containsKey('isError'), isFalse);
+      final sc = result['structuredContent'] as Map<String, Object?>;
+      expect(sc['fpsDelta'], -5.0);
+      final text = (result['content'] as List).first as Map;
+      expect(sc, jsonDecode(text['text'] as String));
+
+      await process.stdin.close();
+      await process.exitCode.timeout(const Duration(seconds: 10));
+      await responses.cancel();
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
 }
 
 /// Resolves `lib/src/vm/service_extension_handlers.dart` in the sleuth

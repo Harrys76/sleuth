@@ -577,6 +577,18 @@ class FakeVmBridge implements VmBridge {
     _baseline = newUuid;
   }
 
+  final Map<String, Completer<void>> _extensionGates =
+      <String, Completer<void>>{};
+
+  /// Test seam: make the next `callExtension` for [method] suspend until the
+  /// returned completer is completed. Lets a test hold a tool call in-flight
+  /// while driving a concurrent message (e.g. a pipelined re-initialize).
+  Completer<void> gateExtension(String method) {
+    final gate = Completer<void>();
+    _extensionGates[method] = gate;
+    return gate;
+  }
+
   @override
   String? get baselineSessionUuid => _baseline;
 
@@ -661,6 +673,8 @@ class FakeVmBridge implements VmBridge {
         current: _baseline,
       );
     }
+    final gate = _extensionGates.remove(method);
+    if (gate != null) await gate.future;
     final canned = _envelopes[method];
     if (canned == null) {
       throw VmBridgeException('no canned envelope for $method');
