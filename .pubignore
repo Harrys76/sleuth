@@ -1,5 +1,4 @@
 build/
-packages/
 example/build/
 example/.dart_tool/
 example/.fvm/
