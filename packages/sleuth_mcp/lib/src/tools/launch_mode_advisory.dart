@@ -9,24 +9,27 @@ library;
 /// Advisory for `connectionMode == 'basic'`: self-connect failed after the
 /// warmup window, so VM-only detectors stay silent.
 const String launchAdvisoryBasic =
-    'VM-only detectors (heap_growing, heavy_compute, excessive_repaint, '
-    'gc_pressure, stream_resource) are suppressed: Sleuth could not '
-    'self-connect to the VM service. If you launched with default DDS '
-    '(plain `flutter run`), relaunch with `flutter run --profile --no-dds` '
-    'for full detector coverage.';
+    'Degraded session: Sleuth could not connect to the VM service, so its '
+    'VM-backed detectors are OFF (heap_growing, heavy_compute, '
+    'excessive_repaint, gc_pressure, stream_resource) — memory, CPU, and '
+    'repaint issues will not be reported and the issue list is incomplete. '
+    'First, kill and reopen the app: a profile build re-attempts the connect '
+    'on launch and usually recovers. If it stays basic AND the app was '
+    'started with `flutter run`, DDS is holding the VM service — relaunch '
+    'with `flutter run --profile --no-dds`.';
 
 /// Advisory for `connectionMode == 'warmup'`: the mode is not yet final, so
 /// the issue list may be incomplete even on a healthy session.
 const String launchAdvisoryWarmup =
-    'Sleuth is still warming up; connectionMode is not yet final. Re-run '
-    '`diagnose` in a few seconds to confirm full mode before trusting the '
-    'issue list.';
+    'Sleuth is still warming up (first few seconds), so the connection tier '
+    'is not final yet and the issue list may be incomplete. Re-run '
+    '`diagnose` shortly to confirm full mode before trusting it.';
 
 /// Advisory for `connectionMode == 'disconnected'`: no live VM connection.
 const String launchAdvisoryDisconnected =
-    'Sleuth reports no live VM connection (connectionMode: disconnected); '
-    'only FrameTiming and structural detectors run. Reach full mode with '
-    '`flutter run --profile --no-dds`.';
+    'Degraded session: no live VM connection, so only FrameTiming and '
+    'structural detectors run — memory/CPU/repaint issues are not reported. '
+    'Reach full coverage with `flutter run --profile --no-dds`.';
 
 /// Advisory for [connectionMode], or null when none is warranted (`full` /
 /// `correlated` / null / unrecognized).
