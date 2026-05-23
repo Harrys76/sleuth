@@ -159,6 +159,33 @@ void main() {
       expect(readOnly.difference(descriptors.keys.toSet()), isEmpty,
           reason: 'readOnlyTools names tools that no handler binds');
     });
+
+    test('every descriptor behavior hint matches toolAnnotations', () {
+      // Locks destructiveHint/idempotentHint/openWorldHint per tool.
+      // readOnlyHint is locked separately (readOnlyTools) and excluded here.
+      final annotations = schema['toolAnnotations'] as Map<String, Object?>;
+      final bridge = defaultFakeBridge();
+      final server = McpServer(bridge: bridge);
+      final descriptors = <String, dynamic>{
+        for (final e in builtInTools.entries) e.key: e.value.descriptor,
+        for (final e in lifecycleTools(server).entries)
+          e.key: e.value.descriptor,
+      };
+      for (final entry in descriptors.entries) {
+        final a = entry.value.annotations;
+        final derived = <String, Object?>{
+          if (a?.destructiveHint != null) 'destructiveHint': a.destructiveHint,
+          if (a?.idempotentHint != null) 'idempotentHint': a.idempotentHint,
+          if (a?.openWorldHint != null) 'openWorldHint': a.openWorldHint,
+        };
+        expect(derived, annotations[entry.key] ?? <String, Object?>{},
+            reason: '${entry.key} behavior hints disagree with the '
+                'toolAnnotations doc');
+      }
+      expect(annotations.keys.toSet().difference(descriptors.keys.toSet()),
+          isEmpty,
+          reason: 'toolAnnotations names tools that no handler binds');
+    });
   });
 
   group('connect', () {

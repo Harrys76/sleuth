@@ -24,7 +24,7 @@ sleuth_mcp install        # writes mcpServers.sleuth to ~/.claude.json
    calls the tools below against the live session.
 
 `install` is idempotent (advisory lock + atomic rename + `.bak`). For a
-project-local install instead, add `sleuth_mcp: ^0.7.0` to
+project-local install instead, add `sleuth_mcp: ^0.7.1` to
 `dev_dependencies`.
 
 **Cursor / Zed** (or manual config) — same `command`, point it at a
@@ -59,7 +59,7 @@ known VM service URI:
 | `detach_app` | — | Stop the daemon child + disconnect the bridge. Idempotent. |
 | `hot_reload` | — | Hot reload (preserves state + sessionUuid). Daemon-spawn sessions only. |
 
-The read tools (everything except `connect`, `attach_app`, `detach_app`, `hot_reload`) carry `annotations.readOnlyHint: true`, so MCP clients that honor it can auto-approve them instead of prompting per call.
+The read tools (everything except `connect`, `attach_app`, `detach_app`, `hot_reload`) carry `annotations.readOnlyHint: true`, so MCP clients that honor it can auto-approve them instead of prompting per call. Descriptors also carry the other MCP behavior hints — `destructiveHint`, `idempotentHint`, `openWorldHint` — locked per tool and audit-enforced. Tools whose output reflects the live app or host (`get_snapshot`, `get_issues`, `get_route_health`, `diagnose`, `check_budgets`, `list_devices`) are `openWorldHint:true`; `detach_app` is `destructiveHint:true` (it tears down the session and deletes disk-handoff files).
 
 **Compact issues (default).** `get_issues` and `get_snapshot` trim each issue to an actionable subset (`severity`, `category`, `confidence`, `title`, `detail`, `fixHint`, `stableId`, `widgetName`, `routeName`, `sourceRoute`, `confidenceReason`, `rootCauseIds`) so responses stay readable and smaller. Pass `verbose: true` for the full ~22-field shape. Compaction drops fields, not field contents — hard size bounds come from `maxIssueCount` (issue count) and `diskHandoff` (large snapshots), not from field compaction. `get_issues` also caps to the top 50 ranked issues by default and stamps `_truncated` + `_totalCount` when it drops any — raise or disable with `maxIssueCount` (`0` = unbounded; negative is rejected with `arg_invalid_int`). The cap is independent of `verbose`. Compaction keeps `stableId` + `severity`, so `compare_snapshots` and `check_budgets` still work on compact snapshots.
 

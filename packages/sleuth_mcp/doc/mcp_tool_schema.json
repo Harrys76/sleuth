@@ -2,12 +2,29 @@
   "_doc": "Wire schema for sleuth_mcp tool-call return shapes. Sidecar-only — the root sleuth package does not ship a parallel copy. Audit source: packages/sleuth_mcp/test/schema/mcp_tool_schema_audit_test.dart. Human-readable render at mcp_tool_schema.md.",
   "schemaVersion": 2,
   "readOnlyTools": ["app_status", "check_budgets", "compare_snapshots", "diagnose", "explain_issue", "get_issues", "get_route_health", "get_snapshot", "list_devices"],
+  "toolAnnotations": {
+    "connect": {"destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
+    "get_snapshot": {"openWorldHint": true},
+    "get_issues": {"openWorldHint": true},
+    "get_route_health": {"openWorldHint": true},
+    "explain_issue": {"openWorldHint": false},
+    "compare_snapshots": {"openWorldHint": false},
+    "check_budgets": {"openWorldHint": true},
+    "diagnose": {"openWorldHint": true},
+    "attach_app": {"destructiveHint": false, "idempotentHint": false, "openWorldHint": true},
+    "detach_app": {"destructiveHint": true, "idempotentHint": true, "openWorldHint": true},
+    "app_status": {"openWorldHint": false},
+    "list_devices": {"openWorldHint": true},
+    "hot_reload": {"destructiveHint": false, "idempotentHint": false, "openWorldHint": true}
+  },
   "notes": [
     "Error envelopes describe current sidecar handler behavior — each handler returns ToolCallResult.text(...) with `isError: true` and a single text content carrying the message string. Codes listed in `errors[].code` appear verbatim as the prefix of that text. A centralized typed error class is acknowledged debt.",
     "Passthrough tools delegate to bridge.callExtension and return the ext.sleuth.* envelope unmodified. Documented shims (get_route_health v0.32 -> v0.33 wrapper, get_issues severityAtLeast filter, compact-issue projection on get_issues + get_snapshot) are spelled out explicitly so the audit can assert the shim's behavior.",
     "Snapshot / route-session nested shapes live in mcp_schema.{json,md}. This file documents only the tool-layer wrapping.",
     "schemaVersion 2 adds the compact-issue projection: get_issues and get_snapshot trim each issue to the actionable subset by default (severity, category, confidence, title, detail, fixHint, stableId, widgetName, routeName, sourceRoute, confidenceReason, rootCauseIds). Pass verbose:true for the full ~22-field shape. Compaction is field-only and lossless for the diff key (stableId + severity), so compare_snapshots and check_budgets work on compact snapshots.",
-    "Transport (cross-cutting, not a per-tool shape): for clients that negotiate MCP protocol >= 2025-06-18, every SUCCESS tools/call result also carries a top-level `structuredContent` field — the same JSON the text content block carries, as an object. Clients on older protocol versions see the text content only. structuredContent is never set on error results (isError:true). This is additive and does not change any per-tool data/args/errors shape below, so schemaVersion stays 2."
+    "Transport (cross-cutting, not a per-tool shape): for clients that negotiate MCP protocol >= 2025-06-18, every SUCCESS tools/call result also carries a top-level `structuredContent` field — the same JSON the text content block carries, as an object. Clients on older protocol versions see the text content only. structuredContent is never set on error results (isError:true). This is additive and does not change any per-tool data/args/errors shape below, so schemaVersion stays 2.",
+    "toolAnnotations locks the three non-readOnly MCP annotation hints (destructiveHint, idempotentHint, openWorldHint) per tool; readOnlyHint stays sourced from readOnlyTools (not duplicated here). Only non-default hints are listed. openWorldHint:true for tools whose output reflects external/runtime state (the live-app readers get_snapshot/get_issues/get_route_health/diagnose/check_budgets and the host enumerator list_devices); false for self-contained tools (explain_issue static content, compare_snapshots local diff, app_status server-internal status). destructiveHint:true for detach_app (it terminates the session and deletes disk-handoff files); destructive/idempotent are omitted on read-only tools (the spec ignores those unless readOnlyHint is false). Annotations are advisory descriptor metadata, not a tool return/args shape, so schemaVersion stays 2.",
+    "The audit enforces descriptor<->toolAnnotations CONSISTENCY, not value-vs-behavior CORRECTNESS — a hint that disagrees with what a handler actually does (e.g. a destructive tool marked non-destructive) passes as long as the descriptor and this doc agree. Hint values are a spec/behavior judgment, reviewed against the MCP ToolAnnotations spec + the handlers, not machine-verified."
   ],
   "tools": {
     "connect": {

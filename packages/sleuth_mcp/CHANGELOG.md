@@ -1,3 +1,23 @@
+## 0.7.1
+
+Fuller tool annotations. Sidecar-only; pin sleuth 0.36.0 unchanged.
+
+- Every tool descriptor now carries the full MCP annotation set —
+  `destructiveHint`, `idempotentHint`, `openWorldHint` — alongside the existing
+  `readOnlyHint`. `openWorldHint:true` for tools whose output reflects the live
+  app or host (`get_snapshot`, `get_issues`, `get_route_health`, `diagnose`,
+  `check_budgets`, `list_devices`); `false` for self-contained tools
+  (`explain_issue`, `compare_snapshots`, `app_status`). `detach_app` is
+  `destructiveHint:true` (it tears down the session and deletes disk-handoff
+  files). Read-only tools omit destructive/idempotent (the spec ignores those
+  unless the tool is not read-only).
+- The three new hints are locked per tool in `doc/mcp_tool_schema.json`
+  (`toolAnnotations`) and enforced by the audit; `readOnlyHint` stays sourced
+  from `readOnlyTools`. Tool-schema `schemaVersion` stays `2` (advisory
+  descriptor metadata, not a return-shape change). `sleuthMcpVersion`
+  0.7.0 → 0.7.1.
+- Advisory hints for annotation-aware clients; no behavior change.
+
 ## 0.7.0
 
 MCP prompts — guided diagnostics. Sidecar-only; pin sleuth 0.36.0 unchanged.

@@ -103,15 +103,28 @@ class Tool {
       };
 }
 
-/// MCP tool `annotations`. `readOnlyHint: true` marks a tool side-effect-free
-/// so annotation-aware clients can auto-approve it instead of prompting.
+/// MCP tool `annotations` — client-advisory hints. `readOnlyHint` marks a
+/// side-effect-free tool. The other three apply only when it's false:
+/// `destructiveHint` (may destroy/remove), `idempotentHint` (repeat = same
+/// effect), `openWorldHint` (reaches external entities vs a bounded domain).
 class ToolAnnotations {
-  const ToolAnnotations({this.readOnlyHint});
+  const ToolAnnotations({
+    this.readOnlyHint,
+    this.destructiveHint,
+    this.idempotentHint,
+    this.openWorldHint,
+  });
 
   final bool? readOnlyHint;
+  final bool? destructiveHint;
+  final bool? idempotentHint;
+  final bool? openWorldHint;
 
   Map<String, Object?> toJson() => {
         if (readOnlyHint != null) 'readOnlyHint': readOnlyHint,
+        if (destructiveHint != null) 'destructiveHint': destructiveHint,
+        if (idempotentHint != null) 'idempotentHint': idempotentHint,
+        if (openWorldHint != null) 'openWorldHint': openWorldHint,
       };
 }
 
