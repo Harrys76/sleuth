@@ -1,0 +1,85 @@
+name: Flutter CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Flutter quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up pinned Flutter
+        uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: 3.41.4
+          cache: true
+
+      - name: Resolve root dependencies
+        run: flutter pub get --no-example
+
+      - name: Resolve example dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Resolve MCP package dependencies
+        working-directory: packages/sleuth_mcp
+        run: dart pub get
+
+      - name: Check formatting
+        run: >-
+          dart format --output=none --set-exit-if-changed
+          lib test example/lib
+          packages/sleuth_mcp/lib packages/sleuth_mcp/test tool
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+  dartdoc:
+    name: Dartdoc audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up pinned Flutter
+        uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: 3.41.4
+          cache: true
+
+      - name: Resolve root dependencies
+        run: flutter pub get --no-example
+
+      - name: Resolve example dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Resolve MCP package dependencies
+        working-directory: packages/sleuth_mcp
+        run: dart pub get
+
+      - name: Generate API documentation without unresolved references
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          dart doc --dry-run 2>&1 | tee "$RUNNER_TEMP/dartdoc.log"
+          grep -Fqx "Found 0 warnings and 0 errors." "$RUNNER_TEMP/dartdoc.log"
