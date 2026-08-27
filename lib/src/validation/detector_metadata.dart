@@ -167,7 +167,7 @@ class BracketSpec {
 /// Each detector is expected to expose a [DetectorMetadata] describing the
 /// strongest evidence supporting its current numbers. The metadata is surfaced
 /// in docs and consumed by the `detector_metadata_audit_test.dart` CI gate
-/// (live since v0.16.1) which walks the [SleuthController]'s registered
+/// (live since v0.16.1) which walks the `SleuthController`'s registered
 /// detector instances and enforces that every shipped detector mixes in
 /// [DetectorMetadataProvider] and returns a non-null metadata entry with a
 /// non-empty rationale and tier-appropriate fields (`reproducerOnly` and
@@ -412,7 +412,7 @@ class DetectorMetadata {
   /// Widen for detectors whose magnitude is hard to land precisely on
   /// device — HeavyCompute on iPhone exhibits ±60 % thermal/JIT drift
   /// between calibration and the actual scenario run, so a 10 % band is
-  /// unreachable. Widening to 0.30 yields a [8, 10.4] ms at-band that
+  /// unreachable. Widening to 0.30 yields a `8, 10.4` ms at-band that
   /// still proves "at threshold" semantics with realistic recording
   /// noise. Tighten only when the magnitude is naturally stable
   /// (network latency to a loopback server, fixed-size memory
@@ -529,8 +529,8 @@ class DetectorMetadata {
   ///   `ProfileCaptureSchema.validateBracket` independently. The audit
   ///   gate calls validateBracket once per spec (top-level + each entry).
   /// - Cross-spec uniqueness on `(stableId, severityLabel, argKey)`
-  ///   tuples spans the union of {top-level, additionalBrackets[*]}.
-  ///   Top-level is treated as logical spec #0; additionalBrackets[i]
+  ///   tuples spans the union of {top-level, additionalBrackets`*`}.
+  ///   Top-level is treated as logical spec #0; additionalBrackets`i`
   ///   as spec #(i+1). Two specs with the same (stableId, severityLabel,
   ///   argKey) are rejected — the same trace event
   ///   `sleuth.issue.<stableId>.<severity>` would be double-counted
@@ -546,7 +546,7 @@ class DetectorMetadata {
   ///   contains the matching `<stableId>.<severity>` entry. Audit fails
   ///   when a perStableIdTier raise is unmoored from any bracket evidence.
   /// - All capture paths (top-level [profileCapturePaths] +
-  ///   `additionalBrackets[*].profileCapturePaths`) are walked by the
+  ///   `additionalBrackets`*`.profileCapturePaths`) are walked by the
   ///   orphan-capture-audit so a stray file under
   ///   `test/validation/captures/` not referenced from any spec is
   ///   rejected.
@@ -587,7 +587,7 @@ class DetectorMetadata {
 /// Dart does not treat static members as part of a class interface, so the
 /// contract is necessarily instance-level: the audit test
 /// (`detector_metadata_audit_test.dart`, live since v0.16.1) walks the
-/// [SleuthController]'s registered detector instances via
+/// `SleuthController`'s registered detector instances via
 /// `detectorsForAudit` — the same construction path the runtime already
 /// exercises — rather than reflecting on types directly. Keep detector
 /// constructors side-effect-free (field initialization only, no I/O or

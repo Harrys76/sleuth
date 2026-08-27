@@ -13,7 +13,7 @@ import 'evidence_tier.dart';
 ///    claims without being detectors themselves (e.g. `IssueRanker`,
 ///    `CausalGraphRule`, VM reconnect ladder, `_frameworkWidgetDenyList`).
 ///    These cannot be walked through a controller; they publish
-///    [ComponentMetadata] via [ValidatedComponentRegistry] and are walked
+///    [ComponentMetadata] via `ValidatedComponentRegistry` and are walked
 ///    by `component_metadata_audit_test.dart`.
 ///
 /// The two frameworks are intentionally parallel in shape so contributors
@@ -194,7 +194,7 @@ class ComponentMetadata {
 /// instances (e.g. `IssueRanker`). For `const` registries and top-level
 /// utilities that lack an instance, publish metadata by passing a
 /// `const ComponentMetadata(...)` directly to
-/// [ValidatedComponentRegistry.instance.register] from a
+/// `ValidatedComponentRegistry.instance.register` from a
 /// `static void registerMetadata()` entry point.
 mixin ComponentMetadataProvider {
   /// Metadata for this component. Must be non-null on shipping components

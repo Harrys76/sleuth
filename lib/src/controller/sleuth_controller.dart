@@ -3582,7 +3582,7 @@ class SleuthController {
   ///
   /// Closing the active session matters even for non-structural reloads where
   /// Element identity is preserved: without it, the session-keying predicate
-  /// in [scanTree] sees unchanged `routeName` + `scaffoldHashKey` and the
+  /// in `scanTree` sees unchanged `routeName` + `scaffoldHashKey` and the
   /// pre-reload session continues into post-reload, carrying a stale
   /// [RouteSession.hotReloadGeneration] stamp and mixing frame samples
   /// across the reload boundary.
@@ -4430,7 +4430,7 @@ class SleuthConfig {
   /// Custom theme for the overlay UI.
   ///
   /// When null (default), the overlay auto-selects dark or light based on
-  /// [MediaQuery.platformBrightness]. If no [MediaQuery] is available
+  /// `MediaQuery.platformBrightness`. If no [MediaQuery] is available
   /// (rare), defaults to dark.
   ///
   /// ```dart
@@ -4751,8 +4751,8 @@ class SleuthConfig {
   ///
   /// Each detector extends [BaseDetector] and declares its [DetectorLifecycle].
   /// The controller routes data to custom detectors based on their lifecycle
-  /// exactly like built-in detectors: structural → [scanTree],
-  /// vmOnly → [processTimelineData], hybrid → both.
+  /// exactly like built-in detectors: structural → `scanTree`,
+  /// vmOnly → `processTimelineData`, hybrid → both.
   ///
   /// Custom detectors whose [BaseDetector.key] is in
   /// [disabledCustomDetectorKeys] are constructed but start with

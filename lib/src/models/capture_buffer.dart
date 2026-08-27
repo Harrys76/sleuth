@@ -5,8 +5,8 @@ import 'performance_issue.dart';
 /// A single captured jank frame with its verdict, stamped issues, and timing.
 ///
 /// [relatedIssues] is the canonical issue list with route/context tags
-/// (populated from [issuesNotifier.value] after aggregation). This is
-/// separate from [verdict.relatedIssues] which may be unstamped.
+/// (populated from `issuesNotifier.value` after aggregation). This is
+/// separate from `verdict.relatedIssues` which may be unstamped.
 class CaptureEntry {
   const CaptureEntry({
     required this.frameStats,

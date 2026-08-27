@@ -363,7 +363,7 @@ class Sleuth {
   /// Current startup metrics, or null if [init] was not called or the
   /// first frame has not yet been rendered.
   ///
-  /// Package-internal — read by [StartupDetector] and [SleuthController].
+  /// Package-internal — read by `StartupDetector` and [SleuthController].
   static StartupMetrics? get startupMetrics => _startupMetrics;
 
   /// Enrich startup metrics with VM timeline data (package-internal).
@@ -456,7 +456,7 @@ class Sleuth {
     return SleuthOverlay(controller: controller, child: child);
   }
 
-  /// Called by [SleuthOverlay.dispose] to clear the static reference.
+  /// Called by `SleuthOverlay.dispose` to clear the static reference.
   /// Identity check ensures disposing an old overlay doesn't clear a new one.
   ///
   /// Package-internal — do not call from app code.
@@ -862,11 +862,11 @@ class Sleuth {
   }
 
   /// Export session snapshot for comparison and sharing.
-  /// Returns null in release mode, before [wrap], or after overlay disposal.
+  /// Returns null in release mode, before `wrap`, or after overlay disposal.
   static SessionSnapshot? exportSnapshot() => _controller?.exportSnapshot();
 
   /// Export session snapshot as a formatted JSON string.
-  /// Returns null in release mode, before [wrap], or after overlay disposal.
+  /// Returns null in release mode, before `wrap`, or after overlay disposal.
   static String? exportSnapshotJson() => _controller?.exportSnapshotJson();
 
   /// Export a human-readable markdown summary suitable for pasting into

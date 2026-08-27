@@ -4,7 +4,7 @@ import 'performance_issue.dart';
 
 /// A detected widget's screen position and performance status.
 ///
-/// Collected during tree scans and used by [HighlightOverlay] to draw
+/// Collected during tree scans and used by `HighlightOverlay` to draw
 /// colored borders around problematic widgets.
 class WidgetHighlight {
   const WidgetHighlight({

@@ -1,7 +1,7 @@
 /// A single heap memory usage sample from the VM service.
 ///
 /// Captured every 500ms alongside the timeline poll. Used by
-/// [MemoryPressureDetector] for trend analysis and included in
+/// `MemoryPressureDetector` for trend analysis and included in
 /// session export for offline investigation.
 class HeapSample {
   const HeapSample({
@@ -30,7 +30,7 @@ class HeapSample {
   final int? rssBytes;
 
   /// Estimated native (non-Dart) memory: RSS minus Dart heap usage.
-  /// Null when [rssBytes] is unavailable. Clamped to [0, rssBytes] to handle
+  /// Null when `rssBytes` is unavailable. Clamped to `0, rssBytes` to handle
   /// edge cases where RSS lags behind heap expansion.
   int? get nativeBytes =>
       rssBytes != null ? (rssBytes! - heapUsage).clamp(0, rssBytes!) : null;

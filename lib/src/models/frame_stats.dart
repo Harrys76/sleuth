@@ -67,7 +67,7 @@ class FrameStats {
 
   /// Absolute monotonic timestamps (μs) from [FrameTiming.timestampInMicroseconds].
   /// Null for test-created frames; populated from real [FrameTiming] callbacks.
-  /// Used by [FrameEventCorrelator] to match VM timeline events to specific frames.
+  /// Used by `FrameEventCorrelator` to match VM timeline events to specific frames.
   final int? vsyncStartUs;
   final int? buildStartUs;
   final int? buildFinishUs;
@@ -283,7 +283,7 @@ class FrameStatsBuffer {
   }
 
   /// Latency-derived throughput (capacity estimate):
-  /// `1e6 / average(effectiveTotalDuration_us)`, clamped to `[0, 120]`.
+  /// `1e6 / average(effectiveTotalDuration_us)`, clamped to ``0, 120``.
   ///
   /// Capped at 120. The UI further caps at [SleuthConfig.fpsTarget] so an
   /// idle screen in profile mode shows the target (e.g. 60).
@@ -320,7 +320,7 @@ class FrameStatsBuffer {
   ///
   /// Converts each frame's [FrameStats.effectiveTotalDuration] to an
   /// instantaneous FPS value, then picks p50/p95/p99 from the sorted list.
-  /// All values clamped to [0, 120] to match [averageFps] behavior.
+  /// All values clamped to `0, 120` to match [averageFps] behavior.
   ///
   /// Returns zero percentiles when the buffer has fewer than 2 frames
   /// (statistically meaningless). Consumers should check

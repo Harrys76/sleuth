@@ -130,7 +130,7 @@ class DetectorThresholds {
         );
 
   /// Shader compilation duration in milliseconds above which
-  /// [ShaderJankDetector] fires. Critical severity at 2× this value.
+  /// `ShaderJankDetector` fires. Critical severity at 2× this value.
   ///
   /// **Default:** 100 ms. Shader warmup stalls are typically multi-frame
   /// events; 100 ms reliably filters cold-start compilations without
@@ -183,7 +183,7 @@ class DetectorThresholds {
   final int startupPhaseWindowSeconds;
 
   /// UI-thread gap duration in milliseconds indicating heavy compute on
-  /// the main isolate. [HeavyComputeDetector] fires at 2× this value
+  /// the main isolate. `HeavyComputeDetector` fires at 2× this value
   /// (default fire threshold: 16 ms).
   ///
   /// **Default:** 8 ms (half a 16 ms frame budget). Fires at 16 ms, which
@@ -193,7 +193,7 @@ class DetectorThresholds {
   /// this** (e.g. 4 ms) for a stricter main-isolate budget audit.
   final int heavyComputeGapMs;
 
-  /// Raster-to-UI time ratio above which [GpuPressureDetector] flags a
+  /// Raster-to-UI time ratio above which `GpuPressureDetector` flags a
   /// frame as GPU-bound. Critical severity at 2× this value.
   ///
   /// **Default:** 2.0. Raster time is normally a small fraction of UI
@@ -205,7 +205,7 @@ class DetectorThresholds {
   final double gpuPressureRatio;
 
   /// Heap growth rate in bytes per second above which
-  /// [MemoryPressureDetector] flags sustained growth.
+  /// `MemoryPressureDetector` flags sustained growth.
   ///
   /// **Default:** 512 KB/sec (512,000). Evaluated over a 10 s sliding
   /// window to avoid latching on brief allocation bursts (e.g. a single
@@ -217,7 +217,7 @@ class DetectorThresholds {
   final int memoryGrowthBytesPerSec;
 
   /// Heap usage as a fraction of capacity (0.0–1.0) above which
-  /// [MemoryPressureDetector] fires a near-capacity warning.
+  /// `MemoryPressureDetector` fires a near-capacity warning.
   ///
   /// **Default:** 0.80 (80 %). Once the Dart heap exceeds 80 % of
   /// capacity, GC frequency rises sharply and the app is one allocation
@@ -229,7 +229,7 @@ class DetectorThresholds {
   final double memoryCapacityPercent;
 
   /// Minimum proportion of the owning subtree that must be dirty for
-  /// [SetStateScopeDetector] to promote a rebuild hot spot into an issue.
+  /// `SetStateScopeDetector` to promote a rebuild hot spot into an issue.
   /// Value is a fraction in the range 0.0–1.0.
   ///
   /// **Default:** 0.5 (50 %). Chosen to suppress the 5 %–20 % "normal
@@ -243,7 +243,7 @@ class DetectorThresholds {
   final double setStateScopeOwnershipPercent;
 
   /// Maximum active `AutomaticKeepAlive` entries in a scrollable before
-  /// [KeepAliveDetector] fires. Critical severity at 2× this value.
+  /// `KeepAliveDetector` fires. Critical severity at 2× this value.
   ///
   /// **Default:** 5. Above this, keep-alive hoarding defeats the
   /// lazy-list memory model — every preserved item is permanently
@@ -255,7 +255,7 @@ class DetectorThresholds {
   final int keepAliveMax;
 
   /// Maximum distinct custom font families observed on a single screen
-  /// before [FontLoadingDetector] fires.
+  /// before `FontLoadingDetector` fires.
   ///
   /// **Default:** 3. Every additional family requires a glyph atlas
   /// upload; 3 families covers a typical design system (regular / medium
@@ -266,7 +266,7 @@ class DetectorThresholds {
   /// font discipline.
   final int fontLoadingMaxFamilies;
 
-  /// Time-to-first-frame in milliseconds above which [StartupDetector]
+  /// Time-to-first-frame in milliseconds above which `StartupDetector`
   /// fires a warning-level issue.
   ///
   /// **Default:** 1500 ms. Cold starts under 1.5 s feel instant on most
@@ -277,7 +277,7 @@ class DetectorThresholds {
   /// cold-start budget.
   final int startupTtffWarningMs;
 
-  /// Time-to-first-frame in milliseconds above which [StartupDetector]
+  /// Time-to-first-frame in milliseconds above which `StartupDetector`
   /// escalates to critical severity.
   ///
   /// **Default:** 3000 ms. A 3 s cold start is a retention risk on

@@ -2,7 +2,7 @@ import 'performance_issue.dart';
 
 /// Categorization of an issue's change between baseline and current state.
 enum FixVerificationStatus {
-  /// Issue was present in baseline, absent for [cooldownCycles]+ cycles.
+  /// Issue was present in baseline, absent for `cooldownCycles`+ cycles.
   resolved,
 
   /// Issue is still present but with lower severity or ranking score.
@@ -35,16 +35,16 @@ class IssueVerificationEntry {
   /// How this issue changed.
   final FixVerificationStatus status;
 
-  /// Severity at baseline capture. Null for [newIssue].
+  /// Severity at baseline capture. Null for `newIssue`.
   final IssueSeverity? baselineSeverity;
 
-  /// Current severity. Null for [resolved].
+  /// Current severity. Null for `resolved`.
   final IssueSeverity? currentSeverity;
 
-  /// Ranking score at baseline capture. Null for [newIssue].
+  /// Ranking score at baseline capture. Null for `newIssue`.
   final int? baselineScore;
 
-  /// Current ranking score. Null for [resolved].
+  /// Current ranking score. Null for `resolved`.
   final int? currentScore;
 
   Map<String, dynamic> toJson() => {
@@ -142,7 +142,7 @@ class FixBaseline {
     consecutiveAbsentCycles.remove(stableId);
   }
 
-  /// Check if an issue has been absent for [cooldownCycles] or more.
+  /// Check if an issue has been absent for `cooldownCycles` or more.
   bool isResolved(String stableId, {int cooldownCycles = 5}) {
     return (consecutiveAbsentCycles[stableId] ?? 0) >= cooldownCycles;
   }
