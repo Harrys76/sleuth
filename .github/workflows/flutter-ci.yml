@@ -22,10 +22,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Set up Flutter stable
+      - name: Set up pinned Flutter
         uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
         with:
-          channel: stable
+          flutter-version-file: .fvmrc
           cache: true
 
       - name: Resolve root dependencies
@@ -55,15 +55,14 @@ jobs:
     name: Dartdoc audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Set up Flutter stable
+      - name: Set up pinned Flutter
         uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
         with:
-          channel: stable
+          flutter-version-file: .fvmrc
           cache: true
 
       - name: Resolve root dependencies
@@ -78,6 +77,7 @@ jobs:
         run: dart pub get
 
       - name: Generate API documentation without unresolved references
+        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
