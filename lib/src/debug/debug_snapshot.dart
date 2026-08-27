@@ -14,7 +14,7 @@ enum RebuildCountSource { none, debugCallback, flutterTimeline }
 
 /// A snapshot of debug callback data accumulated over a time window.
 ///
-/// Produced by [DebugInstrumentationCoordinator.snapshot()] and consumed
+/// Produced by `DebugInstrumentationCoordinator.snapshot()` and consumed
 /// by detectors to provide per-widget-type rebuild and paint attribution.
 class DebugSnapshot {
   const DebugSnapshot({
@@ -52,8 +52,8 @@ class DebugSnapshot {
   /// also counted in [paintCounts], so detectors that want a "non-owned
   /// residual" must subtract.
   ///
-  /// Populated by [DebugInstrumentationCoordinator._handleProfilePaint]
-  /// using [isAnimationOwnedPaint] (chain-containment OR bounded
+  /// Populated by `DebugInstrumentationCoordinator._handleProfilePaint`
+  /// using `isAnimationOwnedPaint` (chain-containment OR bounded
   /// descendant walk). Per-paint attribution sidesteps the
   /// `paintCounts` polymorphic-key collision:
   /// two distinct widgets that both report `'CustomPaint'` as their

@@ -42,7 +42,7 @@ class ParsedTimelineData {
 
   /// Timestamped phase events for frame-event correlation.
   /// Each event carries its absolute monotonic timestamp and duration,
-  /// allowing [FrameEventCorrelator] to match events to specific frames.
+  /// allowing `FrameEventCorrelator` to match events to specific frames.
   final List<PhaseEvent> phaseEvents;
 
   bool get hasData =>

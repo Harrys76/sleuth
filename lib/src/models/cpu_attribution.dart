@@ -1,6 +1,6 @@
 /// A single function's CPU attribution during a jank frame.
 ///
-/// Produced by [CpuSampleAggregator] from VM CPU profiling samples.
+/// Produced by `CpuSampleAggregator` from VM CPU profiling samples.
 /// Represents the percentage of exclusive (self) CPU time spent in this
 /// function during the frame window.
 class CpuAttribution {
@@ -27,7 +27,7 @@ class CpuAttribution {
   final double percentage;
 
   /// Call chain from user-root to this function, e.g.
-  /// ["MyWidget.build", "performLayout", "layout"].
+  /// `"MyWidget.build", "performLayout", "layout"`.
   /// Null when call chain extraction is unavailable or samples are empty.
   final List<String>? callChain;
 

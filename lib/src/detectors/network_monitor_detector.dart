@@ -10,7 +10,7 @@ import '../validation/evidence_tier.dart';
 
 /// Detects slow, excessive, or oversized HTTP requests.
 ///
-/// Receives [RequestRecord]s from the [SleuthHttpOverrides] monitoring
+/// Receives [RequestRecord]s from the `SleuthHttpOverrides` monitoring
 /// proxy and evaluates three issue types:
 /// - **Slow Request**: response time exceeds threshold
 /// - **Frequency Spike**: too many requests in a 5-second window
@@ -186,7 +186,7 @@ class NetworkMonitorDetector extends BaseDetector
 
   /// Clear all buffered records and issues.
   ///
-  /// Called by [SleuthController] on route transitions so that network
+  /// Called by `SleuthController` on route transitions so that network
   /// issues from a previous page don't persist on the new page.
   ///
   /// **Test authors beware:** this stamps [_ignoreBeforeTimestamp] at the

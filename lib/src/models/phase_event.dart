@@ -6,7 +6,7 @@ enum TimelinePhase { build, layout, paint, raster, shader }
 
 /// A single VM timeline event with its absolute timestamp and duration.
 ///
-/// Used by [FrameEventCorrelator] to match timeline events to specific
+/// Used by `FrameEventCorrelator` to match timeline events to specific
 /// frames via timestamp overlap with [FrameStats] phase windows.
 class PhaseEvent {
   const PhaseEvent({

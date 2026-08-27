@@ -187,8 +187,8 @@ class PerformanceIssue {
   /// Populated by phase-2 enrichment from getAllocationProfile.
   final List<AllocationEntry>? topAllocators;
 
-  /// Composite ranking score from [IssueRanker].
-  /// Populated at export time by [IssueRanker.rankWithScores].
+  /// Composite ranking score from `IssueRanker`.
+  /// Populated at export time by `IssueRanker.rankWithScores`.
   /// Null for issues that haven't been through the export path.
   final int? rankingScore;
 
@@ -203,20 +203,20 @@ class PerformanceIssue {
   /// `heap_growing`).
   ///
   /// Null for root issues and standalone issues (no causal chain). Set by
-  /// [CausalGraphRule] during cross-detector correlation. Order is
+  /// `CausalGraphRule` during cross-detector correlation. Order is
   /// deterministic: severity descending, then stableId ascending.
   ///
   /// **Invariant**: must be either null or non-empty. An empty list is
   /// ambiguous with no-parent semantics and would silently break the
   /// visibility filter and the "Caused by" UI section. Producers
-  /// ([CausalGraphRule.apply], [PerformanceIssue.fromJson]) guarantee
+  /// (`CausalGraphRule.apply`, [PerformanceIssue.fromJson]) guarantee
   /// non-empty when set; callers reading the field can assume the
   /// invariant.
   final List<String>? rootCauseIds;
 
   /// StableIds of downstream issues caused by this root issue.
   /// Null for non-root issues and standalone issues.
-  /// Set by [CausalGraphRule] during cross-detector correlation.
+  /// Set by `CausalGraphRule` during cross-detector correlation.
   final List<String>? downstreamIds;
 
   /// Human-readable explanation of why [confidence] is at its current level.
