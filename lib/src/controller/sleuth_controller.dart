@@ -1464,6 +1464,11 @@ class SleuthController {
   @visibleForTesting
   void feedHeapSampleForTest(HeapSample sample) => _onHeapSample(sample);
 
+  /// Feeds a GC event through the same path as the `EventStreams.kGC`
+  /// callback.
+  @visibleForTesting
+  void feedGcEventForTest(Event event) => _onGcEvent(event);
+
   /// The currently-active [RouteSession], or `null` when the current route
   /// is in [SleuthConfig.routeIgnorePatterns] / no session has been created
   /// yet. Exposed so overlay surfaces (e.g. the rebuild stats drilldown

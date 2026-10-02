@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/detector_thresholds.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:vm_service/vm_service.dart' as vm;
 
 void main() {
   group('DetectorThresholds', () {
@@ -56,5 +58,60 @@ void main() {
       const t = DetectorThresholds();
       expect(t, isNotNull);
     });
+  });
+
+  group('memory thresholds reach MemoryPressureDetector', () {
+    test('defaults: no budget, 0.80, 180 GC/min', () {
+      expect(const SleuthConfig().gcRateThresholdPerMin, 180);
+      final controller = SleuthController(config: const SleuthConfig());
+      addTearDown(controller.dispose);
+      controller.initializeDetectorsForTest();
+      final memory = controller.memoryPressureDetector!;
+      expect(memory.memoryBudgetBytes, isNull);
+      expect(memory.capacityThresholdPercent, 0.80);
+      expect(memory.gcRateThresholdPerMin, 180);
+    });
+
+    test('configured budget and fraction are passed through', () {
+      final controller = SleuthController(
+        config: const SleuthConfig(
+          gcRateThresholdPerMin: 90,
+          thresholds: DetectorThresholds(
+            memoryBudgetBytes: 1500000000,
+            memoryCapacityPercent: 0.7,
+          ),
+        ),
+      );
+      addTearDown(controller.dispose);
+      controller.initializeDetectorsForTest();
+      final memory = controller.memoryPressureDetector!;
+      expect(memory.memoryBudgetBytes, 1500000000);
+      expect(memory.capacityThresholdPercent, 0.7);
+      expect(memory.gcRateThresholdPerMin, 90);
+    });
+  });
+
+  test('the controller passes each GC event\'s raw gcType through', () {
+    final controller = SleuthController(
+      config: const SleuthConfig(gcRateThresholdPerMin: 30),
+    );
+    addTearDown(controller.dispose);
+    controller.initializeDetectorsForTest();
+    for (var i = 0; i < 10; i++) {
+      controller.feedGcEventForTest(
+        vm.Event.parse({
+          'type': 'Event',
+          'kind': 'GC',
+          'timestamp': i,
+          'gcType': i < 4 ? 'MarkSweep' : (i < 8 ? 'Scavenge' : null),
+        })!,
+      );
+    }
+    final args = controller.memoryPressureDetector!.issues
+        .singleWhere((i) => i.stableId == 'gc_pressure')
+        .extraTraceArgs!;
+    expect(args['observedGcEvents'], '10');
+    expect(args['oldGenCount'], '4');
+    expect(args['scavengeCount'], '6');
   });
 }
