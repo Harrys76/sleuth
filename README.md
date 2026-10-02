@@ -225,7 +225,7 @@ Sleuth.track(
     criticalSlowRequestThresholdMs: 3000, // escalate to critical at this duration (must be > slow; default 3000 ms)
     requestFrequencyLimit: 30,         // max requests per 5s window
     largeResponseThresholdBytes: 1048576, // flag responses larger than 1MB
-    adaptiveScanEnabled: true,         // after 3 clean scans, double the interval up to 2 s, never below the base (default true)
+    adaptiveScanEnabled: true,         // after 3 clean scans, double the interval up to 2 s, never below the base (default true); the cost stretch above applies either way
     networkExcludePatterns: ['analytics.example.com'], // exclude URLs from monitoring
     enabledDetectors: {
       DetectorType.frameTiming,
