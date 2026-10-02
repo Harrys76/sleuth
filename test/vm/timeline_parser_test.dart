@@ -1379,6 +1379,115 @@ void main() {
     });
   });
 
+  group('TimelineParser platform channel b/e pairing', () {
+    const name = 'Platform Channel send plugin/x#call';
+    TimelineEvent ev(String ph, {String? id, required int ts, int tid = 1}) =>
+        TimelineEvent.parse({
+          'name': name,
+          'cat': 'Dart',
+          'ph': ph,
+          'id': ?id,
+          'ts': ts,
+          'pid': 1,
+          'tid': tid,
+        })!;
+
+    test('same-batch pair yields one call with its duration', () {
+      final data = TimelineParser.parse([
+        ev('b', id: '2d3216ee8457db26', ts: 1000),
+        ev('e', id: '2d3216ee8457db26', ts: 4500),
+      ]);
+      expect(data.platformChannelEvents, hasLength(1));
+      final call = data.platformChannelCalls.single;
+      expect(call.name, name);
+      expect(call.beginTs, 1000);
+      expect(call.durationUs, 3500);
+      expect(call.id, '2d3216ee8457db26');
+    });
+
+    test('interleaved calls pair by id, not order', () {
+      final data = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000),
+        ev('b', id: 'b', ts: 1100),
+        ev('e', id: 'b', ts: 1300),
+        ev('e', id: 'a', ts: 5000),
+      ]);
+      expect(data.platformChannelEvents, hasLength(2));
+      expect(
+        data.platformChannelCalls.map((c) => (c.id, c.durationUs)).toList(),
+        [('b', 200), ('a', 4000)],
+      );
+    });
+
+    test('cross-batch pair completes through pendingChannelBegins', () {
+      final pending = <String, int>{};
+      final first = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000),
+      ], pendingChannelBegins: pending);
+      expect(first.platformChannelEvents, hasLength(1));
+      expect(first.platformChannelCalls, isEmpty);
+      expect(pending, {'a': 1000});
+
+      final second = TimelineParser.parse([
+        ev('e', id: 'a', ts: 7000),
+      ], pendingChannelBegins: pending);
+      expect(second.platformChannelEvents, isEmpty);
+      expect(second.platformChannelCalls.single.durationUs, 6000);
+      expect(second.hasData, isTrue);
+      expect(pending, isEmpty);
+    });
+
+    test('unpaired b counts but yields no call', () {
+      final pending = <String, int>{};
+      final data = TimelineParser.parse([
+        ev('b', id: 'a', ts: 1000),
+      ], pendingChannelBegins: pending);
+      expect(data.platformChannelEvents, hasLength(1));
+      expect(data.platformChannelCalls, isEmpty);
+      expect(pending, hasLength(1));
+    });
+
+    test('e without b is ignored', () {
+      final data = TimelineParser.parse([ev('e', id: 'a', ts: 1000)]);
+      expect(data.platformChannelEvents, isEmpty);
+      expect(data.platformChannelCalls, isEmpty);
+      expect(data.hasData, isFalse);
+    });
+
+    test('b without id counts but has no duration', () {
+      final data = TimelineParser.parse([ev('b', ts: 1000), ev('e', ts: 2000)]);
+      expect(data.platformChannelEvents, hasLength(1));
+      expect(data.platformChannelCalls, isEmpty);
+    });
+
+    test('pending begins are capped, dropping the oldest', () {
+      final pending = <String, int>{};
+      const cap = TimelineParser.pendingChannelBeginsCap;
+      TimelineParser.parse([
+        for (var i = 0; i <= cap; i++) ev('b', id: 'c$i', ts: 1000 + i),
+      ], pendingChannelBegins: pending);
+      expect(pending, hasLength(cap));
+      expect(pending.containsKey('c0'), isFalse);
+      expect(pending.containsKey('c$cap'), isTrue);
+
+      final data = TimelineParser.parse([
+        ev('e', id: 'c0', ts: 9000),
+        ev('e', id: 'c1', ts: 9000),
+      ], pendingChannelBegins: pending);
+      expect(data.platformChannelCalls.single.id, 'c1');
+    });
+
+    test('sync X channel event yields a call with its dur', () {
+      final data = TimelineParser.parse([
+        _makeEvent(name: 'MethodChannel', dur: 2500, ts: 1000),
+      ]);
+      expect(data.platformChannelEvents, hasLength(1));
+      final call = data.platformChannelCalls.single;
+      expect(call.durationUs, 2500);
+      expect(call.id, isNull);
+    });
+  });
+
   group('TimelineParser.extractStartupEvents', () {
     test('extracts FlutterEngineMainEnter instant event', () {
       final events = [

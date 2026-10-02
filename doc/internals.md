@@ -45,7 +45,7 @@ The effective rate is the measured cadence clamped to `[fpsTarget, display rate]
 |----------|-------------|-----------|------------|-------------------|
 | Shader Jank | VM Timeline begin/end pairs | Impeller Vulkan pipeline build or Skia shader compile ≥ 100 ms | Likely | Requires VM connection. Silent on Impeller Metal (pipelines precompiled) |
 | Heavy Compute | VM Timeline | Long UI-thread event | Confirmed | Requires VM connection |
-| Platform Channel | VM Timeline | High call frequency | Confirmed | Requires VM connection and `debugProfilePlatformChannels` (opt in with `SleuthConfig(profilePlatformChannels: true)`, set after the VM connects; the framework then prints a stats table every second) |
+| Platform Channel | VM Timeline | High call frequency (count-only trigger; per-call max/p95 duration observed) | Confirmed | Requires VM connection and `debugProfilePlatformChannels` (opt in with `SleuthConfig(profilePlatformChannels: true)`, set after the VM connects; the framework then prints a stats table every second) |
 | Memory Pressure | VM GC events + heap polling | GC frequency elevated, heap growing steadily (linear regression), heap near capacity (>80%) | Likely / Confirmed | Requires VM connection |
 | Stream Resource | `getAllocationProfile` class-instance diff (K=4 window) | Retained async resources (dart:async / dart:io / web_socket_channel / rxdart subjects) when `heap_growing` co-fires | Likely | Requires VM connection. Gated on `MemoryPressureDetector.isHeapGrowingActive` |
 

@@ -207,7 +207,7 @@ class SleuthController {
   static const _phaseEventBufferCapacity = 100;
   final Queue<GcEventSummary> _gcEventBuffer = Queue();
   static const _gcEventBufferCapacity = 50;
-  final Queue<PlatformChannelSummary> _platformChannelBuffer = Queue();
+  final List<PlatformChannelSummary> _platformChannelBuffer = [];
   static const _platformChannelBufferCapacity = 50;
 
   // Interaction context
@@ -3348,7 +3348,7 @@ class SleuthController {
     }
     for (final event in data.platformChannelEvents) {
       if (_platformChannelBuffer.length >= _platformChannelBufferCapacity) {
-        _platformChannelBuffer.removeFirst();
+        _platformChannelBuffer.removeAt(0);
       }
       final json = event.json!;
       _platformChannelBuffer.add(
@@ -3358,6 +3358,25 @@ class SleuthController {
           name: (json['name'] as String?) ?? 'channel',
         ),
       );
+    }
+    // Async calls are summarized at their `b` event with no duration;
+    // fill it in when the matching `e` completes the call (same or later
+    // batch). Sync `X` events already carry `dur`.
+    for (final call in data.platformChannelCalls) {
+      if (call.id == null) continue;
+      for (var i = _platformChannelBuffer.length - 1; i >= 0; i--) {
+        final summary = _platformChannelBuffer[i];
+        if (summary.durationUs == 0 &&
+            summary.timestampUs == call.beginTs &&
+            summary.name == call.name) {
+          _platformChannelBuffer[i] = PlatformChannelSummary(
+            timestampUs: summary.timestampUs,
+            durationUs: call.durationUs,
+            name: summary.name,
+          );
+          break;
+        }
+      }
     }
   }
 
@@ -4653,8 +4672,8 @@ class SleuthConfig {
   ///
   /// **Lower this** (e.g. 10) to catch misuse earlier during development.
   ///
-  /// The cumulative-duration gate ([platformChannelDurationThresholdMs])
-  /// fires independently of the per-second count.
+  /// This count is the only trigger; per-call durations
+  /// ([platformChannelDurationThresholdMs]) annotate the issue.
   final int platformChannelLimit;
 
   /// Interval between widget tree scans.
@@ -4869,15 +4888,13 @@ class SleuthConfig {
   /// entirely (pair with [frameTimingWarmupFrameCount] = 0).
   final Duration frameTimingWarmupDuration;
 
-  /// Cumulative platform channel duration threshold in milliseconds per
-  /// window.
+  /// Slow-call annotation threshold for platform channel calls, in
+  /// milliseconds.
   ///
-  /// **Default:** 8 ms (half a 16 ms frame budget). Fires even when the
-  /// per-second call count ([platformChannelLimit]) is low, because a
-  /// handful of slow channel calls can still blow a frame.
-  ///
-  /// **Raise this** (e.g. 16) for apps with a single legitimate
-  /// synchronous channel call per frame.
+  /// **Default:** 8 ms (half a 16 ms frame budget). Calls slower than
+  /// this are counted as `callsOverThreshold` on a platform-channel
+  /// issue. No longer a trigger: emission depends on the per-second call
+  /// count ([platformChannelLimit]) only.
   final int platformChannelDurationThresholdMs;
 
   /// StableId patterns to suppress from the issue list.

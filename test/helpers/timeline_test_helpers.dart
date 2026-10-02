@@ -187,6 +187,10 @@ TimelineEvent shaderCompleteEvent({
 })!;
 
 /// Factory for timeline data with platform channel events (for PlatformChannelDetector).
+///
+/// Mirrors the parser's output for sync `X` channel events: one counted
+/// event plus one completed [PlatformChannelCall] (duration [durUs]) per
+/// call.
 ParsedTimelineData platformChannelData({
   int channelEventCount = 0,
   int durUs = 100,
@@ -203,6 +207,14 @@ ParsedTimelineData platformChannelData({
       'pid': 1,
       'tid': 1,
     })!,
+  ),
+  platformChannelCalls: List.generate(
+    channelEventCount,
+    (i) => PlatformChannelCall(
+      name: methodName ?? 'PlatformChannel',
+      beginTs: i * 1000,
+      durationUs: durUs,
+    ),
   ),
 );
 

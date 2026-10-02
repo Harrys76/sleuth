@@ -1960,11 +1960,13 @@ class IssueExplanationBuilder {
           'hallway — each trip takes time, and too many at once creates '
           'a traffic jam.\n\n'
           '• Calls/sec — Platform channel invocations per second. Normal: '
-          '<5/sec. Alert: >20/sec or >8ms cumulative duration '
-          '(default, configurable).\n\n'
-          '• Cumulative duration — Total time on channel calls per window. '
-          'High duration means calls are slow, not just frequent.\n\n'
-          '• Source: VM Timeline channel events.',
+          '<5/sec. Alert: >20/sec (default, configurable).\n\n'
+          '• Per-call duration — Max and p95 send-to-reply time in the '
+          'window, plus how many calls took >8 ms (default, '
+          'configurable). Shown for context; it does not trigger the '
+          'issue.\n\n'
+          '• Source: VM Timeline channel events (requires '
+          '`SleuthConfig(profilePlatformChannels: true)`).',
       whyItMatters:
           'Each platform channel message has ~0.1ms overhead for '
           'serialization and thread marshaling. At high frequency (100+/sec), '

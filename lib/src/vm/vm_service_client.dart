@@ -468,6 +468,12 @@ class VmServiceClient {
   final Map<int, List<Map<String, dynamic>>> _pendingRasterBegins = {};
   final Map<int, List<Map<String, dynamic>>> _pendingShaderBegins = {};
 
+  /// In-flight async platform-channel calls (`id` → `b` timestamp),
+  /// carried across polls so a call whose `e` lands in the next batch
+  /// still yields a duration. Capped by the parser; stale entries evicted
+  /// by the age sweep; cleared in `_cleanup()`.
+  final Map<String, int> _pendingChannelBegins = {};
+
   /// Maximum age (in microseconds) for an unmatched BUILD `ph: 'B'` event
   /// to remain in [_pendingBuildBegins]. Beyond this, the entry is treated
   /// as orphan (its matching E was lost — VM buffer overflow, isolate
@@ -539,6 +545,7 @@ class VmServiceClient {
           pendingPaintBegins: _pendingPaintBegins,
           pendingRasterBegins: _pendingRasterBegins,
           pendingShaderBegins: _pendingShaderBegins,
+          pendingChannelBegins: _pendingChannelBegins,
           cursorsByTid: _lastProcessedTsByTid,
         );
         if (parsed.hasData) {
@@ -634,6 +641,7 @@ class VmServiceClient {
         _pendingPaintBegins.isEmpty &&
         _pendingRasterBegins.isEmpty &&
         _pendingShaderBegins.isEmpty &&
+        _pendingChannelBegins.isEmpty &&
         _lastProcessedTsByTid.isEmpty) {
       return;
     }
@@ -649,6 +657,7 @@ class VmServiceClient {
     _evictStaleBegins(_pendingPaintBegins, pendingCutoff);
     _evictStaleBegins(_pendingRasterBegins, pendingCutoff);
     _evictStaleBegins(_pendingShaderBegins, pendingCutoff);
+    _pendingChannelBegins.removeWhere((_, ts) => ts < pendingCutoff);
     if (!retainTimeline) {
       final cursorCutoff = anchorTs - _cursorMaxIdleMicros;
       _lastProcessedTsByTid.removeWhere(
@@ -718,6 +727,7 @@ class VmServiceClient {
     _pendingPaintBegins.clear();
     _pendingRasterBegins.clear();
     _pendingShaderBegins.clear();
+    _pendingChannelBegins.clear();
     _lastProcessedTsByTid.clear();
     _pollTimer?.cancel();
     _pollTimer = null;

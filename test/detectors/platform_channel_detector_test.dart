@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/platform_channel_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 import '../helpers/timeline_test_helpers.dart';
 
@@ -106,7 +107,7 @@ void main() {
     });
 
     test('emitted issue carries extraTraceArgs with observedCount and '
-        'cumulativeDurationUs', () {
+        'per-call duration stats', () {
       detector.processTimelineData(platformChannelData(channelEventCount: 25));
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(emptyTimelineData());
@@ -121,14 +122,10 @@ void main() {
             'the audit gate can cross-check the capture\'s send-side '
             'magnitude against the parser-observed count.',
       );
-      expect(
-        issue.extraTraceArgs!['cumulativeDurationUs'],
-        isNotNull,
-        reason:
-            'cumulativeDurationUs exported alongside observedCount '
-            'so a future duration-axis raise can cross-check the '
-            'duration band without a second metadata extension.',
-      );
+      expect(issue.extraTraceArgs!['maxCallDurationUs'], '100');
+      expect(issue.extraTraceArgs!['p95CallDurationUs'], '100');
+      expect(issue.extraTraceArgs!['callsOverThreshold'], '0');
+      expect(issue.extraTraceArgs!.containsKey('cumulativeDurationUs'), false);
     });
 
     test('severity escalation breaks through cooldown — warning then critical '
@@ -360,15 +357,19 @@ void main() {
       expect(detector.issues, hasLength(1));
     });
 
-    test('detail mentions call count, duration, and thresholds', () {
+    test('detail mentions call count, per-call durations, and threshold', () {
       detector.processTimelineData(platformChannelData(channelEventCount: 25));
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(emptyTimelineData());
 
       final issue = detector.issues.first;
       expect(issue.detail, contains('25 calls'));
-      expect(issue.detail, contains('Thresholds: 20 calls/sec'));
-      expect(issue.detail, contains('8ms cumulative'));
+      expect(issue.detail, contains('Threshold: 20 calls/sec'));
+      expect(
+        issue.detail,
+        contains('max call 0.1 ms, p95 0.1 ms, 0 calls over 8 ms'),
+      );
+      expect(issue.detail, isNot(contains('cumulative')));
     });
 
     test('fixHint recommends batching and Pigeon', () {
@@ -394,30 +395,76 @@ void main() {
       },
     );
 
-    test('warning when cumulative duration exceeds threshold', () {
-      // 3 calls × 5000µs = 15ms (> 8ms threshold), but only 3 calls (< 20)
+    test('15 slow calls (20 ms each) are observed but do not emit', () {
       detector.processTimelineData(
-        platformChannelData(channelEventCount: 3, durUs: 5000),
+        platformChannelData(channelEventCount: 15, durUs: 20000),
       );
+      expect(detector.callsOverThreshold, 15);
+      expect(detector.maxCallDurationUs, 20000);
+      expect(detector.p95CallDurationUs, 20000);
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(emptyTimelineData());
 
-      expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.severity, IssueSeverity.warning);
-      expect(detector.issues.first.title, contains('Slow Platform Channels'));
-      expect(detector.issues.first.title, contains('15.0ms'));
+      expect(detector.issues, isEmpty);
+      final stats = detector.lastWindowStats!;
+      expect(stats.callCount, 15);
+      expect(stats.callsOverThreshold, 15);
+      expect(stats.maxCallDurationUs, 20000);
     });
 
-    test('critical when cumulative duration far exceeds threshold', () {
-      // 3 calls × 50000µs = 150ms (> 8ms × 2 = 16ms)
+    test('3 very slow calls (50 ms each) do not emit', () {
       detector.processTimelineData(
         platformChannelData(channelEventCount: 3, durUs: 50000),
       );
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(emptyTimelineData());
+      expect(detector.issues, isEmpty);
+    });
+
+    test('25 slow calls emit by count with duration stats stamped', () {
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 25, durUs: 20000),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
 
       expect(detector.issues, hasLength(1));
-      expect(detector.issues.first.severity, IssueSeverity.critical);
+      final issue = detector.issues.first;
+      expect(issue.severity, IssueSeverity.warning);
+      expect(issue.title, contains('High Platform Channel Traffic: 25'));
+      expect(issue.extraTraceArgs!['observedCount'], '25');
+      expect(issue.extraTraceArgs!['maxCallDurationUs'], '20000');
+      expect(issue.extraTraceArgs!['p95CallDurationUs'], '20000');
+      expect(issue.extraTraceArgs!['callsOverThreshold'], '25');
+      expect(issue.detail, contains('25 calls over 8 ms'));
+    });
+
+    test('p95 uses nearest rank over the window', () {
+      // 19 calls at 1 ms + 1 call at 30 ms: rank ceil(0.95 × 20) = 19.
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 19, durUs: 1000),
+      );
+      detector.processTimelineData(
+        platformChannelData(channelEventCount: 1, durUs: 30000),
+      );
+      expect(detector.p95CallDurationUs, 1000);
+      expect(detector.maxCallDurationUs, 30000);
+      expect(detector.callsOverThreshold, 1);
+    });
+
+    test('window with no completed calls reports zero durations', () {
+      detector.processTimelineData(
+        ParsedTimelineData(
+          platformChannelEvents: platformChannelData(
+            channelEventCount: 25,
+          ).platformChannelEvents,
+        ),
+      );
+      fakeNow = fakeNow.add(const Duration(seconds: 2));
+      detector.processTimelineData(emptyTimelineData());
+      final issue = detector.issues.single;
+      expect(issue.extraTraceArgs!['maxCallDurationUs'], '0');
+      expect(issue.detail, contains('no call durations observed'));
     });
 
     test('detail includes method names', () {
@@ -451,9 +498,9 @@ void main() {
           contains('High Platform Channel Traffic'),
         );
         expect(detector.issues.first.title, contains('45'));
-        // Detail includes both call count and duration
+        // Detail includes call count and per-call duration
         expect(detector.issues.first.detail, contains('45 calls'));
-        expect(detector.issues.first.detail, contains('22.5ms'));
+        expect(detector.issues.first.detail, contains('max call 0.5 ms'));
       },
     );
 

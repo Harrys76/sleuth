@@ -9,15 +9,21 @@
 // canonical format-boundary trap for platform-channel observers.
 //
 // Detection is frequency-axis: `_recentCallCount > callsPerSecThreshold`
-// after a full 1000ms window. Emission is deferred to the NEXT
+// after a full 1000ms window. Per-call durations (async `b`/`e` pairs
+// matched by `id`, sync `X` `dur`) are observational and never gate. Emission is deferred to the NEXT
 // `processTimelineData` call whose timestamp crosses the window
 // boundary, so every test advances the fake clock past 1000ms between
 // the accumulation and the evaluation.
+
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
 
 import 'package:sleuth/src/detectors/platform_channel_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 import '_helpers/vm_reproducer_harness.dart';
 
@@ -222,21 +228,52 @@ void main() {
       });
     });
 
-    group('duration boundary triad (threshold 8000µs cumulative, strict)', () {
-      // Duration axis is independent of frequency axis — detector fires on
-      // `frequencyExceeded || durationExceeded`. Below tests isolate the
-      // duration path by using 3 sync 'X' events (far under 20/sec frequency)
-      // with per-event dur tuned to bracket the cumulative threshold.
-      List<TimelineEvent> syncChannelCallsWithDur(int perEventDurUs) {
+    group('duration is observational (8000µs per call, never gates)', () {
+      List<TimelineEvent> syncChannelCallsWithDur(
+        int count,
+        int perEventDurUs, {
+        int startTs = 1000,
+      }) {
         return List.generate(
-          3,
+          count,
           (i) => buildEvent(
             name: 'MethodChannel',
             ph: 'X',
             dur: perEventDurUs,
-            ts: 1000 + i,
+            ts: startTs + i,
           ),
         );
+      }
+
+      /// Async `b`/`e` pairs as `debugProfilePlatformChannels` emits them:
+      /// unique hex `id` per call, no `dur`, in timestamp order (the
+      /// parser's per-thread cursor drops events older than the last
+      /// one seen).
+      List<TimelineEvent> asyncChannelPairs(int count, int perCallDurUs) {
+        final events = [
+          for (var i = 0; i < count; i++) ...[
+            TimelineEvent.parse({
+              'name': 'Platform Channel send plugin.example/method#call',
+              'cat': 'Dart',
+              'ph': 'b',
+              'id': (0x2d3216ee8457db26 + i).toRadixString(16),
+              'ts': 1000 + i * 10,
+              'pid': 1,
+              'tid': 1,
+            })!,
+            TimelineEvent.parse({
+              'name': 'Platform Channel send plugin.example/method#call',
+              'cat': 'Dart',
+              'ph': 'e',
+              'id': (0x2d3216ee8457db26 + i).toRadixString(16),
+              'ts': 1000 + i * 10 + perCallDurUs,
+              'pid': 1,
+              'tid': 1,
+            })!,
+          ],
+        ];
+        int tsOf(TimelineEvent e) => e.json!['ts'] as int;
+        return events..sort((a, b) => tsOf(a).compareTo(tsOf(b)));
       }
 
       void advanceAndEvaluate() {
@@ -256,10 +293,9 @@ void main() {
         );
       }
 
-      test('3 events × 2666µs = 7998µs cumulative does NOT emit', () {
-        final events = syncChannelCallsWithDur(2666);
+      test('3 sync calls × 2667µs (8001µs total) do NOT emit', () {
         detector.processTimelineData(
-          parseAndAssertShape(events, (
+          parseAndAssertShape(syncChannelCallsWithDur(3, 2667), (
             buildEventCount: 0,
             buildScopeCount: 0,
             layoutCount: 0,
@@ -273,57 +309,168 @@ void main() {
         );
         advanceAndEvaluate();
         expect(detector.issues, lacksStableId('platform_channel_traffic'));
+        expect(detector.lastWindowStats!.maxCallDurationUs, 2667);
+        expect(detector.lastWindowStats!.callsOverThreshold, 0);
       });
 
-      test('8 events × 1000µs = 8000µs cumulative does NOT emit '
-          '(inclusive-greater-than boundary)', () {
-        final events = List.generate(
-          8,
-          (i) => buildEvent(
-            name: 'MethodChannel',
-            ph: 'X',
-            dur: 1000,
-            ts: 1000 + i,
+      test('per-call threshold is strict: 8000µs is not over, 8001µs is', () {
+        detector.processTimelineData(
+          parseAndAssertShape(
+            [
+              ...syncChannelCallsWithDur(1, 8000),
+              ...syncChannelCallsWithDur(2, 8001, startTs: 2000),
+            ],
+            (
+              buildEventCount: 0,
+              buildScopeCount: 0,
+              layoutCount: 0,
+              paintCount: 0,
+              rasterCount: 0,
+              shaderCount: 0,
+              channelCount: 3,
+              gcCount: 0,
+              phaseEventCount: 0,
+            ),
           ),
         );
+        advanceAndEvaluate();
+        expect(detector.issues, lacksStableId('platform_channel_traffic'));
+        expect(detector.lastWindowStats!.callsOverThreshold, 2);
+      });
+
+      test('15 async calls × 20ms are observed but do NOT emit', () {
         detector.processTimelineData(
-          parseAndAssertShape(events, (
+          parseAndAssertShape(asyncChannelPairs(15, 20000), (
             buildEventCount: 0,
             buildScopeCount: 0,
             layoutCount: 0,
             paintCount: 0,
             rasterCount: 0,
             shaderCount: 0,
-            channelCount: 8,
+            channelCount: 15,
             gcCount: 0,
             phaseEventCount: 0,
           )),
         );
         advanceAndEvaluate();
         expect(detector.issues, lacksStableId('platform_channel_traffic'));
+        final stats = detector.lastWindowStats!;
+        expect(stats.callCount, 15);
+        expect(stats.maxCallDurationUs, 20000);
+        expect(stats.callsOverThreshold, 15);
       });
 
-      test('3 events × 2667µs = 8001µs cumulative emits via duration axis', () {
-        final events = syncChannelCallsWithDur(2667);
+      test('25 async calls × 9ms emit by count with durations stamped', () {
         detector.processTimelineData(
-          parseAndAssertShape(events, (
+          parseAndAssertShape(asyncChannelPairs(25, 9000), (
             buildEventCount: 0,
             buildScopeCount: 0,
             layoutCount: 0,
             paintCount: 0,
             rasterCount: 0,
             shaderCount: 0,
-            channelCount: 3,
+            channelCount: 25,
             gcCount: 0,
             phaseEventCount: 0,
           )),
         );
         advanceAndEvaluate();
         expect(detector.issues, hasStableId('platform_channel_traffic'));
-        final issue = detector.issues.firstWhere(
-          (i) => i.stableId == 'platform_channel_traffic',
+        final args = detector.issues.single.extraTraceArgs!;
+        expect(args['observedCount'], '25');
+        expect(args['maxCallDurationUs'], '9000');
+        expect(args['p95CallDurationUs'], '9000');
+        expect(args['callsOverThreshold'], '25');
+      });
+    });
+
+    group('capture replay (count axis only)', () {
+      // Replays each checked-in capture through the parser and detector
+      // in 1s windows aligned to `sleuth.scenario.begin`, carrying
+      // in-flight channel begins across windows. Per-call durations come
+      // from `b`/`e` pairs; emission must still follow the count axis.
+      ({
+        List<int> windowCounts,
+        int maxCallDurationUs,
+        List<PerformanceIssue> issues,
+      })
+      replay(String leg) {
+        final file = File(
+          'test/validation/captures/platform_channel/'
+          'platform_channel_traffic_$leg.json',
         );
-        expect(issue.title, contains('Slow Platform Channels'));
+        final raw = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+        final events =
+            (raw['traceEvents'] as List)
+                .cast<Map<String, dynamic>>()
+                .where((e) => e['ts'] is int)
+                .toList()
+              ..sort((a, b) => (a['ts'] as int).compareTo(b['ts'] as int));
+        final t0 =
+            events.firstWhere((e) => e['name'] == 'sleuth.scenario.begin')['ts']
+                as int;
+        final buckets = <int, List<TimelineEvent>>{};
+        for (final e in events) {
+          final ts = e['ts'] as int;
+          if (ts < t0) continue;
+          buckets
+              .putIfAbsent((ts - t0) ~/ 1000000, () => [])
+              .add(TimelineEvent.parse(e)!);
+        }
+        final lastBucket = buckets.keys.reduce((a, b) => a > b ? a : b);
+        final base = DateTime(2026, 5, 3);
+        var clock = base;
+        final replayDetector = PlatformChannelDetector(clock: () => clock);
+        final pending = <String, int>{};
+        final windowCounts = <int>[];
+        var maxDur = 0;
+        final issues = <PerformanceIssue>[];
+        for (var k = 0; k <= lastBucket + 1; k++) {
+          clock = base.add(Duration(seconds: k));
+          replayDetector.processTimelineData(
+            TimelineParser.parse(
+              buckets[k] ?? const [],
+              pendingChannelBegins: pending,
+            ),
+          );
+          // Every call after the first crosses exactly one 1s boundary,
+          // evaluating window k - 1.
+          if (k >= 1) {
+            final stats = replayDetector.lastWindowStats!;
+            windowCounts.add(stats.callCount);
+            if (stats.maxCallDurationUs > maxDur) {
+              maxDur = stats.maxCallDurationUs;
+            }
+          }
+          for (final i in replayDetector.issues) {
+            if (!issues.contains(i)) issues.add(i);
+          }
+        }
+        return (
+          windowCounts: windowCounts,
+          maxCallDurationUs: maxDur,
+          issues: issues,
+        );
+      }
+
+      test('below leg: durations observed, no emission', () {
+        final r = replay('below');
+        expect(r.windowCounts.first, lessThanOrEqualTo(20));
+        expect(r.windowCounts.every((c) => c <= 20), isTrue);
+        expect(r.maxCallDurationUs, greaterThan(0));
+        expect(r.issues, lacksStableId('platform_channel_traffic'));
+      });
+
+      test('at leg still emits', () {
+        final r = replay('at');
+        expect(r.maxCallDurationUs, greaterThan(0));
+        expect(r.issues, hasStableId('platform_channel_traffic'));
+      });
+
+      test('above leg still emits', () {
+        final r = replay('above');
+        expect(r.maxCallDurationUs, greaterThan(0));
+        expect(r.issues, hasStableId('platform_channel_traffic'));
       });
     });
 

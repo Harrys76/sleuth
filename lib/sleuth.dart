@@ -95,7 +95,8 @@ export 'src/debug/debug_instrumentation_config.dart';
 export 'src/models/base_detector.dart'
     show DetectorType, DetectorLifecycle, BaseDetector;
 export 'src/models/simple_structural_detector.dart';
-export 'src/vm/timeline_parser.dart' show ParsedTimelineData;
+export 'src/vm/timeline_parser.dart'
+    show ParsedTimelineData, PlatformChannelCall;
 export 'src/vm/connection_mode.dart' show ConnectionMode;
 export 'src/vm/service_extension_handlers.dart'
     show kMcpEnvelopeSchemaVersion, kSleuthPackageVersion;

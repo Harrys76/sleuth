@@ -11,6 +11,7 @@ class ParsedTimelineData {
     this.rasterDurations = const [],
     this.shaderCompileDurations = const [],
     this.platformChannelEvents = const [],
+    this.platformChannelCalls = const [],
     this.gcEvents = const [],
     this.buildEventCount = 0,
     this.phaseEvents = const [],
@@ -31,8 +32,15 @@ class ParsedTimelineData {
   /// Shader compilation durations in microseconds.
   final List<int> shaderCompileDurations;
 
-  /// Platform channel method call events.
+  /// Platform channel method call events, one per call (the async `b`
+  /// event, or the sync `X` event).
   final List<TimelineEvent> platformChannelEvents;
+
+  /// Completed platform channel calls with a measured duration: async
+  /// `b`/`e` pairs matched by `id`, plus sync `X` events. A call whose
+  /// begin arrived in an earlier batch completes here. Counting uses
+  /// [platformChannelEvents]; this list carries durations only.
+  final List<PlatformChannelCall> platformChannelCalls;
 
   /// GC-related events.
   final List<TimelineEvent> gcEvents;
@@ -52,6 +60,7 @@ class ParsedTimelineData {
       rasterDurations.isNotEmpty ||
       shaderCompileDurations.isNotEmpty ||
       platformChannelEvents.isNotEmpty ||
+      platformChannelCalls.isNotEmpty ||
       gcEvents.isNotEmpty ||
       buildEventCount > 0;
 
@@ -64,6 +73,28 @@ class ParsedTimelineData {
 
   /// Total flushPaint time for this batch.
   int get totalFlushPaintUs => flushPaintDurations.fold(0, (sum, d) => sum + d);
+}
+
+/// A completed platform channel call.
+class PlatformChannelCall {
+  const PlatformChannelCall({
+    required this.name,
+    required this.beginTs,
+    required this.durationUs,
+    this.id,
+  });
+
+  /// Timeline event name (`Platform Channel send <channel>#<method>`).
+  final String name;
+
+  /// Monotonic timestamp of the call's begin, in microseconds.
+  final int beginTs;
+
+  /// Begin-to-end duration in microseconds.
+  final int durationUs;
+
+  /// Async event id for `b`/`e` pairs; null for sync `X` events.
+  final String? id;
 }
 
 /// Parses raw VM Timeline events into structured [ParsedTimelineData].
@@ -205,6 +236,11 @@ class TimelineParser {
   /// >1.5 s of pending begins per thread under sustained 60 FPS.
   static const int _pendingPhaseBeginsCapPerTid = 100;
 
+  /// Cap for in-flight platform channel calls awaiting their `e` event.
+  /// Captures show at most 9 in flight; beyond the cap the oldest begin
+  /// is dropped.
+  static const int pendingChannelBeginsCap = 256;
+
   /// Push-or-pop a per-tid B/E begins stack for a phase event,
   /// invoking [onOutermost] only when the pop drains the stack EMPTY
   /// — i.e. the popped E closed the outermost scope on this thread.
@@ -262,6 +298,11 @@ class TimelineParser {
   /// frame. Skia X-form emissions continue through the unchanged X
   /// branch above. Null = fresh per call.
   ///
+  /// [pendingChannelBegins] maps an async platform-channel call `id` to
+  /// its `b` timestamp so the matching `e` (same or later batch) yields a
+  /// [PlatformChannelCall] with a duration. Capped at
+  /// [pendingChannelBeginsCap] (oldest dropped). Null = fresh per call.
+  ///
   /// [cursorsByTid] is a per-thread cross-call dedup cursor; events
   /// with `ts < cursor.lastTs`, or with `ts == cursor.lastTs` and a
   /// signature already in `cursor.seenSignatures`, are skipped.
@@ -275,6 +316,7 @@ class TimelineParser {
     Map<int, List<Map<String, dynamic>>>? pendingPaintBegins,
     Map<int, List<Map<String, dynamic>>>? pendingRasterBegins,
     Map<int, List<Map<String, dynamic>>>? pendingShaderBegins,
+    Map<String, int>? pendingChannelBegins,
     Map<int, TimelineCursor>? cursorsByTid,
   }) {
     final buildScopes = <int>[];
@@ -298,8 +340,10 @@ class TimelineParser {
         pendingRasterBegins ?? <int, List<Map<String, dynamic>>>{};
     final pendingShaders =
         pendingShaderBegins ?? <int, List<Map<String, dynamic>>>{};
+    final pendingChannels = pendingChannelBegins ?? <String, int>{};
     final cursors = cursorsByTid ?? <int, TimelineCursor>{};
     final channels = <TimelineEvent>[];
+    final channelCalls = <PlatformChannelCall>[];
     final gcs = <TimelineEvent>[];
     final phaseEvents = <PhaseEvent>[];
     var buildCount = 0;
@@ -416,6 +460,11 @@ class TimelineParser {
           }
         } else if (_channelNames.contains(name) || _isChannelEvent(name)) {
           channels.add(event);
+          if (ts != null) {
+            channelCalls.add(
+              PlatformChannelCall(name: name, beginTs: ts, durationUs: dur),
+            );
+          }
         } else if (_isGcCategory(cat)) {
           gcs.add(event);
         }
@@ -558,11 +607,34 @@ class TimelineParser {
         // Async Begin/End events — emitted by TimelineTask.start/finish.
         // Flutter's `debugProfilePlatformChannels` wraps each platform-channel
         // send in a TimelineTask, so channel events arrive as 'b'/'e' pairs
-        // (lowercase, async). Capture only the 'b' event to count each call
-        // exactly once. 'dur' is null on async events, so duration tracking
-        // won't work — but the frequency threshold is what matters.
-        if (ph == 'b' && _isChannelEvent(name)) {
-          channels.add(event);
+        // (lowercase, async, no 'dur'). The 'b' event counts the call
+        // exactly once; the 'e' with the same `id` gives its duration.
+        if (_isChannelEvent(name)) {
+          final rawId = json['id'];
+          final id = rawId?.toString();
+          final ts = json['ts'] as int?;
+          if (ph == 'b') {
+            channels.add(event);
+            if (id != null && ts != null) {
+              pendingChannels.remove(id);
+              pendingChannels[id] = ts;
+              if (pendingChannels.length > pendingChannelBeginsCap) {
+                pendingChannels.remove(pendingChannels.keys.first);
+              }
+            }
+          } else if (id != null && ts != null) {
+            final beginTs = pendingChannels.remove(id);
+            if (beginTs != null && ts >= beginTs) {
+              channelCalls.add(
+                PlatformChannelCall(
+                  name: name,
+                  beginTs: beginTs,
+                  durationUs: ts - beginTs,
+                  id: id,
+                ),
+              );
+            }
+          }
         }
       }
     }
@@ -579,6 +651,7 @@ class TimelineParser {
       rasterDurations: rasters,
       shaderCompileDurations: shaders,
       platformChannelEvents: channels,
+      platformChannelCalls: channelCalls,
       gcEvents: gcs,
       buildEventCount: buildCount,
       phaseEvents: phaseEvents,

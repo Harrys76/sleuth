@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/sleuth.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart' show TimelineParser;
+import 'package:vm_service/vm_service.dart' show TimelineEvent;
 
 import '../helpers/timeline_test_helpers.dart';
 
@@ -258,6 +260,41 @@ void main() {
       controller.feedTimelineDataForTest(data);
 
       expect(controller.platformChannelBufferForTest, hasLength(2));
+    });
+
+    test('async channel summaries get durations from matching end events', () {
+      const name = 'Platform Channel send plugin/x#call';
+      TimelineEvent ev(String ph, String id, int ts) => TimelineEvent.parse({
+        'name': name,
+        'cat': 'Dart',
+        'ph': ph,
+        'id': id,
+        'ts': ts,
+        'pid': 1,
+        'tid': 1,
+      })!;
+      final pending = <String, int>{};
+      // Call 'a' completes in the same batch; call 'b' in the next one.
+      controller.feedTimelineDataForTest(
+        TimelineParser.parse([
+          ev('b', 'a', 1000),
+          ev('b', 'b', 1100),
+          ev('e', 'a', 4000),
+        ], pendingChannelBegins: pending),
+      );
+      expect(controller.platformChannelBufferForTest.map((s) => s.durationUs), [
+        3000,
+        0,
+      ]);
+      controller.feedTimelineDataForTest(
+        TimelineParser.parse([
+          ev('e', 'b', 9100),
+        ], pendingChannelBegins: pending),
+      );
+      expect(controller.platformChannelBufferForTest.map((s) => s.durationUs), [
+        3000,
+        8000,
+      ]);
     });
 
     test('export includes schemaVersion 5', () {
