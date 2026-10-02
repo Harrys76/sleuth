@@ -306,24 +306,138 @@ void main() {
       },
     );
 
-    test('window reset clears issues after cooldown expires', () {
-      // First window: 25 events → warning, sets cooldown = 3
+    test('issue clears once emissionPersistence has passed after the '
+        'cooldown', () {
+      // First window: 25 events → warning at t = 2 s, cooldown = 3.
       detector.processTimelineData(platformChannelData(channelEventCount: 25));
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(emptyTimelineData());
       expect(detector.issues, hasLength(1));
 
-      // Cooldown cycles: issue persists for 3 empty evaluations,
-      // then one more evaluation to reach the else branch that clears.
-      for (var i = 0; i < 3; i++) {
+      // Cooldown windows at +2, +4, +6 s, then persistence at +8 s.
+      for (var i = 0; i < 4; i++) {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(emptyTimelineData());
-        expect(detector.issues, hasLength(1), reason: 'cooldown cycle $i');
+        expect(detector.issues, hasLength(1), reason: 'evaluation $i');
       }
-      // Final evaluation after cooldown expired
+      // +10 s since the emission: cleared.
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(emptyTimelineData());
       expect(detector.issues, isEmpty);
+    });
+
+    group('emission persistence', () {
+      late DateTime emittedAt;
+
+      /// One 1 s window with [count] calls, evaluated on the next poll.
+      void window(int count) {
+        detector.processTimelineData(
+          platformChannelData(channelEventCount: count),
+        );
+        fakeNow = fakeNow.add(const Duration(seconds: 1));
+        detector.processTimelineData(emptyTimelineData());
+      }
+
+      void burst() {
+        window(50);
+        emittedAt = fakeNow;
+      }
+
+      void quietUntil(Duration sinceEmission) {
+        while (fakeNow.difference(emittedAt) < sinceEmission) {
+          fakeNow = fakeNow.add(const Duration(seconds: 1));
+          detector.processTimelineData(emptyTimelineData());
+        }
+      }
+
+      test('defaults to 10 s', () {
+        expect(PlatformChannelDetector().emissionPersistence.inSeconds, 10);
+      });
+
+      test('a burst stays through the cooldown and the persistence window', () {
+        burst();
+        final issue = detector.issues.single;
+        expect(issue.severity, IssueSeverity.critical);
+
+        // Three sub-threshold windows: cooldown retains the issue.
+        for (var i = 0; i < 3; i++) {
+          window(5);
+          expect(detector.issues.single, same(issue));
+        }
+        quietUntil(const Duration(seconds: 4));
+        expect(detector.issues.single, same(issue));
+        quietUntil(const Duration(seconds: 9));
+        expect(detector.issues.single, same(issue));
+        quietUntil(const Duration(seconds: 11));
+        expect(detector.issues, isEmpty);
+      });
+
+      test('a custom emissionPersistence is honoured', () {
+        detector = PlatformChannelDetector(
+          clock: () => fakeNow,
+          emissionPersistence: const Duration(seconds: 5),
+        );
+        burst();
+        quietUntil(const Duration(seconds: 4));
+        expect(detector.issues, hasLength(1));
+        quietUntil(const Duration(seconds: 5));
+        expect(detector.issues, isEmpty);
+      });
+
+      test('a new burst inside persistence after the cooldown gets a fresh '
+          'identity', () {
+        burst();
+        final first = detector.issues.single.dedupIdentityMicros;
+        quietUntil(const Duration(seconds: 5));
+        expect(detector.issues.single.dedupIdentityMicros, first);
+
+        burst();
+        final second = detector.issues.single;
+        expect(second.dedupIdentityMicros, isNot(first));
+        // And it persists from its own emission.
+        quietUntil(const Duration(seconds: 9));
+        expect(detector.issues.single, same(second));
+      });
+
+      test('severity flip during the cooldown still re-emits', () {
+        window(25);
+        final warning = detector.issues.single;
+        expect(warning.severity, IssueSeverity.warning);
+        window(50);
+        final critical = detector.issues.single;
+        expect(critical.severity, IssueSeverity.critical);
+        expect(
+          critical.dedupIdentityMicros,
+          isNot(warning.dedupIdentityMicros),
+        );
+      });
+
+      test('the retained issue keeps its sourceRoute', () {
+        var route = '/burst';
+        detector = PlatformChannelDetector(
+          clock: () => fakeNow,
+          sourceRouteProvider: () => route,
+        );
+        burst();
+        route = '/elsewhere';
+        quietUntil(const Duration(seconds: 8));
+        expect(detector.issues.single.sourceRoute, '/burst');
+      });
+
+      test('reset and dispose drop a persisting issue', () {
+        burst();
+        quietUntil(const Duration(seconds: 6));
+        detector.reset();
+        expect(detector.issues, isEmpty);
+        fakeNow = fakeNow.add(const Duration(seconds: 1));
+        detector.processTimelineData(emptyTimelineData());
+        expect(detector.issues, isEmpty);
+
+        burst();
+        quietUntil(const Duration(seconds: 6));
+        detector.dispose();
+        expect(detector.issues, isEmpty);
+      });
     });
 
     test('stableId, confidence, and category', () {

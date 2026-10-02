@@ -393,6 +393,7 @@ void main() {
         List<int> windowCounts,
         int maxCallDurationUs,
         List<PerformanceIssue> issues,
+        List<PerformanceIssue> finalIssues,
       })
       replay(String leg) {
         final file = File(
@@ -425,7 +426,9 @@ void main() {
         final windowCounts = <int>[];
         var maxDur = 0;
         final issues = <PerformanceIssue>[];
-        for (var k = 0; k <= lastBucket + 1; k++) {
+        // Run 12 quiet seconds past the capture so the 10 s emission
+        // persistence plays out.
+        for (var k = 0; k <= lastBucket + 13; k++) {
           clock = base.add(Duration(seconds: k));
           replayDetector.processTimelineData(
             TimelineParser.parse(
@@ -450,6 +453,7 @@ void main() {
           windowCounts: windowCounts,
           maxCallDurationUs: maxDur,
           issues: issues,
+          finalIssues: replayDetector.issues,
         );
       }
 
@@ -461,16 +465,29 @@ void main() {
         expect(r.issues, lacksStableId('platform_channel_traffic'));
       });
 
-      test('at leg still emits', () {
+      // Distinct dedup identities = trace records the capture path
+      // writes. Persistence retains the issue without re-emitting, so
+      // each emitting leg still records exactly one.
+      int records(List<PerformanceIssue> issues) => issues
+          .where((i) => i.stableId == 'platform_channel_traffic')
+          .map((i) => i.dedupIdentityMicros)
+          .toSet()
+          .length;
+
+      test('at leg emits exactly one record, then clears', () {
         final r = replay('at');
         expect(r.maxCallDurationUs, greaterThan(0));
         expect(r.issues, hasStableId('platform_channel_traffic'));
+        expect(records(r.issues), 1);
+        expect(r.finalIssues, isEmpty);
       });
 
-      test('above leg still emits', () {
+      test('above leg emits exactly one record, then clears', () {
         final r = replay('above');
         expect(r.maxCallDurationUs, greaterThan(0));
         expect(r.issues, hasStableId('platform_channel_traffic'));
+        expect(records(r.issues), 1);
+        expect(r.finalIssues, isEmpty);
       });
     });
 

@@ -21,11 +21,19 @@ typedef PlatformChannelWindowStats = ({
 /// it the timeline carries no platform-channel events. Opt in with
 /// `SleuthConfig(profilePlatformChannels: true)`, which sets the flag
 /// once the VM connects.
+///
+/// **Retention.** Windows are 1 s long. After an emission the issue is
+/// re-added for 3 cooldown windows (same identity, so a sustained overload
+/// records one trace event), then stays in [issues] until
+/// [emissionPersistence] has passed since the emission, so a short burst
+/// remains visible long enough to read. Another overload after the
+/// cooldown emits a fresh issue with a new identity.
 class PlatformChannelDetector extends BaseDetector
     with DetectorMetadataProvider {
   PlatformChannelDetector({
     this.callsPerSecThreshold = 20,
     this.durationThresholdUs = 8000,
+    this.emissionPersistence = const Duration(seconds: 10),
     DateTime Function()? clock,
     String? Function()? sourceRouteProvider,
     InteractionContext Function()? interactionContextProvider,
@@ -49,6 +57,12 @@ class PlatformChannelDetector extends BaseDetector
   /// longer than this are counted in `callsOverThreshold`; it never
   /// triggers an issue on its own.
   final int durationThresholdUs;
+
+  /// How long an emitted issue stays in [issues], measured from the
+  /// emission with the injected clock. Applies once the 3-window cooldown
+  /// has drained; it never re-emits or changes the identity.
+  final Duration emissionPersistence;
+
   final DateTime Function() _clock;
   final String? Function() _sourceRouteProvider;
 
@@ -64,6 +78,7 @@ class PlatformChannelDetector extends BaseDetector
   late DateTime _windowStart;
   int _cooldownCyclesRemaining = 0;
   PerformanceIssue? _lastEmittedIssue;
+  DateTime? _lastEmittedAt;
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -178,6 +193,7 @@ class PlatformChannelDetector extends BaseDetector
         // a new identity. Cooldown is reset to 3 below.
       }
       _cooldownCyclesRemaining = 3;
+      _lastEmittedAt = _clock();
       final maxUs = _lastWindowStats!.maxCallDurationUs;
       final p95Us = _lastWindowStats!.p95CallDurationUs;
       final overCount = _lastWindowStats!.callsOverThreshold;
@@ -252,9 +268,18 @@ class PlatformChannelDetector extends BaseDetector
       _cooldownCyclesRemaining--;
       _issues.clear();
       if (_lastEmittedIssue != null) _issues.add(_lastEmittedIssue!);
+    } else if (_lastEmittedIssue != null &&
+        _lastEmittedAt != null &&
+        _clock().difference(_lastEmittedAt!) < emissionPersistence) {
+      // Cooldown drained but the issue is still inside its persistence
+      // window: keep showing it, unchanged.
+      _issues
+        ..clear()
+        ..add(_lastEmittedIssue!);
     } else {
       _issues.clear();
       _lastEmittedIssue = null;
+      _lastEmittedAt = null;
     }
   }
 
@@ -265,6 +290,7 @@ class PlatformChannelDetector extends BaseDetector
     _callDurationsUs.clear();
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
+    _lastEmittedAt = null;
   }
 
   /// Clear all per-scenario state so the next scenario starts with a
@@ -288,6 +314,7 @@ class PlatformChannelDetector extends BaseDetector
     _windowStart = _clock();
     _cooldownCyclesRemaining = 0;
     _lastEmittedIssue = null;
+    _lastEmittedAt = null;
     _lastWindowStats = null;
     _issues.clear();
   }
@@ -336,7 +363,10 @@ class PlatformChannelDetector extends BaseDetector
         'capture replay forgery. The bracket is the count axis; '
         'replaying the captures through the parser shows nonzero '
         'per-call durations on every leg with the below leg still '
-        'silent. The 2× critical '
+        'silent. After the 3-window cooldown the issue is retained '
+        'until `emissionPersistence` (10 s) has passed since the '
+        'emission without re-emitting, so each leg still records '
+        'exactly one trace event. The 2× critical '
         'tier at 41 calls/sec also remains implicitly '
         'reproducer-pinned in this metadata — '
         '`DetectorMetadata` carries one `tier` per detector '
