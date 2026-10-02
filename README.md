@@ -179,6 +179,8 @@ Sleuth exposes two frame-rate metrics:
 
 The overlay shows **Throughput FPS** as the primary numeral (color-coded vs `fpsTarget`). Idle screens read smooth because Flutter only repaints on change — Actual FPS would collapse to a few frames/sec on a static screen even though rendering is healthy. Tap the info icon to reveal both metrics side-by-side (ACTUAL + TPUT). Session exports (`SessionSnapshot` schema v5) carry both metrics plus `actualFpsRaw` — the device rate capped at 240 Hz, useful on ProMotion 120 Hz hardware where the overlay clamps to `fpsTarget`.
 
+**Frame budget.** Jank thresholds follow the frame rate the app actually renders at. Sleuth measures the vsync cadence (from the fastest recent frames) and uses it as the budget, bounded below by `fpsTarget` and above by the display's reported refresh rate: a 120 Hz device rendering at 120 is judged against 8.33 ms, a ProMotion device rendering at 60 keeps 16.67 ms (iOS reports 120 Hz for ProMotion panels even while the app renders at 60, so the display rate alone never tightens the budget). The raster-dominance floor and the default heavy-compute threshold become half the budget when it tightens. `fpsTarget` still caps the overlay FPS numeral and its colours. Set `autoFrameBudget: false` to always use `1000 / fpsTarget` ms; capture mode always does. `ext.sleuth.diagnose` reports `frameBudgetUs`, `effectiveFrameRateHz`, and `frameRateSource`.
+
 Edge cases — ProMotion `fpsTarget` clamping, the warm-up placeholder, Impeller raster-cache zeros, batched-callback anchoring — and the FrameTiming-vs-vsync measurement methodology are covered in [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md).
 
 ## Configuration
@@ -207,7 +209,8 @@ Sleuth.track(
 Sleuth.track(
   child: MyApp(),
   config: SleuthConfig(
-    fpsTarget: 60,
+    fpsTarget: 60,                     // loosest frame budget + overlay FPS cap; the budget tightens to the measured rate
+    autoFrameBudget: true,             // false: always judge frames against 1000 / fpsTarget ms
     rebuildThreshold: 10,
     maxListChildren: 20,
     platformChannelLimit: 20,
@@ -232,7 +235,7 @@ Sleuth.track(
     suppressedIssues: {'non_lazy_list', 'font_*'}, // hide known issues by stableId (exact or wildcard)
     thresholds: DetectorThresholds(
       shaderJankMs: 50,              // shader compilation warning threshold
-      heavyComputeGapMs: 8,          // BUILD-scope duration warning threshold (critical at 2× = 16ms)
+      heavyComputeGapMs: 8,          // BUILD-scope warning threshold, critical at 2×; omit for auto (8 ms at 60 Hz, half the frame budget above it)
       gpuPressureRatio: 1.5,         // raster/UI time ratio for GPU pressure
     ),
     customDetectors: [MyCustomDetector()], // plug in domain-specific detectors

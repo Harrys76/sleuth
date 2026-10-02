@@ -4,6 +4,8 @@ Pins sleuth 0.37.0; accepts the 0.36 lineage as the prior fallback.
 `compare_snapshots` between a 0.36 and a 0.37 snapshot can report severity
 differences caused by sleuth 0.37 removing duration escalation, not by app
 changes.
+`diagnose` documents the passthrough keys `effectiveFrameRateHz`,
+`frameBudgetUs`, and `frameRateSource` (sleuth 0.37.0+).
 
 ## 0.7.3
 

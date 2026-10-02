@@ -11,11 +11,17 @@ Sleuth reports the frame total duration (build-to-raster span) from Flutter's `F
 
 `FrameTimingDetector` and `RebuildDetector` stamp `extraTraceArgs.lifecyclePhase: 'startup' | 'steady'` on each emission based on whether the issue emitted within `DetectorThresholds.startupPhaseWindowSeconds` (default 5 s) of `Sleuth.dartEntryMonotonicUs`. This is **emission-time semantics** — late callback delivery can tag a startup-phase frame as `'steady'` if the emission lands past the window boundary. The tag is observable in capture-mode trace records and audit-gate replay; it is not serialized into saved JSON snapshots. Operators use it to filter startup-phase artefacts (route inflation, font loading, Material animations) from steady-state regressions.
 
+## Frame budget
+
+The jank budget is resolved from three inputs: `fpsTarget`, the display's reported refresh rate (`View.display.refreshRate`, read by the overlay), and the measured vsync cadence. `FrameTimingDetector` keeps the last 120 `vsyncStart` deltas (ignoring gaps longer than two `fpsTarget` frames) and, after 30 samples, estimates the cadence as `1e6 / p10(deltas)`. The 10th percentile, not the median: fast frames reveal the vsync period, while slow frames are what is being measured, and a median would fold steady jank into the cadence and loosen the budget. The estimate snaps to 30/60/90/120/144 Hz when within 8 %.
+
+The effective rate is the measured cadence clamped to `[fpsTarget, display rate]`. The display rate is only a cap because iOS reports `UIScreen.maximumFramesPerSecond` (120 on ProMotion) even while the app renders at 60; `fpsTarget` is the floor so a janky app cannot loosen its own budget. With no measurement the budget is `1e6 / fpsTarget` µs. `FrameStats.frameBudgetUs` carries it per frame and jank compares microseconds (16667 µs at 60 Hz, so a 16.8 ms frame is jank and a 33 ms frame is not severe). When the budget tightens below the `fpsTarget` budget, the `raster_dominance` per-frame floor and the default `heavy_compute` threshold become half of it; at the `fpsTarget` budget they stay 8000 µs and 8 ms. `autoFrameBudget: false` and capture mode always use the fixed `fpsTarget` budget.
+
 ## FPS troubleshooting
 
 **If the overlay shows unexpected FPS:**
 
-1. **`SleuthConfig.fpsTarget` caps the overlay.** A ProMotion 120 Hz device running with the default `fpsTarget: 60` shows `60` in the overlay even while rendering 120 frames/second. Check `actualFpsRaw` in the exported snapshot for the uncapped value.
+1. **`SleuthConfig.fpsTarget` caps the overlay.** A ProMotion 120 Hz device running with the default `fpsTarget: 60` shows `60` in the overlay even while rendering 120 frames/second. Check `actualFpsRaw` in the exported snapshot for the uncapped value. The jank budget is not capped this way: see the frame budget section below.
 2. **Warm-up placeholder.** The overlay shows `—` while the rolling window is below 3 samples (≈ 50 ms @ 60 Hz) to avoid flashing a red `0 FPS` at app launch or after navigation.
 3. **Debug mode overhead.** Debug builds run ~10× slower than profile mode. Always verify FPS numbers with `flutter run --profile`.
 4. **Impeller zeros.** Raster-cache metrics read 0 on Impeller — Sleuth detects this and suppresses cache-family warnings; FPS semantics are unaffected.

@@ -51,6 +51,27 @@
   `native_memory_growing` is present.
 - `compare_snapshots` between a 0.36 and a 0.37 snapshot can show severity
   differences caused by the escalation removal, not by app changes.
+- Frame budget follows the measured frame rate. The vsync cadence (10th
+  percentile of recent frame intervals) clamped to `[fpsTarget, display
+  refresh rate]` sets the budget, so 90/120 Hz devices that render at 90/120
+  get tighter jank thresholds; a ProMotion device rendering at 60 keeps 16.67
+  ms. Opt out with `SleuthConfig(autoFrameBudget: false)`; capture mode always
+  uses the fixed `fpsTarget` budget.
+- Jank compares microseconds: `FrameStats.frameBudgetUs` (JSON
+  `frameBudgetUs`; derived from `frameBudgetMs` when absent). At 60 Hz the
+  budget is 16667 µs, so a 16.8 ms frame is jank and a 33 ms frame is no
+  longer severe (severe starts above 33.334 ms).
+- `DetectorThresholds.heavyComputeGapMs` defaults to null (auto): 8 ms at the
+  `fpsTarget` budget, half the resolved budget when it tightens. An explicit
+  value never scales. The `raster_dominance` per-frame floor scales the same
+  way.
+- `ext.sleuth.diagnose` adds `effectiveFrameRateHz`, `frameBudgetUs`, and
+  `frameRateSource` (`fixed` / `display` / `measured`).
+- `heavy_compute` and `platform_channel_traffic` keep the interaction context
+  they fired in, so an issue raised during navigation still reads
+  `navigating` afterwards. Ranking weights recurrence for `navigating` issues
+  at 0.7, like scrolling and app-lifecycle. Nothing is suppressed while
+  navigating.
 
 `kSleuthPackageVersion` → 0.37.0. Sidecar sleuth_mcp 0.8.0 pins 0.37.0.
 

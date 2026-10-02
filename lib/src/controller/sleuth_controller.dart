@@ -4552,16 +4552,16 @@ class SleuthConfig {
   /// ```
   final SleuthThemeData? theme;
 
-  /// Target frames per second. Drives the frame-budget math that every
-  /// jank detector uses.
+  /// Target frames per second: the loosest frame budget Sleuth will judge
+  /// against, and the cap for the overlay FPS numeral and its colours.
   ///
-  /// **Default:** 60. Most Android and iOS devices run at 60 Hz by default;
-  /// 60 FPS maps to a 16.67 ms budget per frame, which is what the
-  /// [FrameTimingDetector] compares against.
+  /// **Default:** 60 (a 16.67 ms budget). With [autoFrameBudget] on, the
+  /// budget tightens automatically when the app measurably renders faster
+  /// (8.33 ms on a 120 Hz device rendering at 120), never looser than this
+  /// target.
   ///
-  /// **Raise this** to 90 or 120 on high-refresh displays (most flagship
-  /// phones from 2020+). That tightens the frame budget to 11.1 ms (90 Hz)
-  /// or 8.33 ms (120 Hz) and will surface jank that was invisible at 60.
+  /// **Raise this** to 90 or 120 to hold a high-refresh device to that
+  /// budget even when it renders slower, or when [autoFrameBudget] is off.
   ///
   /// **Lower this** (e.g. 30) for splash screens or idle modes where 30 FPS
   /// is an explicit product decision — otherwise the detector will pad
