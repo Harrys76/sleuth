@@ -29,8 +29,21 @@ bool _isActiveKeepAlive(Element element) {
 }
 
 class _ScrollableAccumulator {
-  _ScrollableAccumulator(this.element);
+  _ScrollableAccumulator(
+    this.element, {
+    Element? reportAs,
+    this.isBarrier = false,
+  }) : reportAs = reportAs ?? element;
   final Element element;
+
+  /// Element whose name, chain, and rect the issue reports. A
+  /// `TabBarView`'s internal `PageView` reports as the `TabBarView`.
+  final Element reportAs;
+
+  /// A non-page scrollable (ListView, GridView, CustomScrollView, ...).
+  /// Keep-alives directly under it belong to it and are never counted;
+  /// barriers never emit and take no index.
+  final bool isBarrier;
   int count = 0;
 
   /// Total element count inside this scrollable (for avg subtree cost).
@@ -41,8 +54,11 @@ class _ScrollableAccumulator {
 ///
 /// **Structural Detector** — >threshold keep-alive pages per scrollable wastes
 /// memory. Only counts KeepAlive widgets inside PageView or TabBarView, where
-/// entire pages/tabs are kept in memory. ListView/GridView keep-alives
-/// are normal framework behavior and are not flagged.
+/// entire pages/tabs are kept in memory. Each keep-alive counts toward the
+/// innermost enclosing scrollable only, so a TabBarView (which builds a
+/// PageView) reports once. ListView/GridView keep-alives are normal
+/// framework behavior: those scrollables act as barriers and are not
+/// flagged.
 class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
   KeepAliveDetector({this.threshold = 5})
     : super(
@@ -88,12 +104,12 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
     final widget = element.widget;
     final name = typeNameCache.lookup(widget);
 
-    // Count KeepAlive for all active scrollables BEFORE pushing, so the
+    // Count KeepAlive for the innermost scrollable BEFORE pushing, so the
     // scrollable's own element isn't counted for itself.
     if (_scrollableStack.isNotEmpty) {
       // Track total element count for subtree cost enrichment.
       for (final acc in _scrollableStack) {
-        acc.totalElements++;
+        if (!acc.isBarrier) acc.totalElements++;
       }
 
       // Only count KeepAlive widgets that are ACTIVELY keeping the subtree
@@ -112,16 +128,32 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
       // `ParentDataElement.applyWidgetOutOfTurn` which updates the child
       // render object's parent data but does NOT update `element.widget`
       // on the KeepAlive element. See `_isActiveKeepAlive` for details.
-      if (_isActiveKeepAlive(element)) {
-        for (final acc in _scrollableStack) {
-          acc.count++;
-        }
+      //
+      // Only the innermost scrollable owns the keep-alive. When that is a
+      // barrier (ListView etc.), the keep-alive is a list item, not a page.
+      final innermost = _scrollableStack.last;
+      if (!innermost.isBarrier && _isActiveKeepAlive(element)) {
+        innermost.count++;
       }
     }
 
     // TabBarView checked by string to avoid material.dart import.
     if (widget is PageView || name == 'TabBarView') {
-      _scrollableStack.add(_ScrollableAccumulator(element));
+      // A PageView directly inside a TabBarView accumulator is the
+      // TabBarView's own PageView; report it under the TabBarView.
+      final enclosing = _scrollableStack.isEmpty ? null : _scrollableStack.last;
+      final reportAs =
+          widget is PageView &&
+              enclosing != null &&
+              !enclosing.isBarrier &&
+              typeNameCache.lookup(enclosing.element.widget) == 'TabBarView'
+          ? enclosing.element
+          : null;
+      _scrollableStack.add(_ScrollableAccumulator(element, reportAs: reportAs));
+    } else if (widget is ScrollView ||
+        widget is NestedScrollView ||
+        widget is SingleChildScrollView) {
+      _scrollableStack.add(_ScrollableAccumulator(element, isBarrier: true));
     }
   }
 
@@ -130,15 +162,16 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
     if (_scrollableStack.isNotEmpty &&
         identical(_scrollableStack.last.element, element)) {
       final acc = _scrollableStack.removeLast();
-      if (acc.count > 0) {
+      if (!acc.isBarrier && acc.count > 0) {
+        final report = acc.reportAs;
         _scrollableData.add((
-          chain: buildAncestorChain(element),
+          chain: buildAncestorChain(report),
           count: acc.count,
           totalElements: acc.totalElements,
-          rect: element.renderObject != null
-              ? getGlobalRect(element.renderObject!)
+          rect: report.renderObject != null
+              ? getGlobalRect(report.renderObject!)
               : null,
-          typeName: typeNameCache.lookup(element.widget),
+          typeName: typeNameCache.lookup(report.widget),
         ));
       }
     }
@@ -223,6 +256,11 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
         'ListView-suppression, wantKeepAlive=false silence, and '
         'at-threshold silence are pinned as negative controls. '
         'Family prefix convention pinned at the `:` separator. '
+        'Keep-alives count toward the innermost page scrollable only; '
+        'ListView/GridView/CustomScrollView/NestedScrollView/'
+        'SingleChildScrollView are barriers, so a TabBarView emits once '
+        'and list items inside a page are not counted. Indices cover '
+        'page scrollables only. '
         'Not yet runtime-verified on a profile-mode capture.',
     reproducerPath: 'test/validation/keep_alive_reproducer_test.dart',
     coveredStableIds: {'excessive_keep_alive'},

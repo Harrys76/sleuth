@@ -2,10 +2,19 @@
 // (fires only on subclassing). Remove when analyzer-server recognizes the
 // implement-only kind.
 // ignore_for_file: deprecated_member_use
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show KeepAliveParentDataMixin;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/keep_alive_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+
+/// Number of KeepAlive elements whose child render object is actively
+/// kept alive (the authoritative parent-data flag).
+int _activeKeepAliveCount() =>
+    find.byType(KeepAlive, skipOffstage: false).evaluate().where((e) {
+      final pd = e.renderObject?.parentData;
+      return pd is KeepAliveParentDataMixin && pd.keepAlive;
+    }).length;
 
 void main() {
   group('KeepAliveDetector', () {
@@ -612,6 +621,88 @@ void main() {
       expect(detector.issues, hasLength(2));
       expect(detector.issues[0].stableId, 'excessive_keep_alive:0');
       expect(detector.issues[1].stableId, 'excessive_keep_alive:1');
+    });
+
+    testWidgets('TabBarView with 6 kept-alive tabs emits exactly one issue', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DefaultTabController(
+            length: 6,
+            child: Builder(
+              builder: (context) => Scaffold(
+                body: TabBarView(
+                  children: List.generate(
+                    6,
+                    (i) => _KeepAlivePage(key: ValueKey(i), label: 'T$i'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final tabController = DefaultTabController.of(
+        tester.element(find.byType(TabBarView)),
+      );
+      for (int i = 1; i < 6; i++) {
+        tabController.index = i;
+        await tester.pumpAndSettle();
+      }
+      tabController.index = 0;
+      await tester.pumpAndSettle();
+
+      // TabBarView builds its own PageView: both used to count every tab.
+      expect(
+        find.descendant(
+          of: find.byType(TabBarView),
+          matching: find.byType(PageView),
+        ),
+        findsOneWidget,
+      );
+      expect(_activeKeepAliveCount(), 6);
+
+      detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+      final issue = detector.issues.single;
+      expect(issue.stableId, 'excessive_keep_alive:0');
+      expect(issue.title, contains('6 in TabBarView'));
+    });
+
+    testWidgets('kept-alive ListView items inside a PageView page are not '
+        'counted toward the PageView', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            height: 400,
+            width: 400,
+            child: PageView(
+              children: [
+                ListView(
+                  children: List.generate(
+                    8,
+                    (i) => _KeepAlivePage(key: ValueKey(i), label: 'Item $i'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 8 list items, plus the page: KeepAliveNotification keeps bubbling
+      // past the item's AutomaticKeepAlive, so the page is kept alive too.
+      expect(_activeKeepAliveCount(), 9);
+
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: 'only the page counts toward the PageView (1, not > 1)',
+      );
     });
   });
 }
