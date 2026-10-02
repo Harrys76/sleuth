@@ -423,7 +423,7 @@ void main() {
         widgetName: 'MyWidget',
       );
       final substituted = IssueExplanationBuilder.substitute(template, issue);
-      expect(substituted.whatItIs, contains('47 widget rebuilds'));
+      expect(substituted.whatItIs, contains('47 build passes'));
       expect(substituted.whatItIs, contains('MyWidget'));
       // displayName is never substituted (no placeholders).
       expect(substituted.displayName, template.displayName);

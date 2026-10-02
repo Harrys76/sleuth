@@ -162,17 +162,18 @@ class IssueExplanationBuilder {
       displayName: 'Sustained Jank',
       category: IssueCategory.build,
       whatItIs:
-          'Multiple consecutive frames exceeded their time budget (16.7ms at '
-          '60 FPS). This means your app visibly stuttered — the user saw '
-          'dropped frames over a sustained period, not just a single hiccup.',
+          'At least 3 severe frames (over 2× the 16.7ms budget at 60 FPS) '
+          'landed within the 240-frame buffer. This means your app visibly '
+          'stuttered — the user saw dropped frames repeatedly over a '
+          'sustained period, not just a single hiccup.',
       readingTheData:
           'Like a car that keeps stalling at every intersection — one '
           'stall is annoying, but repeated stalls make the whole journey '
           'feel unreliable.\n\n'
           '• Severe frames — Frames exceeding 2× the budget (33.3ms at 60 FPS). '
-          'Normal: 0. Alert: 3+ severe frames in a burst.\n\n'
+          'Normal: 0. Alert: ≥3 severe frames within the 240-frame buffer.\n\n'
           '• Janky % — Percentage of recent frames over budget. '
-          'Normal: <5%. Alert: >15%.\n\n'
+          'Normal: <5%.\n\n'
           '• UI Thread / Raster — Time in each pipeline thread. '
           'Both must stay under 16.7ms. The higher one is your bottleneck '
           '(shown as "UI thread" or "Raster thread").\n\n'
@@ -208,16 +209,19 @@ class IssueExplanationBuilder {
       displayName: 'Jank Detected',
       category: IssueCategory.build,
       whatItIs:
-          'A single frame took longer than its time budget to render. At '
-          '60 FPS the budget is 16.7ms — this frame exceeded that threshold. '
-          'Unlike sustained jank, this is an isolated spike that may or may '
-          'not indicate a systemic problem depending on frequency.',
+          'More than 15% of the buffered frames (with at least 5 frames '
+          'sampled) exceeded their time budget. At 60 FPS the budget is '
+          '16.7ms. Unlike sustained jank, which counts severe frames, this '
+          'tracks how often ordinary frames run over budget; it is reported '
+          'as a warning only.',
       readingTheData:
           'Like a single skipped beat in music — noticeable '
           'but brief, unlike sustained jank which is the song repeatedly '
           'skipping.\n\n'
           '• Frame duration — Total time for one frame. '
-          'Budget: 16.7ms at 60 FPS. Alert: >16.7ms (warning), >33.3ms (critical).\n\n'
+          'Budget: 16.7ms at 60 FPS.\n\n'
+          '• Janky % — Share of buffered frames over budget. '
+          'Alert: >15% (warning, at least 5 frames sampled).\n\n'
           '• UI duration — Time building and laying out widgets.\n\n'
           '• Raster duration — Time compositing and painting to screen.\n\n'
           '• Source: FrameTiming API.',
@@ -316,9 +320,11 @@ class IssueExplanationBuilder {
       whatItIs:
           'The GPU shader compiler ran during this frame. Shaders are small '
           'GPU programs that Flutter compiles on first use — this compilation '
-          'is expensive and blocks the raster thread. On Impeller (default '
-          'on iOS since Flutter 3.16), shaders are pre-compiled at build '
-          'time, making this detection Skia-specific.',
+          'is expensive and blocks the raster thread. Impeller is the '
+          'default renderer on iOS since Flutter 3.10 and on Vulkan-capable '
+          'Android devices since Flutter 3.27; it pre-compiles shaders at '
+          'build time, so on Impeller this issue should not fire. The '
+          'detection targets the Skia renderer.',
       readingTheData:
           'Like a chef sharpening a new knife before the first cut — slow '
           'the first time, but instant on every use after.\n\n'
@@ -333,17 +339,19 @@ class IssueExplanationBuilder {
           'severe single-frame jank. It only happens once per shader per app '
           'session, so it is most noticeable on first use of a visual effect.',
       howToFix:
-          'Use Flutter\'s SkSL shader warm-up: run your app through all '
-          'visual paths, capture the shader bundle with '
-          '--cache-sksl, then include it in your build with '
-          '--bundle-sksl-path. This pre-compiles shaders at app startup '
-          'rather than during interaction.',
+          'First confirm the build is not opting out of Impeller, which '
+          'pre-compiles shaders and removes this cost. On the Skia renderer '
+          'only, use SkSL shader warm-up: run your app through all visual '
+          'paths, capture the shader bundle with --cache-sksl, then include '
+          'it in your build with --bundle-sksl-path. This pre-compiles '
+          'shaders at app startup rather than during interaction.',
       whenToIgnore:
           'Shader compilation is expected on the very first run after install '
           'or update. If you see it repeatedly on the same screens, your '
-          'warm-up bundle may be incomplete. On Impeller-enabled builds '
-          '(iOS default), this detection should not fire — if it does, '
-          'verify you are running with Impeller enabled.',
+          'warm-up bundle may be incomplete. On Impeller builds (the '
+          'default on iOS and most Android devices), this detection should '
+          'not fire — if it does, verify you are running with Impeller '
+          'enabled.',
       relatedIssues: ['jank_detected', 'sustained_jank'],
     ),
 
@@ -351,16 +359,17 @@ class IssueExplanationBuilder {
       displayName: 'Heavy Computation',
       category: IssueCategory.build,
       whatItIs:
-          'A long-running synchronous operation was detected on the UI '
-          'thread in {routeName}. The main isolate was blocked for longer '
-          'than the frame budget, preventing the framework from building, '
-          'laying out, or rendering any widgets until the computation '
-          'completes.',
+          'A widget build pass on the UI thread in {routeName} ran longer '
+          'than the threshold (>8ms warning, >16ms critical). The detector '
+          'measures BUILD-phase duration from the VM timeline; while that '
+          'pass runs, the framework cannot lay out or render the frame, so '
+          'expensive build methods and synchronous work called from them '
+          'both show up here.',
       readingTheData:
           'Like a cashier doing complex math by hand while a long line of '
           'customers waits — everything stops until the calculation '
           'finishes.\n\n'
-          '• Block duration ms — How long the UI thread was blocked. '
+          '• Build duration ms — How long the BUILD pass ran. '
           'Normal: <8ms. Alert: >8ms (warning), >16ms (critical) '
           '(default, configurable).\n\n'
           '• Dirty widgets — Widget names marked dirty during the heavy build. '
@@ -371,10 +380,13 @@ class IssueExplanationBuilder {
           'frame rendering. Users see a freeze — no animation, no scroll '
           'response, no touch feedback until the computation completes.',
       howToFix:
-          'Move the heavy work to a background isolate using Isolate.run() '
-          'or compute(). Common culprits: JSON parsing of large payloads, '
-          'image processing, cryptographic operations, complex data '
-          'transformations.\n\n'
+          'Start with the build itself: split large widgets so a change '
+          'rebuilds a smaller subtree, mark static subtrees const, and defer '
+          'below-the-fold work (lazy builders, deferred loading). If the '
+          'build calls genuine non-UI computation — JSON parsing of large '
+          'payloads, image processing, cryptographic operations, complex '
+          'data transformations — move it to a background isolate with '
+          'Isolate.run().\n\n'
           'Before (blocks UI thread):\n'
           '  final data = jsonDecode(hugeJsonString);\n\n'
           'After (runs in background isolate):\n'
@@ -382,10 +394,10 @@ class IssueExplanationBuilder {
           '    () => jsonDecode(hugeJsonString),\n'
           '  );\n\n'
           'Isolate.run() (Dart 2.19+) is the modern API; compute() is a '
-          'convenience wrapper with identical behavior. Both require a '
-          'top-level or static function — closures capturing local state '
-          'will fail at runtime. If the work cannot be moved off-thread, '
-          'break it into smaller chunks scheduled across multiple frames.',
+          'Flutter convenience wrapper over Isolate.run. Values the closure '
+          'captures are copied to the new isolate, so keep captures small '
+          'and sendable. If the work cannot be moved off-thread, break it '
+          'into smaller chunks scheduled across multiple frames.',
       whenToIgnore: null,
       relatedIssues: [
         'large_response',
@@ -734,7 +746,7 @@ class IssueExplanationBuilder {
       displayName: 'Rebuild Activity',
       category: IssueCategory.build,
       whatItIs:
-          '{count} widget rebuilds were detected in a short time window '
+          '{count} build passes were detected in a short time window '
           'around {widgetName}. The framework is reconstructing widget '
           'subtrees more frequently than expected for the current '
           'interaction.',
@@ -742,7 +754,8 @@ class IssueExplanationBuilder {
           'Like a doorbell that rings 30 times a minute — each ring '
           'interrupts what you\'re doing, and at that rate you can\'t get '
           'anything else done.\n\n'
-          '• Builds/sec — Widget rebuild count in a 1-second window. '
+          '• Builds/sec — In profile mode, BUILD scope events per second '
+          'from the VM timeline (build passes, not individual widgets). '
           'Normal: <10/sec at idle. Alert: >10/sec (warning), >30/sec (critical) '
           '(default, configurable).\n\n'
           '• Top dirty widgets — Widget types with most rebuilds '
@@ -816,18 +829,19 @@ class IssueExplanationBuilder {
       displayName: 'StatefulWidget Density',
       category: IssueCategory.build,
       whatItIs:
-          'A high density of StatefulWidgets was found in the widget tree '
-          'relative to the total tree size. Each StatefulWidget maintains '
-          'its own State object and lifecycle.',
+          'At least 10 public StatefulWidget instances were found on screen '
+          'while no VM connection was available, so the real rebuild rate '
+          'could not be measured. Each StatefulWidget maintains its own '
+          'State object and lifecycle.',
       readingTheData:
           'Like an office where every employee has their own private '
           'assistant — each assistant tracks independent state, and '
           'coordinating them all adds overhead.\n\n'
-          '• Density ratio — StatefulWidgets as a percentage of total widgets '
-          'in the scanned subtree. Normal: <20%. Alert: >30% '
-          '(default, configurable).\n\n'
-          '• Stateful count / Total count — Absolute numbers. A ratio of '
-          '45/100 is more concerning than 5/15.\n\n'
+          '• Stateful count — Public StatefulWidget instances on screen '
+          '(framework and private types excluded). Alert: ≥10 while no VM '
+          'connection exists (default, follows the rebuild threshold).\n\n'
+          '• Most common — The StatefulWidget type with the most instances '
+          'on screen. Start the audit there.\n\n'
           '• Source: Structural tree walk.',
       whyItMatters:
           'Many StatefulWidgets in a small area amplifies the cost of '
@@ -857,7 +871,8 @@ class IssueExplanationBuilder {
           'Like repainting an entire room every time you move a picture '
           'frame — most of the wall hasn\'t changed but you\'re redoing '
           'all the work.\n\n'
-          '• Paints/sec — Paint events per second across the render tree. '
+          '• Paints/sec — In profile mode, PAINT scope events per second '
+          'from the VM timeline (paint passes, not individual widgets). '
           'Normal: <10/sec at idle. Alert: >30/sec (warning), >60/sec (critical) '
           '(default, configurable).\n\n'
           '• Source: VM Timeline paint-phase events.',
@@ -1057,7 +1072,8 @@ class IssueExplanationBuilder {
       whyItMatters:
           'Each saveLayer allocates an offscreen GPU buffer and requires '
           'an extra compositing pass. Stacking these (e.g., Opacity inside '
-          'Opacity) multiplies the GPU cost exponentially. On lower-end '
+          'Opacity) compounds the cost — each extra layer adds another '
+          'full-screen pass. On lower-end '
           'devices this is often the primary cause of raster jank.',
       howToFix:
           'Replace Opacity with Visibility for show/hide (no GPU buffer). '
@@ -1085,9 +1101,9 @@ class IssueExplanationBuilder {
           'Like a fire alarm that evacuates the entire building when only '
           'one room has smoke — the scope of the response far exceeds the '
           'scope of the problem.\n\n'
-          '• Descendant count — Widgets below the setState caller. '
-          'Normal: <50. Alert: >200 descendants '
-          '(default, configurable).\n\n'
+          '• Ownership ratio — Share of the scanned tree owned by the '
+          'StatefulWidget\'s subtree. Alert: >50% with a subtree of at '
+          'least 50 elements (default, configurable).\n\n'
           '• Depth — How far above the leaf widgets the setState caller sits. '
           'Higher depth means wider blast radius.\n\n'
           '• Source: Structural tree walk.',
@@ -1134,9 +1150,11 @@ class IssueExplanationBuilder {
 
     // ── Shallow Rebuild Risk ──────────────────────────────────────────────
     'shallow_rebuild_risk': (
-      displayName: 'Shallow Rebuild Risk',
+      displayName: 'Shallow Rebuild Risk (legacy)',
       category: IssueCategory.build,
       whatItIs:
+          'No longer auto-detected (detector removed in 0.20.0); kept so '
+          'snapshots from earlier versions still explain. '
           'A StatefulWidget near the top of the tree was found without '
           'targeted state management. If this widget calls setState(), the '
           'entire deep subtree below it will rebuild.',
@@ -1258,9 +1276,11 @@ class IssueExplanationBuilder {
 
     // ── Structural: GlobalKey ─────────────────────────────────────────────
     'excessive_global_keys': (
-      displayName: 'Excessive GlobalKeys',
+      displayName: 'Excessive GlobalKeys (legacy)',
       category: IssueCategory.build,
       whatItIs:
+          'No longer auto-detected (detector removed in 0.20.0); kept so '
+          'snapshots from earlier versions still explain. '
           '{count} GlobalKey instances were found inside {widgetName}. '
           'Each GlobalKey maintains a persistent reference to its Element '
           'across the entire app.',
@@ -1293,9 +1313,11 @@ class IssueExplanationBuilder {
 
     // ── Structural: Nested Scroll ─────────────────────────────────────────
     'nested_scroll': (
-      displayName: 'Nested Scrollables',
+      displayName: 'Nested Scrollables (legacy)',
       category: IssueCategory.build,
       whatItIs:
+          'No longer auto-detected (detector removed in 0.20.0); kept so '
+          'snapshots from earlier versions still explain. '
           '{widgetName} was found nested inside another scrollable widget. '
           'The inner scroll view receives gesture events that the outer '
           'one also wants to handle.',
@@ -1326,9 +1348,11 @@ class IssueExplanationBuilder {
     ),
 
     'nested_scroll_same_axis': (
-      displayName: 'Same-Axis Nested Scroll',
+      displayName: 'Same-Axis Nested Scroll (legacy)',
       category: IssueCategory.build,
       whatItIs:
+          'No longer auto-detected (detector removed in 0.20.0); kept so '
+          'snapshots from earlier versions still explain. '
           'Two scrollable widgets with the same scroll axis (both vertical '
           'or both horizontal) are nested. This is a stronger signal than '
           'general nested scrolling because same-axis nesting almost always '
@@ -1376,9 +1400,11 @@ class IssueExplanationBuilder {
 
     // ── Structural: Opacity ───────────────────────────────────────────────
     'opacity_zero': (
-      displayName: 'Opacity Zero',
+      displayName: 'Opacity Zero (legacy)',
       category: IssueCategory.layout,
       whatItIs:
+          'No longer auto-detected (detector removed in 0.20.0); kept so '
+          'snapshots from earlier versions still explain. '
           'An Opacity or AnimatedOpacity widget with value 0.0 was found. '
           'Despite being fully invisible, the child widget is still built, '
           'laid out, painted, hit-tested, and included in the semantics tree.',
@@ -1425,16 +1451,18 @@ class IssueExplanationBuilder {
           'constraints.',
       readingTheData:
           'Like measuring a room twice before placing each piece of '
-          'furniture — the extra measurement pass doubles the work.\n\n'
-          '• Nesting depth — IntrinsicHeight/Width nesting levels. Cost is '
-          'O(2^N) for N levels. Normal: 1 level. Alert: ≥2 nested levels.\n\n'
+          'furniture — the extra measurement pass adds work every time.\n\n'
+          '• Severity — Any IntrinsicHeight/IntrinsicWidth is a warning; '
+          'nesting one inside another is critical. There is no subtree-size '
+          'gate.\n\n'
           '• Subtree size — Descendants under the intrinsic widget. Larger '
-          'subtrees amplify the two-pass cost. Alert: >50 descendants.\n\n'
+          'subtrees make the extra measuring pass more expensive.\n\n'
           '• Source: Structural tree walk.',
       whyItMatters:
-          'Two-pass layout doubles the layout cost for the affected subtree. '
-          'When nested (IntrinsicHeight containing IntrinsicWidth), the cost '
-          'grows exponentially — O(2^N) for N nesting levels.',
+          'Intrinsic sizing adds a speculative measuring pass on top of '
+          'normal layout for the affected subtree. When nested '
+          '(IntrinsicHeight containing IntrinsicWidth), each level measures '
+          'the levels below it again, so the cost compounds with depth.',
       howToFix:
           'Replace IntrinsicHeight with explicit height constraints from '
           'the parent (SizedBox, ConstrainedBox). For equal-height rows, '
@@ -1507,7 +1535,7 @@ class IssueExplanationBuilder {
           'up something each time — the constant small changes add up to '
           'significant effort.\n\n'
           '• Repaint rate — How often shouldRepaint returns true. Normal: '
-          '<10/sec. Alert: >30/sec (default, configurable).\n\n'
+          '<10/sec. Alert: >30/sec (fixed threshold).\n\n'
           '• Input change rate — How rapidly the painter\'s Listenable or '
           'fields change. Fast-changing inputs drive high repaint rate.\n\n'
           '• Source: Structural tree walk.',
@@ -1565,9 +1593,11 @@ class IssueExplanationBuilder {
 
     // ── Structural: AnimatedBuilder ───────────────────────────────────────
     'animated_builder_no_child': (
-      displayName: 'AnimatedBuilder Without Child',
+      displayName: 'AnimatedBuilder Without Child (legacy)',
       category: IssueCategory.build,
       whatItIs:
+          'No longer auto-detected (detector removed in 0.20.0); kept so '
+          'snapshots from earlier versions still explain. '
           '{widgetName} was found without using the child parameter. '
           'The entire subtree inside the builder callback is rebuilt on '
           'every animation tick (60x/sec).',
@@ -1625,7 +1655,7 @@ class IssueExplanationBuilder {
           'for each language — loading and switching between sets takes '
           'time and storage.\n\n'
           '• Font family count — Distinct custom font families detected. '
-          'Normal: 1–2. Alert: ≥3 custom font families.\n\n'
+          'Normal: 1–2. Alert: >3 custom font families.\n\n'
           '• Bundle size impact — Each font file is typically 50–500KB. '
           'Multiple weights multiply the cost.\n\n'
           '• Source: Structural tree walk.',
@@ -1677,10 +1707,11 @@ class IssueExplanationBuilder {
           'This creates a separate compositing layer that is cached and '
           'only re-rasterized when the painter marks itself as needing '
           'repaint.\n\n'
-          'When NOT to add a RepaintBoundary: each boundary allocates a '
-          'GPU-backed layer (~100KB+ memory). Adding boundaries around '
-          'static content that rarely repaints wastes GPU memory with no '
-          'benefit. Verify with debugPaintLayerBordersEnabled before and '
+          'When NOT to add a RepaintBoundary: each boundary is a separate '
+          'layer that costs compositing work every frame, and it only pays '
+          'off when the subtree repaints independently of its parent. '
+          'Adding boundaries around static content that rarely repaints '
+          'adds that cost with no benefit. Verify with debugPaintLayerBordersEnabled before and '
           'after to confirm the boundary actually reduces repaint area.',
       whenToIgnore:
           'If the expensive widget already repaints rarely (static content) '
@@ -1897,7 +1928,7 @@ class IssueExplanationBuilder {
           'didn\'t ring quickly enough — the server side did the same work '
           'three times, and the network paid for it.\n\n'
           '• Count — Number of requests that clustered within the 500 ms '
-          'window. Normal: 1–2. Alert: ≥3. Critical: ≥5.\n\n'
+          'window. Normal: 1–2. Alert: ≥3. Critical: ≥10.\n\n'
           '• Fingerprint — Method + normalized URL hash identifying the '
           'cluster. All requests in the cluster share this fingerprint, so '
           'the issue is stable across scans.\n\n'
@@ -1923,7 +1954,7 @@ class IssueExplanationBuilder {
           'Legitimate bursts exist — analytics beacons, poll loops intended '
           'to run at high frequency, or a streaming replacement that falls '
           'back to short-interval polling. In those cases suppress the issue '
-          'via `SleuthConfig.ignoredStableIds`. The detector already '
+          'via `SleuthConfig.suppressedIssues`. The detector already '
           'excludes POST/PUT/PATCH so non-idempotent writes are never '
           'flagged.',
       relatedIssues: ['rebuild_activity'],
@@ -1938,10 +1969,10 @@ class IssueExplanationBuilder {
           'every child to determine line breaks.',
       readingTheData:
           'Like a shelf stocker who must try every item in every slot to '
-          'find the best arrangement — more items means exponentially more '
-          'trial placements.\n\n'
-          '• Child count — Number of children in the Wrap. Normal: <30. '
-          'Alert: >50 children (default, configurable).\n\n'
+          'find the best arrangement — every extra item means another '
+          'trial placement.\n\n'
+          '• Child count — Number of children in the Wrap. '
+          'Alert: >30 children (hardcoded).\n\n'
           '• Layout cost — Each child is measured and positioned sequentially; '
           'no lazy skipping of off-screen items.\n\n'
           '• Source: Structural tree walk.',
@@ -1974,15 +2005,15 @@ class IssueExplanationBuilder {
           'Like stuffing an entire filing cabinet into a single folder — '
           'the folder system was designed for quick access, but one '
           'giant folder defeats the purpose.\n\n'
-          '• Descendant count — Widgets inside the SliverToBoxAdapter. '
-          'Normal: <50. Alert: >100 descendants.\n\n'
+          '• Child count — Children of the Column (or Row) inside the '
+          'SliverToBoxAdapter. Alert: >50 children.\n\n'
           '• Lazy alternative — SliverList.builder would lazily construct '
           'only visible items instead of all descendants.\n\n'
           '• Source: Structural tree walk.',
       whyItMatters:
           'Unlike SliverList which lazily builds only visible items, '
           'SliverToBoxAdapter builds its entire child subtree upfront. A '
-          'large subtree (100+ descendants) defeats the purpose of using '
+          'large subtree (more than 50 children) defeats the purpose of using '
           'slivers for lazy rendering, causing slow initial build and '
           'high memory usage.',
       howToFix:
@@ -2067,9 +2098,11 @@ class IssueExplanationBuilder {
     ),
 
     'global_key_recreation': (
-      displayName: 'GlobalKey Recreation',
+      displayName: 'GlobalKey Recreation (legacy)',
       category: IssueCategory.build,
       whatItIs:
+          'No longer auto-detected (detector removed in 0.20.0); kept so '
+          'snapshots from earlier versions still explain. '
           'A GlobalKey is being created inside a build() method or other '
           'frequently-called code path. Each call creates a new GlobalKey '
           'instance, which unregisters the old key and re-registers the '
@@ -2118,13 +2151,15 @@ class IssueExplanationBuilder {
           'of managing them all exceeds the energy savings.\n\n'
           '• Boundary count — RepaintBoundary widgets in the visible region. '
           'Normal: <15. Alert: >20 boundaries in proximity.\n\n'
-          '• GPU layer cost — Each boundary creates a compositing layer '
-          'that consumes GPU memory (~100KB+ per layer).\n\n'
+          '• Layer cost — Each boundary isolates a repaint region in its '
+          'own layer, which the raster thread composites every frame on '
+          'both Skia and Impeller.\n\n'
           '• Source: Structural tree walk.',
       whyItMatters:
-          'Each RepaintBoundary allocates a GPU-backed compositing layer. '
-          'Too many layers increase GPU memory usage and compositing cost — '
-          'the raster thread must composite all layers each frame. Beyond '
+          'Each RepaintBoundary isolates a repaint region in its own '
+          'compositing layer. That isolation only pays off when the region '
+          'repaints independently; otherwise each extra layer is pure '
+          'compositing cost the raster thread pays every frame. Beyond '
           '~15-20 boundaries in a visible region, the overhead of managing '
           'layers can exceed the savings from isolated repainting.',
       howToFix:
