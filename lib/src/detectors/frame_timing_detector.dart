@@ -198,6 +198,63 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   // time to zero.
   int? _firstFrameVsyncUs;
 
+  // -- Vsync cadence estimator --
+  static const int _cadenceCapacity = 120;
+  static const int _cadenceMinSamples = 30;
+  final List<int> _cadenceDeltas = List<int>.filled(_cadenceCapacity, 0);
+  int _cadenceCount = 0;
+  int _cadenceWriteIndex = 0;
+  int? _lastCadenceVsyncUs;
+  double? _cachedCadenceHz;
+  bool _cadenceDirty = false;
+
+  /// Vsync cadence estimated from the 10th percentile of recent
+  /// `vsyncStart` deltas, or null until 30 valid deltas have been seen.
+  ///
+  /// The 10th percentile, not the median: fast frames reveal the vsync
+  /// period, while slow frames are the thing being measured. A median would
+  /// absorb steady jank into the cadence and loosen the budget it is judged
+  /// against. Deltas `<= 0` and idle gaps longer than two `fpsTarget`
+  /// frames are ignored. The last 120 valid deltas are kept.
+  double? get measuredCadenceHz {
+    if (_cadenceCount < _cadenceMinSamples) return null;
+    if (_cadenceDirty) {
+      final sorted = _cadenceDeltas.sublist(0, _cadenceCount)..sort();
+      final p10 = sorted[(_cadenceCount * 0.1).floor()];
+      _cachedCadenceHz = 1e6 / p10;
+      _cadenceDirty = false;
+    }
+    return _cachedCadenceHz;
+  }
+
+  /// Number of vsync deltas currently held by the cadence estimator.
+  @visibleForTesting
+  int get validCadenceSampleCount => _cadenceCount;
+
+  void _recordVsync(int vsyncStartUs) {
+    final last = _lastCadenceVsyncUs;
+    _lastCadenceVsyncUs = vsyncStartUs;
+    if (last == null) return;
+    final delta = vsyncStartUs - last;
+    // Idle gaps are judged against the fpsTarget frame, not the resolved
+    // budget, so a tightened budget cannot discard the slower deltas that
+    // would let the estimate fall back.
+    final maxDeltaUs = 2 * (1e6 / fpsTarget).round();
+    if (delta <= 0 || delta > maxDeltaUs) return;
+    _cadenceDeltas[_cadenceWriteIndex] = delta;
+    _cadenceWriteIndex = (_cadenceWriteIndex + 1) % _cadenceCapacity;
+    if (_cadenceCount < _cadenceCapacity) _cadenceCount++;
+    _cadenceDirty = true;
+  }
+
+  void _resetCadence() {
+    _cadenceCount = 0;
+    _cadenceWriteIndex = 0;
+    _lastCadenceVsyncUs = null;
+    _cachedCadenceHz = null;
+    _cadenceDirty = false;
+  }
+
   // -- Raster cache trend thresholds --
   static const int _thrashingWindowFrames = 15;
   static const double _thrashingVariationPercent = 0.20;
@@ -338,6 +395,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         FramePhase.vsyncStart,
       );
       _firstFrameVsyncUs ??= vsyncStartUs;
+      _recordVsync(vsyncStartUs);
       final buildStartUs = timing.timestampInMicroseconds(
         FramePhase.buildStart,
       );
@@ -764,10 +822,12 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     _consecutiveZeroCacheFrames = 0;
     _impellerDetected = false;
     _lastTimelineData = null;
+    _resetCadence();
   }
 
   /// Capture-mode reset hook. Clears all per-leg state — buffer, ephemeral
-  /// `_issues`, warmup anchors, cache-trend counters — so back-to-back
+  /// `_issues`, warmup anchors, cache-trend counters, the vsync cadence
+  /// estimate — so back-to-back
   /// scenario legs cannot leak frames or counters from prior runs.
   ///
   /// **Preserves [_emissionSeq] across reset by design.** The audit gate's
@@ -788,6 +848,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     _consecutiveZeroCacheFrames = 0;
     _impellerDetected = false;
     _lastTimelineData = null;
+    _resetCadence();
   }
 
   @override

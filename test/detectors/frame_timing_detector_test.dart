@@ -1029,4 +1029,110 @@ void main() {
       });
     });
   });
+
+  group('FrameTimingDetector vsync cadence', () {
+    const baseUs = 1000000000;
+
+    List<FrameTiming> timingsFromDeltas(List<int> deltas) {
+      var vsync = baseUs;
+      final out = <FrameTiming>[];
+      void add(int i) {
+        out.add(
+          FrameTiming(
+            vsyncStart: vsync,
+            buildStart: vsync + 100,
+            buildFinish: vsync + 2100,
+            rasterStart: vsync + 2200,
+            rasterFinish: vsync + 4200,
+            rasterFinishWallTime: vsync + 4200,
+            frameNumber: i + 1,
+          ),
+        );
+      }
+
+      add(0);
+      for (var i = 0; i < deltas.length; i++) {
+        vsync += deltas[i];
+        add(i + 1);
+      }
+      return out;
+    }
+
+    FrameTimingDetector build() =>
+        FrameTimingDetector(warmupDuration: Duration.zero);
+
+    test('60 deltas of 8333 us estimate ~120 Hz', () {
+      final d = build();
+      d.handleTimingsForTest(timingsFromDeltas(List.filled(60, 8333)));
+      expect(d.validCadenceSampleCount, 60);
+      expect(d.measuredCadenceHz, closeTo(120, 0.1));
+    });
+
+    test('10th percentile picks the fast frames under steady jank', () {
+      final d = build();
+      d.handleTimingsForTest(
+        timingsFromDeltas([
+          ...List.filled(30, 8333),
+          ...List.filled(30, 25000),
+        ]),
+      );
+      expect(d.measuredCadenceHz, closeTo(120, 0.1));
+    });
+
+    test('idle gaps are ignored', () {
+      final d = build();
+      d.handleTimingsForTest(
+        timingsFromDeltas([
+          ...List.filled(20, 16667),
+          400000,
+          ...List.filled(20, 16667),
+        ]),
+      );
+      expect(d.validCadenceSampleCount, 40);
+      expect(d.measuredCadenceHz, closeTo(60, 0.1));
+    });
+
+    test('null until 30 valid deltas', () {
+      final d = build();
+      d.handleTimingsForTest(timingsFromDeltas(List.filled(29, 8333)));
+      expect(d.validCadenceSampleCount, 29);
+      expect(d.measuredCadenceHz, isNull);
+    });
+
+    test('deltas across callbacks are joined', () {
+      final d = build();
+      final timings = timingsFromDeltas(List.filled(40, 8333));
+      d.handleTimingsForTest(timings.sublist(0, 20));
+      d.handleTimingsForTest(timings.sublist(20));
+      expect(d.validCadenceSampleCount, 40);
+    });
+
+    test('ring keeps only the last 120 deltas', () {
+      final d = build();
+      d.handleTimingsForTest(
+        timingsFromDeltas([
+          ...List.filled(120, 8333),
+          ...List.filled(120, 16667),
+        ]),
+      );
+      expect(d.validCadenceSampleCount, 120);
+      expect(d.measuredCadenceHz, closeTo(60, 0.1));
+    });
+
+    test('reset clears the estimate', () {
+      final d = build();
+      d.handleTimingsForTest(timingsFromDeltas(List.filled(60, 8333)));
+      expect(d.measuredCadenceHz, isNotNull);
+      d.reset();
+      expect(d.validCadenceSampleCount, 0);
+      expect(d.measuredCadenceHz, isNull);
+    });
+
+    test('disabling the detector keeps the estimate', () {
+      final d = build();
+      d.handleTimingsForTest(timingsFromDeltas(List.filled(60, 8333)));
+      d.isEnabled = false;
+      expect(d.measuredCadenceHz, closeTo(120, 0.1));
+    });
+  });
 }
