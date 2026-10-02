@@ -2392,6 +2392,15 @@ class SleuthController {
             }
             _scheduleNextScan();
           });
+          // A static screen produces no frames, and a post-frame callback
+          // only runs after one. Schedule a frame when none is pending so
+          // the tick fires on cadence instead of at the next incidental
+          // repaint, which on a quiet screen can be many seconds away.
+          final binding = SchedulerBinding.instance;
+          if (binding.schedulerPhase == SchedulerPhase.idle &&
+              !binding.hasScheduledFrame) {
+            binding.scheduleFrame();
+          }
         } else {
           _scheduleNextScan();
         }
