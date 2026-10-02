@@ -1,8 +1,10 @@
+import 'dart:developer' show Timeline;
 import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
 import '../helpers/timeline_test_helpers.dart';
@@ -214,7 +216,9 @@ void main() {
         expect(detector.issues.first.detail, contains('RenderColorFiltered'));
       });
 
-      testWidgets('mentions VM unavailable when disconnected', (tester) async {
+      testWidgets('notes missing raster timing with no VM and no frames', (
+        tester,
+      ) async {
         detector.vmConnected = false;
 
         await tester.pumpWidget(const _OpacityDeepTree());
@@ -229,12 +233,38 @@ void main() {
           (i) => i.category == IssueCategory.raster,
         );
         expect(rasterIssues, isNotEmpty);
-        expect(rasterIssues.first.detail, contains('VM unavailable'));
+        expect(
+          rasterIssues.first.detail,
+          contains('No raster timing observed yet.'),
+        );
+        expect(
+          rasterIssues.first.confidenceReason,
+          'Structural pattern only — no raster-dominant frames observed',
+        );
+      });
+
+      testWidgets('drops the missing-timing note once frames arrive', (
+        tester,
+      ) async {
+        detector = GpuPressureDetector(
+          appStartMonotonicUsForTest: () => Timeline.now - 60000000,
+        );
+        detector.vmConnected = false;
+        // A non-dominant frame still counts as raster timing observed.
+        detector.processFrame(_frame(uiUs: 4000, rasterUs: 3000));
+
+        await tester.pumpWidget(const _OpacityDeepTree());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        final nodes = detector.issues.single;
+        expect(nodes.stableId, 'expensive_gpu_nodes');
+        expect(nodes.confidence, IssueConfidence.possible);
+        expect(nodes.detail, isNot(contains('No raster timing')));
       });
     });
 
     group('vmConnected setter', () {
-      testWidgets('confirmed/likely issues cleared immediately on disconnect', (
+      testWidgets('VM-sourced raster_dominance cleared on disconnect', (
         tester,
       ) async {
         detector.vmConnected = true;
@@ -252,7 +282,12 @@ void main() {
         expect(detector.issues, isNotEmpty);
 
         detector.vmConnected = false;
-        // Confirmed/likely issues should be cleared
+        // No frame evidence: the VM-sourced issue is removed outright and
+        // nothing confirmed or likely is left.
+        expect(
+          detector.issues.where((i) => i.stableId == 'raster_dominance'),
+          isEmpty,
+        );
         expect(
           detector.issues.where(
             (i) =>
@@ -263,47 +298,49 @@ void main() {
         );
       });
 
-      testWidgets(
-        'structural issue survives disconnect with downgraded confidence',
-        (tester) async {
-          detector.vmConnected = true;
-          detector.processTimelineData(
-            rasterDominantData(
-              rasterUs: 25000,
-              buildUs: 5000,
-              layoutUs: 3000,
-              paintUs: 2000,
-            ),
-          );
+      testWidgets('structural issue survives disconnect downgraded when no frame '
+          'evidence backs it', (tester) async {
+        detector.vmConnected = true;
+        detector.processTimelineData(
+          rasterDominantData(
+            rasterUs: 25000,
+            buildUs: 5000,
+            layoutUs: 3000,
+            paintUs: 2000,
+          ),
+        );
 
-          // Use OpacityDeepTree to generate both raster_dominance + expensive_gpu_nodes
-          await tester.pumpWidget(const _OpacityDeepTree());
-          detector.scanTree(tester.element(find.byType(Directionality)));
-          expect(detector.issues, hasLength(2));
+        // Use OpacityDeepTree to generate both raster_dominance + expensive_gpu_nodes
+        await tester.pumpWidget(const _OpacityDeepTree());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(detector.issues, hasLength(2));
 
-          // Verify expensive_gpu_nodes starts as likely (corroborated by raster dominance)
-          final nodesBefore = detector.issues.firstWhere(
-            (i) => i.stableId == 'expensive_gpu_nodes',
-          );
-          expect(nodesBefore.confidence, IssueConfidence.likely);
+        // Verify expensive_gpu_nodes starts as likely (corroborated by raster dominance)
+        final nodesBefore = detector.issues.firstWhere(
+          (i) => i.stableId == 'expensive_gpu_nodes',
+        );
+        expect(nodesBefore.confidence, IssueConfidence.likely);
 
-          // Disconnect
-          detector.vmConnected = false;
+        // Disconnect
+        detector.vmConnected = false;
 
-          // raster_dominance should be removed
-          expect(
-            detector.issues.where((i) => i.stableId == 'raster_dominance'),
-            isEmpty,
-          );
+        // raster_dominance should be removed
+        expect(
+          detector.issues.where((i) => i.stableId == 'raster_dominance'),
+          isEmpty,
+        );
 
-          // expensive_gpu_nodes should survive but downgraded to possible
-          final nodesAfter = detector.issues.where(
-            (i) => i.stableId == 'expensive_gpu_nodes',
-          );
-          expect(nodesAfter, hasLength(1));
-          expect(nodesAfter.first.confidence, IssueConfidence.possible);
-        },
-      );
+        // expensive_gpu_nodes should survive but downgraded to possible
+        final nodesAfter = detector.issues.where(
+          (i) => i.stableId == 'expensive_gpu_nodes',
+        );
+        expect(nodesAfter, hasLength(1));
+        expect(nodesAfter.first.confidence, IssueConfidence.possible);
+        expect(
+          nodesAfter.first.confidenceReason,
+          'Structural pattern only — no raster-dominant frames observed',
+        );
+      });
 
       testWidgets(
         'after disconnect, next scanTree only produces structural issues',
@@ -325,13 +362,367 @@ void main() {
           // Disconnect
           detector.vmConnected = false;
 
-          // Next scan should not produce raster ratio issues
+          // Next scan should not produce raster ratio issues: the VM
+          // values were cleared and no frames arrived.
           detector.scanTree(tester.element(find.byType(_GpuTestApp)));
           for (final issue in detector.issues) {
             expect(issue.confidence, IssueConfidence.possible);
           }
         },
       );
+    });
+
+    group('FrameTiming leg', () {
+      // 60 s past Dart entry: outside the default 5 s startup window.
+      var ageUs = 60000000;
+
+      setUp(() {
+        ageUs = 60000000;
+        detector = GpuPressureDetector(
+          appStartMonotonicUsForTest: () => Timeline.now - ageUs,
+        );
+      });
+
+      /// Feeds [rasterUs] frames (UI 1 ms each) at 60 Hz from [startUs].
+      void feed(List<int> rasterUs, {int startUs = 0, int spacingUs = 16667}) {
+        for (var i = 0; i < rasterUs.length; i++) {
+          final vsync = startUs + i * spacingUs;
+          detector.processFrame(
+            _frame(
+              uiUs: 1000,
+              rasterUs: rasterUs[i],
+              vsyncStartUs: vsync,
+              rasterFinishUs: vsync + rasterUs[i],
+            ),
+          );
+        }
+      }
+
+      Future<List<PerformanceIssue>> scan(
+        WidgetTester tester, [
+        Widget tree = const _GpuTestApp(),
+      ]) async {
+        await tester.pumpWidget(tree);
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        return detector.issues;
+      }
+
+      PerformanceIssue? raster(List<PerformanceIssue> issues) =>
+          issues.where((i) => i.stableId == 'raster_dominance').firstOrNull;
+
+      testWidgets('3 dominant frames in one second → likely warning', (
+        tester,
+      ) async {
+        feed([12000, 10000, 14000]);
+        final issue = raster(await scan(tester));
+
+        expect(issue, isNotNull);
+        expect(issue!.confidence, IssueConfidence.likely);
+        expect(issue.severity, IssueSeverity.warning);
+        expect(issue.observationSource, ObservationSource.frameTiming);
+        expect(issue.title, 'Raster Dominance: 12.0× UI time');
+        expect(
+          issue.confidenceReason,
+          'Per-frame FrameTiming raster vs UI durations',
+        );
+        expect(issue.detail, contains('3 of 3 frames since the last scan'));
+        expect(issue.detail, contains('worst raster 14.0ms'));
+        expect(issue.extraTraceArgs!.keys.toSet(), {
+          'source',
+          'dominantFrameCount',
+          'windowFrameCount',
+          'worstFrameRasterUs',
+          'medianRatio',
+          'lifecyclePhase',
+        });
+        expect(issue.extraTraceArgs!['source'], 'frame_timing');
+        expect(issue.extraTraceArgs!['dominantFrameCount'], '3');
+        expect(issue.extraTraceArgs!['windowFrameCount'], '3');
+        expect(issue.extraTraceArgs!['worstFrameRasterUs'], '14000');
+        expect(issue.extraTraceArgs!['medianRatio'], '12.00');
+        expect(issue.extraTraceArgs!['lifecyclePhase'], 'steady');
+        // Last qualifying frame: vsync 2 × 16667 + raster 14000.
+        expect(issue.dedupIdentityMicros, 2 * 16667 + 14000);
+        expect(
+          detector.issues.where((i) => i.stableId == 'raster_dominance'),
+          hasLength(1),
+        );
+      });
+
+      testWidgets('2 dominant frames → none', (tester) async {
+        feed([12000, 12000]);
+        expect(raster(await scan(tester)), isNull);
+      });
+
+      testWidgets('3 dominant frames 2 s apart → none', (tester) async {
+        feed([12000, 12000, 12000], spacingUs: 2000000);
+        expect(raster(await scan(tester)), isNull);
+      });
+
+      testWidgets('3 inside one second plus 1 outside → emits, 3 qualify', (
+        tester,
+      ) async {
+        feed([12000], startUs: 0);
+        feed([12000, 12000, 12000], startUs: 3000000);
+        final issue = raster(await scan(tester));
+
+        expect(issue, isNotNull);
+        expect(issue!.detail, contains('4 of 4 frames'));
+        expect(issue.detail, contains('3 within one second'));
+        expect(issue.extraTraceArgs!['dominantFrameCount'], '4');
+      });
+
+      testWidgets('non-monotonic vsync timestamps are ordered before the '
+          'span check', (tester) async {
+        for (final vsync in [500000, 0, 200000]) {
+          detector.processFrame(
+            _frame(uiUs: 1000, rasterUs: 12000, vsyncStartUs: vsync),
+          );
+        }
+        expect(raster(await scan(tester)), isNotNull);
+      });
+
+      testWidgets('frames without timestamps count as one span', (
+        tester,
+      ) async {
+        for (var i = 0; i < 3; i++) {
+          detector.processFrame(_frame(uiUs: 1000, rasterUs: 12000));
+        }
+        final issue = raster(await scan(tester));
+        expect(issue, isNotNull);
+        expect(issue!.dedupIdentityMicros, isNull);
+      });
+
+      testWidgets('3 frames with raster above the frame budget → critical', (
+        tester,
+      ) async {
+        feed([20000, 21000, 22000]);
+        final issue = raster(await scan(tester));
+        expect(issue!.severity, IssueSeverity.critical);
+      });
+
+      testWidgets('2 of 3 frames above budget → warning', (tester) async {
+        feed([20000, 21000, 12000]);
+        final issue = raster(await scan(tester));
+        expect(issue!.severity, IssueSeverity.warning);
+      });
+
+      testWidgets('6 ms raster vs 1 ms UI stays under the 8000us floor', (
+        tester,
+      ) async {
+        feed([6000, 6000, 6000, 6000]);
+        expect(raster(await scan(tester)), isNull);
+      });
+
+      testWidgets('updateFrameBudget lowers the floor; reset restores it', (
+        tester,
+      ) async {
+        detector.updateFrameBudget(8333);
+        expect(detector.effectiveMaxFrameRasterFloorUs, 4166);
+        feed([5000, 5000, 5000]);
+        expect(raster(await scan(tester)), isNotNull);
+
+        detector.resetFrameBudget();
+        feed([5000, 5000, 5000]);
+        expect(raster(await scan(tester)), isNull);
+      });
+
+      testWidgets('frames with zero UI or zero raster are skipped', (
+        tester,
+      ) async {
+        for (var i = 0; i < 3; i++) {
+          detector.processFrame(_frame(uiUs: 0, rasterUs: 12000));
+          detector.processFrame(_frame(uiUs: 1000, rasterUs: 0));
+        }
+        expect(raster(await scan(tester)), isNull);
+      });
+
+      testWidgets('frames inside the startup window are ignored', (
+        tester,
+      ) async {
+        ageUs = 1000000; // 1 s after Dart entry, inside the 5 s window.
+        feed([12000, 12000, 12000]);
+        expect(raster(await scan(tester)), isNull);
+
+        ageUs = 10000000; // 10 s after Dart entry.
+        feed([12000, 12000, 12000]);
+        expect(raster(await scan(tester)), isNotNull);
+      });
+
+      testWidgets('startupPhaseWindowSeconds sets the window', (tester) async {
+        ageUs = 3000000;
+        detector = GpuPressureDetector(
+          startupPhaseWindowSeconds: 2,
+          appStartMonotonicUsForTest: () => Timeline.now - ageUs,
+        );
+        feed([12000, 12000, 12000]);
+        expect(raster(await scan(tester)), isNotNull);
+      });
+
+      testWidgets('frame state clears after each scan', (tester) async {
+        feed([12000, 12000, 12000]);
+        expect(raster(await scan(tester)), isNotNull);
+        expect(raster(await scan(tester)), isNull);
+      });
+
+      testWidgets('VM and frame legs → one confirmed issue, corroborated', (
+        tester,
+      ) async {
+        detector.vmConnected = true;
+        detector.processTimelineData(
+          rasterDominantData(
+            rasterUs: 25000,
+            buildUs: 5000,
+            layoutUs: 3000,
+            paintUs: 2000,
+          ),
+        );
+        feed([12000, 12000, 12000]);
+        final issues = await scan(tester);
+
+        final rasterIssues = issues
+            .where((i) => i.stableId == 'raster_dominance')
+            .toList();
+        expect(rasterIssues, hasLength(1));
+        expect(rasterIssues.single.confidence, IssueConfidence.confirmed);
+        expect(
+          rasterIssues.single.observationSource,
+          ObservationSource.vmTimeline,
+        );
+        expect(
+          rasterIssues.single.confidenceReason,
+          contains('corroborated by 3 raster-dominant frames'),
+        );
+      });
+
+      testWidgets('VM disconnect keeps the frame-leg issue and likely nodes', (
+        tester,
+      ) async {
+        detector.vmConnected = true;
+        feed([12000, 12000, 12000]);
+        await scan(tester, const _OpacityDeepTree());
+        expect(raster(detector.issues)!.confidence, IssueConfidence.likely);
+
+        detector.vmConnected = false;
+
+        final issue = raster(detector.issues);
+        expect(issue, isNotNull);
+        expect(issue!.confidence, IssueConfidence.likely);
+        expect(issue.observationSource, ObservationSource.frameTiming);
+        final nodes = detector.issues.firstWhere(
+          (i) => i.stableId == 'expensive_gpu_nodes',
+        );
+        expect(nodes.confidence, IssueConfidence.likely);
+      });
+
+      testWidgets('VM disconnect after a corroborated scan swaps in the '
+          'frame-leg issue', (tester) async {
+        detector.vmConnected = true;
+        detector.processTimelineData(rasterDominantData(rasterUs: 25000));
+        feed([12000, 12000, 12000]);
+        await scan(tester, const _OpacityDeepTree());
+        expect(raster(detector.issues)!.confidence, IssueConfidence.confirmed);
+
+        detector.vmConnected = false;
+
+        final rasterIssues = detector.issues
+            .where((i) => i.stableId == 'raster_dominance')
+            .toList();
+        expect(rasterIssues, hasLength(1));
+        expect(rasterIssues.single.confidence, IssueConfidence.likely);
+        expect(
+          rasterIssues.single.observationSource,
+          ObservationSource.frameTiming,
+        );
+        final nodes = detector.issues.firstWhere(
+          (i) => i.stableId == 'expensive_gpu_nodes',
+        );
+        expect(nodes.confidence, IssueConfidence.likely);
+      });
+
+      testWidgets('VM disconnect with a VM-only issue removes it', (
+        tester,
+      ) async {
+        detector.vmConnected = true;
+        detector.processTimelineData(rasterDominantData(rasterUs: 25000));
+        await scan(tester, const _OpacityDeepTree());
+        expect(raster(detector.issues), isNotNull);
+
+        detector.vmConnected = false;
+
+        expect(raster(detector.issues), isNull);
+        final nodes = detector.issues.firstWhere(
+          (i) => i.stableId == 'expensive_gpu_nodes',
+        );
+        expect(nodes.confidence, IssueConfidence.possible);
+      });
+
+      testWidgets('expensive_gpu_nodes is likely on the frame leg alone', (
+        tester,
+      ) async {
+        feed([12000, 12000, 12000]);
+        final issues = await scan(tester, const _OpacityDeepTree());
+        final nodes = issues.firstWhere(
+          (i) => i.stableId == 'expensive_gpu_nodes',
+        );
+        expect(nodes.confidence, IssueConfidence.likely);
+        expect(
+          nodes.confidenceReason,
+          'Raster-dominant frames + structural render node scan',
+        );
+        expect(nodes.detail, isNot(contains('No raster timing')));
+      });
+
+      testWidgets('disabled detector ignores frames', (tester) async {
+        detector.isEnabled = false;
+        feed([12000, 12000, 12000]);
+        detector.isEnabled = true;
+        expect(raster(await scan(tester)), isNull);
+      });
+
+      testWidgets('rasterMultiplierThreshold applies per frame', (
+        tester,
+      ) async {
+        detector = GpuPressureDetector(
+          rasterMultiplierThreshold: 3.0,
+          maxFrameRasterFloorUs: 2000,
+          appStartMonotonicUsForTest: () => Timeline.now - ageUs,
+        );
+        // Ratio 2.5 with UI 1 ms: below 3.0.
+        feed([2500, 2500, 2500]);
+        expect(raster(await scan(tester)), isNull);
+        // Ratio 3.5: above 3.0.
+        feed([3500, 3500, 3500]);
+        expect(raster(await scan(tester)), isNotNull);
+      });
+
+      testWidgets('minRasterDominantFrames applies', (tester) async {
+        detector = GpuPressureDetector(
+          minRasterDominantFrames: 5,
+          appStartMonotonicUsForTest: () => Timeline.now - ageUs,
+        );
+        feed([12000, 12000, 12000, 12000]);
+        expect(raster(await scan(tester)), isNull);
+        feed([12000, 12000, 12000, 12000, 12000]);
+        expect(raster(await scan(tester)), isNotNull);
+      });
+
+      testWidgets('100 dominant frames: ring keeps 64, count reports 100', (
+        tester,
+      ) async {
+        for (var i = 0; i < 100; i++) {
+          detector.processFrame(_frame(uiUs: 1000, rasterUs: 12000));
+        }
+        final issue = raster(await scan(tester));
+        expect(issue!.extraTraceArgs!['dominantFrameCount'], '100');
+        expect(issue.detail, contains('64 within one second'));
+      });
+
+      testWidgets('dispose clears frame state', (tester) async {
+        feed([12000, 12000, 12000]);
+        detector.dispose();
+        expect(raster(await scan(tester)), isNull);
+      });
     });
 
     group('highlights', () {
@@ -489,6 +880,22 @@ void main() {
     });
   });
 }
+
+FrameStats _frame({
+  required int uiUs,
+  required int rasterUs,
+  int? vsyncStartUs,
+  int? rasterFinishUs,
+  int frameBudgetUs = 16667,
+}) => FrameStats(
+  frameNumber: 0,
+  uiDuration: Duration(microseconds: uiUs),
+  rasterDuration: Duration(microseconds: rasterUs),
+  timestamp: DateTime(2026),
+  frameBudgetUs: frameBudgetUs,
+  vsyncStartUs: vsyncStartUs,
+  rasterFinishUs: rasterFinishUs,
+);
 
 /// Simple widget tree with no expensive render objects.
 class _GpuTestApp extends StatelessWidget {

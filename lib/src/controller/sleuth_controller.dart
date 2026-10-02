@@ -891,6 +891,8 @@ class SleuthController {
       DetectorType.gpuPressure: () => _withFrameBudget(
         GpuPressureDetector(
           rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
+          startupPhaseWindowSeconds:
+              config.thresholds.startupPhaseWindowSeconds,
         ),
       ),
       DetectorType.layoutBottleneck: LayoutBottleneckDetector.new,
