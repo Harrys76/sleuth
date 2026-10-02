@@ -4,6 +4,7 @@ import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/custom_painter_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
+import '../helpers/decoded_image_helpers.dart';
 import '../helpers/framework_painter_fixture.dart';
 
 void main() {
@@ -497,6 +498,123 @@ void main() {
         );
       });
     });
+
+    group('framework-owned painters on real widgets', () {
+      const hotSnapshot = DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 40,
+        paintCounts: {'CustomPaint': 40},
+        elapsed: Duration(seconds: 1),
+      );
+
+      testWidgets('Material and Cupertino widgets emit no painter issue even '
+          'at a high CustomPaint rate', (tester) async {
+        detector.updateDebugSnapshot(hotSnapshot);
+        await tester.pumpWidget(materialPainterPage());
+        await driveMaterialPainterPage(tester);
+
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        final ids = detector.issues.map((i) => i.stableId);
+        expect(ids, isNot(contains('always_repaint_painter')));
+        expect(ids, isNot(contains('frequent_repaint_painter')));
+      });
+
+      testWidgets('open DropdownButton menu emits no painter issue', (
+        tester,
+      ) async {
+        detector.updateDebugSnapshot(hotSnapshot);
+        await tester.pumpWidget(materialPainterPage());
+        await driveMaterialPainterPage(tester, openDropdown: true);
+
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets('TabBar image indicator that just loaded '
+          '(shouldRepaint(self) true) is not always_repaint_painter', (
+        tester,
+      ) async {
+        final bytes = await pngBytes(tester, width: 8, height: 8);
+        await tester.pumpWidget(
+          MaterialApp(
+            debugShowCheckedModeBanner: false,
+            home: DefaultTabController(
+              length: 2,
+              child: Scaffold(
+                body: TabBar(
+                  indicator: BoxDecoration(
+                    image: DecorationImage(image: MemoryImage(bytes)),
+                  ),
+                  tabs: const [
+                    Tab(text: 'A'),
+                    Tab(text: 'B'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        // The decode finishes outside fake async; the indicator painter
+        // then needs paint until the next frame.
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 200)),
+        );
+        expect(paintersByName()['_IndicatorPainter']?.repaintsSelf, isTrue);
+
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets('user painter named like a framework painter, outside its '
+          'owner, still emits always_repaint_painter', (tester) async {
+        await tester.pumpWidget(
+          materialPainterPage(
+            extra: Container(
+              padding: const EdgeInsets.all(1),
+              child: CustomPaint(
+                painter: _IndicatorPainter(),
+                child: const SizedBox(width: 10, height: 10),
+              ),
+            ),
+          ),
+        );
+        await driveMaterialPainterPage(tester);
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'always_repaint_painter',
+        );
+        expect(issue.title, contains('1 found'));
+      });
+
+      testWidgets('frequent_repaint_painter gate stays closed with only '
+          'framework paints, and opens for a same-named user painter', (
+        tester,
+      ) async {
+        detector.updateDebugSnapshot(hotSnapshot);
+        await tester.pumpWidget(materialPainterPage());
+        await driveMaterialPainterPage(tester);
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+        expect(detector.issues, isEmpty);
+
+        await tester.pumpWidget(
+          materialPainterPage(
+            extra: CustomPaint(
+              painter: _ShapeBorderPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+        expect(
+          detector.issues.map((i) => i.stableId),
+          contains('frequent_repaint_painter'),
+        );
+      });
+    });
   });
 }
 
@@ -511,6 +629,25 @@ class _AlwaysRepaintPainter extends CustomPainter {
 
 /// Painter that always returns false from shouldRepaint(self).
 class _NeverRepaintPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// User painter sharing the TabBar indicator painter's class name; always
+/// returns true from shouldRepaint(self).
+class _IndicatorPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+/// User painter sharing Material's shape-border painter's class name.
+class _ShapeBorderPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {}
 

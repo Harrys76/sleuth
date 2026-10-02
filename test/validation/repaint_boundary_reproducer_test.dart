@@ -19,7 +19,17 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sleuth/src/detectors/repaint_boundary_detector.dart';
 
+import '../helpers/framework_painter_fixture.dart';
 import '_helpers/structural_reproducer_harness.dart';
+
+/// User painter sharing the TabBar indicator painter's class name.
+class _IndicatorPainter extends CustomPainter {
+  const _IndicatorPainter();
+  @override
+  void paint(Canvas canvas, Size size) {}
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => false;
+}
 
 void main() {
   group('RepaintBoundaryDetector reproducer', () {
@@ -81,6 +91,30 @@ void main() {
         tester,
         detector,
         const ClipPath(child: SizedBox(height: 10, width: 10)),
+      );
+      expect(issues, hasStableId('missing_repaint_boundary'));
+    });
+
+    testWidgets('missing_repaint_boundary: real Material and Cupertino '
+        'widgets silent (framework-owned painters, Material clip)', (
+      tester,
+    ) async {
+      final detector = RepaintBoundaryDetector();
+      await scanAndIssues(tester, detector, materialPainterPage());
+      await driveMaterialPainterPage(tester);
+      expect(
+        rescanIssues(tester, detector),
+        lacksStableId('missing_repaint_boundary'),
+      );
+    });
+
+    testWidgets('missing_repaint_boundary: user painter named '
+        '_IndicatorPainter outside a TabBar fires', (tester) async {
+      final detector = RepaintBoundaryDetector();
+      final issues = await scanAndIssues(
+        tester,
+        detector,
+        const CustomPaint(painter: _IndicatorPainter(), size: Size(10, 10)),
       );
       expect(issues, hasStableId('missing_repaint_boundary'));
     });

@@ -15,6 +15,7 @@ import 'package:sleuth/sleuth.dart' show IssueConfidence, ObservationSource;
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/custom_painter_detector.dart';
 
+import '../helpers/framework_painter_fixture.dart';
 import '_helpers/structural_reproducer_harness.dart';
 
 /// Always-repaint painter: self-comparison returns true. Reproduces the
@@ -36,6 +37,16 @@ class _WellBehavedPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter old) => false;
 }
 
+/// User always-repaint painter sharing the TabBar indicator painter's
+/// class name.
+class _IndicatorPainter extends CustomPainter {
+  const _IndicatorPainter();
+  @override
+  void paint(Canvas canvas, Size size) {}
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => true;
+}
+
 void main() {
   group('CustomPainterDetector reproducer', () {
     // --- always_repaint_painter ----------------------------------------
@@ -48,6 +59,28 @@ void main() {
         tester,
         detector,
         const CustomPaint(painter: _AlwaysRepaintPainter(), size: Size(10, 10)),
+      );
+      expect(issues, hasStableId('always_repaint_painter'));
+    });
+
+    testWidgets('always_repaint_painter: real Material and Cupertino '
+        'widgets silent (framework-owned painters)', (tester) async {
+      final detector = CustomPainterDetector();
+      await scanAndIssues(tester, detector, materialPainterPage());
+      await driveMaterialPainterPage(tester);
+      expect(
+        rescanIssues(tester, detector),
+        lacksStableId('always_repaint_painter'),
+      );
+    });
+
+    testWidgets('always_repaint_painter: user painter named '
+        '_IndicatorPainter outside a TabBar fires', (tester) async {
+      final detector = CustomPainterDetector();
+      final issues = await scanAndIssues(
+        tester,
+        detector,
+        const CustomPaint(painter: _IndicatorPainter(), size: Size(10, 10)),
       );
       expect(issues, hasStableId('always_repaint_painter'));
     });

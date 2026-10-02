@@ -61,8 +61,9 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
   void checkElement(Element element) {
     final widget = element.widget;
 
-    // Framework toggle and scrollbar painters are not user code.
-    if (widget is CustomPaint && !isFrameworkPainterPaint(widget)) {
+    // Framework-owned painters (toggles, scrollbars, Material shape
+    // borders, tab indicators, ...) are not user code.
+    if (widget is CustomPaint && !isFrameworkPainterPaint(element)) {
       _userPaintCount++;
       if (widget.painter != null) {
         _checkPainter(element, widget.painter!);
@@ -216,8 +217,17 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
         'ordering contract is pinned as a negative control so both '
         'branches cannot fire simultaneously. Framework toggle and '
         'scrollbar painters (ToggleablePainter, ScrollbarPainter) are '
-        'skipped, and the paint-rate branch needs at least one user '
-        'CustomPaint in the scan. Not yet runtime-verified '
+        'skipped, as are private framework painters matched by class '
+        'name plus an owner widget within a measured hop budget (Material '
+        'shape borders, input borders, TabBar indicator and divider, '
+        'progress and activity indicators, overscroll glow and stretch, '
+        'AnimatedIcon, dropdown menu, Placeholder, GridPaper; hop counts '
+        'recorded on RepaintBoundaryDetector). A TabBar image indicator '
+        'whose image just arrived (shouldRepaint(self) true until the '
+        'next paint) is pinned silent on a real decode, and a user '
+        'always-repaint painter carrying a framework painter name outside '
+        'its owner still fires. The paint-rate branch needs at least one '
+        'user CustomPaint in the scan. Not yet runtime-verified '
         'against a real paint-counter stream.',
     reproducerPath: 'test/validation/custom_painter_reproducer_test.dart',
     coveredStableIds: {'always_repaint_painter', 'frequent_repaint_painter'},

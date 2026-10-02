@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/repaint_boundary_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/utils/framework_painters.dart';
 
 import '../helpers/framework_painter_fixture.dart';
 
@@ -542,10 +543,200 @@ void main() {
         expect(issue.title, contains('1 expensive widget'));
       });
     });
+
+    group('framework-owned painters on real widgets', () {
+      // Painters that render with no RepaintBoundary within the detector's
+      // 5 render ancestors on the driven page: each is a candidate the
+      // owner table must silence.
+      const unprotectedOnPage = [
+        '_ShapeBorderPainter',
+        '_IndicatorPainter',
+        '_DividerPainter',
+        '_LinearProgressIndicatorPainter',
+        '_CircularProgressIndicatorPainter',
+        '_RefreshProgressIndicatorPainter',
+        '_InputBorderPainter',
+        '_CupertinoActivityIndicatorPainter',
+        '_AnimatedIconPainter',
+        '_PlaceholderPainter',
+        '_GridPaperPainter',
+      ];
+
+      testWidgets('Material and Cupertino widgets raise no '
+          'missing_repaint_boundary', (tester) async {
+        await tester.pumpWidget(materialPainterPage());
+        await driveMaterialPainterPage(tester);
+
+        final painters = paintersByName();
+        for (final name in unprotectedOnPage) {
+          expect(
+            painters[name]?.unprotected ?? 0,
+            greaterThan(0),
+            reason: name,
+          );
+        }
+        expect(painters['_GlowingOverscrollIndicatorPainter'], isNotNull);
+        expect(materialClipPaths().unprotected, greaterThan(0));
+
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        expect(
+          detector.issues.map((i) => i.stableId),
+          isNot(contains('missing_repaint_boundary')),
+        );
+      });
+
+      testWidgets('open DropdownButton menu raises no '
+          'missing_repaint_boundary', (tester) async {
+        await tester.pumpWidget(materialPainterPage());
+        await driveMaterialPainterPage(tester, openDropdown: true);
+
+        expect(paintersByName()['_DropdownMenuPainter'], isNotNull);
+
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        expect(
+          detector.issues.map((i) => i.stableId),
+          isNot(contains('missing_repaint_boundary')),
+        );
+      });
+
+      testWidgets('every reproducible owner-table painter is on the page', (
+        tester,
+      ) async {
+        final seen = <String>{};
+        await tester.pumpWidget(materialPainterPage());
+        await driveMaterialPainterPage(tester);
+        seen.addAll(paintersByName().keys);
+        await driveMaterialPainterPage(tester, openDropdown: true);
+        seen.addAll(paintersByName().keys);
+
+        // Stretch needs shader filters, absent from the test engine;
+        // CupertinoLinearActivityIndicator is not on every supported SDK.
+        final expected = frameworkPainterNames.toSet()
+          ..remove('_StretchEffectPainter')
+          ..remove('_CupertinoLinearActivityIndicator');
+        expect(seen, containsAll(expected));
+      });
+
+      testWidgets('user painter named like a framework painter, outside its '
+          'owner, is still flagged', (tester) async {
+        await tester.pumpWidget(
+          materialPainterPage(
+            extra: Container(
+              padding: const EdgeInsets.all(1),
+              child: CustomPaint(
+                painter: _IndicatorPainter(),
+                child: const SizedBox(width: 10, height: 10),
+              ),
+            ),
+          ),
+        );
+        await driveMaterialPainterPage(tester);
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'missing_repaint_boundary',
+        );
+        expect(issue.title, contains('1 expensive widget'));
+      });
+
+      testWidgets('user _ShapeBorderPainter inside a Card is still flagged: '
+          'its parent is not _ShapeBorderPaint', (tester) async {
+        await tester.pumpWidget(
+          materialPainterPage(
+            extra: Card(
+              child: CustomPaint(
+                painter: _ShapeBorderPainter(),
+                child: const SizedBox(width: 10, height: 10),
+              ),
+            ),
+          ),
+        );
+        await driveMaterialPainterPage(tester);
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'missing_repaint_boundary',
+        );
+        expect(issue.title, contains('1 expensive widget'));
+      });
+
+      testWidgets('user ClipPath under a Container is still flagged', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          materialPainterPage(
+            extra: Container(
+              padding: const EdgeInsets.all(1),
+              child: const ClipPath(child: SizedBox(width: 10, height: 10)),
+            ),
+          ),
+        );
+        await driveMaterialPainterPage(tester);
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'missing_repaint_boundary',
+        );
+        expect(issue.title, contains('1 expensive widget'));
+      });
+
+      testWidgets('user ClipPath as the child of a transparency Material is '
+          'still flagged: Material builds its own clip above it', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          materialPainterPage(
+            extra: const Material(
+              type: MaterialType.transparency,
+              child: ClipPath(child: SizedBox(width: 10, height: 10)),
+            ),
+          ),
+        );
+        await driveMaterialPainterPage(tester);
+
+        final userClip = find.byWidgetPredicate(
+          (w) => w is ClipPath && w.child is SizedBox,
+        );
+        var userClipParentIsMaterial = false;
+        tester.element(userClip).visitAncestorElements((a) {
+          userClipParentIsMaterial = a.widget is Material;
+          return false;
+        });
+        expect(userClipParentIsMaterial, isFalse);
+
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'missing_repaint_boundary',
+        );
+        expect(issue.title, contains('1 expensive widget'));
+        expect(issue.detail, contains('ClipPath'));
+      });
+    });
   });
 }
 
 class _StubPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// User painter sharing the TabBar indicator painter's class name.
+class _IndicatorPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// User painter sharing Material's shape-border painter's class name.
+class _ShapeBorderPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {}
 

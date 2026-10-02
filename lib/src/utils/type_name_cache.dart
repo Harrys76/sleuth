@@ -18,9 +18,13 @@ class TypeNameCache {
 
   /// Returns the cached type name for [widget], computing it on first access.
   String lookup(Widget widget) {
-    final type = widget.runtimeType;
-    return _cache[type] ??= type.toString();
+    return lookupType(widget.runtimeType);
   }
+
+  /// Returns the cached type name for [type], computing it on first access.
+  ///
+  /// For non-widget objects such as painters, keyed by `runtimeType`.
+  String lookupType(Type type) => _cache[type] ??= type.toString();
 
   /// Clears the cache. The controller calls this on hot reload.
   void clear() => _cache.clear();

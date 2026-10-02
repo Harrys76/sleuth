@@ -112,6 +112,15 @@ void main() {
     });
   });
 
+  group('TypeNameCache.lookupType', () {
+    test('returns the type name for a non-widget type and caches it', () {
+      final first = typeNameCache.lookupType(_Probe);
+      expect(first, '_Probe');
+      expect(identical(typeNameCache.lookupType(_Probe), first), isTrue);
+      expect(typeNameCache.length, 1);
+    });
+  });
+
   group('baseTypeName', () {
     test('empty string returns empty string', () {
       expect(baseTypeName(''), '');
@@ -167,3 +176,5 @@ void main() {
     });
   });
 }
+
+class _Probe {}

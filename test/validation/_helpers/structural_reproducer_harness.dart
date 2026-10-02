@@ -30,7 +30,9 @@ Future<List<PerformanceIssue>> scanAndIssues(
   await tester.pumpWidget(
     Directionality(textDirection: TextDirection.ltr, child: body),
   );
-  final root = tester.element(find.byType(Directionality));
+  // The pumped root is the first Directionality; app widgets in [body]
+  // add their own below it.
+  final root = tester.element(find.byType(Directionality).first);
   detector.prepareScan(root);
   void visitor(Element element) {
     detector.checkElement(element);

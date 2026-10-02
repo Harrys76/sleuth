@@ -106,8 +106,10 @@ class RepaintBoundaryDetector extends BaseDetector
           (widget.opacity >= 1.0 || widget.opacity <= 0.0)) {
         return;
       }
-      // Framework toggle and scrollbar painters are not user CustomPaint.
-      if (widget is CustomPaint && isFrameworkPainterPaint(widget)) return;
+      // Framework-owned painters and Material's own transparency clip are
+      // not user widgets to wrap.
+      if (widget is CustomPaint && isFrameworkPainterPaint(element)) return;
+      if (widget is ClipPath && isMaterialOwnClip(element)) return;
       final ro = element.renderObject;
       if (ro != null && !_hasRepaintBoundaryAncestor(ro)) {
         _found.add(buildAncestorChain(element));
@@ -313,7 +315,21 @@ class RepaintBoundaryDetector extends BaseDetector
         'suppression and framework-managed ListView auto-boundary '
         'skip (-1 sentinel) are pinned as negative controls. Framework '
         'toggle and scrollbar painters (ToggleablePainter, '
-        'ScrollbarPainter) are not treated as user CustomPaint. A debug '
+        'ScrollbarPainter) are not treated as user CustomPaint, nor are '
+        'private framework painters matched by class name plus an owner '
+        'widget within a measured hop budget (hops measured on Flutter '
+        '3.32/3.47: _ShapeBorderPainter parent _ShapeBorderPaint and '
+        'Material 3-4; _InputBorderPainter InputDecorator 3/4; TabBar '
+        '_IndicatorPainter 3/11 fixed and 19/27 scrollable, _DividerPainter '
+        '2/10; ProgressIndicator linear 4, circular 4/5, refresh 17; '
+        'CupertinoActivityIndicator 2; GlowingOverscrollIndicator 3; '
+        'AnimatedIcon 2; _DropdownMenu 2; Placeholder 2; GridPaper 1; '
+        'budgets sit at or one above). Real Material and Cupertino '
+        'widgets are pinned silent, and a user painter carrying a '
+        'framework painter name outside its owner still fires. A ClipPath '
+        'whose parent element is Material (the transparency-type clip '
+        'Material builds itself) is skipped; a user ClipPath given as a '
+        'Material child sits below that clip and stays reported. A debug '
         'paint rate above 10/sec for an unprotected type lifts confidence '
         'to likely, never confirmed: paint counts aggregate per type and '
         'cannot attribute to the specific instance. '
