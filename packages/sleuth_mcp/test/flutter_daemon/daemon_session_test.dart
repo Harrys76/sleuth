@@ -914,7 +914,7 @@ class _FlakyConnectBridge extends FakeVmBridge {
             'connectionMode': 'basic',
             'schemaVersion': 1,
             'sessionUuid': 'u',
-            'data': {'packageVersion': '0.36.0'},
+            'data': {'packageVersion': '0.36.1'},
           },
         },
       );
@@ -1014,7 +1014,7 @@ class _AllDeadBridge extends FakeVmBridge {
             'connectionMode': 'basic',
             'schemaVersion': 1,
             'sessionUuid': 'u',
-            'data': {'packageVersion': '0.36.0'},
+            'data': {'packageVersion': '0.36.1'},
           },
         },
       );
@@ -1036,7 +1036,7 @@ class _TimeoutThenLiveBridge extends FakeVmBridge {
             'connectionMode': 'basic',
             'schemaVersion': 1,
             'sessionUuid': 'u',
-            'data': {'packageVersion': '0.36.0'},
+            'data': {'packageVersion': '0.36.1'},
           },
         },
       );

@@ -1,3 +1,20 @@
+## 0.36.1
+
+- Scan-root detection works on Flutter 3.47: `IndexedStack` no longer wraps
+  inactive children in `Visibility`, so the visible-page walk now descends only
+  into the selected child via the element's onstage visitor. Bottom-navigation
+  apps on 3.47 previously had every scan aborted.
+- Floors: Dart `^3.8.0`, Flutter `>=3.32.0` (previously declared `>=3.24.0`,
+  but 3.27+ APIs were already required).
+- `vm_service` constraint widened to `>=14.0.0 <16.0.0` so apps on Flutter
+  3.32.x can resolve sleuth beside `flutter_test`.
+- Overlay keyboard-inset detection reads the hosting `View` instead of the
+  first platform view.
+- Profile-capture recordings remain pinned to Flutter 3.41
+  (`approvedFlutterMajorMinor`); unchanged in this release.
+
+`kSleuthPackageVersion` → 0.36.1. Sidecar `sleuth_mcp` 0.7.3 pins 0.36.1.
+
 ## 0.36.0
 
 Companion package: `sleuth_mcp` is now available — an MCP stdio sidecar that

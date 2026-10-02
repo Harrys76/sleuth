@@ -1,3 +1,8 @@
+## 0.7.3
+
+Pins sleuth 0.36.1. SDK floor raised to Dart `^3.8.0`; `vm_service` constraint
+widened to `>=14.3.1 <16.0.0`.
+
 ## 0.7.2
 
 Launch-mode advisory. `connect`, `attach_app`, `diagnose`, `get_snapshot`, and
