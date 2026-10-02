@@ -37,7 +37,7 @@ import '../vm/timeline_parser.dart';
 /// A startup-phase frame whose `addTimingsCallback` delivery is delayed
 /// past the window boundary tags as `'steady'` even when the underlying
 /// frame timestamp was inside startup. Buffer-aggregated emissions
-/// (`sustained_jank` over a 60-frame window, raster-cache trends over
+/// (`sustained_jank` over a 240-frame window, raster-cache trends over
 /// 30+ frames) tag from emission-time `Timeline.now`; a buffer that
 /// straddles the boundary tags as `'steady'` once `Timeline.now` exceeds
 /// the window even if most contributing frames landed inside startup.
@@ -827,7 +827,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     bracketRequireUniqueDetectedAtMicros: true,
     rationale:
         'Four stableIds pinned by hermetic reproducer: '
-        '`sustained_jank` (≥3 severe frames in a 60-frame window), '
+        '`sustained_jank` (≥3 severe frames in a 240-frame window), '
         '`jank_detected` (>15% jank frames, ≥5-frame sample), '
         '`raster_cache_thrashing` (≥15 consecutive frames of '
         '≥20% picture-cache-count fluctuation, seeded by '

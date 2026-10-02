@@ -8,6 +8,8 @@ import '../vm/timeline_parser.dart';
 /// Detects excessive platform channel calls.
 ///
 /// **VM-Only Detector** — monitors platform channel timeline events for >20 calls/sec.
+/// Requires `debugProfilePlatformChannels = true`; without it the timeline
+/// carries no platform-channel events.
 class PlatformChannelDetector extends BaseDetector
     with DetectorMetadataProvider {
   PlatformChannelDetector({
@@ -21,7 +23,9 @@ class PlatformChannelDetector extends BaseDetector
          type: DetectorType.platformChannel,
          lifecycle: DetectorLifecycle.vmOnly,
          name: 'Platform Channel',
-         description: 'Detects excessive platform channel calls (>20/sec)',
+         description:
+             'Detects excessive platform channel calls (>20/sec; requires '
+             'debugProfilePlatformChannels = true)',
        ) {
     _windowStart = _clock();
   }

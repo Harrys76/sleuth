@@ -90,10 +90,10 @@ class MemoryPressureDetector extends BaseDetector
   DateTime? _sustainedGrowthStart;
   DateTime? _sustainedNativeGrowthStart;
   // First in-window event timestamp at the moment gc_pressure crossed
-  // the >5/window threshold. Pinned for the full overage episode so
+  // the >10/window threshold. Pinned for the full overage episode so
   // re-emissions across consecutive evaluations share dedup identity
   // and CaptureHelper collapses them to one trace record per episode.
-  // Cleared in the no-emit branch (`windowEvents <= 5`) so a new
+  // Cleared in the no-emit branch (`windowEvents <= 10`) so a new
   // overage after a transient drop produces a distinct identity.
   DateTime? _gcOverageStart;
 

@@ -9,9 +9,10 @@ import '../vm/timeline_parser.dart';
 
 /// Detects shader compilation jank from VM Timeline events.
 ///
-/// **VM-Only Detector** — flags shader compilations >100ms.
-/// On Impeller (default since Flutter 3.16), shaders are pre-compiled at
-/// build time so this detector correctly produces no issues.
+/// **VM-Only Detector** — flags shader compilations >100ms. Skia only;
+/// Impeller precompiles shaders at build time, so on Impeller (the default
+/// renderer on iOS and on Vulkan-capable Android devices) this detector
+/// correctly produces no issues.
 ///
 /// Each emission stamps `extraTraceArgs.shaderWarmupContext` with one of
 /// `'cold_start' | 'hot_path' | 'keyframe'` discriminating shader-compile
@@ -29,7 +30,9 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
          type: DetectorType.shaderJank,
          lifecycle: DetectorLifecycle.vmOnly,
          name: 'Shader Jank',
-         description: 'Detects shader compilation spikes (>100ms)',
+         description:
+             'Detects shader compilation spikes (>100ms). Skia only; Impeller '
+             'precompiles shaders',
        );
 
   final int thresholdMs;

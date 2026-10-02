@@ -10,7 +10,8 @@ import '../vm/timeline_parser.dart';
 
 /// Detects heavy computation blocking the UI thread.
 ///
-/// **VM-Only Detector** — monitors Dart isolate event gaps >8ms.
+/// **VM-Only Detector** — detects slow widget build passes (>8 ms warning,
+/// >16 ms critical) from VM timeline BUILD-scope durations.
 ///
 /// ## Persistence contract
 ///
@@ -43,7 +44,8 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
          type: DetectorType.heavyCompute,
          lifecycle: DetectorLifecycle.vmOnly,
          name: 'Heavy Compute',
-         description: 'Detects UI thread blocking (>8ms gaps)',
+         description:
+             'Detects slow widget build passes (>8 ms warning, >16 ms critical)',
        );
 
   final int lagThresholdMs;

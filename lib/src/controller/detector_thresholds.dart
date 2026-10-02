@@ -179,12 +179,12 @@ class DetectorThresholds {
   /// for stricter steady-state attribution on snappy startup paths.
   final int startupPhaseWindowSeconds;
 
-  /// UI-thread gap duration in milliseconds indicating heavy compute on
-  /// the main isolate. `HeavyComputeDetector` fires at 2× this value
-  /// (default fire threshold: 16 ms).
+  /// BUILD-scope duration threshold in milliseconds for
+  /// `HeavyComputeDetector`. A build pass above this value is a warning;
+  /// above 2× this value it is critical.
   ///
-  /// **Default:** 8 ms (half a 16 ms frame budget). Fires at 16 ms, which
-  /// is the point where a frame is definitively lost.
+  /// **Default:** 8 ms (half a 16 ms frame budget): warning above 8 ms,
+  /// critical above 16 ms, the point where a frame is definitively lost.
   ///
   /// **Raise this** to quiet the detector on slower devices. **Lower
   /// this** (e.g. 4 ms) for a stricter main-isolate budget audit.

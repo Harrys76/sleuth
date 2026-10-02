@@ -156,7 +156,8 @@ class FixHintBuilder {
   static (String, FixEffort) rasterDominance() {
     return (
       'Reduce GPU work per frame:\n'
-          '- Replace ClipRRect/ClipPath with Container borderRadius\n'
+          '- Prefer ClipRRect with Clip.hardEdge over ClipPath (a '
+          'BoxDecoration borderRadius does not clip children)\n'
           '- Avoid overlapping semi-transparent layers\n'
           '- Add RepaintBoundary around animated subtrees\n'
           '- Simplify shadows and gradients',
@@ -217,11 +218,12 @@ class FixHintBuilder {
               '${durationMs != null ? " (${durationMs.toStringAsFixed(1)}ms)" : ""}. '
         : '';
     return (
-      '${prefix}Move heavy work to a background isolate '
-          'using Isolate.run() or compute():\n'
-          'final result = await Isolate.run(() => parseJson(data));\n'
-          'Avoid synchronous JSON parsing, image processing, '
-          'or complex calculations in build().',
+      '${prefix}Split the widget so changes rebuild a smaller subtree, '
+          'mark static subtrees const, and defer below-the-fold work. '
+          'Move genuine non-UI work (JSON parsing, image processing, '
+          'complex calculations) off the UI thread with Isolate.run() '
+          'or compute():\n'
+          'final result = await Isolate.run(() => parseJson(data));',
       FixEffort.involved,
     );
   }
@@ -287,6 +289,7 @@ class FixHintBuilder {
             '($ancestorChain). Replace with explicit sizing:\n'
             '// Before: IntrinsicHeight(child: Row(...))\n'
             '// After:  Row(crossAxisAlignment: CrossAxisAlignment.stretch, ...)\n'
+            '(stretch needs a bounded cross-axis, e.g. a fixed-height parent.)\n'
             'Or use SizedBox/Expanded with known dimensions.',
         FixEffort.medium,
       );
@@ -295,6 +298,7 @@ class FixHintBuilder {
       'Replace IntrinsicHeight/Width with explicit sizing:\n'
           '// Before: IntrinsicHeight(child: Row(...))\n'
           '// After:  Row(crossAxisAlignment: CrossAxisAlignment.stretch, ...)\n'
+          '(stretch needs a bounded cross-axis, e.g. a fixed-height parent.)\n'
           'Or use SizedBox/Expanded with known dimensions.',
       FixEffort.medium,
     );
@@ -745,8 +749,10 @@ class FixHintBuilder {
 
   static (String, FixEffort) shaderCompilation() {
     return (
-      'Use "flutter run --profile --cache-sksl" to warm up shaders, '
-          'then "flutter build --bundle-sksl-path" to pre-compile them.',
+      'Impeller (the default renderer) precompiles shaders, so this '
+          'should only appear on Skia. On Skia only, use '
+          '"flutter run --profile --cache-sksl" to warm up shaders, then '
+          '"flutter build --bundle-sksl-path" to pre-compile them.',
       FixEffort.involved,
     );
   }
@@ -782,7 +788,8 @@ class FixHintBuilder {
     final location = ancestorChain != null ? ' ($ancestorChain)' : '';
     return (
       '$boundaryCount RepaintBoundary widgets in a single scrollable$location. '
-          'Each creates a compositing layer consuming GPU memory. '
+          'Each boundary is a separate layer that costs compositing work, '
+          'and only pays off when its subtree repaints independently. '
           'Remove unnecessary boundaries — ListView and GridView already '
           'add RepaintBoundary for each child by default.',
       FixEffort.quick,

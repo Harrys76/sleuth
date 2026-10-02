@@ -12,7 +12,7 @@ import '../utils/widget_location.dart';
 /// Detects intrinsic dimension render objects that cause layout bottlenecks.
 ///
 /// **Structural Detector** — scans render tree for RenderIntrinsicHeight/Width.
-/// Nested intrinsics are escalated to critical severity (exponential layout).
+/// Nested intrinsics are escalated to critical severity.
 class LayoutBottleneckDetector extends BaseDetector
     with DetectorMetadataProvider {
   LayoutBottleneckDetector()
@@ -149,8 +149,8 @@ class LayoutBottleneckDetector extends BaseDetector
                   : IssueSeverity.warning,
               detectorName: 'Layout',
               detail: isNested
-                  ? 'Nested intrinsic — O(N²+) layout'
-                  : 'Causes O(N^2) layout passes',
+                  ? 'Nested intrinsic — each level re-measures the levels below'
+                  : 'Adds an extra intrinsic measuring pass',
             ),
           );
         }
@@ -192,10 +192,11 @@ class LayoutBottleneckDetector extends BaseDetector
               : 'Layout Bottleneck: ${_found.length} intrinsic nodes',
           detail: hasNested
               ? 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth widgets '
-                    'including nested intrinsics. Nesting multiplies layout '
-                    'passes exponentially.\n\n$locations'
+                    'including nested intrinsics. Each nested level '
+                    're-measures the levels below it.\n\n$locations'
               : 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth '
-                    'widgets. These cause O(N²) layout passes.\n\n$locations',
+                    'widgets. Each adds an extra intrinsic measuring '
+                    'pass.\n\n$locations',
           fixHint: hint,
           fixEffort: effort,
           observationSource: ObservationSource.structural,
