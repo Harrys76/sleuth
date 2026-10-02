@@ -203,6 +203,52 @@ void main() {
       );
     });
 
+    group('approved Flutter major.minor set', () {
+      Matcher rejected() => throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('pinned Flutter'), contains('3.47.<patch>')),
+        ),
+      );
+
+      test('baseline pin is a member of the set', () {
+        expect(
+          ProfileCaptureSchema.approvedFlutterMajorMinors,
+          contains(ProfileCaptureSchema.approvedFlutterMajorMinor),
+        );
+        expect(ProfileCaptureSchema.approvedFlutterMajorMinor, '3.41');
+        expect(ProfileCaptureSchema.approvedFlutterMajorMinors, {
+          '3.41',
+          '3.47',
+        });
+      });
+
+      test('3.47.6 is accepted', () {
+        final meta = _validMetadata()..['flutterVersion'] = '3.47.6';
+        expect(() => ProfileCaptureSchema.parse(_wrap(meta)), returnsNormally);
+      });
+
+      test('3.41.4 is still accepted', () {
+        final meta = _validMetadata()..['flutterVersion'] = '3.41.4';
+        expect(() => ProfileCaptureSchema.parse(_wrap(meta)), returnsNormally);
+      });
+
+      // Suffix handling matches the baseline pin: the major.minor must be
+      // a member of the set, patch and suffix are free.
+      test('suffix on 3.47 is accepted like the baseline', () {
+        final meta = _validMetadata()..['flutterVersion'] = '3.47.0-1.0.pre';
+        expect(() => ProfileCaptureSchema.parse(_wrap(meta)), returnsNormally);
+      });
+
+      for (final version in ['3.46.1', '3.48.0', '3.4.7', '13.47.6']) {
+        test('$version is rejected and the error lists the set', () {
+          final meta = _validMetadata()..['flutterVersion'] = version;
+          expect(() => ProfileCaptureSchema.parse(_wrap(meta)), rejected());
+        });
+      }
+    });
+
     // CODEX-R1-3: magnitude must be strictly positive.
     test('zero observed is rejected', () {
       final meta = _validMetadata()
@@ -1392,6 +1438,44 @@ void main() {
               (e) => e.message,
               'message',
               contains('provenance mismatch on "flutterVersion"'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'triad mixing approved Flutter versions is rejected (provenance)',
+      () async {
+        final tamperedAt = await cloneWithFieldOverride(
+          at,
+          'flutterVersion',
+          '3.47.6',
+          'flutter_mixed_at',
+        );
+        final tamperedAbove = await cloneWithFieldOverride(
+          above,
+          'flutterVersion',
+          '3.47.6',
+          'flutter_mixed_above',
+        );
+        expect(
+          () => ProfileCaptureSchema.validateBracket(
+            belowFile: below,
+            atFile: tamperedAt,
+            aboveFile: tamperedAbove,
+            threshold: threshold,
+            unit: unit,
+          ),
+          throwsA(
+            isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('provenance mismatch on "flutterVersion"'),
+                contains('3.41.4'),
+                contains('3.47.6'),
+              ),
             ),
           ),
         );

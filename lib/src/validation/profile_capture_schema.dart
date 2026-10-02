@@ -65,9 +65,18 @@ class ProfileCaptureSchema {
     'iPhone 12': {'iOS 17.5'},
   };
 
-  /// Captures must be recorded under a Flutter stable release matching
-  /// this major.minor pin. Rotated together with the device matrix.
+  /// Baseline Flutter major.minor pin. Always a member of
+  /// [approvedFlutterMajorMinors]; triads recorded before the set gained
+  /// further members carry this version.
   static const String approvedFlutterMajorMinor = '3.41';
+
+  /// Flutter stable major.minor versions a capture may be recorded
+  /// under. Rotated together with the device matrix. The three legs of a
+  /// bracket must still share one exact `flutterVersion`.
+  static const Set<String> approvedFlutterMajorMinors = {
+    approvedFlutterMajorMinor,
+    '3.47',
+  };
 
   /// Default bracket tolerance for the `_at` capture — observed may lie
   /// anywhere in `[threshold, threshold * (1 + defaultAtTolerance)]`.
@@ -1617,18 +1626,19 @@ class ProfileCaptureSchema {
     }
   }
 
-  // Matches `3.41.<patch>` with an optional pre-release suffix (`-1.0.pre`)
-  // or build-metadata suffix (`+channel-stable`). Flutter stable's own
-  // versioning and `flutter --version` output both include suffixes, so a
-  // strict `^3\.41\.\d+$` regex rejected legitimate author-entered values.
-  // The pin is still on major.minor (3.41); patch and suffix are free.
+  // Matches `<major>.<minor>.<patch>` with an optional pre-release suffix
+  // (`-1.0.pre`) or build-metadata suffix (`+channel-stable`). Flutter
+  // stable's own versioning and `flutter --version` output both include
+  // suffixes, so a strict `^3\.41\.\d+$` regex rejected legitimate
+  // author-entered values. The pin is on major.minor (a member of
+  // [approvedFlutterMajorMinors]); patch and suffix are free.
   // IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
   // (fires only on subclassing). Remove when analyzer-server recognizes the
   // implement-only kind.
   // ignore: deprecated_member_use
   static final RegExp _flutterVersionPattern =
       // ignore: deprecated_member_use
-      RegExp(r'^3\.41\.\d+(?:[-+][0-9A-Za-z.\-]+)?$');
+      RegExp(r'^(\d+\.\d+)\.\d+(?:[-+][0-9A-Za-z.\-]+)?$');
 
   static void _validateFlutterVersion(Map<String, Object?> metadata) {
     final version = metadata['flutterVersion'];
@@ -1637,13 +1647,15 @@ class ProfileCaptureSchema {
         '"flutterVersion" must be a non-empty string.',
       );
     }
-    if (!_flutterVersionPattern.hasMatch(version)) {
+    final match = _flutterVersionPattern.firstMatch(version);
+    if (match == null || !approvedFlutterMajorMinors.contains(match[1])) {
+      final pins = approvedFlutterMajorMinors.toList()..sort();
       throw FormatException(
         '"flutterVersion" "$version" does not match pinned Flutter '
-        'stable $approvedFlutterMajorMinor.<patch> (pre-release or '
-        'build-metadata suffixes like "-1.0.pre" / "+channel-stable" '
-        'are accepted). Pinned-version policy rotates annually — see '
-        'doc/reference_devices.md.',
+        'stable ${pins.map((p) => '$p.<patch>').join(' or ')} '
+        '(pre-release or build-metadata suffixes like "-1.0.pre" / '
+        '"+channel-stable" are accepted). Pinned-version policy rotates '
+        'annually — see doc/reference_devices.md.',
       );
     }
   }
