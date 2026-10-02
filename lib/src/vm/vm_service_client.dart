@@ -41,6 +41,7 @@ class VmServiceClient {
   VmServiceClient({
     this.onTimelineData,
     this.onGcEvent,
+    this.idleHeartbeat = const Duration(seconds: 1),
     this.onHeapSample,
     this.onExtensionEvent,
     this.onConnectionChanged,
@@ -63,6 +64,18 @@ class VmServiceClient {
 
   final TimelineDataCallback? onTimelineData;
   final VmEventCallback? onGcEvent;
+
+  /// How often [onTimelineData] is still called while the timeline is
+  /// quiet. Detectors that evaluate on a wall-clock window (the platform
+  /// channel detector's 1 s window, persistence timers) only run inside
+  /// that callback; on a static screen with no frames and no GC the VM
+  /// returns empty batches, and without this tick a burst that landed in
+  /// the last batch would be judged only when the next unrelated event
+  /// arrived. The empty batch carries no events, so detectors see it as
+  /// an idle window.
+  final Duration idleHeartbeat;
+
+  DateTime? _lastTimelineDispatchAt;
   final HeapSampleCallback? onHeapSample;
   final VmEventCallback? onExtensionEvent;
   final void Function(bool connected)? onConnectionChanged;
@@ -551,6 +564,7 @@ class VmServiceClient {
       // Drop stale poll if reconnect/dispose ran during the await.
       if (myGen != _sessionGeneration || _disposed) return;
       final events = timeline.traceEvents;
+      ParsedTimelineData? parsed;
       if (events != null && events.isNotEmpty) {
         // One-shot: extract engine startup events before clearing the buffer.
         // Must happen before clearVMTimeline() or the events are lost.
@@ -562,7 +576,7 @@ class VmServiceClient {
           }
         }
 
-        final parsed = TimelineParser.parse(
+        parsed = TimelineParser.parse(
           events,
           pendingBuildBegins: _pendingBuildBegins,
           pendingLayoutBegins: _pendingLayoutBegins,
@@ -572,14 +586,25 @@ class VmServiceClient {
           pendingChannelBegins: _pendingChannelBegins,
           cursorsByTid: _lastProcessedTsByTid,
         );
-        if (parsed.hasData) {
-          onTimelineData?.call(parsed);
-        }
         // Evict orphan begins (B with no matching E within the idle
         // window). Compares event-relative monotonic `ts` so the sweep
         // is drift-free across wall-clock skews. Skipped when the batch
         // has no anchor ts to measure against.
         _sweepStalePendingBegins(events);
+      }
+      // Dispatch every batch with data, and an empty batch once per
+      // [idleHeartbeat] so window-based detectors keep evaluating while
+      // the timeline is quiet.
+      final dispatchAt = DateTime.now();
+      final last = _lastTimelineDispatchAt;
+      final hasData = parsed != null && parsed.hasData;
+      if (hasData ||
+          last == null ||
+          dispatchAt.difference(last) >= idleHeartbeat) {
+        _lastTimelineDispatchAt = dispatchAt;
+        onTimelineData?.call(
+          parsed ?? TimelineParser.parse(const <TimelineEvent>[]),
+        );
       }
       // Clear the VM's timeline ring buffer to avoid re-processing the
       // same events on the next poll — unless capture mode wants them
@@ -793,6 +818,7 @@ class VmServiceClient {
 
   void _cleanup() {
     _consecutivePollFailures = 0;
+    _lastTimelineDispatchAt = null;
     // Bump generation before clearing so any in-flight `_pollTimeline`
     // detects the change at its next fence check and drops stale results.
     _sessionGeneration++;

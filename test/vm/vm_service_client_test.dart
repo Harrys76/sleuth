@@ -7,6 +7,47 @@ import 'package:sleuth/src/vm/timeline_parser.dart';
 import 'package:sleuth/src/vm/vm_service_client.dart';
 
 void main() {
+  group('idle heartbeat', () {
+    Timeline emptyTimeline() =>
+        Timeline(traceEvents: [], timeOriginMicros: 0, timeExtentMicros: 0);
+
+    test('an empty batch is dispatched once per heartbeat', () async {
+      final batches = <ParsedTimelineData>[];
+      final mock = _MockVmService()..timelineResult = emptyTimeline();
+      final client = VmServiceClient(
+        onTimelineData: batches.add,
+        idleHeartbeat: const Duration(hours: 1),
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+
+      // First poll always dispatches; the next two fall inside the window.
+      expect(batches, hasLength(1));
+      expect(batches.single.hasData, isFalse);
+      client.dispose();
+    });
+
+    test('a zero heartbeat dispatches every empty batch', () async {
+      final batches = <ParsedTimelineData>[];
+      final mock = _MockVmService()..timelineResult = emptyTimeline();
+      final client = VmServiceClient(
+        onTimelineData: batches.add,
+        idleHeartbeat: Duration.zero,
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+
+      expect(batches, hasLength(2));
+      expect(batches.every((b) => !b.hasData), isTrue);
+      client.dispose();
+    });
+  });
+
   group('candidateWebSocketUris', () {
     test('loopback literal becomes localhost only', () {
       final uris = VmServiceClient.candidateWebSocketUris(
