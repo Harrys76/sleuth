@@ -7,16 +7,17 @@
 //
 //   - `layout_bottleneck` — fired when the scanned subtree contains at
 //     least one `IntrinsicHeight` or `IntrinsicWidth` widget that is
-//     NOT inside a framework-owned ancestor (DropdownButton, etc.).
-//     Nested intrinsics escalate to critical severity.
+//     NOT built by a framework owner (ToggleButtons, MenuBar, dialogs,
+//     popup menus, etc.). A single intrinsic is warning/possible; nested
+//     intrinsics escalate to critical/likely.
 //   - `wrap_layout_bottleneck` — fired when a `Wrap` widget has more
 //     than `_wrapChildThreshold` (30) children. Threshold is private
 //     const so the reproducer uses 31 children to cross it.
 //
-// Known limitation (documented gap): intrinsics inside framework widgets
-// like `DropdownButton` / `AlertDialog` are deliberately suppressed by
-// `_isInsideFrameworkWidget` — developers cannot control that usage.
-// Separate test documents this suppression.
+// Known limitation (documented gap): intrinsics built by framework
+// widgets like `ToggleButtons` / `AlertDialog` are deliberately
+// suppressed — developers cannot control that usage. Separate test
+// documents this suppression.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -78,6 +79,25 @@ void main() {
         'critical',
         reason: 'Nested intrinsic must escalate — exponential layout cost.',
       );
+      expect(issue.confidence.name, 'likely');
+    });
+
+    testWidgets('layout_bottleneck: single intrinsic is warning/possible', (
+      tester,
+    ) async {
+      final detector = LayoutBottleneckDetector();
+      final issues = await scanAndIssues(
+        tester,
+        detector,
+        const IntrinsicHeight(child: SizedBox(height: 10, width: 10)),
+      );
+      final issue = issues.firstWhere((i) => i.stableId == 'layout_bottleneck');
+      expect(
+        issue.severity.name,
+        'warning',
+        reason: 'Cost of one intrinsic depends on subtree size.',
+      );
+      expect(issue.confidence.name, 'possible');
     });
 
     // --- wrap_layout_bottleneck ----------------------------------------
@@ -120,8 +140,8 @@ void main() {
 
     // --- known limitation gap test -------------------------------------
 
-    // Framework-ancestor suppression (_frameworkIntrinsicParents list)
-    // is enforced by _isInsideFrameworkWidget inside the detector;
+    // Framework-owner suppression (_frameworkIntrinsicOwners table) is
+    // enforced by _isFrameworkIntrinsic inside the detector;
     // exercising it requires mounting MaterialApp + routed dialog
     // widgets which couple the test to Material routing. That contract
     // is covered by test/detectors/layout_bottleneck_detector_test.dart;

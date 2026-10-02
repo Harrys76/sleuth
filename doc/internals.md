@@ -62,7 +62,7 @@ The effective rate is the measured cadence clamped to `[fpsTarget, display rate]
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
 | setState Scope | Element tree | StatefulWidget owns large subtree | Possible–Likely | Needs rebuild evidence to confirm. Const subtree discounting when rebuild evidence present |
-| Layout Bottleneck | Render tree | IntrinsicHeight/Width present, Wrap with excessive children | Possible | Present does not mean slow. Framework-internal intrinsics (DropdownButton, AlertDialog) suppressed |
+| Layout Bottleneck | Render tree | IntrinsicHeight/Width present, Wrap with excessive children | Possible–Likely | Present does not mean slow: a single intrinsic is Possible, nesting is Likely. Intrinsics built by ToggleButtons, MenuBar, linear landscape BottomNavigationBar labels, AlertDialog/SimpleDialog, popup menus, CupertinoContextMenu, and Scaffold footer buttons are suppressed |
 | ListView | Element tree | Non-lazy list with many children | Possible | May be intentional for small lists. Catches ListView/GridView/SliverList non-builder constructors |
 | Image Memory | Element tree | Image without cacheWidth/Height | Possible | Images ≤50px suppressed — negligible memory savings |
 | CustomPainter | Element tree | shouldRepaint always true | Possible | May be needed for animated painters |

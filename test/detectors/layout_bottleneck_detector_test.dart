@@ -1,6 +1,4 @@
-import 'package:flutter/material.dart'
-    show AlertDialog, DropdownButton, DropdownMenuItem, Material, MaterialApp;
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/layout_bottleneck_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
@@ -85,9 +83,24 @@ void main() {
 
       final issue = detector.issues.first;
       expect(issue.stableId, 'layout_bottleneck');
-      expect(issue.confidence, IssueConfidence.confirmed);
       expect(issue.category, IssueCategory.layout);
+    });
+
+    testWidgets('single intrinsic is graded warning with possible confidence', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: IntrinsicHeight(child: SizedBox(width: 10, height: 10)),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+
+      final issue = detector.issues.single;
       expect(issue.severity, IssueSeverity.warning);
+      expect(issue.confidence, IssueConfidence.possible);
+      expect(issue.confidenceReason, contains('cost depends on subtree size'));
     });
 
     testWidgets('highlights produced per intrinsic node', (tester) async {
@@ -159,6 +172,7 @@ void main() {
 
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
+      expect(detector.issues.first.confidence, IssueConfidence.likely);
       expect(detector.issues.first.title, contains('Nested'));
     });
 
@@ -198,39 +212,291 @@ void main() {
 
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
+      expect(detector.issues.first.confidence, IssueConfidence.likely);
       expect(detector.issues.first.title, contains('3 intrinsic'));
     });
 
     // -----------------------------------------------------------------
-    // v11.3: Framework widget intrinsic suppression
+    // Framework-owned intrinsics are suppressed. Every test first proves
+    // the framework intrinsic is in the tree, then asserts silence.
     // -----------------------------------------------------------------
 
-    group('framework widget suppression', () {
-      testWidgets('IntrinsicWidth inside DropdownButton is NOT flagged', (
+    group('framework intrinsic owners', () {
+      final intrinsicFinder = find.byWidgetPredicate(
+        (w) => w is IntrinsicWidth || w is IntrinsicHeight,
+        skipOffstage: false,
+      );
+
+      List<PerformanceIssue> layoutIssues() => detector.issues
+          .where((i) => i.stableId == 'layout_bottleneck')
+          .toList();
+
+      testWidgets('horizontal ToggleButtons IntrinsicHeight is suppressed', (
         tester,
       ) async {
         await tester.pumpWidget(
           MaterialApp(
-            home: Material(
-              child: DropdownButton<String>(
-                value: 'a',
-                items: const [
-                  DropdownMenuItem(value: 'a', child: Text('A')),
-                  DropdownMenuItem(value: 'b', child: Text('B')),
-                ],
-                onChanged: (_) {},
+            home: Scaffold(
+              body: ToggleButtons(
+                isSelected: const [true, false],
+                onPressed: (_) {},
+                children: const [Text('A'), Text('B')],
               ),
             ),
           ),
         );
-        detector.scanTree(tester.element(find.byType(Material).last));
-
-        expect(
-          detector.issues,
-          isEmpty,
-          reason: 'DropdownButton uses IntrinsicWidth internally — suppress',
-        );
+        expect(find.byType(IntrinsicHeight, skipOffstage: false), findsWidgets);
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+        expect(layoutIssues(), isEmpty);
       });
+
+      testWidgets('vertical ToggleButtons IntrinsicWidth is suppressed', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ToggleButtons(
+                direction: Axis.vertical,
+                isSelected: const [true, false],
+                onPressed: (_) {},
+                children: const [Text('A'), Text('B')],
+              ),
+            ),
+          ),
+        );
+        expect(find.byType(IntrinsicWidth, skipOffstage: false), findsWidgets);
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+        expect(layoutIssues(), isEmpty);
+      });
+
+      testWidgets('horizontal MenuBar intrinsics are suppressed, not nested', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: MenuBar(
+                children: [
+                  SubmenuButton(
+                    menuChildren: [
+                      MenuItemButton(onPressed: () {}, child: const Text('x')),
+                    ],
+                    child: const Text('File'),
+                  ),
+                  SubmenuButton(
+                    menuChildren: [
+                      MenuItemButton(onPressed: () {}, child: const Text('y')),
+                    ],
+                    child: const Text('Edit'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        expect(find.byType(IntrinsicHeight, skipOffstage: false), findsWidgets);
+        expect(find.byType(IntrinsicWidth, skipOffstage: false), findsWidgets);
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+        expect(layoutIssues(), isEmpty);
+      });
+
+      testWidgets(
+        'linear landscape BottomNavigationBar label IntrinsicWidth is '
+        'suppressed',
+        (tester) async {
+          // Default test surface is 800x600, i.e. landscape.
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                bottomNavigationBar: BottomNavigationBar(
+                  type: BottomNavigationBarType.fixed,
+                  landscapeLayout: BottomNavigationBarLandscapeLayout.linear,
+                  items: const [
+                    BottomNavigationBarItem(icon: Icon(Icons.home), label: 'A'),
+                    BottomNavigationBarItem(icon: Icon(Icons.star), label: 'B'),
+                    BottomNavigationBarItem(icon: Icon(Icons.add), label: 'C'),
+                  ],
+                ),
+              ),
+            ),
+          );
+          expect(
+            find.byType(IntrinsicWidth, skipOffstage: false),
+            findsNWidgets(3),
+          );
+          detector.scanTree(tester.element(find.byType(MaterialApp)));
+          expect(layoutIssues(), isEmpty);
+        },
+      );
+
+      Future<void> openDialog(WidgetTester tester, Widget dialog) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => TextButton(
+                onPressed: () =>
+                    showDialog<void>(context: context, builder: (_) => dialog),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('AlertDialog IntrinsicWidth is suppressed', (tester) async {
+        await openDialog(
+          tester,
+          const AlertDialog(
+            title: Text('Title'),
+            content: Text('Body'),
+            actions: [Text('OK')],
+          ),
+        );
+        expect(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(IntrinsicWidth, skipOffstage: false),
+          ),
+          findsOneWidget,
+        );
+        detector.scanTree(tester.element(find.byType(AlertDialog)));
+        expect(layoutIssues(), isEmpty);
+      });
+
+      testWidgets('SimpleDialog IntrinsicWidth is suppressed', (tester) async {
+        await openDialog(
+          tester,
+          const SimpleDialog(title: Text('Title'), children: [Text('Row')]),
+        );
+        expect(
+          find.descendant(
+            of: find.byType(SimpleDialog),
+            matching: find.byType(IntrinsicWidth, skipOffstage: false),
+          ),
+          findsOneWidget,
+        );
+        detector.scanTree(tester.element(find.byType(SimpleDialog)));
+        expect(layoutIssues(), isEmpty);
+      });
+
+      testWidgets('Scaffold persistentFooterButtons IntrinsicHeight is '
+          'suppressed', (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: const SizedBox(),
+              persistentFooterButtons: [
+                TextButton(onPressed: () {}, child: const Text('Footer')),
+              ],
+            ),
+          ),
+        );
+        expect(
+          find.byType(IntrinsicHeight, skipOffstage: false),
+          findsOneWidget,
+        );
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+        expect(layoutIssues(), isEmpty);
+      });
+
+      testWidgets('open PopupMenuButton menu IntrinsicWidth is suppressed', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: PopupMenuButton<int>(
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 1, child: Text('One')),
+                ],
+                child: const Text('menu'),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('menu'));
+        await tester.pumpAndSettle();
+        expect(find.byType(IntrinsicWidth, skipOffstage: false), findsWidgets);
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+        expect(layoutIssues(), isEmpty);
+      });
+
+      testWidgets(
+        'user IntrinsicHeight in AlertDialog content fires once, not nested',
+        (tester) async {
+          await openDialog(
+            tester,
+            const AlertDialog(
+              title: Text('Title'),
+              content: IntrinsicHeight(child: Text('Body')),
+            ),
+          );
+          expect(intrinsicFinder, findsNWidgets(2));
+          detector.scanTree(tester.element(find.byType(AlertDialog)));
+
+          final issue = layoutIssues().single;
+          expect(issue.title, contains('1 intrinsic'));
+          expect(issue.severity, IssueSeverity.warning);
+          expect(issue.confidence, IssueConfidence.possible);
+        },
+      );
+
+      testWidgets('user IntrinsicHeight(IntrinsicWidth) nesting is critical', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: IntrinsicHeight(child: IntrinsicWidth(child: Text('x'))),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        final issue = layoutIssues().single;
+        expect(issue.severity, IssueSeverity.critical);
+        expect(issue.confidence, IssueConfidence.likely);
+      });
+
+      testWidgets(
+        'user IntrinsicHeight inside an open MenuBar submenu fires once; '
+        'framework intrinsics do not count toward nesting',
+        (tester) async {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: MenuBar(
+                  children: [
+                    SubmenuButton(
+                      menuChildren: [
+                        MenuItemButton(
+                          onPressed: () {},
+                          child: const IntrinsicHeight(child: Text('Item')),
+                        ),
+                      ],
+                      child: const Text('File'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+          await tester.tap(find.text('File'));
+          await tester.pumpAndSettle();
+          // Framework: MenuBar cross-axis IntrinsicHeight, per-item
+          // IntrinsicWidth, submenu IntrinsicWidth. User: one IntrinsicHeight.
+          expect(intrinsicFinder, findsNWidgets(4));
+          detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+          final issue = layoutIssues().single;
+          expect(issue.title, contains('1 intrinsic'));
+          expect(issue.severity, IssueSeverity.warning);
+          expect(issue.confidence, IssueConfidence.possible);
+        },
+      );
 
       testWidgets('standalone IntrinsicWidth is still flagged', (tester) async {
         await tester.pumpWidget(
@@ -242,31 +508,6 @@ void main() {
         detector.scanTree(tester.element(find.byType(Directionality)));
 
         expect(detector.issues, hasLength(1));
-      });
-
-      testWidgets('IntrinsicHeight inside AlertDialog is NOT flagged', (
-        tester,
-      ) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: AlertDialog(
-              content: const Text('Test'),
-              actions: const [SizedBox()],
-            ),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(AlertDialog)));
-
-        // AlertDialog may or may not use IntrinsicWidth internally depending
-        // on Flutter version. If it does, it should be suppressed.
-        // If it doesn't, no issues either. Both are correct.
-        for (final issue in detector.issues) {
-          expect(
-            issue.detail,
-            isNot(contains('AlertDialog')),
-            reason: 'Intrinsics inside AlertDialog should be suppressed',
-          );
-        }
       });
     });
 

@@ -11,8 +11,9 @@ import '../utils/widget_location.dart';
 
 /// Detects intrinsic dimension render objects that cause layout bottlenecks.
 ///
-/// **Structural Detector** — scans render tree for RenderIntrinsicHeight/Width.
-/// Nested intrinsics are escalated to critical severity.
+/// **Structural Detector** — scans the tree for IntrinsicHeight/Width.
+/// A single intrinsic is warning/possible; nested intrinsics are
+/// critical/likely. Intrinsics built by framework widgets are skipped.
 class LayoutBottleneckDetector extends BaseDetector
     with DetectorMetadataProvider {
   LayoutBottleneckDetector()
@@ -53,35 +54,57 @@ class LayoutBottleneckDetector extends BaseDetector
     _found.clear();
     _wrapFindings.clear();
     _intrinsicDepth = 0;
+    _intrinsicCounted.clear();
   }
 
-  /// Framework widgets that use IntrinsicHeight/IntrinsicWidth internally.
-  /// Developers cannot control this usage, so flagging it is noise.
-  static const _frameworkIntrinsicParents = {
-    'DropdownButton',
-    'DropdownButtonFormField',
-    'PopupMenuButton',
-    'AlertDialog',
-    'SimpleDialog',
-    'ExpansionTile',
+  /// Framework widgets that build an IntrinsicWidth/IntrinsicHeight
+  /// internally, mapped to the maximum number of ancestor hops between the
+  /// intrinsic and the owner. Developers cannot remove these intrinsics, so
+  /// flagging them is noise. The hop budget keeps a user intrinsic placed
+  /// deep inside the owner's content from being suppressed.
+  ///
+  /// Budgets sit just above the hop counts measured on Flutter 3.32 and
+  /// 3.47: ToggleButtons 1, BottomNavigationBar linear landscape label 24,
+  /// MenuBar cross-axis IntrinsicHeight 4 and per-item IntrinsicWidth 42,
+  /// popup menu 14, AlertDialog/SimpleDialog 18 (user `content` intrinsics
+  /// sit at 24 and stay reported), CupertinoContextMenu sheet 2-3.
+  static const _frameworkIntrinsicOwners = <String, int>{
+    'ToggleButtons': 2,
+    '_BottomNavigationTile': 26,
+    '_MenuPanel': 44,
+    '_PopupMenu': 16,
+    'AlertDialog': 20,
+    'SimpleDialog': 20,
+    '_ContextMenuSheet': 3,
   };
 
-  /// Walk up the element tree (max [_maxAncestorLookup] levels) to check
-  /// if a framework widget is an ancestor of this intrinsic node.
-  static const _maxAncestorLookup = 10;
+  static final int _maxOwnerHops = _frameworkIntrinsicOwners.values.reduce(
+    (a, b) => a > b ? a : b,
+  );
 
-  bool _isInsideFrameworkWidget(Element element) {
-    int depth = 0;
+  /// Scaffold places `persistentFooterButtons` under an IntrinsicHeight
+  /// inside the `LayoutId` for this slot.
+  static const _persistentFooterSlotId = '_ScaffoldSlot.persistentFooter';
+  static const _persistentFooterMaxHops = 8;
+
+  bool _isFrameworkIntrinsic(Element element) {
+    int hops = 0;
     bool found = false;
     element.visitAncestorElements((ancestor) {
-      if (depth >= _maxAncestorLookup) return false;
-      depth++;
-      final name = typeNameCache.lookup(ancestor.widget);
-      // Handle generic types like DropdownButton<String>
-      final baseName = name.contains('<')
-          ? name.substring(0, name.indexOf('<'))
-          : name;
-      if (_frameworkIntrinsicParents.contains(baseName)) {
+      hops++;
+      if (hops > _maxOwnerHops) return false;
+      final ancestorWidget = ancestor.widget;
+      if (hops <= _persistentFooterMaxHops &&
+          ancestorWidget is LayoutId &&
+          ancestorWidget.id.toString() == _persistentFooterSlotId) {
+        found = true;
+        return false;
+      }
+      final budget =
+          _frameworkIntrinsicOwners[baseTypeName(
+            typeNameCache.lookup(ancestorWidget),
+          )];
+      if (budget != null && hops <= budget) {
         found = true;
         return false;
       }
@@ -89,6 +112,10 @@ class LayoutBottleneckDetector extends BaseDetector
     });
     return found;
   }
+
+  /// Parallel to the walk: whether each entered intrinsic counted toward
+  /// [_intrinsicDepth], so [afterElement] decrements symmetrically.
+  final List<bool> _intrinsicCounted = [];
 
   @override
   void checkElement(Element element) {
@@ -126,11 +153,15 @@ class LayoutBottleneckDetector extends BaseDetector
     }
 
     if (widget is IntrinsicHeight || widget is IntrinsicWidth) {
+      // Framework-owned intrinsics are neither reported nor counted toward
+      // nesting.
+      if (_isFrameworkIntrinsic(element)) {
+        _intrinsicCounted.add(false);
+        return;
+      }
       final isNested = _intrinsicDepth > 0;
-      _intrinsicDepth++; // Always increment — afterElement always decrements.
-
-      // Suppress intrinsics that are internal to framework widgets.
-      if (_isInsideFrameworkWidget(element)) return;
+      _intrinsicDepth++;
+      _intrinsicCounted.add(true);
 
       final widgetName = widget is IntrinsicHeight
           ? 'IntrinsicHeight'
@@ -161,7 +192,9 @@ class LayoutBottleneckDetector extends BaseDetector
   @override
   void afterElement(Element element) {
     final widget = element.widget;
-    if (widget is IntrinsicHeight || widget is IntrinsicWidth) {
+    if ((widget is IntrinsicHeight || widget is IntrinsicWidth) &&
+        _intrinsicCounted.isNotEmpty &&
+        _intrinsicCounted.removeLast()) {
       _intrinsicDepth--;
     }
   }
@@ -184,9 +217,12 @@ class LayoutBottleneckDetector extends BaseDetector
           stableId: 'layout_bottleneck',
           severity: hasNested ? IssueSeverity.critical : IssueSeverity.warning,
           category: IssueCategory.layout,
-          // confirmed: IntrinsicHeight/Width always triggers two-pass layout
-          // (framework guarantee — not a heuristic)
-          confidence: IssueConfidence.confirmed,
+          // A single intrinsic's cost scales with its subtree, which a
+          // structural scan cannot size. Nesting compounds the measuring
+          // passes, so it is likely costly regardless of subtree.
+          confidence: hasNested
+              ? IssueConfidence.likely
+              : IssueConfidence.possible,
           title: hasNested
               ? 'Nested Layout Bottleneck: ${_found.length} intrinsic nodes'
               : 'Layout Bottleneck: ${_found.length} intrinsic nodes',
@@ -200,8 +236,11 @@ class LayoutBottleneckDetector extends BaseDetector
           fixHint: hint,
           fixEffort: effort,
           observationSource: ObservationSource.structural,
-          confidenceReason:
-              'Confirmed — IntrinsicHeight/Width always triggers two-pass layout',
+          confidenceReason: hasNested
+              ? 'Structural: nested IntrinsicWidth/IntrinsicHeight multiply '
+                    'measurement passes for every level below'
+              : 'Structural: an IntrinsicWidth/IntrinsicHeight forces a '
+                    'second measurement pass; cost depends on subtree size',
           detectedAt: DateTime.now(),
         ),
       );
@@ -244,6 +283,7 @@ class LayoutBottleneckDetector extends BaseDetector
     _found.clear();
     _wrapFindings.clear();
     _intrinsicDepth = 0;
+    _intrinsicCounted.clear();
   }
 
   @override
@@ -251,7 +291,10 @@ class LayoutBottleneckDetector extends BaseDetector
     tier: EvidenceTier.reproducerOnly,
     rationale:
         'Hermetic reproducer pins `layout_bottleneck` '
-        '(IntrinsicHeight/IntrinsicWidth structural trigger) and '
+        '(IntrinsicHeight/IntrinsicWidth structural trigger; single = '
+        'warning/possible, nested = critical/likely; framework-owned '
+        'intrinsics matched by owner type within a measured hop budget are '
+        'suppressed) and '
         '`wrap_layout_bottleneck` (Wrap with > `wrapChildThreshold` '
         'children, strict-greater). Detector is a pure structural scan '
         'over widget shape — no layout-phase timing dependency — so the '

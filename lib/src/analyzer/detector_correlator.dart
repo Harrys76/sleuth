@@ -317,6 +317,10 @@ class EscalateKeepAliveMemoryRule extends CorrelationRule {
 /// Covers structural detectors that lack their own escalation rule:
 /// non_lazy_list, non_lazy_listview, non_lazy_gridview, layout_bottleneck,
 /// nested_scroll, nested_scroll_same_axis.
+///
+/// A single (non-nested) `layout_bottleneck` emits as `possible`, so jank on
+/// the same screen lifts it to `likely` by design; nested emits as `likely`
+/// already and is left alone.
 class EscalateStructuralWithJankRule extends CorrelationRule {
   const EscalateStructuralWithJankRule();
 
