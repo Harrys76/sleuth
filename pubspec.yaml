@@ -23,20 +23,20 @@ screenshots:
     path: doc/screenshots/overlay-light.png
 
 environment:
-  sdk: '>=3.5.0 <4.0.0'
-  flutter: '>=3.24.0'
+  sdk: ^3.8.0
+  flutter: '>=3.32.0'
 
 dependencies:
   flutter:
     sdk: flutter
   meta: ^1.15.0
   path: ^1.9.0
-  vm_service: ^14.0.0
+  vm_service: '>=14.0.0 <16.0.0'
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
   fake_async: any
   crypto: any
   # Audit-invariant helpers parse reproducer test files via `package:analyzer`
