@@ -3726,22 +3726,13 @@ class SleuthController {
       }
     }
 
-    // Duration-based severity escalation: warning → critical after 30+ cycles.
-    // Uses cumulative presentCount (not consecutive) to avoid oscillation.
-    _applyDurationEscalation(visible);
-
-    // Re-sort each downstream's `rootCauseIds` by post-escalation severity
-    // so [PerformanceIssue.toJson] derives its singular emission from the
-    // currently-highest-severity reaching root, not the
-    // annotation-time-sorted first element. Without this, a tied warning
-    // pair gets alphabetical order at correlation, and a later
-    // duration-escalation of the lexically-later parent silently leaves
-    // the lexically-earlier parent at index 0 — exporting a stale legacy
-    // root.
+    // Re-sort each downstream's `rootCauseIds` against the visible set so
+    // a parent hidden by user suppression does not stay at index 0 ahead
+    // of a present parent.
     _resortRootCauseIdsByCurrentSeverity(visible);
 
-    // Rank by impact: severity dominates, then frame impact, confidence,
-    // recurrence. See IssueRanker for score formula and tier guarantees.
+    // Rank by impact: evidence tier (severity + confidence) dominates, then
+    // frame impact and recurrence. See IssueRanker for the tier table.
     final ranked = _ranker.rank(visible, _buildRankingContext());
 
     // IssueCard is a StatefulWidget with ValueKey(stableId), so expansion
@@ -3750,57 +3741,26 @@ class SleuthController {
     issuesNotifier.value = ranked;
   }
 
-  /// Threshold for duration-based severity escalation (scan cycles).
-  static const _escalationThreshold = 30;
-
-  /// Promotes warning-severity issues to critical when they have persisted
-  /// for [_escalationThreshold]+ cumulative scan cycles.
-  ///
-  /// Mutates [issues] in place (replaces elements via index) to avoid an
-  /// extra list allocation. Only escalates warnings — ok and critical are
-  /// left untouched.
-  void _applyDurationEscalation(List<PerformanceIssue> issues) {
-    for (var i = 0; i < issues.length; i++) {
-      final issue = issues[i];
-      if (issue.severity != IssueSeverity.warning) continue;
-
-      final id = issue.stableId ?? issue.title;
-      final trend = _recurrenceTrends[id];
-      if (trend == null || trend.presentCount < _escalationThreshold) continue;
-
-      final reason = issue.confidenceReason != null
-          ? '${issue.confidenceReason} '
-                '[Auto-escalated: persisted for ${trend.presentCount} scan cycles]'
-          : 'Auto-escalated: persisted for ${trend.presentCount} scan cycles';
-
-      issues[i] = issue.copyWith(
-        severity: IssueSeverity.critical,
-        confidenceReason: reason,
-      );
-    }
-  }
-
   @visibleForTesting
   void resortRootCauseIdsByCurrentSeverityForTest(
     List<PerformanceIssue> issues,
   ) => _resortRootCauseIdsByCurrentSeverity(issues);
 
-  /// Re-sorts `rootCauseIds` on every issue using current (post-escalation)
-  /// severity ranks.
+  /// Re-sorts `rootCauseIds` on every issue against the issues that are
+  /// still visible.
   ///
-  /// `CausalGraphRule.apply` sorts the multi-parent root list by
-  /// severity-at-correlation-time. `_applyDurationEscalation` can later
-  /// promote a tied warning-parent to critical without re-sorting. This
-  /// pass restores the invariant `rootCauseIds[0]` is the
-  /// highest-severity reaching root by current severity, which the
+  /// `CausalGraphRule.apply` sorts the multi-parent root list by severity
+  /// over the full correlated set. User suppression runs afterwards and
+  /// can hide the parent at index 0. This pass keeps `rootCauseIds[0]`
+  /// the highest-severity reaching root that is still present, which the
   /// "Caused by" UI section relies on to render the strongest cause first
   /// and the AI-context prompt's cap-at-5 truncation relies on to keep
   /// the most relevant causes when the full list overflows.
   ///
   /// Sort key matches [CausalGraphRule.apply]: severity descending, then
-  /// stableId ascending. Parents missing from [issues] (suppressed by the
-  /// ranker upstream) sort last with severity rank 0. Mutates [issues]
-  /// in place; only allocates a copyWith when the order actually changed.
+  /// stableId ascending. Parents missing from [issues] sort last. Mutates
+  /// [issues] in place; only allocates a copyWith when the order actually
+  /// changed.
   void _resortRootCauseIdsByCurrentSeverity(List<PerformanceIssue> issues) {
     final severityById = <String, IssueSeverity>{
       for (final i in issues)

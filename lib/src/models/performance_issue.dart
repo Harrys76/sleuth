@@ -313,7 +313,7 @@ class PerformanceIssue {
   ///
   /// A drifted `severity` silently imported as `warning` cascades into
   /// consumer surfaces (issue ranker evidence tier, health-score 30-point
-  /// critical penalty, trigger-button red/green badge, duration escalation).
+  /// critical penalty, trigger-button red/green badge).
   /// Do not feed untrusted or cross-version snapshots into `fromJson` in
   /// production.
   ///

@@ -211,8 +211,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   ///
   /// v0.15.5 replaces the v0.14.x single `_expandedIssueId` field with
   /// this map. That field only tracked "which card is expanded" for
-  /// `initiallyExpanded`; it didn't freeze position, so severity
-  /// escalations (warning→critical at 30 cycles) and ranker churn
+  /// `initiallyExpanded`; it didn't freeze position, so ranker reorders
   /// visibly shuffled whichever card the user was reading.
   final Map<String, int> _expandedIndices = <String, int>{};
 
@@ -1203,9 +1202,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                   // between builds, so Flutter destroys the Element and
                   // builds a fresh one — which resets `_IssueCardState`
                   // (loses expansion, scroll, and all local UI state).
-                  // This hits any issue whose rank position moves, e.g.
-                  // when `_applyDurationEscalation` flips an issue from
-                  // warning→critical at 30 cycles. Cards are already
+                  // This hits any issue whose rank position moves when
+                  // the ranker reorders the list. Cards are already
                   // `ValueKey`-stamped with `stableId`; this callback
                   // just tells the sliver where each key landed.
                   //
@@ -2153,7 +2151,7 @@ class _StartupMetricsBanner extends StatelessWidget {
 /// sole data-discovery surface for rebuild stats since v0.15.2 — the
 /// previous `rebuild_hotspot_summary` rollup IssueCard was removed because
 /// (a) the panel covers both the data and the signal, (b) an always-pinned
-/// IssueCard collided with the ranker and severity-escalation pipeline,
+/// IssueCard collided with ranker reorders,
 /// and (c) profile-mode KDD-5 inflations made route entry look like a
 /// warning storm in the issues list.
 ///

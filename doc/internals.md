@@ -86,7 +86,7 @@ Two vocabulary notes:
 - **`flaky`** is the display label for the `intermittent` enum value — JSON exports still use `intermittent`.
 - **`persistent`** is synthesised in the UI from a `stable` trend plus the `≥ 90%` presence ratio. The JSON export reports the underlying enum (`stable`) and a separate `totalOccurrences / totalObserved` pair, so you can recompute it downstream.
 
-Severity for warnings auto-escalates to critical after 30 consecutive scan cycles — a `Seen 30/30 · persistent` warning will flip red on the next cycle. See [`RecurrenceTrend`](../lib/src/models/recurrence_trend.dart) for the underlying thresholds.
+Persistence is shown by the `Seen N` badge and trend; severity always comes from the detector. See [`RecurrenceTrend`](../lib/src/models/recurrence_trend.dart) for the underlying thresholds.
 
 ## Startup Tracing
 

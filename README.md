@@ -405,7 +405,7 @@ Each issue card shows a `Seen X/Y · {label}` badge once Sleuth has observed the
 
 The label summarises the recent trend — `worsening` / `persistent` / `stable` / `improving` / `flaky`. Exact thresholds and the `flaky`↔`intermittent` / `persistent` JSON-vs-UI vocabulary notes are in [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#recurrence-badge).
 
-Severity for warnings auto-escalates to critical after 30 consecutive scan cycles — a `Seen 30/30 · persistent` warning will flip red on the next cycle. See [`RecurrenceTrend`](lib/src/models/recurrence_trend.dart) for the underlying thresholds.
+Persistence is shown by the `Seen N` badge and trend; severity always comes from the detector. See [`RecurrenceTrend`](lib/src/models/recurrence_trend.dart) for the underlying thresholds.
 
 ## Startup Tracing
 

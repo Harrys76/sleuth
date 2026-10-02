@@ -3,12 +3,10 @@ import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
 void main() {
-  // Pins the post-escalation re-sort contract: a downstream's
-  // `rootCauseIds` list must be ordered by CURRENT severity (post
-  // duration-escalation) so [PerformanceIssue.toJson] derives a fresh
-  // legacy `rootCauseId` emission for v0.24.1 readers. Without this,
-  // [CausalGraphRule.apply] sorts once at correlation time and a later
-  // promotion of a tied parent silently leaves the stale order intact.
+  // Pins the re-sort contract: a downstream's `rootCauseIds` list must be
+  // ordered by the severity of the parents still present, so
+  // `rootCauseIds.first` is the strongest visible cause after user
+  // suppression has removed issues from the correlated set.
   group('rootCauseIds re-sort by current severity', () {
     late SleuthController controller;
 
@@ -38,12 +36,10 @@ void main() {
       controller.dispose();
     });
 
-    test('tied parents at correlation: post-escalation promotes one parent → '
-        're-sort puts critical parent first (overrides alphabetical)', () {
-      // Simulates the post-correlate state: A and B tied at warning,
-      // alphabetically sorted by apply(). C is the downstream. Then
-      // duration escalation promotes B to critical. The re-sort pass
-      // must reorder C.rootCauseIds to ['B', 'A'].
+    test('out-of-order parents: re-sort puts critical parent first '
+        '(overrides alphabetical)', () {
+      // C.rootCauseIds lists warning A before critical B. The re-sort
+      // pass must reorder C.rootCauseIds to ['B', 'A'].
       final issues = [
         makeIssue(stableId: 'A', severity: IssueSeverity.warning),
         makeIssue(stableId: 'B', severity: IssueSeverity.critical),
@@ -62,7 +58,7 @@ void main() {
         ['B', 'A'],
         reason:
             'critical-severity B must lead after re-sort even though '
-            'apply() placed A first under tied-warning semantics',
+            'the input placed A first',
       );
     });
 
@@ -86,9 +82,9 @@ void main() {
       ], reason: 'tied severity → alphabetical stableId tie-break');
     });
 
-    test('missing parent (suppressed by ranker) sorts last', () {
-      // Parent 'missing' is not in the issues list — ranker suppressed it
-      // upstream. The re-sort pushes it to the end so present parents
+    test('missing parent (suppressed upstream) sorts last', () {
+      // Parent 'missing' is not in the issues list — user suppression
+      // removed it upstream. The re-sort pushes it to the end so present parents
       // lead `rootCauseIds.first`.
       final issues = [
         makeIssue(stableId: 'A', severity: IssueSeverity.warning),

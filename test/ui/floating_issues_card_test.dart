@@ -274,8 +274,8 @@ void main() {
     // v0.15.2 — the previous `rebuild_hotspot_summary` rollup IssueCard
     // (and the always-on chip above the issue list) was removed in
     // v0.15.2 because (a) the panel covers both the data and the signal,
-    // (b) an always-pinned IssueCard collided with the issue ranker /
-    // severity-escalation pipeline, and (c) profile-mode KDD-5 inflations
+    // (b) an always-pinned IssueCard collided with issue ranker reorders,
+    // and (c) profile-mode KDD-5 inflations
     // made route entry look like a warning storm in the issues list.
     //
     // The panel must therefore render whenever the active RouteSession
