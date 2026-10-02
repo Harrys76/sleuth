@@ -754,12 +754,32 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('missing RepaintBoundary causal chains', () {
-    test('missing_repaint_boundary → excessive_repaint chain', () {
+    test('possible missing_repaint_boundary does not claim confirmed '
+        'excessive_repaint', () {
       final issues = [
         makeIssue(
           stableId: 'missing_repaint_boundary',
           category: IssueCategory.paint,
           confidence: IssueConfidence.possible,
+        ),
+        makeIssue(
+          stableId: 'excessive_repaint',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, isNull);
+      expect(result[1].rootCauseIds, isNull);
+    });
+
+    test('likely missing_repaint_boundary → excessive_repaint chain', () {
+      final issues = [
+        makeIssue(
+          stableId: 'missing_repaint_boundary',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.likely,
         ),
         makeIssue(
           stableId: 'excessive_repaint',
@@ -790,6 +810,113 @@ void main() {
 
       expect(result[0].downstreamIds, ['raster_dominance']);
       expect(result[1].rootCauseIds, ['missing_repaint_boundary']);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Confidence guard: possible roots claim only possible effects
+  // ---------------------------------------------------------------------------
+
+  group('confidence guard', () {
+    test('possible → confirmed is not claimed', () {
+      final issues = [
+        makeIssue(stableId: 'non_lazy_list'),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, isNull);
+      expect(result[1].rootCauseIds, isNull);
+    });
+
+    test('possible → likely is not claimed', () {
+      final issues = [
+        makeIssue(stableId: 'non_lazy_list'),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          confidence: IssueConfidence.likely,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, isNull);
+      expect(result[1].rootCauseIds, isNull);
+    });
+
+    test('possible → possible is claimed', () {
+      final issues = [
+        makeIssue(stableId: 'non_lazy_list'),
+        makeIssue(stableId: 'rebuild_activity'),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['rebuild_activity']);
+      expect(result[1].rootCauseIds, ['non_lazy_list']);
+    });
+
+    test('likely → confirmed is claimed', () {
+      final issues = [
+        makeIssue(
+          stableId: 'non_lazy_list',
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['rebuild_activity']);
+      expect(result[1].rootCauseIds, ['non_lazy_list']);
+    });
+
+    test('chain A(possible) → B(confirmed) → C(confirmed): B becomes the '
+        'root, A claims nothing', () {
+      final issues = [
+        makeIssue(stableId: 'non_lazy_list'),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'heavy_compute',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      // non_lazy_list → heavy_compute is also a rule edge; the guard drops
+      // it as well.
+      expect(result[0].downstreamIds, isNull);
+      expect(result[0].rootCauseIds, isNull);
+      expect(result[1].rootCauseIds, isNull);
+      expect(result[1].downstreamIds, ['heavy_compute']);
+      expect(result[2].rootCauseIds, ['rebuild_activity']);
+    });
+
+    test('activeEdges omits possible → confirmed pairs', () {
+      final edges = CausalGraphRule.activeEdges([
+        makeIssue(stableId: 'non_lazy_list'),
+        makeIssue(
+          stableId: 'rebuild_activity',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ]);
+      expect(edges, isEmpty);
+    });
+
+    test('activeEdges keeps possible → possible pairs', () {
+      final edges = CausalGraphRule.activeEdges([
+        makeIssue(stableId: 'non_lazy_list'),
+        makeIssue(stableId: 'rebuild_activity'),
+      ]);
+      expect(edges, [
+        {'cause': 'non_lazy_list', 'effect': 'rebuild_activity'},
+      ]);
     });
   });
 

@@ -38,6 +38,13 @@ class CausalRule {
 /// from every root's [PerformanceIssue.downstreamIds] (they still receive
 /// `rootCauseIds` so the UI hides them from the main list, but they
 /// don't appear as sub-items under the root).
+///
+/// **Possible-root guard:** an edge whose cause is `possible` and whose
+/// effect is `likely` or `confirmed` is dropped before roots are found. A
+/// structural-only guess does not claim an observed runtime effect; it can
+/// still claim other `possible` effects. Roots, BFS, suppression and
+/// [activeEdges] all operate on the filtered edge set, so every node
+/// reachable from a `possible` root is itself `possible`.
 class CausalGraphRule extends CorrelationRule {
   const CausalGraphRule();
 
@@ -183,6 +190,7 @@ class CausalGraphRule extends CorrelationRule {
       for (final ci in causeIndices) {
         for (final ei in effectIndices) {
           if (ci == ei) continue; // self-loop guard
+          if (!_edgeAllowed(issues[ci], issues[ei])) continue;
           (outgoing[ci] ??= {}).add(ei);
           (incoming[ei] ??= {}).add(ci);
         }
@@ -248,10 +256,10 @@ class CausalGraphRule extends CorrelationRule {
     // downstream from a root's downstreamIds list when ANY reaching
     // root for that downstream is `confirmed` or `likely`. The check
     // operates on the union of REACHING ROOTS (the BFS sources), not
-    // the immediate graph-parents of the downstream — but the
-    // user-visible effect is the same because pre-existing causal
-    // chains are short (≤ 2 hops in current rules). The downstream
-    // still carries rootCauseIds for UI annotation; the suppression
+    // the immediate graph-parents of the downstream. Chains may be
+    // longer than two hops; the check still keys off the reaching roots,
+    // so an intermediate node's confidence does not affect it. The
+    // downstream still carries rootCauseIds for UI annotation; the suppression
     // only prevents the root from listing it as a sub-item in the
     // main list rendering.
     final rootDownstream =
@@ -344,7 +352,8 @@ class CausalGraphRule extends CorrelationRule {
   ///
   /// Each edge is a `{cause, effect}` map representing a directed
   /// relationship between two stableIds. Only edges where both cause
-  /// and effect are present in [issues] are returned.
+  /// and effect are present in [issues] and that pass the possible-root
+  /// guard are returned.
   static List<Map<String, String>> activeEdges(List<PerformanceIssue> issues) {
     if (issues.length < 2) return const [];
 
@@ -367,6 +376,7 @@ class CausalGraphRule extends CorrelationRule {
       for (final ci in causeIndices) {
         for (final ei in effectIndices) {
           if (ci == ei) continue;
+          if (!_edgeAllowed(issues[ci], issues[ei])) continue;
           final causeId = issues[ci].stableId!;
           final effectId = issues[ei].stableId!;
           final key = '$causeId→$effectId';
@@ -378,6 +388,12 @@ class CausalGraphRule extends CorrelationRule {
     }
     return edges;
   }
+
+  /// Possible-root guard: a `possible` cause may only claim a `possible`
+  /// effect.
+  static bool _edgeAllowed(PerformanceIssue cause, PerformanceIssue effect) =>
+      !(cause.confidence == IssueConfidence.possible &&
+          effect.confidence != IssueConfidence.possible);
 
   /// Find all issue indices matching a stableId [pattern].
   /// Supports exact match and trailing `*` prefix match.
