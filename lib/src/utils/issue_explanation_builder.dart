@@ -1337,7 +1337,7 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Short lists (20 items or fewer) cost little to build eagerly. '
           'A shrinkWrap list given a bounded height (inside Expanded or a '
-          'sized box) only builds what fits.',
+          'sized box) only builds what fits and is not reported.',
       relatedIssues: [
         'jank_detected',
         'non_lazy_list',

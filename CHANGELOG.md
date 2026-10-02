@@ -128,9 +128,9 @@
   reachable). The 50 dp small-image skip and the `> 5 images → critical`
   rule are removed. Encyclopedia name: Oversized Images.
 - New `non_lazy_shrinkwrap` (ListView detector): a `ListView` / `GridView`
-  with `shrinkWrap: true` inside a `Column` / `Row` and more than 20
-  children (or an unbounded builder) is a `possible` warning, critical above
-  100. It replaces `non_lazy_listview` for the same list; inside a
+  with `shrinkWrap: true` inside a `Column` / `Row`, an unbounded main axis
+  (not under `Expanded` or a sized box), and more than 20 children (or an
+  unbounded builder) is a `possible` warning, critical above 100. It replaces `non_lazy_listview` for the same list; inside a
   `SliverToBoxAdapter`, `sliver_to_box_adapter_shrinkwrap` still wins.
   Escalates to `likely` with jank like the other list ids.
 - `detectorHitRates` counts `non_lazy_sliver_list` and

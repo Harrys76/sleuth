@@ -142,12 +142,15 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
 
       // shrinkWrap inside a Column/Row builds every child whether or not
       // the list uses a builder, so it takes precedence over the non-lazy
-      // id. Inside a SliverToBoxAdapter, Check C owns the finding.
+      // id. Inside a SliverToBoxAdapter, Check C owns the finding. With a
+      // bounded main axis (Expanded, a sized box) the shrink-wrapping
+      // viewport lays out only what fits, so nothing is reported.
       final shrinkWrapInFlex =
           shrinkWrap &&
           _flexStack.isNotEmpty &&
           _insideSliverToBoxAdapter == 0 &&
-          manyChildren;
+          manyChildren &&
+          _mainAxisUnbounded(element, widget.scrollDirection);
       if (shrinkWrapInFlex) {
         _emitShrinkWrapInFlexIssue(
           element,
@@ -344,6 +347,20 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         detectedAt: DateTime.now(),
       ),
     );
+  }
+
+  /// Whether the scroll view's main axis is unbounded, the case where
+  /// `shrinkWrap: true` lays out every child. The scroll view's first
+  /// render object is a proxy box, so its constraints are the ones the
+  /// Column or Row handed down. Before the first layout the answer is
+  /// unknown and the structural claim stands.
+  static bool _mainAxisUnbounded(Element element, Axis axis) {
+    final ro = element.renderObject;
+    if (ro is! RenderBox || !ro.hasSize) return true;
+    final constraints = ro.constraints;
+    return axis == Axis.vertical
+        ? !constraints.hasBoundedHeight
+        : !constraints.hasBoundedWidth;
   }
 
   void _emitShrinkWrapInFlexIssue(
@@ -700,7 +717,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         'threshold negative). non_lazy_shrinkwrap (ListView/GridView '
         'with shrinkWrap:true under a Column/Row, tracked by a Flex depth '
         'stack, fires when the delegate child count is null or > 20, '
-        'critical above 100; 20-child negative; no-Flex negative; the '
+        'critical above 100, only when the main axis of the list is unbounded; 20-child negative; no-Flex negative; bounded-height negatives (Expanded, sized box); the '
         'same list in a SliverToBoxAdapter routes to Check C; it '
         'replaces non_lazy_listview for the same element). Sliver '
         'boundary families — '

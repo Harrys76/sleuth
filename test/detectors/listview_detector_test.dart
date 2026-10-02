@@ -1265,6 +1265,61 @@ void main() {
         );
       });
 
+      testWidgets('Column > Expanded > ListView(shrinkWrap) is silent: the '
+          'bounded height lays out only what fits', (tester) async {
+        await scan(
+          tester,
+          Column(
+            children: [
+              Expanded(child: ListView(shrinkWrap: true, children: rows(25))),
+            ],
+          ),
+        );
+        expect(ids(), isEmpty);
+      });
+
+      testWidgets(
+        'Column > SizedBox(height) > ListView(shrinkWrap) is silent',
+        (tester) async {
+          await scan(
+            tester,
+            Column(
+              children: [
+                SizedBox(
+                  height: 300,
+                  child: ListView(shrinkWrap: true, children: rows(25)),
+                ),
+              ],
+            ),
+          );
+          expect(ids(), isEmpty);
+        },
+      );
+
+      testWidgets(
+        'Row > Expanded > horizontal ListView(shrinkWrap) is silent',
+        (tester) async {
+          await scan(
+            tester,
+            Row(
+              children: [
+                Expanded(
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    shrinkWrap: true,
+                    children: List.generate(
+                      25,
+                      (i) => SizedBox(key: ValueKey(i), width: 2),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+          expect(ids(), isEmpty);
+        },
+      );
+
       testWidgets('shrinkWrap with no Flex ancestor is silent', (tester) async {
         await scan(
           tester,

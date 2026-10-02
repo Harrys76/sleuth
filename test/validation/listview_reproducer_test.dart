@@ -850,6 +850,18 @@ void main() {
       expect(shrinkWrapIssues(), isEmpty);
     });
 
+    testWidgets('bounded height (Expanded) silent', (tester) async {
+      await scan(
+        tester,
+        Column(
+          children: [
+            Expanded(child: ListView(shrinkWrap: true, children: rows(25))),
+          ],
+        ),
+      );
+      expect(shrinkWrapIssues(), isEmpty);
+    });
+
     testWidgets('101 builder items critical', (tester) async {
       await scan(
         tester,
