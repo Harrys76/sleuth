@@ -1,3 +1,7 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'package:flutter/material.dart';
 import 'package:sleuth/sleuth.dart';
 
@@ -126,8 +130,52 @@ class SleuthDemoApp extends StatelessWidget {
 // ───────────────────────────────────────────────
 // Home — categorized navigation to bad-pattern demos
 // ───────────────────────────────────────────────
-class DemoHome extends StatelessWidget {
+class DemoHome extends StatefulWidget {
   const DemoHome({super.key});
+
+  @override
+  State<DemoHome> createState() => _DemoHomeState();
+}
+
+class _DemoHomeState extends State<DemoHome> {
+  bool _startDemoHandled = false;
+
+  /// Opens one demo right after the first frame when the launch asks for
+  /// it, so a profile build can be driven without touching the screen.
+  /// The request comes from the process environment
+  /// (`SLEUTH_START_DEMO=gpu_pressure`, for example through
+  /// `xcrun devicectl device process launch --environment-variables
+  /// '{"SLEUTH_START_DEMO":"gpu_pressure"}'`) or from
+  /// `--dart-define=SLEUTH_START_DEMO=gpu_pressure`. The value is the demo
+  /// title lower-cased with runs of non-alphanumerics folded to `_`.
+  void _openStartDemo(List<_DemoCategory> categories) {
+    if (_startDemoHandled) return;
+    _startDemoHandled = true;
+    final request = _startDemoRequest();
+    if (request == null) return;
+    final wanted = _demoSlug(request);
+    _DemoRoute? match;
+    for (final category in categories) {
+      for (final demo in category.demos) {
+        if (_demoSlug(demo.title) == wanted) match = demo;
+      }
+    }
+    if (match == null) {
+      debugPrint('Sleuth demo: no demo matches SLEUTH_START_DEMO=$request');
+      return;
+    }
+    final demo = match;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          settings: RouteSettings(name: '/demo/${demo.title}'),
+          builder: demo.builder,
+        ),
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -426,6 +474,7 @@ class DemoHome extends StatelessWidget {
         ],
       ),
     ];
+    _openStartDemo(categories);
 
     return Scaffold(
       appBar: AppBar(
@@ -541,6 +590,22 @@ class _DemoTile extends StatelessWidget {
     );
   }
 }
+
+String? _startDemoRequest() {
+  const defined = String.fromEnvironment('SLEUTH_START_DEMO');
+  final fromEnvironment = kIsWeb
+      ? null
+      : Platform.environment['SLEUTH_START_DEMO'];
+  final value = fromEnvironment != null && fromEnvironment.isNotEmpty
+      ? fromEnvironment
+      : defined;
+  return value.isEmpty ? null : value;
+}
+
+String _demoSlug(String title) => title
+    .toLowerCase()
+    .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+    .replaceAll(RegExp(r'^_+|_+$'), '');
 
 // ── Data classes ──
 
