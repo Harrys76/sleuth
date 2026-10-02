@@ -109,8 +109,7 @@ class IssueRanker {
       context.recurrenceCounts,
     );
     // Deprioritize transient-context issues
-    if (issue.interactionContext == InteractionContext.scrolling ||
-        issue.interactionContext == InteractionContext.appLifecycle) {
+    if (_isTransientContext(issue.interactionContext)) {
       recurrence = (recurrence * 0.7).round();
     }
     return (_tier(issue.severity, issue.confidence) * 100) +
@@ -159,6 +158,13 @@ class IssueRanker {
     return matches ? 3 : 1;
   }
 
+  /// Scrolling, navigating, and app-lifecycle transitions produce
+  /// transient work; their recurrence counts for 70 %.
+  static bool _isTransientContext(InteractionContext? c) =>
+      c == InteractionContext.scrolling ||
+      c == InteractionContext.navigating ||
+      c == InteractionContext.appLifecycle;
+
   int _recurrenceScore(String id, Map<String, int> counts) {
     final count = counts[id] ?? 0;
     return count.clamp(0, 5);
@@ -172,8 +178,7 @@ class IssueRanker {
       issue.stableId ?? issue.title,
       context.recurrenceCounts,
     );
-    if (issue.interactionContext == InteractionContext.scrolling ||
-        issue.interactionContext == InteractionContext.appLifecycle) {
+    if (_isTransientContext(issue.interactionContext)) {
       recurrence = (recurrence * 0.7).round();
     }
     final base = _severityBase(issue.severity);

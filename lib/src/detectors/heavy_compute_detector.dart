@@ -40,9 +40,11 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     this.autoThreshold = false,
     this.emissionPersistence = const Duration(seconds: 10),
     String? Function()? sourceRouteProvider,
+    InteractionContext Function()? interactionContextProvider,
     @visibleForTesting Stopwatch? testStopwatch,
   }) : _lagThresholdUs = lagThresholdMs * 1000,
        _sourceRouteProvider = sourceRouteProvider ?? (() => null),
+       _interactionContextProvider = interactionContextProvider,
        _emissionStopwatch = testStopwatch ?? Stopwatch(),
        super(
          type: DetectorType.heavyCompute,
@@ -90,6 +92,11 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   final Duration emissionPersistence;
 
   final String? Function() _sourceRouteProvider;
+
+  /// Reads the controller's interaction state at emission so a retained
+  /// issue keeps the context it fired in (e.g. `navigating`) rather than
+  /// the context of a later aggregate.
+  final InteractionContext Function()? _interactionContextProvider;
   final Stopwatch _emissionStopwatch;
 
   final List<PerformanceIssue> _issues = [];
@@ -216,6 +223,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       confidenceReason:
           'Measured directly from VM timeline long UI-thread event',
       sourceRoute: _sourceRouteProvider(),
+      interactionContext: _interactionContextProvider?.call(),
     );
   }
 
@@ -243,6 +251,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       confidenceReason:
           'Measured directly from VM timeline long UI-thread event',
       sourceRoute: _sourceRouteProvider(),
+      interactionContext: _interactionContextProvider?.call(),
     );
   }
 

@@ -25,6 +25,42 @@ void main() {
   }
 
   group('IssueRanker', () {
+    group('transient interaction context', () {
+      const context = IssueRankingContext(recurrenceCounts: {'r': 5});
+      PerformanceIssue withContext(InteractionContext? c) => makeIssue(
+        stableId: 'r',
+        category: IssueCategory.font,
+      ).copyWith(interactionContext: c);
+
+      for (final c in [
+        InteractionContext.scrolling,
+        InteractionContext.navigating,
+        InteractionContext.appLifecycle,
+      ]) {
+        test('${c.name} weights recurrence 5 as (5 * 0.7).round() = 4', () {
+          final idle = ranker.scoreOf(
+            withContext(InteractionContext.idle),
+            context,
+          );
+          final transient = ranker.scoreOf(withContext(c), context);
+          expect(idle - transient, (5 - 4) * 2);
+          final ranked = ranker.rankWithScores([withContext(c)], context);
+          expect(ranked.single.rankingBreakdown!['recurrence'], 8);
+        });
+      }
+
+      test('idle, typing, and null keep full recurrence', () {
+        for (final c in [
+          null,
+          InteractionContext.idle,
+          InteractionContext.typing,
+        ]) {
+          final ranked = ranker.rankWithScores([withContext(c)], context);
+          expect(ranked.single.rankingBreakdown!['recurrence'], 10);
+        }
+      });
+    });
+
     group('evidence tiers', () {
       // Lower issue gets the maximum bonus (frameImpact 3, recurrence 5);
       // higher issue gets none. The higher issue must still win.

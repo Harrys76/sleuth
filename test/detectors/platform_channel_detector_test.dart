@@ -500,6 +500,31 @@ void main() {
         );
       });
 
+      test('cooldown-retained issue keeps its emission-time context', () {
+        var context = InteractionContext.navigating;
+        DateTime nowRef = DateTime(2026, 1, 1);
+        final d = PlatformChannelDetector(
+          clock: () => nowRef,
+          interactionContextProvider: () => context,
+        );
+
+        d.processTimelineData(platformChannelData(channelEventCount: 25));
+        nowRef = nowRef.add(const Duration(seconds: 2));
+        d.processTimelineData(emptyTimelineData());
+        expect(
+          d.issues.single.interactionContext,
+          InteractionContext.navigating,
+        );
+
+        context = InteractionContext.idle;
+        nowRef = nowRef.add(const Duration(seconds: 1));
+        d.processTimelineData(emptyTimelineData());
+        expect(
+          d.issues.single.interactionContext,
+          InteractionContext.navigating,
+        );
+      });
+
       test('null sourceRouteProvider yields null sourceRoute', () {
         detector.processTimelineData(
           platformChannelData(channelEventCount: 25),

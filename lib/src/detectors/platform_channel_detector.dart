@@ -17,8 +17,10 @@ class PlatformChannelDetector extends BaseDetector
     this.durationThresholdUs = 8000,
     DateTime Function()? clock,
     String? Function()? sourceRouteProvider,
+    InteractionContext Function()? interactionContextProvider,
   }) : _clock = clock ?? DateTime.now,
        _sourceRouteProvider = sourceRouteProvider ?? (() => null),
+       _interactionContextProvider = interactionContextProvider,
        super(
          type: DetectorType.platformChannel,
          lifecycle: DetectorLifecycle.vmOnly,
@@ -36,6 +38,10 @@ class PlatformChannelDetector extends BaseDetector
   final int durationThresholdUs;
   final DateTime Function() _clock;
   final String? Function() _sourceRouteProvider;
+
+  /// Reads the controller's interaction state at emission so a
+  /// cooldown-retained issue keeps the context it fired in.
+  final InteractionContext Function()? _interactionContextProvider;
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
 
@@ -185,6 +191,7 @@ class PlatformChannelDetector extends BaseDetector
         // navigated to during the 3-cycle cooldown window. See
         // [HeavyComputeDetector] persistence-contract doc.
         sourceRoute: _sourceRouteProvider(),
+        interactionContext: _interactionContextProvider?.call(),
       );
       _issues
         ..clear()

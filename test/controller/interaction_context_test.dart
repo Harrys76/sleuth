@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 
+import '../helpers/timeline_test_helpers.dart';
+
 /// Minimal widget tree for getting a BuildContext that triggers a retained
 /// detector (`non_lazy_list` via SingleChildScrollView + Column with >50
 /// children).
@@ -354,6 +356,35 @@ void main() {
         final issues = controller.issuesNotifier.value;
         expect(issues, isNotEmpty);
         expect(issues.first.interactionContext, InteractionContext.navigating);
+      });
+
+      test('heavy_compute keeps navigating after a later idle aggregate', () {
+        controller.interactionStateForTest = InteractionContext.navigating;
+        controller.feedTimelineDataForTest(
+          heavyComputeData(buildScopeDurationsUs: [20000]),
+        );
+        PerformanceIssue heavy() => controller.issuesNotifier.value.firstWhere(
+          (i) => i.stableId == 'heavy_compute',
+        );
+        expect(heavy().interactionContext, InteractionContext.navigating);
+
+        // Navigation ends; the retained issue re-aggregates under idle.
+        controller.interactionStateForTest = InteractionContext.idle;
+        controller.feedTimelineDataForTest(heavyComputeData());
+        controller.aggregateIssuesForTest();
+        expect(heavy().interactionContext, InteractionContext.navigating);
+      });
+
+      test('heavy_compute emitted while idle reads idle', () {
+        controller.feedTimelineDataForTest(
+          heavyComputeData(buildScopeDurationsUs: [20000]),
+        );
+        controller.interactionStateForTest = InteractionContext.scrolling;
+        controller.aggregateIssuesForTest();
+        final heavy = controller.issuesNotifier.value.firstWhere(
+          (i) => i.stableId == 'heavy_compute',
+        );
+        expect(heavy.interactionContext, InteractionContext.idle);
       });
 
       testWidgets('scrolling state change triggers immediate re-aggregation', (

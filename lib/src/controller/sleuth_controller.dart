@@ -804,12 +804,14 @@ class SleuthController {
               DetectorThresholds.defaultHeavyComputeGapMs,
           autoThreshold: config.thresholds.heavyComputeGapMs == null,
           sourceRouteProvider: _currentRouteName,
+          interactionContextProvider: () => _interactionState,
         ),
       ),
       DetectorType.platformChannel: () => PlatformChannelDetector(
         callsPerSecThreshold: config.platformChannelLimit,
         durationThresholdUs: config.platformChannelDurationThresholdMs * 1000,
         sourceRouteProvider: _currentRouteName,
+        interactionContextProvider: () => _interactionState,
       ),
       DetectorType.repaint: RepaintDetector.new,
       DetectorType.setStateScope: () => SetStateScopeDetector(
@@ -3801,7 +3803,9 @@ class SleuthController {
       final stamped = issue.copyWith(
         debugModeDisclaimer: kDebugMode ? true : null,
         routeName: effectiveRoute,
-        interactionContext: _interactionState,
+        // Emission-time context wins: retained timeline-path issues keep
+        // the context they fired in.
+        interactionContext: issue.interactionContext ?? _interactionState,
         scaffoldHashKey: hashKey,
         tabVisitIndex: tabIdx,
       );
