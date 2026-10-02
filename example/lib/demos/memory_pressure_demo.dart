@@ -133,13 +133,14 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
       // In fixed mode, churn is suppressed (the "pool" simulates reuse).
       if (_isFixedMode) return;
       setState(() => _churning = true);
-      // Every 50ms, allocate ~1MB of garbage that immediately becomes
-      // unreachable. Over a few seconds this overflows new-space repeatedly,
-      // producing many scavenger GCs — enough to exceed 30 GC/min.
-      _churnTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      // Every 25 ms, allocate ~4 MB of garbage that immediately becomes
+      // unreachable. New-space overflows several times a second, so the
+      // scavenger runs well above the 180 GC/min floor (an idle app with
+      // the VM service attached already sees 1–2 scavenges per second).
+      _churnTimer = Timer.periodic(const Duration(milliseconds: 25), (_) {
         final garbage = List.generate(
-          2000,
-          (i) => <String, Object>{'i': i, 'data': List.filled(50, i)},
+          4000,
+          (i) => <String, Object>{'i': i, 'data': List.filled(100, i)},
         );
         // Write to a field so the optimizer keeps the allocation.
         _churnBytesSeen += garbage.length;

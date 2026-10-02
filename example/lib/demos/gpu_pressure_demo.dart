@@ -128,12 +128,14 @@ class _GpuPressureDemoState extends State<GpuPressureDemo>
   }
 }
 
-/// Six large circles under `MaskFilter.blur(normal, 40)`, moved by
+/// Eighteen large circles under `MaskFilter.blur(normal, 60)`, moved by
 /// [animation]. The painter repaints through its `repaint` listenable, so
 /// no widget rebuilds per frame (`rebuild_activity` stays quiet) while
 /// every frame pays for six large blurs on the raster thread.
 ///
-/// Six circles at sigma 40 is the starting point. The cost is tuned on a
+/// Six circles at sigma 40 cost about 3 ms of raster per frame on an
+/// iPhone 12 (median UI 0.5 ms), under the 8 ms floor; eighteen at sigma 60
+/// is the first setting that crosses it. The cost is tuned on a
 /// device so that at least 3 frames per second rasterize for over 8 ms
 /// at more than twice their UI time, which is what `raster_dominance`
 /// needs; on a faster GPU raise [_orbCount] or [_sigma].
@@ -142,8 +144,8 @@ class _BlurOrbsPainter extends CustomPainter {
 
   final Animation<double> animation;
 
-  static const int _orbCount = 6;
-  static const double _sigma = 40;
+  static const int _orbCount = 18;
+  static const double _sigma = 60;
 
   static const _colors = [
     Color(0xFFE53935),
