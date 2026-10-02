@@ -326,6 +326,22 @@ class SleuthController {
   /// [SleuthConfig.maxElementsPerScan]; the next tick always scans.
   bool _capSkipConsumed = false;
 
+  /// Consecutive periodic ticks deferred because the user was scrolling.
+  int _scrollDeferrals = 0;
+
+  /// Most deferrals in a row before a tick scans mid-scroll.
+  static const _maxScrollDeferrals = 3;
+
+  /// Delay before a deferred tick retries.
+  static const _scrollDeferralDelayMs = 250;
+
+  /// A scrolling state with no scroll activity for this long is treated as
+  /// idle (a scroll that never delivered its end notification).
+  static const _staleScrollMs = 2000;
+
+  /// Time of the last scroll start or update notification.
+  DateTime? _lastScrollActivityAt;
+
   /// Elements visited by the last unified structural walk.
   int _lastScanElementCount = 0;
 
@@ -2332,6 +2348,23 @@ class SleuthController {
         if (element.mounted) {
           SchedulerBinding.instance.addPostFrameCallback((_) {
             if (_disposed || generation != _scanTimerGeneration) return;
+            // Scroll defer: retry shortly instead of walking mid-scroll, at
+            // most three times in a row. A scroll with no activity for 2 s
+            // is stale; return to idle and scan.
+            if (_interactionState == InteractionContext.scrolling) {
+              final last = _lastScrollActivityAt;
+              final now = clockOverrideForTest?.call() ?? DateTime.now();
+              if (last != null &&
+                  now.difference(last).inMilliseconds > _staleScrollMs) {
+                _scrollIdleTimer?.cancel();
+                _interactionState = InteractionContext.idle;
+              } else if (_scrollDeferrals < _maxScrollDeferrals) {
+                _scrollDeferrals++;
+                _scheduleNextScan(delayMs: _scrollDeferralDelayMs);
+                return;
+              }
+            }
+            _scrollDeferrals = 0;
             // Element cap: skip one tick after an oversized walk. The walk
             // itself is never cut short; the last scan's issues remain.
             final cap = config.maxElementsPerScan;
@@ -3043,6 +3076,10 @@ class SleuthController {
     if (_interactionState == InteractionContext.navigating) return;
     // Typing has priority over scrolling — don't downgrade
     if (_interactionState == InteractionContext.typing) return;
+    if (notification is ScrollStartNotification ||
+        notification is ScrollUpdateNotification) {
+      _lastScrollActivityAt = clockOverrideForTest?.call() ?? DateTime.now();
+    }
     if (notification is ScrollStartNotification) {
       _scrollIdleTimer?.cancel();
       if (_interactionState != InteractionContext.scrolling) {

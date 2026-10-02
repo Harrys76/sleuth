@@ -629,4 +629,122 @@ void main() {
       });
     });
   });
+  group('scroll defer of periodic ticks', () {
+    late DateTime now;
+
+    setUp(() {
+      now = DateTime(2026, 1, 1);
+      SleuthController.clockOverrideForTest = () => now;
+    });
+
+    tearDown(() => SleuthController.clockOverrideForTest = null);
+
+    /// Starts the periodic chain on a one-Scaffold app; returns the
+    /// controller and a scan counter driven by the scan pulse.
+    Future<(SleuthController, int Function())> start(
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox())),
+      );
+      final c = SleuthController(
+        config: const SleuthConfig(adaptiveScanEnabled: false),
+      );
+      c.initializeDetectorsForTest();
+      c.markInitializedForTest();
+      var scans = 0;
+      c.scanTickNotifier.addListener(() => scans++);
+      c.startTreeScanning(tester.element(find.byType(MaterialApp)));
+      return (c, () => scans);
+    }
+
+    /// Advances fake time; scheduled ticks run in a post-frame callback.
+    Future<void> elapse(WidgetTester tester, int ms) async {
+      await tester.pump(Duration(milliseconds: ms));
+      tester.binding.scheduleFrame();
+      await tester.pump();
+    }
+
+    BuildContext scrollContext(WidgetTester tester) =>
+        tester.element(find.byType(SizedBox).first);
+
+    testWidgets('defers three times while scrolling, then scans', (
+      tester,
+    ) async {
+      final (c, scans) = await start(tester);
+      c.onScrollActivity(_scrollStart(scrollContext(tester)));
+
+      await elapse(tester, 1000);
+      expect(scans(), 0);
+      await elapse(tester, 250);
+      await elapse(tester, 250);
+      expect(scans(), 0);
+      await elapse(tester, 250);
+      expect(scans(), 1);
+      expect(c.interactionStateForTest, InteractionContext.scrolling);
+
+      // The count resets after a scan: the next tick defers again.
+      await elapse(tester, 1000);
+      expect(scans(), 1);
+      c.dispose();
+    });
+
+    testWidgets('a scroll with no activity for 2 s returns to idle', (
+      tester,
+    ) async {
+      final (c, scans) = await start(tester);
+      c.onScrollActivity(_scrollStart(scrollContext(tester)));
+
+      await elapse(tester, 1000);
+      expect(scans(), 0);
+
+      now = now.add(const Duration(milliseconds: 2001));
+      await elapse(tester, 250);
+      expect(scans(), 1);
+      expect(c.interactionStateForTest, InteractionContext.idle);
+      c.dispose();
+    });
+
+    testWidgets('scroll updates keep a long scroll from going stale', (
+      tester,
+    ) async {
+      final (c, scans) = await start(tester);
+      final ctx = scrollContext(tester);
+      c.onScrollActivity(_scrollStart(ctx));
+      await elapse(tester, 1000);
+
+      now = now.add(const Duration(milliseconds: 1900));
+      c.onScrollActivity(
+        ScrollUpdateNotification(
+          metrics: _scrollMetrics(),
+          context: ctx,
+          scrollDelta: 4,
+        ),
+      );
+      now = now.add(const Duration(milliseconds: 500));
+      await elapse(tester, 250);
+      expect(scans(), 0);
+      expect(c.interactionStateForTest, InteractionContext.scrolling);
+      c.dispose();
+    });
+
+    testWidgets('typing does not defer ticks', (tester) async {
+      final (c, scans) = await start(tester);
+      c.onKeyboardVisibilityChanged(visible: true);
+
+      await elapse(tester, 1000);
+      expect(scans(), 1);
+      expect(c.interactionStateForTest, InteractionContext.typing);
+      c.dispose();
+    });
+
+    testWidgets('direct scans ignore the defer', (tester) async {
+      final (c, scans) = await start(tester);
+      c.onScrollActivity(_scrollStart(scrollContext(tester)));
+
+      c.scanTreeFullPathForTest(tester.element(find.byType(MaterialApp)));
+      expect(scans(), 1);
+      c.dispose();
+    });
+  });
 }
