@@ -318,6 +318,71 @@ void main() {
       });
     });
 
+    group('animation-owned paints are excluded from the rate', () {
+      DebugSnapshot snapshot({required int raw, required int owned}) =>
+          DebugSnapshot(
+            rebuildCounts: const {},
+            totalPaintCount: raw,
+            paintCounts: {'CustomPaint': raw},
+            animationOwnedPaintCounts: {'CustomPaint': owned},
+            totalAnimationOwnedPaintCount: owned,
+            elapsed: const Duration(seconds: 1),
+          );
+
+      Future<void> pumpPainter(WidgetTester tester, CustomPainter p) =>
+          tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: CustomPaint(
+                painter: p,
+                child: const SizedBox(width: 10, height: 10),
+              ),
+            ),
+          );
+
+      testWidgets('raw 40/sec with 35 owned stays silent (residual 5)', (
+        tester,
+      ) async {
+        detector.updateDebugSnapshot(snapshot(raw: 40, owned: 35));
+        await pumpPainter(tester, _NeverRepaintPainter());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets('raw 40/sec with 0 owned fires frequent_repaint_painter', (
+        tester,
+      ) async {
+        detector.updateDebugSnapshot(snapshot(raw: 40, owned: 0));
+        await pumpPainter(tester, _NeverRepaintPainter());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        final issue = detector.issues.single;
+        expect(issue.stableId, 'frequent_repaint_painter');
+        expect(issue.title, contains('40/sec'));
+      });
+
+      testWidgets('raw 40/sec with 35 owned does not upgrade '
+          'always_repaint_painter to likely', (tester) async {
+        detector.updateDebugSnapshot(snapshot(raw: 40, owned: 35));
+        await pumpPainter(tester, _AlwaysRepaintPainter());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        final issue = detector.issues.single;
+        expect(issue.stableId, 'always_repaint_painter');
+        expect(issue.confidence, IssueConfidence.possible);
+      });
+
+      testWidgets('raw 40/sec with 0 owned upgrades always_repaint_painter '
+          'to likely', (tester) async {
+        detector.updateDebugSnapshot(snapshot(raw: 40, owned: 0));
+        await pumpPainter(tester, _AlwaysRepaintPainter());
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues.single.confidence, IssueConfidence.likely);
+      });
+    });
+
     group('foregroundPainter support', () {
       testWidgets('detects always-repaint foregroundPainter', (tester) async {
         await tester.pumpWidget(

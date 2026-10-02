@@ -1602,8 +1602,9 @@ class IssueExplanationBuilder {
           'Like a painter who checks their work every 5 seconds and touches '
           'up something each time — the constant small changes add up to '
           'significant effort.\n\n'
-          '• Repaint rate — How often shouldRepaint returns true. Normal: '
-          '<10/sec. Alert: >30/sec (fixed threshold).\n\n'
+          '• Repaint rate — CustomPaint paints per second from debug '
+          'callbacks, excluding paints driven by an animation owner. '
+          'Normal: <10/sec. Alert: >30/sec (fixed threshold).\n\n'
           '• Input change rate — How rapidly the painter\'s Listenable or '
           'fields change. Fast-changing inputs drive high repaint rate.\n\n'
           '• Source: Structural tree walk.',

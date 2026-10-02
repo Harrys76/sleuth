@@ -114,7 +114,7 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
       ObservationSource? source;
       final ds = _lastDebugSnapshot;
       if (ds != null && ds.paintCounts.isNotEmpty) {
-        final cpRate = ds.paintsPerSecondForType('CustomPaint');
+        final cpRate = _residualCustomPaintRate(ds);
         if (cpRate > 10) {
           confidence = IssueConfidence.likely;
           source = ObservationSource.debugCallbackAndStructural;
@@ -150,7 +150,7 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
     if (_found.isEmpty && _userPaintCount > 0) {
       final ds = _lastDebugSnapshot;
       if (ds != null && ds.paintCounts.isNotEmpty) {
-        final cpRate = ds.paintsPerSecondForType('CustomPaint');
+        final cpRate = _residualCustomPaintRate(ds);
         if (cpRate > 30) {
           final (hint2, effort2) = FixHintBuilder.frequentRepaintPainter();
 
@@ -177,6 +177,21 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
     }
   }
 
+  /// CustomPaint paints per second that no animation owner drove:
+  /// `paintCounts['CustomPaint']` minus
+  /// `animationOwnedPaintCounts['CustomPaint']`, over the same window.
+  /// Animation-driven paints (progress indicators, transitions) are
+  /// expected to repaint every frame and say nothing about shouldRepaint.
+  static double _residualCustomPaintRate(DebugSnapshot snapshot) {
+    final us = snapshot.elapsed.inMicroseconds;
+    if (us == 0) return 0;
+    final total = snapshot.paintCounts['CustomPaint'] ?? 0;
+    final owned = snapshot.animationOwnedPaintCounts['CustomPaint'] ?? 0;
+    final residual = total - owned;
+    if (residual <= 0) return 0;
+    return residual / (us / Duration.microsecondsPerSecond);
+  }
+
   @override
   void dispose() {
     _issues.clear();
@@ -193,7 +208,8 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
         'Hermetic reproducer pins both emission branches: '
         '`always_repaint_painter` (shouldRepaint self-comparison returns '
         'true, exercised on both `painter` and `foregroundPainter` '
-        'slots) and `frequent_repaint_painter` (paintsPerSecond > 30 '
+        'slots) and `frequent_repaint_painter` (residual CustomPaint '
+        'paints/sec > 30, excluding animation-owned paints, '
         'via injected `DebugSnapshot`, silent at threshold — '
         'strict-greater). The "always-repaint suppresses frequent" '
         'ordering contract is pinned as a negative control so both '
