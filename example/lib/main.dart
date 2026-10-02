@@ -592,6 +592,19 @@ void _registerDemoExtensions() {
   developer.registerExtension('ext.sleuthDemo.tap', (method, params) async {
     final text = params['text'] ?? '';
     final element = _findText(text);
+    if (element != null) {
+      // A control below the fold would miss the hit test.
+      try {
+        await Scrollable.ensureVisible(
+          element,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 150),
+        );
+        await WidgetsBinding.instance.endOfFrame;
+      } catch (_) {
+        // Not inside a scrollable, or already disposed.
+      }
+    }
     final center = element == null ? null : _centerOf(element);
     if (center == null) {
       return developer.ServiceExtensionResponse.error(
