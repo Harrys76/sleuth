@@ -246,9 +246,12 @@ Sleuth.track(
     showOverlay: true,                 // false hides overlay UI (trigger + dashboard); detectors + ext.sleuth.* keep running — for MCP-only sessions
     routeIgnorePatterns: {'/dialog*'}, // routes to exclude from tracking (exact or trailing *)
     routeHistoryCapacity: 20,          // max route sessions retained (FIFO)
+    profilePlatformChannels: false,    // opt-in: profile platform-channel sends after the VM connects
   ),
 );
 ```
+
+**Platform channel profiling:** the Platform Channel detector only sees calls when the framework's `debugProfilePlatformChannels` flag is on. `profilePlatformChannels: true` sets it once the VM service connects and restores it on dispose. While on, the framework prints a "Platform Channel Stats" table to the console every second that channels are active, and profiles framework channels (TextInput, SystemChrome, clipboard) too. Off by default.
 
 **Debug callbacks note:** `enableDebugCallbacks` installs `debugOnRebuildDirtyWidget` and `debugOnProfilePaint` hooks. These conflict with DevTools "Track Widget Rebuilds" — only one can be active at a time. Default `false` to avoid surprising DevTools users.
 

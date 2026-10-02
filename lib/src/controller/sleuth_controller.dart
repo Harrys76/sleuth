@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Scaffold, TabBarView;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart' show debugProfilePlatformChannels;
 import 'package:flutter/widgets.dart';
 import 'package:vm_service/vm_service.dart' show AllocationProfile, Event;
 
@@ -178,6 +179,12 @@ class SleuthController {
 
   // HTTP override proxy (not a detector)
   SleuthHttpOverrides? _httpOverrides;
+
+  /// Whether this controller turned on `debugProfilePlatformChannels`
+  /// (see [SleuthConfig.profilePlatformChannels]), and the value to
+  /// restore on dispose.
+  bool _profileFlagSetByUs = false;
+  bool _prevProfileFlag = false;
 
   // Ranking & correlation
   final DetectorCorrelator _detectorCorrelator = const DetectorCorrelator();
@@ -3651,6 +3658,7 @@ class SleuthController {
   void _onVmConnectionChanged(bool connected) {
     vmConnectedNotifier.value = connected;
     _syncVmState(connected);
+    if (connected) _enablePlatformChannelProfiling();
     // Mid-session VM death: VmServiceClient._pollTimeline's catch path runs
     // its own 3-attempt reconnect loop. If that internal loop exhausts, we
     // previously had no recovery — the controller sat in BASIC until the
@@ -3660,6 +3668,34 @@ class SleuthController {
     // reconnect attempt is harmless — _connectInFlight coalesces them.
     if (!connected && _initialized && !_disposed) {
       _scheduleBackgroundReconnect();
+    }
+  }
+
+  /// Turn on `debugProfilePlatformChannels` once the VM is connected, when
+  /// [SleuthConfig.profilePlatformChannels] opts in. Called only from the
+  /// VM connection callback, never from [initialize] or detector setup:
+  /// the framework flag starts a 1 s stats timer on every profiled send,
+  /// which a test binding reports as pending. A flag already set
+  /// elsewhere (DevTools) is left untouched and not restored on dispose.
+  void _enablePlatformChannelProfiling() {
+    if (kReleaseMode || _disposed) return;
+    if (!config.profilePlatformChannels) return;
+    if (!config.enabledDetectors.contains(DetectorType.platformChannel)) {
+      return;
+    }
+    if (debugProfilePlatformChannels) return;
+    _prevProfileFlag = false;
+    debugProfilePlatformChannels = true;
+    _profileFlagSetByUs = true;
+  }
+
+  /// Restore `debugProfilePlatformChannels` if this controller set it and
+  /// nothing else has cleared it since.
+  void _restorePlatformChannelProfiling() {
+    if (!_profileFlagSetByUs) return;
+    _profileFlagSetByUs = false;
+    if (debugProfilePlatformChannels) {
+      debugProfilePlatformChannels = _prevProfileFlag;
     }
   }
 
@@ -4312,6 +4348,7 @@ class SleuthController {
       SleuthHttpOverrides.uninstall(_httpOverrides!);
       _httpOverrides = null;
     }
+    _restorePlatformChannelProfiling();
 
     // KDD-2 / M3: mirror the install-side restructure. The historical
     // assert wrapper stripped coordinator disposal AND heavy-flag restore
@@ -4399,6 +4436,7 @@ class SleuthConfig {
     this.routeHistoryCapacity = 50,
     this.captureMode = false,
     this.autoFrameBudget = true,
+    this.profilePlatformChannels = false,
   }) : assert(
          fpsTarget >= 1 && fpsTarget <= 120,
          'fpsTarget must be between 1 and 120. '
@@ -4991,6 +5029,19 @@ class SleuthConfig {
   /// ([captureMode]) always uses the fixed budget.
   final bool autoFrameBudget;
 
+  /// When true, sets the framework's `debugProfilePlatformChannels` while
+  /// the VM service is connected, so platform-channel sends appear on the
+  /// timeline for [PlatformChannelDetector]. Off by default.
+  ///
+  /// Side effects while on: the framework prints a "Platform Channel
+  /// Stats" table to the console every second while channels are active,
+  /// and also profiles framework channels (TextInput, SystemChrome,
+  /// clipboard). The flag is set only after the VM connects and restored
+  /// on dispose; a value set elsewhere (e.g. DevTools) is left alone.
+  /// Has no effect in release mode or when
+  /// [DetectorType.platformChannel] is not enabled.
+  final bool profilePlatformChannels;
+
   /// Sentinel used by [copyWith] to distinguish "not passed" from "set to null".
   static const Object _sentinel = Object();
 
@@ -5044,6 +5095,7 @@ class SleuthConfig {
     int? routeHistoryCapacity,
     bool? captureMode,
     bool? autoFrameBudget,
+    bool? profilePlatformChannels,
   }) {
     return SleuthConfig(
       theme: identical(theme, _sentinel)
@@ -5106,6 +5158,8 @@ class SleuthConfig {
       routeHistoryCapacity: routeHistoryCapacity ?? this.routeHistoryCapacity,
       captureMode: captureMode ?? this.captureMode,
       autoFrameBudget: autoFrameBudget ?? this.autoFrameBudget,
+      profilePlatformChannels:
+          profilePlatformChannels ?? this.profilePlatformChannels,
     );
   }
 }

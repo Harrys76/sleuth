@@ -653,7 +653,8 @@ HeavyCompute and MemoryPressure in three structural ways:
    true. The capture screen sets it per-leg in try/finally so the
    flag does not leak into post-leg live monitoring (which would
    pollute every subsequent unrelated channel call with timeline
-   events at full rate).
+   events at full rate). Leave `SleuthConfig.profilePlatformChannels`
+   off for captures; it holds the flag on for the whole session.
 
 **Procedure (uses `example/lib/demos/platform_channel_capture_screen.dart`):**
 
@@ -700,7 +701,8 @@ aboveCeilingMultiplier=1.95):**
   dropped channel events because `debugProfilePlatformChannels`
   was not enabled — verify the framework flag is true at leg
   start (the capture screen sets it in try/finally; manual flips
-  during leg run are the only way this can be wrong). Secondary
+  during leg run or `SleuthConfig.profilePlatformChannels` are the
+  only way this can be wrong). Secondary
   cause: iOS coalesced parallel calls and rate stayed below
   20/sec — recheck batch geometry.
 - **Count ≥ 2 (cooldown failed):** scenario span extended into a

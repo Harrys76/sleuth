@@ -59,6 +59,7 @@ void main() {
       expect(copy.routeIgnorePatterns, original.routeIgnorePatterns);
       expect(copy.routeHistoryCapacity, original.routeHistoryCapacity);
       expect(copy.autoFrameBudget, original.autoFrameBudget);
+      expect(copy.profilePlatformChannels, original.profilePlatformChannels);
     });
 
     test('overrides non-nullable int fields', () {
@@ -101,6 +102,14 @@ void main() {
       final copy = original.copyWith(autoFrameBudget: false);
       expect(copy.autoFrameBudget, isFalse);
       expect(copy.copyWith().autoFrameBudget, isFalse);
+    });
+
+    test('overrides profilePlatformChannels', () {
+      const original = SleuthConfig();
+      expect(original.profilePlatformChannels, isFalse);
+      final copy = original.copyWith(profilePlatformChannels: true);
+      expect(copy.profilePlatformChannels, isTrue);
+      expect(copy.copyWith().profilePlatformChannels, isTrue);
     });
 
     test('overrides Set and List fields', () {
