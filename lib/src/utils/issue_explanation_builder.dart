@@ -1152,10 +1152,17 @@ class IssueExplanationBuilder {
           'scope of the problem.\n\n'
           '• Ownership ratio — Share of the scanned tree owned by the '
           'StatefulWidget\'s subtree. Alert: >50% with a subtree of at '
-          'least 50 elements (default, configurable).\n\n'
+          'least 50 elements (default, configurable). Critical when the '
+          'ratio exceeds 1.5× the configured threshold (>75% by default).\n\n'
+          '• Rebuild evidence — Required. The owner must be observed '
+          'rebuilding: its child widget identity changes in at least 2 '
+          'scans within a 5 s window, or debug rebuild callbacks count it. '
+          'A wide but static page is never reported. Builder-style owners '
+          '(FutureBuilder, StreamBuilder, ValueListenableBuilder, Form, '
+          'Focus) are skipped.\n\n'
           '• Depth — How far above the leaf widgets the setState caller sits. '
           'Higher depth means wider blast radius.\n\n'
-          '• Source: Structural tree walk.',
+          '• Source: Structural tree walk plus rebuild observation.',
       whyItMatters:
           'When setState is called on a widget near the root, every '
           'descendant\'s build() method runs again — even widgets whose '

@@ -44,6 +44,27 @@ Future<List<PerformanceIssue>> scanAndIssues(
   return detector.issues;
 }
 
+/// Re-runs the detector's unified walk on the currently mounted tree
+/// (after a prior [scanAndIssues]) without re-pumping. Used by detectors
+/// whose evidence spans two scans.
+List<PerformanceIssue> rescanIssues(
+  WidgetTester tester,
+  BaseDetector detector,
+) {
+  final root = tester.element(find.byType(Directionality).first);
+  detector.prepareScan(root);
+  void visitor(Element element) {
+    detector.checkElement(element);
+    element.visitChildren(visitor);
+    detector.afterElement(element);
+  }
+
+  root.visitChildElements(visitor);
+  detector.notifyWalkCompleted();
+  detector.finalizeScan();
+  return detector.issues;
+}
+
 /// Convenience assertion: issue with matching stableId is present.
 Matcher hasStableId(String stableId) => predicate<List<PerformanceIssue>>(
   (issues) => issues.any((i) => i.stableId == stableId),
