@@ -302,17 +302,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   double _cachedEffectiveWidth = 0;
   double _cachedKeyboardHeight = 0;
 
-  /// Rebuild trigger for the issues list: a changed issue set, or a scan
-  /// tick (recurrence badges re-read `recurrenceTrends` every tick).
-  late Listenable _issuesListListenable;
-
-  Listenable _issuesListListenableFor(SleuthController c) =>
-      Listenable.merge([c.issuesNotifier, c.scanTickNotifier]);
-
   @override
   void initState() {
     super.initState();
-    _issuesListListenable = _issuesListListenableFor(widget.controller);
     widget.controller.verdictNotifier.addListener(_onVerdictChanged);
     widget.controller.issuesNotifier.addListener(_onIssuesChanged);
     _onVerdictChanged();
@@ -332,7 +324,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       oldWidget.controller.issuesNotifier.removeListener(_onIssuesChanged);
       widget.controller.verdictNotifier.addListener(_onVerdictChanged);
       widget.controller.issuesNotifier.addListener(_onIssuesChanged);
-      _issuesListListenable = _issuesListListenableFor(widget.controller);
       _expandedIndices.clear();
       _orderSnapshot = null;
       _selectedIssueId = null;
@@ -1159,10 +1150,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   // ─── Issues List ─────────────────────────────────────────────────────
 
   Widget _buildIssuesList() {
-    return ListenableBuilder(
-      listenable: _issuesListListenable,
-      builder: (context, _) {
-        final issues = widget.controller.issuesNotifier.value;
+    // The list rebuilds only when the issue set changes. Each card's
+    // recurrence badge re-reads `recurrenceTrends` on the scan pulse by
+    // itself, so a tick that leaves the issues unchanged rebuilds badges,
+    // not cards.
+    return ValueListenableBuilder<List<PerformanceIssue>>(
+      valueListenable: widget.controller.issuesNotifier,
+      builder: (context, issues, _) {
         final theme = SleuthTheme.of(context);
         if (issues.isEmpty) {
           return Center(
@@ -1307,9 +1301,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                     return IssueCard(
                       key: ValueKey(issueKey),
                       issue: issue,
-                      recurrenceTrend: widget
-                          .controller
-                          .recurrenceTrends[issue.stableId ?? issue.title],
+                      recurrenceTrendOf: () =>
+                          widget.controller.recurrenceTrends[issue.stableId ??
+                              issue.title],
+                      scanTick: widget.controller.scanTickNotifier,
                       deepInstrumentationActive:
                           widget.controller.isDeepInstrumentationActive,
                       initiallyExpanded: _expandedIndices.containsKey(issueKey),

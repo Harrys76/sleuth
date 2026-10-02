@@ -259,6 +259,46 @@ void main() {
       expect(find.textContaining('Seen'), findsOneWidget);
       expect(find.textContaining('worsening'), findsOneWidget);
     });
+
+    testWidgets('scanTick refreshes the badge through recurrenceTrendOf '
+        'without rebuilding the card', (tester) async {
+      final tick = ValueNotifier<int>(0);
+      final trend = RecurrenceTrend(capacity: 10);
+      var parentBuilds = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) {
+                parentBuilds++;
+                return IssueCard(
+                  issue: _testIssue(),
+                  recurrenceTrend: _stableTrend(5, 5),
+                  recurrenceTrendOf: () => trend,
+                  scanTick: tick,
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      // The resolver's empty trend wins over the fixed one: no badge.
+      expect(find.textContaining('Seen'), findsNothing);
+      expect(parentBuilds, 1);
+
+      trend.recordPresent(0, severityIndex: 2);
+      trend.recordPresent(1, severityIndex: 2);
+      tick.value++;
+      await tester.pump();
+      expect(find.textContaining('Seen 2/2'), findsOneWidget);
+
+      trend.recordPresent(2, severityIndex: 2);
+      tick.value++;
+      await tester.pump();
+      expect(find.textContaining('Seen 3/3'), findsOneWidget);
+      expect(parentBuilds, 1);
+      tick.dispose();
+    });
   });
 
   group('v0.15.5 freeze-above-on-expand pin indicator', () {

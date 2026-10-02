@@ -31,6 +31,8 @@ class IssueCard extends StatefulWidget {
     this.parentIssues,
     this.suppressedParentCount = 0,
     this.recurrenceTrend,
+    this.recurrenceTrendOf,
+    this.scanTick,
     this.onLearnMore,
     this.onAskAi,
   }) : assert(
@@ -43,7 +45,19 @@ class IssueCard extends StatefulWidget {
 
   /// Recurrence trend for this issue, used to render "Seen X/Y" badge.
   /// Null when the issue has no trend data (e.g. first scan).
+  ///
+  /// Fixed at build time. Prefer [recurrenceTrendOf] when the trend
+  /// changes between rebuilds of the parent.
   final RecurrenceTrend? recurrenceTrend;
+
+  /// Live source for the "Seen X/Y" badge. Called on every [scanTick]
+  /// notification, so the badge tracks the latest trend without the
+  /// parent list rebuilding. Takes precedence over [recurrenceTrend]
+  /// when it returns non-null.
+  final RecurrenceTrend? Function()? recurrenceTrendOf;
+
+  /// Fires once per completed scan. Only the recurrence badge listens.
+  final Listenable? scanTick;
 
   /// Seed value — read once in [initState]. After that, internal state owns it.
   final bool initiallyExpanded;
@@ -285,10 +299,16 @@ class _IssueCardState extends State<IssueCard> {
                     ),
                   ),
 
-                // Recurrence badge ("Seen X/Y")
-                if (widget.recurrenceTrend != null &&
-                    widget.recurrenceTrend!.length >= 2)
-                  _recurrenceBadge(widget.recurrenceTrend!, theme),
+                // Recurrence badge ("Seen X/Y"). Only this subtree listens
+                // to the scan pulse.
+                if (widget.scanTick != null)
+                  ListenableBuilder(
+                    listenable: widget.scanTick!,
+                    builder: (context, _) =>
+                        _recurrenceBadgeOrNothing(_currentTrend(), theme),
+                  )
+                else
+                  _recurrenceBadgeOrNothing(_currentTrend(), theme),
 
                 // Expanded detail + fix hint
                 if (_expanded) ..._buildExpandedContent(issue, theme),
@@ -842,6 +862,17 @@ class _IssueCardState extends State<IssueCard> {
   ///
   /// See [RecurrenceTrend.computeTrend] for the underlying window (default
   /// 10 entries) and the `± 0.3` severity-delta thresholds.
+  RecurrenceTrend? _currentTrend() =>
+      widget.recurrenceTrendOf?.call() ?? widget.recurrenceTrend;
+
+  Widget _recurrenceBadgeOrNothing(
+    RecurrenceTrend? trend,
+    SleuthThemeData theme,
+  ) {
+    if (trend == null || trend.length < 2) return const SizedBox.shrink();
+    return _recurrenceBadge(trend, theme);
+  }
+
   Widget _recurrenceBadge(RecurrenceTrend trend, SleuthThemeData theme) {
     final present = trend.presentCount;
     final total = trend.length;
