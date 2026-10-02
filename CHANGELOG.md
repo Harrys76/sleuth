@@ -25,6 +25,14 @@
 
 ### Behavior changes
 
+- The VM client dispatches an empty timeline batch once per second while the
+  timeline is quiet (`VmServiceClient.idleHeartbeat`), so window-based
+  detectors keep evaluating on a static screen; a platform-channel burst no
+  longer waits for the next unrelated event before it is judged.
+- A structural scan tick schedules a frame when none is pending. On a quiet
+  screen the post-frame scan used to wait for the next incidental repaint,
+  which left results ten seconds or more behind a tab switch.
+
 - The VM connection is reported lost after three consecutive failed polls
   (1.5 s) or as soon as the socket closes, instead of on the first failed
   RPC. A VM under allocation pressure can fail one timeline poll; treating
