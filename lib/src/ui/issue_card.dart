@@ -1001,8 +1001,7 @@ bool _isDebugCallbackSource(ObservationSource? source) =>
   const involvedKeywords = [
     'isolate.run',
     'compute(',
-    'cache-sksl',
-    'bundle-sksl',
+    'sksl',
     'sparse fieldsets',
     'graphql',
     'growing steadily',

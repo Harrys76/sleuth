@@ -364,40 +364,38 @@ class IssueExplanationBuilder {
       displayName: 'Shader Compilation',
       category: IssueCategory.raster,
       whatItIs:
-          'The GPU shader compiler ran during this frame. Shaders are small '
-          'GPU programs that Flutter compiles on first use — this compilation '
-          'is expensive and blocks the raster thread. Impeller is the '
-          'default renderer on iOS since Flutter 3.10 and on Vulkan-capable '
-          'Android devices since Flutter 3.27; it pre-compiles shaders at '
-          'build time, so on Impeller this issue should not fire. The '
-          'detection targets the Skia renderer.',
+          'A GPU pipeline or shader was built at runtime. On Impeller '
+          'Vulkan (Android) each new combination of effect and render '
+          'state builds a pipeline the first time it is drawn; on Skia '
+          'the shader compiler runs on first use. Both are reported. '
+          'Impeller Metal (iOS) precompiles pipelines at build time and '
+          'stays silent by design.',
       readingTheData:
           'Like a chef sharpening a new knife before the first cut — slow '
           'the first time, but instant on every use after.\n\n'
-          '• Compilation ms — Duration of the shader compile event. '
-          'Normal: 0ms. Alert: >100ms (warning), >200ms (critical) '
-          '(default, configurable).\n\n'
-          '• Cumulative count — Total compilations this session. First-run '
+          '• Build ms — Duration of the pipeline/shader build event. '
+          'Alert: ≥100ms (warning), ≥200ms (critical) (default, '
+          'configurable).\n\n'
+          '• Cumulative count — Total builds this session. First-run '
           'sessions have more; subsequent launches should have fewer.\n\n'
-          '• Source: VM Timeline shader events.',
+          '• Source: VM Timeline begin/end events (`PipelineVK::Create`, '
+          '`CreateComputePipeline`, Skia shader events).',
       whyItMatters:
-          'Shader compilation typically adds 20–200ms to a frame, causing '
-          'severe single-frame jank. It only happens once per shader per app '
-          'session, so it is most noticeable on first use of a visual effect.',
+          'The build runs on a worker thread, but a frame that needs the '
+          'pipeline waits for it, so a 100ms build can stall the first '
+          'frame that uses a new effect. It happens once per pipeline per '
+          'app session, so it is most noticeable on first use of a visual '
+          'effect.',
       howToFix:
-          'First confirm the build is not opting out of Impeller, which '
-          'pre-compiles shaders and removes this cost. On the Skia renderer '
-          'only, use SkSL shader warm-up: run your app through all visual '
-          'paths, capture the shader bundle with --cache-sksl, then include '
-          'it in your build with --bundle-sksl-path. This pre-compiles '
-          'shaders at app startup rather than during interaction.',
+          'Trigger the first use of heavy effects (BackdropFilter, '
+          'ShaderMask, custom FragmentProgram) during a warm-up or splash '
+          'frame so the build does not land on a user interaction. Avoid '
+          'introducing new effect types mid-animation. On devices still '
+          'on Skia, prefer Impeller.',
       whenToIgnore:
-          'Shader compilation is expected on the very first run after install '
-          'or update. If you see it repeatedly on the same screens, your '
-          'warm-up bundle may be incomplete. On Impeller builds (the '
-          'default on iOS and most Android devices), this detection should '
-          'not fire — if it does, verify you are running with Impeller '
-          'enabled.',
+          'Cold-start builds under 100ms are normal and are not reported. '
+          'Repeated builds on the same screen in one session are worth a '
+          'look; a single build at first launch usually is not.',
       relatedIssues: ['jank_detected', 'sustained_jank'],
     ),
 

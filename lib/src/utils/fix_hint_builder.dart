@@ -749,10 +749,11 @@ class FixHintBuilder {
 
   static (String, FixEffort) shaderCompilation() {
     return (
-      'Impeller (the default renderer) precompiles shaders, so this '
-          'should only appear on Skia. On Skia only, use '
-          '"flutter run --profile --cache-sksl" to warm up shaders, then '
-          '"flutter build --bundle-sksl-path" to pre-compile them.',
+      'Trigger the first use of heavy effects (BackdropFilter, '
+          'ShaderMask, custom FragmentProgram) during a warm-up or splash '
+          'frame so the pipeline build does not land on a user '
+          'interaction. Avoid introducing new effect types mid-animation. '
+          'On devices still on Skia, prefer Impeller.',
       FixEffort.involved,
     );
   }

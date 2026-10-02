@@ -62,7 +62,7 @@ void main() {
       );
       final issue = detector.issues.first;
       expect(issue.stableId, 'shader_compilation');
-      expect(issue.confidence, IssueConfidence.confirmed);
+      expect(issue.confidence, IssueConfidence.likely);
       expect(issue.category, IssueCategory.raster);
     });
 
@@ -144,15 +144,16 @@ void main() {
       );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
+      expect(detector.issues.first.confidence, IssueConfidence.likely);
     });
 
     // -----------------------------------------------------------------
-    // Impeller: no false-positive notice
+    // Impeller Metal: no false-positive notice
     // -----------------------------------------------------------------
 
-    test('no issues after many empty polls (Impeller scenario)', () {
-      // On Impeller, shaders are pre-compiled — the detector should simply
-      // produce no issues, not emit a noisy "inactive" notice.
+    test('Impeller Metal: no pipeline events → no issue', () {
+      // Impeller Metal precompiles pipelines and emits no build events;
+      // the detector produces no issues and no "inactive" notice.
       for (var i = 0; i < 20; i++) {
         detector.processTimelineData(shaderCompileData());
       }

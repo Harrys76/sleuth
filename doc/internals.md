@@ -43,7 +43,7 @@ The effective rate is the measured cadence clamped to `[fpsTarget, display rate]
 
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
-| Shader Jank | VM Timeline | Shader compilation occurred | Confirmed | Requires VM connection. No-op on Impeller (shaders pre-compiled) |
+| Shader Jank | VM Timeline begin/end pairs | Impeller Vulkan pipeline build or Skia shader compile ≥ 100 ms | Likely | Requires VM connection. Silent on Impeller Metal (pipelines precompiled) |
 | Heavy Compute | VM Timeline | Long UI-thread event | Confirmed | Requires VM connection |
 | Platform Channel | VM Timeline | High call frequency | Confirmed | Requires VM connection and `debugProfilePlatformChannels` |
 | Memory Pressure | VM GC events + heap polling | GC frequency elevated, heap growing steadily (linear regression), heap near capacity (>80%) | Likely / Confirmed | Requires VM connection |

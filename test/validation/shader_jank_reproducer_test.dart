@@ -141,6 +141,7 @@ void main() {
         detector.processTimelineData(parsed);
         expect(detector.issues, hasStableId('shader_compilation'));
         expect(detector.issues.single.severity.name, 'warning');
+        expect(detector.issues.single.confidence.name, 'likely');
       });
 
       test('PipelineVK::Create 250ms emits critical', () {
@@ -159,6 +160,7 @@ void main() {
         detector.processTimelineData(parsed);
         expect(detector.issues, hasStableId('shader_compilation'));
         expect(detector.issues.single.severity.name, 'critical');
+        expect(detector.issues.single.confidence.name, 'likely');
       });
 
       test('CreateComputePipeline 150ms emits', () {

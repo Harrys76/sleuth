@@ -622,9 +622,12 @@ void main() {
       expect(effort, FixEffort.involved);
     });
 
-    test('mentions cache-sksl', () {
+    test('advises warm-up frames and drops SkSL flags', () {
       final (hint, _) = FixHintBuilder.shaderCompilation();
-      expect(hint, contains('cache-sksl'));
+      expect(hint, contains('warm-up or splash frame'));
+      expect(hint, contains('prefer Impeller'));
+      expect(hint, isNot(contains('cache-sksl')));
+      expect(hint, isNot(contains('bundle-sksl-path')));
     });
   });
 

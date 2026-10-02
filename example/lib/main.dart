@@ -212,7 +212,7 @@ class DemoHome extends StatelessWidget {
           _DemoRoute(
             icon: Icons.blur_on,
             title: 'Shader Jank',
-            subtitle: 'ShaderJank detector (Skia only)',
+            subtitle: 'Pipeline builds (Vulkan, Skia)',
             color: Colors.indigo,
             builder: (_) => const ShaderJankDemo(),
           ),

@@ -7,12 +7,15 @@ import '../validation/detector_metadata.dart';
 import '../validation/evidence_tier.dart';
 import '../vm/timeline_parser.dart';
 
-/// Detects shader compilation jank from VM Timeline events.
+/// Detects pipeline and shader build jank from VM Timeline events.
 ///
-/// **VM-Only Detector** — flags shader compilations >100ms. Skia only;
-/// Impeller precompiles shaders at build time, so on Impeller (the default
-/// renderer on iOS and on Vulkan-capable Android devices) this detector
-/// correctly produces no issues.
+/// **VM-Only Detector** — flags Impeller Vulkan pipeline builds
+/// (`PipelineVK::Create`, `CreateComputePipeline`) and Skia shader
+/// compiles (events tagged `devtoolsTag: shaders`) of 100 ms or more.
+/// Impeller Metal precompiles pipelines and emits no such events, so the
+/// detector stays silent there by design. Issues are `likely`: a build
+/// runs on a worker thread, and only frames that need that pipeline wait
+/// for it.
 ///
 /// Each emission stamps `extraTraceArgs.shaderWarmupContext` with one of
 /// `'cold_start' | 'hot_path' | 'keyframe'` discriminating shader-compile
@@ -31,8 +34,8 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
          lifecycle: DetectorLifecycle.vmOnly,
          name: 'Shader Jank',
          description:
-             'Detects shader compilation spikes (>100ms). Skia only; Impeller '
-             'precompiles shaders',
+             'Impeller Vulkan pipeline builds and Skia shader compiles '
+             '(≥100ms); silent on Impeller Metal by design',
        );
 
   final int thresholdMs;
@@ -85,17 +88,19 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
                 ? IssueSeverity.critical
                 : IssueSeverity.warning,
             category: IssueCategory.raster,
-            confidence: IssueConfidence.confirmed,
+            confidence: IssueConfidence.likely,
             title: 'Shader Compilation: ${ms.toStringAsFixed(0)}ms',
             detail:
-                'A shader was compiled on-the-fly causing a ${ms.toStringAsFixed(0)}ms '
-                'spike. Total shader events so far: $_totalShaderEvents.',
+                'A pipeline/shader build took ${ms.toStringAsFixed(0)}ms. '
+                'Frames that need that pipeline wait for it. Total shader '
+                'events so far: $_totalShaderEvents.',
             fixHint: hint,
             fixEffort: effort,
             observationSource: ObservationSource.vmTimeline,
             detectedAt: DateTime.now(),
             confidenceReason:
-                'Measured directly from VM timeline shader_compile events',
+                'Build duration measured from VM timeline begin/end events; '
+                'frame impact depends on whether a frame waited for it',
             extraTraceArgs: {'shaderWarmupContext': context},
           ),
         );
@@ -147,22 +152,23 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:
-        'VM-only detector. Shader-compile duration threshold '
-        '(100ms inclusive, 2× critical) pinned by hermetic '
-        'reproducer feeding raw `List<TimelineEvent>` through '
-        '`TimelineParser.parse()` into the detector — exercises the '
-        'VM → parser → detector boundary including shader name '
-        'variants (ShaderCompilation, Pipeline::Create, lowercase) '
-        'and Impeller-zero suppression via consecutive empty polls. '
+        'VM-only detector. Build duration threshold (100ms '
+        'inclusive, 2× critical) pinned by hermetic reproducer '
+        'feeding raw `List<TimelineEvent>` through '
+        '`TimelineParser.parse()` into the detector. Fixtures mirror '
+        'the engine shapes: `TRACE_EVENT` begin/end pairs for Impeller '
+        'Vulkan `PipelineVK::Create` / `CreateComputePipeline` and '
+        'Skia events tagged `devtoolsTag: shaders`; `PipelineItem` and '
+        '`CreateShaderLibrary` stay silent, as does an empty Impeller '
+        'Metal timeline. '
         '`extraTraceArgs.shaderWarmupContext` discriminates '
         'cold_start (within `coldStartShaderWindowSeconds` of '
         '`Sleuth.dartEntryMonotonicUs`), keyframe (build event '
         'within `shaderKeyframeWindowMs` BEFORE shader compile), '
         'and hot_path (fallback) — pinned by per-context reproducer '
         'tests with mocked app-start clock and synthetic '
-        '`PhaseEvent` fixtures. Fixtures hand-built against parser '
-        'allowlist; real-device capture comparison is '
-        'runtime-verified-tier work.',
+        '`PhaseEvent` fixtures. Real-device capture comparison on '
+        'an Impeller Vulkan device is runtime-verified-tier work.',
     reproducerPath: 'test/validation/shader_jank_reproducer_test.dart',
     coveredStableIds: {'shader_compilation'},
   );
