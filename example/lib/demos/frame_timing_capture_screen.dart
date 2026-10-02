@@ -193,8 +193,8 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
     // to first frame so the display info is populated.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final views = WidgetsBinding.instance.platformDispatcher.views;
-      if (views.isEmpty) {
+      final view = View.maybeOf(context);
+      if (view == null) {
         setState(() {
           _detectedRefreshRate = null;
           _refreshRateOk = false;
@@ -205,7 +205,7 @@ class _FrameTimingCaptureScreenState extends State<FrameTimingCaptureScreen>
         });
         return;
       }
-      final rate = views.first.display.refreshRate;
+      final rate = view.display.refreshRate;
       final ok = rate >= _expected60HzMin && rate <= _expected60HzMax;
       setState(() {
         _detectedRefreshRate = rate;

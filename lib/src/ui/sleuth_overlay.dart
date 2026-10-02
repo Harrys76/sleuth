@@ -52,7 +52,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
 
   @override
   void didChangeMetrics() {
-    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final view = View.of(context);
     final bottomInset = view.viewInsets.bottom / view.devicePixelRatio;
     if (bottomInset > 0 && _lastBottomInset == 0) {
       widget.controller.onKeyboardVisibilityChanged(visible: true);
