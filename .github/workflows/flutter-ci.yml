@@ -64,7 +64,10 @@ jobs:
         run: flutter analyze
 
       - name: Test
-        run: flutter test
+        run: flutter test --exclude-tags benchmark
+
+      - name: Benchmarks (serial)
+        run: flutter test --tags benchmark --concurrency=1
 
       - name: Test example
         if: matrix.flutter-version == '3.47.6'

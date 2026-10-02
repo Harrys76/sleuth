@@ -311,6 +311,12 @@ class SleuthController {
   /// Maximum back-off interval in ms regardless of [SleuthConfig.treeScanInterval].
   static const _maxBackOffMs = 2000;
 
+  /// Wall time of the last scan tick's structural walk plus aggregation.
+  int _lastScanDurationUs = 0;
+
+  /// Elements visited by the last unified structural walk.
+  int _lastScanElementCount = 0;
+
   // -- M5: Issue allocation reduction caches --
 
   /// Generation counter incremented when detectors produce fresh issues
@@ -1434,6 +1440,19 @@ class SleuthController {
   @visibleForTesting
   set scanInProgressForTest(bool value) => _scanInProgress = value;
 
+  /// Diagnostics: wall time in microseconds of the last scan tick's
+  /// structural walk plus issue aggregation. Excludes the debug-snapshot
+  /// drain and the scan-root search. `0` before the first tick.
+  int get lastScanDurationUs => _lastScanDurationUs;
+
+  /// Diagnostics: number of elements visited by the last unified structural
+  /// walk. `0` before the first walk.
+  int get lastScanElementCount => _lastScanElementCount;
+
+  /// Number of cached unnamed-route ordinals (for testing).
+  @visibleForTesting
+  int get unnamedIdByHashLengthForTest => _unnamedIdByHash.length;
+
   /// Build a session snapshot for programmatic use.
   ///
   /// Includes schema version 2 fields: ranking scores on each issue,
@@ -2480,11 +2499,14 @@ class SleuthController {
         }
       }
 
+      final scanWatch = Stopwatch()..start();
+
       // Run all tree-scanning detectors
       _runStructuralScans(scanContext);
 
       // Aggregate and rank all issues (fires issuesNotifier listeners).
       _aggregateIssues();
+      _lastScanDurationUs = scanWatch.elapsedMicroseconds;
     } finally {
       _isIteratingDetectors = false;
       _drainPendingDetectorMutations();
@@ -3000,7 +3022,9 @@ class SleuthController {
               .toList()
         : unified.where((d) => d.type != DetectorType.startup).toList();
 
+    var elementCount = 0;
     void visitor(Element element) {
+      elementCount++;
       for (final d in walkDetectors) {
         if (failedDetectors.contains(d)) continue;
         try {
@@ -3036,6 +3060,7 @@ class SleuthController {
         ),
       );
     }
+    _lastScanElementCount = elementCount;
 
     // Phase 3: Finalization
     // notifyWalkCompleted only for detectors that participated in the walk.

@@ -1,3 +1,6 @@
+@Tags(['benchmark'])
+library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
 import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
@@ -35,14 +38,15 @@ void main() {
     }
 
     for (final count in [10, 100, 500]) {
+      // measured (serial, debug JIT, M1 Pro): 10 → 21 µs, 100 → 36 µs,
+      // 500 → 51 µs.
       final budget = switch (count) {
-        10 => 1000 * budgetMultiplier,
-        100 => 5000 * budgetMultiplier,
-        500 => 20000 * budgetMultiplier,
-        _ => 10000 * budgetMultiplier,
+        10 => 110 * budgetMultiplier,
+        100 => 180 * budgetMultiplier,
+        _ => 260 * budgetMultiplier,
       };
 
-      test('$count events < ${budget ~/ 1000}ms', () {
+      test('$count events', () {
         final data = buildData(count);
 
         // Create all detectors that consume timeline data
@@ -96,6 +100,10 @@ void main() {
     }
 
     for (final count in [100, 500]) {
+      // measured per event (serial, debug JIT, M1 Pro): 100 → 1.12 µs,
+      // 500 → 0.37 µs.
+      final perEventBudgetUs = count == 100 ? 6 : 2;
+
       test('$count raw events', () {
         final events = buildRawEvents(count);
 
@@ -108,8 +116,7 @@ void main() {
         // ignore: avoid_print
         print('  Per-event: ${perEvent.toStringAsFixed(1)} µs');
 
-        // Budget: 50µs per event
-        expect(perEvent, lessThan(50 * budgetMultiplier));
+        expect(perEvent, lessThan(perEventBudgetUs * budgetMultiplier));
       });
     }
   });

@@ -3,6 +3,8 @@ import 'package:sleuth/src/detectors/network_monitor_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/network/request_record.dart';
 
+import '../helpers/benchmark_helpers.dart';
+
 RequestRecord makeRecord({
   String url = 'https://example.com/api/data',
   String method = 'GET',
@@ -1297,10 +1299,8 @@ void main() {
     test('peak compute O(buffer-cap) perf budget', () {
       // _records is capped at _bufferCapacity = 200; peak compute runs
       // every timer tick. Pathological: full buffer, all in window.
-      // Budget: 100 evaluations under 250 ms (mean ~2.5 ms/tick on
-      // contended CI runners). The point is to prove O(buffer-cap)
-      // bounded — well under the 5 s timer cadence so production
-      // sessions do not regress — not to police µs-precision in CI.
+      // The point is to prove O(buffer-cap) bounded — well under the
+      // 5 s timer cadence so production sessions do not regress.
       final base = fakeNow;
       for (int i = 0; i < 200; i++) {
         detector.processRecord(
@@ -1312,15 +1312,15 @@ void main() {
         detector.flushFrequencyEvaluation();
       }
       stopwatch.stop();
+      // measured: 615 µs for 100 evaluations (serial, debug JIT, M1 Pro)
       expect(
-        stopwatch.elapsedMilliseconds,
-        lessThan(250),
+        stopwatch.elapsedMicroseconds,
+        lessThan(3100 * budgetMultiplier),
         reason:
             'Always-on peak compute on full 200-record buffer must '
             'stay well under timer cadence (5 s) so production '
-            'sessions do not regress. Budget allows ~2.5 ms/tick to '
-            'accommodate slow CI runners.',
+            'sessions do not regress.',
       );
-    });
+    }, tags: ['benchmark']);
   });
 }

@@ -4,6 +4,8 @@ import 'package:sleuth/sleuth.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
 
+import 'helpers/benchmark_helpers.dart';
+
 void main() {
   group('PerformanceIssue', () {
     test('creates with required fields', () {
@@ -131,14 +133,15 @@ void main() {
       final sw = Stopwatch()..start();
       await Sleuth.flushTimelineNow();
       sw.stop();
+      // measured: 1053 µs (serial, debug JIT, M1 Pro)
       expect(
-        sw.elapsedMilliseconds,
-        lessThan(50),
+        sw.elapsedMicroseconds,
+        lessThan(5300 * budgetMultiplier),
         reason:
             'flushTimelineNow with no controller must noop fast — '
             'production sessions hit this path every poll-cadence tick.',
       );
-    });
+    }, tags: ['benchmark']);
 
     test(
       'accepts a timeout parameter without controller side effects',

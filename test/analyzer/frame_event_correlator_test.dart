@@ -3,6 +3,8 @@ import 'package:sleuth/src/analyzer/frame_event_correlator.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/phase_event.dart';
 
+import '../helpers/benchmark_helpers.dart';
+
 void main() {
   final correlator = FrameEventCorrelator();
 
@@ -375,9 +377,9 @@ void main() {
       expect(totalMatched, eventCount);
       expect(result, hasLength(frameCount));
 
-      // Binary search should complete well under 50ms even in debug mode
-      expect(stopwatch.elapsedMilliseconds, lessThan(50));
-    });
+      // measured: 3489 µs (serial, debug JIT, M1 Pro)
+      expect(stopwatch.elapsedMicroseconds, lessThan(18000 * budgetMultiplier));
+    }, tags: ['benchmark']);
 
     test('coverage calculation across multiple frames', () {
       final frame = makeFrame(
