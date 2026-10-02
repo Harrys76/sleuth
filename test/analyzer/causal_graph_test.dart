@@ -905,6 +905,22 @@ void main() {
       expect(result[1].rootCauseIds, isNull);
     });
 
+    test('possible always_repaint_painter does not claim a likely '
+        'frame-timing raster_dominance', () {
+      final issues = [
+        makeIssue(stableId: 'always_repaint_painter'),
+        makeIssue(
+          stableId: 'raster_dominance',
+          category: IssueCategory.raster,
+          confidence: IssueConfidence.likely,
+        ).copyWith(observationSource: ObservationSource.frameTiming),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, isNull);
+      expect(result[1].rootCauseIds, isNull);
+    });
+
     test('possible → possible is claimed', () {
       final issues = [
         makeIssue(stableId: 'non_lazy_list'),

@@ -244,6 +244,29 @@ void main() {
       expect(painter.detail, contains('GPU raster pressure'));
     });
 
+    test('escalates on a likely frame-timing raster_dominance (no VM)', () {
+      final issues = [
+        makeIssue(
+          stableId: 'raster_dominance',
+          category: IssueCategory.raster,
+          confidence: IssueConfidence.likely,
+        ).copyWith(observationSource: ObservationSource.frameTiming),
+        makeIssue(
+          stableId: 'always_repaint_painter',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.possible,
+          detail: '2 CustomPainter(s) return true.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final painter = result.firstWhere(
+        (i) => i.stableId == 'always_repaint_painter',
+      );
+      expect(painter.confidence, IssueConfidence.likely);
+      expect(painter.detail, contains('[Correlated]'));
+    });
+
     test('does NOT escalate already-likely painter', () {
       final issues = [
         makeIssue(

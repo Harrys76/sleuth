@@ -1,7 +1,12 @@
+import 'dart:ui' show FrameTiming;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/detectors/frame_timing_detector.dart';
+import 'package:sleuth/src/detectors/listview_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
@@ -180,6 +185,63 @@ class _TestVmOnlyDetector extends BaseDetector {
   }
 }
 
+/// Runtime custom detector that counts presented frames.
+class _TestFrameDetector extends BaseDetector {
+  _TestFrameDetector({this.onFrame})
+    : super(
+        type: DetectorType.custom,
+        lifecycle: DetectorLifecycle.runtime,
+        name: 'Test Frame',
+        description: 'Counts processFrame calls',
+      );
+
+  final void Function()? onFrame;
+  bool _isEnabled = true;
+  final List<FrameStats> frames = [];
+
+  @override
+  List<PerformanceIssue> get issues => const [];
+  @override
+  bool get isEnabled => _isEnabled;
+  @override
+  set isEnabled(bool v) => _isEnabled = v;
+
+  @override
+  void processFrame(FrameStats frame) {
+    frames.add(frame);
+    onFrame?.call();
+  }
+
+  @override
+  void dispose() {}
+}
+
+/// A second frame-timing producer: the fan-out must not feed it frames.
+class _CountingFrameTimingDetector extends FrameTimingDetector {
+  int processFrameCalls = 0;
+
+  @override
+  void processFrame(FrameStats frame) => processFrameCalls++;
+}
+
+int _vsync = 1000000000;
+
+/// [count] engine timings at 60 Hz spacing (build 2 ms, raster 2 ms).
+List<FrameTiming> _timings(int count) => [
+  for (var i = 0; i < count; i++)
+    () {
+      _vsync += 16667;
+      return FrameTiming(
+        vsyncStart: _vsync,
+        buildStart: _vsync,
+        buildFinish: _vsync + 2000,
+        rasterStart: _vsync + 2000,
+        rasterFinish: _vsync + 4000,
+        rasterFinishWallTime: _vsync + 4000,
+      );
+    }(),
+];
+
 // ---------------------------------------------------------------------------
 // Shared widget tree
 // ---------------------------------------------------------------------------
@@ -295,6 +357,98 @@ void main() {
         expect(detector.timelineCallCount, 1);
         expect(detector.issues.length, 1);
         expect(detector.issues.first.stableId, 'test_vmonly_issue');
+      });
+    });
+
+    group('per-frame hook', () {
+      late SleuthController controller;
+      late _TestFrameDetector detector;
+
+      setUp(() {
+        detector = _TestFrameDetector();
+        controller = SleuthController(
+          config: SleuthConfig(customDetectors: [detector]),
+        );
+        controller.initializeDetectorsForTest();
+      });
+
+      tearDown(() => controller.dispose());
+
+      testWidgets('one processFrame call per presented frame', (tester) async {
+        controller.handleTimingsForTest(_timings(1));
+        controller.handleTimingsForTest(_timings(1));
+        expect(detector.frames, hasLength(2));
+      });
+
+      testWidgets('one callback carrying 5 timings → 5 calls in order', (
+        tester,
+      ) async {
+        controller.handleTimingsForTest(_timings(5));
+        expect(detector.frames, hasLength(5));
+        final vsyncs = detector.frames.map((f) => f.vsyncStartUs!).toList();
+        expect(vsyncs, orderedEquals([...vsyncs]..sort()));
+      });
+
+      testWidgets('addFrameForTest frames are fanned out too', (tester) async {
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: 1,
+            uiDuration: const Duration(milliseconds: 2),
+            rasterDuration: const Duration(milliseconds: 2),
+            timestamp: DateTime(2026),
+          ),
+        );
+        expect(detector.frames, hasLength(1));
+      });
+
+      testWidgets('frame-timing detectors never receive frames', (
+        tester,
+      ) async {
+        final producer = _CountingFrameTimingDetector();
+        controller.addDetectorForTest(producer);
+        controller.handleTimingsForTest(_timings(3));
+        expect(producer.processFrameCalls, 0);
+        expect(detector.frames, hasLength(3));
+      });
+
+      testWidgets('disabled detector receives no frames', (tester) async {
+        detector.isEnabled = false;
+        controller.handleTimingsForTest(_timings(3));
+        expect(detector.frames, isEmpty);
+      });
+
+      testWidgets('no frames reach detectors when FrameTiming is disabled', (
+        tester,
+      ) async {
+        controller.disableDetector(DetectorType.frameTiming);
+        controller.handleTimingsForTest(_timings(3));
+        expect(detector.frames, isEmpty);
+      });
+
+      testWidgets('enabling a detector from processFrame is deferred safely', (
+        tester,
+      ) async {
+        late SleuthController c;
+        var requested = false;
+        final reentrant = _TestFrameDetector(
+          onFrame: () {
+            if (requested) return;
+            requested = true;
+            c.enableDetector(DetectorType.listview);
+          },
+        );
+        c = SleuthController(
+          config: SleuthConfig(
+            enabledDetectors: const {DetectorType.frameTiming},
+            customDetectors: [reentrant],
+          ),
+        )..initializeDetectorsForTest();
+        addTearDown(c.dispose);
+
+        c.handleTimingsForTest(_timings(3));
+
+        expect(reentrant.frames, hasLength(3));
+        expect(c.detectorsForAudit.whereType<ListviewDetector>(), hasLength(1));
       });
     });
 

@@ -1,8 +1,11 @@
+import 'dart:ui' show FrameTiming;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/base_detector.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/widget_highlight.dart';
 
@@ -23,7 +26,32 @@ enum _FailStage {
   afterElement,
   notifyWalkCompleted,
   finalizeScan,
+  processFrame,
 }
+
+/// Stages reached by a structural scan (every stage but [_FailStage.processFrame],
+/// which runs per presented frame).
+final _scanStages = _FailStage.values.where(
+  (s) => s != _FailStage.processFrame,
+);
+
+int _vsync = 1000000000;
+
+/// [count] engine timings at 60 Hz spacing (build 2 ms, raster 2 ms).
+List<FrameTiming> _timings(int count) => [
+  for (var i = 0; i < count; i++)
+    () {
+      _vsync += 16667;
+      return FrameTiming(
+        vsyncStart: _vsync,
+        buildStart: _vsync,
+        buildFinish: _vsync + 2000,
+        rasterStart: _vsync + 2000,
+        rasterFinish: _vsync + 4000,
+        rasterFinishWallTime: _vsync + 4000,
+      );
+    }(),
+];
 
 class _FailingDetector extends BaseDetector {
   _FailingDetector(this.failAt)
@@ -43,6 +71,7 @@ class _FailingDetector extends BaseDetector {
   int afterElementCalls = 0;
   int notifyWalkCompletedCalls = 0;
   int finalizeScanCalls = 0;
+  int processFrameCalls = 0;
 
   bool isEnabledField = true;
 
@@ -100,6 +129,14 @@ class _FailingDetector extends BaseDetector {
       throw StateError('boom in finalizeScan');
     }
   }
+
+  @override
+  void processFrame(FrameStats frame) {
+    processFrameCalls++;
+    if (failAt == _FailStage.processFrame) {
+      throw StateError('boom in processFrame');
+    }
+  }
 }
 
 /// Captures every [FlutterErrorDetails] routed through
@@ -133,7 +170,7 @@ void main() {
   group(
     'v0.16.0 F3 — detector failures route through FlutterError.reportError',
     () {
-      for (final stage in _FailStage.values) {
+      for (final stage in _scanStages) {
         testWidgets('throw in ${stage.name} → FlutterError.reportError fires', (
           tester,
         ) async {
@@ -353,6 +390,58 @@ void main() {
     );
   });
 
+  group('processFrame failures', () {
+    testWidgets(
+      'throw in processFrame → reported once per scan window, siblings keep '
+      'receiving frames, nothing escapes',
+      (tester) async {
+        await tester.pumpWidget(buildMixedTree(20));
+        final context = tester.element(find.byType(Directionality));
+
+        final controller = SleuthController(config: _minimalConfig);
+        controller.initializeDetectorsForTest();
+        final failing = _FailingDetector(_FailStage.processFrame);
+        final bystander = _NeverThrowsDetector();
+        controller.addDetectorForTest(failing);
+        controller.addDetectorForTest(bystander);
+
+        List<FlutterErrorDetails> sleuthErrors(_ScopedErrorCapture c) => c
+            .captured
+            .where(
+              (e) =>
+                  e.library == 'sleuth' &&
+                  e.context?.toDescription().contains('processFrame') == true &&
+                  e.exception is StateError,
+            )
+            .toList();
+
+        final errors = _ScopedErrorCapture();
+        try {
+          // Two batches inside one scan window: one report, then quarantine.
+          controller.handleTimingsForTest(_timings(5));
+          controller.handleTimingsForTest(_timings(5));
+          expect(failing.processFrameCalls, 1);
+          expect(bystander.processFrameCalls, 10);
+          expect(sleuthErrors(errors), hasLength(1));
+          expect(tester.takeException(), isA<StateError>());
+
+          // The next structural scan lifts the quarantine.
+          controller.runTreeScanForTest(context);
+          controller.handleTimingsForTest(_timings(5));
+          expect(failing.processFrameCalls, 2);
+          expect(bystander.processFrameCalls, 15);
+          expect(sleuthErrors(errors), hasLength(2));
+          expect(tester.takeException(), isA<StateError>());
+          expect(errors.captured.where((e) => e.library != 'sleuth'), isEmpty);
+        } finally {
+          errors.restore();
+        }
+
+        controller.dispose();
+      },
+    );
+  });
+
   group('aggregation filter drops partial output from failed detectors', () {
     testWidgets(
       'checkElement throw mid-walk → issues committed before throw do '
@@ -480,6 +569,7 @@ class _NeverThrowsDetector extends BaseDetector {
   int prepareScanCalls = 0;
   int checkElementCalls = 0;
   int finalizeScanCalls = 0;
+  int processFrameCalls = 0;
 
   bool isEnabledField = true;
 
@@ -506,6 +596,9 @@ class _NeverThrowsDetector extends BaseDetector {
 
   @override
   void finalizeScan() => finalizeScanCalls++;
+
+  @override
+  void processFrame(FrameStats frame) => processFrameCalls++;
 }
 
 /// Emits one issue + one highlight on the first `checkElement` call, then
