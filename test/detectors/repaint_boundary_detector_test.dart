@@ -6,6 +6,7 @@ import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/utils/framework_painters.dart';
 
 import '../helpers/framework_painter_fixture.dart';
+import '../validation/_helpers/structural_reproducer_harness.dart';
 
 void main() {
   group('RepaintBoundaryDetector', () {
@@ -507,6 +508,148 @@ void main() {
       });
     });
 
+    group('sliver boundary frames', () {
+      Iterable<PerformanceIssue> excessive(List<PerformanceIssue> issues) =>
+          issues.where((i) => i.stableId == 'excessive_repaint_boundary');
+
+      // The default overscroll glow adds two framework boundaries around
+      // the viewport; turning it off keeps counts exact.
+      Widget noGlow(Widget child) => ScrollConfiguration(
+        behavior: const ScrollBehavior().copyWith(overscroll: false),
+        child: child,
+      );
+
+      List<Widget> userBoundaries(int n) => List.generate(
+        n,
+        (i) => RepaintBoundary(
+          key: ValueKey('rb$i'),
+          child: const SizedBox(height: 5, width: 5),
+        ),
+      );
+
+      testWidgets('CustomScrollView with a default SliverList of 30 children '
+          'raises nothing', (tester) async {
+        final issues = await scanAndIssues(
+          tester,
+          detector,
+          CustomScrollView(
+            slivers: [
+              SliverList(
+                delegate: SliverChildListDelegate(
+                  List.generate(30, (i) => const SizedBox(height: 5)),
+                ),
+              ),
+            ],
+          ),
+        );
+        expect(find.byType(RepaintBoundary), findsAtLeastNWidgets(30));
+        expect(excessive(issues), isEmpty);
+      });
+
+      testWidgets('SliverList with addRepaintBoundaries: false counts user '
+          'boundaries toward the CustomScrollView', (tester) async {
+        final issues = await scanAndIssues(
+          tester,
+          detector,
+          noGlow(
+            CustomScrollView(
+              slivers: [
+                SliverList(
+                  delegate: SliverChildListDelegate(
+                    userBoundaries(30),
+                    addRepaintBoundaries: false,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+        final issue = excessive(issues).single;
+        expect(issue.title, contains(': 30 in scrollable'));
+        expect(issue.detail, contains('CustomScrollView'));
+      });
+
+      testWidgets('default SliverGrid raises nothing', (tester) async {
+        final issues = await scanAndIssues(
+          tester,
+          detector,
+          CustomScrollView(
+            slivers: [
+              SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 6,
+                  mainAxisExtent: 5,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (_, i) => const SizedBox(),
+                  childCount: 30,
+                ),
+              ),
+            ],
+          ),
+        );
+        expect(excessive(issues), isEmpty);
+      });
+
+      testWidgets('user boundaries under SliverToBoxAdapter count toward the '
+          'CustomScrollView; a nested default ListView pops its own frames', (
+        tester,
+      ) async {
+        final issues = await scanAndIssues(
+          tester,
+          detector,
+          noGlow(
+            CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 100,
+                    child: ListView(
+                      children: List.generate(
+                        30,
+                        (i) => const SizedBox(height: 2),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(child: Column(children: userBoundaries(25))),
+              ],
+            ),
+          ),
+        );
+        final issue = excessive(issues).single;
+        expect(issue.title, contains(': 25 in scrollable'));
+        expect(issue.detail, isNot(contains('ListView')));
+      });
+
+      testWidgets('unknown SliverChildDelegate subclass is treated as adding '
+          'boundaries', (tester) async {
+        final issues = await scanAndIssues(
+          tester,
+          detector,
+          CustomScrollView(
+            slivers: [
+              SliverList(delegate: _ForwardingDelegate(userBoundaries(30))),
+            ],
+          ),
+        );
+        expect(excessive(issues), isEmpty);
+      });
+
+      testWidgets('custom BoxScrollView subclass does not throw', (
+        tester,
+      ) async {
+        final issues = await scanAndIssues(
+          tester,
+          detector,
+          _PlainBoxScrollView(children: userBoundaries(30)),
+        );
+        // Its SliverList uses the default delegate, so the 30 user
+        // boundaries sit inside the framework-managed frame.
+        expect(excessive(issues), isEmpty);
+      });
+    });
+
     group('framework toggle and scrollbar painters', () {
       testWidgets('Checkbox, Switch, Radio, CupertinoSwitch, Scrollbar are '
           'not missing_repaint_boundary', (tester) async {
@@ -742,4 +885,33 @@ class _ShapeBorderPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// Third-party style delegate: not one of the framework delegates, so its
+/// boundary wrapping is unknown.
+class _ForwardingDelegate extends SliverChildDelegate {
+  _ForwardingDelegate(this.children);
+
+  final List<Widget> children;
+
+  @override
+  Widget? build(BuildContext context, int index) =>
+      index < children.length ? children[index] : null;
+
+  @override
+  int? get estimatedChildCount => children.length;
+
+  @override
+  bool shouldRebuild(covariant SliverChildDelegate oldDelegate) => true;
+}
+
+/// A [BoxScrollView] that is neither a ListView nor a GridView.
+class _PlainBoxScrollView extends BoxScrollView {
+  const _PlainBoxScrollView({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget buildChildLayout(BuildContext context) =>
+      SliverList(delegate: SliverChildListDelegate(children));
 }
