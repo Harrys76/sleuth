@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:math' as math;
 
 import 'frame_stats.dart';
@@ -19,7 +20,11 @@ class RouteSession {
     this.hotReloadGeneration = 0,
   });
 
-  /// Route name from `ModalRoute.of(context)?.settings.name`, or a synthetic
+  /// Maximum number of keys retained in [issueSnapshots] and
+  /// [rebuildCountsByType]. On overflow the oldest-inserted key is evicted.
+  static const maxTrackedEntries = 256;
+
+  /// Route name from `ModalRoute.settingsOf(context)?.name`, or a synthetic
   /// `<unnamed-N>` when the route has no name (common with go_router shell
   /// routes, dialog routes, etc.).
   final String routeName;
@@ -73,8 +78,10 @@ class RouteSession {
 
   /// Latest snapshot of each issue observed while this route was active,
   /// keyed by `stableId ?? title`. Upserted each scan cycle — only the
-  /// most recent observation is retained.
-  final Map<String, PerformanceIssue> issueSnapshots = {};
+  /// most recent observation is retained. Holds at most [maxTrackedEntries]
+  /// keys; the oldest-inserted key is evicted on overflow.
+  final Map<String, PerformanceIssue> issueSnapshots =
+      _InsertionCappedMap<String, PerformanceIssue>(maxTrackedEntries);
 
   /// Number of scan cycles completed while this route was active.
   int scanCycleCount = 0;
@@ -93,7 +100,12 @@ class RouteSession {
   /// transient spike that decays as the tree stabilises. The inline
   /// `_RebuildStatsBanner` panel and the `RebuildStatsPage` drilldown
   /// disclose this caveat.
-  final Map<String, int> rebuildCountsByType = {};
+  ///
+  /// Holds at most [maxTrackedEntries] widget types; the oldest-inserted
+  /// type is evicted on overflow.
+  final Map<String, int> rebuildCountsByType = _InsertionCappedMap<String, int>(
+    maxTrackedEntries,
+  );
 
   /// Total profile-mode rebuilds observed during this session, summed
   /// across every widget type in [rebuildCountsByType]. Surfaced by the
@@ -213,4 +225,54 @@ class RouteSession {
       if (rebuildCountsByType.isNotEmpty) 'totalRebuilds': totalRebuilds,
     };
   }
+}
+
+/// Insertion-ordered map that evicts its oldest-inserted key when a new key
+/// would exceed [_capacity]. Updating an existing key keeps its position.
+class _InsertionCappedMap<K, V> extends MapBase<K, V> {
+  _InsertionCappedMap(this._capacity);
+
+  final int _capacity;
+  final LinkedHashMap<K, V> _inner = LinkedHashMap<K, V>();
+
+  @override
+  V? operator [](Object? key) => _inner[key];
+
+  @override
+  void operator []=(K key, V value) {
+    if (_inner.length >= _capacity && !_inner.containsKey(key)) {
+      _inner.remove(_inner.keys.first);
+    }
+    _inner[key] = value;
+  }
+
+  @override
+  void clear() => _inner.clear();
+
+  @override
+  Iterable<K> get keys => _inner.keys;
+
+  @override
+  Iterable<V> get values => _inner.values;
+
+  @override
+  Iterable<MapEntry<K, V>> get entries => _inner.entries;
+
+  @override
+  int get length => _inner.length;
+
+  @override
+  bool get isEmpty => _inner.isEmpty;
+
+  @override
+  bool get isNotEmpty => _inner.isNotEmpty;
+
+  @override
+  bool containsKey(Object? key) => _inner.containsKey(key);
+
+  @override
+  void forEach(void Function(K key, V value) action) => _inner.forEach(action);
+
+  @override
+  V? remove(Object? key) => _inner.remove(key);
 }

@@ -403,7 +403,8 @@ class SleuthController {
   /// returning to a previously-seen tab uses its cached label.
   ///
   /// Cleared on hot reload by [_reassembleInternal] — old hashes are stale
-  /// once Elements rotate.
+  /// once Elements rotate. An entry is dropped when route-history eviction
+  /// removes the last session carrying its hash.
   final Map<int?, int> _unnamedIdByHash = <int?, int>{};
 
   /// Debug-only hot-reload generation stamped on every [RouteSession] created
@@ -2476,7 +2477,7 @@ class SleuthController {
           fpsTarget: config.fpsTarget,
         );
         if (_routeHistory.length >= config.routeHistoryCapacity) {
-          _routeHistory.removeFirst();
+          _forgetUnnamedIdIfOrphaned(_routeHistory.removeFirst());
         }
         _routeHistory.add(_activeRouteSession!);
         routeHistoryNotifier.value = List<RouteSession>.unmodifiable(
@@ -2999,7 +3000,6 @@ class SleuthController {
     // prepareScan would crash the entire scan cycle). Failures are routed
     // through `FlutterError.reportError` so they surface in profile mode
     // (v0.16.0 F3 — assert() is stripped outside debug).
-    typeNameCache.clear();
     for (final d in unified) {
       try {
         d.prepareScan(scanContext);
@@ -3027,7 +3027,9 @@ class SleuthController {
     void visitor(Element element) {
       elementCount++;
       for (final d in walkDetectors) {
-        if (failedDetectors.contains(d)) continue;
+        if (failedDetectors.isNotEmpty && failedDetectors.contains(d)) {
+          continue;
+        }
         try {
           d.checkElement(element);
         } catch (e, s) {
@@ -3037,7 +3039,9 @@ class SleuthController {
       }
       element.visitChildren(visitor);
       for (final d in walkDetectors) {
-        if (failedDetectors.contains(d)) continue;
+        if (failedDetectors.isNotEmpty && failedDetectors.contains(d)) {
+          continue;
+        }
         try {
           d.afterElement(element);
         } catch (e, s) {
@@ -3769,6 +3773,19 @@ class SleuthController {
   int _nextUnnamedId(int? hash) =>
       _unnamedIdByHash.putIfAbsent(hash, () => ++_unnamedRouteCounter);
 
+  /// Drops the cached unnamed ordinal for [evicted]'s scaffold hash once no
+  /// remaining session (history or active) carries that hash, so the map
+  /// stays bounded by the route history in long sessions.
+  void _forgetUnnamedIdIfOrphaned(RouteSession evicted) {
+    final hash = evicted.scaffoldHashKey;
+    if (!_unnamedIdByHash.containsKey(hash)) return;
+    if (_activeRouteSession?.scaffoldHashKey == hash) return;
+    for (final s in _routeHistory) {
+      if (s.scaffoldHashKey == hash) return;
+    }
+    _unnamedIdByHash.remove(hash);
+  }
+
   /// Returns `max(tabVisitIndex) + 1` across sessions in [_routeHistory] that
   /// match the given `(routeName, scaffoldHashKey)` pair — i.e. the next
   /// 1-indexed visit ordinal that cannot collide with any live entry.
@@ -3829,6 +3846,8 @@ class SleuthController {
     _activeRouteSession = null;
     _hotReloadGeneration++;
     _unnamedIdByHash.clear();
+    // Hot reload can redefine widget types; drop cached names.
+    typeNameCache.clear();
     _lastVisibleScaffoldHash = null;
     _currentVisibleScaffoldHash = null;
   }

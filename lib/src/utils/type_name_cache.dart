@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-/// Per-scan cache for `widget.runtimeType.toString()` results.
+/// Cache for `widget.runtimeType.toString()` results.
 ///
 /// In a typical Flutter app, there are O(50-200) unique widget types but
 /// O(5,000+) elements. Without caching, detectors calling
@@ -9,7 +9,7 @@ import 'package:flutter/widgets.dart';
 /// per unique [Type].
 ///
 /// Usage:
-///   - Call [clear] once at the start of each scan cycle.
+///   - [clear] runs on hot reload; entries otherwise persist across scans.
 ///   - Replace `widget.runtimeType.toString()` with [lookup] everywhere.
 ///
 /// Follows the same module-level singleton pattern as [sourceLocationCache].
@@ -22,7 +22,7 @@ class TypeNameCache {
     return _cache[type] ??= type.toString();
   }
 
-  /// Clears the cache. Call once per scan cycle from the controller.
+  /// Clears the cache. The controller calls this on hot reload.
   void clear() => _cache.clear();
 
   /// Current number of cached entries (exposed for testing).
@@ -31,7 +31,7 @@ class TypeNameCache {
 
 /// Module-level cache shared across all detectors.
 ///
-/// Cleared by [SleuthController] before each unified tree walk.
+/// Cleared by [SleuthController] on hot reload.
 final typeNameCache = TypeNameCache();
 
 /// Strips a generic suffix (`<...>`) from a runtime-type name.

@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/utils/type_name_cache.dart';
 
 void main() {
@@ -137,6 +138,32 @@ void main() {
 
     test('multi-arg generic strips entire suffix', () {
       expect(baseTypeName('Tuple<int, String, bool>'), 'Tuple');
+    });
+  });
+  group('TypeNameCache lifetime in the controller', () {
+    testWidgets('persists across scans and clears on hot reload', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(children: [SizedBox(), Text('a')]),
+        ),
+      );
+      final context = tester.element(find.byType(Directionality));
+      final controller = SleuthController();
+      controller.initializeDetectorsForTest();
+      addTearDown(controller.dispose);
+
+      controller.runTreeScanForTest(context);
+      final afterFirst = typeNameCache.length;
+      expect(afterFirst, greaterThan(0));
+
+      controller.runTreeScanForTest(context);
+      expect(typeNameCache.length, afterFirst);
+
+      controller.reassembleForTest();
+      expect(typeNameCache.length, 0);
     });
   });
 }

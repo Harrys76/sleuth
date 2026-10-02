@@ -472,4 +472,49 @@ void main() {
       });
     });
   });
+  group('RouteSession map caps', () {
+    RouteSession session() =>
+        RouteSession(routeName: '/cap', startedAt: DateTime(2026));
+
+    test('issueSnapshots evicts the oldest-inserted key past the cap', () {
+      final s = session();
+      const cap = RouteSession.maxTrackedEntries;
+      for (var i = 0; i < cap; i++) {
+        s.issueSnapshots['id$i'] = _issue(stableId: 'id$i');
+      }
+      expect(s.issueSnapshots.length, cap);
+
+      // Updating an existing key neither grows the map nor moves the key.
+      s.issueSnapshots['id0'] = _issue(stableId: 'id0');
+      expect(s.issueSnapshots.length, cap);
+      expect(s.issueSnapshots.keys.first, 'id0');
+
+      s.issueSnapshots['new'] = _issue(stableId: 'new');
+      expect(s.issueSnapshots.length, cap);
+      expect(s.issueSnapshots.containsKey('id0'), isFalse);
+      expect(s.issueSnapshots.keys.first, 'id1');
+      expect(s.issueSnapshots.keys.last, 'new');
+    });
+
+    test('rebuildCountsByType evicts the oldest-inserted key past the cap', () {
+      final s = session();
+      const cap = RouteSession.maxTrackedEntries;
+      for (var i = 0; i < cap + 10; i++) {
+        s.rebuildCountsByType['Type$i'] =
+            (s.rebuildCountsByType['Type$i'] ?? 0) + 1;
+      }
+      expect(s.rebuildCountsByType.length, cap);
+      expect(s.rebuildCountsByType.containsKey('Type9'), isFalse);
+      expect(s.rebuildCountsByType.containsKey('Type10'), isTrue);
+      expect(s.totalRebuilds, cap);
+    });
+
+    test('capped maps serialize like plain maps', () {
+      final s = session();
+      s.rebuildCountsByType['A'] = 2;
+      s.issueSnapshots['x'] = _issue(stableId: 'x');
+      expect(Map<String, int>.of(s.rebuildCountsByType), {'A': 2});
+      expect(s.toJson(), isA<Map<String, dynamic>>());
+    });
+  });
 }

@@ -378,4 +378,67 @@ void main() {
       ctrl.dispose();
     });
   });
+  group('Unnamed-route ordinal cache', () {
+    /// No Navigator: the Scaffold sits above routing, so the route name is
+    /// null and every new Scaffold key mints a fresh unnamed session.
+    Widget unnamedApp(int key) => MaterialApp(
+      builder: (_, _) => Scaffold(key: ValueKey(key), body: const SizedBox()),
+    );
+
+    testWidgets('drops ordinals of sessions evicted from history', (
+      tester,
+    ) async {
+      final ctrl = SleuthController(
+        config: const SleuthConfig(
+          enabledDetectors: {DetectorType.frameTiming},
+          routeHistoryCapacity: 3,
+        ),
+      );
+      ctrl.initializeDetectorsForTest();
+      addTearDown(ctrl.dispose);
+
+      for (var i = 0; i < 12; i++) {
+        await tester.pumpWidget(unnamedApp(i));
+        ctrl.scanTreeFullPathForTest(_rootContext(tester));
+        expect(ctrl.routeHistoryForTest.length, lessThanOrEqualTo(3));
+        expect(ctrl.unnamedIdByHashLengthForTest, lessThanOrEqualTo(4));
+      }
+      expect(ctrl.activeRouteSessionForTest?.routeName, '<unnamed-12>');
+    });
+
+    testWidgets('keeps the ordinal while history still carries the hash', (
+      tester,
+    ) async {
+      final ctrl = SleuthController(
+        config: const SleuthConfig(
+          enabledDetectors: {DetectorType.frameTiming},
+          routeHistoryCapacity: 3,
+        ),
+      );
+      ctrl.initializeDetectorsForTest();
+      addTearDown(ctrl.dispose);
+
+      // Two IndexedStack tabs, each with its own unnamed Scaffold.
+      Widget tabs(int index) => MaterialApp(
+        builder: (_, _) => IndexedStack(
+          index: index,
+          children: const [
+            Scaffold(key: ValueKey('a'), body: SizedBox()),
+            Scaffold(key: ValueKey('b'), body: SizedBox()),
+          ],
+        ),
+      );
+
+      final names = <String>[];
+      for (var i = 0; i < 8; i++) {
+        await tester.pumpWidget(tabs(i % 2));
+        ctrl.scanTreeFullPathForTest(_rootContext(tester));
+        names.add(ctrl.activeRouteSessionForTest!.routeName);
+      }
+      // Evictions never orphan a hash a live session still carries, so
+      // each tab keeps its first ordinal.
+      expect(names.toSet(), hasLength(2));
+      expect(ctrl.unnamedIdByHashLengthForTest, 2);
+    });
+  });
 }

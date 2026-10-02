@@ -87,6 +87,10 @@ class RecurrenceTrend {
 
   final List<RecurrenceEntry> _entries = [];
 
+  /// Scan cycle of the most recent presence. Kept outside [_entries] so
+  /// staleness still resolves after the ring buffer evicts that entry.
+  int? _lastPresentCycle;
+
   /// Scan cycles since the issue was last observed.
   /// Used for stale eviction — entries unseen for [staleThreshold]
   /// cycles are eligible for removal.
@@ -106,6 +110,7 @@ class RecurrenceTrend {
 
   /// Record that the issue was present during [scanCycle].
   void recordPresent(int scanCycle, {required int severityIndex}) {
+    _lastPresentCycle = scanCycle;
     _add(
       RecurrenceEntry(
         scanCycle: scanCycle,
@@ -175,11 +180,8 @@ class RecurrenceTrend {
   /// cycles from the most recent entry's scan cycle).
   bool isStale(int currentScanCycle) {
     if (_entries.isEmpty) return true;
-    final lastPresent = _entries.lastWhere(
-      (e) => e.present,
-      orElse: () => _entries.first,
-    );
-    return (currentScanCycle - lastPresent.scanCycle) > staleThreshold;
+    final lastPresent = _lastPresentCycle ?? _entries.first.scanCycle;
+    return (currentScanCycle - lastPresent) > staleThreshold;
   }
 
   /// Summary for export (not the full ring buffer).
