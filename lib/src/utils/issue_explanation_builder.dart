@@ -575,7 +575,8 @@ class IssueExplanationBuilder {
           'that keep getting installed. Either alone is suggestive; '
           'together they argue strongly for a leak.\n\n'
           '• Top growth class — The watchlist class with the largest '
-          'instance delta across the window.\n\n'
+          'instance delta across the window. Alert: delta of at least '
+          '50 instances (default, configurable).\n\n'
           '• Watchlist classes growing — Comma-joined list of suffixes '
           'that showed monotonic growth.\n\n'
           '• Samples in window — Default 4 (≈40 s of history at 10 s '
@@ -620,7 +621,8 @@ class IssueExplanationBuilder {
       whatItIs:
           'Multiple live instances are registered under the same name '
           'via `Sleuth.trackResource(name, resource)`, exceeding the '
-          'configured concurrent threshold. The tracker holds only a '
+          'configured concurrent threshold (default: more than 5 live '
+          'instances). The tracker holds only a '
           '`WeakReference`, so each counted instance is reachable from '
           'somewhere outside Sleuth — confirmed retention.',
       readingTheData:
@@ -666,7 +668,7 @@ class IssueExplanationBuilder {
       whatItIs:
           'A single instance registered via `Sleuth.trackResource` has '
           'been alive longer than the configured long-lived threshold '
-          '(default 5 minutes wall-clock). The Finalizer has not '
+          '(default 300 s, 5 minutes wall-clock). The Finalizer has not '
           'fired, so the GC has not reclaimed the target — something '
           'outside the tracker is holding it.',
       readingTheData:
