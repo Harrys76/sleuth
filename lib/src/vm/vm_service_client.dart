@@ -72,6 +72,19 @@ class VmServiceClient {
   final StartupTimelineCallback? onStartupTimelineEvents;
 
   VmService? _service;
+
+  /// Failed polls in a row. A VM under GC pressure can fail one timeline
+  /// RPC without the socket being gone; declaring a disconnect on the
+  /// first failure cleared every detector's VM state (the memory
+  /// detector's windows took tens of seconds to refill) for a blip that
+  /// the next poll would have survived. The connection is reported lost
+  /// after [pollFailuresBeforeDisconnect] consecutive failures, or at
+  /// once when the socket's `onDone` completes.
+  int _consecutivePollFailures = 0;
+
+  /// Consecutive failed polls (500 ms apart) before the connection is
+  /// reported lost.
+  static const int pollFailuresBeforeDisconnect = 3;
   StreamSubscription<Event>? _timelineSub;
   StreamSubscription<Event>? _gcSub;
   StreamSubscription<Event>? _extensionSub;
@@ -112,6 +125,7 @@ class VmServiceClient {
   @visibleForTesting
   void setServiceForTest(VmService service, {String? isolateId}) {
     _service = service;
+    _watchSocket(service);
     _mainIsolateId = isolateId;
     _connected = true;
   }
@@ -239,6 +253,7 @@ class VmServiceClient {
           throw lastError ?? StateError('no VM service address connected');
         }
         _service = connected;
+        _watchSocket(connected);
         if (_disposed) {
           _cleanup();
           return false;
@@ -532,6 +547,7 @@ class VmServiceClient {
     _pollInFlightCompleter = completer;
     try {
       final timeline = await _service!.getVMTimeline();
+      _consecutivePollFailures = 0;
       // Drop stale poll if reconnect/dispose ran during the await.
       if (myGen != _sessionGeneration || _disposed) return;
       final events = timeline.traceEvents;
@@ -603,15 +619,12 @@ class VmServiceClient {
         }
       }
     } catch (e) {
-      // Connection may have been lost — cancel timer BEFORE callbacks
-      // to prevent 500ms error loops if onConnectionChanged throws.
-      if (!_disposed && !_reconnecting) {
-        _pollTimer?.cancel();
-        _pollTimer = null;
-        _connected = false;
-        onConnectionChanged?.call(false);
-        // Fire-and-forget is intentional — reconnect runs in background
-        unawaited(reconnect());
+      // One failed RPC retries on the next tick; a run of failures means
+      // the connection is gone (see [_consecutivePollFailures]).
+      _consecutivePollFailures++;
+      if (_consecutivePollFailures >= pollFailuresBeforeDisconnect) {
+        _consecutivePollFailures = 0;
+        _handleConnectionLost();
       }
     } finally {
       _pollInFlightCompleter = null;
@@ -749,7 +762,37 @@ class VmServiceClient {
     );
   }
 
+  /// Reports the connection lost once and starts the reconnect ladder.
+  /// Cancels the poll timer BEFORE the callback so a throwing
+  /// [onConnectionChanged] cannot produce a 500 ms error loop.
+  void _handleConnectionLost() {
+    if (_disposed || _reconnecting || !_connected && _service == null) return;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _connected = false;
+    onConnectionChanged?.call(false);
+    // Fire-and-forget is intentional — reconnect runs in background.
+    unawaited(reconnect());
+  }
+
+  /// Reports a real socket closure as soon as the service's `onDone`
+  /// completes, independent of the poll cadence. Ignored once the
+  /// service has been replaced or cleaned up (a reconnect disposes the
+  /// old service, which also completes its `onDone`).
+  void _watchSocket(VmService service) {
+    try {
+      unawaited(
+        service.onDone.then((_) {
+          if (identical(_service, service)) _handleConnectionLost();
+        }),
+      );
+    } catch (_) {
+      // A test double without a socket has no `onDone`.
+    }
+  }
+
   void _cleanup() {
+    _consecutivePollFailures = 0;
     // Bump generation before clearing so any in-flight `_pollTimeline`
     // detects the change at its next fence check and drops stale results.
     _sessionGeneration++;

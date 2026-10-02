@@ -942,7 +942,52 @@ void main() {
       client.setServiceForTest(mock, isolateId: 'isolate-1');
       expect(client.isConnected, isTrue);
 
+      // One or two failed polls are a blip, not a lost connection.
       await client.pollTimelineSync();
+      await client.pollTimelineSync();
+      expect(client.isConnected, isTrue);
+      expect(connectionChanges, isEmpty);
+
+      await client.pollTimelineSync();
+
+      expect(client.isConnected, isFalse);
+      expect(connectionChanges, [false]);
+      client.dispose();
+    });
+
+    test('a successful poll resets the failure run', () async {
+      final connectionChanges = <bool>[];
+      final mock = _MockVmService();
+      final client = VmServiceClient(
+        onConnectionChanged: connectionChanges.add,
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      mock.getVMTimelineThrows = Exception('busy');
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+      mock.getVMTimelineThrows = null;
+      await client.pollTimelineSync();
+      mock.getVMTimelineThrows = Exception('busy');
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+
+      expect(client.isConnected, isTrue);
+      expect(connectionChanges, isEmpty);
+      client.dispose();
+    });
+
+    test('socket closure disconnects without waiting for polls', () async {
+      final connectionChanges = <bool>[];
+      final mock = _MockVmService();
+      final client = VmServiceClient(
+        onConnectionChanged: connectionChanges.add,
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+      expect(client.isConnected, isTrue);
+
+      mock.onDoneCompleter.complete();
+      await Future<void>.delayed(Duration.zero);
 
       expect(client.isConnected, isFalse);
       expect(connectionChanges, [false]);
@@ -975,11 +1020,15 @@ void main() {
       );
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
-      // First poll: triggers error → onConnectionChanged(false) → reconnect()
-      // reconnect() calls _cleanup() which sets _service = null
+      // Three failed polls: onConnectionChanged(false) → reconnect(),
+      // which calls _cleanup() and sets _service = null.
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
       await client.pollTimelineSync();
 
-      // Second poll: _service is null (cleaned up by reconnect) → early return
+      // Further polls: _service is null (cleaned up by reconnect) → early
+      // return.
+      await client.pollTimelineSync();
       await client.pollTimelineSync();
 
       // Only one callback fired
@@ -997,6 +1046,11 @@ void main() {
 ///
 /// Tracks which methods were called and returns configurable results.
 class _MockVmService implements VmService {
+  final Completer<void> onDoneCompleter = Completer<void>();
+
+  @override
+  Future<void> get onDone => onDoneCompleter.future;
+
   bool getVMTimelineCalled = false;
   bool clearVMTimelineCalled = false;
   bool getMemoryUsageCalled = false;

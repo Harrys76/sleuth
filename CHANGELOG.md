@@ -25,6 +25,12 @@
 
 ### Behavior changes
 
+- The VM connection is reported lost after three consecutive failed polls
+  (1.5 s) or as soon as the socket closes, instead of on the first failed
+  RPC. A VM under allocation pressure can fail one timeline poll; treating
+  that as a disconnect cleared every detector's VM state and left the memory
+  detector blind for tens of seconds after each blip.
+
 - Timeline begin/end reconstruction discards a pair longer than 2 s and
   evicts a pending begin older than that when the next begin arrives. Under
   heavy jank the VM drops events; a lost begin let a later end pair with a
