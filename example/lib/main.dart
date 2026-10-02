@@ -36,6 +36,7 @@ import 'demos/rebuild_hotspot_demo.dart';
 import 'demos/repaint_boundary_demo.dart';
 import 'demos/repaint_stress_demo.dart';
 import 'demos/stream_resource_capture_screen.dart';
+import 'demos/tabbed_shell_demo.dart';
 import 'demos/stream_resource_demo.dart';
 import 'demos/tracked_resource_capture_screen.dart';
 import 'demos/tracked_resource_demo.dart';
@@ -425,6 +426,21 @@ List<_DemoCategory> _demoCategories() => <_DemoCategory>[
         subtitle: 'FontLoading detector (>3 custom fonts)',
         color: Colors.deepOrange,
         builder: (_) => const FontLoadingDemo(),
+      ),
+    ],
+  ),
+
+  // ── Navigation ──
+  _DemoCategory(
+    title: 'Navigation',
+    icon: Icons.tab,
+    demos: [
+      _DemoRoute(
+        icon: Icons.view_carousel,
+        title: 'Tabbed Shell',
+        subtitle: 'IndexedStack tabs: one pattern each',
+        color: Colors.cyan,
+        builder: (_) => const TabbedShellDemo(),
       ),
     ],
   ),

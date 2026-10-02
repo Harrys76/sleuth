@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -11,9 +12,55 @@ import '../demo_scaffold.dart';
 // ─────────────────────────────────────────
 
 /// Demonstrates GPU pressure from stacking expensive rendering operations
-/// (BackdropFilter, ClipPath, ColorFiltered, Opacity) on deep subtrees.
-class GpuPressureDemo extends StatelessWidget {
+/// (BackdropFilter, ClipPath, ColorFiltered, Opacity) on deep subtrees,
+/// plus an animated blur layer that keeps the raster thread busy every
+/// frame while the UI thread stays nearly idle.
+class GpuPressureDemo extends StatefulWidget {
   const GpuPressureDemo({super.key});
+
+  @override
+  State<GpuPressureDemo> createState() => _GpuPressureDemoState();
+}
+
+class _GpuPressureDemoState extends State<GpuPressureDemo>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 4),
+  );
+
+  bool _animating = true;
+  bool _showingFixed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _syncAnimation() {
+    if (_animating && !_showingFixed) {
+      if (!_controller.isAnimating) _controller.repeat();
+    } else {
+      _controller.stop();
+    }
+  }
+
+  void _setAnimating(bool value) {
+    setState(() => _animating = value);
+    _syncAnimation();
+  }
+
+  void _handleToggle(bool isFixed) {
+    _showingFixed = isFixed;
+    _syncAnimation();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,18 +71,50 @@ class GpuPressureDemo extends StatelessWidget {
           'opacity) on deep subtrees overwhelms the rasterizer.\n'
           '✅ FIX: Reduce blur radius, simplify clipping, avoid stacking '
           'multiple GPU-heavy layers, prefer Clip.hardEdge over antiAliasWithSaveLayer.\n\n'
+          '▶ The animated blur at the top repaints every frame without '
+          'rebuilding any widget: raster time climbs while UI time stays '
+          'low, so `raster_dominance` appears within a few seconds. Use the '
+          'switch to pause it.\n'
           '▶ Scroll through the cards — each one stacks BackdropFilter (σ=15), '
-          'ClipPath, ColorFiltered, and Opacity on a subtree with >5 descendants. '
-          'Sleuth flags expensive render nodes and raster dominance.\n'
-          '▶ Flip to Fixed Pattern — the same cards rendered with a single '
-          'hard-edge clip and no stacked filters. Detector should go quiet.',
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: 10,
-        itemBuilder: (context, index) => Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: _HeavyGpuCard(index: index),
-        ),
+          'ClipPath, ColorFiltered, and Opacity on a subtree with >5 '
+          'descendants. They raise the structural `expensive_gpu_nodes` '
+          'card. The per-frame repaint can also show on the repaint '
+          'counters.\n'
+          '▶ Flip to Fixed Pattern — the animation stops and the cards '
+          'render with a single hard-edge clip and no stacked filters. '
+          'Detector should go quiet.',
+      onToggle: _handleToggle,
+      body: Column(
+        children: [
+          SwitchListTile(
+            title: const Text('Animated blur'),
+            subtitle: Text(_animating ? 'Running' : 'Paused'),
+            value: _animating,
+            onChanged: _setAnimating,
+          ),
+          // Flex split instead of a fixed height so the page fits short
+          // screens while the blur keeps a large share of the frame.
+          Expanded(
+            flex: 2,
+            child: SizedBox(
+              width: double.infinity,
+              child: RepaintBoundary(
+                child: CustomPaint(painter: _BlurOrbsPainter(_controller)),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: 10,
+              itemBuilder: (context, index) => Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: _HeavyGpuCard(index: index),
+              ),
+            ),
+          ),
+        ],
       ),
       fixedBody: ListView.builder(
         padding: const EdgeInsets.all(16),
@@ -47,6 +126,53 @@ class GpuPressureDemo extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Six large circles under `MaskFilter.blur(normal, 40)`, moved by
+/// [animation]. The painter repaints through its `repaint` listenable, so
+/// no widget rebuilds per frame (`rebuild_activity` stays quiet) while
+/// every frame pays for six large blurs on the raster thread.
+///
+/// Six circles at sigma 40 is the starting point. The cost is tuned on a
+/// device so that at least 3 frames per second rasterize for over 8 ms
+/// at more than twice their UI time, which is what `raster_dominance`
+/// needs; on a faster GPU raise [_orbCount] or [_sigma].
+class _BlurOrbsPainter extends CustomPainter {
+  _BlurOrbsPainter(this.animation) : super(repaint: animation);
+
+  final Animation<double> animation;
+
+  static const int _orbCount = 6;
+  static const double _sigma = 40;
+
+  static const _colors = [
+    Color(0xFFE53935),
+    Color(0xFF8E24AA),
+    Color(0xFF1E88E5),
+    Color(0xFF00ACC1),
+    Color(0xFF43A047),
+    Color(0xFFFDD835),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final t = animation.value * 2 * math.pi;
+    final radius = size.shortestSide * 0.45;
+    final paint = Paint()
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _sigma);
+    for (var i = 0; i < _orbCount; i++) {
+      final phase = t + i * 2 * math.pi / _orbCount;
+      final center = Offset(
+        size.width / 2 + math.cos(phase) * size.width * 0.35,
+        size.height / 2 + math.sin(phase * 2) * size.height * 0.3,
+      );
+      paint.color = _colors[i % _colors.length].withValues(alpha: 0.7);
+      canvas.drawCircle(center, radius, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BlurOrbsPainter oldDelegate) => false;
 }
 
 class _HeavyGpuCard extends StatelessWidget {

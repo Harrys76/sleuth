@@ -1,6 +1,6 @@
 # Sleuth Example
 
-Demo app organized by category. 22 demo screens trigger specific detectors;
+Demo app organized by category. 23 demo screens trigger specific detectors;
 9 capture-helper screens drive `runtimeVerified` capture brackets.
 
 ## Running
@@ -36,9 +36,10 @@ cd example && flutter run
 | 17 | Search + Gallery | NetworkMonitor | Network & I/O |
 | 18 | Platform Channel Traffic | PlatformChannel | Network & I/O |
 | 19 | Font Loading Stress | FontLoading | Network & I/O |
-| 20 | Custom Detector Cookbook | Custom (Tooltip / Slow Frame / Raster) | Custom |
-| 21 | Combined: Social Feed | Image, Layout, setState, Correlator | Combined |
-| 22 | Combined: Chat App | Rebuild, KeepAlive, Channel, SetState | Combined |
+| 20 | Tabbed Shell | ListView, ImageMemory, LayoutBottleneck (visible tab only) | Navigation |
+| 21 | Custom Detector Cookbook | Custom (Tooltip / Slow Frame / Raster) | Custom |
+| 22 | Combined: Social Feed | Image, Layout, setState, Correlator | Combined |
+| 23 | Combined: Chat App | Rebuild, KeepAlive, Channel, SetState | Combined |
 
 ### Capture Helpers (`runtimeVerified` brackets)
 
