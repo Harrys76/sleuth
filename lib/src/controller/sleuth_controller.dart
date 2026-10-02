@@ -4297,6 +4297,7 @@ class SleuthConfig {
     this.routeIgnorePatterns = const {},
     this.routeHistoryCapacity = 50,
     this.captureMode = false,
+    this.autoFrameBudget = true,
   }) : assert(
          fpsTarget >= 1 && fpsTarget <= 120,
          'fpsTarget must be between 1 and 120. '
@@ -4880,6 +4881,15 @@ class SleuthConfig {
   /// internal capture-helper hook are no-ops.
   final bool captureMode;
 
+  /// When true (default), the frame budget follows the measured vsync
+  /// cadence, bounded below by [fpsTarget] and above by the display's
+  /// reported refresh rate. A 120 Hz device rendering at 120 gets an
+  /// 8.33 ms budget; a ProMotion device rendering at 60 keeps 16.67 ms.
+  ///
+  /// When false, the budget is always `1000 / fpsTarget` ms. Capture mode
+  /// ([captureMode]) always uses the fixed budget.
+  final bool autoFrameBudget;
+
   /// Sentinel used by [copyWith] to distinguish "not passed" from "set to null".
   static const Object _sentinel = Object();
 
@@ -4932,6 +4942,7 @@ class SleuthConfig {
     Set<String>? routeIgnorePatterns,
     int? routeHistoryCapacity,
     bool? captureMode,
+    bool? autoFrameBudget,
   }) {
     return SleuthConfig(
       theme: identical(theme, _sentinel)
@@ -4993,6 +5004,7 @@ class SleuthConfig {
       routeIgnorePatterns: routeIgnorePatterns ?? this.routeIgnorePatterns,
       routeHistoryCapacity: routeHistoryCapacity ?? this.routeHistoryCapacity,
       captureMode: captureMode ?? this.captureMode,
+      autoFrameBudget: autoFrameBudget ?? this.autoFrameBudget,
     );
   }
 }

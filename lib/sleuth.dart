@@ -80,6 +80,7 @@ import 'src/ui/sleuth_theme.dart';
 export 'src/models/ai_chat_adapter.dart';
 export 'src/models/performance_issue.dart';
 export 'src/models/frame_stats.dart';
+export 'src/models/frame_budget.dart';
 export 'src/models/frame_verdict.dart';
 export 'src/models/widget_highlight.dart';
 export 'src/models/capture_buffer.dart';

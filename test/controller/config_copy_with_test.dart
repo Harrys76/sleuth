@@ -58,6 +58,7 @@ void main() {
       expect(copy.triggerButtonOffset, original.triggerButtonOffset);
       expect(copy.routeIgnorePatterns, original.routeIgnorePatterns);
       expect(copy.routeHistoryCapacity, original.routeHistoryCapacity);
+      expect(copy.autoFrameBudget, original.autoFrameBudget);
     });
 
     test('overrides non-nullable int fields', () {
@@ -92,6 +93,14 @@ void main() {
       expect(copy.enableDeepDebugInstrumentation, isTrue);
       expect(copy.enableNetworkMonitoring, isFalse);
       expect(copy.showDebugModeBanner, isFalse);
+    });
+
+    test('overrides autoFrameBudget', () {
+      const original = SleuthConfig();
+      expect(original.autoFrameBudget, isTrue);
+      final copy = original.copyWith(autoFrameBudget: false);
+      expect(copy.autoFrameBudget, isFalse);
+      expect(copy.copyWith().autoFrameBudget, isFalse);
     });
 
     test('overrides Set and List fields', () {
