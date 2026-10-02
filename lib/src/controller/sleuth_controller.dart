@@ -5207,7 +5207,9 @@ class SleuthConfig {
   /// Each detector extends [BaseDetector] and declares its [DetectorLifecycle].
   /// The controller routes data to custom detectors based on their lifecycle
   /// exactly like built-in detectors: structural → `scanTree`,
-  /// vmOnly → `processTimelineData`, hybrid → both.
+  /// vmOnly → `processTimelineData`, hybrid → both. Every enabled
+  /// detector also receives each presented frame through
+  /// [BaseDetector.processFrame], with or without a VM connection.
   ///
   /// Custom detectors whose [BaseDetector.key] is in
   /// [disabledCustomDetectorKeys] are constructed but start with

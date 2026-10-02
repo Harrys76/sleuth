@@ -401,6 +401,8 @@ class SleuthThemeData {
   /// Returns the left-border accent color for a given [ObservationSource].
   Color sourceAccentColor(ObservationSource? source) => switch (source) {
     ObservationSource.vmTimeline => sourceVmTimeline,
+    // Measured timing, like the VM timeline; shares its accent.
+    ObservationSource.frameTiming => sourceVmTimeline,
     ObservationSource.debugCallback => sourceDebugCallback,
     ObservationSource.debugCallbackAndStructural => sourceDebugCallback,
     ObservationSource.structural => sourceStructural,

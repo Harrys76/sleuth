@@ -159,6 +159,10 @@ void main() {
         t.sourceAccentColor(ObservationSource.structural),
         t.sourceStructural,
       );
+      expect(
+        t.sourceAccentColor(ObservationSource.frameTiming),
+        t.sourceVmTimeline,
+      );
       expect(t.sourceAccentColor(null), t.sourceNone);
     });
   });

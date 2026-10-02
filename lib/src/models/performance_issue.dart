@@ -48,6 +48,9 @@ enum ObservationSource {
 
   /// Debug callback data confirmed a structural finding.
   debugCallbackAndStructural,
+
+  /// Per-frame `FrameTiming` durations (available without a VM connection).
+  frameTiming,
 }
 
 /// Estimated developer effort to apply the suggested fix.
@@ -577,5 +580,6 @@ extension ObservationSourceDisplay on ObservationSource {
     ObservationSource.debugCallback => 'debug callback',
     ObservationSource.debugCallbackAndStructural =>
       'debug callback + structural',
+    ObservationSource.frameTiming => 'frame timing',
   };
 }

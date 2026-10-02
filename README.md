@@ -339,6 +339,8 @@ class TooltipUsageDetector extends SimpleStructuralDetector {
 
 **Hybrid** — combine VM timeline data with tree inspection using `DetectorLifecycle.hybrid`.
 
+Hooks a detector can override: `prepareScan` / `checkElement` / `afterElement` / `finalizeScan` (tree walk), `processTimelineData` (VM timeline polls), and `processFrame(FrameStats)` (every presented frame, on every tier, for every enabled detector; keep it cheap and emit from `finalizeScan`). All default to no-ops.
+
 See the three-file cookbook in `example/lib/custom_detectors/` for complete examples of all three shapes.
 
 Register custom detectors and optionally gate them by key:

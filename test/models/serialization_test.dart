@@ -107,6 +107,26 @@ void main() {
       expect(json['interactionContext'], 'navigating');
     });
 
+    test('frameTiming observation source round-trips', () {
+      const issue = PerformanceIssue(
+        severity: IssueSeverity.warning,
+        category: IssueCategory.raster,
+        confidence: IssueConfidence.likely,
+        title: 'T',
+        detail: 'D',
+        fixHint: 'F',
+        observationSource: ObservationSource.frameTiming,
+      );
+
+      final json = issue.toJson();
+      expect(json['observationSource'], 'frameTiming');
+      expect(
+        PerformanceIssue.fromJson(json).observationSource,
+        ObservationSource.frameTiming,
+      );
+      expect(ObservationSource.frameTiming.displayName, 'frame timing');
+    });
+
     test('fixEffort serializes as .name string', () {
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,
