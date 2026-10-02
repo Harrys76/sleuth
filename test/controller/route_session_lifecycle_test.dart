@@ -2,6 +2,8 @@
 // (fires only on subclassing). Remove when analyzer-server recognizes the
 // implement-only kind.
 // ignore_for_file: deprecated_member_use
+import 'dart:ui' show FrameTiming;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
@@ -370,6 +372,73 @@ void main() {
       // /home still has 3 frames, /settings has 2.
       expect(homeSession.frameStats.length, 3);
       expect(controller.activeRouteSessionForTest!.frameStats.length, 2);
+    });
+
+    testWidgets('jank measured on one route is not carried to the next', (
+      tester,
+    ) async {
+      final ctrl = SleuthController(
+        config: const SleuthConfig(
+          treeScanInterval: Duration(seconds: 1),
+          enabledDetectors: {DetectorType.frameTiming},
+          frameTimingWarmupDuration: Duration.zero,
+        ),
+      );
+      ctrl.initializeDetectorsForTest();
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(_multiRouteApp());
+      await tester.pumpAndSettle();
+      ctrl.scanTreeFullPathForTest(_rootContext(tester));
+
+      // 60 real frames with a 40 ms build on /home.
+      const base = 1000000000;
+      ctrl.handleTimingsForTest([
+        for (var i = 0; i < 60; i++)
+          FrameTiming(
+            vsyncStart: base + i * 16667,
+            buildStart: base + i * 16667 + 100,
+            buildFinish: base + i * 16667 + 40100,
+            rasterStart: base + i * 16667 + 40200,
+            rasterFinish: base + i * 16667 + 42200,
+            rasterFinishWallTime: base + i * 16667 + 42200,
+            frameNumber: i + 1,
+          ),
+      ]);
+      ctrl.scanTreeFullPathForTest(_rootContext(tester));
+
+      const jankIds = {'sustained_jank', 'jank_detected'};
+      Set<String?> liveJank() => ctrl.latestIssues
+          .map((i) => i.stableId)
+          .where(jankIds.contains)
+          .toSet();
+      expect(liveJank(), jankIds);
+      final home = ctrl.activeRouteSessionForTest!;
+      expect(home.issueSnapshots.keys, containsAll(jankIds));
+      expect(
+        ctrl.latestIssues
+            .where((i) => jankIds.contains(i.stableId))
+            .map((i) => i.routeName),
+        everyElement('/home'),
+      );
+
+      tester.state<NavigatorState>(find.byType(Navigator)).pushNamed('/b');
+      await tester.pumpAndSettle();
+      ctrl.scanTreeFullPathForTest(_rootContext(tester));
+
+      final b = ctrl.activeRouteSessionForTest!;
+      expect(b.routeName, '/b');
+      expect(liveJank(), isEmpty);
+      expect(
+        b.issueSnapshots.keys.where(jankIds.contains),
+        isEmpty,
+        reason: 'The new route session must hold no jank issues.',
+      );
+      expect(
+        home.issueSnapshots.keys,
+        containsAll(jankIds),
+        reason: 'The previous route keeps the jank it was measured on.',
+      );
     });
 
     test('dispose cleans up routeHistoryNotifier without throwing', () {

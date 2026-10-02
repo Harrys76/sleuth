@@ -812,6 +812,7 @@ class SleuthController {
       startupPhaseWindowSeconds: config.thresholds.startupPhaseWindowSeconds,
       onFrameStats: _onFrameStats,
       onFrame: _onFrame,
+      sourceRouteProvider: _currentRouteName,
     )..isEnabled = enabled.contains(DetectorType.frameTiming);
 
     _memoryPressure = MemoryPressureDetector(
@@ -2557,6 +2558,10 @@ class SleuthController {
 
     if (routeChanged) {
       active?.endedAt = DateTime.now();
+      // Jank is judged per route: start a new frame window and drop the
+      // previous route's jank issues before this tick aggregates, so they
+      // never reach the new session.
+      _frameTiming.markRouteEpoch();
       final newRoute =
           currentName ?? '<unnamed-${_nextUnnamedId(currentHashKey)}>';
       // Skip session creation for ignored routes, but still reset back-off.

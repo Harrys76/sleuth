@@ -1,3 +1,4 @@
+import 'dart:developer' show Timeline;
 import 'dart:ui' show FrameTiming;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -1027,6 +1028,236 @@ void main() {
           isEmpty,
         );
       });
+    });
+  });
+
+  group('FrameTimingDetector route epoch', () {
+    late FrameTimingDetector detector;
+    String? route;
+
+    setUp(() {
+      route = '/a';
+      detector = FrameTimingDetector(
+        warmupDuration: Duration.zero,
+        sourceRouteProvider: () => route,
+      );
+    });
+
+    FrameStats frame(int uiMs) => FrameStats(
+      frameNumber: 0,
+      uiDuration: Duration(milliseconds: uiMs),
+      rasterDuration: const Duration(milliseconds: 6),
+      timestamp: DateTime.now(),
+    );
+
+    void janky(int count) {
+      // 40 ms UI: over 2x the 16.7 ms budget, so every frame is severe.
+      for (var i = 0; i < count; i++) {
+        detector.addFrameForTest(frame(40));
+      }
+    }
+
+    void good(int count) {
+      for (var i = 0; i < count; i++) {
+        detector.addFrameForTest(frame(8));
+      }
+    }
+
+    Set<String?> jankIds() => detector.issues
+        .map((i) => i.stableId)
+        .where((id) => id == 'sustained_jank' || id == 'jank_detected')
+        .toSet();
+
+    test('markRouteEpoch removes both jank issues immediately', () {
+      janky(60);
+      expect(jankIds(), {'sustained_jank', 'jank_detected'});
+
+      detector.markRouteEpoch();
+      expect(jankIds(), isEmpty);
+      expect(
+        detector.frameBuffer.frames,
+        hasLength(60),
+        reason: 'The buffer is kept for FPS, verdicts and exports.',
+      );
+    });
+
+    test('fewer than 5 frames after the epoch stay silent', () {
+      janky(60);
+      detector.markRouteEpoch();
+      good(4);
+      expect(jankIds(), isEmpty);
+    });
+
+    test('good frames after the epoch are judged without the old jank', () {
+      janky(60);
+      detector.markRouteEpoch();
+      good(40);
+      expect(
+        jankIds(),
+        isEmpty,
+        reason: 'The whole buffer is 60 % janky; the slice is clean.',
+      );
+    });
+
+    test('jank after the epoch is judged on the slice and carries the '
+        'route', () {
+      good(100);
+      detector.markRouteEpoch();
+      route = '/b';
+      janky(60);
+      final sustained = detector.issues.singleWhere(
+        (i) => i.stableId == 'sustained_jank',
+      );
+      final jank = detector.issues.singleWhere(
+        (i) => i.stableId == 'jank_detected',
+      );
+      expect(sustained.extraTraceArgs!['bufferSize'], '60');
+      expect(sustained.extraTraceArgs!['observedSevereCount'], '60');
+      expect(jank.extraTraceArgs!['bufferSize'], '60');
+      expect(jank.extraTraceArgs!['observedJankPercent'], '100.00');
+      expect(sustained.sourceRoute, '/b');
+      expect(jank.sourceRoute, '/b');
+      expect(detector.frameBuffer.frames, hasLength(160));
+    });
+
+    test('percent is computed on the slice', () {
+      janky(100);
+      detector.markRouteEpoch();
+      // 16 good + 4 janky: 20 % of the slice; the whole buffer would be
+      // 87 %.
+      good(16);
+      janky(4);
+      final jank = detector.issues.singleWhere(
+        (i) => i.stableId == 'jank_detected',
+      );
+      expect(jank.extraTraceArgs!['bufferSize'], '20');
+      expect(jank.extraTraceArgs!['observedJankPercent'], '20.00');
+    });
+
+    test('issues without an epoch read the whole buffer', () {
+      good(30);
+      janky(10);
+      final jank = detector.issues.singleWhere(
+        (i) => i.stableId == 'jank_detected',
+      );
+      expect(jank.extraTraceArgs!['bufferSize'], '40');
+      expect(jank.sourceRoute, '/a');
+    });
+
+    test('reset clears the epoch', () {
+      good(100);
+      detector.markRouteEpoch();
+      detector.reset();
+      // A stale epoch of 100 against a counter restarted at 0 would hide
+      // every frame below.
+      janky(10);
+      expect(jankIds(), {'sustained_jank', 'jank_detected'});
+      expect(detector.issues.first.extraTraceArgs!['bufferSize'], '10');
+    });
+
+    test('dispose clears the epoch', () {
+      good(100);
+      detector.markRouteEpoch();
+      detector.dispose();
+      janky(10);
+      expect(jankIds(), {'sustained_jank', 'jank_detected'});
+    });
+
+    test('capture scenario (reset at begin) keeps the bufferSize '
+        'arithmetic', () {
+      final capture = FrameTimingDetector(captureMode: true);
+      for (var i = 0; i < 50; i++) {
+        capture.addFrameForTest(frame(8));
+      }
+      capture.markRouteEpoch();
+      capture.reset();
+      for (var i = 0; i < 15; i++) {
+        capture.addFrameForTest(frame(8));
+      }
+      for (var i = 0; i < 5; i++) {
+        capture.addFrameForTest(frame(20));
+      }
+      final jank = capture.issues.singleWhere(
+        (i) => i.stableId == 'jank_detected',
+      );
+      expect(jank.extraTraceArgs!['bufferSize'], '20');
+      expect(jank.extraTraceArgs!['observedJankCount'], '5');
+      expect(jank.extraTraceArgs!['observedJankPercent'], '25.00');
+    });
+
+    test('the epoch does not re-arm warmup', () {
+      final warm = FrameTimingDetector(
+        warmupDuration: const Duration(seconds: 3),
+      );
+      final start = DateTime(2026, 1, 1);
+      var t = start;
+      void add(int uiMs) {
+        t = t.add(const Duration(milliseconds: 100));
+        warm.addFrameForTest(
+          FrameStats(
+            frameNumber: 0,
+            uiDuration: Duration(milliseconds: uiMs),
+            rasterDuration: const Duration(milliseconds: 6),
+            timestamp: t,
+          ),
+        );
+      }
+
+      for (var i = 0; i < 40; i++) {
+        add(8); // 4 s: warmup over
+      }
+      warm.markRouteEpoch();
+      for (var i = 0; i < 10; i++) {
+        add(40);
+      }
+      expect(
+        warm.issues.map((i) => i.stableId),
+        containsAll(['sustained_jank', 'jank_detected']),
+      );
+    });
+
+    test('lifecyclePhase is unaffected by the epoch', () {
+      for (final (ageUs, phase) in [
+        (1000000, 'startup'),
+        (60000000, 'steady'),
+      ]) {
+        final d = FrameTimingDetector(
+          warmupDuration: Duration.zero,
+          appStartMonotonicUsForTest: () => Timeline.now - ageUs,
+        );
+        for (var i = 0; i < 20; i++) {
+          d.addFrameForTest(frame(8));
+        }
+        d.markRouteEpoch();
+        for (var i = 0; i < 10; i++) {
+          d.addFrameForTest(frame(40));
+        }
+        for (final issue in d.issues) {
+          expect(issue.extraTraceArgs!['lifecyclePhase'], phase);
+        }
+        expect(d.issues, isNotEmpty);
+      }
+    });
+
+    test('real FrameTiming batches honour the epoch', () {
+      const base = 1000000000;
+      List<FrameTiming> batch(int from, int count, int buildUs) => [
+        for (var i = from; i < from + count; i++)
+          FrameTiming(
+            vsyncStart: base + i * 16667,
+            buildStart: base + i * 16667 + 100,
+            buildFinish: base + i * 16667 + 100 + buildUs,
+            rasterStart: base + i * 16667 + 200 + buildUs,
+            rasterFinish: base + i * 16667 + 2200 + buildUs,
+            rasterFinishWallTime: base + i * 16667 + 2200 + buildUs,
+            frameNumber: i + 1,
+          ),
+      ];
+      detector.handleTimingsForTest(batch(0, 60, 40000));
+      expect(jankIds(), {'sustained_jank', 'jank_detected'});
+      detector.markRouteEpoch();
+      detector.handleTimingsForTest(batch(60, 30, 4000));
+      expect(jankIds(), isEmpty);
     });
   });
 

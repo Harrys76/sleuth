@@ -53,6 +53,18 @@ import '../vm/timeline_parser.dart';
 ///
 /// The tag is observable in capture-mode trace records and audit-gate
 /// replay; it is not serialized into saved JSON snapshots.
+///
+/// **Route epoch.** `sustained_jank` and `jank_detected` judge only the
+/// frames that arrived since the last [markRouteEpoch], which
+/// `SleuthController` calls when its scan loop sees a new route, and each
+/// emission carries the route it was computed on
+/// (`PerformanceIssue.sourceRoute`). The epoch is set on the first scan
+/// tick after navigation, so frames drawn between the push and that tick
+/// (at most one scan interval, including the transition) count toward
+/// the previous route. The first scan after launch is also a route
+/// change, so startup frames never count toward jank. The frame buffer
+/// itself is untouched: verdicts, FPS, cache trends and exports keep the
+/// full window.
 class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   FrameTimingDetector({
     int? warningThresholdMs,
@@ -64,8 +76,10 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     this.startupPhaseWindowSeconds = 5,
     this.onFrameStats,
     this.onFrame,
+    String? Function()? sourceRouteProvider,
     int? Function()? appStartMonotonicUsForTest,
-  }) : warningBudgetUs = warningThresholdMs != null
+  }) : _sourceRouteProvider = sourceRouteProvider ?? (() => null),
+       warningBudgetUs = warningThresholdMs != null
            ? warningThresholdMs * 1000
            : _budgetUsFromFpsTarget(fpsTarget),
        criticalBudgetUs = criticalThresholdMs != null
@@ -170,6 +184,38 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   /// presentation order. `SleuthController` uses it to fan frames out to
   /// [BaseDetector.processFrame].
   final void Function(FrameStats frame)? onFrame;
+
+  /// Supplies the route name stamped as `sourceRoute` on jank emissions.
+  final String? Function() _sourceRouteProvider;
+
+  /// Value of [_totalFramesSeen] when [markRouteEpoch] last ran, or null
+  /// when no epoch is set (the whole buffer is judged).
+  int? _routeEpochFrameNumber;
+
+  /// Starts a new jank window at the current frame and removes the
+  /// `sustained_jank` / `jank_detected` issues computed on the previous
+  /// window. Frames already in the buffer stay there (FPS, verdicts and
+  /// exports still read them) but no longer count toward jank. Warmup,
+  /// lifecycle phase and cache-trend state are untouched; [reset] is the
+  /// full clear.
+  void markRouteEpoch() {
+    _routeEpochFrameNumber = _totalFramesSeen;
+    _issues.removeWhere(
+      (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected',
+    );
+  }
+
+  /// Frames ingested since the last [markRouteEpoch] that are still in
+  /// the buffer, oldest first; the whole buffer when no epoch is set.
+  List<FrameStats> get _framesSinceRouteEpoch {
+    final frames = _buffer.frames;
+    final epoch = _routeEpochFrameNumber;
+    if (epoch == null) return frames;
+    final since = _totalFramesSeen - epoch;
+    if (since >= frames.length) return frames;
+    if (since <= 0) return const [];
+    return frames.sublist(frames.length - since);
+  }
 
   /// Returns `'startup'` when emission `Timeline.now` falls within the
   /// startup window after [Sleuth.dartEntryMonotonicUs], `'steady'`
@@ -490,6 +536,10 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   /// - Critical: ≥3 severe jank frames (>2x budget) in the buffer
   /// - Warning: >15% of recent frames are janky (> budget)
   ///
+  /// Both read the frames since the last [markRouteEpoch] (the whole
+  /// buffer when no epoch is set); the 5-frame minimum, percentages and
+  /// `bufferSize` apply to that slice.
+  ///
   /// **Parallel emission semantics (v0.19.6+).** When both gates are
   /// satisfied (severeCount ≥ 3 AND jankPercent > 15), BOTH stableIds
   /// fire concurrently. Each describes an independent aspect of the
@@ -513,7 +563,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     // route init, Dart VM warmup produce non-actionable jank).
     if (!_isPastWarmup()) return;
 
-    final frames = _buffer.frames;
+    final frames = _framesSinceRouteEpoch;
     if (frames.length < 5) return; // Need enough data
 
     // Single-pass: count jank categories and find worst frame (v9.10).
@@ -530,6 +580,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     final bottleneck = _classifyJankBottleneck(frames);
 
     final lifecyclePhase = _classifyLifecyclePhase();
+    final sourceRoute = _sourceRouteProvider();
     if (severeCount >= 3) {
       final (hint1, effort1) = FixHintBuilder.sustainedJank();
       // Wall-clock micros plus instance-monotonic counter — same shape as
@@ -554,6 +605,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           fixEffort: effort1,
           detectedAt: DateTime.fromMicrosecondsSinceEpoch(identity1),
           dedupIdentityMicros: identity1,
+          sourceRoute: sourceRoute,
           extraTraceArgs: {
             'observedSevereCount': severeCount.toString(),
             'observedJankPercent': jankPercent.toStringAsFixed(2),
@@ -586,6 +638,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           fixEffort: effort2,
           detectedAt: DateTime.fromMicrosecondsSinceEpoch(identity),
           dedupIdentityMicros: identity,
+          sourceRoute: sourceRoute,
           // Detector-observed axis values exported into trace event args so
           // the audit-gate can cross-check the operator's `magnitudeObserved`
           // (operator-typed claim) against what the detector actually saw at
@@ -857,12 +910,13 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     _consecutiveZeroCacheFrames = 0;
     _impellerDetected = false;
     _lastTimelineData = null;
+    _routeEpochFrameNumber = null;
     _resetCadence();
   }
 
   /// Capture-mode reset hook. Clears all per-leg state — buffer, ephemeral
-  /// `_issues`, warmup anchors, cache-trend counters, the vsync cadence
-  /// estimate — so back-to-back
+  /// `_issues`, warmup anchors, cache-trend counters, the route epoch, the
+  /// vsync cadence estimate — so back-to-back
   /// scenario legs cannot leak frames or counters from prior runs.
   ///
   /// **Preserves [_emissionSeq] across reset by design.** The audit gate's
@@ -883,6 +937,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     _consecutiveZeroCacheFrames = 0;
     _impellerDetected = false;
     _lastTimelineData = null;
+    _routeEpochFrameNumber = null;
     _resetCadence();
   }
 
@@ -924,7 +979,8 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     rationale:
         'Four stableIds pinned by hermetic reproducer: '
         '`sustained_jank` (≥3 severe frames in a 240-frame window), '
-        '`jank_detected` (>15% jank frames, ≥5-frame sample), '
+        '`jank_detected` (>15% jank frames, ≥5-frame sample), both '
+        'judged on the frames since the last route epoch, '
         '`raster_cache_thrashing` (≥15 consecutive frames of '
         '≥20% picture-cache-count fluctuation, seeded by '
         '`previous.pictureCacheCount > 5`), and `raster_cache_growing` '

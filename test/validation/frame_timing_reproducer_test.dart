@@ -366,6 +366,60 @@ void main() {
     });
   });
 
+  group('FrameTimingDetector reproducer — route epoch', () {
+    late FrameTimingDetector detector;
+    late String route;
+
+    setUp(() {
+      route = '/a';
+      detector = FrameTimingDetector(
+        warmupDuration: Duration.zero,
+        sourceRouteProvider: () => route,
+      );
+    });
+
+    tearDown(() => detector.dispose());
+
+    Iterable<PerformanceIssue> jank() => detector.issues.where(
+      (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected',
+    );
+
+    test('severe jank on route A does not survive the epoch', () {
+      for (var i = 0; i < 20; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 33));
+      }
+      expect(jank(), hasLength(2));
+      expect(jank().map((i) => i.sourceRoute), everyElement('/a'));
+
+      detector.markRouteEpoch();
+      route = '/b';
+      expect(jank(), isEmpty);
+
+      for (var i = 20; i < 60; i++) {
+        detector.addFrameForTest(makeStats(frameNumber: i));
+      }
+      expect(jank(), isEmpty);
+    });
+
+    test('real FrameTiming pipeline — jank after the epoch is attributed '
+        'to the new route with the slice as bufferSize', () {
+      detector.handleTimingsForTest([
+        for (var i = 0; i < 30; i++) makeTiming(frameNumber: i),
+      ]);
+      detector.markRouteEpoch();
+      route = '/b';
+      detector.handleTimingsForTest([
+        for (var i = 30; i < 40; i++) makeTiming(frameNumber: i, totalMs: 40),
+      ]);
+      final sustained = jank().singleWhere(
+        (i) => i.stableId == 'sustained_jank',
+      );
+      expect(sustained.sourceRoute, '/b');
+      expect(sustained.extraTraceArgs!['bufferSize'], '10');
+      expect(sustained.extraTraceArgs!['observedSevereCount'], '10');
+    });
+  });
+
   group('FrameTimingDetector reproducer — raster_cache_thrashing', () {
     late FrameTimingDetector detector;
 
