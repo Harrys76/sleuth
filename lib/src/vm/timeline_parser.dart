@@ -250,6 +250,19 @@ class TimelineParser {
   /// so the outer scope's E is the only one that contributes to the
   /// duration list. Nesting is detected at the per-tid stack level so
   /// no name comparison is required.
+  /// Longest begin/end span the reconstruction accepts as one scope.
+  ///
+  /// Under heavy jank the VM timeline ring buffer drops events. A dropped
+  /// `B` leaves a later `E` to pop an older begin, and on a quiet screen
+  /// that span is the gap between two frames (seconds), which read as a
+  /// multi-second BUILD or raster scope. A real scope of that length would
+  /// freeze the UI thread, which `jank_detected` / `sustained_jank`
+  /// report from frame timing instead. Pairs longer than this are
+  /// discarded, and pending begins older than this are evicted when a new
+  /// begin arrives so the stale entry cannot keep every later outermost
+  /// pair from being credited.
+  static const int maxReconstructedPhaseUs = 2000000;
+
   static void _reconstructPhaseBE({
     required Map<String, dynamic> json,
     required String ph,
@@ -262,6 +275,10 @@ class TimelineParser {
     if (ph == 'B') {
       if (ts == null) return;
       final stack = pending[tid] ??= <Map<String, dynamic>>[];
+      stack.removeWhere((b) {
+        final bTs = b['ts'] as int?;
+        return bTs != null && ts - bTs > maxReconstructedPhaseUs;
+      });
       stack.add(json);
       if (stack.length > _pendingPhaseBeginsCapPerTid) {
         stack.removeAt(0);
@@ -273,8 +290,10 @@ class TimelineParser {
       final beginJson = stack.removeLast();
       final beginTs = beginJson['ts'] as int?;
       if (beginTs == null || ts == null || ts < beginTs) return;
+      final dur = ts - beginTs;
+      if (dur > maxReconstructedPhaseUs) return; // mis-paired after a loss
       if (stack.isNotEmpty) return; // not outermost — skip emission
-      onOutermost(beginJson, beginTs, ts - beginTs);
+      onOutermost(beginJson, beginTs, dur);
     }
   }
 
@@ -494,6 +513,12 @@ class TimelineParser {
             buildCount++;
             if (ts != null) {
               final stack = pendingBuilds[tid] ??= <Map<String, dynamic>>[];
+              // A begin older than the span cap lost its end; evict it so
+              // it cannot pair with a much later end.
+              stack.removeWhere((b) {
+                final bTs = b['ts'] as int?;
+                return bTs != null && ts - bTs > maxReconstructedPhaseUs;
+              });
               stack.add(json);
               // Drop oldest unmatched begin if cap exceeded — prevents
               // unbounded growth under sustained orphan-B emission.
@@ -507,7 +532,10 @@ class TimelineParser {
             if (stack != null && stack.isNotEmpty) {
               final beginJson = stack.removeLast();
               final beginTs = beginJson['ts'] as int?;
-              if (beginTs != null && ts != null && ts >= beginTs) {
+              if (beginTs != null &&
+                  ts != null &&
+                  ts >= beginTs &&
+                  ts - beginTs <= maxReconstructedPhaseUs) {
                 final dur = ts - beginTs;
                 buildScopes.add(dur);
                 final args = beginJson['args'] as Map<String, dynamic>?;

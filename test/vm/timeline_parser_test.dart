@@ -854,6 +854,73 @@ void main() {
     });
   });
 
+  group('TimelineParser reconstruction span cap', () {
+    TimelineEvent be(String name, String ph, int ts, {int tid = 1}) =>
+        TimelineEvent.parse({
+          'name': name,
+          'ph': ph,
+          'ts': ts,
+          'tid': tid,
+          'pid': 1,
+        })!;
+
+    test('a BUILD begin paired with an end seconds later is discarded', () {
+      final pending = <int, List<Map<String, dynamic>>>{};
+      TimelineParser.parse([be('BUILD', 'B', 0)], pendingBuildBegins: pending);
+      final data = TimelineParser.parse([
+        be('BUILD', 'E', TimelineParser.maxReconstructedPhaseUs + 1),
+      ], pendingBuildBegins: pending);
+      expect(data.buildScopeDurations, isEmpty);
+      expect(data.phaseEvents, isEmpty);
+    });
+
+    test('a BUILD pair at the cap is still credited', () {
+      final data = TimelineParser.parse([
+        be('BUILD', 'B', 0),
+        be('BUILD', 'E', TimelineParser.maxReconstructedPhaseUs),
+      ]);
+      expect(data.buildScopeDurations, [
+        TimelineParser.maxReconstructedPhaseUs,
+      ]);
+    });
+
+    test('a stale BUILD begin is evicted when a new begin arrives', () {
+      final pending = <int, List<Map<String, dynamic>>>{};
+      // Lost end for the first begin; the next frame starts 3 s later.
+      TimelineParser.parse([be('BUILD', 'B', 0)], pendingBuildBegins: pending);
+      final data = TimelineParser.parse([
+        be('BUILD', 'B', 3000000),
+        be('BUILD', 'E', 3012000),
+      ], pendingBuildBegins: pending);
+      expect(data.buildScopeDurations, [12000]);
+      expect(pending[1], isEmpty);
+    });
+
+    test('a raster begin paired seconds later is discarded', () {
+      final pending = <int, List<Map<String, dynamic>>>{};
+      TimelineParser.parse([
+        be('GPURasterizer::Draw', 'B', 0, tid: 7),
+      ], pendingRasterBegins: pending);
+      final data = TimelineParser.parse([
+        be('GPURasterizer::Draw', 'E', 5000000, tid: 7),
+      ], pendingRasterBegins: pending);
+      expect(data.rasterDurations, isEmpty);
+    });
+
+    test('a raster begin older than the cap is evicted on the next begin', () {
+      final pending = <int, List<Map<String, dynamic>>>{};
+      TimelineParser.parse([
+        be('GPURasterizer::Draw', 'B', 0, tid: 7),
+      ], pendingRasterBegins: pending);
+      final data = TimelineParser.parse([
+        be('GPURasterizer::Draw', 'B', 4000000, tid: 7),
+        be('GPURasterizer::Draw', 'E', 4009000, tid: 7),
+      ], pendingRasterBegins: pending);
+      // Outermost after eviction, so the 9 ms scope is credited.
+      expect(data.rasterDurations, [9000]);
+    });
+  });
+
   group('TimelineParser enrichment args', () {
     test('buildScope event extracts enrichment with prefixed keys', () {
       final events = [
