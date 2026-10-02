@@ -1247,24 +1247,27 @@ class IssueExplanationBuilder {
       displayName: 'Non-Lazy List',
       category: IssueCategory.build,
       whatItIs:
-          '{widgetName} was found with {count} children built eagerly '
-          'instead of lazily. This means every item in the list is '
-          'constructed and laid out immediately, even items far off-screen.',
+          '{widgetName} was found with {count} children passed as a list. '
+          'Every child widget is allocated on each parent rebuild, '
+          'bypassing lazy construction. Under SingleChildScrollView + '
+          'Column/Row, every child is also built and laid out, even far '
+          'off-screen.',
       readingTheData:
           'Like a restaurant that cooks every menu item before any customer '
           'orders — most of the food goes to waste.\n\n'
-          '• Child count — Number of eagerly-built children. Normal: <20. '
-          'Alert: >50 children (default, configurable).\n\n'
+          '• Child count — Number of children allocated up front. Normal: '
+          '<20. Alert: >50 children (default, configurable); critical '
+          'above 3× the threshold (>150).\n\n'
           '• Widget type — Whether it is a ListView, Column, or Row. '
           'ListView(children: [...]) is the most common offender.\n\n'
           '• Source: Structural tree walk.',
       whyItMatters:
           'Eager list construction wastes memory and CPU. A list with 1,000 '
-          'items builds all 1,000 widgets upfront, even though only ~10 are '
-          'visible. This causes slow initial render and high memory usage.',
+          'items allocates all 1,000 child widgets on every parent rebuild, '
+          'even though only ~10 are visible. This causes slow initial render and high memory usage.',
       howToFix:
           'Replace ListView(children: [...]) with ListView.builder():\n\n'
-          'Before (eager — builds all items):\n'
+          'Before (eager — allocates every item on each rebuild):\n'
           '  ListView(children: items.map((i) => ItemTile(i)).toList())\n\n'
           'After (lazy — builds only visible items):\n'
           '  ListView.builder(\n'
@@ -2146,7 +2149,8 @@ class IssueExplanationBuilder {
           'Like using a tape measure on every book to figure out the shelf '
           'height — instead of just stacking books as they fit.\n\n'
           '• Child count — Items in the shrinkWrapped list. Normal: <10. '
-          'Alert: >20 items with shrinkWrap inside a sliver.\n\n'
+          'Alert: >20 items with shrinkWrap inside a sliver, or a builder '
+          'with no itemCount.\n\n'
           '• Build cost — All children are built and measured upfront, '
           'defeating the lazy rendering that slivers are designed for.\n\n'
           '• Source: Structural tree walk.',

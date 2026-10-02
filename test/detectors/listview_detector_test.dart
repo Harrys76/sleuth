@@ -116,10 +116,9 @@ void main() {
       expect(detector.issues.first.severity, IssueSeverity.critical);
     });
 
-    testWidgets('highlight critical severity at > 2x threshold', (
-      tester,
-    ) async {
-      // 105 children: issue is warning (<=150), but highlight is critical (>100)
+    testWidgets('highlight agrees with issue: 105 children is warning '
+        '(critical only above 3x threshold)', (tester) async {
+      // 105 children: > 2x but <= 3x the 50-child threshold.
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -136,7 +135,7 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.issues.first.severity, IssueSeverity.warning);
-      expect(detector.highlights.first.severity, IssueSeverity.critical);
+      expect(detector.highlights.first.severity, IssueSeverity.warning);
     });
 
     testWidgets('detects Row inside SingleChildScrollView', (tester) async {
@@ -333,8 +332,9 @@ void main() {
         expect(detector.issues.first.severity, IssueSeverity.critical);
       });
 
-      testWidgets('highlight critical at > 2x threshold', (tester) async {
-        // 105 children: issue is warning (<=150), but highlight is critical (>100)
+      testWidgets('highlight agrees with issue: 105 children is warning '
+          '(critical only above 3x threshold)', (tester) async {
+        // 105 children: > 2x but <= 3x the 50-child threshold.
         await tester.pumpWidget(
           Directionality(
             textDirection: TextDirection.ltr,
@@ -349,7 +349,7 @@ void main() {
         detector.scanTree(tester.element(find.byType(Directionality)));
 
         expect(detector.issues.first.severity, IssueSeverity.warning);
-        expect(detector.highlights.first.severity, IssueSeverity.critical);
+        expect(detector.highlights.first.severity, IssueSeverity.warning);
       });
 
       testWidgets('confidence and category', (tester) async {
@@ -472,7 +472,8 @@ void main() {
         expect(detector.issues.first.severity, IssueSeverity.critical);
       });
 
-      testWidgets('highlight critical at > 2x threshold', (tester) async {
+      testWidgets('highlight agrees with issue: 105 children is warning '
+          '(critical only above 3x threshold)', (tester) async {
         await tester.pumpWidget(
           Directionality(
             textDirection: TextDirection.ltr,
@@ -488,7 +489,7 @@ void main() {
         detector.scanTree(tester.element(find.byType(Directionality)));
 
         expect(detector.issues.first.severity, IssueSeverity.warning);
-        expect(detector.highlights.first.severity, IssueSeverity.critical);
+        expect(detector.highlights.first.severity, IssueSeverity.warning);
       });
     });
 

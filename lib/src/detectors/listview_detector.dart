@@ -25,6 +25,10 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
       );
 
   final int childThreshold;
+
+  /// `sliver_to_box_adapter_shrinkwrap` fires only above this many
+  /// children (or when the count is unbounded).
+  static const _shrinkWrapMinChildCount = 20;
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   bool _isEnabled = true;
@@ -112,9 +116,17 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
       }
 
       // --- Check C: shrinkWrap scrollable inside SliverToBoxAdapter ---
+      // Only when the child count is unbounded or large enough for eager
+      // measurement to matter.
+      final delegateCount = switch (delegate) {
+        final SliverChildListDelegate d => d.children.length,
+        final SliverChildBuilderDelegate d => d.childCount,
+        _ => null,
+      };
       if (_insideSliverToBoxAdapter > 0 &&
           (widget as BoxScrollView).shrinkWrap &&
-          !isNonLazy) {
+          !isNonLazy &&
+          (delegateCount == null || delegateCount > _shrinkWrapMinChildCount)) {
         _emitSliverToBoxAdapterShrinkWrapIssue(
           element,
           widget is ListView ? 'ListView' : 'GridView',
@@ -196,7 +208,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
           WidgetHighlight(
             rect: rect,
             widgetName: widgetName,
-            severity: childCount > childThreshold * 2
+            severity: childCount > childThreshold * 3
                 ? IssueSeverity.critical
                 : IssueSeverity.warning,
             detectorName: 'Non-lazy',
@@ -221,9 +233,10 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         confidenceReason: 'Structural scan only — non-lazy list pattern found',
         title: 'Non-lazy $widgetName: $childCount children',
         detail:
-            '$widgetName with $childCount children builds all items at '
-            'once instead of lazily. Use $widgetName.builder for '
-            'virtualized rendering.\n\n  • $location',
+            '$widgetName with $childCount children allocates every child '
+            'widget on each parent rebuild, bypassing lazy construction. '
+            'Use $widgetName.builder so only visible children are '
+            'created.\n\n  • $location',
         fixHint: hint,
         fixEffort: effort,
         widgetName: widgetName,
@@ -250,7 +263,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
           WidgetHighlight(
             rect: rect,
             widgetName: widgetName,
-            severity: childCount > childThreshold * 2
+            severity: childCount > childThreshold * 3
                 ? IssueSeverity.critical
                 : IssueSeverity.warning,
             detectorName: 'Non-lazy',
@@ -276,9 +289,10 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         confidenceReason: 'Structural scan only — non-lazy list pattern found',
         title: 'Non-lazy $widgetName: $childCount children',
         detail:
-            '$widgetName with SliverChildListDelegate builds all '
-            '$childCount children at once instead of lazily. Use '
-            '$widgetName.builder for virtualized rendering.\n\n  • $location',
+            '$widgetName with SliverChildListDelegate allocates all '
+            '$childCount child widgets on each parent rebuild, bypassing '
+            'lazy construction. Use $widgetName.builder so only visible '
+            'children are created.\n\n  • $location',
         fixHint: hint,
         fixEffort: effort,
         widgetName: widgetName,
@@ -334,7 +348,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
           WidgetHighlight(
             rect: rect,
             widgetName: 'SliverToBoxAdapter',
-            severity: childCount > childThreshold * 2
+            severity: childCount > childThreshold * 3
                 ? IssueSeverity.critical
                 : IssueSeverity.warning,
             detectorName: 'Eager Sliver',
@@ -362,8 +376,9 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
             'with $childCount children',
         detail:
             'SliverToBoxAdapter wrapping a $childType with $childCount '
-            'children builds all items eagerly, defeating CustomScrollView '
-            'lazy loading. Replace with SliverList.builder.\n\n  • $location',
+            'children allocates and lays out every child on each parent '
+            'rebuild, bypassing CustomScrollView lazy construction. Replace '
+            'with SliverList.builder.\n\n  • $location',
         fixHint: hint,
         fixEffort: effort,
         widgetName: 'SliverToBoxAdapter',
@@ -505,7 +520,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
                 WidgetHighlight(
                   rect: rect,
                   widgetName: 'SingleChildScrollView',
-                  severity: directChildCount > childThreshold * 2
+                  severity: directChildCount > childThreshold * 3
                       ? IssueSeverity.critical
                       : IssueSeverity.warning,
                   detectorName: 'Non-lazy',
@@ -531,8 +546,9 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
                   'Non-lazy List: ${widget.runtimeType} with $directChildCount children',
               detail:
                   'SingleChildScrollView + ${widget.runtimeType} with '
-                  '$directChildCount children builds all items at once '
-                  'instead of lazily.\n\n  • $location',
+                  '$directChildCount children allocates and lays out every '
+                  'child on each parent rebuild, bypassing lazy '
+                  'construction.\n\n  • $location',
               fixHint: hint,
               fixEffort: effort,
               widgetName: 'SingleChildScrollView',
@@ -578,7 +594,8 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         'sliver_to_box_adapter_large (Column subtree above threshold), '
         'sliver_to_box_adapter_shrinkwrap (inner ListView with '
         'shrinkWrap:true inside SliverToBoxAdapter fires when '
-        '!isNonLazy; shrinkWrap:false negative; many list-delegate '
+        '!isNonLazy and the delegate child count is null or > 20; '
+        '5-child negative; shrinkWrap:false negative; many list-delegate '
         'children route to Check A non_lazy_listview instead, pinning '
         'the isNonLazy bypass), and sliver_fill_remaining_scrollable '
         'as a '

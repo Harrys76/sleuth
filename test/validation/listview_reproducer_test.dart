@@ -21,10 +21,11 @@
 //   - `sliver_to_box_adapter_large` — SliverToBoxAdapter wrapping a
 //     Column/Row above `childThreshold`.
 //   - `sliver_to_box_adapter_shrinkwrap` — SliverToBoxAdapter wrapping
-//     a ListView/GridView with `shrinkWrap: true` AND `!isNonLazy` (few
-//     children in a SliverChildListDelegate, OR any count via .builder).
-//     Three-test triad pins the gate: shrinkWrap true fires, shrinkWrap
-//     false silent, many-children-via-list-delegate fires Check A
+//     a ListView/GridView with `shrinkWrap: true` AND `!isNonLazy` AND a
+//     delegate child count that is null (unbounded builder) or > 20.
+//     Tests pin the gate: 25 list-delegate children fire, 5 stay silent,
+//     an unbounded builder fires, shrinkWrap false is silent, and
+//     many-children-via-list-delegate fires Check A
 //     (`non_lazy_listview`) NOT Check C (isNonLazy bypass).
 //   - `sliver_fill_remaining_scrollable` — SliverFillRemaining with
 //     `hasScrollBody: false` wrapping a scrollable child. Structural
@@ -37,6 +38,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/listview_detector.dart';
+import 'package:sleuth/src/models/performance_issue.dart';
 
 void main() {
   group('ListviewDetector reproducer — non_lazy_listview', () {
@@ -553,11 +555,64 @@ void main() {
       detector = ListviewDetector(childThreshold: 5);
     });
 
-    testWidgets('shrinkWrap: true + few list-delegate children inside '
+    Future<List<PerformanceIssue>> pumpShrinkWrap(
+      WidgetTester tester,
+      ListView inner,
+    ) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            width: 200,
+            height: 400,
+            child: CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(child: SizedBox(height: 200, child: inner)),
+              ],
+            ),
+          ),
+        ),
+      );
+      detector.scanTree(tester.element(find.byType(Directionality)));
+      return detector.issues
+          .where((i) => i.stableId == 'sliver_to_box_adapter_shrinkwrap')
+          .toList();
+    }
+
+    testWidgets('shrinkWrap: true + 5 list-delegate children stays silent '
+        '(count gate: > 20)', (tester) async {
+      final issues = await pumpShrinkWrap(
+        tester,
+        ListView(
+          shrinkWrap: true,
+          children: List.generate(
+            5,
+            (i) => SizedBox(height: 40, child: Text('$i')),
+          ),
+        ),
+      );
+      expect(issues, isEmpty);
+    });
+
+    testWidgets('shrinkWrap: true + unbounded builder (childCount null) '
+        'fires', (tester) async {
+      final issues = await pumpShrinkWrap(
+        tester,
+        ListView.builder(
+          shrinkWrap: true,
+          itemBuilder: (_, i) => SizedBox(height: 40, child: Text('$i')),
+        ),
+      );
+      expect(issues, hasLength(1));
+    });
+
+    testWidgets('shrinkWrap: true + 25 list-delegate children inside '
         'SliverToBoxAdapter fires', (tester) async {
       // Check C gate: `_insideSliverToBoxAdapter > 0 && shrinkWrap &&
-      // !isNonLazy`. Few children (3 < 5) in SliverChildListDelegate keeps
-      // isNonLazy false so !isNonLazy is true and the gate fires.
+      // !isNonLazy && (childCount == null || childCount > 20)`. Default
+      // childThreshold (50) keeps 25 list-delegate children non-lazy-false
+      // so Check C, not Check A, owns the finding.
+      detector = ListviewDetector();
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -574,7 +629,7 @@ void main() {
                     child: ListView(
                       shrinkWrap: true,
                       children: List.generate(
-                        3,
+                        25,
                         (i) => SizedBox(height: 40, child: Text('$i')),
                       ),
                     ),
