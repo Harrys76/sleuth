@@ -22,7 +22,8 @@ void main() {
       expect(result!.whatItIs, contains('80%'));
       expect(result.readingTheData, isNotNull);
       expect(result.readingTheData, contains('80%'));
-      expect(result.whyItMatters, contains('GC'));
+      expect(result.whatItIs, contains('memoryBudgetBytes'));
+      expect(result.whyItMatters, contains('jetsam'));
       expect(result.howToFix, contains('cacheWidth'));
     });
 

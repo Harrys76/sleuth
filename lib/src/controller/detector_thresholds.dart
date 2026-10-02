@@ -22,6 +22,7 @@ class DetectorThresholds {
     this.gpuPressureRatio = 2.0,
     this.memoryGrowthBytesPerSec = 512000,
     this.memoryCapacityPercent = 0.80,
+    this.memoryBudgetBytes,
     this.setStateScopeOwnershipPercent = 0.5,
     this.keepAliveMax = 5,
     this.fontLoadingMaxFamilies = 3,
@@ -106,6 +107,10 @@ class DetectorThresholds {
        assert(
          memoryCapacityPercent >= 0.0 && memoryCapacityPercent <= 1.0,
          'memoryCapacityPercent must be in the range 0.0..1.0.',
+       ),
+       assert(
+         memoryBudgetBytes == null || memoryBudgetBytes > 0,
+         'memoryBudgetBytes must be > 0 when set.',
        ),
        assert(
          setStateScopeOwnershipPercent >= 0.0 &&
@@ -226,17 +231,36 @@ class DetectorThresholds {
   /// for a stricter leak hunt.
   final int memoryGrowthBytesPerSec;
 
-  /// Heap usage as a fraction of capacity (0.0–1.0) above which
-  /// `MemoryPressureDetector` fires a near-capacity warning.
+  /// Fraction of [memoryBudgetBytes] (0.0–1.0) at or above which process
+  /// memory (RSS) counts toward `heap_near_capacity`. Has no effect while
+  /// [memoryBudgetBytes] is null.
   ///
-  /// **Default:** 0.80 (80 %). Once the Dart heap exceeds 80 % of
-  /// capacity, GC frequency rises sharply and the app is one allocation
-  /// burst away from a stall.
+  /// **Default:** 0.80 (80 %). The issue fires when RSS sits at or above
+  /// this fraction of the budget for 4 of the last 5 memory polls while
+  /// `heap_growing` is active: the process is near the ceiling and still
+  /// climbing.
   ///
-  /// **Raise this** (e.g. 0.90) for memory-tight apps that intentionally
-  /// run close to the limit. **Lower this** (e.g. 0.70) for an earlier
-  /// warning.
+  /// **Raise this** (e.g. 0.90) when the budget is already conservative.
+  /// **Lower this** (e.g. 0.70) for an earlier warning.
   final double memoryCapacityPercent;
+
+  /// Process memory budget in bytes that `heap_near_capacity` measures
+  /// RSS against, typically the OS kill limit of the smallest device you
+  /// support.
+  ///
+  /// **Default:** null, which disables `heap_near_capacity`. Dart's own
+  /// `heapCapacity` grows with usage, so the heap usage/capacity ratio
+  /// sits at 85–97 % in steady state and cannot tell a healthy app from
+  /// one about to be killed; only an absolute budget can.
+  ///
+  /// **Set this** to the device's memory limit when you know it. iOS
+  /// terminates foreground apps at roughly half of physical RAM on
+  /// 2–4 GB devices (`os_proc_available_memory()` reports the remaining
+  /// headroom at runtime); on Android, `ActivityManager.getMemoryClass()`
+  /// bounds the Java heap but native memory counts toward the
+  /// low-memory killer, so a figure taken from a profiling session on
+  /// the target device is the safest budget.
+  final int? memoryBudgetBytes;
 
   /// Minimum proportion of the owning subtree that must be dirty for
   /// `SetStateScopeDetector` to promote a rebuild hot spot into an issue.

@@ -56,6 +56,28 @@ void main() {
       '>${config.gcRateThresholdPerMin}/min',
     ),
     (
+      'gc_pressure',
+      _Field.readingTheData,
+      'more than ${config.gcRateThresholdPerMin ~/ 6} cycles in 10 seconds',
+    ),
+    (
+      'heap_near_capacity',
+      _Field.whatItIs,
+      '${(thresholds.memoryCapacityPercent * 100).round()}% or more of the '
+          'memory budget',
+    ),
+    (
+      'heap_near_capacity',
+      _Field.readingTheData,
+      '≥${(thresholds.memoryCapacityPercent * 100).round()}%',
+    ),
+    if (thresholds.memoryBudgetBytes == null)
+      (
+        'heap_near_capacity',
+        _Field.whatItIs,
+        'without one this issue never fires',
+      ),
+    (
       'request_frequency',
       _Field.readingTheData,
       '>${config.requestFrequencyLimit} per',

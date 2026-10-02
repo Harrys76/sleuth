@@ -47,4 +47,16 @@ void main() {
           'vm_service contract — its absence indicates malformed JSON',
     );
   });
+
+  test('gcType is readable from the raw event map', () {
+    // The controller reads `event.json?['gcType']` rather than a typed
+    // accessor so the split works on every supported vm_service major.
+    final file = File('test/detectors/_fixtures/gc_event_real.json');
+    final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+    for (final type in ['Scavenge', 'MarkSweep', 'MarkCompact']) {
+      final event = vm.Event.parse({...json, 'gcType': type})!;
+      expect(event.json?['gcType'], type);
+    }
+    expect(vm.Event.parse(json)!.json?['gcType'], isNull);
+  });
 }

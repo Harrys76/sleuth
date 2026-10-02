@@ -11,6 +11,7 @@ void main() {
       expect(t.gpuPressureRatio, 2.0);
       expect(t.memoryGrowthBytesPerSec, 512000);
       expect(t.memoryCapacityPercent, 0.80);
+      expect(t.memoryBudgetBytes, isNull);
       expect(t.setStateScopeOwnershipPercent, 0.5);
       expect(t.keepAliveMax, 5);
       expect(t.fontLoadingMaxFamilies, 3);
@@ -23,6 +24,7 @@ void main() {
         gpuPressureRatio: 3.0,
         memoryGrowthBytesPerSec: 256000,
         memoryCapacityPercent: 0.70,
+        memoryBudgetBytes: 1500000000,
         setStateScopeOwnershipPercent: 0.3,
         keepAliveMax: 10,
         fontLoadingMaxFamilies: 1,
@@ -32,9 +34,21 @@ void main() {
       expect(t.gpuPressureRatio, 3.0);
       expect(t.memoryGrowthBytesPerSec, 256000);
       expect(t.memoryCapacityPercent, 0.70);
+      expect(t.memoryBudgetBytes, 1500000000);
       expect(t.setStateScopeOwnershipPercent, 0.3);
       expect(t.keepAliveMax, 10);
       expect(t.fontLoadingMaxFamilies, 1);
+    });
+
+    test('memoryBudgetBytes must be positive when set', () {
+      expect(
+        () => DetectorThresholds(memoryBudgetBytes: 0),
+        throwsA(isA<AssertionError>()),
+      );
+      expect(
+        () => DetectorThresholds(memoryBudgetBytes: -1),
+        throwsA(isA<AssertionError>()),
+      );
     });
 
     test('is const-constructable', () {

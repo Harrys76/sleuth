@@ -73,7 +73,7 @@ void main() {
 
       // Sample from different categories
       expect(find.text('Sustained Jank'), findsOneWidget);
-      expect(find.text('Heap Near Capacity'), findsOneWidget);
+      expect(find.text('Memory Near Budget'), findsOneWidget);
       expect(find.text('Shader Compilation'), findsOneWidget);
     });
 

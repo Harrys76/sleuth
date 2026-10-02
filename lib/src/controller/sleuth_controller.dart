@@ -818,6 +818,7 @@ class SleuthController {
       warmupDurationMs: config.memoryWarmupDurationMs,
       growthThresholdBytesPerSec: config.thresholds.memoryGrowthBytesPerSec,
       capacityThresholdPercent: config.thresholds.memoryCapacityPercent,
+      memoryBudgetBytes: config.thresholds.memoryBudgetBytes,
       gcRateThresholdPerMin: config.gcRateThresholdPerMin,
     )..isEnabled = enabled.contains(DetectorType.memoryPressure);
 
@@ -3735,8 +3736,12 @@ class SleuthController {
     // Note: [data.gcEvents] is still consumed by [_gcEventBuffer] for the
     // export-enrichment path (captured sub-phase spans), which is a
     // legitimate use of the over-counted list and intentionally unchanged.
+    //
+    // `gcType` is read from the raw event map: the typed `Event.gcType`
+    // accessor is not available on every supported `vm_service` major.
     if (_disposed) return;
-    _memoryPressure.recordGcCycle();
+    final gcType = event.json?['gcType'];
+    _memoryPressure.recordGcCycle(gcType: gcType is String ? gcType : null);
   }
 
   /// Attach pending-request context to a verdict if requests are in-flight.
@@ -4747,7 +4752,7 @@ class SleuthConfig {
     this.largeResponseThresholdBytes = 1048576,
     this.networkExcludePatterns,
     this.memoryWarmupDurationMs = 3000,
-    this.gcRateThresholdPerMin = 60,
+    this.gcRateThresholdPerMin = 180,
     this.frameTimingWarmupFrameCount = 0,
     this.frameTimingWarmupDuration = const Duration(seconds: 3),
     this.platformChannelDurationThresholdMs = 8,
@@ -5187,15 +5192,18 @@ class SleuthConfig {
   /// GC events per minute (extrapolated from a 10s sliding window) above
   /// which `gc_pressure` fires.
   ///
-  /// **Default:** 60. Dart's `EventStreams.kGC` emits one event per
-  /// every GC cycle, including high-frequency new-space scavenges. A
-  /// moderately allocating UI produces ≈30/min at steady state without
-  /// any real pressure, so the previous default of 30 fired on routine
-  /// animation rebuilds and incremental scrolling. 60/min clears the
-  /// young-gen scavenge baseline.
+  /// **Default:** 180 (3 per second sustained over the 10 s window).
+  /// Dart's `EventStreams.kGC` emits one event per GC cycle, new-space
+  /// scavenges included. An idle app with Sleuth attached produces 1 to
+  /// 2 scavenges per second from the VM-service poll traffic alone
+  /// (66 to 138 per minute measured on an iPhone 12); allocation churn
+  /// runs at thousands per minute. Each `gc_pressure` emission stamps
+  /// the scavenge / old-generation split of its window
+  /// (`scavengeCount`, `oldGenCount`).
   ///
-  /// **Set to 30** to opt back into the pre-v0.26.0 sensitivity if your
-  /// app relies on the older threshold for regression alerting.
+  /// **Lower this** (e.g. 60) for a stricter allocation audit on an app
+  /// whose idle GC rate you have measured. **Raise this** if idle
+  /// screens on your slowest device still cross the default.
   final int gcRateThresholdPerMin;
 
   /// Legacy frame-count gate for jank-evaluation warmup suppression.
@@ -5281,6 +5289,16 @@ class SleuthConfig {
 
   /// Detector-specific thresholds for fine-tuning performance detection.
   /// See [DetectorThresholds] for available parameters and defaults.
+  ///
+  /// `heap_near_capacity` is off until you set
+  /// [DetectorThresholds.memoryBudgetBytes] to the process memory limit
+  /// of your target device:
+  ///
+  /// ```dart
+  /// SleuthConfig(
+  ///   thresholds: DetectorThresholds(memoryBudgetBytes: 1500 * 1024 * 1024),
+  /// )
+  /// ```
   final DetectorThresholds thresholds;
 
   /// Optional AI chat adapter. When provided, an "Ask AI" button appears on

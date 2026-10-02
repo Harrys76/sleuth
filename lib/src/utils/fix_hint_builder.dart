@@ -442,10 +442,12 @@ class FixHintBuilder {
 
   static (String, FixEffort) heapNearCapacity() {
     return (
-      'Heap near capacity. Release image caches:\n'
+      'Process memory is near the configured budget and still growing. '
+          'Find the growth in the DevTools Memory view, then release image '
+          'caches:\n'
           'PaintingBinding.instance.imageCache.clear();\n'
-          'Dispose unused controllers and paginate large data sets. '
-          'Use DevTools Memory view for per-object investigation.',
+          'Decode images at display size (cacheWidth/cacheHeight), dispose '
+          'unused controllers and paginate large data sets.',
       FixEffort.involved,
     );
   }

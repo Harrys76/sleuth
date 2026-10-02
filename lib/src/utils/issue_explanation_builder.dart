@@ -471,12 +471,18 @@ class IssueExplanationBuilder {
           'Like a janitor who keeps interrupting a meeting to '
           'empty small trash cans — each visit is brief, but they add up and '
           'break concentration.\n\n'
-          '• GC/min — Garbage collection events per minute. '
-          'Normal: <10 idle, <20 during interaction. Alert: >60/min '
-          '(default; configurable via SleuthConfig.gcRateThresholdPerMin).\n\n'
-          '• The title number (e.g. "45 GC/min") is the rolling rate over '
-          'the monitoring window.\n\n'
-          '• Source: VM Timeline GC events.',
+          '• GC/min — Garbage collection cycles per minute, scavenges '
+          'included. An idle app with Sleuth attached runs about 60–140/min '
+          'because the VM-service polling itself allocates. Alert: >180/min '
+          '(default; configurable via SleuthConfig.gcRateThresholdPerMin), '
+          'i.e. more than 30 cycles in 10 seconds. Allocation churn runs at '
+          'thousands per minute.\n\n'
+          '• The title number (e.g. "240 GC/min") is the rate over the last '
+          '10 seconds. The detail splits it into scavenges (young '
+          'generation, cheap) and old-generation collections (mark-sweep / '
+          'mark-compact, longer pauses).\n\n'
+          '• Source: the VM service GC event stream, one event per '
+          'completed collection.',
       whyItMatters:
           'Frequent GC pauses cause micro-stutters — brief freezes under '
           '5ms that individually seem harmless but accumulate within a '
@@ -709,39 +715,51 @@ class IssueExplanationBuilder {
     ),
 
     'heap_near_capacity': (
-      displayName: 'Heap Near Capacity',
+      displayName: 'Memory Near Budget',
       category: IssueCategory.memory,
       whatItIs:
-          'The Dart heap is using more than 80% of its current capacity. '
-          'The Dart VM dynamically resizes the heap, but when usage '
-          'approaches capacity, GC runs more aggressively and the VM may '
-          'need to request more memory from the OS.',
+          'Process memory (RSS) has reached 80% or more of the memory '
+          'budget you configured, and the Dart heap is still growing. '
+          'The budget is opt-in (DetectorThresholds.memoryBudgetBytes); '
+          'without one this issue never fires.',
       readingTheData:
-          'Like a parking garage at 80% capacity — cars can still park, '
-          'but the attendant searches harder and exits get congested.\n\n'
-          '• Usage % — Heap used divided by heap capacity. Normal: <60%. '
-          'Alert: >80% (default, configurable).\n\n'
-          '• Usage / Capacity — Absolute values in MB. Capacity grows '
-          'dynamically; high usage at high capacity is concerning.\n\n'
-          '• Source: VM Service getMemoryUsage().',
+          'Like a fuel gauge with the reserve light on while the engine '
+          'is still burning faster than usual.\n\n'
+          '• RSS — Resident memory of the whole process: Dart heap, '
+          'decoded images, GPU resources and native plugin memory. This '
+          'is what the OS compares against its kill limit.\n\n'
+          '• Budget % — RSS divided by memoryBudgetBytes. Alert: ≥80% '
+          '(default, DetectorThresholds.memoryCapacityPercent) for 4 of '
+          'the last 5 memory polls while heap_growing is active.\n\n'
+          '• Why not the Dart heap ratio — Dart grows heap capacity with '
+          'usage, so used/capacity sits at 85–97% in a healthy app and '
+          'says nothing about how close the process is to being killed.'
+          '\n\n'
+          '• Choosing a budget — iOS terminates foreground apps at roughly '
+          'half of physical RAM on 2–4 GB devices '
+          '(os_proc_available_memory() reports the remaining headroom); '
+          'on Android the low-memory killer counts native memory too. A '
+          'figure measured on your lowest-end target device is the safest '
+          'budget.\n\n'
+          '• Source: VM Service getMemoryUsage() for the heap trend, '
+          'ProcessInfo.currentRss for RSS (unavailable on web).',
       whyItMatters:
-          'Near-capacity heap triggers more frequent and longer GC pauses '
-          'as the collector works harder to free space. On memory-constrained '
-          'devices, the OS may kill your app or other background apps to '
-          'reclaim memory. Users experience this as the app or their music '
-          'player being killed unexpectedly.',
+          'Above its memory limit the OS kills the app without warning '
+          '(iOS jetsam, Android low-memory killer). Users see the app '
+          'vanish or restart from scratch. Combined with active heap '
+          'growth, the remaining headroom is being spent right now.',
       howToFix:
-          'Reduce peak memory usage: clear image caches when navigating away '
-          'from image-heavy screens (PaintingBinding.instance.imageCache'
-          '.clear()), dispose large data structures when no longer needed, '
-          'decode images at display size using cacheWidth/cacheHeight rather '
-          'than full resolution. If heap stays high at idle, investigate for '
-          'memory leaks — objects retained beyond their useful lifetime.',
+          'Find what is growing first (see heap_growing and the DevTools '
+          'Memory view). Then reduce peak memory: clear image caches when '
+          'leaving image-heavy screens (PaintingBinding.instance.imageCache'
+          '.clear()), decode images at display size with cacheWidth/'
+          'cacheHeight, dispose large data structures and paginate big '
+          'lists.',
       whenToIgnore:
-          'Small heap sizes (< 100MB capacity) can hit 80% during normal '
-          'operation without real concern — the VM will expand. Focus on '
-          'apps where capacity is already large (> 200MB) or where heap '
-          'usage is growing steadily.',
+          'If the budget is set below what the device really allows, this '
+          'fires early; raise memoryBudgetBytes or memoryCapacityPercent. '
+          'A short climb while a screen loads its images settles once '
+          'heap_growing stops.',
       relatedIssues: [
         'excessive_keep_alive',
         'heap_growing',

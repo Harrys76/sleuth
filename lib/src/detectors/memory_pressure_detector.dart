@@ -11,7 +11,8 @@ import '../utils/fix_hint_builder.dart';
 /// Detects memory pressure using VM GC events and heap growth trends.
 ///
 /// **VM-Only Detector** — monitors GC frequency, heap growth rate via
-/// linear regression over a rolling window, and heap capacity usage.
+/// linear regression over a rolling window, and process memory (RSS)
+/// against an optional app-supplied budget.
 ///
 /// **Capture-mode timing.** Calling [reset] (auto-invoked by
 /// `Sleuth.markScenarioBegin` via `SleuthController.resetCaptureState`)
@@ -29,8 +30,13 @@ class MemoryPressureDetector extends BaseDetector
     this.warmupDurationMs = 3000,
     this.growthThresholdBytesPerSec = 512000,
     this.capacityThresholdPercent = 0.80,
+    this.memoryBudgetBytes,
     this.gcRateThresholdPerMin = _defaultGcRateThresholdPerMin,
-  }) : _clock = clock ?? DateTime.now,
+  }) : assert(
+         memoryBudgetBytes == null || memoryBudgetBytes > 0,
+         'memoryBudgetBytes must be > 0 when set.',
+       ),
+       _clock = clock ?? DateTime.now,
        super(
          type: DetectorType.memoryPressure,
          lifecycle: DetectorLifecycle.vmOnly,
@@ -45,22 +51,28 @@ class MemoryPressureDetector extends BaseDetector
   /// Heap growth rate (bytes/sec) above which heap_growing is flagged.
   final int growthThresholdBytesPerSec;
 
-  /// Heap usage as fraction of capacity (0.0–1.0) above which
-  /// heap_near_capacity is flagged.
+  /// Fraction of [memoryBudgetBytes] (0.0–1.0) at or above which process
+  /// RSS counts toward `heap_near_capacity`.
   final double capacityThresholdPercent;
 
+  /// Process memory budget in bytes for `heap_near_capacity`. Null (the
+  /// default) disables the issue: without a known budget there is no
+  /// ceiling to be near. Dart's own `heapCapacity` grows with usage, so
+  /// the usage/capacity ratio sits at 0.85–0.97 in steady state and says
+  /// nothing about how close the process is to being killed.
+  final int? memoryBudgetBytes;
+
   /// GC events per minute (extrapolated from a 10s sliding window) above
-  /// which `gc_pressure` fires. Default 60 clears the young-gen scavenge
-  /// baseline — Dart's `EventStreams.kGC` emits one event per *every* GC
-  /// cycle including new-space scavenges, so a moderately allocating UI
-  /// produces ~5 events per 10s (≈30/min) at steady state without any
-  /// real pressure. The previous default of 30 fired on routine animation
-  /// rebuilds and incremental scrolling. Apps that want the older
-  /// sensitivity can opt back in by passing 30 through `SleuthConfig.
-  /// gcRateThresholdPerMin`.
+  /// which `gc_pressure` fires. Dart's `EventStreams.kGC` emits one event
+  /// per GC cycle, new-space scavenges included. An idle app with Sleuth
+  /// attached produces 1 to 2 scavenges per second from the VM-service
+  /// poll traffic alone (66 to 138 per minute measured on an iPhone 12),
+  /// while allocation churn runs at thousands per minute. The default of
+  /// 180 (3 per second sustained over 10 s) sits above the idle band.
+  /// Each emission stamps the scavenge / old-gen split of the window.
   final int gcRateThresholdPerMin;
 
-  static const int _defaultGcRateThresholdPerMin = 60;
+  static const int _defaultGcRateThresholdPerMin = 180;
 
   final DateTime Function() _clock;
   final List<PerformanceIssue> _issues = [];
@@ -78,7 +90,16 @@ class MemoryPressureDetector extends BaseDetector
   // window gives us an "events per 10 seconds" rate that responds to real
   // bursts.
   static const Duration _gcWindowDuration = Duration(seconds: 10);
-  final Queue<({DateTime ts, int count})> _gcWindow = Queue();
+  final Queue<({DateTime ts, bool oldGen})> _gcWindow = Queue();
+
+  /// `gcType` values reported for old-generation collections. Any other
+  /// value, including null, counts as a scavenge so the two counts always
+  /// sum to the window total.
+  static const Set<String> _oldGenGcTypes = {
+    'MarkSweep',
+    'MarkCompact',
+    'StartConcurrentMark',
+  };
 
   // -- Heap trend rolling window --
 
@@ -97,34 +118,25 @@ class MemoryPressureDetector extends BaseDetector
   // overage after a transient drop produces a distinct identity.
   DateTime? _gcOverageStart;
 
-  // -- heap_near_capacity rolling window --
+  // -- heap_near_capacity (RSS against memoryBudgetBytes) --
   //
-  // Tracks whether the last [_heapCapacityWindowSize] heap samples crossed
-  // `capacityThresholdPercent`. [_evaluateHeapCapacity] only fires once at
-  // least [_heapCapacityRequiredHits] of those samples are over threshold
-  // AND `_sustainedGrowthStart != null` AND warmup has elapsed. Dart's
-  // `heapCapacity` is the currently-committed arena (grows dynamically),
-  // not a fixed ceiling, so high ratios at steady state are the VM's normal
-  // behaviour. Without these guards the detector fired on the very first
-  // sample of an idle home screen (92.7 % in the Phase 0 capture).
-  //
-  // A "K of last N" window (rather than strict-consecutive) handles the
-  // normal Dart GC sawtooth: on apps that genuinely live near the threshold
-  // the ratio oscillates 79 %→81 %→79 %→81 % as the arena packs and
-  // reclaims, which would reset a consecutive counter indefinitely and
-  // mask real pressure.
-  //
-  // The window is cleared on every sample received during warmup so the
-  // first post-warmup sample starts fresh — prevents pre-charging the
-  // counter with warmup-era allocation spikes that would otherwise let
-  // [heap_near_capacity] fire on the very first post-warmup tick with no
-  // observed grace period.
-  //
-  // Updated in [processHeapSample] (not in [_evaluateHeapCapacity]) so
-  // [recordGcCycle] → [_evaluate] does not double-count the same sample.
-  final Queue<bool> _capacityWindow = Queue<bool>();
-  static const int _heapCapacityWindowSize = 5;
-  static const int _heapCapacityRequiredHits = 4;
+  // [_evaluateHeapCapacity] reads the last [_budgetWindowSize] heap
+  // samples and needs [_budgetRequiredHits] of them with
+  // `rssBytes >= capacityThresholdPercent × memoryBudgetBytes`. A "K of
+  // last N" window tolerates one sample dipping under the line as the
+  // GC reclaims. Samples without RSS (web, unusual embeddings) never
+  // count. The window is derived from `_heapSamples`, so an evaluation
+  // triggered by [recordGcCycle] reads the same samples and cannot
+  // double-count.
+  static const int _budgetWindowSize = 5;
+  static const int _budgetRequiredHits = 4;
+
+  // Timestamp of the sample that completed the first over-budget window
+  // of the current episode. Stable dedup identity for every emission
+  // while RSS stays over the budget line; cleared when the window drops
+  // below the required hits (or the budget is unset) so the next episode
+  // carries a fresh identity.
+  DateTime? _budgetCrossingStart;
 
   /// Cached allocation enrichment data. Preserved across _evaluate() cycles
   /// so the top-allocator data survives issue rebuilds.
@@ -180,8 +192,8 @@ class MemoryPressureDetector extends BaseDetector
   ///
   /// Clearing every identity-bearing field on disconnect guarantees the
   /// next reconnect starts fresh: warmup re-runs, dedup identities are
-  /// freshly derived, capacity-window guards do not pre-charge with
-  /// stale over-threshold samples.
+  /// freshly derived, and the budget window does not pre-charge with
+  /// stale over-budget samples.
   ///
   /// `_evaluate()` runs after the clear so any stale issue still in
   /// `_issues` is removed from the UI immediately, rather than lingering
@@ -192,7 +204,7 @@ class MemoryPressureDetector extends BaseDetector
     if (!value) {
       _gcWindow.clear();
       _heapSamples.clear();
-      _capacityWindow.clear();
+      _budgetCrossingStart = null;
       _sustainedGrowthStart = null;
       _sustainedNativeGrowthStart = null;
       _gcOverageStart = null;
@@ -224,9 +236,14 @@ class MemoryPressureDetector extends BaseDetector
   /// Called by the controller's [SleuthController._onGcEvent] handler which
   /// listens to the VM's authoritative per-cycle GC stream. Each call
   /// contributes exactly one event to the sliding window.
-  void recordGcCycle() {
+  ///
+  /// [gcType] is the event's raw `gcType` value. `MarkSweep`,
+  /// `MarkCompact` and `StartConcurrentMark` count as old-generation
+  /// collections; anything else, including null, counts as a scavenge.
+  /// The split is stamped on `gc_pressure` and does not change the rule.
+  void recordGcCycle({String? gcType}) {
     if (!_isEnabled) return;
-    _gcWindow.add((ts: _clock(), count: 1));
+    _gcWindow.add((ts: _clock(), oldGen: _oldGenGcTypes.contains(gcType)));
     _evaluate();
   }
 
@@ -237,27 +254,6 @@ class MemoryPressureDetector extends BaseDetector
     _firstHeapSampleTime ??= _clock();
     _heapSamples.add(sample);
     if (_heapSamples.length > _windowCapacity) _heapSamples.removeFirst();
-
-    // Update the heap-capacity rolling window BEFORE [_evaluate].
-    // Recording here (not inside [_evaluateHeapCapacity]) ensures each
-    // sample contributes exactly once, even though [_evaluate] can also
-    // be invoked from [recordGcCycle] with no fresh heap sample.
-    //
-    // During warmup we keep the window empty so post-warmup evaluation
-    // cannot inherit pre-warmup over-threshold samples.
-    final inWarmup =
-        _firstHeapSampleTime != null &&
-        _clock().difference(_firstHeapSampleTime!).inMilliseconds <
-            warmupDurationMs;
-    if (inWarmup) {
-      _capacityWindow.clear();
-    } else if (sample.heapCapacity > 0) {
-      final ratio = sample.heapUsage / sample.heapCapacity;
-      _capacityWindow.addLast(ratio > capacityThresholdPercent);
-      while (_capacityWindow.length > _heapCapacityWindowSize) {
-        _capacityWindow.removeFirst();
-      }
-    }
 
     _evaluate();
   }
@@ -274,6 +270,10 @@ class MemoryPressureDetector extends BaseDetector
   }
 
   /// Clear and rebuild all issues from current state.
+  ///
+  /// Order matters: [_evaluateHeapTrend] runs before
+  /// [_evaluateHeapCapacity], which reads this tick's `heap_growing`
+  /// emission from `_issues`.
   void _evaluate() {
     _issues.clear();
 
@@ -300,7 +300,7 @@ class MemoryPressureDetector extends BaseDetector
   }
 
   void _evaluateGcPressure() {
-    final windowEvents = _gcWindow.fold<int>(0, (s, b) => s + b.count);
+    final windowEvents = _gcWindow.length;
     if (windowEvents == 0) {
       _gcOverageStart = null;
       return;
@@ -318,6 +318,8 @@ class MemoryPressureDetector extends BaseDetector
       // else-branch below when the rate drops back to or under
       // threshold so a new overage produces a fresh identity.
       _gcOverageStart ??= _gcWindow.first.ts;
+      final oldGenCount = _gcWindow.where((b) => b.oldGen).length;
+      final scavengeCount = windowEvents - oldGenCount;
       final (hint, effort) = FixHintBuilder.gcPressure();
       _issues.add(
         PerformanceIssue(
@@ -328,14 +330,20 @@ class MemoryPressureDetector extends BaseDetector
           title: 'High GC Pressure: ${gcPerMinute.toStringAsFixed(0)} GC/min',
           detail:
               'Garbage collection is running frequently '
-              '(${gcPerMinute.toStringAsFixed(0)}/min), indicating high '
+              '(${gcPerMinute.toStringAsFixed(0)}/min: $scavengeCount '
+              'scavenges, $oldGenCount old-generation collections in the '
+              'last ${_gcWindowDuration.inSeconds} s), indicating a high '
               'object creation/disposal rate.',
           fixHint: hint,
           fixEffort: effort,
           observationSource: ObservationSource.vmTimeline,
           detectedAt: _clock(),
           dedupIdentityMicros: _gcOverageStart!.microsecondsSinceEpoch,
-          extraTraceArgs: {'observedGcEvents': windowEvents.toString()},
+          extraTraceArgs: {
+            'observedGcEvents': windowEvents.toString(),
+            'scavengeCount': scavengeCount.toString(),
+            'oldGenCount': oldGenCount.toString(),
+          },
           confidenceReason: 'VM GC frequency elevated + object churn rate',
         ),
       );
@@ -442,64 +450,65 @@ class MemoryPressureDetector extends BaseDetector
   }
 
   void _evaluateHeapCapacity() {
-    if (_heapSamples.isEmpty) return;
-    final latest = _heapSamples.last;
-    if (latest.heapCapacity <= 0) return;
-
-    // Guard 1: warmup. Matches `_evaluateHeapTrend` / `_evaluateNativeGrowth`.
-    // The first few hundred ms of the app are class loading, widget tree
-    // creation, image decodes — all legitimate allocation that pushes the
-    // ratio high on a still-small committed arena.
-    if (_firstHeapSampleTime != null) {
-      final sinceFirst = _clock().difference(_firstHeapSampleTime!);
-      if (sinceFirst.inMilliseconds < warmupDurationMs) return;
+    final budget = memoryBudgetBytes;
+    if (budget == null || _heapSamples.length < _budgetWindowSize) {
+      _budgetCrossingStart = null;
+      return;
     }
 
-    // Guard 2: require at least [_heapCapacityRequiredHits] of the last
-    // [_heapCapacityWindowSize] heap polls (~2.5 s at 500 ms cadence) to
-    // have crossed the threshold. A "K of last N" window instead of a
-    // strict consecutive counter tolerates the normal Dart GC sawtooth
-    // (ratio oscillating 79 %→81 %→79 %→81 % as the arena packs and
-    // reclaims) without resetting indefinitely and masking real pressure.
-    if (_capacityWindow.length < _heapCapacityWindowSize) return;
-    final overCount = _capacityWindow.where((b) => b).length;
-    if (overCount < _heapCapacityRequiredHits) return;
+    // Guard 1: RSS over the budget line for 4 of the last 5 samples.
+    // `>=` so a budget line equal to the measured RSS counts.
+    final line = capacityThresholdPercent * budget;
+    var hits = 0;
+    for (final sample in _heapSamples.skip(
+      _heapSamples.length - _budgetWindowSize,
+    )) {
+      final rss = sample.rssBytes;
+      if (rss != null && rss >= line) hits++;
+    }
+    if (hits < _budgetRequiredHits) {
+      _budgetCrossingStart = null;
+      return;
+    }
+    final latest = _heapSamples.last;
+    _budgetCrossingStart ??= latest.timestamp;
 
-    // Guard 3: growth correlation. Dart's [heapCapacity] is the currently
-    // committed arena (grows dynamically), not a fixed ceiling — a sustained
-    // ratio of 0.90+ is the VM's normal steady state when the arena is
-    // tightly packed. Real pressure looks like ratio-high AND heap-growing
-    // simultaneously. Phase 0 captured 92.7 % usage on an idle home screen
-    // with flat growth; that is not a bug, just Dart being efficient, and
-    // must not fire.
-    //
-    // `_sustainedGrowthStart` is set by `_evaluateHeapTrend` when the heap
-    // regression slope exceeds `growthThresholdBytesPerSec`. Because
-    // `_evaluateHeapTrend` runs BEFORE `_evaluateHeapCapacity` inside
-    // [_evaluate], the value here reflects the current tick's trend.
-    if (_sustainedGrowthStart == null) return;
+    // Guard 2: `heap_growing` emitted in this same evaluation (10 s of
+    // sustained slope, not the first crossing). A process that sits over
+    // the line without growing is the app's working set, not an
+    // approaching kill. [_evaluateHeapTrend] runs first, so `_issues`
+    // already holds this tick's trend result.
+    if (!_issues.any((i) => i.stableId == 'heap_growing')) return;
 
-    final ratio = latest.heapUsage / latest.heapCapacity;
-    final pct = (ratio * 100).toStringAsFixed(0);
+    // The latest sample may be the one dip the window tolerates, or carry
+    // no RSS; report the newest measured value.
+    final rss = _heapSamples.lastWhere((s) => s.rssBytes != null).rssBytes!;
+    final pct = (rss / budget * 100).toStringAsFixed(0);
     final (hint, effort) = FixHintBuilder.heapNearCapacity();
     _issues.add(
       PerformanceIssue(
         stableId: 'heap_near_capacity',
         severity: IssueSeverity.critical,
         category: IssueCategory.memory,
-        confidence: IssueConfidence.confirmed,
-        title: 'Heap Near Capacity: $pct% used (and growing)',
+        confidence: IssueConfidence.likely,
+        title: 'Memory Near Budget: $pct% of ${_formatBytes(budget)}',
         detail:
-            'App is using ${_formatBytes(latest.heapUsage)} of '
-            '${_formatBytes(latest.heapCapacity)} available heap ($pct%) '
-            'and the heap is still growing. GC may become frequent and '
-            'cause jank.',
+            'Process memory (RSS) is ${_formatBytes(rss)}, $pct% of the '
+            '${_formatBytes(budget)} budget, and the Dart heap is still '
+            'growing (${_formatBytes(latest.heapUsage)} used). Past the '
+            'budget the OS may terminate the app.',
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.vmTimeline,
         detectedAt: _clock(),
+        dedupIdentityMicros: _budgetCrossingStart!.microsecondsSinceEpoch,
+        extraTraceArgs: {
+          'observedRssBytes': rss.toString(),
+          'memoryBudgetBytes': budget.toString(),
+        },
         confidenceReason:
-            'Sustained high heap usage + active growth (both required)',
+            'Measured process RSS over the configured budget + sustained '
+            'heap growth (budget supplied by the app)',
       ),
     );
   }
@@ -596,7 +605,7 @@ class MemoryPressureDetector extends BaseDetector
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
     _lastHeapGrowingEmittedAtMicros = null;
-    _capacityWindow.clear();
+    _budgetCrossingStart = null;
     _issues.clear();
   }
 
@@ -610,7 +619,7 @@ class MemoryPressureDetector extends BaseDetector
     _firstHeapSampleTime = null;
     _lastTopAllocators = null;
     _lastHeapGrowingEmittedAtMicros = null;
-    _capacityWindow.clear();
+    _budgetCrossingStart = null;
     _issues.clear();
   }
 
@@ -620,11 +629,14 @@ class MemoryPressureDetector extends BaseDetector
     rationale:
         'VM-only detector. 4 families pinned by hermetic '
         'reproducer at detector entrypoints (`processHeapSample` + '
-        '`recordGcCycle`): `gc_pressure` (>10 cycles / 10s sliding '
-        'window = >60/min rate, default; configurable), '
+        '`recordGcCycle`): `gc_pressure` (>30 cycles / 10s sliding '
+        'window = >180/min rate, default; configurable; scavenge / '
+        'old-gen split stamped), '
         '`heap_growing` (slope > 512KB/s '
-        'sustained ≥10s), `heap_near_capacity` (>80% AND 4-of-5 '
-        'samples over AND correlated heap_growing), '
+        'sustained ≥10s), `heap_near_capacity` (opt-in '
+        '`memoryBudgetBytes`; RSS ≥ 80% of the budget in 4 of the last '
+        '5 samples AND `heap_growing` emitted in the same evaluation; '
+        'silent when the budget is unset; RSS-null samples never count), '
         '`native_memory_growing` (RSS-heap gap slope > 1MB/s '
         'sustained ≥10s). Null-rssBytes (web) and zero-heap / '
         'zero-capacity null-coalesce edges asserted non-emitting.\n'
@@ -669,9 +681,9 @@ class MemoryPressureDetector extends BaseDetector
         '`ProcessInfo.currentRss` is the OS-level RSS collection '
         'boundary that sources `HeapSample.rssBytes` and therefore '
         'gates `native_memory_growing` (which derives `nativeBytes '
-        '= rssBytes - heapUsage`) — the null-rssBytes edge (web / '
-        'unusual embeddings) is exercised but the `ProcessInfo` '
-        'call and its try/catch are not. '
+        '= rssBytes - heapUsage`) and `heap_near_capacity` — the '
+        'null-rssBytes edge (web / unusual embeddings) is exercised '
+        'but the `ProcessInfo` call and its try/catch are not. '
         'TimelineParser\'s `gcEvents` list is NOT used by this '
         'detector (it over-counts GC sub-phase events 5–15× per '
         'cycle); that design choice is verified at the controller '
