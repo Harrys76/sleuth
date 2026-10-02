@@ -1778,16 +1778,18 @@ class IssueExplanationBuilder {
       category: IssueCategory.network,
       whatItIs:
           'An HTTP request took longer than the configured threshold '
-          '(default: 2 seconds) to complete. The total time includes DNS '
-          'resolution, TCP handshake, TLS negotiation, server processing, '
-          'and response transfer.',
+          '(default: 1000 ms warning, 3000 ms critical) to complete. The '
+          'total time includes DNS resolution, TCP handshake, TLS '
+          'negotiation, server processing, and response transfer.',
       readingTheData:
           'Like ordering food and waiting 20 minutes for the waiter to '
           'return — the kitchen might be slow, or the waiter took a '
           'detour.\n\n'
           '• Request duration — Total time from request start to response '
-          'complete. Normal: <500ms. Alert: >2000ms (warning, default, '
-          'configurable), >5000ms (critical).\n\n'
+          'complete. Normal: <500ms. Alert: ≥1000ms (warning), ≥3000ms '
+          '(critical) (defaults, configurable via '
+          'SleuthConfig.slowRequestThresholdMs and '
+          'criticalSlowRequestThresholdMs).\n\n'
           '• Worst request — Slowest URL and duration shown in the title.\n\n'
           '• Source: HTTP client instrumentation.',
       whyItMatters:
