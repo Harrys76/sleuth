@@ -13,7 +13,7 @@
 /// ```
 ///
 /// ## Features
-/// - 18 performance detectors (VM-powered, hybrid, structural, and runtime)
+/// - 20 performance detectors (VM-powered, hybrid, structural, and runtime)
 /// - Actionable fix hints for every issue
 /// - In-app overlay with live FPS chart and issue dashboard
 /// - Debug mode warning (run with --profile for accurate data)
@@ -430,7 +430,7 @@ class Sleuth {
   /// Wrap your app with the performance overlay.
   ///
   /// In release mode, this returns [child] unchanged (zero cost).
-  /// In debug/profile mode, adds the overlay with all 18 detectors.
+  /// In debug/profile mode, adds the overlay with all 20 detectors.
   ///
   /// Optionally pass [config] to customize thresholds, enable/disable
   /// specific detectors, or set a custom [SleuthConfig.theme].

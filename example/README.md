@@ -1,7 +1,7 @@
 # Sleuth Example
 
-Demo app organized by category. 20 demo screens trigger specific detectors;
-7 capture-helper screens drive `runtimeVerified` capture brackets.
+Demo app organized by category. 22 demo screens trigger specific detectors;
+9 capture-helper screens drive `runtimeVerified` capture brackets.
 
 ## Running
 
@@ -31,12 +31,14 @@ cd example && flutter run
 | 12 | Uncached Images | ImageMemory | Memory |
 | 13 | Memory Pressure | MemoryPressure | Memory |
 | 14 | KeepAlive Overuse | KeepAlive | Memory |
-| 15 | Search + Gallery | NetworkMonitor | Network & I/O |
-| 16 | Platform Channel Traffic | PlatformChannel | Network & I/O |
-| 17 | Font Loading Stress | FontLoading | Network & I/O |
-| 18 | Custom Detector Cookbook | Custom (Tooltip / Slow Frame / Raster) | Custom |
-| 19 | Combined: Social Feed | Image, Layout, setState, Correlator | Combined |
-| 20 | Combined: Chat App | Rebuild, KeepAlive, Channel, SetState | Combined |
+| 15 | Stream Resource Leaks | StreamResource | Memory |
+| 16 | Tracked Resource Leaks | TrackedResource | Memory |
+| 17 | Search + Gallery | NetworkMonitor | Network & I/O |
+| 18 | Platform Channel Traffic | PlatformChannel | Network & I/O |
+| 19 | Font Loading Stress | FontLoading | Network & I/O |
+| 20 | Custom Detector Cookbook | Custom (Tooltip / Slow Frame / Raster) | Custom |
+| 21 | Combined: Social Feed | Image, Layout, setState, Correlator | Combined |
+| 22 | Combined: Chat App | Rebuild, KeepAlive, Channel, SetState | Combined |
 
 ### Capture Helpers (`runtimeVerified` brackets)
 
@@ -51,6 +53,8 @@ Drive on-device capture brackets for the audit gate.
 | NetworkMonitor | `slow_request` warning + critical |
 | PlatformChannel | `platform_channel_traffic` warning |
 | Repaint | `excessive_repaint` warning |
+| StreamResource | `stream_resource_growth` warning |
+| TrackedResource | `tracked_resource_concurrent` warning + `tracked_resource_long_lived` warning |
 
 Each demo includes `BAD:` and `FIX:` annotations explaining the anti-pattern and its fix.
 
@@ -62,7 +66,7 @@ Every demo is wrapped in the shared `DemoScaffold` with a **Before/After toggle*
 
 - Top-level `setState` → `ValueNotifier` + `ValueListenableBuilder`
 - `ListView(children: List.generate(...))` → `ListView.builder` with `itemExtent`
-- `IntrinsicHeight` row → `CrossAxisAlignment.stretch`
+- `IntrinsicHeight` row → `CrossAxisAlignment.stretch` (needs a bounded cross-axis, e.g. a fixed-height parent)
 - `Image.network` without caching → `cacheWidth` / `cacheHeight`
 - `Fibonacci` on main thread → `Isolate.run()`
 - 40 concurrent HTTP gets → in-memory cache + pagination

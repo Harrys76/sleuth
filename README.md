@@ -33,7 +33,7 @@ What it does better than DevTools:
 - **Network monitoring**: slow requests, request floods, oversized responses, HTTP error spikes, high-frequency same-path bursts (≥3 GET/HEAD/OPTIONS to one endpoint within 500 ms), network-to-frame correlation
 - **Heap trend monitoring**: sustained memory growth + near-capacity detection without heap snapshots
 - **CPU attribution on jank frames**: top-5 functions by CPU time per jank frame — no manual profiling session
-- **Issue Encyclopedia**: in-app deep-dives for all 50 issue types, searchable + cross-referenced
+- **Issue Encyclopedia**: in-app deep-dives for every issue type the detectors emit (entries for detectors removed in 0.20.0 are labelled legacy), searchable + cross-referenced
 - **Contextual AI Chat**: per-issue AI assistant with streaming responses + starter questions — bring your own provider
 
 What DevTools still does better:
@@ -103,7 +103,7 @@ Both modes run the full overlay, all 20 detectors, and the AI chat. The differen
 | VM timeline (build/layout/paint durations) | Yes | Yes | — |
 | Source location in issues (`file.dart:42`) | Yes | No | — |
 | Per-widget rebuild/paint attribution | Yes (opt-in) | Via VM timeline only | — |
-| Deep timeline enrichment (dirty lists) | Yes (opt-in) | No | — |
+| Deep timeline enrichment (dirty lists) | Yes (opt-in) | Yes (opt-in) | — |
 | AI Chat & Issue Encyclopedia | Yes | Yes | — |
 
 ### When to use which
@@ -111,9 +111,9 @@ Both modes run the full overlay, all 20 detectors, and the AI chat. The differen
 - **Profile mode** for performance investigation — timing is real, no debug overhead inflating numbers. This is what you should trust.
 - **Debug mode** for root-cause drilling — source locations pinpoint the exact file:line, and opt-in debug callbacks give per-widget rebuild/paint counts. Verify timing fixes in profile mode afterward.
 
-### Debug-only opt-in features
+### Opt-in deep instrumentation
 
-These add overhead and are off by default. Enable them when you need deeper attribution:
+These add overhead and are off by default. Enable them when you need deeper attribution. Source locations (`file.dart:42`) remain debug-only, but `enableDeepDebugInstrumentation` also works in profile mode:
 
 ```dart
 SleuthConfig(
@@ -135,7 +135,7 @@ SleuthConfig(
 
 **VM full mode** adds sub-phase breakdown (build vs layout vs paint vs raster) but depends on VM service connectivity, which varies by platform. The package falls back gracefully to frame timing mode when VM is unavailable. On cold start, a background reconnect ladder (500 ms → 30 s, 7 attempts) automatically upgrades to full mode once the VM web server binds — no manual action needed.
 
-> **Prefer VM+ (full) mode for accurate, complete diagnostics.** In `basic` mode (no VM self-connect) the VM-only detectors stay silent — `heap_growing`, `heavy_compute`, `excessive_repaint`, `gc_pressure`, `stream_resource` never fire, and structural confidence is capped at `possible`. The issue list is real but **incomplete**, so don't trust "no memory/repaint issues" until `Sleuth.diagnose()` reports `full` / `correlated`. Reach it via `--no-dds` (below).
+> **Prefer VM+ (full) mode for accurate, complete diagnostics.** In `basic` mode (no VM self-connect) the VM-only detectors stay silent — `heap_growing`, `heavy_compute`, `excessive_repaint`, `gc_pressure`, `stream_resource_growth` never fire, and structural confidence is capped at `possible`. The issue list is real but **incomplete**, so don't trust "no memory/repaint issues" until the `connectionMode` field on any `ext.sleuth.*` response (surfaced by the `sleuth_mcp` `diagnose` tool) reads `full` / `correlated`, or in-app `Sleuth.diagnoseCaptureState().vmConnected` is `true`. Reach it via `--no-dds` (below).
 
 ### Reaching full mode
 
@@ -147,7 +147,7 @@ Skip DDS to let sleuth self-connect on the first run — no relaunch:
 flutter run --profile --no-dds
 ```
 
-The VM service stays multi-client, so sleuth connects alongside the tooling and `Sleuth.diagnose()` reports `connectionMode: full` (or `correlated`). Hot reload/restart are unaffected; you lose DDS-only niceties (smoother multi-client DevTools, log history).
+The VM service stays multi-client, so sleuth connects alongside the tooling and the `connectionMode` field on `ext.sleuth.*` responses reads `full` (or `correlated`). Hot reload/restart are unaffected; you lose DDS-only niceties (smoother multi-client DevTools, log history).
 
 Full mode runs periodic VM polling on the app isolate. On real devices the cost is negligible — but on **emulators/simulators** (software rendering, weak CPU) it can noticeably depress FPS. Measure frame rates on a real device, not an emulator.
 
@@ -168,7 +168,7 @@ xcrun simctl launch booted com.example.example
 # capture the URI: xcrun simctl spawn booted log stream | grep "Dart VM service"
 ```
 
-Either path: `Sleuth.diagnose()` (or `sleuth_mcp`'s `diagnose` tool) reports `connectionMode: full` / `correlated`.
+Either path: the `connectionMode` field on every `ext.sleuth.*` response (surfaced by `sleuth_mcp`'s `diagnose` tool) reads `full` / `correlated`; in-app, `Sleuth.diagnoseCaptureState().vmConnected` is `true`.
 
 ## FPS Semantics
 
@@ -232,7 +232,7 @@ Sleuth.track(
     suppressedIssues: {'non_lazy_list', 'font_*'}, // hide known issues by stableId (exact or wildcard)
     thresholds: DetectorThresholds(
       shaderJankMs: 50,              // shader compilation warning threshold
-      heavyComputeGapMs: 8,          // heavy compute warning gap (critical at 2× = 16ms)
+      heavyComputeGapMs: 8,          // BUILD-scope duration warning threshold (critical at 2× = 16ms)
       gpuPressureRatio: 1.5,         // raster/UI time ratio for GPU pressure
     ),
     customDetectors: [MyCustomDetector()], // plug in domain-specific detectors
