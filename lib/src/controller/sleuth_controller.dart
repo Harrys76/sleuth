@@ -811,6 +811,7 @@ class SleuthController {
       captureMode: config.captureMode,
       startupPhaseWindowSeconds: config.thresholds.startupPhaseWindowSeconds,
       onFrameStats: _onFrameStats,
+      onFrame: _onFrame,
     )..isEnabled = enabled.contains(DetectorType.frameTiming);
 
     _memoryPressure = MemoryPressureDetector(
@@ -3181,6 +3182,9 @@ class SleuthController {
     // F3 quarantine is only sound if tainted output is suppressed too.
     final failedDetectors = _lastScanFailedDetectors;
     failedDetectors.clear();
+    // A detector quarantined from the per-frame hook gets another chance
+    // each scan window (see [_onFrame]).
+    _frameHookFailed.clear();
 
     // Phase 1: Preparation. Per-detector try/catch isolates a misbehaving
     // detector from the rest of the scan (v0.16.0 C2 fix — previously
@@ -3576,6 +3580,41 @@ class SleuthController {
           break;
         }
       }
+    }
+  }
+
+  /// Detectors whose [BaseDetector.processFrame] threw since the last
+  /// structural scan. Skipped by [_onFrame] until `_runStructuralScans`
+  /// clears the set, so a throwing detector is reported once per scan
+  /// window instead of once per frame.
+  final Set<BaseDetector> _frameHookFailed = <BaseDetector>{};
+
+  /// Fans one presented frame out to every enabled detector except the
+  /// frame-timing producer. Runs at display rate on every tier, so the loop
+  /// is index-based and allocation-free. Detector list mutations requested
+  /// from inside a hook are deferred like during a scan.
+  void _onFrame(FrameStats frame) {
+    if (!_detectorsReady) return;
+    final wasIterating = _isIteratingDetectors;
+    _isIteratingDetectors = true;
+    try {
+      final detectors = _detectors;
+      for (var i = 0; i < detectors.length; i++) {
+        final d = detectors[i];
+        if (d is FrameTimingDetector || !d.isEnabled) continue;
+        if (_frameHookFailed.isNotEmpty && _frameHookFailed.contains(d)) {
+          continue;
+        }
+        try {
+          d.processFrame(frame);
+        } catch (e, s) {
+          _frameHookFailed.add(d);
+          _reportDetectorFailure(d, 'processFrame', e, s);
+        }
+      }
+    } finally {
+      _isIteratingDetectors = wasIterating;
+      if (!wasIterating) _drainPendingDetectorMutations();
     }
   }
 

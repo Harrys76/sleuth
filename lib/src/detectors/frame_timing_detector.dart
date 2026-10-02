@@ -63,6 +63,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     this.captureMode = false,
     this.startupPhaseWindowSeconds = 5,
     this.onFrameStats,
+    this.onFrame,
     int? Function()? appStartMonotonicUsForTest,
   }) : warningBudgetUs = warningThresholdMs != null
            ? warningThresholdMs * 1000
@@ -163,6 +164,12 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   final bool captureMode;
 
   final void Function(FrameStatsBuffer buffer)? onFrameStats;
+
+  /// Called once per frame, right after the frame enters the buffer and
+  /// before [onFrameStats]. A batch of N timings yields N calls in
+  /// presentation order. `SleuthController` uses it to fan frames out to
+  /// [BaseDetector.processFrame].
+  final void Function(FrameStats frame)? onFrame;
 
   /// Returns `'startup'` when emission `Timeline.now` falls within the
   /// startup window after [Sleuth.dartEntryMonotonicUs], `'steady'`
@@ -339,6 +346,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
       _firstFrameVsyncUs ??= stats.vsyncStartUs;
     }
     _buffer.add(stats);
+    onFrame?.call(stats);
     _evaluateJank();
     _evaluateCacheTrends();
     onFrameStats?.call(_buffer);
@@ -467,6 +475,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
       );
 
       _buffer.add(stats);
+      onFrame?.call(stats);
     }
 
     // Evaluate jank based on recent buffer pattern, not individual frames.
