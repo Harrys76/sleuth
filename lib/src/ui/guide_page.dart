@@ -531,8 +531,8 @@ class _GuidePageState extends State<GuidePage>
         _colorBarLegendRow(
           theme,
           theme.sourceVmTimeline,
-          'VM timeline event',
-          detail: 'Dart VM performance timeline (most accurate)',
+          'Measured timing',
+          detail: 'Dart VM timeline or per-frame FrameTiming durations',
         ),
         _colorBarLegendRow(
           theme,

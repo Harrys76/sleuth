@@ -24,7 +24,7 @@ void main() {
       expect(find.text('POSSIBLE'), findsOneWidget);
 
       // Source accents
-      expect(find.text('VM timeline event'), findsOneWidget);
+      expect(find.text('Measured timing'), findsOneWidget);
       expect(find.text('Debug callback'), findsOneWidget);
       expect(find.text('Structural scan'), findsOneWidget);
 
