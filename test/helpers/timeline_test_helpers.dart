@@ -138,6 +138,54 @@ ParsedTimelineData shaderCompileData({List<int> shaderDurationsUs = const []}) {
   );
 }
 
+/// Raw begin/end pair for a pipeline or shader build, in the shape the
+/// engine's `TRACE_EVENT` scopes produce: a `B` (carrying [args]) and an
+/// arg-less `E` on the same thread. Defaults to Impeller Vulkan's
+/// `PipelineVK::Create`; pass a Skia name with
+/// `args: {'devtoolsTag': 'shaders'}` for a Skia shader compile.
+List<TimelineEvent> shaderBeginEndEvents({
+  String name = 'PipelineVK::Create',
+  required int startTs,
+  required int durUs,
+  int tid = 1,
+  Map<String, String>? args,
+}) => [
+  TimelineEvent.parse({
+    'name': name,
+    'cat': 'Embedder',
+    'ph': 'B',
+    'ts': startTs,
+    'args': ?args,
+    'pid': 1,
+    'tid': tid,
+  })!,
+  TimelineEvent.parse({
+    'name': name,
+    'cat': 'Embedder',
+    'ph': 'E',
+    'ts': startTs + durUs,
+    'pid': 1,
+    'tid': tid,
+  })!,
+];
+
+/// Raw complete (`X`) shader event tagged `devtoolsTag: shaders`.
+TimelineEvent shaderCompleteEvent({
+  String name = 'GrGLProgramBuilder::finalize',
+  required int ts,
+  required int durUs,
+  int tid = 1,
+}) => TimelineEvent.parse({
+  'name': name,
+  'cat': 'Embedder',
+  'ph': 'X',
+  'ts': ts,
+  'dur': durUs,
+  'args': {'devtoolsTag': 'shaders'},
+  'pid': 1,
+  'tid': tid,
+})!;
+
 /// Factory for timeline data with platform channel events (for PlatformChannelDetector).
 ParsedTimelineData platformChannelData({
   int channelEventCount = 0,

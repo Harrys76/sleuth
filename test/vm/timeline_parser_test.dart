@@ -31,7 +31,12 @@ void main() {
         _makeEvent(name: 'LAYOUT', dur: 2000, ts: 5000),
         _makeEvent(name: 'PAINT', dur: 1000, ts: 8000),
         _makeEvent(name: 'GPURasterizer::Draw', dur: 5000, ts: 10000),
-        _makeEvent(name: 'ShaderCompilation', dur: 500, ts: 16000),
+        _makeEvent(
+          name: 'GrGLProgramBuilder::finalize',
+          dur: 500,
+          ts: 16000,
+          args: {'devtoolsTag': 'shaders'},
+        ),
       ];
 
       final data = TimelineParser.parse(events);
@@ -65,7 +70,12 @@ void main() {
         _makeEvent(name: 'Layout', dur: 200, ts: 2000),
         _makeEvent(name: 'Paint', dur: 300, ts: 3000),
         _makeEvent(name: 'Raster', dur: 400, ts: 4000),
-        _makeEvent(name: 'shader_compilation', dur: 500, ts: 5000),
+        _makeEvent(
+          name: 'GrGLProgramBuilder::finalize',
+          dur: 500,
+          ts: 5000,
+          args: {'devtoolsTag': 'shaders'},
+        ),
       ];
 
       final data = TimelineParser.parse(events);
@@ -1046,6 +1056,159 @@ void main() {
       final pe = data.phaseEvents.single;
       expect(pe.dirtyCount, 5);
       expect(pe.dirtyList, ['RenderFlex#abc12']);
+    });
+  });
+
+  group('TimelineParser shader events', () {
+    List<TimelineEvent> pair(
+      String name, {
+      required int ts,
+      required int dur,
+      int tid = 1,
+      Map<String, dynamic>? args,
+    }) => [
+      TimelineEvent.parse({
+        'name': name,
+        'cat': 'Embedder',
+        'ph': 'B',
+        'ts': ts,
+        'args': ?args,
+        'pid': 1,
+        'tid': tid,
+      })!,
+      TimelineEvent.parse({
+        'name': name,
+        'cat': 'Embedder',
+        'ph': 'E',
+        'ts': ts + dur,
+        'pid': 1,
+        'tid': tid,
+      })!,
+    ];
+
+    test('B/E PipelineVK::Create 120 ms yields one shader event', () {
+      final data = TimelineParser.parse(
+        pair('PipelineVK::Create', ts: 1000, dur: 120000),
+      );
+      expect(data.shaderCompileDurations, [120000]);
+      final pe = data.phaseEvents.single;
+      expect(pe.phase, TimelinePhase.shader);
+      expect(pe.timestampUs, 1000);
+      expect(pe.durationUs, 120000);
+    });
+
+    test('B/E CreateComputePipeline yields a shader event', () {
+      final data = TimelineParser.parse(
+        pair('CreateComputePipeline', ts: 1000, dur: 40000),
+      );
+      expect(data.shaderCompileDurations, [40000]);
+    });
+
+    test('B/E PipelineItem 500 ms is not a shader event', () {
+      final data = TimelineParser.parse(
+        pair('PipelineItem', ts: 1000, dur: 500000),
+      );
+      expect(data.shaderCompileDurations, isEmpty);
+      expect(data.phaseEvents, isEmpty);
+    });
+
+    test('B/E PipelineProduce is not a shader event', () {
+      final data = TimelineParser.parse(
+        pair('PipelineProduce', ts: 1000, dur: 500000),
+      );
+      expect(data.shaderCompileDurations, isEmpty);
+    });
+
+    test('B/E CreateShaderLibrary is not a shader event', () {
+      final data = TimelineParser.parse(
+        pair('CreateShaderLibrary', ts: 1000, dur: 300000),
+      );
+      expect(data.shaderCompileDurations, isEmpty);
+      expect(data.phaseEvents, isEmpty);
+    });
+
+    test('B/E Skia event tagged devtoolsTag: shaders is a shader event', () {
+      // Engine end events carry no args; the tagged begin is closed by
+      // the matching name on the same thread.
+      final data = TimelineParser.parse(
+        pair(
+          'GrGLProgramBuilder::finalize',
+          ts: 1000,
+          dur: 150000,
+          args: {'devtoolsTag': 'shaders'},
+        ),
+      );
+      expect(data.shaderCompileDurations, [150000]);
+      expect(data.phaseEvents.single.phase, TimelinePhase.shader);
+    });
+
+    test('untagged Skia B/E is not a shader event', () {
+      final data = TimelineParser.parse(
+        pair('GrGLProgramBuilder::finalize', ts: 1000, dur: 150000),
+      );
+      expect(data.shaderCompileDurations, isEmpty);
+    });
+
+    test('nested tagged scopes credit the outermost only', () {
+      final outer = pair(
+        'SkiaOuter',
+        ts: 1000,
+        dur: 200000,
+        args: {'devtoolsTag': 'shaders'},
+      );
+      final inner = pair(
+        'SkiaInner',
+        ts: 2000,
+        dur: 50000,
+        args: {'devtoolsTag': 'shaders'},
+      );
+      final data = TimelineParser.parse([outer.first, ...inner, outer.last]);
+      expect(data.shaderCompileDurations, [200000]);
+    });
+
+    test('concurrent pipeline builds on worker threads pair per tid', () {
+      final a = pair('PipelineVK::Create', ts: 1000, dur: 120000, tid: 5);
+      final b = pair('PipelineVK::Create', ts: 2000, dur: 30000, tid: 6);
+      final data = TimelineParser.parse([a.first, b.first, b.last, a.last]);
+      expect(data.shaderCompileDurations, [30000, 120000]);
+    });
+
+    test('cross-batch pair reconstructs through pendingShaderBegins', () {
+      final pending = <int, List<Map<String, dynamic>>>{};
+      final events = pair('PipelineVK::Create', ts: 1000, dur: 130000);
+      final data1 = TimelineParser.parse([
+        events.first,
+      ], pendingShaderBegins: pending);
+      expect(data1.shaderCompileDurations, isEmpty);
+      expect(pending[1], hasLength(1));
+
+      final data2 = TimelineParser.parse([
+        events.last,
+      ], pendingShaderBegins: pending);
+      expect(data2.shaderCompileDurations, [130000]);
+      expect(data2.phaseEvents.single.timestampUs, 1000);
+      expect(pending[1], isEmpty);
+    });
+
+    test('X event tagged devtoolsTag: shaders is a shader event', () {
+      final data = TimelineParser.parse([
+        _makeEvent(
+          name: 'GrGLProgramBuilder::finalize',
+          dur: 150000,
+          ts: 1000,
+          args: {'devtoolsTag': 'shaders'},
+        ),
+      ]);
+      expect(data.shaderCompileDurations, [150000]);
+    });
+
+    test('X ShaderCompilation is not a shader event', () {
+      final data = TimelineParser.parse([
+        _makeEvent(name: 'ShaderCompilation', dur: 150000, ts: 1000),
+        _makeEvent(name: 'Pipeline::Create', dur: 150000, ts: 2000),
+      ]);
+      expect(data.shaderCompileDurations, isEmpty);
+      expect(data.phaseEvents, isEmpty);
     });
   });
 

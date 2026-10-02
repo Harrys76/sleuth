@@ -456,8 +456,8 @@ class VmServiceClient {
   /// `ts` (microseconds since process boot) to avoid wall-clock drift.
   final Map<int, List<Map<String, dynamic>>> _pendingBuildBegins = {};
 
-  /// Per-tid stacks of unmatched LAYOUT / PAINT / raster `ph: 'B'`
-  /// events. iOS profile mode (Impeller backend) emits these phases
+  /// Per-tid stacks of unmatched LAYOUT / PAINT / raster / shader
+  /// `ph: 'B'` events. iOS profile mode (Impeller backend) emits these phases
   /// as nested B/E pairs with no `X`-form complete events; the parser
   /// reconstructs durations from matching pairs and credits only the
   /// outermost scope per frame. Survive `clearVMTimeline()` for the
@@ -466,6 +466,7 @@ class VmServiceClient {
   final Map<int, List<Map<String, dynamic>>> _pendingLayoutBegins = {};
   final Map<int, List<Map<String, dynamic>>> _pendingPaintBegins = {};
   final Map<int, List<Map<String, dynamic>>> _pendingRasterBegins = {};
+  final Map<int, List<Map<String, dynamic>>> _pendingShaderBegins = {};
 
   /// Maximum age (in microseconds) for an unmatched BUILD `ph: 'B'` event
   /// to remain in [_pendingBuildBegins]. Beyond this, the entry is treated
@@ -475,8 +476,8 @@ class VmServiceClient {
   /// 30s is almost certainly never going to pair.
   ///
   /// Same cutoff applied to [_pendingLayoutBegins] / [_pendingPaintBegins]
-  /// / [_pendingRasterBegins] — those phases also complete in <16ms in
-  /// any healthy frame, so 30s is a safe orphan ceiling.
+  /// / [_pendingRasterBegins] / [_pendingShaderBegins] — those scopes
+  /// complete well under a second, so 30s is a safe orphan ceiling.
   static const int _pendingBuildBeginsMaxAgeMicros = 30 * 1000 * 1000;
 
   /// Maximum age (in microseconds) for a `_lastProcessedTsByTid` cursor
@@ -537,6 +538,7 @@ class VmServiceClient {
           pendingLayoutBegins: _pendingLayoutBegins,
           pendingPaintBegins: _pendingPaintBegins,
           pendingRasterBegins: _pendingRasterBegins,
+          pendingShaderBegins: _pendingShaderBegins,
           cursorsByTid: _lastProcessedTsByTid,
         );
         if (parsed.hasData) {
@@ -631,6 +633,7 @@ class VmServiceClient {
         _pendingLayoutBegins.isEmpty &&
         _pendingPaintBegins.isEmpty &&
         _pendingRasterBegins.isEmpty &&
+        _pendingShaderBegins.isEmpty &&
         _lastProcessedTsByTid.isEmpty) {
       return;
     }
@@ -645,6 +648,7 @@ class VmServiceClient {
     _evictStaleBegins(_pendingLayoutBegins, pendingCutoff);
     _evictStaleBegins(_pendingPaintBegins, pendingCutoff);
     _evictStaleBegins(_pendingRasterBegins, pendingCutoff);
+    _evictStaleBegins(_pendingShaderBegins, pendingCutoff);
     if (!retainTimeline) {
       final cursorCutoff = anchorTs - _cursorMaxIdleMicros;
       _lastProcessedTsByTid.removeWhere(
@@ -655,7 +659,7 @@ class VmServiceClient {
 
   /// Drop entries older than [cutoffTs] from the head of each per-tid
   /// stack, then prune empty tid entries. Shared body for the BUILD /
-  /// LAYOUT / PAINT / raster pending-begins sweep.
+  /// LAYOUT / PAINT / raster / shader pending-begins sweep.
   static void _evictStaleBegins(
     Map<int, List<Map<String, dynamic>>> pending,
     int cutoffTs,
@@ -713,6 +717,7 @@ class VmServiceClient {
     _pendingLayoutBegins.clear();
     _pendingPaintBegins.clear();
     _pendingRasterBegins.clear();
+    _pendingShaderBegins.clear();
     _lastProcessedTsByTid.clear();
     _pollTimer?.cancel();
     _pollTimer = null;

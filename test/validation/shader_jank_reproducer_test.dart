@@ -1,12 +1,12 @@
 // Hermetic reproducer for `ShaderJankDetector`.
 //
-// Feeds shader-compile `'X'` events through `TimelineParser.parse()`
-// into the detector and asserts emission at the duration boundary.
-// Exercises three shader-name variants accepted by the parser's
-// `_shaderNames` allowlist (`ShaderCompilation` + `Pipeline::Create` +
-// casing variant) so a Flutter engine rename to any one accepted form
-// still trips the detector. Impeller-zero suppression pinned by an
-// empty-poll sequence that must not produce any issue.
+// Feeds pipeline/shader builds through `TimelineParser.parse()` into the
+// detector in the shapes the engine emits: `TRACE_EVENT` begin/end pairs
+// (`B` with args, arg-less `E`) for Impeller Vulkan's
+// `PipelineVK::Create` and for Skia events tagged `devtoolsTag: shaders`.
+// Frame-pipeline events (`PipelineItem`) and the one-shot
+// `CreateShaderLibrary` must stay silent. Impeller Metal emits no
+// pipeline events, pinned by an empty timeline.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
@@ -14,6 +14,18 @@ import 'package:vm_service/vm_service.dart';
 import 'package:sleuth/src/detectors/shader_jank_detector.dart';
 
 import '_helpers/vm_reproducer_harness.dart';
+
+/// Begin/end pair as the engine's `TRACE_EVENT` scopes emit it: a `B`
+/// carrying [args] and an arg-less `E` on the same thread.
+List<TimelineEvent> pipelineBuild({
+  String name = 'PipelineVK::Create',
+  required int dur,
+  required int ts,
+  Map<String, String>? args,
+}) => [
+  buildEvent(name: name, ph: 'B', ts: ts, cat: 'Embedder', args: args),
+  buildEvent(name: name, ph: 'E', ts: ts + dur, cat: 'Embedder'),
+];
 
 void main() {
   group('ShaderJankDetector reproducer', () {
@@ -38,9 +50,7 @@ void main() {
 
     group('duration boundary triad (threshold 100ms)', () {
       test('99ms shader does NOT emit shader_compilation', () {
-        final events = [
-          buildEvent(name: 'ShaderCompilation', ph: 'X', dur: 99000, ts: 1000),
-        ];
+        final events = [...pipelineBuild(dur: 99000, ts: 1000)];
         final parsed = parseAndAssertShape(events, (
           buildEventCount: 0,
           buildScopeCount: 0,
@@ -59,14 +69,7 @@ void main() {
       test(
         '100ms shader DOES emit shader_compilation (inclusive threshold)',
         () {
-          final events = [
-            buildEvent(
-              name: 'ShaderCompilation',
-              ph: 'X',
-              dur: 100000,
-              ts: 1000,
-            ),
-          ];
+          final events = [...pipelineBuild(dur: 100000, ts: 1000)];
           final parsed = parseAndAssertShape(events, (
             buildEventCount: 0,
             buildScopeCount: 0,
@@ -85,9 +88,7 @@ void main() {
       );
 
       test('101ms shader emits shader_compilation', () {
-        final events = [
-          buildEvent(name: 'ShaderCompilation', ph: 'X', dur: 101000, ts: 1000),
-        ];
+        final events = [...pipelineBuild(dur: 101000, ts: 1000)];
         final parsed = parseAndAssertShape(events, (
           buildEventCount: 0,
           buildScopeCount: 0,
@@ -105,9 +106,7 @@ void main() {
       });
 
       test('200ms shader escalates to critical (2× threshold)', () {
-        final events = [
-          buildEvent(name: 'ShaderCompilation', ph: 'X', dur: 200000, ts: 1000),
-        ];
+        final events = [...pipelineBuild(dur: 200000, ts: 1000)];
         final parsed = parseAndAssertShape(events, (
           buildEventCount: 0,
           buildScopeCount: 0,
@@ -125,53 +124,114 @@ void main() {
       });
     });
 
-    group('name variants accepted by parser allowlist', () {
-      test('`Pipeline::Create` classifies as shader', () {
-        final events = [
-          buildEvent(name: 'Pipeline::Create', ph: 'X', dur: 150000, ts: 1000),
-        ];
-        final parsed = parseAndAssertShape(events, (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 1,
-          channelCount: 0,
-          gcCount: 0,
-          phaseEventCount: 1,
-        ));
+    group('engine event shapes', () {
+      test('PipelineVK::Create 120ms emits warning', () {
+        final parsed =
+            parseAndAssertShape(pipelineBuild(dur: 120000, ts: 1000), (
+              buildEventCount: 0,
+              buildScopeCount: 0,
+              layoutCount: 0,
+              paintCount: 0,
+              rasterCount: 0,
+              shaderCount: 1,
+              channelCount: 0,
+              gcCount: 0,
+              phaseEventCount: 1,
+            ));
         detector.processTimelineData(parsed);
-        expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.stableId, 'shader_compilation');
+        expect(detector.issues, hasStableId('shader_compilation'));
+        expect(detector.issues.single.severity.name, 'warning');
       });
 
-      test('lowercase `shadercompilation` classifies as shader', () {
-        final events = [
-          buildEvent(name: 'shadercompilation', ph: 'X', dur: 150000, ts: 1000),
-        ];
-        final parsed = parseAndAssertShape(events, (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 1,
-          channelCount: 0,
-          gcCount: 0,
-          phaseEventCount: 1,
-        ));
+      test('PipelineVK::Create 250ms emits critical', () {
+        final parsed =
+            parseAndAssertShape(pipelineBuild(dur: 250000, ts: 1000), (
+              buildEventCount: 0,
+              buildScopeCount: 0,
+              layoutCount: 0,
+              paintCount: 0,
+              rasterCount: 0,
+              shaderCount: 1,
+              channelCount: 0,
+              gcCount: 0,
+              phaseEventCount: 1,
+            ));
         detector.processTimelineData(parsed);
-        expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.stableId, 'shader_compilation');
+        expect(detector.issues, hasStableId('shader_compilation'));
+        expect(detector.issues.single.severity.name, 'critical');
+      });
+
+      test('CreateComputePipeline 150ms emits', () {
+        final parsed = parseAndAssertShape(
+          pipelineBuild(name: 'CreateComputePipeline', dur: 150000, ts: 1000),
+          (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 1,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          ),
+        );
+        detector.processTimelineData(parsed);
+        expect(detector.issues, hasStableId('shader_compilation'));
+      });
+
+      test('Skia devtoolsTag: shaders pair 150ms emits', () {
+        final parsed = parseAndAssertShape(
+          pipelineBuild(
+            name: 'GrGLProgramBuilder::finalize',
+            dur: 150000,
+            ts: 1000,
+            args: {'devtoolsTag': 'shaders'},
+          ),
+          (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 1,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          ),
+        );
+        detector.processTimelineData(parsed);
+        expect(detector.issues, hasStableId('shader_compilation'));
+      });
+
+      test('PipelineItem 500ms is silent', () {
+        final parsed = parseAndAssertShape(
+          pipelineBuild(name: 'PipelineItem', dur: 500000, ts: 1000),
+          emptyShape,
+        );
+        detector.processTimelineData(parsed);
+        expect(detector.issues, lacksStableId('shader_compilation'));
+      });
+
+      test('CreateShaderLibrary 300ms is silent', () {
+        final parsed = parseAndAssertShape(
+          pipelineBuild(name: 'CreateShaderLibrary', dur: 300000, ts: 1000),
+          emptyShape,
+        );
+        detector.processTimelineData(parsed);
+        expect(detector.issues, lacksStableId('shader_compilation'));
+      });
+
+      test('Impeller Metal: empty timeline is silent', () {
+        final parsed = parseAndAssertShape(<TimelineEvent>[], emptyShape);
+        detector.processTimelineData(parsed);
+        expect(detector.issues, isEmpty);
       });
     });
 
     group('Impeller-zero suppression', () {
       test('four consecutive empty polls clear any prior issue', () {
-        final triggerEvents = [
-          buildEvent(name: 'ShaderCompilation', ph: 'X', dur: 150000, ts: 1000),
-        ];
+        final triggerEvents = [...pipelineBuild(dur: 150000, ts: 1000)];
         detector.processTimelineData(
           parseAndAssertShape(triggerEvents, (
             buildEventCount: 0,
@@ -213,14 +273,7 @@ void main() {
       test('cold_start: shader at +2s within 5s window', () {
         // Synthetic shader event at ts=2_000_000 µs (2 s). app-start = 0.
         // 2_000_000 - 0 = 2_000_000 < 5_000_000 → cold_start.
-        final events = [
-          buildEvent(
-            name: 'ShaderCompilation',
-            ph: 'X',
-            dur: 150000,
-            ts: 2000000,
-          ),
-        ];
+        final events = [...pipelineBuild(dur: 150000, ts: 2000000)];
         final parsed = parseAndAssertShape(events, (
           buildEventCount: 0,
           buildScopeCount: 0,
@@ -245,14 +298,7 @@ void main() {
         () {
           // Shader at ts=10_000_000 µs (10 s). 10s > 5s → not cold_start.
           // No build events → not keyframe → fallback hot_path.
-          final events = [
-            buildEvent(
-              name: 'ShaderCompilation',
-              ph: 'X',
-              dur: 150000,
-              ts: 10000000,
-            ),
-          ];
+          final events = [...pipelineBuild(dur: 150000, ts: 10000000)];
           final parsed = parseAndAssertShape(events, (
             buildEventCount: 0,
             buildScopeCount: 0,
@@ -279,12 +325,7 @@ void main() {
         // Causal direction (build before shader) satisfied.
         final events = [
           buildEvent(name: 'BUILD', ph: 'X', dur: 5000, ts: 9950000),
-          buildEvent(
-            name: 'ShaderCompilation',
-            ph: 'X',
-            dur: 150000,
-            ts: 10000000,
-          ),
+          ...pipelineBuild(dur: 150000, ts: 10000000),
         ];
         final parsed = parseAndAssertShape(events, (
           buildEventCount: 1,
@@ -319,14 +360,7 @@ void main() {
           );
           earlyStartDetector.vmConnected = true;
           // Shader at ts=9_000_000 µs (1 s BEFORE captured app-start).
-          final events = [
-            buildEvent(
-              name: 'ShaderCompilation',
-              ph: 'X',
-              dur: 150000,
-              ts: 9000000,
-            ),
-          ];
+          final events = [...pipelineBuild(dur: 150000, ts: 9000000)];
           final parsed = parseAndAssertShape(events, (
             buildEventCount: 0,
             buildScopeCount: 0,
@@ -357,12 +391,7 @@ void main() {
         // Negative control: confirms keyframe window is bounded, not catch-all.
         final events = [
           buildEvent(name: 'BUILD', ph: 'X', dur: 5000, ts: 9800000),
-          buildEvent(
-            name: 'ShaderCompilation',
-            ph: 'X',
-            dur: 150000,
-            ts: 10000000,
-          ),
+          ...pipelineBuild(dur: 150000, ts: 10000000),
         ];
         final parsed = parseAndAssertShape(events, (
           buildEventCount: 1,
@@ -390,9 +419,7 @@ void main() {
           // Pins inclusive lower bound of `deltaUs >= 0 && deltaUs < window`.
           // Companion to the negative-delta test above: together they pin
           // both sides of the `>= 0` guard.
-          final events = [
-            buildEvent(name: 'ShaderCompilation', ph: 'X', dur: 150000, ts: 0),
-          ];
+          final events = [...pipelineBuild(dur: 150000, ts: 0)];
           final parsed = parseAndAssertShape(events, (
             buildEventCount: 0,
             buildScopeCount: 0,
@@ -419,9 +446,7 @@ void main() {
     group('negative control', () {
       test('disabled detector never emits shader_compilation', () {
         detector.isEnabled = false;
-        final events = [
-          buildEvent(name: 'ShaderCompilation', ph: 'X', dur: 500000, ts: 1000),
-        ];
+        final events = [...pipelineBuild(dur: 500000, ts: 1000)];
         final parsed = parseAndAssertShape(events, (
           buildEventCount: 0,
           buildScopeCount: 0,

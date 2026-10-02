@@ -115,14 +115,32 @@ class TimelineParser {
     'Raster',
     'raster',
   };
-  static const _shaderNames = {
-    'ShaderCompilation',
-    'shadercompilation',
-    'Shader_Compilation',
-    'shader_compilation',
-    'Pipeline::Create',
-    'pipeline::create',
-  };
+
+  /// Whether a begin (`B`) or complete (`X`) event is a pipeline or
+  /// shader build. Impeller Vulkan emits `PipelineVK::Create` (render
+  /// pipelines, on worker threads) and `CreateComputePipeline`; Skia
+  /// tags shader-category events with `devtoolsTag: shaders`. Impeller
+  /// Metal emits nothing for pipelines. Exact names only: the frame
+  /// pipeline emits `PipelineItem` / `PipelineProduce`, and
+  /// `CreateShaderLibrary` is a one-shot library load, not a build.
+  static bool _isShaderEvent(String name, Map<String, dynamic>? args) =>
+      name == 'PipelineVK::Create' ||
+      name == 'CreateComputePipeline' ||
+      args?['devtoolsTag'] == 'shaders';
+
+  /// Whether an end (`E`) event closes a pending shader begin. Engine
+  /// end events carry no args, so a tagged Skia begin is closed by the
+  /// next `E` with the same name on the same thread.
+  static bool _isShaderEnd(
+    String name,
+    int tid,
+    Map<int, List<Map<String, dynamic>>> pending,
+  ) {
+    if (_isShaderEvent(name, null)) return true;
+    final stack = pending[tid];
+    return stack != null && stack.isNotEmpty && stack.last['name'] == name;
+  }
+
   static const _channelNames = {
     'PlatformChannel',
     'platformchannel',
@@ -230,9 +248,9 @@ class TimelineParser {
   /// across calls so iOS B/E pairs straddling poll boundaries
   /// reconstruct correctly. Null = fresh per call.
   ///
-  /// [pendingLayoutBegins], [pendingPaintBegins], [pendingRasterBegins]
-  /// extend the same cross-batch reconstruction to LAYOUT, PAINT, and
-  /// raster events. iOS profile mode (Impeller backend, observed on
+  /// [pendingLayoutBegins], [pendingPaintBegins], [pendingRasterBegins],
+  /// [pendingShaderBegins] extend the same cross-batch reconstruction to
+  /// LAYOUT, PAINT, raster, and pipeline/shader build events. iOS profile mode (Impeller backend, observed on
   /// Flutter 3.41.x / iOS 17.5) emits these phases as nested `B`/`E`
   /// pairs with no `X`-form complete events: `LAYOUT (root)` wraps
   /// `LAYOUT`, `PAINT (root)` wraps `PAINT`, and the raster trio
@@ -256,6 +274,7 @@ class TimelineParser {
     Map<int, List<Map<String, dynamic>>>? pendingLayoutBegins,
     Map<int, List<Map<String, dynamic>>>? pendingPaintBegins,
     Map<int, List<Map<String, dynamic>>>? pendingRasterBegins,
+    Map<int, List<Map<String, dynamic>>>? pendingShaderBegins,
     Map<int, TimelineCursor>? cursorsByTid,
   }) {
     final buildScopes = <int>[];
@@ -277,6 +296,8 @@ class TimelineParser {
         pendingPaintBegins ?? <int, List<Map<String, dynamic>>>{};
     final pendingRasters =
         pendingRasterBegins ?? <int, List<Map<String, dynamic>>>{};
+    final pendingShaders =
+        pendingShaderBegins ?? <int, List<Map<String, dynamic>>>{};
     final cursors = cursorsByTid ?? <int, TimelineCursor>{};
     final channels = <TimelineEvent>[];
     final gcs = <TimelineEvent>[];
@@ -382,7 +403,7 @@ class TimelineParser {
               ),
             );
           }
-        } else if (_shaderNames.contains(name)) {
+        } else if (_isShaderEvent(name, args)) {
           shaders.add(dur);
           if (ts != null) {
             phaseEvents.add(
@@ -502,6 +523,27 @@ class TimelineParser {
               phaseEvents.add(
                 PhaseEvent(
                   phase: TimelinePhase.raster,
+                  timestampUs: beginTs,
+                  durationUs: dur,
+                ),
+              );
+            },
+          );
+        } else if (ph == 'B'
+            ? _isShaderEvent(name, json['args'] as Map<String, dynamic>?)
+            : _isShaderEnd(name, json['tid'] as int? ?? 0, pendingShaders)) {
+          // Pipeline/shader builds are `TRACE_EVENT` scopes: a begin
+          // plus an arg-less end, never an `X` event. Outermost scope
+          // per thread is credited.
+          _reconstructPhaseBE(
+            json: json,
+            ph: ph,
+            pending: pendingShaders,
+            onOutermost: (beginJson, beginTs, dur) {
+              shaders.add(dur);
+              phaseEvents.add(
+                PhaseEvent(
+                  phase: TimelinePhase.shader,
                   timestampUs: beginTs,
                   durationUs: dur,
                 ),
