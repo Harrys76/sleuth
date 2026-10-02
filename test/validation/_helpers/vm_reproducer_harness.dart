@@ -42,9 +42,9 @@ TimelineEvent buildEvent({
     'name': name,
     'cat': cat,
     'ph': ph,
-    if (dur != null) 'dur': dur,
-    if (ts != null) 'ts': ts,
-    if (args != null) 'args': args,
+    'dur': ?dur,
+    'ts': ?ts,
+    'args': ?args,
     'pid': pid,
     'tid': tid,
   })!;

@@ -160,7 +160,7 @@ class _TriggerButtonState extends State<TriggerButton> {
                     SizedBox(height: theme.spacingXxs),
                     ValueListenableBuilder<FrameStatsBuffer>(
                       valueListenable: widget.frameStatsNotifier,
-                      builder: (_, buffer, __) {
+                      builder: (_, buffer, _) {
                         // Parity with `_StatusRow`: throughputFps primary,
                         // warm-up placeholder until buffer has 3 frames.
                         final isWarming = buffer.length < 3;

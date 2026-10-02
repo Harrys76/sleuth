@@ -117,7 +117,7 @@ void main() {
             child: TweenAnimationBuilder<double>(
               tween: Tween<double>(begin: 0, end: 1),
               duration: const Duration(seconds: 1),
-              builder: (_, value, __) => SizedBox(
+              builder: (_, value, _) => SizedBox(
                 width: 50 + value * 50,
                 height: 50,
                 child: const ColoredBox(color: Color(0xFF000000)),
@@ -505,7 +505,7 @@ class _AnimatedBuilderHostState extends State<_AnimatedBuilderHost>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (_, __) => SizedBox(
+      builder: (_, _) => SizedBox(
         width: 50 + _ctrl.value * 50,
         height: 50,
         child: const ColoredBox(color: Color(0xFF000000)),
@@ -550,7 +550,7 @@ class _ValueListenableBuilderHostState
   Widget build(BuildContext context) {
     return ValueListenableBuilder<double>(
       valueListenable: _value,
-      builder: (_, value, __) => SizedBox(
+      builder: (_, value, _) => SizedBox(
         width: 50 + value * 50,
         height: 50,
         child: const ColoredBox(color: Color(0xFF000000)),
@@ -685,7 +685,7 @@ class _OwnedCustomPaintHostState extends State<_OwnedCustomPaintHost>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (_, __) => CustomPaint(
+      builder: (_, _) => CustomPaint(
         painter: _AlwaysRepaintPainter((_ctrl.value * 1000).toInt()),
         size: const Size(50, 50),
       ),

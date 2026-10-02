@@ -142,9 +142,6 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   /// sub-threshold buffers (no warning fire) still expose detector-
   /// measured evidence so capture-mode operators export the same axis
   /// the audit gate classifies on.
-  // _evaluateVmData rewrites this on every call and resetCaptureState
-  // clears it on session boundaries; cannot be final.
-  // ignore: prefer_final_fields
   int _lastObservedRebuildRate = 0;
 
   /// Detector-measured rebuilds-per-second from the most recent
@@ -161,7 +158,6 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   // bracket-band evidence when the audit gate uses
   // `observedAxisReduction: 'max'`. Last-window-only would let a
   // tail-off window understate the worst signal in the scenario.
-  // ignore: prefer_final_fields
   int _peakObservedRebuildRate = 0;
 
   /// Highest adjusted rebuilds-per-second observed across all staged
@@ -560,9 +556,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
           ancestorChain: snapshot.ancestorChains[typeName],
           observationSource: ObservationSource.debugCallback,
           detectedAt: DateTime.now(),
-          extraTraceArgs: {
-            if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
-          },
+          extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
           confidenceReason:
               'Measured directly from debug callback rebuild counter',
         ),
@@ -649,7 +643,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
         extraTraceArgs: {
           'observedRebuildRate': adjusted.toString(),
-          if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+          'lifecyclePhase': ?lifecyclePhase,
         },
         confidenceReason: 'Measured directly from VM timeline build count',
       ),
@@ -690,9 +684,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         fixEffort: effort,
         observationSource: ObservationSource.structural,
         detectedAt: DateTime.now(),
-        extraTraceArgs: {
-          if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
-        },
+        extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
         confidenceReason:
             'Structural scan only — connect VM for higher confidence',
       ),

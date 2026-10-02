@@ -465,7 +465,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
             'observedSevereCount': severeCount.toString(),
             'observedJankPercent': jankPercent.toStringAsFixed(2),
             'bufferSize': frames.length.toString(),
-            if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+            'lifecyclePhase': ?lifecyclePhase,
           },
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
@@ -502,7 +502,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
             'observedJankPercent': jankPercent.toStringAsFixed(2),
             'observedWorstFrameMs': worstMs.toStringAsFixed(2),
             'bufferSize': frames.length.toString(),
-            if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+            'lifecyclePhase': ?lifecyclePhase,
           },
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
@@ -599,9 +599,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           fixHint: hint,
           fixEffort: effort,
           detectedAt: DateTime.now(),
-          extraTraceArgs: {
-            if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
-          },
+          extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
       );
@@ -629,9 +627,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
           fixHint: hint,
           fixEffort: effort,
           detectedAt: DateTime.now(),
-          extraTraceArgs: {
-            if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
-          },
+          extraTraceArgs: {'lifecyclePhase': ?lifecyclePhase},
           confidenceReason: 'Measured directly from FrameTiming API',
         ),
       );

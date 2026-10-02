@@ -63,7 +63,7 @@ Map<String, Object?> envelopeError({
     'schemaVersion': kMcpEnvelopeSchemaVersion,
     'sessionUuid': controller.sessionUuid,
     'error': error,
-    if (stack != null) 'stack': stack,
+    'stack': ?stack,
     ...filteredExtra,
   };
 }
@@ -273,7 +273,7 @@ FutureOr<Map<String, Object?>> extIssuesHandler(
     controller: controller,
     data: <String, Object?>{
       'issues': [for (final i in filtered) i.toJson()],
-      if (route != null) 'route': route,
+      'route': ?route,
     },
   );
 }

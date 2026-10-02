@@ -159,7 +159,7 @@ void main() {
           processFactory:
               (
                 _,
-                __, {
+                _, {
                 String? workingDirectory,
                 Map<String, String>? environment,
               }) async => throw StateError('debugUrl path must bypass spawn'),

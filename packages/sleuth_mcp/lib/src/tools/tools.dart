@@ -1193,7 +1193,7 @@ ToolCallResult _iosErrorEnvelope(
   final payload = <String, Object?>{
     'error': errorName,
     'message': message,
-    if (data != null) ...data,
+    ...?data,
   };
   // Serialise as text content (MCP standard for error envelopes is
   // text-with-isError); embed JSON so structured consumers can parse.

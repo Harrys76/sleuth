@@ -511,7 +511,7 @@ void main() {
                 // fired, the test still passes via the rebinding assertion.
               },
             );
-            sub.onError((Object _, [StackTrace? __]) {
+            sub.onError((Object _, [StackTrace? _]) {
               newErrorFired = true;
               if (!done.isCompleted) done.complete();
             });

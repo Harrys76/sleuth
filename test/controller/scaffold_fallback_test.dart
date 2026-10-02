@@ -396,7 +396,7 @@ void main() {
           home: Scaffold(
             body: ValueListenableBuilder<int>(
               valueListenable: indexNotifier,
-              builder: (_, idx, __) => IndexedStack(
+              builder: (_, idx, _) => IndexedStack(
                 index: idx,
                 children: const [
                   Scaffold(body: Text('home tab')),
@@ -498,7 +498,7 @@ void main() {
             home: Scaffold(
               body: ValueListenableBuilder<int>(
                 valueListenable: indexNotifier,
-                builder: (_, idx, __) => IndexedStack(
+                builder: (_, idx, _) => IndexedStack(
                   index: idx,
                   children: const [
                     Scaffold(body: Text('home tab')),
@@ -1327,7 +1327,7 @@ void main() {
           home: Scaffold(
             body: ValueListenableBuilder<int>(
               valueListenable: indexNotifier,
-              builder: (_, idx, __) => IndexedStack(
+              builder: (_, idx, _) => IndexedStack(
                 index: idx,
                 children: const [
                   Scaffold(body: Text('home tab')),
@@ -1390,7 +1390,7 @@ void main() {
           home: Scaffold(
             body: ValueListenableBuilder<int>(
               valueListenable: indexNotifier,
-              builder: (_, idx, __) => IndexedStack(
+              builder: (_, idx, _) => IndexedStack(
                 index: idx,
                 children: const [
                   Scaffold(body: Text('A')),
@@ -1468,7 +1468,7 @@ void main() {
             home: Scaffold(
               body: ValueListenableBuilder<int>(
                 valueListenable: indexNotifier,
-                builder: (_, idx, __) => IndexedStack(
+                builder: (_, idx, _) => IndexedStack(
                   index: idx,
                   children: const [
                     Scaffold(body: Text('A')),

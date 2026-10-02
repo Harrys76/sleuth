@@ -50,8 +50,8 @@ void main() {
       const livePort = 50002;
       final attacher = IosAttacher(
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(1, 0, '', ''),
-        iproxyStart: (_, __) async => _FakeLiveProcess(),
+        run: (_, _) async => ProcessResult(1, 0, '', ''),
+        iproxyStart: (_, _) async => _FakeLiveProcess(),
         bonjourLines: (bundle, service) async* {
           yield _reachedAt(deadPort, 25);
           yield ' authCode=deadAuth=';
@@ -87,7 +87,7 @@ void main() {
             if (args.contains('launch')) launched = true;
             return ProcessResult(1, 0, '', '');
           },
-          iproxyStart: (_, __) async => _FakeLiveProcess(),
+          iproxyStart: (_, _) async => _FakeLiveProcess(),
           bonjourLines: (bundle, service) async* {
             resolveCall++;
             if (resolveCall == 1) {
@@ -127,8 +127,8 @@ void main() {
       final attacher = IosAttacher(
         hasTool: (_) async => true,
         // Never completes — models a wedged `xcrun devicectl`.
-        run: (_, __) => Completer<ProcessResult>().future,
-        iproxyStart: (_, __) async => _FakeLiveProcess(),
+        run: (_, _) => Completer<ProcessResult>().future,
+        iproxyStart: (_, _) async => _FakeLiveProcess(),
         bonjourLines: (bundle, service) async* {
           // Empty probe → launch branch → the hung run() above.
         },
@@ -157,8 +157,8 @@ void main() {
       () async {
         final attacher = IosAttacher(
           hasTool: (_) async => true,
-          run: (_, __) async => ProcessResult(1, 0, '', ''),
-          iproxyStart: (_, __) async => _FakeLiveProcess(),
+          run: (_, _) async => ProcessResult(1, 0, '', ''),
+          iproxyStart: (_, _) async => _FakeLiveProcess(),
           bonjourLines: (bundle, service) async* {
             yield _reachedAt(50001, 25);
             yield ' authCode=zzz=';

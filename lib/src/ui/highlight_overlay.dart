@@ -30,10 +30,10 @@ class HighlightOverlay extends StatelessWidget {
             ({int generation, List<WidgetHighlight> items})
           >(
             valueListenable: highlights,
-            builder: (_, payload, __) =>
+            builder: (_, payload, _) =>
                 ValueListenableBuilder<WidgetHighlight?>(
                   valueListenable: selectedHighlight,
-                  builder: (_, selected, __) {
+                  builder: (_, selected, _) {
                     if (payload.items.isEmpty && selected == null) {
                       return const SizedBox.shrink();
                     }

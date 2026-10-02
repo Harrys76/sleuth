@@ -38,7 +38,7 @@ _setup() async {
     processFactory:
         (
           _,
-          __, {
+          _, {
           String? workingDirectory,
           Map<String, String>? environment,
         }) async => throw StateError('no process factory bound for this test'),
@@ -85,7 +85,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) async => throw StateError('debugUrl path bypasses spawn'),
@@ -127,7 +127,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) async => fake,

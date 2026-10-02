@@ -599,7 +599,7 @@ void main() {
             detector,
             AnimatedBuilder(
               animation: const AlwaysStoppedAnimation<double>(0.0),
-              builder: (_, __) => const SizedBox(),
+              builder: (_, _) => const SizedBox(),
             ),
           );
           // Issue suppression for KDD-5 inflation false-positives.
@@ -627,7 +627,7 @@ void main() {
             detector,
             AnimatedBuilder(
               animation: const AlwaysStoppedAnimation<double>(0.0),
-              builder: (_, __) => const SizedBox(),
+              builder: (_, _) => const SizedBox(),
             ),
           );
           expect(issues, hasLength(1));
@@ -792,7 +792,7 @@ void main() {
             StreamBuilder<int>(
               stream: controller.stream,
               initialData: 0,
-              builder: (_, __) => const SizedBox(),
+              builder: (_, _) => const SizedBox(),
             ),
           );
           expect(issues, hasLength(1));

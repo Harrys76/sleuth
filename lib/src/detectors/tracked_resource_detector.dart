@@ -78,7 +78,6 @@ class TrackedResourceDetector extends BaseDetector
   int _droppedTargets = 0;
   int _evictedNames = 0;
   // Incremented on rejected register calls.
-  // ignore: prefer_final_fields
   int _droppedOverrides = 0;
 
   /// Per-name threshold overrides. Kept separate from `_buckets` so

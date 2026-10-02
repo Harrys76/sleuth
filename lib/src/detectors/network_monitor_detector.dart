@@ -83,9 +83,6 @@ class NetworkMonitorDetector extends BaseDetector
   /// the count crosses [frequencyLimit] — capture-mode tooling reads
   /// this so the below-leg's exported magnitude reflects what the
   /// detector measured rather than the operator's plan.
-  // _evaluateFrequency rewrites this on every tick and clearRecords
-  // resets it on session boundaries; cannot be final.
-  // ignore: prefer_final_fields
   int _lastObservedPeakCount = 0;
 
   /// Detector-measured peak count from the most recent

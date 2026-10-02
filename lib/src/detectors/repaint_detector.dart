@@ -77,9 +77,6 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   /// [paintFrequencyThreshold]. Capture-mode tooling reads this so a
   /// sub-threshold leg's exported magnitude reflects what the detector
   /// measured, not the operator's plan.
-  // Window-completion writes this on every tick; resetCaptureState
-  // zeroes it on per-leg boundaries; cannot be final.
-  // ignore: prefer_final_fields
   int _lastObservedPaintCount = 0;
 
   /// Peak window aggregate paint count seen since the last
@@ -89,9 +86,6 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   /// tracking, [_lastObservedPaintCount] alone reads the most-recent
   /// (post-workload, near-idle) window and the exported magnitude
   /// diverges from what the detector actually emitted.
-  // Updated at every window close on a >= comparison; reset at per-leg
-  // boundaries; cannot be final.
-  // ignore: prefer_final_fields
   int _peakObservedPaintCount = 0;
 
   /// Detector-measured paint count from the most recent completed 1s

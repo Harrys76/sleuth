@@ -160,7 +160,7 @@ void main() {
         HeavyStateful(
           child: AnimatedBuilder(
             animation: _StaticListenable(),
-            builder: (_, __) => Column(
+            builder: (_, _) => Column(
               children: List.generate(8, (i) => SizedBox(key: ValueKey(i))),
             ),
           ),
@@ -190,7 +190,7 @@ void main() {
         HeavyStateful(
           child: ValueListenableBuilder<int>(
             valueListenable: notifier,
-            builder: (_, __, ___) => Column(
+            builder: (_, _, _) => Column(
               children: List.generate(8, (i) => SizedBox(key: ValueKey(i))),
             ),
           ),

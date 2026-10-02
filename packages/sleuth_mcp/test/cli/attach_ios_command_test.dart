@@ -289,8 +289,8 @@ void main() {
           expect(args, contains('com.foo.bar'));
           return ProcessResult(0, 1, '', 'device not found');
         },
-        start: (_, __) async => throw StateError('should not spawn iproxy'),
-        bonjourLines: (_, __) => const Stream.empty(), // never reached
+        start: (_, _) async => throw StateError('should not spawn iproxy'),
+        bonjourLines: (_, _) => const Stream.empty(), // never reached
       );
       expect(r.exitCode, 66);
       expect(err.toString(), contains('devicectl launch failed'));
@@ -305,9 +305,9 @@ void main() {
         stdout_: out,
         stderr_: err,
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        start: (_, __) async => throw StateError('should not spawn iproxy'),
-        bonjourLines: (_, __) => const Stream.empty(),
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        start: (_, _) async => throw StateError('should not spawn iproxy'),
+        bonjourLines: (_, _) => const Stream.empty(),
         bonjourCollectFor: const Duration(milliseconds: 50),
         bonjourTimeout: const Duration(milliseconds: 200),
       );
@@ -325,7 +325,7 @@ void main() {
           stdout_: out,
           stderr_: err,
           hasTool: (_) async => true,
-          run: (_, __) async => ProcessResult(0, 0, '', ''),
+          run: (_, _) async => ProcessResult(0, 0, '', ''),
           iproxyStart: (exe, args) async {
             expect(exe, 'iproxy');
             expect(args, ['12345', '53172', '--udid', 'ABC123']);
@@ -336,7 +336,7 @@ void main() {
             // a real Process; we use `sh -c "sleep 1"`.
             return Process.start('sh', ['-c', 'sleep 1']);
           },
-          bonjourLines: (_, __) => Stream.fromIterable([
+          bonjourLines: (_, _) => Stream.fromIterable([
             'can be reached at h.local.:53172 (interface 25) Flags: 1',
             ' authCode=usbtoken=',
           ]),
@@ -359,9 +359,9 @@ void main() {
         stdout_: out,
         stderr_: StringBuffer(),
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (_, __) async => Process.start('sh', ['-c', 'sleep 1']),
-        bonjourLines: (_, __) => Stream.fromIterable([
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        iproxyStart: (_, _) async => Process.start('sh', ['-c', 'sleep 1']),
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:8001 (interface 15) Flags: 1',
           ' authCode=wifitoken=',
           'can be reached at h.local.:8002 (interface 25) Flags: 1',
@@ -381,9 +381,9 @@ void main() {
         stdout_: StringBuffer(),
         stderr_: err,
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        start: (_, __) async => throw StateError('should not spawn'),
-        bonjourLines: (_, __) => Stream.fromIterable([
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        start: (_, _) async => throw StateError('should not spawn'),
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:1 (interface 25) Flags: 1',
           ' authCode=present=',
         ]),
@@ -404,12 +404,12 @@ void main() {
           stdout_: out,
           stderr_: StringBuffer(),
           hasTool: (t) async => t != 'iproxy',
-          run: (_, __) async => ProcessResult(0, 0, '', ''),
-          iproxyStart: (_, __) async {
+          run: (_, _) async => ProcessResult(0, 0, '', ''),
+          iproxyStart: (_, _) async {
             iproxySpawned = true;
             return Process.start('sh', ['-c', 'sleep 1']);
           },
-          bonjourLines: (_, __) => Stream.fromIterable([
+          bonjourLines: (_, _) => Stream.fromIterable([
             'can be reached at Pengen.local.:53172 (interface 25) Flags: 1',
             ' authCode=wifitoken=',
           ]),
@@ -437,12 +437,12 @@ void main() {
           stdout_: out,
           stderr_: StringBuffer(),
           hasTool: (_) async => true,
-          run: (_, __) async => ProcessResult(0, 0, '', ''),
-          iproxyStart: (_, __) async {
+          run: (_, _) async => ProcessResult(0, 0, '', ''),
+          iproxyStart: (_, _) async {
             iproxySpawned = true;
             return Process.start('sh', ['-c', 'sleep 1']);
           },
-          bonjourLines: (_, __) => Stream.fromIterable([
+          bonjourLines: (_, _) => Stream.fromIterable([
             'can be reached at h.local.:53172 (interface 25) Flags: 1',
             ' authCode=usbtoken=',
           ]),
@@ -466,7 +466,7 @@ void main() {
 ]}}''';
       final t = await detectIosTransport(
         udid: 'ABC123',
-        run: (_, __) async => ProcessResult(0, 0, sample, ''),
+        run: (_, _) async => ProcessResult(0, 0, sample, ''),
       );
       expect(t, IosTransport.wired);
     });
@@ -481,7 +481,7 @@ void main() {
 ]}}''';
         final t = await detectIosTransport(
           udid: 'ABC123',
-          run: (_, __) async => ProcessResult(0, 0, sample, ''),
+          run: (_, _) async => ProcessResult(0, 0, sample, ''),
         );
         expect(t, IosTransport.wireless);
       },
@@ -495,7 +495,7 @@ void main() {
 ]}}''';
       final t = await detectIosTransport(
         udid: 'ABC123',
-        run: (_, __) async => ProcessResult(0, 0, sample, ''),
+        run: (_, _) async => ProcessResult(0, 0, sample, ''),
       );
       expect(t, IosTransport.wireless);
     });
@@ -508,7 +508,7 @@ void main() {
 ]}}''';
       final t = await detectIosTransport(
         udid: 'ABC123',
-        run: (_, __) async => ProcessResult(0, 0, sample, ''),
+        run: (_, _) async => ProcessResult(0, 0, sample, ''),
       );
       expect(t, IosTransport.unknown);
     });
@@ -516,7 +516,7 @@ void main() {
     test('non-zero exit → unknown', () async {
       final t = await detectIosTransport(
         udid: 'ABC123',
-        run: (_, __) async => ProcessResult(0, 1, '', 'boom'),
+        run: (_, _) async => ProcessResult(0, 1, '', 'boom'),
       );
       expect(t, IosTransport.unknown);
     });
@@ -524,7 +524,7 @@ void main() {
     test('malformed JSON → unknown', () async {
       final t = await detectIosTransport(
         udid: 'ABC123',
-        run: (_, __) async => ProcessResult(0, 0, 'not json', ''),
+        run: (_, _) async => ProcessResult(0, 0, 'not json', ''),
       );
       expect(t, IosTransport.unknown);
     });
@@ -747,14 +747,14 @@ void main() {
         stdout_: StringBuffer(),
         stderr_: StringBuffer(),
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        start: (_, __) async =>
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        start: (_, _) async =>
             throw StateError('should not use non-iproxy start'),
         iproxyStart: (exe, args) async {
           expect(exe, 'iproxy');
           return Process.start('sh', ['-c', 'sleep 1']);
         },
-        bonjourLines: (_, __) => Stream.fromIterable([
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:53172 (interface 25) Flags: 1',
           ' authCode=usbtoken=',
         ]),
@@ -788,9 +788,9 @@ void main() {
         stdout_: StringBuffer(),
         stderr_: StringBuffer(),
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (_, __) async => Process.start('sh', ['-c', 'sleep 3']),
-        bonjourLines: (_, __) => Stream.fromIterable([
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        iproxyStart: (_, _) async => Process.start('sh', ['-c', 'sleep 3']),
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:53172 (interface 25) Flags: 1',
           ' authCode=usbtoken=',
         ]),
@@ -823,9 +823,9 @@ void main() {
           stdout_: StringBuffer(),
           stderr_: StringBuffer(),
           hasTool: (_) async => true,
-          run: (_, __) async => ProcessResult(0, 0, '', ''),
-          iproxyStart: (_, __) async => Process.start('sh', ['-c', 'sleep 1']),
-          bonjourLines: (_, __) => Stream.fromIterable([
+          run: (_, _) async => ProcessResult(0, 0, '', ''),
+          iproxyStart: (_, _) async => Process.start('sh', ['-c', 'sleep 1']),
+          bonjourLines: (_, _) => Stream.fromIterable([
             'can be reached at h.local.:53172 (interface 25) Flags: 1',
             ' authCode=usbtoken=',
           ]),
@@ -848,9 +848,9 @@ void main() {
         stdout_: StringBuffer(),
         stderr_: StringBuffer(),
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (_, __) async => Process.start('sh', ['-c', 'sleep 1']),
-        bonjourLines: (_, __) => Stream.fromIterable([
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        iproxyStart: (_, _) async => Process.start('sh', ['-c', 'sleep 1']),
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:53172 (interface 25) Flags: 1',
           ' authCode=usbtoken=',
         ]),
@@ -873,10 +873,10 @@ void main() {
         stdout_: StringBuffer(),
         stderr_: StringBuffer(),
         hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(0, 0, '', ''),
-        iproxyStart: (_, __) async =>
+        run: (_, _) async => ProcessResult(0, 0, '', ''),
+        iproxyStart: (_, _) async =>
             Process.start('sh', ['-c', 'echo failed >&2; exit 1']),
-        bonjourLines: (_, __) => Stream.fromIterable([
+        bonjourLines: (_, _) => Stream.fromIterable([
           'can be reached at h.local.:53172 (interface 25) Flags: 1',
           ' authCode=usbtoken=',
         ]),

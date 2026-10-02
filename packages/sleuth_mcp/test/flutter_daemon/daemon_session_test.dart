@@ -19,7 +19,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) =>
@@ -42,7 +42,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) => throw StateError('unused'),
@@ -114,7 +114,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) async => fake,
@@ -139,7 +139,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) async => fake,
@@ -166,7 +166,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) async => fake,
@@ -192,7 +192,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) async => throw StateError('unused'),
@@ -211,7 +211,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) async => throw StateError('unused'),
@@ -234,7 +234,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) async => throw StateError('unused'),
@@ -253,7 +253,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) async => fake,
@@ -309,7 +309,7 @@ void main() {
           processFactory:
               (
                 _,
-                __, {
+                _, {
                 String? workingDirectory,
                 Map<String, String>? environment,
               }) async => fake,
@@ -370,7 +370,7 @@ void main() {
           processFactory:
               (
                 _,
-                __, {
+                _, {
                 String? workingDirectory,
                 Map<String, String>? environment,
               }) async => fake,
@@ -427,7 +427,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) async => fake,
@@ -490,7 +490,7 @@ void main() {
         processFactory:
             (
               _,
-              __, {
+              _, {
               String? workingDirectory,
               Map<String, String>? environment,
             }) async => fake,
@@ -506,7 +506,7 @@ void main() {
           processFactory:
               (
                 _,
-                __, {
+                _, {
                 String? workingDirectory,
                 Map<String, String>? environment,
               }) async => fake,
@@ -522,7 +522,7 @@ void main() {
           processFactory:
               (
                 _,
-                __, {
+                _, {
                 String? workingDirectory,
                 Map<String, String>? environment,
               }) async => fake,

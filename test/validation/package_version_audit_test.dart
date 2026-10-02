@@ -14,6 +14,10 @@ void main() {
           '(${Directory.current.path})',
     );
     final pubspec = pubspecFile.readAsStringSync();
+    // IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
+    // (fires only on subclassing). Remove when analyzer-server recognizes the
+    // implement-only kind.
+    // ignore: deprecated_member_use
     final match = RegExp(
       r'^version:\s*(.+)$',
       multiLine: true,

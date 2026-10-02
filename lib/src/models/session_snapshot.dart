@@ -228,8 +228,8 @@ class SessionSnapshot {
               ..sort(),
         if (maxIssueCount != null || maxRouteCount != null)
           '_projectionLimits': {
-            if (maxIssueCount != null) 'maxIssueCount': maxIssueCount,
-            if (maxRouteCount != null) 'maxRouteCount': maxRouteCount,
+            'maxIssueCount': ?maxIssueCount,
+            'maxRouteCount': ?maxRouteCount,
           },
         '_projectionApplied': 'by_app',
       },

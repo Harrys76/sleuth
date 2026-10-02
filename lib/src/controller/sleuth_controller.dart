@@ -379,7 +379,6 @@ class SleuthController {
   RouteSession? _activeRouteSession;
 
   /// Counter for synthetic names assigned to unnamed routes.
-  // ignore: prefer_final_fields
   int _unnamedRouteCounter = 0;
 
   /// Maps a scaffold hash (null for scaffold-free) to the stable unnamed-route
@@ -1864,7 +1863,7 @@ class SleuthController {
         },
         'captureDate': DateTime.now().toUtc().toIso8601String(),
         'role': role,
-        if (captureNotes != null) 'captureNotes': captureNotes,
+        'captureNotes': ?captureNotes,
       },
     };
     return const JsonEncoder.withIndent('  ').convert(wrapped);

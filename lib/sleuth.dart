@@ -156,7 +156,6 @@ class Sleuth {
 
   /// Print-once throttle on pre-init [setResourceThreshold] warning;
   /// multi-name pre-init would otherwise spam the debug console.
-  // ignore: prefer_final_fields
   static bool _preInitWarned = false;
 
   /// Dart entry timestamp captured by [init].

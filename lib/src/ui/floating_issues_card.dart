@@ -238,15 +238,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   bool _exportFeedbackVisible = false;
   bool _highlightNotFoundVisible = false;
-  // ignore: prefer_final_fields
   bool _rebuildSessionGoneVisible = false;
-  // ignore: prefer_final_fields
   bool _rebuildPauseDiscardedVisible = false;
   bool _debugBannerDismissed = false;
   bool _showGuide = false;
   bool _showDetail = false;
   bool _showStartupDetail = false;
-  // ignore: prefer_final_fields
   bool _showRebuildStats = false;
   // Snapshot captured at tap time so mutations to the live session
   // (from background scans) don't shuffle rows while the drilldown is open.
@@ -273,7 +270,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   static const double _minCardHeight = 250;
 
   // ─── Window state (M2) ─────────────────────────────────────────────
-  // ignore: prefer_final_fields
   _CardWindowState _windowState = _CardWindowState.normal;
 
   /// Stored when transitioning away from normal so restore is exact.
@@ -943,7 +939,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             if (isMinimized)
               ValueListenableBuilder<List<PerformanceIssue>>(
                 valueListenable: widget.controller.issuesNotifier,
-                builder: (_, issues, __) => issues.isEmpty
+                builder: (_, issues, _) => issues.isEmpty
                     ? const SizedBox.shrink()
                     : DecoratedBox(
                         decoration: BoxDecoration(
@@ -970,7 +966,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             if (!isMinimized)
               ValueListenableBuilder<bool>(
                 valueListenable: widget.controller.vmConnectedNotifier,
-                builder: (_, connected, __) => Container(
+                builder: (_, connected, _) => Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 5,
                     vertical: 1,
@@ -1015,7 +1011,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             if (!isMinimized)
               ValueListenableBuilder<bool>(
                 valueListenable: widget.controller.highlightEnabledNotifier,
-                builder: (_, enabled, __) => _compactHeaderButton(
+                builder: (_, enabled, _) => _compactHeaderButton(
                   icon: enabled ? Icons.layers : Icons.layers_outlined,
                   color: enabled ? theme.checkboxActive : theme.textTertiary,
                   onTap: () {
@@ -1141,7 +1137,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   Widget _buildIssuesList() {
     return ValueListenableBuilder<List<PerformanceIssue>>(
       valueListenable: widget.controller.issuesNotifier,
-      builder: (context, issues, __) {
+      builder: (context, issues, _) {
         final theme = SleuthTheme.of(context);
         if (issues.isEmpty) {
           return Center(
@@ -1198,7 +1194,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
             Expanded(
               child: ValueListenableBuilder<WidgetHighlight?>(
                 valueListenable: widget.controller.selectedHighlightNotifier,
-                builder: (_, selectedHighlight, __) => ListView.builder(
+                builder: (_, selectedHighlight, _) => ListView.builder(
                   padding: EdgeInsets.all(theme.spacingSm),
                   itemCount: orderedIssues.length,
                   // Keyed-reorder remount fix: without a
@@ -1404,7 +1400,7 @@ class _StatusRowState extends State<_StatusRow> {
               // expanded detail row (ACTUAL cell) and the snapshot export.
               ValueListenableBuilder<FrameStatsBuffer>(
                 valueListenable: controller.frameStatsNotifier,
-                builder: (_, buffer, __) {
+                builder: (_, buffer, _) {
                   final target = controller.config.fpsTarget;
                   final isWarming = buffer.length < _warmupFrameCount;
                   final fps = buffer.throughputFps.clamp(
@@ -1470,7 +1466,7 @@ class _StatusRowState extends State<_StatusRow> {
               // Issue count + severity dot
               ValueListenableBuilder<List<PerformanceIssue>>(
                 valueListenable: controller.issuesNotifier,
-                builder: (_, issues, __) {
+                builder: (_, issues, _) {
                   if (issues.isEmpty) {
                     return Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1566,7 +1562,7 @@ class _ThroughputDetailRow extends StatelessWidget {
       ),
       child: ValueListenableBuilder<FrameStatsBuffer>(
         valueListenable: controller.frameStatsNotifier,
-        builder: (_, buffer, __) {
+        builder: (_, buffer, _) {
           final target = controller.config.fpsTarget;
           final actual = buffer.actualFps.clamp(0.0, target.toDouble());
           final throughput = buffer.throughputFps.clamp(0.0, target.toDouble());
@@ -1913,7 +1909,7 @@ class _CardFooter extends StatelessWidget {
           ),
           ValueListenableBuilder<int>(
             valueListenable: controller.suppressedCountNotifier,
-            builder: (_, count, __) {
+            builder: (_, count, _) {
               if (count == 0) return const SizedBox.shrink();
               return Padding(
                 padding: EdgeInsets.only(left: theme.spacingMd),

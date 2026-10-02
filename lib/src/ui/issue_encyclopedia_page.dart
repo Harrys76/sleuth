@@ -691,7 +691,7 @@ class _SearchBar extends StatelessWidget {
           prefixIcon: Icon(Icons.search, color: theme.textQuaternary, size: 18),
           suffixIcon: ValueListenableBuilder<TextEditingValue>(
             valueListenable: controller,
-            builder: (_, value, __) => value.text.isEmpty
+            builder: (_, value, _) => value.text.isEmpty
                 ? const SizedBox.shrink()
                 : GestureDetector(
                     onTap: controller.clear,
