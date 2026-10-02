@@ -719,15 +719,20 @@ Element? _findElement(bool Function(Element) test) {
   return found;
 }
 
-Element? _findText(String text) => _findElement((element) {
-  final widget = element.widget;
-  if (widget is Text) {
-    final data = widget.data ?? widget.textSpan?.toPlainText() ?? '';
-    return data.contains(text);
+/// Exact label first (a button), then any text containing it, so a
+/// description paragraph that quotes a button label does not win.
+Element? _findText(String text) {
+  String? label(Widget widget) {
+    if (widget is Text) {
+      return widget.data ?? widget.textSpan?.toPlainText();
+    }
+    if (widget is Tooltip) return widget.message;
+    return null;
   }
-  if (widget is Tooltip) return widget.message?.contains(text) ?? false;
-  return false;
-});
+
+  return _findElement((e) => label(e.widget)?.trim() == text) ??
+      _findElement((e) => label(e.widget)?.contains(text) ?? false);
+}
 
 ScrollableState? _findScrollable(bool horizontal) {
   ScrollableState? best;
