@@ -109,6 +109,25 @@
   attribute to the specific unprotected widget.
 - `frequent_repaint_painter` and the `always_repaint_painter` upgrade use the
   CustomPaint paint rate minus animation-owned paints.
+- `shader_compilation` reads engine begin/end pairs: Impeller Vulkan pipeline
+  builds (`PipelineVK::Create`, `CreateComputePipeline`) and Skia shader
+  compiles (`devtoolsTag: shaders`). Issues are `likely` (a build stalls only
+  frames that need that pipeline). Impeller Metal emits no build events and
+  stays silent. The `--cache-sksl` / `--bundle-sksl-path` advice is removed.
+- Platform-channel profiling is opt-in: `SleuthConfig(profilePlatformChannels:
+  true)` sets `debugProfilePlatformChannels` once the VM connects and restores
+  it on dispose. While on, the framework prints a "Platform Channel Stats"
+  table to the console every second that channels are active.
+- `platform_channel_traffic` emits on call count only. Per-call durations
+  (async `b`/`e` pairs matched by `id`) are reported as `maxCallDurationUs`,
+  `p95CallDurationUs`, and `callsOverThreshold`;
+  `platformChannelDurationThresholdMs` (default 8) now marks slow calls and no
+  longer triggers. `cumulativeDurationUs` is no longer stamped. Exported
+  channel summaries carry measured durations.
+- `large_response` skips `image/`, `video/`, `audio/`, and `font/` responses.
+  `RequestRecord.contentType` (MIME type, serialized when present) is new.
+  Network monitoring observes `dart:io` `HttpClient` traffic only;
+  `cronet_http`, `cupertino_http`, and platform-SDK networking are invisible.
 
 `kSleuthPackageVersion` → 0.37.0. Sidecar sleuth_mcp 0.8.0 pins 0.37.0.
 
