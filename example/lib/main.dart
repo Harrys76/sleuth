@@ -586,6 +586,71 @@ void _registerDemoExtensions() {
       jsonEncode({'opened': demo.title, 'route': '/demo/${demo.title}'}),
     );
   });
+  // Remote interaction for profile-build walks: synthetic pointer events
+  // go through the real gesture arena, scrolls through the real
+  // ScrollPosition, so detectors see what a finger would produce.
+  developer.registerExtension('ext.sleuthDemo.tap', (method, params) async {
+    final text = params['text'] ?? '';
+    final element = _findText(text);
+    final center = element == null ? null : _centerOf(element);
+    if (center == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.extensionError,
+        jsonEncode({'error': 'not_found', 'text': text}),
+      );
+    }
+    await _tapAt(center);
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({'tapped': text, 'x': center.dx, 'y': center.dy}),
+    );
+  });
+  developer.registerExtension('ext.sleuthDemo.scroll', (method, params) async {
+    final pixels = double.tryParse(params['pixels'] ?? '') ?? 600;
+    final ms = int.tryParse(params['ms'] ?? '') ?? 600;
+    final horizontal = params['axis'] == 'horizontal';
+    final state = _findScrollable(horizontal);
+    if (state == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.extensionError,
+        jsonEncode({'error': 'no_scrollable'}),
+      );
+    }
+    final position = state.position;
+    final target = (position.pixels + pixels).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    await position.animateTo(
+      target,
+      duration: Duration(milliseconds: ms),
+      curve: Curves.easeOutCubic,
+    );
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({
+        'from': position.pixels - (target - position.pixels),
+        'to': target,
+      }),
+    );
+  });
+  developer.registerExtension('ext.sleuthDemo.fling', (method, params) async {
+    final dy = double.tryParse(params['dy'] ?? '') ?? -500;
+    final dx = double.tryParse(params['dx'] ?? '') ?? 0;
+    final ms = int.tryParse(params['ms'] ?? '') ?? 120;
+    final horizontal = dx.abs() > dy.abs();
+    final state = _findScrollable(horizontal);
+    final element = state?.context as Element?;
+    final center = element == null ? null : _centerOf(element);
+    if (center == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.extensionError,
+        jsonEncode({'error': 'no_scrollable'}),
+      );
+    }
+    await _dragFrom(center, Offset(dx, dy), ms);
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({'flung': true, 'dx': dx, 'dy': dy}),
+    );
+  });
   developer.registerExtension('ext.sleuthDemo.pop', (method, params) async {
     final navigator = _navigatorKey.currentState;
     final popped = navigator != null && navigator.canPop();
@@ -637,6 +702,103 @@ class _DemoTile extends StatelessWidget {
       ),
     );
   }
+}
+
+Element? _findElement(bool Function(Element) test) {
+  Element? found;
+  void visit(Element element) {
+    if (found != null) return;
+    if (test(element)) {
+      found = element;
+      return;
+    }
+    element.visitChildren(visit);
+  }
+
+  WidgetsBinding.instance.rootElement?.visitChildren(visit);
+  return found;
+}
+
+Element? _findText(String text) => _findElement((element) {
+  final widget = element.widget;
+  if (widget is Text) {
+    final data = widget.data ?? widget.textSpan?.toPlainText() ?? '';
+    return data.contains(text);
+  }
+  if (widget is Tooltip) return widget.message?.contains(text) ?? false;
+  return false;
+});
+
+ScrollableState? _findScrollable(bool horizontal) {
+  ScrollableState? best;
+  _findElement((element) {
+    if (element is StatefulElement && element.state is ScrollableState) {
+      final state = element.state as ScrollableState;
+      final axis = state.widget.axis;
+      final matches = horizontal
+          ? axis == Axis.horizontal
+          : axis == Axis.vertical;
+      if (matches &&
+          state.position.hasContentDimensions &&
+          state.position.maxScrollExtent > 0) {
+        best = state;
+        return true;
+      }
+    }
+    return false;
+  });
+  return best;
+}
+
+Offset? _centerOf(Element element) {
+  final ro = element.renderObject;
+  if (ro is! RenderBox || !ro.hasSize || !ro.attached) return null;
+  return ro.localToGlobal(ro.size.center(Offset.zero));
+}
+
+int _syntheticPointer = 900;
+
+Future<void> _tapAt(Offset position) async {
+  final binding = WidgetsBinding.instance;
+  final pointer = _syntheticPointer++;
+  binding.handlePointerEvent(
+    PointerDownEvent(pointer: pointer, position: position),
+  );
+  await Future<void>.delayed(const Duration(milliseconds: 60));
+  binding.handlePointerEvent(
+    PointerUpEvent(pointer: pointer, position: position),
+  );
+  await binding.endOfFrame;
+}
+
+Future<void> _dragFrom(Offset start, Offset delta, int ms) async {
+  final binding = WidgetsBinding.instance;
+  final pointer = _syntheticPointer++;
+  const stepMs = 16;
+  final steps = (ms / stepMs).clamp(2, 60).round();
+  var clock = Duration(milliseconds: DateTime.now().millisecondsSinceEpoch);
+  var position = start;
+  binding.handlePointerEvent(
+    PointerDownEvent(pointer: pointer, position: position, timeStamp: clock),
+  );
+  for (var i = 1; i <= steps; i++) {
+    await Future<void>.delayed(const Duration(milliseconds: stepMs));
+    clock += const Duration(milliseconds: stepMs);
+    final next = start + delta * (i / steps);
+    binding.handlePointerEvent(
+      PointerMoveEvent(
+        pointer: pointer,
+        position: next,
+        delta: next - position,
+        timeStamp: clock,
+      ),
+    );
+    position = next;
+  }
+  binding.handlePointerEvent(
+    PointerUpEvent(pointer: pointer, position: position, timeStamp: clock),
+  );
+  await binding.endOfFrame;
 }
 
 String? _startDemoRequest() {
