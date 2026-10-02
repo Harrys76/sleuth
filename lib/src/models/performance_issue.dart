@@ -312,7 +312,7 @@ class PerformanceIssue {
   /// tooling; it is **not a first-class consumer surface** in v0.16.0.
   ///
   /// A drifted `severity` silently imported as `warning` cascades into
-  /// consumer surfaces (issue ranker 100× weight, health-score 30-point
+  /// consumer surfaces (issue ranker evidence tier, health-score 30-point
   /// critical penalty, trigger-button red/green badge, duration escalation).
   /// Do not feed untrusted or cross-version snapshots into `fromJson` in
   /// production.

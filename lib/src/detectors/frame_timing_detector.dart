@@ -409,8 +409,8 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   /// captures. Other detectors at runtimeVerified+ tier (NetworkMonitor,
   /// MemoryPressure, HeavyCompute, PlatformChannel) already produce
   /// concurrent multi-stableId emissions; the UI handles this via
-  /// IssueRanker composite-score ordering (severity weight 100 keeps
-  /// critical above warning regardless).
+  /// IssueRanker composite-score ordering (both are confirmed, so the
+  /// critical tier ranks above the warning tier).
   void _evaluateJank() {
     _issues.removeWhere(
       (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected',

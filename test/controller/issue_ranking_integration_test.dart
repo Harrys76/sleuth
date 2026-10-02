@@ -22,7 +22,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('issues sorted by severity after aggregation', (tester) async {
+    testWidgets('issues sorted by evidence tier after aggregation', (
+      tester,
+    ) async {
       // Build a widget tree that triggers both warning and critical issues.
       // Opacity(0.0) -> warning (opacity_zero)
       // Non-lazy list with 25+ children -> warning (non_lazy_list)
@@ -60,17 +62,29 @@ void main() {
       final issues = controller.issuesNotifier.value;
       expect(issues, isNotEmpty);
 
-      // Verify severity ordering: all critical before all warning
-      bool seenWarning = false;
-      for (final issue in issues) {
-        if (issue.severity == IssueSeverity.warning) {
-          seenWarning = true;
-        }
-        if (issue.severity == IssueSeverity.critical && seenWarning) {
-          fail(
-            'Critical issue found after warning issue — severity order violated',
-          );
-        }
+      // Verify evidence-tier ordering: tier is non-increasing down the
+      // list (same table as IssueRanker).
+      int tier(PerformanceIssue i) => switch (i.severity) {
+        IssueSeverity.critical => switch (i.confidence) {
+          IssueConfidence.confirmed => 6,
+          IssueConfidence.likely => 5,
+          IssueConfidence.possible => 3,
+        },
+        IssueSeverity.warning => switch (i.confidence) {
+          IssueConfidence.confirmed => 4,
+          IssueConfidence.likely => 2,
+          IssueConfidence.possible => 1,
+        },
+        IssueSeverity.ok => 0,
+      };
+      for (var i = 1; i < issues.length; i++) {
+        expect(
+          tier(issues[i]),
+          lessThanOrEqualTo(tier(issues[i - 1])),
+          reason:
+              '${issues[i].stableId} (tier ${tier(issues[i])}) ranked below '
+              '${issues[i - 1].stableId} (tier ${tier(issues[i - 1])})',
+        );
       }
     });
 
@@ -186,8 +200,9 @@ void main() {
       );
       expect(jankIssue, isNotEmpty);
 
-      // The jank issue (critical, build) should be ranked first
+      // The jank issue (confirmed critical, build) should be ranked first
       expect(issues.first.severity, IssueSeverity.critical);
+      expect(issues.first.confidence, IssueConfidence.confirmed);
     });
 
     testWidgets('frame impact clears when jank stops (no stale phase boost)', (

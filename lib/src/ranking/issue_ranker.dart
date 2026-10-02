@@ -24,11 +24,22 @@ class IssueRankingContext {
 /// Sorts [PerformanceIssue]s by a weighted composite score so that the most
 /// impactful issues appear first in the dashboard.
 ///
-/// Score formula: `(severity * 100) + (frameImpact * 8) + (confidence * 5) + (recurrence * 2)`
+/// Score formula: `(tier * 100) + (frameImpact * 8) + (recurrence * 2)`
 ///
-/// Severity weight 100 creates non-overlapping tiers (critical: 300-349,
-/// warning: 200-249, ok: 100-149), guaranteeing every critical outranks every
-/// warning regardless of other signals.
+/// The tier combines severity and confidence:
+///
+/// | severity | confirmed | likely | possible |
+/// |----------|-----------|--------|----------|
+/// | critical | 6         | 5      | 3        |
+/// | warning  | 4         | 2      | 1        |
+/// | ok       | 0         | 0      | 0        |
+///
+/// Resulting order: confirmed critical > likely critical > confirmed
+/// warning > possible critical > likely warning > possible warning > ok.
+/// A structural-only guess (possible) ranks below a warning that was
+/// observed at runtime (confirmed). The maximum bonus (frameImpact 24 +
+/// recurrence 10 = 34) stays below the 100-point tier gap, so bonuses
+/// order issues within a tier and never across tiers.
 class IssueRanker {
   const IssueRanker();
 
@@ -102,22 +113,32 @@ class IssueRanker {
         issue.interactionContext == InteractionContext.appLifecycle) {
       recurrence = (recurrence * 0.7).round();
     }
-    return (_severityScore(issue.severity) * 100) +
+    return (_tier(issue.severity, issue.confidence) * 100) +
         (_frameImpactScore(issue.category, context) * 8) +
-        (_confidenceScore(issue.confidence) * 5) +
         (recurrence * 2);
   }
 
-  int _severityScore(IssueSeverity s) => switch (s) {
-    IssueSeverity.critical => 3,
-    IssueSeverity.warning => 2,
-    IssueSeverity.ok => 1,
+  /// Evidence tier from severity and confidence. See the class doc.
+  int _tier(IssueSeverity s, IssueConfidence c) => switch (s) {
+    IssueSeverity.critical => switch (c) {
+      IssueConfidence.confirmed => 6,
+      IssueConfidence.likely => 5,
+      IssueConfidence.possible => 3,
+    },
+    IssueSeverity.warning => switch (c) {
+      IssueConfidence.confirmed => 4,
+      IssueConfidence.likely => 2,
+      IssueConfidence.possible => 1,
+    },
+    IssueSeverity.ok => 0,
   };
 
-  int _confidenceScore(IssueConfidence c) => switch (c) {
-    IssueConfidence.confirmed => 3,
-    IssueConfidence.likely => 2,
-    IssueConfidence.possible => 1,
+  /// Severity share of the tier score, reported as the `severity`
+  /// breakdown entry. The remainder is reported as `confidence`.
+  int _severityBase(IssueSeverity s) => switch (s) {
+    IssueSeverity.critical => 400,
+    IssueSeverity.warning => 200,
+    IssueSeverity.ok => 0,
   };
 
   int _frameImpactScore(IssueCategory category, IssueRankingContext ctx) {
@@ -155,10 +176,11 @@ class IssueRanker {
         issue.interactionContext == InteractionContext.appLifecycle) {
       recurrence = (recurrence * 0.7).round();
     }
+    final base = _severityBase(issue.severity);
     return {
-      'severity': _severityScore(issue.severity) * 100,
+      'severity': base,
       'frameImpact': _frameImpactScore(issue.category, context) * 8,
-      'confidence': _confidenceScore(issue.confidence) * 5,
+      'confidence': _tier(issue.severity, issue.confidence) * 100 - base,
       'recurrence': recurrence * 2,
     };
   }
