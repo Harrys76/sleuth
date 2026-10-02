@@ -178,10 +178,10 @@ class RepaintBoundaryDetector extends BaseDetector
           final rate = ds.paintsPerSecondForType(typeName);
           if (rate > maxRate) maxRate = rate;
         }
-        if (maxRate > 30) {
-          confidence = IssueConfidence.confirmed;
-          source = ObservationSource.debugCallbackAndStructural;
-        } else if (maxRate > 10) {
+        // Paint counts aggregate per widget type, so even a high rate
+        // cannot be attributed to the specific unprotected instance:
+        // the cap is likely.
+        if (maxRate > 10) {
           confidence = IssueConfidence.likely;
           source = ObservationSource.debugCallbackAndStructural;
         }
@@ -219,10 +219,7 @@ class RepaintBoundaryDetector extends BaseDetector
           fixHint: hint,
           fixEffort: effort,
           observationSource: source,
-          confidenceReason: confidence == IssueConfidence.confirmed
-              ? 'Debug callback paint rate for the unprotected widget types '
-                    'confirms excessive repaints'
-              : confidence == IssueConfidence.likely
+          confidenceReason: confidence == IssueConfidence.likely
               ? 'Debug callback paint rate for the unprotected widget '
                     'types + structural GPU node scan'
               : 'Structural scan only — enable debug callbacks for paint evidence',
@@ -314,7 +311,10 @@ class RepaintBoundaryDetector extends BaseDetector
         'suppression and framework-managed ListView auto-boundary '
         'skip (-1 sentinel) are pinned as negative controls. Framework '
         'toggle and scrollbar painters (ToggleablePainter, '
-        'ScrollbarPainter) are not treated as user CustomPaint. '
+        'ScrollbarPainter) are not treated as user CustomPaint. A debug '
+        'paint rate above 10/sec for an unprotected type lifts confidence '
+        'to likely, never confirmed: paint counts aggregate per type and '
+        'cannot attribute to the specific instance. '
         'Fixtures use Opacity, not CustomPaint, to keep the '
         'missing-branch test cross-detector clean.',
     reproducerPath: 'test/validation/repaint_boundary_reproducer_test.dart',

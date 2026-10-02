@@ -228,34 +228,43 @@ void main() {
         );
       });
 
-      testWidgets('upgrades to confirmed with high paint rate', (tester) async {
-        detector.updateDebugSnapshot(
-          const DebugSnapshot(
-            rebuildCounts: {},
-            totalPaintCount: 50,
-            paintCounts: {'Opacity': 35},
-            elapsed: Duration(seconds: 1),
-          ),
-        );
-
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: Opacity(
-              opacity: 0.5,
-              child: const SizedBox(width: 10, height: 10),
+      testWidgets(
+        'high type-level paint rate caps at likely, never confirmed',
+        (tester) async {
+          detector.updateDebugSnapshot(
+            const DebugSnapshot(
+              rebuildCounts: {},
+              totalPaintCount: 50,
+              paintCounts: {'Opacity': 35},
+              elapsed: Duration(seconds: 1),
             ),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          );
 
-        expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.confidence, IssueConfidence.confirmed);
-        expect(
-          detector.issues.first.observationSource,
-          ObservationSource.debugCallbackAndStructural,
-        );
-      });
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Opacity(
+                opacity: 0.5,
+                child: const SizedBox(width: 10, height: 10),
+              ),
+            ),
+          );
+          detector.scanTree(tester.element(find.byType(Directionality)));
+
+          expect(detector.issues, hasLength(1));
+          expect(
+            detector.issues.first.confidence,
+            IssueConfidence.likely,
+            reason:
+                '35 paints/sec is a type-level rate; it cannot attribute to '
+                'the unprotected instance',
+          );
+          expect(
+            detector.issues.first.observationSource,
+            ObservationSource.debugCallbackAndStructural,
+          );
+        },
+      );
 
       testWidgets('hot paint rate on an unrelated expensive type does not '
           'escalate confidence for a cold unprotected widget', (tester) async {

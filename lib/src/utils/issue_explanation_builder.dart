@@ -1765,6 +1765,10 @@ class IssueExplanationBuilder {
           'expensive widget without a nearby RepaintBoundary.\n\n'
           '• Propagation distance — How far repaints travel up the tree '
           'before hitting an existing boundary. Farther = more wasted work.\n\n'
+          '• Confidence — Possible from the tree walk; likely when debug '
+          'callbacks show more than 10 paints/sec for the same widget type. '
+          'Never confirmed: paint counts are per type and cannot be '
+          'attributed to the specific unprotected instance.\n\n'
           '• Source: Structural tree walk.',
       whyItMatters:
           'When expensive paint operations share a repaint boundary with '

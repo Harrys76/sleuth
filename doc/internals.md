@@ -68,7 +68,7 @@ The effective rate is the measured cadence clamped to `[fpsTarget, display rate]
 | CustomPainter | Element tree | shouldRepaint always true | Possible | May be needed for animated painters |
 | Keep Alive | Element tree | Many keep-alive pages | Possible | Trade-off between memory and rebuild cost |
 | Font Loading | Element tree | Non-system font in use, runtime-loaded fonts (fontFamilyFallback heuristic) | Possible | Font may already be loaded. Runtime detection is heuristic — intentional fallback chains may trigger |
-| RepaintBoundary | Element + render tree | Expensive GPU widget without RepaintBoundary ancestor, excessive boundaries in scrollables | Possible–Confirmed | Escalates with debug paint rate evidence. ColorFiltered detected via widget type |
+| RepaintBoundary | Element + render tree | Expensive GPU widget without RepaintBoundary ancestor, excessive boundaries in scrollables | Possible–Likely | Escalates to Likely with debug paint rate evidence; never Confirmed because paint rates are per type, not per instance. ColorFiltered detected via widget type. Framework toggle/scrollbar painters skipped |
 | Startup | `Sleuth.init()` + FrameTiming | TTFF exceeded budget, dominant phase attribution | Confirmed | One-shot; requires `Sleuth.init()` before `runApp()`. Wall-clock measurement has ~5-50ms inherent skew |
 
 ## Recurrence Badge
