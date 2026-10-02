@@ -85,6 +85,11 @@ void main() {
       'at least ${setStateScope.minSubtreeSize} elements',
     ),
     (
+      'multiple_custom_fonts',
+      _Field.readingTheData,
+      '>${thresholds.fontLoadingMaxFamilies} custom font families',
+    ),
+    (
       'rebuild_activity',
       _Field.readingTheData,
       '>${config.rebuildThreshold}/sec',

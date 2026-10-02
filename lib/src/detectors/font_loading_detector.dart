@@ -42,7 +42,33 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
     'Courier New',
     'Times',
     'Times New Roman',
+    // Platform families Material typography resolves to.
+    'CupertinoSystemText',
+    'CupertinoSystemDisplay',
+    '.AppleSystemUIFont',
+    'Segoe UI',
+    // Icon fonts bundled with the SDK / cupertino_icons.
+    'MaterialIcons',
+    'CupertinoIcons',
   };
+
+  static final _packagePrefix = RegExp(r'^packages/[^/]+/');
+  static final _variantSuffix = RegExp(r'^(.+)_[A-Za-z0-9]+$');
+
+  /// Canonical family name: strips a `packages/<pkg>/` prefix, and folds a
+  /// google_fonts-style `<Family>_<variant>` name back to `<Family>` when
+  /// the first fallback names that family.
+  static String _normalizeFamily(String family, List<String>? fallbacks) {
+    final unprefixed = family.replaceFirst(_packagePrefix, '');
+    final match = _variantSuffix.firstMatch(unprefixed);
+    if (match != null &&
+        fallbacks != null &&
+        fallbacks.isNotEmpty &&
+        fallbacks.first == match.group(1)) {
+      return match.group(1)!;
+    }
+    return unprefixed;
+  }
 
   @override
   List<PerformanceIssue> get issues => List.unmodifiable(_issues);
@@ -83,15 +109,17 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   void _checkStyle(TextStyle style) {
-    final family = style.fontFamily;
-    if (family == null || _systemFonts.contains(family)) return;
+    final rawFamily = style.fontFamily;
+    if (rawFamily == null) return;
+    final fallbacks = style.fontFamilyFallback;
+    final family = _normalizeFamily(rawFamily, fallbacks);
+    if (_systemFonts.contains(family)) return;
 
     _customFonts.add(family);
 
     // google_fonts (and similar runtime-loading packages) set
     // fontFamilyFallback so the engine can fall back while the font
     // downloads. Bundled fonts never need this.
-    final fallbacks = style.fontFamilyFallback;
     if (fallbacks != null && fallbacks.isNotEmpty) {
       _runtimeLoadedFamilies.add(family);
     }
@@ -114,7 +142,9 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
       _issues.add(
         PerformanceIssue(
           stableId: 'runtime_font_loading',
-          severity: count > 2 ? IssueSeverity.critical : IssueSeverity.warning,
+          // The fallback heuristic cannot see whether the font is already
+          // cached, so the family count never escalates past warning.
+          severity: IssueSeverity.warning,
           category: IssueCategory.font,
           confidence: IssueConfidence.possible,
           title:
@@ -184,7 +214,10 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
         '`multiple_custom_fonts` (distinct-family count > '
         '`maxFamilies`, strict-greater). System-font suppression, '
         'no-fallback silence, and duplicate-family dedup are '
-        'pinned as negative controls. Not yet runtime-verified '
+        'pinned as negative controls. Families are normalised (package '
+        'prefix stripped, google_fonts `<Family>_<variant>` folded to '
+        '`<Family>`) and platform system families are ignored. '
+        'Runtime loading is always warning. Not yet runtime-verified '
         'against a device-specific font-load profile.',
     reproducerPath: 'test/validation/font_loading_reproducer_test.dart',
     coveredStableIds: {'runtime_font_loading', 'multiple_custom_fonts'},

@@ -1711,7 +1711,11 @@ class IssueExplanationBuilder {
           'for each language — loading and switching between sets takes '
           'time and storage.\n\n'
           '• Font family count — Distinct custom font families detected. '
-          'Normal: 1–2. Alert: >3 custom font families.\n\n'
+          'Normal: 1–2. Alert: >3 custom font families. Platform system '
+          'families (Roboto, SF Pro, CupertinoSystemText, Segoe UI) and '
+          'icon fonts are not counted; a `packages/<pkg>/` family and its '
+          'bare name, or google_fonts weight variants of one family, count '
+          'once.\n\n'
           '• Bundle size impact — Each font file is typically 50–500KB. '
           'Multiple weights multiply the cost.\n\n'
           '• Source: Structural tree walk.',
@@ -2249,6 +2253,10 @@ class IssueExplanationBuilder {
           'Normal: 0ms (bundled). Alert: >0ms (runtime loading detected).\n\n'
           '• Font file size — Typically 50–500KB per font file. Larger '
           'files take longer to download on slow connections.\n\n'
+          '• Severity — Always a warning with possible confidence. The '
+          'signal is a non-empty fontFamilyFallback, and a tree scan '
+          'cannot tell whether the font is already cached, so more '
+          'families do not escalate it.\n\n'
           '• Source: Structural tree walk.',
       whyItMatters:
           'Runtime font loading causes Flash of Invisible Text (FOIT) or '
