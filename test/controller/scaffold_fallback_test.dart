@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderIndexedStack;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
@@ -211,14 +212,15 @@ void main() {
 
     testWidgets(
       'IndexedStack bottom nav: active tab scans, inactive tabs skipped '
-      'via Visibility(!visible)',
+      'via onstage descent',
       (tester) async {
         // Real-world pattern for bottom-nav apps that preserve per-tab state.
-        // IndexedStack wraps every child in Visibility(maintainSize: true, ...)
-        // which does NOT use Offstage/TickerMode — it uses a render proxy.
-        // Without a Visibility guard in the visitor, every tab's Scaffold
-        // would appear as a sibling → scan aborts every tick → HTTP records
-        // silently dropped (the exact symptom reported in the field).
+        // IndexedStack keeps every child mounted and marks none of them with
+        // Offstage/TickerMode. Unless the visitor descends only into the
+        // selected child (Visibility(!visible) on Flutter 3.44 and earlier,
+        // the RenderIndexedStack onstage visitor on 3.47+), every tab's
+        // Scaffold would appear as a sibling → scan aborts every tick → HTTP
+        // records silently dropped (the exact symptom reported in the field).
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
@@ -269,7 +271,8 @@ void main() {
           InteractionContext.idle,
           reason:
               'IndexedStack must not trip the multi-scaffold transition '
-              'guard — inactive tabs should be skipped via Visibility(!visible).',
+              'guard — the visitor should descend only into the selected '
+              'child.',
         );
 
         // Active-tab Opacity(0.0) should surface; inactive tab content
@@ -413,7 +416,7 @@ void main() {
       // Scan 1 on tab 0 — establishes the innermost-Scaffold baseline.
       controller.scanTreeFullPathForTest(root);
       // H1 pin: assert we went down the happy path, not the navigating
-      // sentinel. If the Visibility(!visible) guard ever regresses and both
+      // sentinel. If the IndexedStack onstage descent ever regresses and both
       // tabs' Scaffolds become siblings, the scan would return null, the
       // sentinel path would fire clearRecords(), and the post-switch
       // "records empty" assertion below would pass for the WRONG reason.
@@ -638,6 +641,143 @@ void main() {
       // buffer via the tab-switch path, we'd leak the timer past the
       // widget-tree teardown and fail the "no pending timers" invariant.
       controller.networkMonitorForTest.clearRecords();
+    });
+  });
+
+  group('IndexedStack without Visibility wrappers (Flutter 3.47 shape)', () {
+    // Flutter 3.47 IndexedStack no longer wraps children in Visibility; the
+    // only signal for which child is onstage is the element's
+    // debugVisitOnstageChildren override. _RawIndexedStackLike reproduces
+    // that shape on any SDK so the RenderIndexedStack branch is exercised
+    // regardless of which Flutter version runs the suite.
+    // Nearest Scaffold above [label]; skipOffstage: false so the inactive
+    // tab is reachable too.
+    Element scaffoldOf(WidgetTester tester, String label) => tester.element(
+      find
+          .ancestor(
+            of: find.text(label, skipOffstage: false),
+            matching: find.byType(Scaffold, skipOffstage: false),
+          )
+          .first,
+    );
+
+    bool isSelfOrDescendant(Element node, Element ancestor) {
+      if (identical(node, ancestor)) return true;
+      var found = false;
+      node.visitAncestorElements((a) {
+        if (identical(a, ancestor)) {
+          found = true;
+          return false;
+        }
+        return true;
+      });
+      return found;
+    }
+
+    Widget shell(ValueNotifier<int?> index) => MaterialApp(
+      home: Scaffold(
+        body: ValueListenableBuilder<int?>(
+          valueListenable: index,
+          builder: (_, idx, _) => _RawIndexedStackLike(
+            index: idx,
+            children: const [
+              _TabPage(label: 'tab 0 content'),
+              _TabPage(label: 'tab 1 content'),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    testWidgets('selected child only: one Scaffold collected, scan root in '
+        'tab 0', (tester) async {
+      final index = ValueNotifier<int?>(0);
+      addTearDown(index.dispose);
+      await tester.pumpWidget(shell(index));
+
+      final root = tester.element(find.byType(MaterialApp));
+      controller.scanTreeFullPathForTest(root);
+
+      expect(
+        controller.interactionStateForTest,
+        InteractionContext.idle,
+        reason:
+            'Unwrapped IndexedStack children must not surface as sibling '
+            'Scaffolds — the visitor should descend only into the selected '
+            'child.',
+      );
+      final tab0 = scaffoldOf(tester, 'tab 0 content');
+      final tab1 = scaffoldOf(tester, 'tab 1 content');
+      expect(
+        controller.activeRouteSessionForTest?.scaffoldHashKey,
+        identityHashCode(tab0),
+        reason: 'Exactly one Scaffold (tab 0) must be the visible page.',
+      );
+      final scanRoot = controller.lastScanContextForTest! as Element;
+      expect(isSelfOrDescendant(tab0, scanRoot), isTrue);
+      expect(
+        isSelfOrDescendant(tab1, scanRoot),
+        isFalse,
+        reason: 'Scan root must sit inside tab 0, not above the stack.',
+      );
+    });
+
+    testWidgets('index swap moves the visible Scaffold and stays idle', (
+      tester,
+    ) async {
+      final index = ValueNotifier<int?>(0);
+      addTearDown(index.dispose);
+      await tester.pumpWidget(shell(index));
+
+      final root = tester.element(find.byType(MaterialApp));
+      controller.scanTreeFullPathForTest(root);
+      final firstHash = controller.activeRouteSessionForTest?.scaffoldHashKey;
+      expect(firstHash, identityHashCode(scaffoldOf(tester, 'tab 0 content')));
+
+      index.value = 1;
+      await tester.pump();
+      controller.scanTreeFullPathForTest(root);
+
+      expect(controller.interactionStateForTest, InteractionContext.idle);
+      final secondHash = controller.activeRouteSessionForTest?.scaffoldHashKey;
+      expect(secondHash, isNot(firstHash));
+      expect(secondHash, identityHashCode(scaffoldOf(tester, 'tab 1 content')));
+    });
+
+    testWidgets('null index: no Scaffold collected, scaffold-free fallback '
+        'runs', (tester) async {
+      final index = ValueNotifier<int?>(null);
+      addTearDown(index.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ValueListenableBuilder<int?>(
+            valueListenable: index,
+            builder: (_, idx, _) => _RawIndexedStackLike(
+              index: idx,
+              children: const [
+                _TabPage(label: 'tab 0 content'),
+                _TabPage(label: 'tab 1 content'),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final root = tester.element(find.byType(MaterialApp));
+      // Two scans: the scaffold-free path needs one to record the route
+      // hash before it accepts the scan root.
+      controller.scanTreeFullPathForTest(root);
+      controller.scanTreeFullPathForTest(root);
+
+      expect(tester.takeException(), isNull);
+      expect(controller.interactionStateForTest, InteractionContext.idle);
+      expect(
+        controller.isScaffoldFreeScanForTest,
+        isTrue,
+        reason:
+            'With no onstage child, no Scaffold from the stack may be '
+            'collected — the scaffold-free fallback must resolve the root.',
+      );
     });
   });
 
@@ -1315,9 +1455,9 @@ void main() {
         '(per-tab session behavior is unaffected by the TabBarView filter)', (
       tester,
     ) async {
-      // This is the happy path we shipped for bottom nav: IndexedStack
-      // marks inactive tabs with Visibility(!visible), so the earlier
-      // filter skips them before the TabBarView check is even reached.
+      // This is the happy path we shipped for bottom nav: the visitor
+      // descends only into IndexedStack's selected child, so inactive tabs
+      // are skipped before the TabBarView check is even reached.
       // The TabBarView filter must not regress this behavior.
       final indexNotifier = ValueNotifier<int>(0);
       addTearDown(indexNotifier.dispose);
@@ -1610,4 +1750,62 @@ void main() {
       expect(controller.activeRouteSessionForTest, isNull);
     });
   });
+}
+
+class _TabPage extends StatefulWidget {
+  const _TabPage({required this.label});
+
+  final String label;
+
+  @override
+  State<_TabPage> createState() => _TabPageState();
+}
+
+class _TabPageState extends State<_TabPage> {
+  @override
+  Widget build(BuildContext context) => Scaffold(body: Text(widget.label));
+}
+
+/// Mirrors Flutter 3.47's private `_RawIndexedStack`: a [RenderIndexedStack]
+/// whose element reports only the selected child as onstage, with children
+/// NOT wrapped in [Visibility].
+class _RawIndexedStackLike extends MultiChildRenderObjectWidget {
+  const _RawIndexedStackLike({required this.index, super.children});
+
+  final int? index;
+
+  @override
+  RenderIndexedStack createRenderObject(BuildContext context) =>
+      RenderIndexedStack(
+        index: index,
+        alignment: AlignmentDirectional.topStart,
+        textDirection: TextDirection.ltr,
+      );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    RenderIndexedStack renderObject,
+  ) {
+    renderObject.index = index;
+  }
+
+  @override
+  MultiChildRenderObjectElement createElement() =>
+      _RawIndexedStackLikeElement(this);
+}
+
+class _RawIndexedStackLikeElement extends MultiChildRenderObjectElement {
+  _RawIndexedStackLikeElement(_RawIndexedStackLike super.widget);
+
+  @override
+  _RawIndexedStackLike get widget => super.widget as _RawIndexedStackLike;
+
+  @override
+  void debugVisitOnstageChildren(ElementVisitor visitor) {
+    final index = widget.index;
+    if (index != null && children.isNotEmpty) {
+      visitor(children.elementAt(index));
+    }
+  }
 }

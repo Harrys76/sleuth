@@ -2427,13 +2427,15 @@ class SleuthController {
       // Skip ticker-disabled subtrees — background Navigator routes
       if (widget is TickerMode && !widget.enabled) return;
 
-      // Skip invisible Visibility subtrees — inactive IndexedStack children.
-      // IndexedStack wraps every child in Visibility(maintainSize: true, ...)
-      // which uses a _Visibility render proxy (NOT Offstage/TickerMode), so
+      // Skip invisible Visibility subtrees. Through Flutter 3.44,
+      // IndexedStack wraps every child in Visibility(maintainSize: true, ...),
+      // which uses a _Visibility render proxy (not Offstage/TickerMode), so
       // the Offstage/TickerMode guards above do not filter inactive tabs.
-      // Without this skip, a bottom-nav app using IndexedStack for state
-      // preservation exposes every tab's Scaffold as a sibling, tripping
-      // the multi-scaffold guard below and aborting every scan.
+      // From Flutter 3.47 IndexedStack no longer uses Visibility; the
+      // RenderIndexedStack branch below covers that shape. Without either
+      // filter, a bottom-nav app using IndexedStack for state preservation
+      // exposes every tab's Scaffold as a sibling, tripping the
+      // multi-scaffold guard below and aborting every scan.
       if (widget is Visibility && !widget.visible) return;
 
       // Skip our own overlay widgets (v9.9: zero-allocation is checks)
@@ -2458,10 +2460,11 @@ class SleuthController {
       // churn) and the scan root — still anchored above the outer Scaffold —
       // walks into the active sub-page as usual, so detectors run normally.
       //
-      // Bottom-nav shells (IndexedStack / StatefulShellRoute.indexedStack
-      // Visibility gate, CupertinoTabScaffold Offstage gate) are unaffected:
-      // they mark inactive tabs explicitly and the earlier filters skip them
-      // before collection ever reaches this point.
+      // Bottom-nav shells are unaffected: inactive IndexedStack children are
+      // skipped by the Visibility guard (Flutter 3.44 and earlier) or the
+      // RenderIndexedStack branch below (Flutter 3.47+), and
+      // StatefulShellRoute.indexedStack / CupertinoTabScaffold gate inactive
+      // tabs with Offstage + TickerMode, which the earlier guards skip.
       if (widget is TabBarView || widget is PageView) {
         return;
       }
@@ -2469,6 +2472,20 @@ class SleuthController {
       // Collect all visible Scaffolds (Material + Cupertino)
       if (widget is Scaffold || widget is CupertinoPageScaffold) {
         scaffolds.add(element);
+      }
+
+      // IndexedStack: descend only into the selected child. The framework's
+      // _IndexedStackElement overrides debugVisitOnstageChildren for exactly
+      // this (not assert-gated; runs in profile). Flutter 3.47 stopped
+      // wrapping inactive children in Visibility, so the Visibility guard
+      // above no longer filters them. Target the public RenderIndexedStack
+      // rather than the IndexedStack widget: IndexedStack is a
+      // StatelessWidget whose element has no override; the override lives on
+      // its private child.
+      if (element is RenderObjectElement &&
+          element.renderObject is RenderIndexedStack) {
+        element.debugVisitOnstageChildren(visitor);
+        return;
       }
 
       element.visitChildren(visitor);
