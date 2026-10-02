@@ -3,6 +3,7 @@ import 'package:sleuth/src/controller/detector_thresholds.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
 import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
+import 'package:sleuth/src/detectors/image_memory_detector.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
 import 'package:sleuth/src/utils/issue_explanation_builder.dart';
@@ -30,6 +31,7 @@ void main() {
   final frameTiming = FrameTimingDetector();
   final setStateScope = SetStateScopeDetector();
   final gpu = GpuPressureDetector();
+  final image = ImageMemoryDetector();
 
   final rows = <(String stableId, _Field field, String expected)>[
     (
@@ -133,6 +135,21 @@ void main() {
       'raster_dominance',
       _Field.readingTheData,
       '${gpu.maxFrameRasterFloorUs ~/ 1000} ms at 60 Hz',
+    ),
+    (
+      'uncached_images',
+      _Field.readingTheData,
+      'at ${image.oversizeRatio}× or more',
+    ),
+    (
+      'uncached_images',
+      _Field.readingTheData,
+      '≥ ${image.minWastedBytes >> 20} MiB in total',
+    ),
+    (
+      'uncached_images',
+      _Field.readingTheData,
+      'critical at ≥ ${image.criticalWastedBytes >> 20} MiB',
     ),
   ];
 

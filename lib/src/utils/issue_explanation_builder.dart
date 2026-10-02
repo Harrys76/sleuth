@@ -1302,40 +1302,47 @@ class IssueExplanationBuilder {
 
     // ── Structural: Image Memory ──────────────────────────────────────────
     'uncached_images': (
-      displayName: 'Uncached Images',
+      displayName: 'Oversized Images',
       category: IssueCategory.memory,
       whatItIs:
-          'Image widgets were found without cacheWidth or cacheHeight '
-          'parameters. The image codec will decode the full-resolution '
-          'image into memory, regardless of how small it is displayed.',
+          'Images were decoded at a higher resolution than their display '
+          'box needs. Each Image is paired with the picture it renders, and '
+          'the decoded pixel size is compared with the box size times the '
+          'device pixel ratio.',
       readingTheData:
           'Like printing a billboard-sized poster to hang on a fridge — '
           'the resolution is wasted and the paper costs a fortune.\n\n'
-          '• Image count — Number of Image widgets without cacheWidth/'
-          'cacheHeight. Alert: ≥1 uncached image.\n\n'
-          '• Memory waste estimate — A 4000×3000 image at full resolution '
-          'uses ~48MB; at 200×150 display size it needs only ~120KB.\n\n'
-          '• Source: Structural tree walk.',
+          '• Ratio — decoded pixels over needed pixels on the smaller axis, '
+          'so a BoxFit.cover crop is not counted as waste. An image counts '
+          'at 1.5× or more.\n\n'
+          '• Wasted memory — (decoded W×H − needed W×H) × 4 bytes, summed '
+          'over the counted images. Alert: ≥ 1 MiB in total; critical at '
+          '≥ 16 MiB.\n\n'
+          '• Each entry lists the decoded size in pixels and the display '
+          'size in dp with the device pixel ratio.\n\n'
+          '• Source: Structural tree walk over decoded images.',
       whyItMatters:
           'A 4000×3000 photo decoded at full resolution consumes ~48MB of '
           'memory (width × height × 4 bytes). If displayed in a 200×150 '
-          'widget, 47.5MB is wasted. In a list with many images, this can '
-          'consume hundreds of megabytes of native memory.',
+          'widget at 3× it needs ~1MB, so ~47MB is wasted. In a list with '
+          'many images, this can consume hundreds of megabytes of native '
+          'memory.',
       howToFix:
-          'Add cacheWidth and/or cacheHeight to Image widgets to decode at '
-          'display size: Image.network(url, cacheWidth: 400). Use the '
-          'device pixel ratio for sharp rendering: '
+          'Add cacheWidth and/or cacheHeight to decode at display size. '
+          'Use the device pixel ratio for sharp rendering: '
           'cacheWidth: (200 * MediaQuery.devicePixelRatioOf(context)).round(). '
           'For CachedNetworkImage, use memCacheWidth/memCacheHeight.\n\n'
           'Alternatively, wrap the ImageProvider with ResizeImage for '
           'provider-level resizing:\n'
-          '  Image(image: ResizeImage(NetworkImage(url), width: 400))\n\n'
+          '  Image(image: ResizeImage(NetworkImage(url), width: 600))\n\n'
           'ResizeImage works with any ImageProvider and applies resize '
           'before caching, saving both memory and decode time.',
       whenToIgnore:
-          'Small images (icons, avatars under 100×100 pixels) have '
-          'negligible full-resolution cost. SVG and vector images are '
-          'not affected.',
+          'Images that will be shown larger later (zoom, hero transition to '
+          'a full-screen view) may need the full decode. Images drawn with '
+          'BoxFit.none, centerSlice, or repeat, ResizeImage providers, and '
+          'BoxDecoration images are not reported. SVG and vector images '
+          'are not affected.',
       relatedIssues: [
         'gc_pressure',
         'heap_growing',

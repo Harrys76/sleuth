@@ -240,17 +240,20 @@ class FixHintBuilder {
     if (widgetName != null) {
       final chain = ancestorChain != null ? ' (via $ancestorChain)' : '';
       return (
-        '$count uncached image${count > 1 ? "s" : ""} in $widgetName$chain. '
-            'Add cacheWidth and/or cacheHeight to Image widgets in $widgetName:\n'
-            'Image.asset("photo.jpg", cacheWidth: 300)',
+        '$count oversized image${count > 1 ? "s" : ""} in $widgetName$chain. '
+            'Decode them at display size with cacheWidth and/or cacheHeight '
+            '(displayed size × device pixel ratio):\n'
+            'Image.asset("photo.jpg", cacheWidth: '
+            '(56 * MediaQuery.devicePixelRatioOf(context)).round())',
         FixEffort.quick,
       );
     }
     return (
-      'Add cacheWidth and/or cacheHeight to decode images at display size:\n'
-          'Image.asset("photo.jpg", cacheWidth: 300)\n'
-          'Image.network(url, cacheWidth: 300)\n'
-          'Or wrap the provider: ResizeImage(imageProvider, width: 300)',
+      'Decode images at display size: set cacheWidth and/or cacheHeight to '
+          'the displayed size × device pixel ratio:\n'
+          'Image.network(url, cacheWidth: '
+          '(56 * MediaQuery.devicePixelRatioOf(context)).round())\n'
+          'Or wrap the provider: ResizeImage(imageProvider, width: 168)',
       FixEffort.quick,
     );
   }

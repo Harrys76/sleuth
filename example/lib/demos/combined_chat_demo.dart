@@ -16,7 +16,7 @@ import '../demo_scaffold.dart';
 /// a Timer.periodic calling top-level setState to deliver messages,
 /// AutomaticKeepAliveClientMixin on every tab (6 > the KeepAlive threshold
 /// of 5), a 40ms typing-indicator poll (25 calls/sec > the PlatformChannel
-/// threshold of 20), uncached 200×200 avatars on every message, and an
+/// threshold of 20), oversized 800×800 avatars on every message, and an
 /// inline text field that rebuilds the whole body on keyboard open.
 class CombinedChatDemo extends StatefulWidget {
   const CombinedChatDemo({super.key});
@@ -261,8 +261,8 @@ class _CombinedChatDemoState extends State<CombinedChatDemo>
           'conversation tabs opt into AutomaticKeepAliveClientMixin '
           '(>5 threshold). A typing-indicator poll fires a '
           'MethodChannel call every 40ms (25/sec, >20 threshold). Every '
-          'message avatar is a full-resolution 200×200 Image.network '
-          'rendered at 56×56 without cacheWidth. The text input at the '
+          'message avatar decodes an 800×800 Image.network for a 56×56 '
+          'box, over 4× the pixels it needs. The text input at the '
           'bottom rebuilds the whole body when the keyboard opens.\n'
           '✅ FIX: Route new messages through per-tab ValueNotifiers so '
           'only the list rebuilds; keep-alive only the first 2 tabs; '
@@ -602,15 +602,12 @@ class _Avatar extends StatelessWidget {
     final seed = message.isMe
         ? 'me_${message.senderTab}'
         : 'friend_${message.senderTab}_${message.id}';
-    // Render size must stay above ImageMemoryDetector._smallImageThreshold
-    // (50 logical px in both dimensions) — otherwise the detector's
-    // _isSmallImage() guard suppresses the avatar and the bad path's
-    // uncached-image claim silently no-ops. 56 logical px is a common
-    // modern chat-avatar size and keeps the pattern realistic while
-    // ensuring the detector sees every avatar.
+    // The 800 px source keeps the bad path oversized on 2× and 3× screens:
+    // a 56 logical px avatar needs at most 168 px, so each decode is over
+    // 4× too large and wastes ~2.4 MB.
     return ClipOval(
       child: Image.network(
-        'https://picsum.photos/seed/$seed/200/200',
+        'https://picsum.photos/seed/$seed/800/800',
         width: 56,
         height: 56,
         fit: BoxFit.cover,
