@@ -2206,7 +2206,8 @@ class SleuthController {
 
   /// Route name resolved from scaffold-free path via _ModalScopeStatus.
   /// Used by [_currentRouteName] when [_lastScanContext] is an overlay entry
-  /// (where ModalRoute.of returns null since context is above the route).
+  /// (where ModalRoute.settingsOf returns null since context is above the
+  /// route).
   String? _scaffoldFreeRouteName;
 
   /// Identity hash of the topmost route-owned overlay entry from this scan.
@@ -2414,7 +2415,7 @@ class SleuthController {
     // IndexedStack (and StatefulShellRoute.indexedStack) swaps children via
     // its `index` property — no route push, no Navigator notification. Below,
     // the route-change block compares [_currentRouteName()], which reads
-    // [ModalRoute.of] on the scan context: all tabs share one Navigator
+    // [ModalRoute.settingsOf] on the scan context: all tabs share one Navigator
     // route, so that comparison cannot detect the swap. The network-monitor
     // buffer would therefore persist across tab switches and any cumulative
     // traffic from the previous tab counts toward the new tab's 30-req/5s
@@ -2803,7 +2804,7 @@ class SleuthController {
   }
 
   /// Resolve route name for scaffold-free scans. Walks from the overlay
-  /// entry to find _ModalScopeStatus, then calls ModalRoute.of on its
+  /// entry to find _ModalScopeStatus, then calls ModalRoute.settingsOf on its
   /// first child to get the route name. Stores only the String name.
   void _captureRouteName(Element entry) {
     _scaffoldFreeRouteName = null;
@@ -2821,7 +2822,7 @@ class SleuthController {
 
     entry.visitChildElements((child) => findScopeStatus(child, 0));
     if (scopeStatusChild != null) {
-      _scaffoldFreeRouteName = ModalRoute.of(scopeStatusChild!)?.settings.name;
+      _scaffoldFreeRouteName = ModalRoute.settingsOf(scopeStatusChild!)?.name;
     }
   }
 
@@ -3755,7 +3756,9 @@ class SleuthController {
     if (_scaffoldFreeRouteName != null) return _scaffoldFreeRouteName;
     final ctx = _lastScanContext;
     if (ctx == null || !(ctx as Element).mounted) return null;
-    return ModalRoute.of(ctx)?.settings.name;
+    // settingsOf registers on the settings aspect only, so the scan root does
+    // not rebuild on every route animation or offstage change.
+    return ModalRoute.settingsOf(ctx)?.name;
   }
 
   /// Returns a stable synthetic ordinal for an unnamed route under the given
