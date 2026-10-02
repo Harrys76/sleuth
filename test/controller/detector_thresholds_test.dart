@@ -6,7 +6,8 @@ void main() {
     test('defaults match documented values', () {
       const t = DetectorThresholds();
       expect(t.shaderJankMs, 100);
-      expect(t.heavyComputeGapMs, 8);
+      expect(t.heavyComputeGapMs, isNull);
+      expect(DetectorThresholds.defaultHeavyComputeGapMs, 8);
       expect(t.gpuPressureRatio, 2.0);
       expect(t.memoryGrowthBytesPerSec, 512000);
       expect(t.memoryCapacityPercent, 0.80);

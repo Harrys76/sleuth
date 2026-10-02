@@ -1135,4 +1135,87 @@ void main() {
       expect(d.measuredCadenceHz, closeTo(120, 0.1));
     });
   });
+
+  group('FrameTimingDetector frame budget', () {
+    var nextVsync = 1000000000;
+    FrameTiming timing(int totalUs) {
+      final vsync = nextVsync;
+      nextVsync += 50000;
+      return FrameTiming(
+        vsyncStart: vsync,
+        buildStart: vsync,
+        buildFinish: vsync + totalUs ~/ 2,
+        rasterStart: vsync + totalUs ~/ 2,
+        rasterFinish: vsync + totalUs,
+        rasterFinishWallTime: vsync + totalUs,
+      );
+    }
+
+    bool isJank(FrameTimingDetector d, int totalUs) {
+      d.handleTimingsForTest([timing(totalUs)]);
+      return d.frameBuffer.latest!.isJank;
+    }
+
+    test('default budget is 1e6 / fpsTarget', () {
+      expect(FrameTimingDetector().warningBudgetUs, 16667);
+      expect(FrameTimingDetector().criticalBudgetUs, 33334);
+      expect(FrameTimingDetector(fpsTarget: 120).warningBudgetUs, 8333);
+      expect(FrameTimingDetector(fpsTarget: 90).warningBudgetUs, 11111);
+    });
+
+    test('real frames carry the microsecond budget', () {
+      final d = FrameTimingDetector(warmupDuration: Duration.zero);
+      expect(isJank(d, 17000), isTrue);
+      expect(isJank(d, 16500), isFalse);
+      expect(d.frameBuffer.latest!.frameBudgetUs, 16667);
+      expect(d.frameBuffer.latest!.frameBudgetMs, 16);
+    });
+
+    test('severe starts above 2x the microsecond budget', () {
+      final d = FrameTimingDetector(warmupDuration: Duration.zero);
+      d.handleTimingsForTest([timing(33000)]);
+      expect(d.frameBuffer.latest!.isSevereJank, isFalse);
+      d.handleTimingsForTest([timing(34000)]);
+      expect(d.frameBuffer.latest!.isSevereJank, isTrue);
+    });
+
+    test('updateFrameBudget tightens to 120 Hz', () {
+      final d = FrameTimingDetector(warmupDuration: Duration.zero)
+        ..updateFrameBudget(8333);
+      expect(d.warningBudgetUs, 8333);
+      expect(d.criticalBudgetUs, 16666);
+      expect(d.warningThresholdMs, 8);
+      expect(isJank(d, 8500), isTrue);
+      expect(isJank(d, 8000), isFalse);
+    });
+
+    test('captureMode ignores updateFrameBudget', () {
+      final d = FrameTimingDetector(captureMode: true)..updateFrameBudget(8333);
+      expect(d.warningBudgetUs, 16667);
+    });
+
+    test('explicit thresholds ignore updateFrameBudget', () {
+      final d = FrameTimingDetector(warningThresholdMs: 20)
+        ..updateFrameBudget(8333);
+      expect(d.warningBudgetUs, 20000);
+      expect(d.criticalBudgetUs, 40000);
+    });
+
+    test('addFrameForTest spaces rasterFinishUs by the current budget', () {
+      final d = FrameTimingDetector(warmupDuration: Duration.zero)
+        ..updateFrameBudget(8333);
+      for (var i = 0; i < 2; i++) {
+        d.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 4),
+            rasterDuration: const Duration(milliseconds: 4),
+            timestamp: DateTime(2026),
+          ),
+        );
+      }
+      final frames = d.frameBuffer.frames;
+      expect(frames[1].rasterFinishUs! - frames[0].rasterFinishUs!, 8333);
+    });
+  });
 }

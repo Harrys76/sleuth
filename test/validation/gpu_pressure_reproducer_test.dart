@@ -279,6 +279,45 @@ void main() {
         expect(aboveIssue.severity, IssueSeverity.warning);
       });
 
+      testWidgets('per-frame floor follows updateFrameBudget', (tester) async {
+        Future<List<PerformanceIssue>> leg(
+          int maxRasterUs, {
+          int? budgetUs,
+          bool reset = false,
+        }) async {
+          detector.dispose();
+          detector = GpuPressureDetector();
+          detector.vmConnected = true;
+          if (budgetUs != null) detector.updateFrameBudget(budgetUs);
+          if (reset) detector.resetFrameBudget();
+          return primeMultiFrameThenScan(
+            tester,
+            const SizedBox(),
+            rasterDurationsUs: [maxRasterUs, 1000, 1000, 1000],
+            uiUs: 1100,
+          );
+        }
+
+        // Default floor 8000us.
+        expect(GpuPressureDetector().effectiveMaxFrameRasterFloorUs, 8000);
+        expect(await leg(8001), hasStableId('raster_dominance'));
+        expect(await leg(7999), lacksStableId('raster_dominance'));
+        // 120 Hz budget: floor 8333 ~/ 2 = 4166.
+        expect(
+          await leg(4167, budgetUs: 8333),
+          hasStableId('raster_dominance'),
+        );
+        expect(
+          await leg(4165, budgetUs: 8333),
+          lacksStableId('raster_dominance'),
+        );
+        // Reset restores the constructor floor.
+        expect(
+          await leg(4167, budgetUs: 8333, reset: true),
+          lacksStableId('raster_dominance'),
+        );
+      });
+
       testWidgets('one-spike + idle-tail does NOT inflate ratio '
           '(MAX-of-frame numerator regression)', (tester) async {
         // [8001, 1000×59] + uiUs=8000. Aggregate raster = 67001us

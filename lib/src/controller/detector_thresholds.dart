@@ -18,7 +18,7 @@
 class DetectorThresholds {
   const DetectorThresholds({
     this.shaderJankMs = 100,
-    this.heavyComputeGapMs = 8,
+    this.heavyComputeGapMs,
     this.gpuPressureRatio = 2.0,
     this.memoryGrowthBytesPerSec = 512000,
     this.memoryCapacityPercent = 0.80,
@@ -92,7 +92,7 @@ class DetectorThresholds {
          'startupPhaseWindowSeconds must be >= 1.',
        ),
        assert(
-         heavyComputeGapMs >= 0,
+         heavyComputeGapMs == null || heavyComputeGapMs >= 0,
          'heavyComputeGapMs must be >= 0 (got a negative value).',
        ),
        assert(
@@ -183,12 +183,20 @@ class DetectorThresholds {
   /// `HeavyComputeDetector`. A build pass above this value is a warning;
   /// above 2× this value it is critical.
   ///
-  /// **Default:** 8 ms (half a 16 ms frame budget): warning above 8 ms,
-  /// critical above 16 ms, the point where a frame is definitively lost.
+  /// **Default:** null (auto). 8 ms ([defaultHeavyComputeGapMs]) while the
+  /// resolved frame budget is the `fpsTarget` budget: warning above 8 ms,
+  /// critical above 16 ms at 60 Hz. When the measured frame rate is above
+  /// `fpsTarget` (e.g. a 120 Hz device rendering at 120), the threshold
+  /// becomes half the resolved frame budget (4.2 ms at 120 Hz). An
+  /// explicit value is used as-is and never scales.
   ///
   /// **Raise this** to quiet the detector on slower devices. **Lower
   /// this** (e.g. 4 ms) for a stricter main-isolate budget audit.
-  final int heavyComputeGapMs;
+  final int? heavyComputeGapMs;
+
+  /// Heavy-compute warning threshold used when [heavyComputeGapMs] is null
+  /// and the frame budget has not moved off `fpsTarget`.
+  static const int defaultHeavyComputeGapMs = 8;
 
   /// Raster-to-UI time ratio above which `GpuPressureDetector` flags a
   /// frame as GPU-bound. Critical severity at 2× this value.

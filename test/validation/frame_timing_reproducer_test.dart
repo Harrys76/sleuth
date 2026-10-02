@@ -246,8 +246,10 @@ void main() {
       // path bypasses the `_onTimings` FrameStats construction; this leg
       // drives the detector through the exact `addTimingsCallback` code
       // path the engine uses.
+      // 34 ms: real frames carry the 16667 us budget, so severe starts
+      // above 33.334 ms.
       final timings = <FrameTiming>[
-        for (var i = 0; i < 3; i++) makeTiming(frameNumber: i, totalMs: 33),
+        for (var i = 0; i < 3; i++) makeTiming(frameNumber: i, totalMs: 34),
         for (var i = 3; i < 20; i++) makeTiming(frameNumber: i, totalMs: 10),
       ];
       detector.handleTimingsForTest(timings);

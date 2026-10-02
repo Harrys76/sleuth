@@ -69,6 +69,9 @@ FakeVmBridge defaultFakeBridge() {
       'captureMode': false,
       'lastCaptureExportFailure': null,
       'unboundExtensionNames': <String>[],
+      'effectiveFrameRateHz': 60.0,
+      'frameBudgetUs': 16667,
+      'frameRateSource': 'fixed',
     },
   });
   bridge.setEnvelope('ext.sleuth.snapshot', {

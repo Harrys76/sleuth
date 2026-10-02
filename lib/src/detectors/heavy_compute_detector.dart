@@ -11,7 +11,9 @@ import '../vm/timeline_parser.dart';
 /// Detects heavy computation blocking the UI thread.
 ///
 /// **VM-Only Detector** — detects slow widget build passes (>8 ms warning,
-/// >16 ms critical) from VM timeline BUILD-scope durations.
+/// >16 ms critical at 60 Hz) from VM timeline BUILD-scope durations. With
+/// [autoThreshold], [updateFrameBudget] moves the warning threshold to half
+/// the resolved frame budget (critical stays 2x).
 ///
 /// ## Persistence contract
 ///
@@ -35,20 +37,47 @@ import '../vm/timeline_parser.dart';
 class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
   HeavyComputeDetector({
     this.lagThresholdMs = 8,
+    this.autoThreshold = false,
     this.emissionPersistence = const Duration(seconds: 10),
     String? Function()? sourceRouteProvider,
     @visibleForTesting Stopwatch? testStopwatch,
-  }) : _sourceRouteProvider = sourceRouteProvider ?? (() => null),
+  }) : _lagThresholdUs = lagThresholdMs * 1000,
+       _sourceRouteProvider = sourceRouteProvider ?? (() => null),
        _emissionStopwatch = testStopwatch ?? Stopwatch(),
        super(
          type: DetectorType.heavyCompute,
          lifecycle: DetectorLifecycle.vmOnly,
          name: 'Heavy Compute',
          description:
-             'Detects slow widget build passes (>8 ms warning, >16 ms critical)',
+             'Detects slow widget build passes (>8 ms warning, >16 ms '
+             'critical at 60 Hz; scales with the measured frame rate)',
        );
 
+  /// Warning threshold in milliseconds (critical is 2x). Used as-is unless
+  /// [autoThreshold] is true and a frame budget has been applied.
   final int lagThresholdMs;
+
+  /// When true, [updateFrameBudget] sets the warning threshold to half the
+  /// resolved frame budget. When false, [lagThresholdMs] always applies.
+  final bool autoThreshold;
+
+  int _lagThresholdUs;
+
+  /// Warning threshold in effect, in microseconds.
+  int get effectiveLagThresholdUs => _lagThresholdUs;
+
+  /// Sets the warning threshold to half of [budgetUs] when [autoThreshold]
+  /// is true. Called by `SleuthController` when the resolved frame budget
+  /// changes.
+  void updateFrameBudget(int budgetUs) {
+    if (!autoThreshold || budgetUs <= 0) return;
+    _lagThresholdUs = budgetUs ~/ 2;
+  }
+
+  /// Restores the [lagThresholdMs] threshold.
+  void resetFrameBudget() {
+    _lagThresholdUs = lagThresholdMs * 1000;
+  }
 
   /// Wall-clock duration a previously-emitted `heavy_compute` issue
   /// persists before being cleared. Heavy compute is one-shot (a
@@ -106,17 +135,15 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
 
     if (buildPhaseEvents.isNotEmpty) {
       for (final event in buildPhaseEvents) {
-        final ms = event.durationUs / 1000;
-        if (ms > lagThresholdMs) {
-          fresh.add(_createIssue(ms, event));
+        if (event.durationUs > _lagThresholdUs) {
+          fresh.add(_createIssue(event.durationUs, event));
         }
       }
     } else {
       // Fallback: raw durations only (no phaseEvents available)
       for (final durationUs in data.buildScopeDurations) {
-        final ms = durationUs / 1000;
-        if (ms > lagThresholdMs) {
-          fresh.add(_createGenericIssue(ms));
+        if (durationUs > _lagThresholdUs) {
+          fresh.add(_createGenericIssue(durationUs));
         }
       }
     }
@@ -143,7 +170,8 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     }
   }
 
-  PerformanceIssue _createIssue(double ms, PhaseEvent event) {
+  PerformanceIssue _createIssue(int durationUs, PhaseEvent event) {
+    final ms = durationUs / 1000;
     final dirtyWidgets = event.dirtyList;
     final enriched =
         event.hasEnrichment && dirtyWidgets != null && dirtyWidgets.isNotEmpty;
@@ -154,7 +182,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     );
     return PerformanceIssue(
       stableId: 'heavy_compute',
-      severity: ms > lagThresholdMs * 2
+      severity: durationUs > _lagThresholdUs * 2
           ? IssueSeverity.critical
           : IssueSeverity.warning,
       category: IssueCategory.build,
@@ -191,11 +219,12 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     );
   }
 
-  PerformanceIssue _createGenericIssue(double ms) {
+  PerformanceIssue _createGenericIssue(int durationUs) {
+    final ms = durationUs / 1000;
     final (hint, effort) = FixHintBuilder.heavyCompute(durationMs: ms);
     return PerformanceIssue(
       stableId: 'heavy_compute',
-      severity: ms > lagThresholdMs * 2
+      severity: durationUs > _lagThresholdUs * 2
           ? IssueSeverity.critical
           : IssueSeverity.warning,
       category: IssueCategory.build,

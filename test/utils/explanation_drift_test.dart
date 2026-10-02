@@ -92,7 +92,8 @@ void main() {
     (
       'heavy_compute',
       _Field.readingTheData,
-      '>${thresholds.heavyComputeGapMs}ms (warning)',
+      '>${thresholds.heavyComputeGapMs ?? DetectorThresholds.defaultHeavyComputeGapMs}ms '
+          '(warning)',
     ),
   ];
 

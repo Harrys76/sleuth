@@ -13,7 +13,8 @@ class FrameStats {
     this.layerCacheBytes = 0,
     this.pictureCacheCount = 0,
     this.pictureCacheBytes = 0,
-    this.frameBudgetMs = 16,
+    int? frameBudgetMs,
+    int? frameBudgetUs,
     this.totalSpan,
     this.buildToRasterGap = Duration.zero,
     this.vsyncStartUs,
@@ -21,7 +22,10 @@ class FrameStats {
     this.buildFinishUs,
     this.rasterStartUs,
     this.rasterFinishUs,
-  });
+  }) : frameBudgetMs =
+           frameBudgetMs ??
+           (frameBudgetUs == null ? 16 : frameBudgetUs ~/ 1000),
+       frameBudgetUs = frameBudgetUs ?? (frameBudgetMs ?? 16) * 1000;
 
   /// Sequential frame number since monitoring started.
   final int frameNumber;
@@ -53,9 +57,15 @@ class FrameStats {
   /// Combined raster cache size: picture cache + layer cache.
   int get totalCacheBytes => pictureCacheBytes + layerCacheBytes;
 
-  /// Frame time budget in milliseconds, derived from target FPS.
-  /// 60 fps → 16ms, 120 fps → 8ms.
+  /// Frame time budget in whole milliseconds (`frameBudgetUs ~/ 1000`
+  /// when only [frameBudgetUs] is given; default 16). Kept for display and
+  /// JSON compatibility; jank classification uses [frameBudgetUs].
   final int frameBudgetMs;
+
+  /// Frame time budget in microseconds. Defaults to `frameBudgetMs * 1000`
+  /// when omitted. Frames from `FrameTimingDetector` carry the resolved
+  /// budget (16667 at 60 Hz, 8333 at 120 Hz).
+  final int frameBudgetUs;
 
   /// End-to-end frame latency (vsyncStart → rasterFinish).
   /// Null for test-created frames; populated from [FrameTiming.totalSpan].
@@ -93,6 +103,7 @@ class FrameStats {
     'pictureCacheCount': pictureCacheCount,
     'pictureCacheBytes': pictureCacheBytes,
     'frameBudgetMs': frameBudgetMs,
+    'frameBudgetUs': frameBudgetUs,
     if (totalSpan != null) 'totalSpanUs': totalSpan!.inMicroseconds,
     if (buildToRasterGap != Duration.zero)
       'buildToRasterGapUs': buildToRasterGap.inMicroseconds,
@@ -114,6 +125,9 @@ class FrameStats {
     pictureCacheCount: json['pictureCacheCount'] as int? ?? 0,
     pictureCacheBytes: json['pictureCacheBytes'] as int? ?? 0,
     frameBudgetMs: json['frameBudgetMs'] as int? ?? 16,
+    frameBudgetUs:
+        json['frameBudgetUs'] as int? ??
+        (json['frameBudgetMs'] as int? ?? 16) * 1000,
     totalSpan: json['totalSpanUs'] != null
         ? Duration(microseconds: json['totalSpanUs'] as int)
         : null,
@@ -138,9 +152,9 @@ class FrameStats {
   /// falls back to [totalDuration] (max of UI/raster) for test-created frames.
   Duration get effectiveTotalDuration => totalSpan ?? totalDuration;
 
-  bool get isJank => effectiveTotalDuration.inMilliseconds > frameBudgetMs;
+  bool get isJank => effectiveTotalDuration.inMicroseconds > frameBudgetUs;
   bool get isSevereJank =>
-      effectiveTotalDuration.inMilliseconds > frameBudgetMs * 2;
+      effectiveTotalDuration.inMicroseconds > frameBudgetUs * 2;
 
   /// Sentinel distinguishing "caller omitted the field" from "caller
   /// passed null". Nullable fields in [copyWith] accept this sentinel as
@@ -158,6 +172,7 @@ class FrameStats {
     int? pictureCacheCount,
     int? pictureCacheBytes,
     int? frameBudgetMs,
+    int? frameBudgetUs,
     Object? totalSpan = _unset,
     Duration? buildToRasterGap,
     Object? vsyncStartUs = _unset,
@@ -176,7 +191,12 @@ class FrameStats {
       layerCacheBytes: layerCacheBytes ?? this.layerCacheBytes,
       pictureCacheCount: pictureCacheCount ?? this.pictureCacheCount,
       pictureCacheBytes: pictureCacheBytes ?? this.pictureCacheBytes,
-      frameBudgetMs: frameBudgetMs ?? this.frameBudgetMs,
+      frameBudgetMs:
+          frameBudgetMs ??
+          (frameBudgetUs != null ? frameBudgetUs ~/ 1000 : this.frameBudgetMs),
+      frameBudgetUs:
+          frameBudgetUs ??
+          (frameBudgetMs != null ? frameBudgetMs * 1000 : this.frameBudgetUs),
       totalSpan: identical(totalSpan, _unset)
           ? this.totalSpan
           : totalSpan as Duration?,

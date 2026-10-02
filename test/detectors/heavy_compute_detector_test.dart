@@ -5,6 +5,59 @@ import 'package:sleuth/src/models/performance_issue.dart';
 import '../helpers/timeline_test_helpers.dart';
 
 void main() {
+  group('HeavyComputeDetector frame-budget threshold', () {
+    IssueSeverity? severityFor(HeavyComputeDetector d, int durationUs) {
+      d.processTimelineData(
+        heavyComputeData(buildScopeDurationsUs: [durationUs]),
+      );
+      final issues = d.issues;
+      d.isEnabled = false;
+      d.isEnabled = true;
+      return issues.isEmpty ? null : issues.single.severity;
+    }
+
+    test('default: >8 ms warning, >16 ms critical', () {
+      final d = HeavyComputeDetector();
+      expect(d.effectiveLagThresholdUs, 8000);
+      expect(severityFor(d, 8000), isNull);
+      expect(severityFor(d, 9000), IssueSeverity.warning);
+      expect(severityFor(d, 16000), IssueSeverity.warning);
+      expect(severityFor(d, 17000), IssueSeverity.critical);
+    });
+
+    test('default ignores updateFrameBudget', () {
+      final d = HeavyComputeDetector()..updateFrameBudget(8333);
+      expect(d.effectiveLagThresholdUs, 8000);
+      expect(severityFor(d, 5000), isNull);
+    });
+
+    test('explicit lagThresholdMs ignores updateFrameBudget', () {
+      final d = HeavyComputeDetector(lagThresholdMs: 8)
+        ..updateFrameBudget(8333);
+      expect(d.effectiveLagThresholdUs, 8000);
+      expect(severityFor(d, 9000), IssueSeverity.warning);
+    });
+
+    test('autoThreshold at 120 Hz: >4.17 ms warning, >8.33 ms critical', () {
+      final d = HeavyComputeDetector(autoThreshold: true)
+        ..updateFrameBudget(8333);
+      expect(d.effectiveLagThresholdUs, 4166);
+      expect(severityFor(d, 4000), isNull);
+      expect(severityFor(d, 5000), IssueSeverity.warning);
+      expect(severityFor(d, 9000), IssueSeverity.critical);
+      d.resetFrameBudget();
+      expect(d.effectiveLagThresholdUs, 8000);
+      expect(severityFor(d, 5000), isNull);
+    });
+
+    test('observedDurationMs stamping unchanged', () {
+      final d = HeavyComputeDetector(autoThreshold: true)
+        ..updateFrameBudget(8333);
+      d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [9000]));
+      expect(d.issues.single.extraTraceArgs!['observedDurationMs'], '9.0');
+    });
+  });
+
   group('HeavyComputeDetector', () {
     late HeavyComputeDetector detector;
 

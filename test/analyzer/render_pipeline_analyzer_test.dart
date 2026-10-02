@@ -444,4 +444,36 @@ void main() {
       expect(verdict.reason, contains('3 events matched'));
     });
   });
+
+  group('RenderPipelineAnalyzer raster floor follows frameBudgetUs', () {
+    FrameStats frame(int budgetUs) => FrameStats(
+      frameNumber: 1,
+      uiDuration: const Duration(milliseconds: 4),
+      rasterDuration: const Duration(milliseconds: 4),
+      timestamp: DateTime(2026, 1, 1),
+      frameBudgetUs: budgetUs,
+    );
+    final data = ParsedTimelineData(
+      buildScopeDurations: [3000],
+      flushLayoutDurations: [1000],
+      flushPaintDurations: [500],
+      rasterDurations: [4500],
+    );
+
+    test('16 ms budget: 4500us raster stays under the 8000us floor', () {
+      final verdict = RenderPipelineAnalyzer().analyzeFullMode(
+        frameStats: frame(16000),
+        timelineData: data,
+      );
+      expect(verdict.suspectedPhase, PipelinePhase.build);
+    });
+
+    test('120 Hz budget: 4500us raster crosses the 4166us floor', () {
+      final verdict = RenderPipelineAnalyzer().analyzeFullMode(
+        frameStats: frame(8333),
+        timelineData: data,
+      );
+      expect(verdict.suspectedPhase, PipelinePhase.raster);
+    });
+  });
 }

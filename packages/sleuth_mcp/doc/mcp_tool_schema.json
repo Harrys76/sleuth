@@ -253,6 +253,9 @@
         "captureMode": {"type": "bool", "required": true, "nullable": false},
         "lastCaptureExportFailure": {"type": "String", "required": true, "nullable": true},
         "unboundExtensionNames": {"type": "List<String>", "required": true, "nullable": false},
+        "effectiveFrameRateHz": {"type": "num", "required": false, "nullable": false, "presence": "app sleuth >= 0.37.0"},
+        "frameBudgetUs": {"type": "int", "required": false, "nullable": false, "presence": "app sleuth >= 0.37.0"},
+        "frameRateSource": {"type": "String", "required": false, "nullable": false, "presence": "app sleuth >= 0.37.0", "values": ["fixed", "display", "measured"]},
         "sidecarVersion": {"type": "String", "required": true, "nullable": false},
         "sidecarBuiltAgainstSleuth": {"type": "String", "required": true, "nullable": false},
         "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup/disconnected, or basic without a live VM self-connect (vmConnected false) — VM-only detectors degraded; nudges a --no-dds relaunch"}

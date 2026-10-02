@@ -40,6 +40,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
       widget.controller.themeOverride.addListener(_onThemeChanged);
       widget.controller.initialize().then((_) {
         if (mounted) {
+          _attachDisplayRefreshRate();
           widget.controller.startTreeScanning(context);
         }
       });
@@ -50,8 +51,16 @@ class _SleuthOverlayState extends State<SleuthOverlay>
     if (mounted) setState(() {});
   }
 
+  void _attachDisplayRefreshRate() {
+    final view = View.maybeOf(context);
+    if (view == null) return;
+    widget.controller.attachDisplayRefreshRate(view.display.refreshRate);
+  }
+
   @override
   void didChangeMetrics() {
+    if (!mounted) return;
+    _attachDisplayRefreshRate();
     final view = View.of(context);
     final bottomInset = view.viewInsets.bottom / view.devicePixelRatio;
     if (bottomInset > 0 && _lastBottomInset == 0) {

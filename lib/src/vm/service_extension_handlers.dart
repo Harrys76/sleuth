@@ -419,6 +419,9 @@ FutureOr<Map<String, Object?>> extDiagnoseHandler(
       'captureMode': controller.config.captureMode,
       'lastCaptureExportFailure': controller.lastCaptureExportFailure,
       'unboundExtensionNames': ServiceExtensionRegistry.unboundNames,
+      'effectiveFrameRateHz': controller.effectiveFrameRateHz,
+      'frameBudgetUs': controller.frameBudgetUs,
+      'frameRateSource': controller.frameRateSource.name,
     },
   );
 }

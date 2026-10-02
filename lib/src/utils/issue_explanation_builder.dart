@@ -406,7 +406,8 @@ class IssueExplanationBuilder {
       category: IssueCategory.build,
       whatItIs:
           'A widget build pass on the UI thread in {routeName} ran longer '
-          'than the threshold (>8ms warning, >16ms critical). The detector '
+          'than the threshold (>8 ms warning, >16 ms critical at 60 Hz; '
+          'scales with the measured frame rate). The detector '
           'measures BUILD-phase duration from the VM timeline; while that '
           'pass runs, the framework cannot lay out or render the frame, so '
           'expensive build methods and synchronous work called from them '
@@ -417,7 +418,8 @@ class IssueExplanationBuilder {
           'finishes.\n\n'
           '• Build duration ms — How long the BUILD pass ran. '
           'Normal: <8ms. Alert: >8ms (warning), >16ms (critical) '
-          '(default, configurable).\n\n'
+          '(default at 60 Hz; half the frame budget on faster displays; '
+          'configurable).\n\n'
           '• Dirty widgets — Widget names marked dirty during the heavy build. '
           'These identify what triggered the work.\n\n'
           '• Source: VM Timeline build-phase events.',

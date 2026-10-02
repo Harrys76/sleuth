@@ -44,6 +44,9 @@ Operational health snapshot. No args.
 | `captureMode` | bool | yes | no |
 | `lastCaptureExportFailure` | String | yes | yes |
 | `unboundExtensionNames` | List\<String\> | yes | no |
+| `effectiveFrameRateHz` | num | yes | no |
+| `frameBudgetUs` | int | yes | no |
+| `frameRateSource` | String (`fixed` / `display` / `measured`) | yes | no |
 
 ### `ext.sleuth.snapshot`
 

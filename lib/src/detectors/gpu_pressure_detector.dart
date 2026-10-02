@@ -37,6 +37,26 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   /// (half of 60Hz frame budget) — single bad frame must exceed half
   /// budget for raster to qualify as the bottleneck.
   final int maxFrameRasterFloorUs;
+
+  int? _budgetFloorUs;
+
+  /// Floor in effect: half the resolved frame budget once
+  /// [updateFrameBudget] has been called, else [maxFrameRasterFloorUs].
+  int get effectiveMaxFrameRasterFloorUs =>
+      _budgetFloorUs ?? maxFrameRasterFloorUs;
+
+  /// Sets the raster floor to half of [budgetUs]. Called by
+  /// `SleuthController` when the resolved frame budget changes.
+  void updateFrameBudget(int budgetUs) {
+    if (budgetUs <= 0) return;
+    _budgetFloorUs = budgetUs ~/ 2;
+  }
+
+  /// Restores the [maxFrameRasterFloorUs] floor.
+  void resetFrameBudget() {
+    _budgetFloorUs = null;
+  }
+
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   bool _isEnabled = true;
@@ -214,7 +234,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     final ratio = hasRasterTiming ? _lastMaxFrameRasterUs / _lastUiUs : 0.0;
     final hasRasterDominance =
         hasRasterTiming &&
-        _lastMaxFrameRasterUs > maxFrameRasterFloorUs &&
+        _lastMaxFrameRasterUs > effectiveMaxFrameRasterFloorUs &&
         ratio > rasterMultiplierThreshold;
 
     if (hasRasterDominance) {
@@ -315,7 +335,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         'so idle vsync raster scopes cannot inflate the ratio. Two '
         'preconditions: `hasRasterTiming` (`vmConnected && _lastUiUs > 0 '
         '&& _lastRasterUs > 0`) and `_lastMaxFrameRasterUs > '
-        'maxFrameRasterFloorUs` (default 8000us = half 60Hz budget). '
+        'maxFrameRasterFloorUs` (default 8000us; half the resolved '
+        'frame budget once the controller supplies one). '
         'Tradeoff: sustained moderate raster across an active multi-frame '
         'batch may under-classify (UI denominator is still aggregate); a '
         'per-frame UI proxy would close that gap. '

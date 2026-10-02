@@ -51,6 +51,7 @@ import '../models/base_detector.dart';
 import '../models/gc_event_summary.dart';
 import '../models/heap_sample.dart';
 import '../models/capture_buffer.dart';
+import '../models/frame_budget.dart';
 import '../models/frame_stats.dart';
 import '../models/frame_verdict.dart';
 import '../models/performance_issue.dart';
@@ -796,9 +797,14 @@ class SleuthController {
             config.thresholds.coldStartShaderWindowSeconds,
         shaderKeyframeWindowMs: config.thresholds.shaderKeyframeWindowMs,
       ),
-      DetectorType.heavyCompute: () => HeavyComputeDetector(
-        lagThresholdMs: config.thresholds.heavyComputeGapMs,
-        sourceRouteProvider: _currentRouteName,
+      DetectorType.heavyCompute: () => _withFrameBudget(
+        HeavyComputeDetector(
+          lagThresholdMs:
+              config.thresholds.heavyComputeGapMs ??
+              DetectorThresholds.defaultHeavyComputeGapMs,
+          autoThreshold: config.thresholds.heavyComputeGapMs == null,
+          sourceRouteProvider: _currentRouteName,
+        ),
       ),
       DetectorType.platformChannel: () => PlatformChannelDetector(
         callsPerSecThreshold: config.platformChannelLimit,
@@ -809,8 +815,10 @@ class SleuthController {
       DetectorType.setStateScope: () => SetStateScopeDetector(
         dirtyRatioThreshold: config.thresholds.setStateScopeOwnershipPercent,
       ),
-      DetectorType.gpuPressure: () => GpuPressureDetector(
-        rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
+      DetectorType.gpuPressure: () => _withFrameBudget(
+        GpuPressureDetector(
+          rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
+        ),
       ),
       DetectorType.layoutBottleneck: LayoutBottleneckDetector.new,
       DetectorType.listview: () =>
@@ -860,6 +868,87 @@ class SleuthController {
               !config.disabledCustomDetectorKeys.contains(d.key),
     ];
     _detectorsReady = true;
+    _reresolveFrameBudget(force: true);
+  }
+
+  // -- Frame budget --
+
+  late FrameBudget _frameBudget = resolveFrameBudget(
+    fpsTarget: config.fpsTarget,
+    displayRefreshRateHz: 0,
+    auto: _autoFrameBudget,
+  );
+  double _displayRefreshRateHz = 0;
+  double? _lastResolvedCadenceHz;
+
+  bool get _autoFrameBudget => config.autoFrameBudget && !config.captureMode;
+
+  int get _fpsTargetBudgetUs => (1e6 / config.fpsTarget).round();
+
+  /// Resolved per-frame budget in microseconds. See [resolveFrameBudget].
+  int get frameBudgetUs => _frameBudget.budgetUs;
+
+  /// Frame rate the current budget is derived from.
+  double get effectiveFrameRateHz => _frameBudget.effectiveHz;
+
+  /// Where [effectiveFrameRateHz] came from.
+  FrameRateSource get frameRateSource => _frameBudget.source;
+
+  /// Records the display's reported refresh rate (an upper bound for the
+  /// frame budget) and re-resolves the budget. Called by the overlay with
+  /// `View.of(context).display.refreshRate`.
+  void attachDisplayRefreshRate(double hz) {
+    if (kReleaseMode) return;
+    final value = hz.isFinite && hz > 0 ? hz : 0.0;
+    if (value == _displayRefreshRateHz) return;
+    _displayRefreshRateHz = value;
+    _reresolveFrameBudget();
+  }
+
+  void _reresolveFrameBudget({bool force = false}) {
+    if (!_detectorsReady) return;
+    final measured = _frameTiming.measuredCadenceHz;
+    _lastResolvedCadenceHz = measured;
+    final next = resolveFrameBudget(
+      fpsTarget: config.fpsTarget,
+      displayRefreshRateHz: _displayRefreshRateHz,
+      measuredCadenceHz: measured,
+      auto: _autoFrameBudget,
+    );
+    final changed = next.budgetUs != _frameBudget.budgetUs;
+    _frameBudget = next;
+    if (!changed && !force) return;
+    _frameTiming.updateFrameBudget(next.budgetUs);
+    for (final detector in _detectors) {
+      _withFrameBudget(detector);
+    }
+  }
+
+  /// Applies the resolved budget to budget-derived detector thresholds.
+  /// At the `fpsTarget` budget the detectors keep their own defaults
+  /// (8000 us raster floor, 8 ms heavy-compute threshold); above
+  /// `fpsTarget` they use half the resolved budget.
+  T _withFrameBudget<T extends BaseDetector>(T detector) {
+    final budgetUs = _frameBudget.budgetUs;
+    final atTarget = budgetUs == _fpsTargetBudgetUs;
+    if (detector is GpuPressureDetector) {
+      atTarget
+          ? detector.resetFrameBudget()
+          : detector.updateFrameBudget(budgetUs);
+    } else if (detector is HeavyComputeDetector) {
+      atTarget
+          ? detector.resetFrameBudget()
+          : detector.updateFrameBudget(budgetUs);
+    }
+    return detector;
+  }
+
+  void _maybeReresolveFromCadence() {
+    final measured = _frameTiming.measuredCadenceHz;
+    if (measured == null) return;
+    final last = _lastResolvedCadenceHz;
+    if (last != null && (measured - last).abs() <= last * 0.05) return;
+    _reresolveFrameBudget();
   }
 
   /// Factory map for non-typed detectors, persisted for runtime enable.
@@ -1034,6 +1123,13 @@ class SleuthController {
   @visibleForTesting
   // ignore: invalid_use_of_visible_for_testing_member
   void addFrameForTest(FrameStats stats) => _frameTiming.addFrameForTest(stats);
+
+  /// Feed a batch of engine [FrameTiming]s into the controller's
+  /// [FrameTimingDetector] through its real timings-callback path.
+  @visibleForTesting
+  void handleTimingsForTest(List<FrameTiming> timings) =>
+      // ignore: invalid_use_of_visible_for_testing_member
+      _frameTiming.handleTimingsForTest(timings);
 
   /// Mark the controller as initialized without running the full [initialize]
   /// path (which requires dart:developer). Needed by tests that exercise
@@ -3257,6 +3353,7 @@ class SleuthController {
   }
 
   void _onFrameStats(FrameStatsBuffer buffer) {
+    _maybeReresolveFromCadence();
     // Only copy buffer for the notifier when UI is actively listening (v9.10).
     // When !_initialized, exportSnapshot() reads from the notifier (fallback),
     // so the copy is required regardless of listener state.

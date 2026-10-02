@@ -59,7 +59,7 @@ whose `result` is the inlined sleuth envelope JSON.
 | `ext.sleuth.explain` | required `stableId` | `{stableId, canonical, explanation}` |
 | `ext.sleuth.encyclopedia` | none | `{count, entries}` keyed by canonical stableId |
 | `ext.sleuth.causalGraph` | none | `{count, rules: [{trigger, effect}]}` |
-| `ext.sleuth.diagnose` | none | `{packageVersion, initializedAtMicros, vmConnected, captureMode, lastCaptureExportFailure, unboundExtensionNames}` |
+| `ext.sleuth.diagnose` | none | `{packageVersion, initializedAtMicros, vmConnected, captureMode, lastCaptureExportFailure, unboundExtensionNames, effectiveFrameRateHz, frameBudgetUs, frameRateSource}` |
 
 ### Envelope contract
 

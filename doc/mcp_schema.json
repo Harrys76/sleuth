@@ -35,7 +35,10 @@
         "vmConnected": {"type": "bool", "required": true, "nullable": false},
         "captureMode": {"type": "bool", "required": true, "nullable": false},
         "lastCaptureExportFailure": {"type": "String", "required": true, "nullable": true},
-        "unboundExtensionNames": {"type": "List<String>", "required": true, "nullable": false}
+        "unboundExtensionNames": {"type": "List<String>", "required": true, "nullable": false},
+        "effectiveFrameRateHz": {"type": "num", "required": true, "nullable": false},
+        "frameBudgetUs": {"type": "int", "required": true, "nullable": false},
+        "frameRateSource": {"type": "String", "required": true, "nullable": false, "values": ["fixed", "display", "measured"]}
       }
     },
     "ext.sleuth.snapshot": {

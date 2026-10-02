@@ -20,7 +20,7 @@ class RenderPipelineAnalyzer {
     required FrameStats frameStats,
     List<PerformanceIssue> relatedIssues = const [],
   }) {
-    final budgetUs = frameStats.frameBudgetMs * 1000;
+    final budgetUs = frameStats.frameBudgetUs;
     final gapUs = frameStats.buildToRasterGap.inMicroseconds;
     final vsyncUs = frameStats.vsyncOverhead.inMicroseconds;
     final uiUs = frameStats.uiDuration.inMicroseconds;
@@ -67,15 +67,17 @@ class RenderPipelineAnalyzer {
     // Raster aggregate includes idle vsync compositor scopes (60/sec)
     // that UI phase aggregates do not, so raster only qualifies as a
     // phase-ranking candidate when one frame's raster crossed half the
-    // 60Hz frame budget (8000us). Below that, the aggregate carries
-    // no per-frame pressure signal.
+    // frame budget (8000us at a 16 ms budget). Below that, the aggregate
+    // carries no per-frame pressure signal.
     final rasterAggregateUs = timelineData.rasterDurations.isNotEmpty
         ? timelineData.rasterDurations.fold<int>(0, (s, d) => s + d)
         : frameStats.rasterDuration.inMicroseconds;
     final maxRasterFrameUs = timelineData.rasterDurations.isNotEmpty
         ? timelineData.rasterDurations.reduce((a, b) => a > b ? a : b)
         : frameStats.rasterDuration.inMicroseconds;
-    final rasterUs = maxRasterFrameUs > 8000 ? rasterAggregateUs : 0;
+    final rasterUs = maxRasterFrameUs > frameStats.frameBudgetUs ~/ 2
+        ? rasterAggregateUs
+        : 0;
 
     // Determine which phase is the widest
     final phases = {
@@ -97,7 +99,7 @@ class RenderPipelineAnalyzer {
 
     // If no VM-derived phase dominates but totalSpan exceeds budget,
     // check for pipeline stall or scheduler delay.
-    final budgetUs = frameStats.frameBudgetMs * 1000;
+    final budgetUs = frameStats.frameBudgetUs;
     if (suspected == PipelinePhase.unknown || maxUs < budgetUs) {
       final gapUs = frameStats.buildToRasterGap.inMicroseconds;
       final vsyncUs = frameStats.vsyncOverhead.inMicroseconds;
@@ -176,7 +178,7 @@ class RenderPipelineAnalyzer {
     }
 
     // If no correlated phase dominates, check for pipeline stall or scheduler delay.
-    final budgetUs = frameStats.frameBudgetMs * 1000;
+    final budgetUs = frameStats.frameBudgetUs;
     if (suspected == PipelinePhase.unknown || maxUs < budgetUs) {
       final gapUs = frameStats.buildToRasterGap.inMicroseconds;
       final vsyncUs = frameStats.vsyncOverhead.inMicroseconds;

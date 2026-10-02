@@ -64,12 +64,17 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     this.startupPhaseWindowSeconds = 5,
     this.onFrameStats,
     int? Function()? appStartMonotonicUsForTest,
-  }) : warningThresholdMs =
-           warningThresholdMs ??
-           _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 1),
-       criticalThresholdMs =
-           criticalThresholdMs ??
-           _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 2),
+  }) : warningBudgetUs = warningThresholdMs != null
+           ? warningThresholdMs * 1000
+           : _budgetUsFromFpsTarget(fpsTarget),
+       criticalBudgetUs = criticalThresholdMs != null
+           ? criticalThresholdMs * 1000
+           : (warningThresholdMs != null
+                     ? warningThresholdMs * 1000
+                     : _budgetUsFromFpsTarget(fpsTarget)) *
+                 2,
+       _explicitThresholds =
+           warningThresholdMs != null || criticalThresholdMs != null,
        _appStartForTest = appStartMonotonicUsForTest,
        super(
          type: DetectorType.frameTiming,
@@ -77,25 +82,46 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
          name: 'Frame Timing',
          description:
              'Detects jank frames via frame budget '
-             '(${warningThresholdMs ?? _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 1)}ms)',
+             '(${warningThresholdMs ?? _budgetUsFromFpsTarget(fpsTarget) ~/ 1000}ms)',
        );
 
-  /// Validates `fpsTarget` before integer-dividing by it. The
-  /// `SleuthConfig` assert guard is stripped in profile/release, so without
-  /// this check `fpsTarget: 0` would surface as
-  /// `UnsupportedError: Result of truncating division is Infinity`.
-  static int _thresholdFromFpsTarget(
-    int fpsTarget, {
-    required int criticalMultiplier,
-  }) {
+  /// Validates `fpsTarget` before dividing by it. The `SleuthConfig` assert
+  /// guard is stripped in profile/release, so without this check
+  /// `fpsTarget: 0` would surface as an `Infinity` budget.
+  static int _budgetUsFromFpsTarget(int fpsTarget) {
     if (fpsTarget < 1 || fpsTarget > 240) {
       throw ArgumentError.value(fpsTarget, 'fpsTarget', 'must be in [1, 240]');
     }
-    return (1000 ~/ fpsTarget) * criticalMultiplier;
+    return (1e6 / fpsTarget).round();
   }
 
-  final int warningThresholdMs;
-  final int criticalThresholdMs;
+  /// Per-frame budget in microseconds. A frame whose effective duration
+  /// exceeds it is jank. Defaults to `1e6 / fpsTarget` (16667 at 60);
+  /// `SleuthController` moves it to the resolved budget via
+  /// [updateFrameBudget].
+  int warningBudgetUs;
+
+  /// Severe-jank budget in microseconds (2x [warningBudgetUs]).
+  int criticalBudgetUs;
+
+  final bool _explicitThresholds;
+
+  /// [warningBudgetUs] in whole milliseconds.
+  int get warningThresholdMs => warningBudgetUs ~/ 1000;
+
+  /// [criticalBudgetUs] in whole milliseconds.
+  int get criticalThresholdMs => criticalBudgetUs ~/ 1000;
+
+  /// Applies a resolved frame budget. No-op in [captureMode] (bracket
+  /// recordings use the fixed `fpsTarget` budget), when explicit
+  /// thresholds were passed to the constructor, or for a non-positive
+  /// [budgetUs].
+  void updateFrameBudget(int budgetUs) {
+    if (captureMode || _explicitThresholds || budgetUs <= 0) return;
+    warningBudgetUs = budgetUs;
+    criticalBudgetUs = budgetUs * 2;
+  }
+
   final int fpsTarget;
 
   /// Window in seconds after Dart entry within which emissions stamp
@@ -305,8 +331,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     if (!_isEnabled) return;
     if (stats.rasterFinishUs == null) {
       final latest = _buffer.latest?.rasterFinishUs ?? 0;
-      final budgetUs = (1000000 / fpsTarget).round();
-      stats = stats.copyWith(rasterFinishUs: latest + budgetUs);
+      stats = stats.copyWith(rasterFinishUs: latest + warningBudgetUs);
     }
     _totalFramesSeen++;
     _firstFrameTimestamp ??= stats.timestamp;
@@ -430,7 +455,8 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
         layerCacheBytes: timing.layerCacheBytes,
         pictureCacheCount: timing.pictureCacheCount,
         pictureCacheBytes: timing.pictureCacheBytes,
-        frameBudgetMs: warningThresholdMs,
+        frameBudgetMs: warningBudgetUs ~/ 1000,
+        frameBudgetUs: warningBudgetUs,
         totalSpan: timing.totalSpan,
         buildToRasterGap: Duration(microseconds: gapUs > 0 ? gapUs : 0),
         vsyncStartUs: vsyncStartUs,
@@ -452,8 +478,8 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   }
 
   /// Only report jank as an issue when it's a sustained pattern:
-  /// - Critical: ≥3 severe jank frames (>33ms) in the last 60 frames
-  /// - Warning: >15% of recent frames are janky (>16ms)
+  /// - Critical: ≥3 severe jank frames (>2x budget) in the buffer
+  /// - Warning: >15% of recent frames are janky (> budget)
   ///
   /// **Parallel emission semantics (v0.19.6+).** When both gates are
   /// satisfied (severeCount ≥ 3 AND jankPercent > 15), BOTH stableIds
@@ -695,7 +721,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   /// Classify jank frames by which thread is the bottleneck.
   _JankBottleneck _classifyJankBottleneck(List<FrameStats> frames) {
     int uiBound = 0, rasterBound = 0, pipelineStall = 0;
-    final budgetUs = warningThresholdMs * 1000;
+    final budgetUs = warningBudgetUs;
 
     for (final f in frames) {
       if (!f.isJank) continue;
@@ -792,7 +818,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     }
 
     // Bottleneck hint with pipeline stall detection
-    final budgetUs = stats.frameBudgetMs * 1000;
+    final budgetUs = stats.frameBudgetUs;
     if (stats.buildToRasterGap.inMicroseconds > budgetUs ~/ 4 &&
         stats.uiDuration.inMicroseconds < budgetUs &&
         stats.rasterDuration.inMicroseconds < budgetUs) {
