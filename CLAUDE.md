@@ -6,8 +6,8 @@ Runtime performance diagnostics package for Flutter mobile apps. 20 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test --exclude-tags benchmark          # Default run (~3,091 tests; wall-clock benchmarks excluded)
-fvm flutter test --tags benchmark --concurrency=1  # Wall-clock benchmarks, serial
+fvm flutter test --exclude-tags benchmark          # Default run (~3,376 tests; wall-clock benchmarks excluded)
+fvm flutter test --tags benchmark --concurrency=1  # Wall-clock benchmarks, serial (34 tests)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness

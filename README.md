@@ -214,7 +214,8 @@ Sleuth.track(
     rebuildThreshold: 10,
     maxListChildren: 20,
     platformChannelLimit: 20,
-    treeScanInterval: Duration(seconds: 1),
+    treeScanInterval: Duration(seconds: 1), // base tree-scan cadence; ticks costing > 4 ms stretch it (≤ 5 s); deferred ≤ 3 × 250 ms while scrolling
+    maxElementsPerScan: 0,             // > 0: skip one tick after a walk over this many elements (0 = unlimited)
     captureBufferCapacity: 50,        // max jank frames retained for export
     enableDebugCallbacks: false,       // opt-in: per-widget rebuild/repaint hooks (conflicts with DevTools)
     enableDeepDebugInstrumentation: false, // opt-in: heavy per-widget timeline events
@@ -224,7 +225,7 @@ Sleuth.track(
     criticalSlowRequestThresholdMs: 3000, // escalate to critical at this duration (must be > slow; default 3000 ms)
     requestFrequencyLimit: 30,         // max requests per 5s window
     largeResponseThresholdBytes: 1048576, // flag responses larger than 1MB
-    adaptiveScanEnabled: true,         // back off scan interval when app is healthy (default true)
+    adaptiveScanEnabled: true,         // after 3 clean scans, double the interval up to 2 s, never below the base (default true)
     networkExcludePatterns: ['analytics.example.com'], // exclude URLs from monitoring
     enabledDetectors: {
       DetectorType.frameTiming,

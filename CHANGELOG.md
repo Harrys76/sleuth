@@ -128,6 +128,39 @@
   `RequestRecord.contentType` (MIME type, serialized when present) is new.
   Network monitoring observes `dart:io` `HttpClient` traffic only;
   `cronet_http`, `cupertino_http`, and platform-SDK networking are invisible.
+- `issuesNotifier` fires only when something rendered changes (ids, order,
+  severity, confidence, category, text, widget/route attribution,
+  interaction context, causal links); timestamps, ranking scores and trace
+  arguments no longer trigger it. Export, fix verification and
+  `ext.sleuth.issues` / `ext.sleuth.explain` read the latest aggregation.
+  A per-tick scan pulse keeps the rebuild-stats panel and the `Seen X/Y`
+  badge live.
+- Scrolling re-measures highlight rects from their render objects instead of
+  rescanning the tree, so scrolling no longer consumes detector state.
+  `WidgetHighlight.renderObject` is new (optional). `refreshHighlights()`
+  requests an early scan tick; scroll end runs one early tick 300 ms later.
+- Scan cadence: a tick costing more than 4 ms stretches the next interval to
+  `treeScanInterval × ceil(cost / 4 ms)`, capped at 5 s (not in capture
+  mode). The clean-scan back-off no longer shortens intervals above 2 s.
+  `SleuthConfig.maxElementsPerScan` (default 0, unlimited) skips one tick
+  after a walk over the cap; a walk is never cut short.
+- Periodic ticks defer by 250 ms while scrolling, at most three times in a
+  row; a scroll with no activity for 2 s counts as ended.
+- Route names come from `ModalRoute.settingsOf`, so the scan root no longer
+  rebuilds on route pushes, pops and animation status changes.
+- Long sessions stay bounded: `RouteSession.issueSnapshots` and
+  `rebuildCountsByType` keep at most 256 keys (`RouteSession.maxTrackedEntries`,
+  oldest-inserted evicted), unnamed-route ordinals are dropped with their last
+  session, and recurrence trends go stale 120 cycles after their last
+  presence even when it has left the 60-entry window. The type-name cache
+  persists across scans and clears on hot reload.
+
+### Testing
+
+- Wall-clock benchmarks carry the `benchmark` tag and run serially:
+  `flutter test --exclude-tags benchmark` for the default suite,
+  `flutter test --tags benchmark --concurrency=1` for benchmarks. Budgets
+  are about 5× the measured serial means, doubled on CI.
 
 `kSleuthPackageVersion` → 0.37.0. Sidecar sleuth_mcp 0.8.0 pins 0.37.0.
 
