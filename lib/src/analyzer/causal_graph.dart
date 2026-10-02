@@ -268,7 +268,7 @@ class CausalGraphRule extends CorrelationRule {
       );
       final shouldSuppress =
           downstream.confidence == IssueConfidence.possible &&
-              anyStrongerParent;
+          anyStrongerParent;
 
       for (final rootIdx in ownerIndices) {
         if (shouldSuppress) continue;
@@ -307,10 +307,12 @@ class CausalGraphRule extends CorrelationRule {
         // some other downstream (a node can be both downstream and root in
         // a chain like A→B→C).
         if (downstream != null && downstream.isNotEmpty) {
-          result.add(issues[i].copyWith(
-            rootCauseIds: rootIds,
-            downstreamIds: downstream,
-          ));
+          result.add(
+            issues[i].copyWith(
+              rootCauseIds: rootIds,
+              downstreamIds: downstream,
+            ),
+          );
         } else {
           result.add(issues[i].copyWith(rootCauseIds: rootIds));
         }
@@ -330,10 +332,12 @@ class CausalGraphRule extends CorrelationRule {
   /// one place so consumers don't need to mirror `CausalRule`'s field
   /// layout.
   static List<Map<String, Object?>> get rulesJson => _causalRules
-      .map((r) => <String, Object?>{
-            'trigger': r.causePattern,
-            'effect': r.effectPattern,
-          })
+      .map(
+        (r) => <String, Object?>{
+          'trigger': r.causePattern,
+          'effect': r.effectPattern,
+        },
+      )
       .toList(growable: false);
 
   /// Returns the list of active causal edges for the given issues.
@@ -395,8 +399,8 @@ class CausalGraphRule extends CorrelationRule {
   }
 
   static int _severityRank(IssueSeverity s) => switch (s) {
-        IssueSeverity.critical => 3,
-        IssueSeverity.warning => 2,
-        IssueSeverity.ok => 1,
-      };
+    IssueSeverity.critical => 3,
+    IssueSeverity.warning => 2,
+    IssueSeverity.ok => 1,
+  };
 }

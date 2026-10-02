@@ -40,8 +40,7 @@ void main() {
     setUp(() => tmp = Directory.systemTemp.createTempSync('sleuth_attach_'));
     tearDown(() => tmp.deleteSync(recursive: true));
 
-    test(
-        'drops the excluded (dead) announcement and selects the live port — '
+    test('drops the excluded (dead) announcement and selects the live port — '
         'even though the dead port has the higher interface index', () async {
       // Dead port wins selectUsbAnnouncement's highest-interface-index
       // heuristic (iface 25 vs 24). Only the excludePorts filter can
@@ -75,51 +74,55 @@ void main() {
       await result.teardown();
     });
 
-    test('exclusion that empties the probe falls through to the launch branch',
-        () async {
-      const deadPort = 50001;
-      const livePort = 50002;
-      var launched = false;
-      var resolveCall = 0;
-      final attacher = IosAttacher(
-        hasTool: (_) async => true,
-        run: (exec, args) async {
-          if (args.contains('launch')) launched = true;
-          return ProcessResult(1, 0, '', '');
-        },
-        iproxyStart: (_, __) async => _FakeLiveProcess(),
-        bonjourLines: (bundle, service) async* {
-          resolveCall++;
-          if (resolveCall == 1) {
-            // Probe: only the dead port is announced → excluded → empty.
-            yield _reachedAt(deadPort, 25);
-            yield ' authCode=deadAuth=';
-          } else {
-            // Post-launch: the fresh live service is now announced.
-            yield _reachedAt(livePort, 24);
-            yield ' authCode=liveAuth=';
-          }
-        },
-      );
-
-      final result = await attacher.attach(
-        udid: 'U',
-        bundle: 'b',
-        transportOverride: IosTransport.wired,
-        excludePorts: const {deadPort},
-        pidfileDirectory: tmp.path,
-        launchSettle: Duration.zero,
-        readinessWindow: const Duration(milliseconds: 50),
-      );
-
-      expect(launched, isTrue,
-          reason: 'empty-after-exclusion probe must trigger devicectl launch');
-      expect(result.selected.port, livePort);
-      await result.teardown();
-    });
-
     test(
-        'devicectl launch timeout throws launchFailed (bounds a wedged '
+      'exclusion that empties the probe falls through to the launch branch',
+      () async {
+        const deadPort = 50001;
+        const livePort = 50002;
+        var launched = false;
+        var resolveCall = 0;
+        final attacher = IosAttacher(
+          hasTool: (_) async => true,
+          run: (exec, args) async {
+            if (args.contains('launch')) launched = true;
+            return ProcessResult(1, 0, '', '');
+          },
+          iproxyStart: (_, __) async => _FakeLiveProcess(),
+          bonjourLines: (bundle, service) async* {
+            resolveCall++;
+            if (resolveCall == 1) {
+              // Probe: only the dead port is announced → excluded → empty.
+              yield _reachedAt(deadPort, 25);
+              yield ' authCode=deadAuth=';
+            } else {
+              // Post-launch: the fresh live service is now announced.
+              yield _reachedAt(livePort, 24);
+              yield ' authCode=liveAuth=';
+            }
+          },
+        );
+
+        final result = await attacher.attach(
+          udid: 'U',
+          bundle: 'b',
+          transportOverride: IosTransport.wired,
+          excludePorts: const {deadPort},
+          pidfileDirectory: tmp.path,
+          launchSettle: Duration.zero,
+          readinessWindow: const Duration(milliseconds: 50),
+        );
+
+        expect(
+          launched,
+          isTrue,
+          reason: 'empty-after-exclusion probe must trigger devicectl launch',
+        );
+        expect(result.selected.port, livePort);
+        await result.teardown();
+      },
+    );
+
+    test('devicectl launch timeout throws launchFailed (bounds a wedged '
         'devicectl so the attach mutex is released)', () async {
       final attacher = IosAttacher(
         hasTool: (_) async => true,
@@ -139,38 +142,45 @@ void main() {
           pidfileDirectory: tmp.path,
           devicectlTimeout: const Duration(milliseconds: 80),
         ),
-        throwsA(isA<IosAttachException>()
-            .having((e) => e.kind, 'kind', IosAttachErrorKind.launchFailed)),
+        throwsA(
+          isA<IosAttachException>().having(
+            (e) => e.kind,
+            'kind',
+            IosAttachErrorKind.launchFailed,
+          ),
+        ),
       );
     });
 
-    test('ambiguousPairings exception lists distinctAuthCodes sorted',
-        () async {
-      final attacher = IosAttacher(
-        hasTool: (_) async => true,
-        run: (_, __) async => ProcessResult(1, 0, '', ''),
-        iproxyStart: (_, __) async => _FakeLiveProcess(),
-        bonjourLines: (bundle, service) async* {
-          yield _reachedAt(50001, 25);
-          yield ' authCode=zzz=';
-          yield _reachedAt(50002, 24);
-          yield ' authCode=aaa=';
-        },
-      );
-
-      try {
-        await attacher.attach(
-          udid: 'U',
-          bundle: 'b',
-          transportOverride: IosTransport.wired,
-          pidfileDirectory: tmp.path,
-          launchSettle: Duration.zero,
+    test(
+      'ambiguousPairings exception lists distinctAuthCodes sorted',
+      () async {
+        final attacher = IosAttacher(
+          hasTool: (_) async => true,
+          run: (_, __) async => ProcessResult(1, 0, '', ''),
+          iproxyStart: (_, __) async => _FakeLiveProcess(),
+          bonjourLines: (bundle, service) async* {
+            yield _reachedAt(50001, 25);
+            yield ' authCode=zzz=';
+            yield _reachedAt(50002, 24);
+            yield ' authCode=aaa=';
+          },
         );
-        fail('expected ambiguousPairings');
-      } on IosAttachException catch (e) {
-        expect(e.kind, IosAttachErrorKind.ambiguousPairings);
-        expect(e.data?['distinctAuthCodes'], ['aaa', 'zzz']);
-      }
-    });
+
+        try {
+          await attacher.attach(
+            udid: 'U',
+            bundle: 'b',
+            transportOverride: IosTransport.wired,
+            pidfileDirectory: tmp.path,
+            launchSettle: Duration.zero,
+          );
+          fail('expected ambiguousPairings');
+        } on IosAttachException catch (e) {
+          expect(e.kind, IosAttachErrorKind.ambiguousPairings);
+          expect(e.data?['distinctAuthCodes'], ['aaa', 'zzz']);
+        }
+      },
+    );
   });
 }

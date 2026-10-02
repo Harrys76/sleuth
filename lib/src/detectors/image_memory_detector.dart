@@ -29,12 +29,12 @@ class UncachedImageInfo {
 /// images into memory without downscaling.
 class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
   ImageMemoryDetector()
-      : super(
-          type: DetectorType.imageMemory,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'Image Memory',
-          description: 'Detects Images without cacheWidth/cacheHeight',
-        );
+    : super(
+        type: DetectorType.imageMemory,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Image Memory',
+        description: 'Detects Images without cacheWidth/cacheHeight',
+      );
 
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
@@ -108,24 +108,32 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
   /// highlight rect may be null so no visual overlay appears until the next
   /// scan cycle when layout has completed. This self-corrects within 1-2s.
   void _recordUncachedImage(
-      Element element, ImageProvider provider, String widgetName) {
+    Element element,
+    ImageProvider provider,
+    String widgetName,
+  ) {
     final sourceName = extractSourceName(provider);
-    _uncachedImages.add(UncachedImageInfo(
-      sourceName: sourceName,
-      ancestorChain: buildAncestorChain(element),
-    ));
+    _uncachedImages.add(
+      UncachedImageInfo(
+        sourceName: sourceName,
+        ancestorChain: buildAncestorChain(element),
+      ),
+    );
     final ro = element.renderObject;
     if (ro != null) {
       final rect = getGlobalRect(ro);
       if (rect != null) {
-        _highlights.add(WidgetHighlight(
-          rect: rect,
-          widgetName: widgetName,
-          severity: IssueSeverity.warning,
-          detectorName: 'Image',
-          detail: 'Uncached ${_providerTypeName(provider)}: $sourceName\n'
-              'Add cacheWidth/cacheHeight or wrap in ResizeImage',
-        ));
+        _highlights.add(
+          WidgetHighlight(
+            rect: rect,
+            widgetName: widgetName,
+            severity: IssueSeverity.warning,
+            detectorName: 'Image',
+            detail:
+                'Uncached ${_providerTypeName(provider)}: $sourceName\n'
+                'Add cacheWidth/cacheHeight or wrap in ResizeImage',
+          ),
+        );
       }
     }
   }
@@ -140,21 +148,24 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
 
       final (hint, effort) = FixHintBuilder.uncachedImages(count: count);
 
-      _issues.add(PerformanceIssue(
-        stableId: 'uncached_images',
-        severity: count > 5 ? IssueSeverity.critical : IssueSeverity.warning,
-        category: IssueCategory.memory,
-        confidence: IssueConfidence.possible,
-        title: 'Uncached Images: $count found',
-        detail: '$count Image widgets without decode-time resizing. '
-            'Full-resolution images are decoded into memory.\n\n$imageList',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.structural,
-        confidenceReason:
-            'Structural scan only — missing cacheWidth/cacheHeight',
-        detectedAt: DateTime.now(),
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'uncached_images',
+          severity: count > 5 ? IssueSeverity.critical : IssueSeverity.warning,
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.possible,
+          title: 'Uncached Images: $count found',
+          detail:
+              '$count Image widgets without decode-time resizing. '
+              'Full-resolution images are decoded into memory.\n\n$imageList',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.structural,
+          confidenceReason:
+              'Structural scan only — missing cacheWidth/cacheHeight',
+          detectedAt: DateTime.now(),
+        ),
+      );
     }
   }
 
@@ -206,20 +217,20 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale:
-            'Hermetic reproducer pins the 50dp small-image skip threshold '
-            '(40×40 no fire, 50×50 at-threshold no fire, 51×51 fires), the '
-            'ResizeImage-wrapper suppression contract, and the "zero is NOT '
-            'small" unconstrained-size policy. Both emission branches are '
-            'exercised: the Image widget branch and the DecoratedBox branch '
-            '(Container with BoxDecoration.image at 100×100 fires; '
-            'DecorationImage wrapping a ResizeImage suppresses). Detector is a '
-            'pure structural scan over widget shape + render-object size — no '
-            'decode or VM timeline dependency — so the reproducer covers the '
-            'full runtime trigger path. Not yet runtime-verified on a '
-            'profile-mode capture.',
-        reproducerPath: 'test/validation/image_memory_reproducer_test.dart',
-        coveredStableIds: {'uncached_images'},
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'Hermetic reproducer pins the 50dp small-image skip threshold '
+        '(40×40 no fire, 50×50 at-threshold no fire, 51×51 fires), the '
+        'ResizeImage-wrapper suppression contract, and the "zero is NOT '
+        'small" unconstrained-size policy. Both emission branches are '
+        'exercised: the Image widget branch and the DecoratedBox branch '
+        '(Container with BoxDecoration.image at 100×100 fires; '
+        'DecorationImage wrapping a ResizeImage suppresses). Detector is a '
+        'pure structural scan over widget shape + render-object size — no '
+        'decode or VM timeline dependency — so the reproducer covers the '
+        'full runtime trigger path. Not yet runtime-verified on a '
+        'profile-mode capture.',
+    reproducerPath: 'test/validation/image_memory_reproducer_test.dart',
+    coveredStableIds: {'uncached_images'},
+  );
 }

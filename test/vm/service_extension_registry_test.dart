@@ -14,16 +14,22 @@ const _config = SleuthConfig(
 
 class _FakeRegisterFn {
   final Map<
-      String,
-      Future<developer.ServiceExtensionResponse> Function(
-          String method, Map<String, String> args)> bindings = {};
+    String,
+    Future<developer.ServiceExtensionResponse> Function(
+      String method,
+      Map<String, String> args,
+    )
+  >
+  bindings = {};
   int callCount = 0;
 
   void call(
     String name,
     Future<developer.ServiceExtensionResponse> Function(
-            String method, Map<String, String> args)
-        handler,
+      String method,
+      Map<String, String> args,
+    )
+    handler,
   ) {
     callCount++;
     bindings[name] = handler;
@@ -61,44 +67,49 @@ void main() {
     addTearDown(c.dispose);
     ServiceExtensionRegistry(c).registerAll();
     expect(fake.callCount, 7);
-    expect(fake.bindings.keys.toSet(),
-        ServiceExtensionRegistry.registeredNames.toSet());
-    expect(ServiceExtensionRegistry.unboundNames, isEmpty);
-  });
-
-  test('partial bind — only unbound names retried on subsequent registerAll',
-      () {
-    final hostile = _FakeRegisterFn();
-    // Hostile environment rejects two specific names. Wrap with a
-    // pass-through for the others.
-    ServiceExtensionRegistry.registerFnForTest = (name, handler) {
-      if (name == 'ext.sleuth.causalGraph' ||
-          name == 'ext.sleuth.encyclopedia') {
-        throw StateError('name reserved by another package');
-      }
-      hostile.call(name, handler);
-    };
-
-    final a = SleuthController(config: _config);
-    addTearDown(a.dispose);
-    ServiceExtensionRegistry(a).registerAll();
-    // 5 of 7 bound. The two hostile names remain unbound.
-    expect(hostile.callCount, 5);
-    expect(ServiceExtensionRegistry.unboundNames.toSet(),
-        {'ext.sleuth.causalGraph', 'ext.sleuth.encyclopedia'});
-
-    // Hostile environment goes away; subsequent registerAll retries only
-    // the missing names.
-    ServiceExtensionRegistry.registerFnForTest = hostile.call;
-    final b = SleuthController(config: _config);
-    addTearDown(b.dispose);
-    ServiceExtensionRegistry(b).registerAll();
-    expect(hostile.callCount, 7);
+    expect(
+      fake.bindings.keys.toSet(),
+      ServiceExtensionRegistry.registeredNames.toSet(),
+    );
     expect(ServiceExtensionRegistry.unboundNames, isEmpty);
   });
 
   test(
-      'singleton guard — second registry on a fresh controller does not '
+    'partial bind — only unbound names retried on subsequent registerAll',
+    () {
+      final hostile = _FakeRegisterFn();
+      // Hostile environment rejects two specific names. Wrap with a
+      // pass-through for the others.
+      ServiceExtensionRegistry.registerFnForTest = (name, handler) {
+        if (name == 'ext.sleuth.causalGraph' ||
+            name == 'ext.sleuth.encyclopedia') {
+          throw StateError('name reserved by another package');
+        }
+        hostile.call(name, handler);
+      };
+
+      final a = SleuthController(config: _config);
+      addTearDown(a.dispose);
+      ServiceExtensionRegistry(a).registerAll();
+      // 5 of 7 bound. The two hostile names remain unbound.
+      expect(hostile.callCount, 5);
+      expect(ServiceExtensionRegistry.unboundNames.toSet(), {
+        'ext.sleuth.causalGraph',
+        'ext.sleuth.encyclopedia',
+      });
+
+      // Hostile environment goes away; subsequent registerAll retries only
+      // the missing names.
+      ServiceExtensionRegistry.registerFnForTest = hostile.call;
+      final b = SleuthController(config: _config);
+      addTearDown(b.dispose);
+      ServiceExtensionRegistry(b).registerAll();
+      expect(hostile.callCount, 7);
+      expect(ServiceExtensionRegistry.unboundNames, isEmpty);
+    },
+  );
+
+  test('singleton guard — second registry on a fresh controller does not '
       're-bind', () {
     final a = SleuthController(config: _config);
     addTearDown(a.dispose);
@@ -122,8 +133,7 @@ void main() {
     expect(payload['sessionUuid'], a.sessionUuid);
   });
 
-  test(
-      'dispatch swaps to the second controller after a fresh registry '
+  test('dispatch swaps to the second controller after a fresh registry '
       'binds', () async {
     final a = SleuthController(config: _config);
     addTearDown(a.dispose);

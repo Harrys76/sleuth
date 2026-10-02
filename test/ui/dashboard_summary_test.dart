@@ -37,10 +37,7 @@ void main() {
     Widget buildCard() {
       return MaterialApp(
         home: Scaffold(
-          body: FloatingIssuesCard(
-            controller: controller,
-            onClose: () {},
-          ),
+          body: FloatingIssuesCard(controller: controller, onClose: () {}),
         ),
       );
     }
@@ -78,8 +75,11 @@ void main() {
       // Critical count = 2, warning count = 1
       final texts = tester.widgetList<Text>(find.byType(Text));
       final countTexts = texts
-          .where((t) =>
-              t.style?.fontSize == 10 && t.style?.fontWeight == FontWeight.bold)
+          .where(
+            (t) =>
+                t.style?.fontSize == 10 &&
+                t.style?.fontWeight == FontWeight.bold,
+          )
           .map((t) => t.data)
           .toList();
 
@@ -87,21 +87,13 @@ void main() {
       expect(countTexts, contains('1')); // 1 warning
     });
 
-    testWidgets('evidence quality shows confirmed and heuristic counts',
-        (tester) async {
+    testWidgets('evidence quality shows confirmed and heuristic counts', (
+      tester,
+    ) async {
       controller.issuesNotifier.value = [
-        _testIssue(
-          confidence: IssueConfidence.confirmed,
-          title: 'Confirmed 1',
-        ),
-        _testIssue(
-          confidence: IssueConfidence.confirmed,
-          title: 'Confirmed 2',
-        ),
-        _testIssue(
-          confidence: IssueConfidence.possible,
-          title: 'Possible 1',
-        ),
+        _testIssue(confidence: IssueConfidence.confirmed, title: 'Confirmed 1'),
+        _testIssue(confidence: IssueConfidence.confirmed, title: 'Confirmed 2'),
+        _testIssue(confidence: IssueConfidence.possible, title: 'Possible 1'),
       ];
 
       await tester.pumpWidget(buildCard());
@@ -120,10 +112,12 @@ void main() {
       // Initially 1 warning
       final textsInitial = tester.widgetList<Text>(find.byType(Text));
       final warningCounts = textsInitial
-          .where((t) =>
-              t.data == '1' &&
-              t.style?.fontSize == 10 &&
-              t.style?.fontWeight == FontWeight.bold)
+          .where(
+            (t) =>
+                t.data == '1' &&
+                t.style?.fontSize == 10 &&
+                t.style?.fontWeight == FontWeight.bold,
+          )
           .toList();
       expect(warningCounts, isNotEmpty);
 

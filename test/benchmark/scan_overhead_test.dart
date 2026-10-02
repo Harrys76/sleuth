@@ -176,34 +176,28 @@ void main() {
         FontLoadingDetector(),
       ];
 
-      final time500 = benchmarkUs(
-        '10 detectors × 500 elements',
-        () {
-          for (final d in detectors) {
-            d.scanTree(context);
-          }
-        },
-        iterations: 30,
-      );
+      final time500 = benchmarkUs('10 detectors × 500 elements', () {
+        for (final d in detectors) {
+          d.scanTree(context);
+        }
+      }, iterations: 30);
 
       // Measure 1000 elements
       await tester.pumpWidget(buildMixedTree(1000));
       context = tester.element(find.byType(Directionality));
 
-      final time1000 = benchmarkUs(
-        '10 detectors × 1000 elements',
-        () {
-          for (final d in detectors) {
-            d.scanTree(context);
-          }
-        },
-        iterations: 30,
-      );
+      final time1000 = benchmarkUs('10 detectors × 1000 elements', () {
+        for (final d in detectors) {
+          d.scanTree(context);
+        }
+      }, iterations: 30);
 
       final ratio = time1000 / time500;
       // ignore: avoid_print
-      print('  Scaling ratio (1000/500): ${ratio.toStringAsFixed(2)} '
-          '(ideal: 2.0, budget: < 2.5)');
+      print(
+        '  Scaling ratio (1000/500): ${ratio.toStringAsFixed(2)} '
+        '(ideal: 2.0, budget: < 2.5)',
+      );
 
       // Pure O(N) would give ratio ~2.0. Allow noise up to 2.5.
       // If any detector regresses to O(N²), ratio would be ~4.0.

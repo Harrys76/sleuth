@@ -40,14 +40,14 @@ class RequestRecord {
   final bool cancelled;
 
   Map<String, dynamic> toJson() => {
-        'url': url,
-        'method': method,
-        'statusCode': statusCode,
-        'durationMs': durationMs,
-        'responseBytes': responseBytes,
-        'startedAt': startedAt.toIso8601String(),
-        if (cancelled) 'cancelled': true,
-      };
+    'url': url,
+    'method': method,
+    'statusCode': statusCode,
+    'durationMs': durationMs,
+    'responseBytes': responseBytes,
+    'startedAt': startedAt.toIso8601String(),
+    if (cancelled) 'cancelled': true,
+  };
 
   @override
   String toString() =>

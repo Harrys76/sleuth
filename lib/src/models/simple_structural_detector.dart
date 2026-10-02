@@ -69,9 +69,9 @@ abstract class SimpleStructuralDetector extends BaseDetector {
     required super.description,
     super.key,
   }) : super(
-          type: DetectorType.custom,
-          lifecycle: DetectorLifecycle.structural,
-        );
+         type: DetectorType.custom,
+         lifecycle: DetectorLifecycle.structural,
+       );
 
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];

@@ -307,18 +307,20 @@ void main() {
     });
 
     group('recurrence', () {
-      test('recurring issue outranks first-time at same severity+confidence',
-          () {
-        final recurring = makeIssue(stableId: 'recurring');
-        final fresh = makeIssue(stableId: 'fresh');
+      test(
+        'recurring issue outranks first-time at same severity+confidence',
+        () {
+          final recurring = makeIssue(stableId: 'recurring');
+          final fresh = makeIssue(stableId: 'fresh');
 
-        final context = IssueRankingContext(
-          recurrenceCounts: {'recurring': 3},
-        );
+          final context = IssueRankingContext(
+            recurrenceCounts: {'recurring': 3},
+          );
 
-        final result = ranker.rank([fresh, recurring], context);
-        expect(result.first.stableId, 'recurring');
-      });
+          final result = ranker.rank([fresh, recurring], context);
+          expect(result.first.stableId, 'recurring');
+        },
+      );
 
       test('recurrence capped at 5', () {
         final issue = makeIssue(stableId: 'high_recurrence');
@@ -362,20 +364,14 @@ void main() {
         );
 
         const context = IssueRankingContext();
-        final result = ranker.rank(
-          [
-            warningPossible,
-            criticalPossible,
-            warningConfirmed,
-            criticalConfirmed
-          ],
-          context,
-        );
+        final result = ranker.rank([
+          warningPossible,
+          criticalPossible,
+          warningConfirmed,
+          criticalConfirmed,
+        ], context);
 
-        expect(
-          result.map((i) => i.stableId).toList(),
-          ['A', 'B', 'C', 'D'],
-        );
+        expect(result.map((i) => i.stableId).toList(), ['A', 'B', 'C', 'D']);
       });
 
       test('stable sort: equal-score issues preserve input order', () {
@@ -387,10 +383,7 @@ void main() {
         const context = IssueRankingContext();
         final result = ranker.rank([a, b, c], context);
 
-        expect(
-          result.map((i) => i.stableId).toList(),
-          ['a', 'b', 'c'],
-        );
+        expect(result.map((i) => i.stableId).toList(), ['a', 'b', 'c']);
       });
 
       test('empty list returns empty', () {
@@ -411,9 +404,7 @@ void main() {
       test('issue with null stableId uses title for recurrence lookup', () {
         final issue = makeIssue(stableId: null, title: 'My Title');
 
-        final context = IssueRankingContext(
-          recurrenceCounts: {'My Title': 3},
-        );
+        final context = IssueRankingContext(recurrenceCounts: {'My Title': 3});
 
         final score = ranker.scoreOf(issue, context);
         // 2*100 + 0 + 1*5 + 3*2 = 211
@@ -549,7 +540,9 @@ void main() {
         expect(result, hasLength(1));
         expect(result.first.rankingScore, isNotNull);
         expect(
-            result.first.rankingScore, ranker.scoreOf(issues.first, context));
+          result.first.rankingScore,
+          ranker.scoreOf(issues.first, context),
+        );
       });
     });
   });

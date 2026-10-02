@@ -25,8 +25,9 @@ void main() {
       }());
     });
 
-    testWidgets('NOT shown when isDeepInstrumentationActive is false',
-        (tester) async {
+    testWidgets('NOT shown when isDeepInstrumentationActive is false', (
+      tester,
+    ) async {
       final controller = SleuthController();
       controller.initializeDetectorsForTest();
 
@@ -47,8 +48,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('shown when isDeepInstrumentationActive is true',
-        (tester) async {
+    testWidgets('shown when isDeepInstrumentationActive is true', (
+      tester,
+    ) async {
       final controller = SleuthController(
         config: const SleuthConfig(enableDeepDebugInstrumentation: true),
       );
@@ -71,8 +73,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('NOT shown when deep=true but all sub-flags off',
-        (tester) async {
+    testWidgets('NOT shown when deep=true but all sub-flags off', (
+      tester,
+    ) async {
       final controller = SleuthController(
         config: const SleuthConfig(
           enableDeepDebugInstrumentation: true,
@@ -131,8 +134,9 @@ void main() {
   });
 
   group('IssueCard fidelity annotation', () {
-    testWidgets('shows annotation when deep active + debug source',
-        (tester) async {
+    testWidgets('shows annotation when deep active + debug source', (
+      tester,
+    ) async {
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,
         category: IssueCategory.build,
@@ -161,8 +165,9 @@ void main() {
       expect(find.text('Timing: overhead present'), findsOneWidget);
     });
 
-    testWidgets('shows annotation for debugCallbackAndStructural source',
-        (tester) async {
+    testWidgets('shows annotation for debugCallbackAndStructural source', (
+      tester,
+    ) async {
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,
         category: IssueCategory.build,
@@ -246,8 +251,9 @@ void main() {
       expect(find.text('Attribution: high fidelity'), findsNothing);
     });
 
-    testWidgets('NO annotation when deep instrumentation is off',
-        (tester) async {
+    testWidgets('NO annotation when deep instrumentation is off', (
+      tester,
+    ) async {
       const issue = PerformanceIssue(
         severity: IssueSeverity.warning,
         category: IssueCategory.build,

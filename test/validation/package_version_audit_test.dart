@@ -9,12 +9,15 @@ void main() {
     expect(
       pubspecFile.existsSync(),
       isTrue,
-      reason: 'run from repo root — `pubspec.yaml` not found in CWD '
+      reason:
+          'run from repo root — `pubspec.yaml` not found in CWD '
           '(${Directory.current.path})',
     );
     final pubspec = pubspecFile.readAsStringSync();
-    final match =
-        RegExp(r'^version:\s*(.+)$', multiLine: true).firstMatch(pubspec);
+    final match = RegExp(
+      r'^version:\s*(.+)$',
+      multiLine: true,
+    ).firstMatch(pubspec);
     expect(match, isNotNull, reason: 'pubspec.yaml missing version line');
     final pubspecVersion = match!.group(1)!.trim();
     expect(

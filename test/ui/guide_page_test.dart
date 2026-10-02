@@ -5,11 +5,11 @@ import 'package:sleuth/src/ui/guide_page.dart';
 void main() {
   group('GuidePage', () {
     testWidgets('shows all legend content', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: GuidePage(onClose: () {}),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: GuidePage(onClose: () {})),
         ),
-      ));
+      );
 
       // Color Legend section visible
       expect(find.text('Color Legend'), findsOneWidget);
@@ -49,11 +49,11 @@ void main() {
 
     testWidgets('back button calls onClose', (tester) async {
       var closed = false;
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: GuidePage(onClose: () => closed = true),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: GuidePage(onClose: () => closed = true)),
         ),
-      ));
+      );
 
       await tester.tap(find.byIcon(Icons.arrow_back));
       expect(closed, isTrue);
@@ -61,11 +61,11 @@ void main() {
 
     testWidgets('system back gesture calls onClose', (tester) async {
       var closed = false;
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: GuidePage(onClose: () => closed = true),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: GuidePage(onClose: () => closed = true)),
         ),
-      ));
+      );
 
       // Simulate system back button / gesture
       await tester.binding.handlePopRoute();

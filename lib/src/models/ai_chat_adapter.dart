@@ -63,10 +63,7 @@ class AiChatRequest {
 /// )
 /// ```
 class AiChatAdapter {
-  const AiChatAdapter({
-    required this.sendMessage,
-    this.networkExcludePatterns,
-  });
+  const AiChatAdapter({required this.sendMessage, this.networkExcludePatterns});
 
   /// Creates an adapter for the Anthropic Messages API.
   ///
@@ -126,10 +123,7 @@ class AiChatAdapter {
     String model = 'gemini-2.0-flash',
   }) {
     return AiChatAdapter(
-      sendMessage: createGoogleStream(
-        apiKey: apiKey,
-        model: model,
-      ),
+      sendMessage: createGoogleStream(apiKey: apiKey, model: model),
       networkExcludePatterns: const ['generativelanguage.googleapis.com'],
     );
   }

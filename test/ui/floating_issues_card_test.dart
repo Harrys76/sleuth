@@ -64,10 +64,7 @@ void main() {
     controller.dispose();
   });
 
-  Widget pumpCard({
-    bool isDebugMode = true,
-    SleuthConfig? config,
-  }) {
+  Widget pumpCard({bool isDebugMode = true, SleuthConfig? config}) {
     if (config != null) {
       controller.dispose();
       controller = SleuthController(config: config);
@@ -191,15 +188,17 @@ void main() {
       controller.dispose();
       controller = SleuthController();
       controller.initializeDetectorsForTest();
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: FloatingIssuesCard(
-            controller: controller,
-            onClose: () => closed = true,
-            isDebugMode: false,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FloatingIssuesCard(
+              controller: controller,
+              onClose: () => closed = true,
+              isDebugMode: false,
+            ),
           ),
         ),
-      ));
+      );
 
       // Minimize first
       await tester.tap(find.byIcon(Icons.minimize));
@@ -213,8 +212,9 @@ void main() {
   });
 
   group('M6: Debug-mode banner', () {
-    testWidgets('banner present in debug mode with default config',
-        (tester) async {
+    testWidgets('banner present in debug mode with default config', (
+      tester,
+    ) async {
       await tester.pumpWidget(pumpCard(isDebugMode: true));
 
       expect(find.textContaining(bannerText), findsOneWidget);
@@ -234,10 +234,12 @@ void main() {
     });
 
     testWidgets('showDebugModeBanner:false hides banner', (tester) async {
-      await tester.pumpWidget(pumpCard(
-        isDebugMode: true,
-        config: const SleuthConfig(showDebugModeBanner: false),
-      ));
+      await tester.pumpWidget(
+        pumpCard(
+          isDebugMode: true,
+          config: const SleuthConfig(showDebugModeBanner: false),
+        ),
+      );
 
       expect(find.textContaining(bannerText), findsNothing);
     });
@@ -248,8 +250,9 @@ void main() {
       expect(find.textContaining(bannerText), findsNothing);
     });
 
-    testWidgets('new widget instance shows banner again after dismiss',
-        (tester) async {
+    testWidgets('new widget instance shows banner again after dismiss', (
+      tester,
+    ) async {
       await tester.pumpWidget(pumpCard(isDebugMode: true));
 
       // Dismiss (last close icon — first is the header's)
@@ -322,78 +325,83 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('banner is hidden when active session has zero rebuild counts',
-        (tester) async {
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      controller.debugCoordinatorForTest = _FakeCoordinator();
+    testWidgets(
+      'banner is hidden when active session has zero rebuild counts',
+      (tester) async {
+        controller.dispose();
+        controller = SleuthController(
+          config: const SleuthConfig(
+            treeScanInterval: Duration(seconds: 1),
+            enabledDetectors: {DetectorType.frameTiming},
+          ),
+        );
+        controller.initializeDetectorsForTest();
+        controller.debugCoordinatorForTest = _FakeCoordinator();
 
-      await tester.pumpWidget(pumpCardForBanner(controller));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(pumpCardForBanner(controller));
+        await tester.pumpAndSettle();
 
-      // No scan run → no active session → banner hidden.
-      expect(find.byIcon(Icons.repeat), findsNothing);
-      expect(find.textContaining('Rebuilds:'), findsNothing);
-    });
+        // No scan run → no active session → banner hidden.
+        expect(find.byIcon(Icons.repeat), findsNothing);
+        expect(find.textContaining('Rebuilds:'), findsNothing);
+      },
+    );
 
     testWidgets(
-        'banner appears with total + widget count once attribution lands',
-        (tester) async {
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      final fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
+      'banner appears with total + widget count once attribution lands',
+      (tester) async {
+        controller.dispose();
+        controller = SleuthController(
+          config: const SleuthConfig(
+            treeScanInterval: Duration(seconds: 1),
+            enabledDetectors: {DetectorType.frameTiming},
+          ),
+        );
+        controller.initializeDetectorsForTest();
+        final fake = _FakeCoordinator();
+        controller.debugCoordinatorForTest = fake;
 
-      await tester.pumpWidget(pumpCardForBanner(controller));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(pumpCardForBanner(controller));
+        await tester.pumpAndSettle();
 
-      await primeAndMergeCounts(tester, controller, fake, {
-        'ProductCard': 12,
-        'PriceTag': 5,
-      });
+        await primeAndMergeCounts(tester, controller, fake, {
+          'ProductCard': 12,
+          'PriceTag': 5,
+        });
 
-      expect(find.byIcon(Icons.repeat), findsOneWidget);
-      // 17 total across 2 widget types — the chip is the data-discovery
-      // path so it surfaces both numbers, not just the headline total.
-      expect(find.text('Rebuilds: 17 across 2 widgets'), findsOneWidget);
-    });
+        expect(find.byIcon(Icons.repeat), findsOneWidget);
+        // 17 total across 2 widget types — the chip is the data-discovery
+        // path so it surfaces both numbers, not just the headline total.
+        expect(find.text('Rebuilds: 17 across 2 widgets'), findsOneWidget);
+      },
+    );
 
     testWidgets(
-        'banner uses singular "widget" when only one widget type has counts',
-        (tester) async {
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      final fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
+      'banner uses singular "widget" when only one widget type has counts',
+      (tester) async {
+        controller.dispose();
+        controller = SleuthController(
+          config: const SleuthConfig(
+            treeScanInterval: Duration(seconds: 1),
+            enabledDetectors: {DetectorType.frameTiming},
+          ),
+        );
+        controller.initializeDetectorsForTest();
+        final fake = _FakeCoordinator();
+        controller.debugCoordinatorForTest = fake;
 
-      await tester.pumpWidget(pumpCardForBanner(controller));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(pumpCardForBanner(controller));
+        await tester.pumpAndSettle();
 
-      await primeAndMergeCounts(tester, controller, fake, {'SoloCard': 3});
+        await primeAndMergeCounts(tester, controller, fake, {'SoloCard': 3});
 
-      expect(find.text('Rebuilds: 3 across 1 widget'), findsOneWidget);
-    });
+        expect(find.text('Rebuilds: 3 across 1 widget'), findsOneWidget);
+      },
+    );
 
-    testWidgets('banner renders for low-volume routes (always-on contract)',
-        (tester) async {
+    testWidgets('banner renders for low-volume routes (always-on contract)', (
+      tester,
+    ) async {
       // v0.15.2 always-on contract: the panel must render whenever the
       // active session has ANY rebuild attribution, no matter how small.
       // Pre-v0.15.2 the `rebuild_hotspot_summary` rollup IssueCard was
@@ -425,8 +433,9 @@ void main() {
       expect(find.text('Rebuilds: 4 across 1 widget'), findsOneWidget);
     });
 
-    testWidgets('panel is collapsed by default — top rows are hidden',
-        (tester) async {
+    testWidgets('panel is collapsed by default — top rows are hidden', (
+      tester,
+    ) async {
       // v0.15.2 UX knob #2: the panel starts collapsed. Header is the
       // only row visible until the user expands it. This pins the
       // "minimal noise when nothing surprising is happening" contract.
@@ -459,8 +468,9 @@ void main() {
       expect(find.byIcon(Icons.expand_less), findsNothing);
     });
 
-    testWidgets('tapping the header expands top-3 rows + footer link',
-        (tester) async {
+    testWidgets('tapping the header expands top-3 rows + footer link', (
+      tester,
+    ) async {
       // v0.15.2 UX knob #1: top-N = 3. The expanded panel shows the
       // three highest-count widget types, the inflation footnote, and
       // the "See all N →" drilldown link.
@@ -504,55 +514,58 @@ void main() {
       expect(find.byIcon(Icons.expand_more), findsNothing);
     });
 
-    testWidgets('tapping "See all" link pushes the RebuildStatsPage drilldown',
-        (tester) async {
-      // The drilldown is reached via expand → tap link, NOT via tap on
-      // the header (which now toggles expansion). This test pins that
-      // wiring end-to-end through the same snapshot-and-push code path
-      // the v0.15.0/v0.15.1 rollup IssueCard used before removal.
-      //
-      // Needs ≥ 4 widget types because v0.15.2 C2 hides the redundant
-      // "See all N →" link when widgetCount ≤ topN = 3 (the inline rows
-      // already show every widget in that case, so a drilldown would
-      // surface nothing new).
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      final fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
+    testWidgets(
+      'tapping "See all" link pushes the RebuildStatsPage drilldown',
+      (tester) async {
+        // The drilldown is reached via expand → tap link, NOT via tap on
+        // the header (which now toggles expansion). This test pins that
+        // wiring end-to-end through the same snapshot-and-push code path
+        // the v0.15.0/v0.15.1 rollup IssueCard used before removal.
+        //
+        // Needs ≥ 4 widget types because v0.15.2 C2 hides the redundant
+        // "See all N →" link when widgetCount ≤ topN = 3 (the inline rows
+        // already show every widget in that case, so a drilldown would
+        // surface nothing new).
+        controller.dispose();
+        controller = SleuthController(
+          config: const SleuthConfig(
+            treeScanInterval: Duration(seconds: 1),
+            enabledDetectors: {DetectorType.frameTiming},
+          ),
+        );
+        controller.initializeDetectorsForTest();
+        final fake = _FakeCoordinator();
+        controller.debugCoordinatorForTest = fake;
 
-      await tester.pumpWidget(pumpCardForBanner(controller));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(pumpCardForBanner(controller));
+        await tester.pumpAndSettle();
 
-      await primeAndMergeCounts(tester, controller, fake, {
-        'ProductCard': 7,
-        'PriceTag': 3,
-        'Avatar': 2,
-        'Footer': 1,
-      });
+        await primeAndMergeCounts(tester, controller, fake, {
+          'ProductCard': 7,
+          'PriceTag': 3,
+          'Avatar': 2,
+          'Footer': 1,
+        });
 
-      // Drilldown not yet visible.
-      expect(find.byType(RebuildStatsPage), findsNothing);
+        // Drilldown not yet visible.
+        expect(find.byType(RebuildStatsPage), findsNothing);
 
-      // Expand the panel.
-      await tester.tap(find.text('Rebuilds: 13 across 4 widgets'));
-      await tester.pump();
+        // Expand the panel.
+        await tester.tap(find.text('Rebuilds: 13 across 4 widgets'));
+        await tester.pump();
 
-      // Now tap the "See all 4 →" link.
-      await tester.tap(find.text('See all 4 \u2192'));
-      await tester.pump();
+        // Now tap the "See all 4 →" link.
+        await tester.tap(find.text('See all 4 \u2192'));
+        await tester.pump();
 
-      // Drilldown is now mounted.
-      expect(find.byType(RebuildStatsPage), findsOneWidget);
-    });
+        // Drilldown is now mounted.
+        expect(find.byType(RebuildStatsPage), findsOneWidget);
+      },
+    );
 
-    testWidgets('expanded panel shows pause icon — tap freezes counts',
-        (tester) async {
+    testWidgets('expanded panel shows pause icon — tap freezes counts', (
+      tester,
+    ) async {
       // The pause/resume toggle freezes the rendered counts so the user
       // can read a stable snapshot while live attribution continues to
       // accumulate. Frozen counts ignore subsequent merges until Resume
@@ -607,8 +620,9 @@ void main() {
         elapsed: Duration(milliseconds: 500),
         source: RebuildCountSource.flutterTimeline,
       );
-      controller
-          .scanTreeFullPathForTest(tester.element(find.byType(MaterialApp)));
+      controller.scanTreeFullPathForTest(
+        tester.element(find.byType(MaterialApp)),
+      );
       await tester.pump();
 
       // Frozen at 15, not 20 (15 + 5 from the new merge).
@@ -722,20 +736,23 @@ void main() {
       expect(visible.map((i) => i.stableId).toList(), ['A', 'C']);
     });
 
-    test('downstream issues whose root is missing re-surface as standalone',
-        () {
-      final issues = [
-        _pinIssue(id: 'orphan', rootCauseIds: ['missing-root']),
-        _pinIssue(id: 'A'),
-      ];
-      final visible = computeVisibleIssues(issues);
-      expect(
-        visible.map((i) => i.stableId).toList(),
-        ['orphan', 'A'],
-        reason: 'Orphan with unknown rootCauseId must re-surface — otherwise '
-            'ranker-suppressed parents would silently drop their children.',
-      );
-    });
+    test(
+      'downstream issues whose root is missing re-surface as standalone',
+      () {
+        final issues = [
+          _pinIssue(id: 'orphan', rootCauseIds: ['missing-root']),
+          _pinIssue(id: 'A'),
+        ];
+        final visible = computeVisibleIssues(issues);
+        expect(
+          visible.map((i) => i.stableId).toList(),
+          ['orphan', 'A'],
+          reason:
+              'Orphan with unknown rootCauseId must re-surface — otherwise '
+              'ranker-suppressed parents would silently drop their children.',
+        );
+      },
+    );
 
     test('result preserves input order for visible issues', () {
       final issues = [
@@ -792,45 +809,47 @@ void main() {
     List<String> ids0(List<PerformanceIssue> issues) =>
         issues.map((i) => i.stableId ?? i.title).toList();
 
-    final abc = [
-      _pinIssue(id: 'A'),
-      _pinIssue(id: 'B'),
-      _pinIssue(id: 'C'),
-    ];
+    final abc = [_pinIssue(id: 'A'), _pinIssue(id: 'B'), _pinIssue(id: 'C')];
 
-    test('empty expandedIndices + null snapshot returns visibleIssues as-is',
-        () {
-      expect(
-        ids0(applyFreezeZone(
-          visibleIssues: abc,
-          orderSnapshot: null,
-          expandedIndices: const {},
-        )),
-        ['A', 'B', 'C'],
-      );
-    });
+    test(
+      'empty expandedIndices + null snapshot returns visibleIssues as-is',
+      () {
+        expect(
+          ids0(
+            applyFreezeZone(
+              visibleIssues: abc,
+              orderSnapshot: null,
+              expandedIndices: const {},
+            ),
+          ),
+          ['A', 'B', 'C'],
+        );
+      },
+    );
 
-    test('expanding index 2 freezes 0..2; new critical below lands at index 3',
-        () {
-      // User's exact reported scenario: they expand the card at index 2
-      // while reading. Snapshot = visible at that instant. A new critical
-      // 'D' now arrives from the ranker at the top of its output. With
-      // freeze-above, D must land BELOW the frozen zone so the card the
-      // user is reading doesn't shift under their eyes.
-      final snapshot = List<PerformanceIssue>.of(abc);
-      final rankerFlow = [
-        _pinIssue(id: 'D', severity: IssueSeverity.critical),
-        _pinIssue(id: 'A'),
-        _pinIssue(id: 'B'),
-        _pinIssue(id: 'C'),
-      ];
-      final result = applyFreezeZone(
-        visibleIssues: rankerFlow,
-        orderSnapshot: snapshot,
-        expandedIndices: const {'C': 2},
-      );
-      expect(ids0(result), ['A', 'B', 'C', 'D']);
-    });
+    test(
+      'expanding index 2 freezes 0..2; new critical below lands at index 3',
+      () {
+        // User's exact reported scenario: they expand the card at index 2
+        // while reading. Snapshot = visible at that instant. A new critical
+        // 'D' now arrives from the ranker at the top of its output. With
+        // freeze-above, D must land BELOW the frozen zone so the card the
+        // user is reading doesn't shift under their eyes.
+        final snapshot = List<PerformanceIssue>.of(abc);
+        final rankerFlow = [
+          _pinIssue(id: 'D', severity: IssueSeverity.critical),
+          _pinIssue(id: 'A'),
+          _pinIssue(id: 'B'),
+          _pinIssue(id: 'C'),
+        ];
+        final result = applyFreezeZone(
+          visibleIssues: rankerFlow,
+          orderSnapshot: snapshot,
+          expandedIndices: const {'C': 2},
+        );
+        expect(ids0(result), ['A', 'B', 'C', 'D']);
+      },
+    );
 
     test('multi-expand uses MAX rule for freezeEnd', () {
       // Cards at indices 1 and 4 both expanded. freezeEnd = max(1, 4) = 4.
@@ -864,10 +883,7 @@ void main() {
       // would remove the expand entry on its next sweep but the render
       // must not throw in the interim.
       final snapshot = List<PerformanceIssue>.of(abc);
-      final rankerFlow = [
-        _pinIssue(id: 'A'),
-        _pinIssue(id: 'C'),
-      ];
+      final rankerFlow = [_pinIssue(id: 'A'), _pinIssue(id: 'C')];
       final result = applyFreezeZone(
         visibleIssues: rankerFlow,
         orderSnapshot: snapshot,
@@ -876,16 +892,12 @@ void main() {
       expect(ids0(result), ['A', 'C']);
     });
 
-    test(
-        'freezeEnd clamped when snapshot shorter than captured index '
+    test('freezeEnd clamped when snapshot shorter than captured index '
         '(downstream collapse shrank snapshot)', () {
       // Pathological: caller-level state drift puts capturedIndex past
       // the snapshot length. Must not throw; clamp and carry on.
       final snapshot = [_pinIssue(id: 'A')];
-      final rankerFlow = [
-        _pinIssue(id: 'A'),
-        _pinIssue(id: 'X'),
-      ];
+      final rankerFlow = [_pinIssue(id: 'A'), _pinIssue(id: 'X')];
       final result = applyFreezeZone(
         visibleIssues: rankerFlow,
         orderSnapshot: snapshot,
@@ -911,10 +923,7 @@ void main() {
     test('flow section preserves ranker order for non-frozen items', () {
       // Freeze zone [A, B]. Ranker output below has [D, C] in that
       // order. Flow section must preserve that order.
-      final snapshot = [
-        _pinIssue(id: 'A'),
-        _pinIssue(id: 'B'),
-      ];
+      final snapshot = [_pinIssue(id: 'A'), _pinIssue(id: 'B')];
       final rankerFlow = [
         _pinIssue(id: 'A'),
         _pinIssue(id: 'B'),
@@ -1005,16 +1014,14 @@ void main() {
     Widget pumpFreezeCard(SleuthController c) {
       return MaterialApp(
         home: Scaffold(
-          body: FloatingIssuesCard(
-            controller: c,
-            onClose: () {},
-          ),
+          body: FloatingIssuesCard(controller: c, onClose: () {}),
         ),
       );
     }
 
-    testWidgets('expanding a card shows the pin icon; collapse hides it',
-        (tester) async {
+    testWidgets('expanding a card shows the pin icon; collapse hides it', (
+      tester,
+    ) async {
       controller.issuesNotifier.value = [_pinIssue(id: 'A')];
       await tester.pumpWidget(pumpFreezeCard(controller));
       await tester.pumpAndSettle();
@@ -1033,8 +1040,9 @@ void main() {
       expect(find.byIcon(Icons.push_pin), findsNothing);
     });
 
-    testWidgets('summary bar issue count does not change when a card expands',
-        (tester) async {
+    testWidgets('summary bar issue count does not change when a card expands', (
+      tester,
+    ) async {
       // M5: summary bar reads the pre-freeze visible list. Whether the
       // user has a card expanded or not, counts must not move.
       controller.issuesNotifier.value = [
@@ -1044,8 +1052,10 @@ void main() {
       await tester.pumpWidget(pumpFreezeCard(controller));
       await tester.pumpAndSettle();
 
-      final confirmedBefore =
-          find.textContaining('confirmed').evaluate().length;
+      final confirmedBefore = find
+          .textContaining('confirmed')
+          .evaluate()
+          .length;
 
       await tester.tap(find.text('A'));
       await tester.pump();
@@ -1055,36 +1065,37 @@ void main() {
     });
 
     testWidgets(
-        'dispose clears expandedIndices AND orderSnapshot — remount with '
-        'same controller starts fresh', (tester) async {
-      controller.issuesNotifier.value = [_pinIssue(id: 'A')];
-      await tester.pumpWidget(pumpFreezeCard(controller));
-      await tester.pumpAndSettle();
+      'dispose clears expandedIndices AND orderSnapshot — remount with '
+      'same controller starts fresh',
+      (tester) async {
+        controller.issuesNotifier.value = [_pinIssue(id: 'A')];
+        await tester.pumpWidget(pumpFreezeCard(controller));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.text('A'));
-      await tester.pump();
-      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+        await tester.tap(find.text('A'));
+        await tester.pump();
+        expect(find.byIcon(Icons.push_pin), findsOneWidget);
 
-      // Unmount the card — triggers dispose on `_FloatingIssuesCardState`.
-      // If dispose only cleared one field, the class invariant
-      // `(orderSnapshot == null) == expandedIndices.isEmpty` would be
-      // violated on the next remount's first `applyFreezeZone` call and
-      // the assert there would throw. We assert no throw by virtue of
-      // the remount succeeding and rendering normally.
-      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
-      await tester.pump();
+        // Unmount the card — triggers dispose on `_FloatingIssuesCardState`.
+        // If dispose only cleared one field, the class invariant
+        // `(orderSnapshot == null) == expandedIndices.isEmpty` would be
+        // violated on the next remount's first `applyFreezeZone` call and
+        // the assert there would throw. We assert no throw by virtue of
+        // the remount succeeding and rendering normally.
+        await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+        await tester.pump();
 
-      // Remount a fresh card pointing at the same controller. A ghost
-      // expand from the previous state would have made the icon appear
-      // on first render; because dispose clears both fields together,
-      // the new state starts empty and no pin icon shows.
-      await tester.pumpWidget(pumpFreezeCard(controller));
-      await tester.pump();
-      expect(find.byIcon(Icons.push_pin), findsNothing);
-    });
+        // Remount a fresh card pointing at the same controller. A ghost
+        // expand from the previous state would have made the icon appear
+        // on first render; because dispose clears both fields together,
+        // the new state starts empty and no pin icon shows.
+        await tester.pumpWidget(pumpFreezeCard(controller));
+        await tester.pump();
+        expect(find.byIcon(Icons.push_pin), findsNothing);
+      },
+    );
 
-    testWidgets(
-        'didUpdateWidget controller swap clears expandedIndices AND '
+    testWidgets('didUpdateWidget controller swap clears expandedIndices AND '
         'orderSnapshot', (tester) async {
       // Build with controller A, expand its card so state is populated.
       controller.issuesNotifier.value = [_pinIssue(id: 'A')];
@@ -1109,8 +1120,7 @@ void main() {
       expect(find.text('Z'), findsOneWidget);
     });
 
-    testWidgets(
-        'collapsing the last expanded card clears orderSnapshot so the '
+    testWidgets('collapsing the last expanded card clears orderSnapshot so the '
         'list flows freely again', (tester) async {
       // The 1→0 collapse transition must release `_orderSnapshot` —
       // otherwise subsequent ranker churn would be silently compared

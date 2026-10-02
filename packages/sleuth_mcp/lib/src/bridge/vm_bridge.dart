@@ -62,10 +62,7 @@ class VmBridgeException implements Exception {
 /// The target app's `sessionUuid` differs from the baseline. Indicates a
 /// hot-restart or a different app at the same URI.
 class SessionChangedException implements Exception {
-  SessionChangedException({
-    required this.baseline,
-    required this.current,
-  });
+  SessionChangedException({required this.baseline, required this.current});
   final String baseline;
   final String current;
   @override
@@ -85,9 +82,8 @@ class SessionChangedException implements Exception {
 /// — funnels through `_connectUnlocked`. Putting the chokepoint at the
 /// tool layer would let a transport-close reconnect serve an
 /// incompatible app between tool calls.
-typedef VersionSkewValidator = Future<String?> Function(
-  Map<String, Object?> diagnoseEnvelope,
-);
+typedef VersionSkewValidator =
+    Future<String?> Function(Map<String, Object?> diagnoseEnvelope);
 
 /// Production [VmBridge] over a real WebSocket VM service.
 ///
@@ -100,9 +96,9 @@ class RealVmBridge implements VmBridge {
     Sink<String>? logger,
     String? targetIsolateIdOverride,
     VersionSkewValidator? versionSkewValidator,
-  })  : _logger = logger,
-        _targetIsolateIdOverride = targetIsolateIdOverride,
-        _versionSkewValidator = versionSkewValidator;
+  }) : _logger = logger,
+       _targetIsolateIdOverride = targetIsolateIdOverride,
+       _versionSkewValidator = versionSkewValidator;
 
   final Duration callTimeout;
   final Sink<String>? _logger;
@@ -218,8 +214,9 @@ class RealVmBridge implements VmBridge {
       }
     }
     try {
-      _service = await vmServiceConnectUri(wsUri.toString())
-          .timeout(const Duration(seconds: 5));
+      _service = await vmServiceConnectUri(
+        wsUri.toString(),
+      ).timeout(const Duration(seconds: 5));
     } catch (e) {
       throw VmBridgeException('failed to connect: $e');
     }
@@ -242,19 +239,20 @@ class RealVmBridge implements VmBridge {
         // COMPLETE, so a half-open VM service that never returns
         // `getVM` would otherwise hang forever.
         final vmInfo = await _service!.getVM().timeout(
-              const Duration(seconds: 3),
-              onTimeout: () => throw VmBridgeException(
-                'getVM bootstrap RPC timed out after 3s — VM service may '
-                'be half-open (WS accepted but RPC never returns)',
-              ),
-            );
+          const Duration(seconds: 3),
+          onTimeout: () => throw VmBridgeException(
+            'getVM bootstrap RPC timed out after 3s — VM service may '
+            'be half-open (WS accepted but RPC never returns)',
+          ),
+        );
         isolates = vmInfo.isolates ?? <vm.IsolateRef>[];
         if (isolates.isNotEmpty) break;
         await Future<void>.delayed(const Duration(milliseconds: 250));
       }
       if (isolates.isEmpty) {
         throw VmBridgeException(
-            'no isolates on target VM service after 20s wait');
+          'no isolates on target VM service after 20s wait',
+        );
       }
       final override = _targetIsolateIdOverride;
       if (override != null) {
@@ -371,10 +369,7 @@ class RealVmBridge implements VmBridge {
         priorBaseline != null &&
         uuid != priorBaseline) {
       await _disconnectUnlocked();
-      throw SessionChangedException(
-        baseline: priorBaseline,
-        current: uuid,
-      );
+      throw SessionChangedException(baseline: priorBaseline, current: uuid);
     }
     _baselineSessionUuid = uuid;
     _lastDiagnoseEnvelope = diag;
@@ -554,9 +549,9 @@ class FakeVmBridge implements VmBridge {
     this.fakeSessionUuid = 'fake-session-uuid',
     Map<String, Map<String, Object?>> envelopes = const {},
     VersionSkewValidator? versionSkewValidator,
-  })  : _envelopes = Map.of(envelopes),
-        _baseline = fakeSessionUuid,
-        _versionSkewValidator = versionSkewValidator;
+  }) : _envelopes = Map.of(envelopes),
+       _baseline = fakeSessionUuid,
+       _versionSkewValidator = versionSkewValidator;
 
   final String fakeSessionUuid;
   final Map<String, Map<String, Object?>> _envelopes;
@@ -668,10 +663,7 @@ class FakeVmBridge implements VmBridge {
     }
     if (_sessionDrifted) {
       _sessionDrifted = false;
-      throw SessionChangedException(
-        baseline: 'old-uuid',
-        current: _baseline,
-      );
+      throw SessionChangedException(baseline: 'old-uuid', current: _baseline);
     }
     final gate = _extensionGates.remove(method);
     if (gate != null) await gate.future;

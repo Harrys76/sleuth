@@ -54,11 +54,7 @@ enum IosAttachErrorKind {
 /// usable wsUri. The [kind] drives caller-side mapping (CLI exit code
 /// vs MCP error envelope).
 class IosAttachException implements Exception {
-  IosAttachException(
-    this.kind,
-    this.message, {
-    this.data,
-  });
+  IosAttachException(this.kind, this.message, {this.data});
 
   final IosAttachErrorKind kind;
   final String message;
@@ -137,10 +133,8 @@ enum IosAttachPhase {
   attachComplete,
 }
 
-typedef IosAttachProgress = void Function(
-  IosAttachPhase phase, {
-  Map<String, Object?>? data,
-});
+typedef IosAttachProgress =
+    void Function(IosAttachPhase phase, {Map<String, Object?>? data});
 
 /// Pipeline that drives an iOS profile-mode attach end-to-end and
 /// returns the WebSocket URI plus a teardown closure. Both the
@@ -234,17 +228,20 @@ class IosAttacher {
       if (transportOverride != null) {
         transport = transportOverride;
       } else {
-        final detected = await detectIosTransport(udid: udid, run: run)
-            .timeout(devicectlTimeout, onTimeout: () {
-          throw IosAttachException(
-            IosAttachErrorKind.launchFailed,
-            'devicectl list devices timed out after '
-            '${devicectlTimeout.inSeconds}s — the device may have '
-            'disconnected or device services stalled.',
-          );
-        });
-        transport =
-            detected == IosTransport.unknown ? IosTransport.wired : detected;
+        final detected = await detectIosTransport(udid: udid, run: run).timeout(
+          devicectlTimeout,
+          onTimeout: () {
+            throw IosAttachException(
+              IosAttachErrorKind.launchFailed,
+              'devicectl list devices timed out after '
+              '${devicectlTimeout.inSeconds}s — the device may have '
+              'disconnected or device services stalled.',
+            );
+          },
+        );
+        transport = detected == IosTransport.unknown
+            ? IosTransport.wired
+            : detected;
       }
       throwIfCancelled();
       final isWireless = transport == IosTransport.wireless;
@@ -299,8 +296,9 @@ class IosAttacher {
       // Drop excluded (dead) ports before the launch-skip check, so an
       // empty result after exclusion triggers a fresh launch.
       if (excludePorts.isNotEmpty) {
-        announcements =
-            announcements.where((a) => !excludePorts.contains(a.port)).toList();
+        announcements = announcements
+            .where((a) => !excludePorts.contains(a.port))
+            .toList();
       }
       throwIfCancelled();
 
@@ -315,22 +313,26 @@ class IosAttacher {
           IosAttachPhase.launchingApp,
           data: <String, Object?>{'bundle': bundle, 'udid': udid},
         );
-        final launch = await run('xcrun', [
-          'devicectl',
-          'device',
-          'process',
-          'launch',
-          '--device',
-          udid,
-          bundle,
-        ]).timeout(devicectlTimeout, onTimeout: () {
-          throw IosAttachException(
-            IosAttachErrorKind.launchFailed,
-            'devicectl process launch timed out after '
-            '${devicectlTimeout.inSeconds}s — the device may have '
-            'disconnected or device services stalled.',
-          );
-        });
+        final launch =
+            await run('xcrun', [
+              'devicectl',
+              'device',
+              'process',
+              'launch',
+              '--device',
+              udid,
+              bundle,
+            ]).timeout(
+              devicectlTimeout,
+              onTimeout: () {
+                throw IosAttachException(
+                  IosAttachErrorKind.launchFailed,
+                  'devicectl process launch timed out after '
+                  '${devicectlTimeout.inSeconds}s — the device may have '
+                  'disconnected or device services stalled.',
+                );
+              },
+            );
         throwIfCancelled();
         if (launch.exitCode != 0) {
           throw IosAttachException(
@@ -382,12 +384,14 @@ class IosAttacher {
         IosAttachPhase.announcementsCollected,
         data: <String, Object?>{
           'announcements': announcements
-              .map((a) => <String, Object?>{
-                    'interfaceIndex': a.interfaceIndex,
-                    'host': a.host,
-                    'port': a.port,
-                    'authCode': a.authCode,
-                  })
+              .map(
+                (a) => <String, Object?>{
+                  'interfaceIndex': a.interfaceIndex,
+                  'host': a.host,
+                  'port': a.port,
+                  'authCode': a.authCode,
+                },
+              )
               .toList(),
         },
       );
@@ -409,9 +413,7 @@ class IosAttacher {
           'distinct authCodes were announced. The iproxy tunnel only '
           'accepts the USB-bridged token. Re-run with --auth <code> '
           'using one of: ${sortedAuthCodes.join(", ")}',
-          data: <String, Object?>{
-            'distinctAuthCodes': sortedAuthCodes,
-          },
+          data: <String, Object?>{'distinctAuthCodes': sortedAuthCodes},
         );
       }
 
@@ -534,18 +536,15 @@ class IosAttacher {
         if (!exitCompleter.isCompleted) exitCompleter.complete();
       }
 
-      final stderrSub = iproxy.stderr.listen(
-        (chunk) {
-          final remaining = stderrCap - stderrBuf.length;
-          if (chunk.length <= remaining) {
-            stderrBuf.add(chunk);
-          } else {
-            if (remaining > 0) stderrBuf.add(chunk.sublist(0, remaining));
-            stderrTruncated = true;
-          }
-        },
-        onDone: markIproxyExit,
-      );
+      final stderrSub = iproxy.stderr.listen((chunk) {
+        final remaining = stderrCap - stderrBuf.length;
+        if (chunk.length <= remaining) {
+          stderrBuf.add(chunk);
+        } else {
+          if (remaining > 0) stderrBuf.add(chunk.sublist(0, remaining));
+          stderrTruncated = true;
+        }
+      }, onDone: markIproxyExit);
       unawaited(iproxy.stdout.drain<void>().then((_) => markIproxyExit()));
 
       final earlyExit = await Future.any<bool>([

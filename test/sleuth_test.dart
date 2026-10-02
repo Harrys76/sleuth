@@ -102,12 +102,14 @@ void main() {
       final buffer = FrameStatsBuffer(capacity: 3);
 
       for (var i = 0; i < 5; i++) {
-        buffer.add(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(milliseconds: 8),
-          rasterDuration: const Duration(milliseconds: 4),
-          timestamp: DateTime.now(),
-        ));
+        buffer.add(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 8),
+            rasterDuration: const Duration(milliseconds: 4),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       expect(buffer.length, 3);
@@ -129,18 +131,24 @@ void main() {
       final sw = Stopwatch()..start();
       await Sleuth.flushTimelineNow();
       sw.stop();
-      expect(sw.elapsedMilliseconds, lessThan(50),
-          reason: 'flushTimelineNow with no controller must noop fast — '
-              'production sessions hit this path every poll-cadence tick.');
+      expect(
+        sw.elapsedMilliseconds,
+        lessThan(50),
+        reason:
+            'flushTimelineNow with no controller must noop fast — '
+            'production sessions hit this path every poll-cadence tick.',
+      );
     });
 
-    test('accepts a timeout parameter without controller side effects',
-        () async {
-      // Verifies the public-API signature is the contract we shipped.
-      // With no controller registered the timeout is irrelevant — the
-      // gate returns before ever building a timeout future.
-      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 1));
-    });
+    test(
+      'accepts a timeout parameter without controller side effects',
+      () async {
+        // Verifies the public-API signature is the contract we shipped.
+        // With no controller registered the timeout is irrelevant — the
+        // gate returns before ever building a timeout future.
+        await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 1));
+      },
+    );
   });
 
   group('Sleuth.track auto-init', () {
@@ -159,7 +167,8 @@ void main() {
       expect(
         Sleuth.dartEntryMonotonicUs,
         isNull,
-        reason: 'reset hook left dartEntryMonotonicUs populated; '
+        reason:
+            'reset hook left dartEntryMonotonicUs populated; '
             'Stage-2 assertion would be vacuous.',
       );
 
@@ -174,7 +183,8 @@ void main() {
       expect(
         Sleuth.dartEntryMonotonicUs,
         isNotNull,
-        reason: 'Sleuth.track() must call Sleuth.init() so '
+        reason:
+            'Sleuth.track() must call Sleuth.init() so '
             'dartEntryMonotonicUs is populated for downstream detectors.',
       );
       expect(Sleuth.dartEntryMonotonicUs, greaterThan(0));
@@ -200,8 +210,11 @@ void main() {
           frameNumber: frameNumber,
           uiDuration: Duration(milliseconds: totalMs),
           rasterDuration: Duration.zero,
-          timestamp: DateTime(2026, 5, 5)
-              .add(Duration(milliseconds: frameNumber * 16)),
+          timestamp: DateTime(
+            2026,
+            5,
+            5,
+          ).add(Duration(milliseconds: frameNumber * 16)),
           pictureCacheCount: 0,
           pictureCacheBytes: 1,
           layerCacheCount: 0,
@@ -233,12 +246,14 @@ void main() {
           detector.addFrameForTest(makeStats(frameNumber: i, totalMs: 10));
         }
 
-        final issue =
-            detector.issues.firstWhere((i) => i.stableId == 'jank_detected');
+        final issue = detector.issues.firstWhere(
+          (i) => i.stableId == 'jank_detected',
+        );
         expect(
           issue.extraTraceArgs?['lifecyclePhase'],
           'startup',
-          reason: 'lifecyclePhase must populate via the production '
+          reason:
+              'lifecyclePhase must populate via the production '
               'Sleuth.dartEntryMonotonicUs anchor without an explicit '
               'appStartMonotonicUsForTest override. A missing or null '
               'value indicates a wire-up regression in controller '

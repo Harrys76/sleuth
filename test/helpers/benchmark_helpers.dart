@@ -87,8 +87,10 @@ double benchmarkUs(
   final avgUs = sw.elapsedMicroseconds / iterations;
   final avgMs = avgUs / 1000;
   // ignore: avoid_print
-  print('  [$label] ${avgMs.toStringAsFixed(2)} ms avg '
-      '(${avgUs.toStringAsFixed(0)} µs, $iterations iterations)');
+  print(
+    '  [$label] ${avgMs.toStringAsFixed(2)} ms avg '
+    '(${avgUs.toStringAsFixed(0)} µs, $iterations iterations)',
+  );
   return avgUs;
 }
 
@@ -118,15 +120,17 @@ BenchmarkResult benchmarkWithStats(
   final max = times.reduce((a, b) => a > b ? a : b);
   final variance =
       times.map((t) => (t - avg) * (t - avg)).reduce((a, b) => a + b) /
-          iterations;
+      iterations;
   final stdDev = variance > 0 ? math.sqrt(variance) : 0.0;
 
   // ignore: avoid_print
-  print('  [$label] ${(avg / 1000).toStringAsFixed(2)} ms avg '
-      '(\u03c3=${(stdDev / 1000).toStringAsFixed(2)} ms, '
-      'min=${(min / 1000).toStringAsFixed(2)}, '
-      'max=${(max / 1000).toStringAsFixed(2)}, '
-      '$iterations iterations)');
+  print(
+    '  [$label] ${(avg / 1000).toStringAsFixed(2)} ms avg '
+    '(\u03c3=${(stdDev / 1000).toStringAsFixed(2)} ms, '
+    'min=${(min / 1000).toStringAsFixed(2)}, '
+    'max=${(max / 1000).toStringAsFixed(2)}, '
+    '$iterations iterations)',
+  );
 
   return BenchmarkResult(
     avgUs: avg,
@@ -153,12 +157,6 @@ class BenchStatefulWidget extends StatefulWidget {
 class _BenchStatefulWidgetState extends State<BenchStatefulWidget> {
   @override
   Widget build(BuildContext context) {
-    return const Column(
-      children: [
-        SizedBox(),
-        SizedBox(),
-        SizedBox(),
-      ],
-    );
+    return const Column(children: [SizedBox(), SizedBox(), SizedBox()]);
   }
 }

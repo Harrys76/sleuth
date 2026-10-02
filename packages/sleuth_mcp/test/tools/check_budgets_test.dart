@@ -9,11 +9,13 @@ void main() {
     final bridge = defaultFakeBridge();
     await bridge.connect(Uri.parse('ws://localhost/ws'));
     final handler = builtInTools['check_budgets']!.handler;
-    final result = await handler(bridge, {
-      'minFps': 55,
-      'maxIssues': 100,
-      'maxCriticalIssues': 100,
-    }) as Map<String, Object?>;
+    final result =
+        await handler(bridge, {
+              'minFps': 55,
+              'maxIssues': 100,
+              'maxCriticalIssues': 100,
+            })
+            as Map<String, Object?>;
     expect(result['passed'], isTrue);
     expect(result['violations'], isEmpty);
   });
@@ -37,11 +39,13 @@ void main() {
       });
     await bridge.connect(Uri.parse('ws://localhost/ws'));
     final handler = builtInTools['check_budgets']!.handler;
-    final result = await handler(bridge, {
-      'minFps': 55,
-      'maxIssues': 100,
-      'maxCriticalIssues': 100,
-    }) as Map<String, Object?>;
+    final result =
+        await handler(bridge, {
+              'minFps': 55,
+              'maxIssues': 100,
+              'maxCriticalIssues': 100,
+            })
+            as Map<String, Object?>;
     expect(result['passed'], isFalse);
     final violations = result['violations'] as List;
     expect(violations, hasLength(1));
@@ -60,8 +64,7 @@ void main() {
     expect((result as ToolCallResult).isError, isTrue);
   });
 
-  test(
-      'evaluateBudgets returns arg_missing_required_section on a projected '
+  test('evaluateBudgets returns arg_missing_required_section on a projected '
       'snapshot lacking frameStatsSummary', () {
     final result = evaluateBudgets(
       snapshot: {
@@ -74,12 +77,13 @@ void main() {
     );
     final tc = result as ToolCallResult;
     expect(tc.isError, isTrue);
-    expect(tc.content.first['text'] as String,
-        startsWith('arg_missing_required_section:'));
+    expect(
+      tc.content.first['text'] as String,
+      startsWith('arg_missing_required_section:'),
+    );
   });
 
-  test(
-      'evaluateBudgets keeps generic error when section absent + not '
+  test('evaluateBudgets keeps generic error when section absent + not '
       'projected (genuine drift)', () {
     final result = evaluateBudgets(
       snapshot: {'currentIssues': <Map<String, Object?>>[]},
@@ -89,15 +93,17 @@ void main() {
     );
     final tc = result as ToolCallResult;
     expect(tc.isError, isTrue);
-    expect(tc.content.first['text'] as String,
-        'snapshot missing required frameStatsSummary');
+    expect(
+      tc.content.first['text'] as String,
+      'snapshot missing required frameStatsSummary',
+    );
   });
 
   test('evaluateBudgets rejects a maxIssueCount-capped snapshot', () {
     final result = evaluateBudgets(
       snapshot: {
         'currentIssues': [
-          {'severity': 'warning'}
+          {'severity': 'warning'},
         ],
         'frameStatsSummary': {'averageFps': 60.0},
         '_projectionLimits': {'maxIssueCount': 3},
@@ -108,8 +114,10 @@ void main() {
     );
     final tc = result as ToolCallResult;
     expect(tc.isError, isTrue);
-    expect(tc.content.first['text'] as String,
-        startsWith('arg_capped_issues_unbudgetable:'));
+    expect(
+      tc.content.first['text'] as String,
+      startsWith('arg_capped_issues_unbudgetable:'),
+    );
   });
 
   test('evaluateBudgets evaluates normally when only maxRouteCount capped', () {
@@ -123,8 +131,11 @@ void main() {
       maxIssues: 10,
       maxCriticalIssues: 0,
     );
-    expect(result, isA<Map<String, Object?>>(),
-        reason: 'maxRouteCount cap does not affect budget correctness');
+    expect(
+      result,
+      isA<Map<String, Object?>>(),
+      reason: 'maxRouteCount cap does not affect budget correctness',
+    );
     expect((result as Map<String, Object?>)['passed'], isTrue);
   });
 }

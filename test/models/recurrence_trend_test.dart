@@ -200,8 +200,11 @@ void main() {
 
   group('RecurrenceEntry', () {
     test('toJson round-trip for present entry', () {
-      const entry =
-          RecurrenceEntry(scanCycle: 42, present: true, severityIndex: 3);
+      const entry = RecurrenceEntry(
+        scanCycle: 42,
+        present: true,
+        severityIndex: 3,
+      );
       final json = entry.toJson();
       final restored = RecurrenceEntry.fromJson(json);
       expect(restored.scanCycle, 42);

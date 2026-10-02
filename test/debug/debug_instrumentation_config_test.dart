@@ -6,8 +6,7 @@ import 'package:sleuth/src/debug/debug_instrumentation_config.dart';
 
 void main() {
   group('DebugInstrumentationConfig defaults', () {
-    test(
-        'rebuild/paint attribution + widget build profiling on; layout, '
+    test('rebuild/paint attribution + widget build profiling on; layout, '
         'paint, and timeline enrichment off', () {
       // Rationale (v0.15.0 + post-ship drilldown fix):
       // - `rebuildAttribution`, `paintAttribution`, `widgetBuildProfiling`
@@ -66,20 +65,21 @@ void main() {
     });
 
     test(
-        'enableDeepDebugInstrumentation=false ignores advanced layoutProfiling',
-        () {
-      final controller = SleuthController(
-        config: const SleuthConfig(
-          enableDeepDebugInstrumentation: false,
-          advanced: DebugInstrumentationConfig(layoutProfiling: true),
-        ),
-      );
-      controller.initializeDetectorsForTest();
+      'enableDeepDebugInstrumentation=false ignores advanced layoutProfiling',
+      () {
+        final controller = SleuthController(
+          config: const SleuthConfig(
+            enableDeepDebugInstrumentation: false,
+            advanced: DebugInstrumentationConfig(layoutProfiling: true),
+          ),
+        );
+        controller.initializeDetectorsForTest();
 
-      expect(controller.isDeepInstrumentationActive, isFalse);
+        expect(controller.isDeepInstrumentationActive, isFalse);
 
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
   });
 
   group('selective install via advanced config', () {
@@ -163,37 +163,41 @@ void main() {
       }());
     });
 
-    test('callbacks=false + deep=true → no coordinator, heavy flags active',
-        () {
-      final controller = SleuthController(
-        config: const SleuthConfig(
-          enableDebugCallbacks: false,
-          enableDeepDebugInstrumentation: true,
-        ),
-      );
-      controller.initializeDetectorsForTest();
+    test(
+      'callbacks=false + deep=true → no coordinator, heavy flags active',
+      () {
+        final controller = SleuthController(
+          config: const SleuthConfig(
+            enableDebugCallbacks: false,
+            enableDeepDebugInstrumentation: true,
+          ),
+        );
+        controller.initializeDetectorsForTest();
 
-      expect(controller.isDebugCallbacksActive, isFalse);
-      expect(controller.isDeepInstrumentationActive, isTrue);
+        expect(controller.isDebugCallbacksActive, isFalse);
+        expect(controller.isDeepInstrumentationActive, isTrue);
 
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
 
-    test('callbacks=true + deep=false → coordinator installed, no heavy flags',
-        () {
-      final controller = SleuthController(
-        config: const SleuthConfig(
-          enableDebugCallbacks: true,
-          enableDeepDebugInstrumentation: false,
-        ),
-      );
-      controller.initializeDetectorsForTest();
+    test(
+      'callbacks=true + deep=false → coordinator installed, no heavy flags',
+      () {
+        final controller = SleuthController(
+          config: const SleuthConfig(
+            enableDebugCallbacks: true,
+            enableDeepDebugInstrumentation: false,
+          ),
+        );
+        controller.initializeDetectorsForTest();
 
-      expect(controller.isDebugCallbacksActive, isTrue);
-      expect(controller.isDeepInstrumentationActive, isFalse);
+        expect(controller.isDebugCallbacksActive, isTrue);
+        expect(controller.isDeepInstrumentationActive, isFalse);
 
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
   });
 
   group('all sub-flags off', () {
@@ -214,24 +218,25 @@ void main() {
     });
 
     test(
-        'deep=true but all sub-flags false → isDeepInstrumentationActive=false',
-        () {
-      final controller = SleuthController(
-        config: const SleuthConfig(
-          enableDeepDebugInstrumentation: true,
-          advanced: DebugInstrumentationConfig(
-            widgetBuildProfiling: false,
-            layoutProfiling: false,
-            paintProfiling: false,
-            timelineEnrichment: false,
+      'deep=true but all sub-flags false → isDeepInstrumentationActive=false',
+      () {
+        final controller = SleuthController(
+          config: const SleuthConfig(
+            enableDeepDebugInstrumentation: true,
+            advanced: DebugInstrumentationConfig(
+              widgetBuildProfiling: false,
+              layoutProfiling: false,
+              paintProfiling: false,
+              timelineEnrichment: false,
+            ),
           ),
-        ),
-      );
-      controller.initializeDetectorsForTest();
+        );
+        controller.initializeDetectorsForTest();
 
-      expect(controller.isDeepInstrumentationActive, isFalse);
+        expect(controller.isDeepInstrumentationActive, isFalse);
 
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
   });
 }

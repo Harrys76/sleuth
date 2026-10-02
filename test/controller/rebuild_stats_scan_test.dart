@@ -116,133 +116,136 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('scan re-entry guard blocks second synchronous _scanTree call',
-        (
-      tester,
-    ) async {
-      await tester.pumpWidget(_appWith('/home'));
-      await tester.pumpAndSettle();
+    testWidgets(
+      'scan re-entry guard blocks second synchronous _scanTree call',
+      (tester) async {
+        await tester.pumpWidget(_appWith('/home'));
+        await tester.pumpAndSettle();
 
-      // Prime: first scan creates session A. Merge runs BEFORE route
-      // detection, so with no active session yet the merge-block
-      // `session != null` guard drops any counts drained on the first
-      // scan — feed an empty snapshot to keep the baseline clean.
-      controller.scanTreeFullPathForTest(_rootContext(tester));
-      expect(fake.snapshotCallCount, 1);
-      expect(controller.activeRouteSessionForTest, isNotNull);
-      expect(
-        controller.activeRouteSessionForTest!.rebuildCountsByType,
-        isEmpty,
-      );
+        // Prime: first scan creates session A. Merge runs BEFORE route
+        // detection, so with no active session yet the merge-block
+        // `session != null` guard drops any counts drained on the first
+        // scan — feed an empty snapshot to keep the baseline clean.
+        controller.scanTreeFullPathForTest(_rootContext(tester));
+        expect(fake.snapshotCallCount, 1);
+        expect(controller.activeRouteSessionForTest, isNotNull);
+        expect(
+          controller.activeRouteSessionForTest!.rebuildCountsByType,
+          isEmpty,
+        );
 
-      // Second scan merges ProductCard into the now-active session.
-      fake.nextSnapshot = const DebugSnapshot(
-        rebuildCounts: {'ProductCard': 3},
-        totalPaintCount: 0,
-        elapsed: Duration(milliseconds: 500),
-        source: RebuildCountSource.flutterTimeline,
-      );
-      controller.scanTreeFullPathForTest(_rootContext(tester));
+        // Second scan merges ProductCard into the now-active session.
+        fake.nextSnapshot = const DebugSnapshot(
+          rebuildCounts: {'ProductCard': 3},
+          totalPaintCount: 0,
+          elapsed: Duration(milliseconds: 500),
+          source: RebuildCountSource.flutterTimeline,
+        );
+        controller.scanTreeFullPathForTest(_rootContext(tester));
 
-      expect(fake.snapshotCallCount, 2);
-      expect(
-        controller
-            .activeRouteSessionForTest!.rebuildCountsByType['ProductCard'],
-        3,
-      );
+        expect(fake.snapshotCallCount, 2);
+        expect(
+          controller
+              .activeRouteSessionForTest!
+              .rebuildCountsByType['ProductCard'],
+          3,
+        );
 
-      // Now simulate re-entry: flip the in-progress flag and call scan
-      // again. The re-entry guard must early-return WITHOUT touching the
-      // coordinator, so `snapshotCallCount` stays at 2.
-      fake.nextSnapshot = const DebugSnapshot(
-        rebuildCounts: {'ProductCard': 99},
-        totalPaintCount: 0,
-        elapsed: Duration(milliseconds: 500),
-        source: RebuildCountSource.flutterTimeline,
-      );
-      controller.scanInProgressForTest = true;
-      controller.scanTreeFullPathForTest(_rootContext(tester));
+        // Now simulate re-entry: flip the in-progress flag and call scan
+        // again. The re-entry guard must early-return WITHOUT touching the
+        // coordinator, so `snapshotCallCount` stays at 2.
+        fake.nextSnapshot = const DebugSnapshot(
+          rebuildCounts: {'ProductCard': 99},
+          totalPaintCount: 0,
+          elapsed: Duration(milliseconds: 500),
+          source: RebuildCountSource.flutterTimeline,
+        );
+        controller.scanInProgressForTest = true;
+        controller.scanTreeFullPathForTest(_rootContext(tester));
 
-      expect(
-        fake.snapshotCallCount,
-        2,
-        reason: 're-entry guard must block the second drain entirely',
-      );
-      expect(
-        controller
-            .activeRouteSessionForTest!.rebuildCountsByType['ProductCard'],
-        3,
-        reason: 'ProductCard count must not have been merged a second time',
-      );
+        expect(
+          fake.snapshotCallCount,
+          2,
+          reason: 're-entry guard must block the second drain entirely',
+        );
+        expect(
+          controller
+              .activeRouteSessionForTest!
+              .rebuildCountsByType['ProductCard'],
+          3,
+          reason: 'ProductCard count must not have been merged a second time',
+        );
 
-      // Release the flag — the next scan should proceed normally. The
-      // 99-count `nextSnapshot` was never consumed (fake wasn't called)
-      // and has since been reset by our pre-set — seed fresh counts.
-      fake.nextSnapshot = const DebugSnapshot(
-        rebuildCounts: {'ProductCard': 2},
-        totalPaintCount: 0,
-        elapsed: Duration(milliseconds: 500),
-        source: RebuildCountSource.flutterTimeline,
-      );
-      controller.scanInProgressForTest = false;
-      controller.scanTreeFullPathForTest(_rootContext(tester));
+        // Release the flag — the next scan should proceed normally. The
+        // 99-count `nextSnapshot` was never consumed (fake wasn't called)
+        // and has since been reset by our pre-set — seed fresh counts.
+        fake.nextSnapshot = const DebugSnapshot(
+          rebuildCounts: {'ProductCard': 2},
+          totalPaintCount: 0,
+          elapsed: Duration(milliseconds: 500),
+          source: RebuildCountSource.flutterTimeline,
+        );
+        controller.scanInProgressForTest = false;
+        controller.scanTreeFullPathForTest(_rootContext(tester));
 
-      expect(fake.snapshotCallCount, 3);
-      expect(
-        controller
-            .activeRouteSessionForTest!.rebuildCountsByType['ProductCard'],
-        5,
-        reason: '3 + 2 — merge is additive',
-      );
-    });
-
-    testWidgets('null active route session drops merged counts silently (R18)',
-        (
-      tester,
-    ) async {
-      // Reconfigure with an ignore pattern so the first scan sees /home as
-      // ignored and sets `_activeRouteSession = null`.
-      controller.dispose();
-      controller = SleuthController(
-        config: const SleuthConfig(
-          treeScanInterval: Duration(seconds: 1),
-          enabledDetectors: {DetectorType.frameTiming},
-          routeIgnorePatterns: {'/home'},
-        ),
-      );
-      controller.initializeDetectorsForTest();
-      fake = _FakeCoordinator();
-      controller.debugCoordinatorForTest = fake;
-
-      await tester.pumpWidget(_appWith('/home'));
-      await tester.pumpAndSettle();
-
-      fake.nextSnapshot = const DebugSnapshot(
-        rebuildCounts: {'IgnoredCard': 7},
-        totalPaintCount: 0,
-        elapsed: Duration(milliseconds: 500),
-        source: RebuildCountSource.flutterTimeline,
-      );
-      controller.scanTreeFullPathForTest(_rootContext(tester));
-
-      // Route /home is ignored → no active session was created.
-      expect(controller.activeRouteSessionForTest, isNull);
-      // And the drained counts were dropped — nothing in route history
-      // received them.
-      expect(
-        controller.routeHistoryForTest,
-        isEmpty,
-        reason: 'ignored routes must not spawn sessions',
-      );
-      expect(
-        fake.snapshotCallCount,
-        1,
-        reason: 'drain still ran — counts were simply discarded at merge time',
-      );
-    });
+        expect(fake.snapshotCallCount, 3);
+        expect(
+          controller
+              .activeRouteSessionForTest!
+              .rebuildCountsByType['ProductCard'],
+          5,
+          reason: '3 + 2 — merge is additive',
+        );
+      },
+    );
 
     testWidgets(
-        'drain → attribute → route-switch ordering: '
+      'null active route session drops merged counts silently (R18)',
+      (tester) async {
+        // Reconfigure with an ignore pattern so the first scan sees /home as
+        // ignored and sets `_activeRouteSession = null`.
+        controller.dispose();
+        controller = SleuthController(
+          config: const SleuthConfig(
+            treeScanInterval: Duration(seconds: 1),
+            enabledDetectors: {DetectorType.frameTiming},
+            routeIgnorePatterns: {'/home'},
+          ),
+        );
+        controller.initializeDetectorsForTest();
+        fake = _FakeCoordinator();
+        controller.debugCoordinatorForTest = fake;
+
+        await tester.pumpWidget(_appWith('/home'));
+        await tester.pumpAndSettle();
+
+        fake.nextSnapshot = const DebugSnapshot(
+          rebuildCounts: {'IgnoredCard': 7},
+          totalPaintCount: 0,
+          elapsed: Duration(milliseconds: 500),
+          source: RebuildCountSource.flutterTimeline,
+        );
+        controller.scanTreeFullPathForTest(_rootContext(tester));
+
+        // Route /home is ignored → no active session was created.
+        expect(controller.activeRouteSessionForTest, isNull);
+        // And the drained counts were dropped — nothing in route history
+        // received them.
+        expect(
+          controller.routeHistoryForTest,
+          isEmpty,
+          reason: 'ignored routes must not spawn sessions',
+        );
+        expect(
+          fake.snapshotCallCount,
+          1,
+          reason:
+              'drain still ran — counts were simply discarded at merge time',
+        );
+      },
+    );
+
+    testWidgets('drain → attribute → route-switch ordering: '
         'counts land on pre-route-change session (R5)', (tester) async {
       // First, establish session A on /home.
       fake.nextSnapshot = const DebugSnapshot(
@@ -296,8 +299,7 @@ void main() {
       );
     });
 
-    testWidgets(
-        'debugCallback-source snapshots are NOT merged into '
+    testWidgets('debugCallback-source snapshots are NOT merged into '
         'rebuildCountsByType (KDD-1 mutual exclusivity)', (tester) async {
       // The merge block is gated on `source == flutterTimeline`. Debug-mode
       // snapshots (source == debugCallback) are consumed by detectors via
@@ -322,40 +324,42 @@ void main() {
       );
     });
 
-    testWidgets('subsequent scans additively merge counts on the same session',
-        (tester) async {
-      await tester.pumpWidget(_appWith('/home'));
-      await tester.pumpAndSettle();
+    testWidgets(
+      'subsequent scans additively merge counts on the same session',
+      (tester) async {
+        await tester.pumpWidget(_appWith('/home'));
+        await tester.pumpAndSettle();
 
-      // Prime — establish session A (counts drained on first scan are
-      // dropped because `_activeRouteSession` is null at merge time).
-      controller.scanTreeFullPathForTest(_rootContext(tester));
-      final session = controller.activeRouteSessionForTest!;
-      expect(session.rebuildCountsByType, isEmpty);
+        // Prime — establish session A (counts drained on first scan are
+        // dropped because `_activeRouteSession` is null at merge time).
+        controller.scanTreeFullPathForTest(_rootContext(tester));
+        final session = controller.activeRouteSessionForTest!;
+        expect(session.rebuildCountsByType, isEmpty);
 
-      fake.nextSnapshot = const DebugSnapshot(
-        rebuildCounts: {'ProductCard': 3, 'Header': 1},
-        totalPaintCount: 0,
-        elapsed: Duration(milliseconds: 500),
-        source: RebuildCountSource.flutterTimeline,
-      );
-      controller.scanTreeFullPathForTest(_rootContext(tester));
-      expect(session.rebuildCountsByType['ProductCard'], 3);
+        fake.nextSnapshot = const DebugSnapshot(
+          rebuildCounts: {'ProductCard': 3, 'Header': 1},
+          totalPaintCount: 0,
+          elapsed: Duration(milliseconds: 500),
+          source: RebuildCountSource.flutterTimeline,
+        );
+        controller.scanTreeFullPathForTest(_rootContext(tester));
+        expect(session.rebuildCountsByType['ProductCard'], 3);
 
-      fake.nextSnapshot = const DebugSnapshot(
-        rebuildCounts: {'ProductCard': 2, 'Footer': 5},
-        totalPaintCount: 0,
-        elapsed: Duration(milliseconds: 500),
-        source: RebuildCountSource.flutterTimeline,
-      );
-      controller.scanTreeFullPathForTest(_rootContext(tester));
+        fake.nextSnapshot = const DebugSnapshot(
+          rebuildCounts: {'ProductCard': 2, 'Footer': 5},
+          totalPaintCount: 0,
+          elapsed: Duration(milliseconds: 500),
+          source: RebuildCountSource.flutterTimeline,
+        );
+        controller.scanTreeFullPathForTest(_rootContext(tester));
 
-      // Same session, counts accumulated additively.
-      expect(controller.activeRouteSessionForTest, same(session));
-      expect(session.rebuildCountsByType['ProductCard'], 5);
-      expect(session.rebuildCountsByType['Header'], 1);
-      expect(session.rebuildCountsByType['Footer'], 5);
-      expect(session.totalRebuilds, 11);
-    });
+        // Same session, counts accumulated additively.
+        expect(controller.activeRouteSessionForTest, same(session));
+        expect(session.rebuildCountsByType['ProductCard'], 5);
+        expect(session.rebuildCountsByType['Header'], 1);
+        expect(session.rebuildCountsByType['Footer'], 5);
+        expect(session.totalRebuilds, 11);
+      },
+    );
   });
 }

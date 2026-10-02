@@ -26,14 +26,14 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   RepaintDetector({
     this.paintFrequencyThreshold = 30,
     DateTime Function()? clock,
-  })  : _clock = clock ?? DateTime.now,
-        _windowStart = (clock ?? DateTime.now)(),
-        super(
-          type: DetectorType.repaint,
-          lifecycle: DetectorLifecycle.hybrid,
-          name: 'Repaint',
-          description: 'Detects excessive repainting (>30 paints/sec)',
-        );
+  }) : _clock = clock ?? DateTime.now,
+       _windowStart = (clock ?? DateTime.now)(),
+       super(
+         type: DetectorType.repaint,
+         lifecycle: DetectorLifecycle.hybrid,
+         name: 'Repaint',
+         description: 'Detects excessive repainting (>30 paints/sec)',
+       );
 
   final int paintFrequencyThreshold;
   final DateTime Function() _clock;
@@ -188,8 +188,9 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
         _peakObservedPaintCount = _paintEventCount;
       }
       // Stage enrichment atomically with the window count
-      _stagedEnrichedDirtyTotal =
-          _pendingEnrichedDirtyTotal > 0 ? _pendingEnrichedDirtyTotal : null;
+      _stagedEnrichedDirtyTotal = _pendingEnrichedDirtyTotal > 0
+          ? _pendingEnrichedDirtyTotal
+          : null;
       _pendingEnrichedDirtyTotal = 0;
       _paintEventCount = 0;
       _windowStart = now;
@@ -219,8 +220,9 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     if (_paintEventCount > 0) {
       _pendingVmWindowCount = _paintEventCount;
       _lastObservedPaintCount = _paintEventCount;
-      _stagedEnrichedDirtyTotal =
-          _pendingEnrichedDirtyTotal > 0 ? _pendingEnrichedDirtyTotal : null;
+      _stagedEnrichedDirtyTotal = _pendingEnrichedDirtyTotal > 0
+          ? _pendingEnrichedDirtyTotal
+          : null;
       _pendingEnrichedDirtyTotal = 0;
       _paintEventCount = 0;
       _windowStart = _clock();
@@ -294,15 +296,17 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
         if (ro != null) {
           final rect = getGlobalRect(ro);
           if (rect != null) {
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: name,
-              severity: rate > paintFrequencyThreshold * 2
-                  ? IssueSeverity.critical
-                  : IssueSeverity.warning,
-              detectorName: 'Repaint',
-              detail: '${rate.round()} repaints/sec',
-            ));
+            _highlights.add(
+              WidgetHighlight(
+                rect: rect,
+                widgetName: name,
+                severity: rate > paintFrequencyThreshold * 2
+                    ? IssueSeverity.critical
+                    : IssueSeverity.warning,
+                detectorName: 'Repaint',
+                detail: '${rate.round()} repaints/sec',
+              ),
+            );
             _hotCounts[name] = count + 1;
           }
         }
@@ -384,33 +388,36 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
 
     final detailSuffix = enrichedDirtyTotal != null && enrichedDirtyTotal > 0
         ? '\n$enrichedDirtyTotal dirty RenderObjects '
-            '(from timeline enrichment).'
+              '(from timeline enrichment).'
         : '';
 
     final (hint, effort) = FixHintBuilder.excessiveRepaintVm();
 
     final detectedAt = DateTime.now();
-    _issues.add(PerformanceIssue(
-      stableId: 'excessive_repaint',
-      severity: paintCount > paintFrequencyThreshold * 2
-          ? IssueSeverity.critical
-          : IssueSeverity.warning,
-      category: IssueCategory.paint,
-      confidence: IssueConfidence.confirmed,
-      title: 'Excessive Repainting: $paintCount paints/sec',
-      detail: '$paintCount paint events detected in 1 second. '
-          'Threshold: $paintFrequencyThreshold/sec.$detailSuffix',
-      fixHint: hint,
-      fixEffort: effort,
-      observationSource: ObservationSource.vmTimeline,
-      detectedAt: detectedAt,
-      // Audit gate cross-checks `expectedMagnitude.observed` against
-      // this detector-side measurement so a regression in window
-      // accounting cannot certify the wrong magnitude.
-      dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
-      extraTraceArgs: {'observedPaintCount': paintCount.toString()},
-      confidenceReason: 'Measured directly from VM timeline paint events',
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'excessive_repaint',
+        severity: paintCount > paintFrequencyThreshold * 2
+            ? IssueSeverity.critical
+            : IssueSeverity.warning,
+        category: IssueCategory.paint,
+        confidence: IssueConfidence.confirmed,
+        title: 'Excessive Repainting: $paintCount paints/sec',
+        detail:
+            '$paintCount paint events detected in 1 second. '
+            'Threshold: $paintFrequencyThreshold/sec.$detailSuffix',
+        fixHint: hint,
+        fixEffort: effort,
+        observationSource: ObservationSource.vmTimeline,
+        detectedAt: detectedAt,
+        // Audit gate cross-checks `expectedMagnitude.observed` against
+        // this detector-side measurement so a regression in window
+        // accounting cannot certify the wrong magnitude.
+        dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
+        extraTraceArgs: {'observedPaintCount': paintCount.toString()},
+        confidenceReason: 'Measured directly from VM timeline paint events',
+      ),
+    );
   }
 
   /// Debug callback path — per-widget paint attribution.
@@ -459,32 +466,36 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
 
       final ownedSuffix = ownedCount > 0
           ? ' Excludes $ownedCount animation-owned paint'
-              '${ownedCount == 1 ? '' : 's'}.'
+                '${ownedCount == 1 ? '' : 's'}.'
           : '';
 
-      _issues.add(PerformanceIssue(
-        stableId: 'repaint_debug_$typeName',
-        severity: residualRate > paintFrequencyThreshold * 2
-            ? IssueSeverity.critical
-            : IssueSeverity.warning,
-        category: IssueCategory.paint,
-        confidence: IssueConfidence.confirmed,
-        title: 'Excessive Repainting: $typeName '
-            '(${residualRate.round()}/sec)',
-        detail: '$typeName: $residualCount repaints in '
-            '${elapsedSec.toStringAsFixed(1)}s '
-            '(${residualRate.round()}/sec).$ownedSuffix',
-        fixHint: hint,
-        fixEffort: effort,
-        widgetName: typeName,
-        ancestorChain: snapshot.ancestorChains[typeName],
-        observationSource: ObservationSource.debugCallback,
-        detectedAt: DateTime.now(),
-        confidenceReason: ownedCount > 0
-            ? 'Measured directly from debug callback paint counter '
-                '(animation-owned paints excluded)'
-            : 'Measured directly from debug callback paint counter',
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'repaint_debug_$typeName',
+          severity: residualRate > paintFrequencyThreshold * 2
+              ? IssueSeverity.critical
+              : IssueSeverity.warning,
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.confirmed,
+          title:
+              'Excessive Repainting: $typeName '
+              '(${residualRate.round()}/sec)',
+          detail:
+              '$typeName: $residualCount repaints in '
+              '${elapsedSec.toStringAsFixed(1)}s '
+              '(${residualRate.round()}/sec).$ownedSuffix',
+          fixHint: hint,
+          fixEffort: effort,
+          widgetName: typeName,
+          ancestorChain: snapshot.ancestorChains[typeName],
+          observationSource: ObservationSource.debugCallback,
+          detectedAt: DateTime.now(),
+          confidenceReason: ownedCount > 0
+              ? 'Measured directly from debug callback paint counter '
+                    '(animation-owned paints excluded)'
+              : 'Measured directly from debug callback paint counter',
+        ),
+      );
     }
   }
 
@@ -515,28 +526,33 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     final elapsedSec = us / Duration.microsecondsPerSecond;
     final (hint, effort) = FixHintBuilder.excessiveRepaintDebug();
 
-    final ownedSuffix =
-        ownedCount > 0 ? ' Excludes $ownedCount animation-owned paints.' : '';
+    final ownedSuffix = ownedCount > 0
+        ? ' Excludes $ownedCount animation-owned paints.'
+        : '';
 
-    _issues.add(PerformanceIssue(
-      stableId: 'excessive_repaint_debug',
-      severity: residualRate > paintFrequencyThreshold * 2
-          ? IssueSeverity.critical
-          : IssueSeverity.warning,
-      category: IssueCategory.paint,
-      confidence: IssueConfidence.likely,
-      title: 'Excessive Repainting: ~${residualRate.round()} paints/sec',
-      detail: '$residualCount paint calls in '
-          '${elapsedSec.toStringAsFixed(1)}s '
-          '(~${residualRate.round()}/sec, aggregate debug callback count).'
-          '$ownedSuffix',
-      fixHint: hint,
-      fixEffort: effort,
-      observationSource: ObservationSource.debugCallback,
-      detectedAt: DateTime.now(),
-      confidenceReason: 'Aggregate debug callback count + structural scan '
-          '(animation-owned paints excluded)',
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'excessive_repaint_debug',
+        severity: residualRate > paintFrequencyThreshold * 2
+            ? IssueSeverity.critical
+            : IssueSeverity.warning,
+        category: IssueCategory.paint,
+        confidence: IssueConfidence.likely,
+        title: 'Excessive Repainting: ~${residualRate.round()} paints/sec',
+        detail:
+            '$residualCount paint calls in '
+            '${elapsedSec.toStringAsFixed(1)}s '
+            '(~${residualRate.round()}/sec, aggregate debug callback count).'
+            '$ownedSuffix',
+        fixHint: hint,
+        fixEffort: effort,
+        observationSource: ObservationSource.debugCallback,
+        detectedAt: DateTime.now(),
+        confidenceReason:
+            'Aggregate debug callback count + structural scan '
+            '(animation-owned paints excluded)',
+      ),
+    );
   }
 
   @override
@@ -550,50 +566,51 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hybrid detector. All three families pinned: '
-            '`excessive_repaint` (>30 paints/sec aggregate), '
-            '`excessive_repaint_debug` (debug-callback corroborated '
-            'residual), and parametric `repaint_debug_<typeName>` '
-            '(per-widget attribution, declared via `parametricFamilies` '
-            'since v0.17.3 — concrete `repaint_debug_CustomPaint` credits '
-            'the family via the `_` separator matcher). VM → '
-            'TimelineParser → detector boundary exercised via '
-            'cross-harness reproducer (raw `List<TimelineEvent>` through '
-            '`parseAndAssertShape` + real `pumpWidget` for the debug + '
-            'structural legs). Animation-owner Gate B suppression pinned '
-            'with broad `expect(issues, isEmpty)` so a regression cannot '
-            'leak through any of the three emission paths. The VM-path '
-            '`excessive_repaint.warning` family is runtime-verified via '
-            '`additionalBrackets[0]` with three iPhone 12 / iOS 17.5 / '
-            'Flutter 3.41.4 captures driven by 32 distinct CustomPainter '
-            'types so the per-widget debug gate stays sub-threshold and '
-            'emission flows through the VM aggregate path; `peakObserved'
-            'PaintCount` populates `expectedMagnitude.observed` so the '
-            'audit-gate `\'max\'` axis reduction matches the emitted '
-            'observedPaintCount. atTolerance 0.50 (at-band [30, 45]) '
-            'absorbs iOS animation-tick scheduler jitter at 60 Hz '
-            'mirroring the request_frequency tolerance. '
-            '`excessive_repaint_debug` and `repaint_debug_<typeName>` '
-            'remain reproducerOnly — no per-widget debug-path captures.',
-        reproducerPath: 'test/validation/repaint_reproducer_test.dart',
-        coveredStableIds: {'excessive_repaint', 'excessive_repaint_debug'},
-        parametricFamilies: {'repaint_debug'},
-        perStableIdTier: {'excessive_repaint': EvidenceTier.runtimeVerified},
-        coveredThresholds: {'excessive_repaint.warning'},
-        profileCapturePaths: [
-          'test/validation/captures/repaint/excessive_repaint_below.json',
-          'test/validation/captures/repaint/excessive_repaint_at.json',
-          'test/validation/captures/repaint/excessive_repaint_above.json',
-        ],
-        bracketThreshold: 30,
-        bracketUnit: 'paints',
-        bracketStableId: 'excessive_repaint',
-        bracketSeverityLabel: 'warning',
-        bracketAtTolerance: 0.50,
-        aboveCeilingMultiplier: 2.0,
-        observedAxisArgKey: 'observedPaintCount',
-        observedAxisTolerance: 0.15,
-        observedAxisReduction: 'max',
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'Hybrid detector. All three families pinned: '
+        '`excessive_repaint` (>30 paints/sec aggregate), '
+        '`excessive_repaint_debug` (debug-callback corroborated '
+        'residual), and parametric `repaint_debug_<typeName>` '
+        '(per-widget attribution, declared via `parametricFamilies` '
+        'since v0.17.3 — concrete `repaint_debug_CustomPaint` credits '
+        'the family via the `_` separator matcher). VM → '
+        'TimelineParser → detector boundary exercised via '
+        'cross-harness reproducer (raw `List<TimelineEvent>` through '
+        '`parseAndAssertShape` + real `pumpWidget` for the debug + '
+        'structural legs). Animation-owner Gate B suppression pinned '
+        'with broad `expect(issues, isEmpty)` so a regression cannot '
+        'leak through any of the three emission paths. The VM-path '
+        '`excessive_repaint.warning` family is runtime-verified via '
+        '`additionalBrackets[0]` with three iPhone 12 / iOS 17.5 / '
+        'Flutter 3.41.4 captures driven by 32 distinct CustomPainter '
+        'types so the per-widget debug gate stays sub-threshold and '
+        'emission flows through the VM aggregate path; `peakObserved'
+        'PaintCount` populates `expectedMagnitude.observed` so the '
+        'audit-gate `\'max\'` axis reduction matches the emitted '
+        'observedPaintCount. atTolerance 0.50 (at-band [30, 45]) '
+        'absorbs iOS animation-tick scheduler jitter at 60 Hz '
+        'mirroring the request_frequency tolerance. '
+        '`excessive_repaint_debug` and `repaint_debug_<typeName>` '
+        'remain reproducerOnly — no per-widget debug-path captures.',
+    reproducerPath: 'test/validation/repaint_reproducer_test.dart',
+    coveredStableIds: {'excessive_repaint', 'excessive_repaint_debug'},
+    parametricFamilies: {'repaint_debug'},
+    perStableIdTier: {'excessive_repaint': EvidenceTier.runtimeVerified},
+    coveredThresholds: {'excessive_repaint.warning'},
+    profileCapturePaths: [
+      'test/validation/captures/repaint/excessive_repaint_below.json',
+      'test/validation/captures/repaint/excessive_repaint_at.json',
+      'test/validation/captures/repaint/excessive_repaint_above.json',
+    ],
+    bracketThreshold: 30,
+    bracketUnit: 'paints',
+    bracketStableId: 'excessive_repaint',
+    bracketSeverityLabel: 'warning',
+    bracketAtTolerance: 0.50,
+    aboveCeilingMultiplier: 2.0,
+    observedAxisArgKey: 'observedPaintCount',
+    observedAxisTolerance: 0.15,
+    observedAxisReduction: 'max',
+  );
 }

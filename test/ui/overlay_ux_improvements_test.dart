@@ -33,63 +33,59 @@ PerformanceIssue _testIssue({
   );
 }
 
-Widget _buildCard(
-  PerformanceIssue issue, {
-  bool initiallyExpanded = false,
-}) {
+Widget _buildCard(PerformanceIssue issue, {bool initiallyExpanded = false}) {
   return MaterialApp(
     home: Scaffold(
-      body: IssueCard(
-        issue: issue,
-        initiallyExpanded: initiallyExpanded,
-      ),
+      body: IssueCard(issue: issue, initiallyExpanded: initiallyExpanded),
     ),
   );
 }
 
 void main() {
   group('Widget name ordering (3.8.1)', () {
-    testWidgets('widgetName shown before ancestorChain when both present',
-        (tester) async {
-      await tester.pumpWidget(_buildCard(
-        _testIssue(
-          widgetName: 'MyImage',
-          ancestorChain: 'MyPage > Column > MyImage',
-          title: 'Large Image',
+    testWidgets('widgetName shown before ancestorChain when both present', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildCard(
+          _testIssue(
+            widgetName: 'MyImage',
+            ancestorChain: 'MyPage > Column > MyImage',
+            title: 'Large Image',
+          ),
+          initiallyExpanded: true,
         ),
-        initiallyExpanded: true,
-      ));
+      );
 
       expect(find.text('Widget: MyImage'), findsOneWidget);
-      expect(
-        find.text('Ancestors: MyPage > Column > MyImage'),
-        findsOneWidget,
-      );
+      expect(find.text('Ancestors: MyPage > Column > MyImage'), findsOneWidget);
     });
 
     testWidgets('widgetName shown alone when no ancestorChain', (tester) async {
-      await tester.pumpWidget(_buildCard(
-        _testIssue(
-          widgetName: 'MyWidget',
-          title: 'Some Issue',
+      await tester.pumpWidget(
+        _buildCard(
+          _testIssue(widgetName: 'MyWidget', title: 'Some Issue'),
+          initiallyExpanded: true,
         ),
-        initiallyExpanded: true,
-      ));
+      );
 
       expect(find.text('Widget: MyWidget'), findsOneWidget);
       expect(find.textContaining('Ancestors:'), findsNothing);
     });
 
-    testWidgets('ancestorChain hidden when equal to widgetName',
-        (tester) async {
-      await tester.pumpWidget(_buildCard(
-        _testIssue(
-          widgetName: 'MyWidget',
-          ancestorChain: 'MyWidget',
-          title: 'Some Issue',
+    testWidgets('ancestorChain hidden when equal to widgetName', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildCard(
+          _testIssue(
+            widgetName: 'MyWidget',
+            ancestorChain: 'MyWidget',
+            title: 'Some Issue',
+          ),
+          initiallyExpanded: true,
         ),
-        initiallyExpanded: true,
-      ));
+      );
 
       expect(find.text('Widget: MyWidget'), findsOneWidget);
       // Ancestors line suppressed because it matches widgetName
@@ -98,54 +94,66 @@ void main() {
   });
 
   group('Effort indicators (3.8.5)', () {
-    testWidgets('Quick effort badge for ListView.builder keyword',
-        (tester) async {
-      await tester.pumpWidget(_buildCard(
-        _testIssue(
+    testWidgets('Quick effort badge for ListView.builder keyword', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildCard(
+          _testIssue(
             fixHint:
-                'Use ListView.builder() to lazily build visible items only.'),
-        initiallyExpanded: true,
-      ));
+                'Use ListView.builder() to lazily build visible items only.',
+          ),
+          initiallyExpanded: true,
+        ),
+      );
 
       expect(find.text('QUICK FIX'), findsOneWidget);
     });
 
     testWidgets('Involved effort badge for Isolate keyword', (tester) async {
-      await tester.pumpWidget(_buildCard(
-        _testIssue(
+      await tester.pumpWidget(
+        _buildCard(
+          _testIssue(
             fixHint:
-                'Move heavy work to a background isolate using Isolate.run().'),
-        initiallyExpanded: true,
-      ));
+                'Move heavy work to a background isolate using Isolate.run().',
+          ),
+          initiallyExpanded: true,
+        ),
+      );
 
       expect(find.text('INVOLVED FIX'), findsOneWidget);
     });
 
     testWidgets('Medium effort badge as default', (tester) async {
-      await tester.pumpWidget(_buildCard(
-        _testIssue(fixHint: 'Consider refactoring this code path.'),
-        initiallyExpanded: true,
-      ));
+      await tester.pumpWidget(
+        _buildCard(
+          _testIssue(fixHint: 'Consider refactoring this code path.'),
+          initiallyExpanded: true,
+        ),
+      );
 
       expect(find.text('MEDIUM FIX'), findsOneWidget);
     });
 
-    testWidgets('Explicit fixEffort takes precedence over keyword inference',
-        (tester) async {
+    testWidgets('Explicit fixEffort takes precedence over keyword inference', (
+      tester,
+    ) async {
       // fixHint contains "ListView.builder" (quick keyword) but model says involved
-      await tester.pumpWidget(_buildCard(
-        PerformanceIssue(
-          severity: IssueSeverity.warning,
-          category: IssueCategory.build,
-          confidence: IssueConfidence.possible,
-          title: 'Test',
-          detail: 'Detail',
-          fixHint: 'Use ListView.builder() for this list.',
-          stableId: 'test',
-          fixEffort: FixEffort.involved,
+      await tester.pumpWidget(
+        _buildCard(
+          PerformanceIssue(
+            severity: IssueSeverity.warning,
+            category: IssueCategory.build,
+            confidence: IssueConfidence.possible,
+            title: 'Test',
+            detail: 'Detail',
+            fixHint: 'Use ListView.builder() for this list.',
+            stableId: 'test',
+            fixEffort: FixEffort.involved,
+          ),
+          initiallyExpanded: true,
         ),
-        initiallyExpanded: true,
-      ));
+      );
 
       // Model fixEffort (involved) wins over keyword (quick)
       expect(find.text('INVOLVED FIX'), findsOneWidget);
@@ -154,12 +162,15 @@ void main() {
   });
 
   group('About this detection (3.8.4)', () {
-    testWidgets('About section toggle visible when card expanded',
-        (tester) async {
-      await tester.pumpWidget(_buildCard(
-        _testIssue(observationSource: ObservationSource.vmTimeline),
-        initiallyExpanded: true,
-      ));
+    testWidgets('About section toggle visible when card expanded', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildCard(
+          _testIssue(observationSource: ObservationSource.vmTimeline),
+          initiallyExpanded: true,
+        ),
+      );
 
       expect(find.text('About this detection'), findsOneWidget);
       // Content not shown yet
@@ -167,14 +178,16 @@ void main() {
     });
 
     testWidgets('About section shows content on tap', (tester) async {
-      await tester.pumpWidget(_buildCard(
-        _testIssue(
-          observationSource: ObservationSource.vmTimeline,
-          confidence: IssueConfidence.confirmed,
-          category: IssueCategory.build,
+      await tester.pumpWidget(
+        _buildCard(
+          _testIssue(
+            observationSource: ObservationSource.vmTimeline,
+            confidence: IssueConfidence.confirmed,
+            category: IssueCategory.build,
+          ),
+          initiallyExpanded: true,
         ),
-        initiallyExpanded: true,
-      ));
+      );
 
       // Tap "About this detection"
       await tester.tap(find.text('About this detection'));
@@ -233,7 +246,8 @@ void main() {
       // Banner should appear
       expect(
         find.text(
-            'Widget not currently visible. Navigate to the screen where this issue occurs.'),
+          'Widget not currently visible. Navigate to the screen where this issue occurs.',
+        ),
         findsOneWidget,
       );
 
@@ -258,7 +272,9 @@ void main() {
 
       // Banner visible
       expect(
-          find.textContaining('Widget not currently visible'), findsOneWidget);
+        find.textContaining('Widget not currently visible'),
+        findsOneWidget,
+      );
 
       // Wait 4 seconds — banner should clear
       await tester.pump(const Duration(seconds: 4));

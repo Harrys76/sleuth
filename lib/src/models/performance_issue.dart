@@ -269,38 +269,37 @@ class PerformanceIssue {
   }
 
   Map<String, dynamic> toJson() => {
-        'severity': severity.name,
-        'category': category.name,
-        'confidence': confidence.name,
-        'title': title,
-        'detail': detail,
-        'fixHint': fixHint,
-        if (stableId != null) 'stableId': stableId,
-        if (captureTraceStableId != null)
-          'captureTraceStableId': captureTraceStableId,
-        if (widgetName != null) 'widgetName': widgetName,
-        if (routeName != null) 'routeName': routeName,
-        if (observationSource != null)
-          'observationSource': observationSource!.name,
-        if (interactionContext != null)
-          'interactionContext': interactionContext!.name,
-        'debugModeDisclaimer': debugModeDisclaimer,
-        if (detectedAt != null) 'detectedAt': detectedAt!.toIso8601String(),
-        if (ancestorChain != null) 'ancestorChain': ancestorChain,
-        if (fixEffort != null) 'fixEffort': fixEffort!.name,
-        if (topAllocators != null)
-          'topAllocators': topAllocators!.map((a) => a.toJson()).toList(),
-        if (rankingScore != null) 'rankingScore': rankingScore,
-        if (rankingBreakdown != null) 'rankingBreakdown': rankingBreakdown,
-        // Canonical post-v0.24.2 emission: derive singular from plural so
-        if (rootCauseIds != null) 'rootCauseIds': rootCauseIds,
-        if (downstreamIds != null) 'downstreamIds': downstreamIds,
-        if (confidenceReason != null) 'confidenceReason': confidenceReason,
-        if (packageName != null) 'packageName': packageName,
-        if (scaffoldHashKey != null) 'scaffoldHashKey': scaffoldHashKey,
-        if (tabVisitIndex != null) 'tabVisitIndex': tabVisitIndex,
-        if (sourceRoute != null) 'sourceRoute': sourceRoute,
-      };
+    'severity': severity.name,
+    'category': category.name,
+    'confidence': confidence.name,
+    'title': title,
+    'detail': detail,
+    'fixHint': fixHint,
+    if (stableId != null) 'stableId': stableId,
+    if (captureTraceStableId != null)
+      'captureTraceStableId': captureTraceStableId,
+    if (widgetName != null) 'widgetName': widgetName,
+    if (routeName != null) 'routeName': routeName,
+    if (observationSource != null) 'observationSource': observationSource!.name,
+    if (interactionContext != null)
+      'interactionContext': interactionContext!.name,
+    'debugModeDisclaimer': debugModeDisclaimer,
+    if (detectedAt != null) 'detectedAt': detectedAt!.toIso8601String(),
+    if (ancestorChain != null) 'ancestorChain': ancestorChain,
+    if (fixEffort != null) 'fixEffort': fixEffort!.name,
+    if (topAllocators != null)
+      'topAllocators': topAllocators!.map((a) => a.toJson()).toList(),
+    if (rankingScore != null) 'rankingScore': rankingScore,
+    if (rankingBreakdown != null) 'rankingBreakdown': rankingBreakdown,
+    // Canonical post-v0.24.2 emission: derive singular from plural so
+    if (rootCauseIds != null) 'rootCauseIds': rootCauseIds,
+    if (downstreamIds != null) 'downstreamIds': downstreamIds,
+    if (confidenceReason != null) 'confidenceReason': confidenceReason,
+    if (packageName != null) 'packageName': packageName,
+    if (scaffoldHashKey != null) 'scaffoldHashKey': scaffoldHashKey,
+    if (tabVisitIndex != null) 'tabVisitIndex': tabVisitIndex,
+    if (sourceRoute != null) 'sourceRoute': sourceRoute,
+  };
 
   /// Deserializes a [PerformanceIssue] from a JSON map.
   ///
@@ -341,11 +340,14 @@ class PerformanceIssue {
       // (renamed value, numeric coercion, missing key) instead of
       // throwing and poisoning the whole snapshot. Matches the
       // per-entry defensive-cast policy applied to `topAllocators`.
-      severity: _tryParseEnum(IssueSeverity.values, json['severity']) ??
+      severity:
+          _tryParseEnum(IssueSeverity.values, json['severity']) ??
           IssueSeverity.warning,
-      category: _tryParseEnum(IssueCategory.values, json['category']) ??
+      category:
+          _tryParseEnum(IssueCategory.values, json['category']) ??
           IssueCategory.build,
-      confidence: _tryParseEnum(IssueConfidence.values, json['confidence']) ??
+      confidence:
+          _tryParseEnum(IssueConfidence.values, json['confidence']) ??
           IssueConfidence.possible,
       title: json['title'] as String,
       detail: json['detail'] as String,
@@ -354,10 +356,14 @@ class PerformanceIssue {
       captureTraceStableId: json['captureTraceStableId'] as String?,
       widgetName: json['widgetName'] as String?,
       routeName: json['routeName'] as String?,
-      observationSource:
-          _tryParseEnum(ObservationSource.values, json['observationSource']),
-      interactionContext:
-          _tryParseEnum(InteractionContext.values, json['interactionContext']),
+      observationSource: _tryParseEnum(
+        ObservationSource.values,
+        json['observationSource'],
+      ),
+      interactionContext: _tryParseEnum(
+        InteractionContext.values,
+        json['interactionContext'],
+      ),
       debugModeDisclaimer: json['debugModeDisclaimer'] as bool? ?? false,
       // Guard against FormatException on malformed ISO strings (e.g. a
       // JS consumer stamping a non-ISO date, an IDE MCP re-exporter
@@ -379,8 +385,9 @@ class PerformanceIssue {
       topAllocators: json['topAllocators'] is List
           ? _tryParseAllocationEntries(json['topAllocators'] as List)
           : null,
-      rankingScore:
-          json['rankingScore'] is int ? json['rankingScore'] as int : null,
+      rankingScore: json['rankingScore'] is int
+          ? json['rankingScore'] as int
+          : null,
       rankingBreakdown: json['rankingBreakdown'] is Map<String, dynamic>
           ? {
               for (final entry
@@ -411,8 +418,9 @@ class PerformanceIssue {
       scaffoldHashKey: json['scaffoldHashKey'] is int
           ? json['scaffoldHashKey'] as int
           : null,
-      tabVisitIndex:
-          json['tabVisitIndex'] is int ? json['tabVisitIndex'] as int : null,
+      tabVisitIndex: json['tabVisitIndex'] is int
+          ? json['tabVisitIndex'] as int
+          : null,
       sourceRoute: json['sourceRoute'] as String?,
     );
   }
@@ -487,14 +495,17 @@ class PerformanceIssue {
   @override
   String toString() {
     final route = routeName != null ? ', route: $routeName' : '';
-    final source =
-        observationSource != null ? ', source: $observationSource' : '';
-    final interaction =
-        interactionContext != null ? ', interaction: $interactionContext' : '';
+    final source = observationSource != null
+        ? ', source: $observationSource'
+        : '';
+    final interaction = interactionContext != null
+        ? ', interaction: $interactionContext'
+        : '';
     final chain = ancestorChain != null ? ', chain: $ancestorChain' : '';
     final effort = fixEffort != null ? ', effort: $fixEffort' : '';
-    final allocs =
-        topAllocators != null ? ', allocators: ${topAllocators!.length}' : '';
+    final allocs = topAllocators != null
+        ? ', allocators: ${topAllocators!.length}'
+        : '';
     return 'PerformanceIssue($severity, $category, $confidence, "$title"$route$source$interaction$chain$effort$allocs)';
   }
 
@@ -551,20 +562,20 @@ T? _tryParseEnum<T extends Enum>(List<T> values, Object? raw) {
 
 extension InteractionContextDisplay on InteractionContext {
   String get displayName => switch (this) {
-        InteractionContext.idle => 'idle',
-        InteractionContext.scrolling => 'scrolling',
-        InteractionContext.navigating => 'route transition',
-        InteractionContext.typing => 'typing',
-        InteractionContext.appLifecycle => 'app lifecycle',
-      };
+    InteractionContext.idle => 'idle',
+    InteractionContext.scrolling => 'scrolling',
+    InteractionContext.navigating => 'route transition',
+    InteractionContext.typing => 'typing',
+    InteractionContext.appLifecycle => 'app lifecycle',
+  };
 }
 
 extension ObservationSourceDisplay on ObservationSource {
   String get displayName => switch (this) {
-        ObservationSource.structural => 'structural scan',
-        ObservationSource.vmTimeline => 'VM timeline',
-        ObservationSource.debugCallback => 'debug callback',
-        ObservationSource.debugCallbackAndStructural =>
-          'debug callback + structural',
-      };
+    ObservationSource.structural => 'structural scan',
+    ObservationSource.vmTimeline => 'VM timeline',
+    ObservationSource.debugCallback => 'debug callback',
+    ObservationSource.debugCallbackAndStructural =>
+      'debug callback + structural',
+  };
 }

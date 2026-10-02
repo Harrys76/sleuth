@@ -124,94 +124,91 @@ class FrameVerdict {
   FrameVerdict withNetworkContext({
     required int pendingRequestCount,
     int? slowestPendingMs,
-  }) =>
-      FrameVerdict(
-        frameNumber: frameNumber,
-        totalFrameTime: totalFrameTime,
-        uiThreadTime: uiThreadTime,
-        rasterThreadTime: rasterThreadTime,
-        buildScopeTime: buildScopeTime,
-        flushLayoutTime: flushLayoutTime,
-        flushPaintTime: flushPaintTime,
-        totalSpan: totalSpan,
-        buildToRasterGapTime: buildToRasterGapTime,
-        suspectedPhase: suspectedPhase,
-        reason: reason,
-        relatedIssues: relatedIssues,
-        isFullMode: isFullMode,
-        isCorrelated: isCorrelated,
-        correlationCoverage: correlationCoverage,
-        topFunctions: topFunctions,
-        pendingRequestCount: pendingRequestCount,
-        slowestPendingMs: slowestPendingMs,
-      );
+  }) => FrameVerdict(
+    frameNumber: frameNumber,
+    totalFrameTime: totalFrameTime,
+    uiThreadTime: uiThreadTime,
+    rasterThreadTime: rasterThreadTime,
+    buildScopeTime: buildScopeTime,
+    flushLayoutTime: flushLayoutTime,
+    flushPaintTime: flushPaintTime,
+    totalSpan: totalSpan,
+    buildToRasterGapTime: buildToRasterGapTime,
+    suspectedPhase: suspectedPhase,
+    reason: reason,
+    relatedIssues: relatedIssues,
+    isFullMode: isFullMode,
+    isCorrelated: isCorrelated,
+    correlationCoverage: correlationCoverage,
+    topFunctions: topFunctions,
+    pendingRequestCount: pendingRequestCount,
+    slowestPendingMs: slowestPendingMs,
+  );
 
   Map<String, dynamic> toJson() => {
-        'frameNumber': frameNumber,
-        'totalFrameTimeUs': totalFrameTime.inMicroseconds,
-        'uiThreadTimeUs': uiThreadTime.inMicroseconds,
-        'rasterThreadTimeUs': rasterThreadTime.inMicroseconds,
-        if (buildScopeTime != null)
-          'buildScopeTimeUs': buildScopeTime!.inMicroseconds,
-        if (flushLayoutTime != null)
-          'flushLayoutTimeUs': flushLayoutTime!.inMicroseconds,
-        if (flushPaintTime != null)
-          'flushPaintTimeUs': flushPaintTime!.inMicroseconds,
-        if (totalSpan != null) 'totalSpanUs': totalSpan!.inMicroseconds,
-        if (buildToRasterGapTime != null)
-          'buildToRasterGapTimeUs': buildToRasterGapTime!.inMicroseconds,
-        'suspectedPhase': suspectedPhase.name,
-        'reason': reason,
-        'relatedIssues': relatedIssues.map((i) => i.toJson()).toList(),
-        'isFullMode': isFullMode,
-        'isCorrelated': isCorrelated,
-        if (correlationCoverage != null)
-          'correlationCoverage': correlationCoverage,
-        if (topFunctions != null && topFunctions!.isNotEmpty)
-          'topFunctions': topFunctions!.map((f) => f.toJson()).toList(),
-        if (pendingRequestCount != null)
-          'pendingRequestCount': pendingRequestCount,
-        if (slowestPendingMs != null) 'slowestPendingMs': slowestPendingMs,
-      };
+    'frameNumber': frameNumber,
+    'totalFrameTimeUs': totalFrameTime.inMicroseconds,
+    'uiThreadTimeUs': uiThreadTime.inMicroseconds,
+    'rasterThreadTimeUs': rasterThreadTime.inMicroseconds,
+    if (buildScopeTime != null)
+      'buildScopeTimeUs': buildScopeTime!.inMicroseconds,
+    if (flushLayoutTime != null)
+      'flushLayoutTimeUs': flushLayoutTime!.inMicroseconds,
+    if (flushPaintTime != null)
+      'flushPaintTimeUs': flushPaintTime!.inMicroseconds,
+    if (totalSpan != null) 'totalSpanUs': totalSpan!.inMicroseconds,
+    if (buildToRasterGapTime != null)
+      'buildToRasterGapTimeUs': buildToRasterGapTime!.inMicroseconds,
+    'suspectedPhase': suspectedPhase.name,
+    'reason': reason,
+    'relatedIssues': relatedIssues.map((i) => i.toJson()).toList(),
+    'isFullMode': isFullMode,
+    'isCorrelated': isCorrelated,
+    if (correlationCoverage != null) 'correlationCoverage': correlationCoverage,
+    if (topFunctions != null && topFunctions!.isNotEmpty)
+      'topFunctions': topFunctions!.map((f) => f.toJson()).toList(),
+    if (pendingRequestCount != null) 'pendingRequestCount': pendingRequestCount,
+    if (slowestPendingMs != null) 'slowestPendingMs': slowestPendingMs,
+  };
 
   factory FrameVerdict.fromJson(Map<String, dynamic> json) => FrameVerdict(
-        frameNumber: json['frameNumber'] as int,
-        totalFrameTime: Duration(microseconds: json['totalFrameTimeUs'] as int),
-        uiThreadTime: Duration(microseconds: json['uiThreadTimeUs'] as int),
-        rasterThreadTime:
-            Duration(microseconds: json['rasterThreadTimeUs'] as int),
-        buildScopeTime: json['buildScopeTimeUs'] != null
-            ? Duration(microseconds: json['buildScopeTimeUs'] as int)
-            : null,
-        flushLayoutTime: json['flushLayoutTimeUs'] != null
-            ? Duration(microseconds: json['flushLayoutTimeUs'] as int)
-            : null,
-        flushPaintTime: json['flushPaintTimeUs'] != null
-            ? Duration(microseconds: json['flushPaintTimeUs'] as int)
-            : null,
-        totalSpan: json['totalSpanUs'] != null
-            ? Duration(microseconds: json['totalSpanUs'] as int)
-            : null,
-        buildToRasterGapTime: json['buildToRasterGapTimeUs'] != null
-            ? Duration(microseconds: json['buildToRasterGapTimeUs'] as int)
-            : null,
-        suspectedPhase:
-            PipelinePhase.values.byName(json['suspectedPhase'] as String),
-        reason: json['reason'] as String,
-        relatedIssues: (json['relatedIssues'] as List<dynamic>?)
-                ?.map(
-                    (e) => PerformanceIssue.fromJson(e as Map<String, dynamic>))
-                .toList() ??
-            const [],
-        isFullMode: json['isFullMode'] as bool? ?? false,
-        isCorrelated: json['isCorrelated'] as bool? ?? false,
-        correlationCoverage: (json['correlationCoverage'] as num?)?.toDouble(),
-        topFunctions: (json['topFunctions'] as List<dynamic>?)
-            ?.map((e) => CpuAttribution.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        pendingRequestCount: json['pendingRequestCount'] as int?,
-        slowestPendingMs: json['slowestPendingMs'] as int?,
-      );
+    frameNumber: json['frameNumber'] as int,
+    totalFrameTime: Duration(microseconds: json['totalFrameTimeUs'] as int),
+    uiThreadTime: Duration(microseconds: json['uiThreadTimeUs'] as int),
+    rasterThreadTime: Duration(microseconds: json['rasterThreadTimeUs'] as int),
+    buildScopeTime: json['buildScopeTimeUs'] != null
+        ? Duration(microseconds: json['buildScopeTimeUs'] as int)
+        : null,
+    flushLayoutTime: json['flushLayoutTimeUs'] != null
+        ? Duration(microseconds: json['flushLayoutTimeUs'] as int)
+        : null,
+    flushPaintTime: json['flushPaintTimeUs'] != null
+        ? Duration(microseconds: json['flushPaintTimeUs'] as int)
+        : null,
+    totalSpan: json['totalSpanUs'] != null
+        ? Duration(microseconds: json['totalSpanUs'] as int)
+        : null,
+    buildToRasterGapTime: json['buildToRasterGapTimeUs'] != null
+        ? Duration(microseconds: json['buildToRasterGapTimeUs'] as int)
+        : null,
+    suspectedPhase: PipelinePhase.values.byName(
+      json['suspectedPhase'] as String,
+    ),
+    reason: json['reason'] as String,
+    relatedIssues:
+        (json['relatedIssues'] as List<dynamic>?)
+            ?.map((e) => PerformanceIssue.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        const [],
+    isFullMode: json['isFullMode'] as bool? ?? false,
+    isCorrelated: json['isCorrelated'] as bool? ?? false,
+    correlationCoverage: (json['correlationCoverage'] as num?)?.toDouble(),
+    topFunctions: (json['topFunctions'] as List<dynamic>?)
+        ?.map((e) => CpuAttribution.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    pendingRequestCount: json['pendingRequestCount'] as int?,
+    slowestPendingMs: json['slowestPendingMs'] as int?,
+  );
 
   @override
   String toString() {

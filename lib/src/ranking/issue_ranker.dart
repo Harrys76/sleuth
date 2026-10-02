@@ -79,10 +79,12 @@ class IssueRanker {
       return a.index.compareTo(b.index);
     });
     return scored
-        .map((s) => s.issue.copyWith(
-              rankingScore: s.score,
-              rankingBreakdown: _breakdown(s.issue, context),
-            ))
+        .map(
+          (s) => s.issue.copyWith(
+            rankingScore: s.score,
+            rankingBreakdown: _breakdown(s.issue, context),
+          ),
+        )
         .toList();
   }
 
@@ -92,7 +94,9 @@ class IssueRanker {
 
   int _score(PerformanceIssue issue, IssueRankingContext context) {
     var recurrence = _recurrenceScore(
-        issue.stableId ?? issue.title, context.recurrenceCounts);
+      issue.stableId ?? issue.title,
+      context.recurrenceCounts,
+    );
     // Deprioritize transient-context issues
     if (issue.interactionContext == InteractionContext.scrolling ||
         issue.interactionContext == InteractionContext.appLifecycle) {
@@ -105,26 +109,28 @@ class IssueRanker {
   }
 
   int _severityScore(IssueSeverity s) => switch (s) {
-        IssueSeverity.critical => 3,
-        IssueSeverity.warning => 2,
-        IssueSeverity.ok => 1,
-      };
+    IssueSeverity.critical => 3,
+    IssueSeverity.warning => 2,
+    IssueSeverity.ok => 1,
+  };
 
   int _confidenceScore(IssueConfidence c) => switch (c) {
-        IssueConfidence.confirmed => 3,
-        IssueConfidence.likely => 2,
-        IssueConfidence.possible => 1,
-      };
+    IssueConfidence.confirmed => 3,
+    IssueConfidence.likely => 2,
+    IssueConfidence.possible => 1,
+  };
 
   int _frameImpactScore(IssueCategory category, IssueRankingContext ctx) {
     if (!ctx.jankActive) return 0;
     final phase = ctx.suspectedPhase;
     if (phase == null || phase == PipelinePhase.unknown) return 1;
-    final isUiThread = phase == PipelinePhase.build ||
+    final isUiThread =
+        phase == PipelinePhase.build ||
         phase == PipelinePhase.layout ||
         phase == PipelinePhase.paint;
     final isRasterThread = phase == PipelinePhase.raster;
-    final matches = (isUiThread &&
+    final matches =
+        (isUiThread &&
             (category == IssueCategory.build ||
                 category == IssueCategory.layout ||
                 category == IssueCategory.paint)) ||
@@ -138,9 +144,13 @@ class IssueRanker {
   }
 
   Map<String, int> _breakdown(
-      PerformanceIssue issue, IssueRankingContext context) {
+    PerformanceIssue issue,
+    IssueRankingContext context,
+  ) {
     var recurrence = _recurrenceScore(
-        issue.stableId ?? issue.title, context.recurrenceCounts);
+      issue.stableId ?? issue.title,
+      context.recurrenceCounts,
+    );
     if (issue.interactionContext == InteractionContext.scrolling ||
         issue.interactionContext == InteractionContext.appLifecycle) {
       recurrence = (recurrence * 0.7).round();

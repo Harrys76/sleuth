@@ -115,10 +115,7 @@ class DaemonParser {
         if (appId is! String) {
           return UnknownDaemonEvent(eventName: name, params: params);
         }
-        return AppStopEvent(
-          appId: appId,
-          error: params['error'] as String?,
-        );
+        return AppStopEvent(appId: appId, error: params['error'] as String?);
       case 'app.log':
         final appId = params['appId'];
         final log = params['log'];

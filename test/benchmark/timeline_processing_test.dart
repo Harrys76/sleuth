@@ -57,20 +57,17 @@ void main() {
         rebuild.vmConnected = true;
         repaint.vmConnected = true;
 
-        final avgUs = benchmarkUs(
-          'feed $count events to 7 detectors',
-          () {
-            shaderJank.processTimelineData(data);
-            heavyCompute.processTimelineData(data);
-            platformChannel.processTimelineData(data);
-            memoryPressure.processTimelineData(data);
-            repaint.processTimelineData(data);
-            rebuild.processTimelineData(data);
-            gpuPressure.processTimelineData(data);
-            rebuild.evaluateNow();
-            repaint.evaluateNow();
-          },
-        );
+        final avgUs = benchmarkUs('feed $count events to 7 detectors', () {
+          shaderJank.processTimelineData(data);
+          heavyCompute.processTimelineData(data);
+          platformChannel.processTimelineData(data);
+          memoryPressure.processTimelineData(data);
+          repaint.processTimelineData(data);
+          rebuild.processTimelineData(data);
+          gpuPressure.processTimelineData(data);
+          rebuild.evaluateNow();
+          repaint.evaluateNow();
+        });
 
         expect(avgUs, lessThan(budget));
       });

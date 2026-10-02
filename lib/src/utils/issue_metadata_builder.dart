@@ -23,12 +23,10 @@ class IssueMetadataBuilder {
         ? 'Debug mode adds overhead \u2014 verify in profile mode'
         : 'Profile mode \u2014 timing data is production-accurate';
     final verifyWith = switch (issue.category) {
-      IssueCategory.build ||
-      IssueCategory.layout =>
+      IssueCategory.build || IssueCategory.layout =>
         'DevTools \u2192 Performance \u2192 Frame Analysis',
       IssueCategory.paint ||
-      IssueCategory.raster =>
-        'DevTools \u2192 Performance \u2192 Raster Stats',
+      IssueCategory.raster => 'DevTools \u2192 Performance \u2192 Raster Stats',
       IssueCategory.memory =>
         'DevTools \u2192 Memory \u2192 Allocation Tracking',
       IssueCategory.channel =>

@@ -34,9 +34,7 @@ void main() {
     });
 
     test('startedAt serialized as ISO 8601', () {
-      final record = makeRecord(
-        startedAt: DateTime(2026, 3, 15, 10, 30, 0),
-      );
+      final record = makeRecord(startedAt: DateTime(2026, 3, 15, 10, 30, 0));
       final json = record.toJson();
       expect(json['startedAt'], '2026-03-15T10:30:00.000');
     });

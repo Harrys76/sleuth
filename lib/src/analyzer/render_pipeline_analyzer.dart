@@ -41,8 +41,9 @@ class RenderPipelineAnalyzer {
       frameNumber: frameStats.frameNumber,
       totalFrameTime: frameStats.totalDuration,
       totalSpan: frameStats.totalSpan,
-      buildToRasterGapTime:
-          frameStats.totalSpan != null ? frameStats.buildToRasterGap : null,
+      buildToRasterGapTime: frameStats.totalSpan != null
+          ? frameStats.buildToRasterGap
+          : null,
       uiThreadTime: frameStats.uiDuration,
       rasterThreadTime: frameStats.rasterDuration,
       suspectedPhase: suspected,
@@ -122,8 +123,9 @@ class RenderPipelineAnalyzer {
       frameNumber: frameStats.frameNumber,
       totalFrameTime: frameStats.totalDuration,
       totalSpan: frameStats.totalSpan,
-      buildToRasterGapTime:
-          frameStats.totalSpan != null ? frameStats.buildToRasterGap : null,
+      buildToRasterGapTime: frameStats.totalSpan != null
+          ? frameStats.buildToRasterGap
+          : null,
       uiThreadTime: frameStats.uiDuration,
       rasterThreadTime: frameStats.rasterDuration,
       buildScopeTime: Duration(microseconds: buildUs),
@@ -200,8 +202,9 @@ class RenderPipelineAnalyzer {
       frameNumber: frameStats.frameNumber,
       totalFrameTime: frameStats.totalDuration,
       totalSpan: frameStats.totalSpan,
-      buildToRasterGapTime:
-          frameStats.totalSpan != null ? frameStats.buildToRasterGap : null,
+      buildToRasterGapTime: frameStats.totalSpan != null
+          ? frameStats.buildToRasterGap
+          : null,
       uiThreadTime: frameStats.uiDuration,
       rasterThreadTime: frameStats.rasterDuration,
       buildScopeTime: Duration(microseconds: buildUs),

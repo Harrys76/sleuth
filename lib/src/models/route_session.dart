@@ -67,8 +67,9 @@ class RouteSession {
 
   /// Per-route frame stats ring buffer, capacity derived from [fpsTarget]
   /// so 120 Hz devices retain a full 1 s window.
-  late final FrameStatsBuffer frameStats =
-      FrameStatsBuffer(fpsTarget: fpsTarget);
+  late final FrameStatsBuffer frameStats = FrameStatsBuffer(
+    fpsTarget: fpsTarget,
+  );
 
   /// Latest snapshot of each issue observed while this route was active,
   /// keyed by `stableId ?? title`. Upserted each scan cycle — only the
@@ -132,8 +133,9 @@ class RouteSession {
 
     // FPS component: 40 points max. When no frames, grant full 40.
     final target = fpsTarget > 0 ? fpsTarget.toDouble() : 60.0;
-    final fpsComponent =
-        total == 0 ? 40.0 : (fps / target * 40.0).clamp(0.0, 40.0);
+    final fpsComponent = total == 0
+        ? 40.0
+        : (fps / target * 40.0).clamp(0.0, 40.0);
 
     // Jank penalty: 30 points max
     final jankRatio = total > 0 ? jank / total : 0.0;
@@ -149,8 +151,9 @@ class RouteSession {
         warningCount++;
       }
     }
-    final issuePenalty =
-        math.min(criticalCount * 10 + warningCount * 3, 30).toDouble();
+    final issuePenalty = math
+        .min(criticalCount * 10 + warningCount * 3, 30)
+        .toDouble();
 
     return (fpsComponent + (30.0 - jankPenalty) + (30.0 - issuePenalty))
         .round()

@@ -212,47 +212,47 @@ class SleuthThemeData {
   /// retain their dark-theme values because they are used on colored
   /// backgrounds where the dark value provides correct contrast.
   const SleuthThemeData.light()
-      : this(
-          // Surfaces
-          cardBackground: const Color(0xF5FFFFFF),
-          pageBackground: const Color(0xFFF9FAFB),
-          sectionBackground: const Color(0xFFF3F4F6),
-          aboutBackground: const Color(0xFFE5E7EB),
-          fixHintBackground: const Color(0xFFEFF6FF),
-          border: const Color(0xFFD1D5DB),
-          cardDefault: const Color(0xFFE5E7EB),
-          cardHighlighted: const Color(0xFFDBEAFE),
-          cardJankFlash: const Color(0xFFFEE2E2),
-          // Text (dark on light)
-          textPrimary: const Color(0xFF111827),
-          textSecondary: const Color(0xFF374151),
-          textTertiary: const Color(0xFF6B7280),
-          textQuaternary: const Color(0xFF9CA3AF),
-          textSubtle: const Color(0xFFD1D5DB),
-          // Badge pairs (inverted: light bg, dark text)
-          badgeVmBg: const Color(0xFFD1FAE5),
-          badgeVmText: const Color(0xFF065F46),
-          badgeFrameBg: const Color(0xFFDBEAFE),
-          badgeFrameText: const Color(0xFF1E3A5F),
-          badgeDbgBg: const Color(0xFFEDE9FE),
-          badgeDbgText: const Color(0xFF5B21B6),
-          // Banner pairs (inverted)
-          bannerDebugBg: const Color(0xFFFEF3C7),
-          bannerDebugText: const Color(0xFF92400E),
-          bannerInstrumentationBg: const Color(0xFFEDE9FE),
-          bannerInstrumentationText: const Color(0xFF5B21B6),
-          bannerSuccessBg: const Color(0xFFD1FAE5),
-          bannerSuccessText: const Color(0xFF065F46),
-          bannerWarningBg: const Color(0xFFFEF3C7),
-          bannerWarningText: const Color(0xFF78350F),
-          // Special (contrast-appropriate for light bg)
-          fixHintText: const Color(0xFF1D4ED8),
-          disclaimerText: const Color(0xFF92400E),
-          dimOverlay: const Color(0x22000000),
-          shadow: const Color(0x33000000),
-          gripDots: const Color(0xFF6B7280),
-          triggerBadgeBg: const Color(0xFFE5E7EB),
-        );
+    : this(
+        // Surfaces
+        cardBackground: const Color(0xF5FFFFFF),
+        pageBackground: const Color(0xFFF9FAFB),
+        sectionBackground: const Color(0xFFF3F4F6),
+        aboutBackground: const Color(0xFFE5E7EB),
+        fixHintBackground: const Color(0xFFEFF6FF),
+        border: const Color(0xFFD1D5DB),
+        cardDefault: const Color(0xFFE5E7EB),
+        cardHighlighted: const Color(0xFFDBEAFE),
+        cardJankFlash: const Color(0xFFFEE2E2),
+        // Text (dark on light)
+        textPrimary: const Color(0xFF111827),
+        textSecondary: const Color(0xFF374151),
+        textTertiary: const Color(0xFF6B7280),
+        textQuaternary: const Color(0xFF9CA3AF),
+        textSubtle: const Color(0xFFD1D5DB),
+        // Badge pairs (inverted: light bg, dark text)
+        badgeVmBg: const Color(0xFFD1FAE5),
+        badgeVmText: const Color(0xFF065F46),
+        badgeFrameBg: const Color(0xFFDBEAFE),
+        badgeFrameText: const Color(0xFF1E3A5F),
+        badgeDbgBg: const Color(0xFFEDE9FE),
+        badgeDbgText: const Color(0xFF5B21B6),
+        // Banner pairs (inverted)
+        bannerDebugBg: const Color(0xFFFEF3C7),
+        bannerDebugText: const Color(0xFF92400E),
+        bannerInstrumentationBg: const Color(0xFFEDE9FE),
+        bannerInstrumentationText: const Color(0xFF5B21B6),
+        bannerSuccessBg: const Color(0xFFD1FAE5),
+        bannerSuccessText: const Color(0xFF065F46),
+        bannerWarningBg: const Color(0xFFFEF3C7),
+        bannerWarningText: const Color(0xFF78350F),
+        // Special (contrast-appropriate for light bg)
+        fixHintText: const Color(0xFF1D4ED8),
+        disclaimerText: const Color(0xFF92400E),
+        dimOverlay: const Color(0x22000000),
+        shadow: const Color(0x33000000),
+        gripDots: const Color(0xFF6B7280),
+        triggerBadgeBg: const Color(0xFFE5E7EB),
+      );
 
   // ── Severity ──
   final Color severityCritical;
@@ -380,39 +380,39 @@ class SleuthThemeData {
 
   /// Returns the color for a given [IssueCategory].
   Color categoryColor(IssueCategory category) => switch (category) {
-        IssueCategory.build => categoryBuild,
-        IssueCategory.layout => categoryLayout,
-        IssueCategory.paint => categoryPaint,
-        IssueCategory.raster => categoryRaster,
-        IssueCategory.memory => categoryMemory,
-        IssueCategory.channel => categoryChannel,
-        IssueCategory.font => categoryFont,
-        IssueCategory.network => categoryNetwork,
-        IssueCategory.startup => categoryStartup,
-      };
+    IssueCategory.build => categoryBuild,
+    IssueCategory.layout => categoryLayout,
+    IssueCategory.paint => categoryPaint,
+    IssueCategory.raster => categoryRaster,
+    IssueCategory.memory => categoryMemory,
+    IssueCategory.channel => categoryChannel,
+    IssueCategory.font => categoryFont,
+    IssueCategory.network => categoryNetwork,
+    IssueCategory.startup => categoryStartup,
+  };
 
   /// Returns the color for a given [IssueConfidence].
   Color confidenceColor(IssueConfidence confidence) => switch (confidence) {
-        IssueConfidence.confirmed => confidenceConfirmed,
-        IssueConfidence.likely => confidenceLikely,
-        IssueConfidence.possible => confidencePossible,
-      };
+    IssueConfidence.confirmed => confidenceConfirmed,
+    IssueConfidence.likely => confidenceLikely,
+    IssueConfidence.possible => confidencePossible,
+  };
 
   /// Returns the left-border accent color for a given [ObservationSource].
   Color sourceAccentColor(ObservationSource? source) => switch (source) {
-        ObservationSource.vmTimeline => sourceVmTimeline,
-        ObservationSource.debugCallback => sourceDebugCallback,
-        ObservationSource.debugCallbackAndStructural => sourceDebugCallback,
-        ObservationSource.structural => sourceStructural,
-        null => sourceNone,
-      };
+    ObservationSource.vmTimeline => sourceVmTimeline,
+    ObservationSource.debugCallback => sourceDebugCallback,
+    ObservationSource.debugCallbackAndStructural => sourceDebugCallback,
+    ObservationSource.structural => sourceStructural,
+    null => sourceNone,
+  };
 
   /// Returns the color for a given [FixEffort].
   Color effortColor(FixEffort effort) => switch (effort) {
-        FixEffort.quick => effortQuick,
-        FixEffort.medium => effortMedium,
-        FixEffort.involved => effortInvolved,
-      };
+    FixEffort.quick => effortQuick,
+    FixEffort.medium => effortMedium,
+    FixEffort.involved => effortInvolved,
+  };
 
   /// Returns green/amber/red based on [fps] relative to [target].
   Color fpsColor(double fps, {int target = 60}) {
@@ -620,11 +620,7 @@ class SleuthThemeData {
 /// Package-internal — consumers configure theming via [SleuthConfig.theme],
 /// not by placing this widget themselves.
 class SleuthTheme extends InheritedWidget {
-  const SleuthTheme({
-    super.key,
-    required this.data,
-    required super.child,
-  });
+  const SleuthTheme({super.key, required this.data, required super.child});
 
   final SleuthThemeData data;
 

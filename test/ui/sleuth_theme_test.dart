@@ -131,7 +131,9 @@ void main() {
 
     test('returns correct color for all 3 levels', () {
       expect(
-          t.confidenceColor(IssueConfidence.confirmed), t.confidenceConfirmed);
+        t.confidenceColor(IssueConfidence.confirmed),
+        t.confidenceConfirmed,
+      );
       expect(t.confidenceColor(IssueConfidence.likely), t.confidenceLikely);
       expect(t.confidenceColor(IssueConfidence.possible), t.confidencePossible);
     });
@@ -141,14 +143,22 @@ void main() {
     const t = SleuthThemeData();
 
     test('returns correct color for all sources and null', () {
-      expect(t.sourceAccentColor(ObservationSource.vmTimeline),
-          t.sourceVmTimeline);
-      expect(t.sourceAccentColor(ObservationSource.debugCallback),
-          t.sourceDebugCallback);
-      expect(t.sourceAccentColor(ObservationSource.debugCallbackAndStructural),
-          t.sourceDebugCallback);
-      expect(t.sourceAccentColor(ObservationSource.structural),
-          t.sourceStructural);
+      expect(
+        t.sourceAccentColor(ObservationSource.vmTimeline),
+        t.sourceVmTimeline,
+      );
+      expect(
+        t.sourceAccentColor(ObservationSource.debugCallback),
+        t.sourceDebugCallback,
+      );
+      expect(
+        t.sourceAccentColor(ObservationSource.debugCallbackAndStructural),
+        t.sourceDebugCallback,
+      );
+      expect(
+        t.sourceAccentColor(ObservationSource.structural),
+        t.sourceStructural,
+      );
       expect(t.sourceAccentColor(null), t.sourceNone);
     });
   });
@@ -209,8 +219,9 @@ void main() {
       expect(captured.textPrimary, const Color(0xFFFFFFFF));
     });
 
-    testWidgets('of() returns provided theme when ancestor exists',
-        (tester) async {
+    testWidgets('of() returns provided theme when ancestor exists', (
+      tester,
+    ) async {
       late SleuthThemeData captured;
       const light = SleuthThemeData.light();
 

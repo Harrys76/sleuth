@@ -17,22 +17,24 @@ void main() {
     expect(map.containsKey('warning'), isFalse);
   });
 
-  test('connect tool flags minor version skew on same-lineage patch drift',
-      () async {
-    // Same major.minor as the sidecar pin, differing patch.
-    // Wire contract holds — surface `version_skew_minor` advisory.
-    final bridge = FakeVmBridge(fakeSessionUuid: 'uuid')
-      ..setEnvelope('ext.sleuth.diagnose', {
-        'connectionMode': 'basic',
-        'schemaVersion': 1,
-        'sessionUuid': 'uuid',
-        'data': {'packageVersion': '0.36.99'},
-      });
-    final handler = builtInTools['connect']!.handler;
-    final result = await handler(bridge, {'uri': 'ws://localhost/ws'});
-    final map = result as Map<String, Object?>;
-    expect(map['warning'], 'version_skew_minor');
-  });
+  test(
+    'connect tool flags minor version skew on same-lineage patch drift',
+    () async {
+      // Same major.minor as the sidecar pin, differing patch.
+      // Wire contract holds — surface `version_skew_minor` advisory.
+      final bridge = FakeVmBridge(fakeSessionUuid: 'uuid')
+        ..setEnvelope('ext.sleuth.diagnose', {
+          'connectionMode': 'basic',
+          'schemaVersion': 1,
+          'sessionUuid': 'uuid',
+          'data': {'packageVersion': '0.36.99'},
+        });
+      final handler = builtInTools['connect']!.handler;
+      final result = await handler(bridge, {'uri': 'ws://localhost/ws'});
+      final map = result as Map<String, Object?>;
+      expect(map['warning'], 'version_skew_minor');
+    },
+  );
 
   test('connect tool refuses to serve on major version skew', () async {
     final bridge = FakeVmBridge(fakeSessionUuid: 'uuid')
@@ -81,8 +83,11 @@ void main() {
     expect(tc.isError, isTrue);
     final text = tc.content.first['text'] as String;
     expect(text, contains('version_skew_unknown'));
-    expect(bridge.isConnected, isFalse,
-        reason: 'bridge must be torn down when version cannot be verified');
+    expect(
+      bridge.isConnected,
+      isFalse,
+      reason: 'bridge must be torn down when version cannot be verified',
+    );
   });
 
   test('connect tool fails closed when packageVersion is non-String', () async {
@@ -104,23 +109,28 @@ void main() {
     expect(bridge.isConnected, isFalse);
   });
 
-  test('connect tool stamps version_skew_prior_lineage on accepted-prior drift',
-      () async {
-    // `acceptedPriorLineages` (one-cycle fallback) — the connection is
-    // allowed but the warning string distinguishes "patch drift on the
-    // same lineage" from "transition-window cross-lineage tolerance".
-    final bridge = FakeVmBridge(fakeSessionUuid: 'uuid')
-      ..setEnvelope('ext.sleuth.diagnose', {
-        'connectionMode': 'basic',
-        'schemaVersion': 1,
-        'sessionUuid': 'uuid',
-        'data': {'packageVersion': '0.35.0'},
-      });
-    final handler = builtInTools['connect']!.handler;
-    final result = await handler(bridge, {'uri': 'ws://localhost/ws'});
-    final map = result as Map<String, Object?>;
-    expect(map['warning'], 'version_skew_prior_lineage',
-        reason: 'cross-lineage tolerance must surface its own warning string');
-    expect(bridge.isConnected, isTrue);
-  });
+  test(
+    'connect tool stamps version_skew_prior_lineage on accepted-prior drift',
+    () async {
+      // `acceptedPriorLineages` (one-cycle fallback) — the connection is
+      // allowed but the warning string distinguishes "patch drift on the
+      // same lineage" from "transition-window cross-lineage tolerance".
+      final bridge = FakeVmBridge(fakeSessionUuid: 'uuid')
+        ..setEnvelope('ext.sleuth.diagnose', {
+          'connectionMode': 'basic',
+          'schemaVersion': 1,
+          'sessionUuid': 'uuid',
+          'data': {'packageVersion': '0.35.0'},
+        });
+      final handler = builtInTools['connect']!.handler;
+      final result = await handler(bridge, {'uri': 'ws://localhost/ws'});
+      final map = result as Map<String, Object?>;
+      expect(
+        map['warning'],
+        'version_skew_prior_lineage',
+        reason: 'cross-lineage tolerance must surface its own warning string',
+      );
+      expect(bridge.isConnected, isTrue);
+    },
+  );
 }

@@ -385,16 +385,18 @@ void main() {
       expect(metrics.engineTtffMs, isNull);
     });
 
-    test('preDartOverheadMs returns null on negative delta (clock anomaly)',
-        () {
-      // engineEnterUs AFTER dartEntryMonotonicUs → negative delta → null
-      final metrics = StartupMetrics(
-        dartEntryTimestamp: DateTime.now(),
-        dartEntryMonotonicUs: 1000000,
-        engineEnterUs: 2000000, // engine timestamp after Dart entry
-      );
-      expect(metrics.preDartOverheadMs, isNull);
-    });
+    test(
+      'preDartOverheadMs returns null on negative delta (clock anomaly)',
+      () {
+        // engineEnterUs AFTER dartEntryMonotonicUs → negative delta → null
+        final metrics = StartupMetrics(
+          dartEntryTimestamp: DateTime.now(),
+          dartEntryMonotonicUs: 1000000,
+          engineEnterUs: 2000000, // engine timestamp after Dart entry
+        );
+        expect(metrics.preDartOverheadMs, isNull);
+      },
+    );
 
     test('copyWith updates engine fields', () {
       final original = StartupMetrics(
@@ -483,10 +485,9 @@ void main() {
       // called later. We can't mock FrameTiming, but we CAN verify that
       // markInteractive() correctly updates TTI on existing metrics.
       final before = DateTime.now();
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: before,
-        ttffMs: 1200,
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(dartEntryTimestamp: before, ttffMs: 1200),
+      );
       // TTI should be null initially.
       expect(Sleuth.startupMetrics!.ttiMs, isNull);
 
@@ -495,10 +496,9 @@ void main() {
       Sleuth.resetStartupForTest();
       Sleuth.init();
       // Inject metrics as if the first-frame callback fired.
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: before,
-        ttffMs: 1200,
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(dartEntryTimestamp: before, ttffMs: 1200),
+      );
       Sleuth.markInteractive();
       // markInteractive() should have set ttiMs since _dartEntryTimestamp
       // was captured by init().
@@ -509,10 +509,9 @@ void main() {
     test('markInteractive is no-op without init()', () {
       // Without init(), _dartEntryTimestamp is null, so markInteractive
       // should silently return without modifying metrics.
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: DateTime.now(),
-        ttffMs: 1200,
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(dartEntryTimestamp: DateTime.now(), ttffMs: 1200),
+      );
       Sleuth.markInteractive();
       // TTI remains null because init() was never called.
       expect(Sleuth.startupMetrics!.ttiMs, isNull);
@@ -536,11 +535,13 @@ void main() {
       // Since we can't trigger the real callback, verify the buffer
       // by setting metrics and re-enriching (the buffer was consumed
       // in the real callback path).
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: DateTime.now(),
-        ttffMs: 2000,
-        dartEntryMonotonicUs: 22614577000,
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(
+          dartEntryTimestamp: DateTime.now(),
+          ttffMs: 2000,
+          dartEntryMonotonicUs: 22614577000,
+        ),
+      );
 
       // Re-enrich to simulate what the controller does — the real fix
       // applies the buffer in the first-frame callback, but here we
@@ -555,11 +556,13 @@ void main() {
     });
 
     test('enrichment works normally when metrics already exist', () {
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: DateTime.now(),
-        ttffMs: 2000,
-        dartEntryMonotonicUs: 22614577000,
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(
+          dartEntryTimestamp: DateTime.now(),
+          ttffMs: 2000,
+          dartEntryMonotonicUs: 22614577000,
+        ),
+      );
 
       Sleuth.enrichStartupWithVmData(
         engineEnterUs: 22332982085,
@@ -585,11 +588,13 @@ void main() {
       expect(Sleuth.startupMetrics, isNull);
 
       // Set metrics, then re-enrich to simulate the direct-apply path.
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: DateTime.now(),
-        ttffMs: 2000,
-        dartEntryMonotonicUs: 22614577000,
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(
+          dartEntryTimestamp: DateTime.now(),
+          ttffMs: 2000,
+          dartEntryMonotonicUs: 22614577000,
+        ),
+      );
 
       Sleuth.enrichStartupWithVmData(
         engineEnterUs: 22332982085,
@@ -611,11 +616,13 @@ void main() {
     });
 
     test('sub-phases enrich directly when metrics already exist', () {
-      Sleuth.setStartupMetricsForTest(StartupMetrics(
-        dartEntryTimestamp: DateTime.now(),
-        ttffMs: 2000,
-        dartEntryMonotonicUs: 22614577000,
-      ));
+      Sleuth.setStartupMetricsForTest(
+        StartupMetrics(
+          dartEntryTimestamp: DateTime.now(),
+          ttffMs: 2000,
+          dartEntryMonotonicUs: 22614577000,
+        ),
+      );
 
       Sleuth.enrichStartupWithVmData(
         engineEnterUs: 22332982085,
@@ -725,21 +732,23 @@ void _setStartupMetrics({
   int? engineEnterUs,
   int? firstFrameRasterizedUs,
 }) {
-  Sleuth.setStartupMetricsForTest(StartupMetrics(
-    dartEntryTimestamp: DateTime.now(),
-    ttffMs: ttffMs,
-    ttiMs: ttiMs,
-    firstFrameBuildMs: buildMs,
-    firstFrameRasterMs: rasterMs,
-    firstFrameVsyncOverheadMs: vsyncMs,
-    firstFrameTotalMs: totalMs,
-    vmFirstBuildScopeMs: vmBuildScopeMs,
-    vmFirstFlushLayoutMs: vmFlushLayoutMs,
-    dartEntryMonotonicUs: dartEntryMonotonicUs,
-    frameworkInitDurationUs: frameworkInitDurationUs,
-    engineEnterUs: engineEnterUs,
-    firstFrameRasterizedUs: firstFrameRasterizedUs,
-  ));
+  Sleuth.setStartupMetricsForTest(
+    StartupMetrics(
+      dartEntryTimestamp: DateTime.now(),
+      ttffMs: ttffMs,
+      ttiMs: ttiMs,
+      firstFrameBuildMs: buildMs,
+      firstFrameRasterMs: rasterMs,
+      firstFrameVsyncOverheadMs: vsyncMs,
+      firstFrameTotalMs: totalMs,
+      vmFirstBuildScopeMs: vmBuildScopeMs,
+      vmFirstFlushLayoutMs: vmFlushLayoutMs,
+      dartEntryMonotonicUs: dartEntryMonotonicUs,
+      frameworkInitDurationUs: frameworkInitDurationUs,
+      engineEnterUs: engineEnterUs,
+      firstFrameRasterizedUs: firstFrameRasterizedUs,
+    ),
+  );
 }
 
 BuildContext _dummyContext() => _DummyElement();

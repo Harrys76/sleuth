@@ -90,16 +90,22 @@ class _GuidePageState extends State<GuidePage>
                           width: 48,
                           height: 48,
                           child: Center(
-                            child: Icon(Icons.arrow_back,
-                                color: theme.textPrimary, size: 22),
+                            child: Icon(
+                              Icons.arrow_back,
+                              color: theme.textPrimary,
+                              size: 22,
+                            ),
                           ),
                         ),
                       ),
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.pets,
-                              size: theme.fontXl, color: theme.textPrimary),
+                          Icon(
+                            Icons.pets,
+                            size: theme.fontXl,
+                            color: theme.textPrimary,
+                          ),
                           SizedBox(width: theme.spacingXs),
                           Text(
                             'Sleuth Guide',
@@ -121,7 +127,11 @@ class _GuidePageState extends State<GuidePage>
               Expanded(
                 child: SingleChildScrollView(
                   padding: EdgeInsets.fromLTRB(
-                      theme.spacingXl, theme.spacingLg, theme.spacingXl, 24),
+                    theme.spacingXl,
+                    theme.spacingLg,
+                    theme.spacingXl,
+                    24,
+                  ),
                   child: Column(
                     children: [
                       _section(
@@ -165,7 +175,9 @@ class _GuidePageState extends State<GuidePage>
                         child: Text(
                           'Sleuth',
                           style: TextStyle(
-                              color: theme.textSubtle, fontSize: theme.fontSm),
+                            color: theme.textSubtle,
+                            fontSize: theme.fontSm,
+                          ),
                         ),
                       ),
                     ],
@@ -213,7 +225,9 @@ class _GuidePageState extends State<GuidePage>
                 behavior: HitTestBehavior.opaque,
                 child: Padding(
                   padding: EdgeInsets.symmetric(
-                      horizontal: 14, vertical: theme.spacingLg),
+                    horizontal: 14,
+                    vertical: theme.spacingLg,
+                  ),
                   child: Row(
                     children: [
                       Container(
@@ -310,57 +324,68 @@ class _GuidePageState extends State<GuidePage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _infoTile(
-            theme,
-            '\u{1F4CA}',
-            'FPS Display',
-            'The number on the trigger button and card header. Color-coded: '
-                'green (\u2265 50), amber (\u2265 30), red (< 30).'),
+          theme,
+          '\u{1F4CA}',
+          'FPS Display',
+          'The number on the trigger button and card header. Color-coded: '
+              'green (\u2265 50), amber (\u2265 30), red (< 30).',
+        ),
         _infoTile(
-            theme,
-            '\u{1F534}',
-            'Severity Dot',
-            'Red = at least one critical issue. Amber = warnings only. '
-                'Green = no issues detected.'),
+          theme,
+          '\u{1F534}',
+          'Severity Dot',
+          'Red = at least one critical issue. Amber = warnings only. '
+              'Green = no issues detected.',
+        ),
         _infoTile(
-            theme,
-            '\u{2705}',
-            'Summary Bar',
-            'Shows severity counts and evidence quality '
-                '(confirmed vs heuristic) below the divider.'),
+          theme,
+          '\u{2705}',
+          'Summary Bar',
+          'Shows severity counts and evidence quality '
+              '(confirmed vs heuristic) below the divider.',
+        ),
         _infoTile(
-            theme,
-            '\u{1F50D}',
-            'Highlight Toggle',
-            'Check the box on a locatable issue to highlight the widget '
-                'on screen with a blue border.'),
+          theme,
+          '\u{1F50D}',
+          'Highlight Toggle',
+          'Check the box on a locatable issue to highlight the widget '
+              'on screen with a blue border.',
+        ),
         _infoTile(
-            theme,
-            '\u{1F501}',
-            'Rebuild Stats Panel',
-            'Always-on row above the issue list (profile mode with '
-                'enableDeepDebugInstrumentation). Shows total rebuilds and '
-                'unique widget count. Tap to expand the top-3 widgets with '
-                'live counts and bar fills. Pause/Resume freezes the snapshot; '
-                'See all N → opens the full drilldown. Counts include initial '
-                'widget inflations.'),
+          theme,
+          '\u{1F501}',
+          'Rebuild Stats Panel',
+          'Always-on row above the issue list (profile mode with '
+              'enableDeepDebugInstrumentation). Shows total rebuilds and '
+              'unique widget count. Tap to expand the top-3 widgets with '
+              'live counts and bar fills. Pause/Resume freezes the snapshot; '
+              'See all N → opens the full drilldown. Counts include initial '
+              'widget inflations.',
+        ),
         _infoTile(
-            theme,
-            '\u{2194}\u{FE0F}',
-            'Resize',
-            'Drag the bottom-right corner to resize width and height. '
-                'Double-tap the header to toggle between compact and full-width.'),
+          theme,
+          '\u{2194}\u{FE0F}',
+          'Resize',
+          'Drag the bottom-right corner to resize width and height. '
+              'Double-tap the header to toggle between compact and full-width.',
+        ),
         _infoTile(
-            theme,
-            '\u{1F4CB}',
-            'Export',
-            'Tap the export button in the footer to copy a JSON snapshot '
-                'of the current session to your clipboard.'),
+          theme,
+          '\u{1F4CB}',
+          'Export',
+          'Tap the export button in the footer to copy a JSON snapshot '
+              'of the current session to your clipboard.',
+        ),
       ],
     );
   }
 
   static Widget _infoTile(
-      SleuthThemeData theme, String emoji, String title, String detail) {
+    SleuthThemeData theme,
+    String emoji,
+    String title,
+    String detail,
+  ) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingMd),
       child: Row(
@@ -386,7 +411,9 @@ class _GuidePageState extends State<GuidePage>
                 Text(
                   detail,
                   style: TextStyle(
-                      color: theme.textTertiary, fontSize: theme.fontSm),
+                    color: theme.textTertiary,
+                    fontSize: theme.fontSm,
+                  ),
                 ),
               ],
             ),
@@ -407,98 +434,212 @@ class _GuidePageState extends State<GuidePage>
         _legendHeading(theme, 'Severity'),
         _legendSubtext(theme, 'Emoji at the start of each issue card header.'),
         const _LegendRow(
-            icon: '\u{1F534}', label: 'Critical \u2014 immediate attention'),
-        _legendDetail(theme,
-            'Observed impact: dropped frames, high memory, or severe bottleneck.'),
+          icon: '\u{1F534}',
+          label: 'Critical \u2014 immediate attention',
+        ),
+        _legendDetail(
+          theme,
+          'Observed impact: dropped frames, high memory, or severe bottleneck.',
+        ),
         const _LegendRow(
-            icon: '\u{1F7E1}', label: 'Warning \u2014 should investigate'),
-        _legendDetail(theme,
-            'Pattern detected that could degrade performance under load.'),
+          icon: '\u{1F7E1}',
+          label: 'Warning \u2014 should investigate',
+        ),
+        _legendDetail(
+          theme,
+          'Pattern detected that could degrade performance under load.',
+        ),
         const _LegendRow(icon: '\u{1F7E2}', label: 'OK \u2014 informational'),
         _legendDetail(
-            theme, 'Minor observation with no measurable impact yet.'),
+          theme,
+          'Minor observation with no measurable impact yet.',
+        ),
 
         // ── Confidence Badges ─────────────────────────────────────────
         _legendDivider(theme),
         _legendHeading(theme, 'Confidence Badges'),
-        _legendSubtext(theme,
-            'Shown at the top-right of each issue. Reflects how the issue was detected.'),
-        _badgeLegendRow(theme, 'CONFIRMED', theme.confidenceConfirmed,
-            'Directly observed \u2014 caught in real-time profiling data'),
-        _badgeLegendRow(theme, 'LIKELY', theme.confidenceLikely,
-            'Runtime + structural evidence \u2014 two independent signals'),
-        _badgeLegendRow(theme, 'POSSIBLE', theme.confidencePossible,
-            'Structural pattern only \u2014 code analysis, no runtime confirmation'),
+        _legendSubtext(
+          theme,
+          'Shown at the top-right of each issue. Reflects how the issue was detected.',
+        ),
+        _badgeLegendRow(
+          theme,
+          'CONFIRMED',
+          theme.confidenceConfirmed,
+          'Directly observed \u2014 caught in real-time profiling data',
+        ),
+        _badgeLegendRow(
+          theme,
+          'LIKELY',
+          theme.confidenceLikely,
+          'Runtime + structural evidence \u2014 two independent signals',
+        ),
+        _badgeLegendRow(
+          theme,
+          'POSSIBLE',
+          theme.confidencePossible,
+          'Structural pattern only \u2014 code analysis, no runtime confirmation',
+        ),
 
         // ── Recurrence Badges ─────────────────────────────────────────
         _legendDivider(theme),
         _legendHeading(theme, 'Recurrence Badges'),
-        _legendSubtext(theme,
-            'Shown under each issue as "Seen X/Y \u00B7 label" where X is the number of recent scan cycles that fired this issue and Y is the total observed (ring buffer, capacity 60).'),
-        _badgeLegendRow(theme, 'worsening', theme.severityCritical,
-            'Severity rising \u2014 average cost increasing across recent cycles'),
-        _badgeLegendRow(theme, 'persistent', theme.severityWarning,
-            'Sticky \u2014 issue fires in \u2265 90% of recent scan cycles'),
-        _badgeLegendRow(theme, 'stable', theme.textSecondary,
-            'Present at consistent severity \u2014 not trending up or down'),
-        _badgeLegendRow(theme, 'improving', theme.severityOk,
-            'Severity falling \u2014 getting better across recent cycles'),
-        _badgeLegendRow(theme, 'flaky', theme.textSecondary,
-            'Toggles present/absent irregularly (\u2265 3 transitions in window)'),
+        _legendSubtext(
+          theme,
+          'Shown under each issue as "Seen X/Y \u00B7 label" where X is the number of recent scan cycles that fired this issue and Y is the total observed (ring buffer, capacity 60).',
+        ),
+        _badgeLegendRow(
+          theme,
+          'worsening',
+          theme.severityCritical,
+          'Severity rising \u2014 average cost increasing across recent cycles',
+        ),
+        _badgeLegendRow(
+          theme,
+          'persistent',
+          theme.severityWarning,
+          'Sticky \u2014 issue fires in \u2265 90% of recent scan cycles',
+        ),
+        _badgeLegendRow(
+          theme,
+          'stable',
+          theme.textSecondary,
+          'Present at consistent severity \u2014 not trending up or down',
+        ),
+        _badgeLegendRow(
+          theme,
+          'improving',
+          theme.severityOk,
+          'Severity falling \u2014 getting better across recent cycles',
+        ),
+        _badgeLegendRow(
+          theme,
+          'flaky',
+          theme.textSecondary,
+          'Toggles present/absent irregularly (\u2265 3 transitions in window)',
+        ),
 
         // ── Source Accent ─────────────────────────────────────────────
         _legendDivider(theme),
         _legendHeading(theme, 'Source Accent (left bar)'),
-        _legendSubtext(theme,
-            'Colored bar on the left edge of each issue card. Shows where data came from.'),
-        _colorBarLegendRow(theme, theme.sourceVmTimeline, 'VM timeline event',
-            detail: 'Dart VM performance timeline (most accurate)'),
-        _colorBarLegendRow(theme, theme.sourceDebugCallback, 'Debug callback',
-            detail: 'Framework debug instrumentation (adds some overhead)'),
-        _colorBarLegendRow(theme, theme.sourceStructural, 'Structural scan',
-            detail: 'Static widget tree analysis (no runtime cost)'),
+        _legendSubtext(
+          theme,
+          'Colored bar on the left edge of each issue card. Shows where data came from.',
+        ),
+        _colorBarLegendRow(
+          theme,
+          theme.sourceVmTimeline,
+          'VM timeline event',
+          detail: 'Dart VM performance timeline (most accurate)',
+        ),
+        _colorBarLegendRow(
+          theme,
+          theme.sourceDebugCallback,
+          'Debug callback',
+          detail: 'Framework debug instrumentation (adds some overhead)',
+        ),
+        _colorBarLegendRow(
+          theme,
+          theme.sourceStructural,
+          'Structural scan',
+          detail: 'Static widget tree analysis (no runtime cost)',
+        ),
 
         // ── Category Badges ───────────────────────────────────────────
         _legendDivider(theme),
         _legendHeading(theme, 'Category Badges'),
-        _legendSubtext(theme,
-            'Pipeline stage tag next to severity. Shows which part of rendering is affected.'),
-        _categoryLegendRow(theme, 'BUILD', theme.categoryBuild,
-            'Widget rebuild overhead \u2014 missing const, broad setState'),
-        _categoryLegendRow(theme, 'LAYOUT', theme.categoryLayout,
-            'Layout constraint issues \u2014 unconstrained lists, overflow'),
-        _categoryLegendRow(theme, 'PAINT', theme.categoryPaint,
-            'Paint layer complexity \u2014 heavy CustomPaint, missing RepaintBoundary'),
-        _categoryLegendRow(theme, 'RASTER', theme.categoryRaster,
-            'GPU rasterization cost \u2014 shader compilation, saveLayer'),
-        _categoryLegendRow(theme, 'MEMORY', theme.categoryMemory,
-            'Memory allocation patterns \u2014 leaks, unbounded growth'),
-        _categoryLegendRow(theme, 'CHANNEL', theme.categoryChannel,
-            'Platform channel latency \u2014 slow method channel calls'),
-        _categoryLegendRow(theme, 'FONT', theme.categoryFont,
-            'Font loading & rendering \u2014 too many custom font families'),
-        _categoryLegendRow(theme, 'NETWORK', theme.categoryNetwork,
-            'HTTP request performance \u2014 slow responses, large payloads'),
+        _legendSubtext(
+          theme,
+          'Pipeline stage tag next to severity. Shows which part of rendering is affected.',
+        ),
+        _categoryLegendRow(
+          theme,
+          'BUILD',
+          theme.categoryBuild,
+          'Widget rebuild overhead \u2014 missing const, broad setState',
+        ),
+        _categoryLegendRow(
+          theme,
+          'LAYOUT',
+          theme.categoryLayout,
+          'Layout constraint issues \u2014 unconstrained lists, overflow',
+        ),
+        _categoryLegendRow(
+          theme,
+          'PAINT',
+          theme.categoryPaint,
+          'Paint layer complexity \u2014 heavy CustomPaint, missing RepaintBoundary',
+        ),
+        _categoryLegendRow(
+          theme,
+          'RASTER',
+          theme.categoryRaster,
+          'GPU rasterization cost \u2014 shader compilation, saveLayer',
+        ),
+        _categoryLegendRow(
+          theme,
+          'MEMORY',
+          theme.categoryMemory,
+          'Memory allocation patterns \u2014 leaks, unbounded growth',
+        ),
+        _categoryLegendRow(
+          theme,
+          'CHANNEL',
+          theme.categoryChannel,
+          'Platform channel latency \u2014 slow method channel calls',
+        ),
+        _categoryLegendRow(
+          theme,
+          'FONT',
+          theme.categoryFont,
+          'Font loading & rendering \u2014 too many custom font families',
+        ),
+        _categoryLegendRow(
+          theme,
+          'NETWORK',
+          theme.categoryNetwork,
+          'HTTP request performance \u2014 slow responses, large payloads',
+        ),
 
         // ── Effort Badges ─────────────────────────────────────────────
         _legendDivider(theme),
         _legendHeading(theme, 'Effort Badges'),
         _legendSubtext(
-            theme, 'Shown in the fix hint box when an issue is expanded.'),
-        _badgeLegendRow(theme, 'QUICK FIX', theme.effortQuick,
-            'Simple change \u2014 add const, swap a widget, tweak a parameter'),
-        _badgeLegendRow(theme, 'MEDIUM FIX', theme.effortMedium,
-            'Some refactoring \u2014 restructure widget tree, add caching'),
-        _badgeLegendRow(theme, 'INVOLVED FIX', theme.effortInvolved,
-            'Architecture change \u2014 isolate work, redesign data flow'),
+          theme,
+          'Shown in the fix hint box when an issue is expanded.',
+        ),
+        _badgeLegendRow(
+          theme,
+          'QUICK FIX',
+          theme.effortQuick,
+          'Simple change \u2014 add const, swap a widget, tweak a parameter',
+        ),
+        _badgeLegendRow(
+          theme,
+          'MEDIUM FIX',
+          theme.effortMedium,
+          'Some refactoring \u2014 restructure widget tree, add caching',
+        ),
+        _badgeLegendRow(
+          theme,
+          'INVOLVED FIX',
+          theme.effortInvolved,
+          'Architecture change \u2014 isolate work, redesign data flow',
+        ),
 
         // ── Special Indicators ────────────────────────────────────────
         _legendDivider(theme),
         _legendHeading(theme, 'Special Indicators'),
-        _legendSubtext(theme,
-            'Contextual badges and colors that appear under specific conditions.'),
-        _badgeLegendRow(theme, 'JANK', theme.severityCritical,
-            'This issue was active during a dropped frame'),
+        _legendSubtext(
+          theme,
+          'Contextual badges and colors that appear under specific conditions.',
+        ),
+        _badgeLegendRow(
+          theme,
+          'JANK',
+          theme.severityCritical,
+          'This issue was active during a dropped frame',
+        ),
         SizedBox(height: theme.spacingXs),
         _cardStateLegendRow(
           theme,
@@ -568,14 +709,20 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _badgeLegendRow(
-      SleuthThemeData theme, String label, Color color, String description) {
+    SleuthThemeData theme,
+    String label,
+    Color color,
+    String description,
+  ) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingXs),
       child: Row(
         children: [
           Container(
-            padding:
-                EdgeInsets.symmetric(horizontal: 5, vertical: theme.spacingXxs),
+            padding: EdgeInsets.symmetric(
+              horizontal: 5,
+              vertical: theme.spacingXxs,
+            ),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(theme.radiusSm),
@@ -593,8 +740,10 @@ class _GuidePageState extends State<GuidePage>
           Expanded(
             child: Text(
               description,
-              style:
-                  TextStyle(color: theme.textTertiary, fontSize: theme.fontSm),
+              style: TextStyle(
+                color: theme.textTertiary,
+                fontSize: theme.fontSm,
+              ),
             ),
           ),
         ],
@@ -603,8 +752,11 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _colorBarLegendRow(
-      SleuthThemeData theme, Color color, String description,
-      {String? detail}) {
+    SleuthThemeData theme,
+    Color color,
+    String description, {
+    String? detail,
+  }) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingXs),
       child: Row(
@@ -629,13 +781,17 @@ class _GuidePageState extends State<GuidePage>
                 Text(
                   description,
                   style: TextStyle(
-                      color: theme.textTertiary, fontSize: theme.fontSm),
+                    color: theme.textTertiary,
+                    fontSize: theme.fontSm,
+                  ),
                 ),
                 if (detail != null)
                   Text(
                     detail,
                     style: TextStyle(
-                        color: theme.textQuaternary, fontSize: theme.fontXs),
+                      color: theme.textQuaternary,
+                      fontSize: theme.fontXs,
+                    ),
                   ),
               ],
             ),
@@ -646,7 +802,10 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _categoryChip(
-      SleuthThemeData theme, String label, Color color) {
+    SleuthThemeData theme,
+    String label,
+    Color color,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       decoration: BoxDecoration(
@@ -665,7 +824,11 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _categoryLegendRow(
-      SleuthThemeData theme, String label, Color color, String description) {
+    SleuthThemeData theme,
+    String label,
+    Color color,
+    String description,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 5),
       child: Row(
@@ -679,8 +842,10 @@ class _GuidePageState extends State<GuidePage>
           Expanded(
             child: Text(
               description,
-              style:
-                  TextStyle(color: theme.textTertiary, fontSize: theme.fontSm),
+              style: TextStyle(
+                color: theme.textTertiary,
+                fontSize: theme.fontSm,
+              ),
             ),
           ),
         ],
@@ -689,7 +854,11 @@ class _GuidePageState extends State<GuidePage>
   }
 
   static Widget _cardStateLegendRow(
-      SleuthThemeData theme, Color color, String label, String description) {
+    SleuthThemeData theme,
+    Color color,
+    String label,
+    String description,
+  ) {
     return Padding(
       padding: EdgeInsets.only(bottom: theme.spacingXs),
       child: Row(
@@ -701,10 +870,7 @@ class _GuidePageState extends State<GuidePage>
             decoration: BoxDecoration(
               color: color,
               borderRadius: BorderRadius.circular(theme.radiusSm),
-              border: Border.all(
-                color: theme.textSubtle,
-                width: 0.5,
-              ),
+              border: Border.all(color: theme.textSubtle, width: 0.5),
             ),
           ),
           SizedBox(width: theme.spacingMd),
@@ -723,7 +889,9 @@ class _GuidePageState extends State<GuidePage>
                 Text(
                   description,
                   style: TextStyle(
-                      color: theme.textQuaternary, fontSize: theme.fontXs),
+                    color: theme.textQuaternary,
+                    fontSize: theme.fontXs,
+                  ),
                 ),
               ],
             ),
@@ -738,18 +906,36 @@ class _GuidePageState extends State<GuidePage>
   Widget _tipsContent(SleuthThemeData theme) {
     return Column(
       children: [
-        _tipRow(theme, Icons.flash_on_outlined,
-            'A JANK badge means this issue was active during a dropped frame.'),
-        _tipRow(theme, Icons.layers_outlined,
-            'The layers icon in the header toggles highlight borders on all detected widgets.'),
-        _tipRow(theme, Icons.ios_share,
-            'Export a JSON snapshot to share with teammates or attach to bug reports.'),
-        _tipRow(theme, Icons.sort,
-            'Issues are ranked by severity, confidence, and recurrence count.'),
-        _tipRow(theme, Icons.info_outline,
-            '"About this detection" inside each issue explains how it was found and how to verify.'),
-        _tipRow(theme, Icons.speed,
-            'Always profile (not debug) for accurate frame timings. Debug overhead skews results.'),
+        _tipRow(
+          theme,
+          Icons.flash_on_outlined,
+          'A JANK badge means this issue was active during a dropped frame.',
+        ),
+        _tipRow(
+          theme,
+          Icons.layers_outlined,
+          'The layers icon in the header toggles highlight borders on all detected widgets.',
+        ),
+        _tipRow(
+          theme,
+          Icons.ios_share,
+          'Export a JSON snapshot to share with teammates or attach to bug reports.',
+        ),
+        _tipRow(
+          theme,
+          Icons.sort,
+          'Issues are ranked by severity, confidence, and recurrence count.',
+        ),
+        _tipRow(
+          theme,
+          Icons.info_outline,
+          '"About this detection" inside each issue explains how it was found and how to verify.',
+        ),
+        _tipRow(
+          theme,
+          Icons.speed,
+          'Always profile (not debug) for accurate frame timings. Debug overhead skews results.',
+        ),
       ],
     );
   }
@@ -765,8 +951,10 @@ class _GuidePageState extends State<GuidePage>
           Expanded(
             child: Text(
               text,
-              style:
-                  TextStyle(color: theme.textTertiary, fontSize: theme.fontSm),
+              style: TextStyle(
+                color: theme.textTertiary,
+                fontSize: theme.fontSm,
+              ),
             ),
           ),
         ],

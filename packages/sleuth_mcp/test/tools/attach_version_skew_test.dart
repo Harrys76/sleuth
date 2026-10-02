@@ -40,36 +40,46 @@ void main() {
             'data': {'packageVersion': '0.99.0'},
           });
         final server = McpServer(bridge: bridge)..registerDefaults();
-        await server.handleForTest(JsonRpcMessage(
-          method: 'initialize',
-          id: 0,
-          params: const {'protocolVersion': '2024-11-05'},
-        ));
+        await server.handleForTest(
+          JsonRpcMessage(
+            method: 'initialize',
+            id: 0,
+            params: const {'protocolVersion': '2024-11-05'},
+          ),
+        );
         final session = DaemonSession(
           bridge: bridge,
           server: server,
-          processFactory: (_, __,
-                  {String? workingDirectory,
-                  Map<String, String>? environment}) async =>
-              throw StateError('debugUrl path must bypass spawn'),
+          processFactory:
+              (
+                _,
+                __, {
+                String? workingDirectory,
+                Map<String, String>? environment,
+              }) async => throw StateError('debugUrl path must bypass spawn'),
         );
         server.setDaemonSession(session);
 
-        final resp = await server.handleForTest(_toolCall(
-          'attach_app',
-          {'debugUrl': 'ws://127.0.0.1:1/tok/ws'},
-        ));
+        final resp = await server.handleForTest(
+          _toolCall('attach_app', {'debugUrl': 'ws://127.0.0.1:1/tok/ws'}),
+        );
         final result = _resultFromResp(resp!.result);
-        expect(result.isError, isTrue,
-            reason: 'major skew on attach must surface as isError');
+        expect(
+          result.isError,
+          isTrue,
+          reason: 'major skew on attach must surface as isError',
+        );
         final text = result.content.first['text'] as String;
         expect(text, contains('version_skew_major'));
         expect(text, contains('0.99.0'));
         // Bridge MUST be torn down — the contract is the sidecar refuses
         // to keep an incompatible connection alive once it has been
         // identified as out-of-lineage.
-        expect(bridge.isConnected, isFalse,
-            reason: 'bridge must be detached on refusal');
+        expect(
+          bridge.isConnected,
+          isFalse,
+          reason: 'bridge must be detached on refusal',
+        );
       },
     );
 
@@ -89,32 +99,39 @@ void main() {
             'data': {'packageVersion': '0.35.99'},
           });
         final server = McpServer(bridge: bridge)..registerDefaults();
-        await server.handleForTest(JsonRpcMessage(
-          method: 'initialize',
-          id: 0,
-          params: const {'protocolVersion': '2024-11-05'},
-        ));
+        await server.handleForTest(
+          JsonRpcMessage(
+            method: 'initialize',
+            id: 0,
+            params: const {'protocolVersion': '2024-11-05'},
+          ),
+        );
         final session = DaemonSession(
           bridge: bridge,
           server: server,
-          processFactory: (_, __,
-                  {String? workingDirectory,
-                  Map<String, String>? environment}) async =>
-              throw StateError('debugUrl path must bypass spawn'),
+          processFactory:
+              (
+                _,
+                __, {
+                String? workingDirectory,
+                Map<String, String>? environment,
+              }) async => throw StateError('debugUrl path must bypass spawn'),
         );
         server.setDaemonSession(session);
 
-        final resp = await server.handleForTest(_toolCall(
-          'attach_app',
-          {'debugUrl': 'ws://127.0.0.1:1/tok/ws'},
-        ));
+        final resp = await server.handleForTest(
+          _toolCall('attach_app', {'debugUrl': 'ws://127.0.0.1:1/tok/ws'}),
+        );
         final result = _resultFromResp(resp!.result);
         expect(result.isError, isNot(isTrue));
         final decoded =
             jsonDecode(result.content.first['text'] as String) as Map;
         expect(decoded['state'], 'ready');
-        expect(bridge.isConnected, isTrue,
-            reason: 'minor skew must NOT disconnect the bridge');
+        expect(
+          bridge.isConnected,
+          isTrue,
+          reason: 'minor skew must NOT disconnect the bridge',
+        );
       },
     );
 
@@ -132,31 +149,38 @@ void main() {
             'data': const <String, Object?>{},
           });
         final server = McpServer(bridge: bridge)..registerDefaults();
-        await server.handleForTest(JsonRpcMessage(
-          method: 'initialize',
-          id: 0,
-          params: const {'protocolVersion': '2024-11-05'},
-        ));
+        await server.handleForTest(
+          JsonRpcMessage(
+            method: 'initialize',
+            id: 0,
+            params: const {'protocolVersion': '2024-11-05'},
+          ),
+        );
         final session = DaemonSession(
           bridge: bridge,
           server: server,
-          processFactory: (_, __,
-                  {String? workingDirectory,
-                  Map<String, String>? environment}) async =>
-              throw StateError('debugUrl path must bypass spawn'),
+          processFactory:
+              (
+                _,
+                __, {
+                String? workingDirectory,
+                Map<String, String>? environment,
+              }) async => throw StateError('debugUrl path must bypass spawn'),
         );
         server.setDaemonSession(session);
 
-        final resp = await server.handleForTest(_toolCall(
-          'attach_app',
-          {'debugUrl': 'ws://127.0.0.1:1/tok/ws'},
-        ));
+        final resp = await server.handleForTest(
+          _toolCall('attach_app', {'debugUrl': 'ws://127.0.0.1:1/tok/ws'}),
+        );
         final result = _resultFromResp(resp!.result);
         expect(result.isError, isTrue);
         final text = result.content.first['text'] as String;
         expect(text, contains('version_skew_unknown'));
-        expect(bridge.isConnected, isFalse,
-            reason: 'bridge must be detached when packageVersion is missing');
+        expect(
+          bridge.isConnected,
+          isFalse,
+          reason: 'bridge must be detached when packageVersion is missing',
+        );
       },
     );
 
@@ -174,25 +198,29 @@ void main() {
             'data': {'packageVersion': 42},
           });
         final server = McpServer(bridge: bridge)..registerDefaults();
-        await server.handleForTest(JsonRpcMessage(
-          method: 'initialize',
-          id: 0,
-          params: const {'protocolVersion': '2024-11-05'},
-        ));
+        await server.handleForTest(
+          JsonRpcMessage(
+            method: 'initialize',
+            id: 0,
+            params: const {'protocolVersion': '2024-11-05'},
+          ),
+        );
         final session = DaemonSession(
           bridge: bridge,
           server: server,
-          processFactory: (_, __,
-                  {String? workingDirectory,
-                  Map<String, String>? environment}) async =>
-              throw StateError('debugUrl path must bypass spawn'),
+          processFactory:
+              (
+                _,
+                __, {
+                String? workingDirectory,
+                Map<String, String>? environment,
+              }) async => throw StateError('debugUrl path must bypass spawn'),
         );
         server.setDaemonSession(session);
 
-        final resp = await server.handleForTest(_toolCall(
-          'attach_app',
-          {'debugUrl': 'ws://127.0.0.1:1/tok/ws'},
-        ));
+        final resp = await server.handleForTest(
+          _toolCall('attach_app', {'debugUrl': 'ws://127.0.0.1:1/tok/ws'}),
+        );
         final result = _resultFromResp(resp!.result);
         expect(result.isError, isTrue);
         final text = result.content.first['text'] as String;
@@ -210,98 +238,107 @@ void main() {
     // exercises above, an explicit daemon-spawn test is omitted as
     // structurally redundant.
 
-    test(
-      'bridge-layer refusal flowing through daemon catch path surfaces as '
-      'isError (defaultVersionSkewValidator wired into bridge)',
-      () async {
-        // When the bridge has `defaultVersionSkewValidator` wired,
-        // `bridge.connect()` throws `VmBridgeException('version_skew_…')`.
-        // `DaemonSession.attach()` catches it and stamps the error into
-        // `status.lastError` as `'bridge connect failed: version_skew_…'`,
-        // returning a non-attached status. `attachHandler` must detect
-        // the wrapped substring and return `ToolCallResult(isError: true)`
-        // rather than the silent `status.toJson()` payload.
-        final bridge = FakeVmBridge(
-          fakeSessionUuid: 'fake-uuid',
-          envelopes: {
-            'ext.sleuth.diagnose': {
-              'connectionMode': 'basic',
-              'schemaVersion': 1,
-              'sessionUuid': 'fake-uuid',
-              'data': {'packageVersion': '0.99.0'},
-            },
-          },
-          versionSkewValidator: defaultVersionSkewValidator,
-        );
-        final server = McpServer(bridge: bridge)..registerDefaults();
-        await server.handleForTest(JsonRpcMessage(
-          method: 'initialize',
-          id: 0,
-          params: const {'protocolVersion': '2024-11-05'},
-        ));
-        final session = DaemonSession(
-          bridge: bridge,
-          server: server,
-          processFactory: (_, __,
-                  {String? workingDirectory,
-                  Map<String, String>? environment}) async =>
-              throw StateError('debugUrl path must bypass spawn'),
-        );
-        server.setDaemonSession(session);
-
-        final resp = await server.handleForTest(_toolCall(
-          'attach_app',
-          {'debugUrl': 'ws://127.0.0.1:1/tok/ws'},
-        ));
-        final result = _resultFromResp(resp!.result);
-        expect(result.isError, isTrue,
-            reason: 'bridge-layer refusal wrapped by daemon must reach the '
-                'client as isError, not as a silent non-attached status');
-        final text = result.content.first['text'] as String;
-        expect(text, contains('version_skew_major'));
-      },
-    );
-
-    test(
-      'accepted-prior-lineage skew on debugUrl path returns ready '
-      '(transition-window fallback fires from attach path)',
-      () async {
-        // `acceptedPriorLineages` lets the sidecar tolerate one prior
-        // sleuth minor (mid-upgrade transition window). The attach path
-        // must honour the same fallback so a mid-upgrade user can attach
-        // via `attach_app` (not just `connect`).
-        final bridge = defaultFakeBridge()
-          ..setEnvelope('ext.sleuth.diagnose', {
+    test('bridge-layer refusal flowing through daemon catch path surfaces as '
+        'isError (defaultVersionSkewValidator wired into bridge)', () async {
+      // When the bridge has `defaultVersionSkewValidator` wired,
+      // `bridge.connect()` throws `VmBridgeException('version_skew_…')`.
+      // `DaemonSession.attach()` catches it and stamps the error into
+      // `status.lastError` as `'bridge connect failed: version_skew_…'`,
+      // returning a non-attached status. `attachHandler` must detect
+      // the wrapped substring and return `ToolCallResult(isError: true)`
+      // rather than the silent `status.toJson()` payload.
+      final bridge = FakeVmBridge(
+        fakeSessionUuid: 'fake-uuid',
+        envelopes: {
+          'ext.sleuth.diagnose': {
             'connectionMode': 'basic',
             'schemaVersion': 1,
             'sessionUuid': 'fake-uuid',
-            'data': {'packageVersion': '0.35.0'},
-          });
-        final server = McpServer(bridge: bridge)..registerDefaults();
-        await server.handleForTest(JsonRpcMessage(
+            'data': {'packageVersion': '0.99.0'},
+          },
+        },
+        versionSkewValidator: defaultVersionSkewValidator,
+      );
+      final server = McpServer(bridge: bridge)..registerDefaults();
+      await server.handleForTest(
+        JsonRpcMessage(
           method: 'initialize',
           id: 0,
           params: const {'protocolVersion': '2024-11-05'},
-        ));
-        final session = DaemonSession(
-          bridge: bridge,
-          server: server,
-          processFactory: (_, __,
-                  {String? workingDirectory,
-                  Map<String, String>? environment}) async =>
-              throw StateError('debugUrl path must bypass spawn'),
-        );
-        server.setDaemonSession(session);
+        ),
+      );
+      final session = DaemonSession(
+        bridge: bridge,
+        server: server,
+        processFactory:
+            (
+              _,
+              __, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+            }) async => throw StateError('debugUrl path must bypass spawn'),
+      );
+      server.setDaemonSession(session);
 
-        final resp = await server.handleForTest(_toolCall(
-          'attach_app',
-          {'debugUrl': 'ws://127.0.0.1:1/tok/ws'},
-        ));
-        final result = _resultFromResp(resp!.result);
-        expect(result.isError, isNot(isTrue),
-            reason: 'accepted-prior lineage must NOT trip the refusal path');
-        expect(bridge.isConnected, isTrue);
-      },
-    );
+      final resp = await server.handleForTest(
+        _toolCall('attach_app', {'debugUrl': 'ws://127.0.0.1:1/tok/ws'}),
+      );
+      final result = _resultFromResp(resp!.result);
+      expect(
+        result.isError,
+        isTrue,
+        reason:
+            'bridge-layer refusal wrapped by daemon must reach the '
+            'client as isError, not as a silent non-attached status',
+      );
+      final text = result.content.first['text'] as String;
+      expect(text, contains('version_skew_major'));
+    });
+
+    test('accepted-prior-lineage skew on debugUrl path returns ready '
+        '(transition-window fallback fires from attach path)', () async {
+      // `acceptedPriorLineages` lets the sidecar tolerate one prior
+      // sleuth minor (mid-upgrade transition window). The attach path
+      // must honour the same fallback so a mid-upgrade user can attach
+      // via `attach_app` (not just `connect`).
+      final bridge = defaultFakeBridge()
+        ..setEnvelope('ext.sleuth.diagnose', {
+          'connectionMode': 'basic',
+          'schemaVersion': 1,
+          'sessionUuid': 'fake-uuid',
+          'data': {'packageVersion': '0.35.0'},
+        });
+      final server = McpServer(bridge: bridge)..registerDefaults();
+      await server.handleForTest(
+        JsonRpcMessage(
+          method: 'initialize',
+          id: 0,
+          params: const {'protocolVersion': '2024-11-05'},
+        ),
+      );
+      final session = DaemonSession(
+        bridge: bridge,
+        server: server,
+        processFactory:
+            (
+              _,
+              __, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+            }) async => throw StateError('debugUrl path must bypass spawn'),
+      );
+      server.setDaemonSession(session);
+
+      final resp = await server.handleForTest(
+        _toolCall('attach_app', {'debugUrl': 'ws://127.0.0.1:1/tok/ws'}),
+      );
+      final result = _resultFromResp(resp!.result);
+      expect(
+        result.isError,
+        isNot(isTrue),
+        reason: 'accepted-prior lineage must NOT trip the refusal path',
+      );
+      expect(bridge.isConnected, isTrue);
+    });
   });
 }

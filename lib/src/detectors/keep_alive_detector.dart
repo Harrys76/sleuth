@@ -45,12 +45,12 @@ class _ScrollableAccumulator {
 /// are normal framework behavior and are not flagged.
 class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
   KeepAliveDetector({this.threshold = 5})
-      : super(
-          type: DetectorType.keepAlive,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'Keep Alive',
-          description: 'Detects excessive keep-alive pages (>5)',
-        );
+    : super(
+        type: DetectorType.keepAlive,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Keep Alive',
+        description: 'Detects excessive keep-alive pages (>5)',
+      );
 
   final int threshold;
   final List<PerformanceIssue> _issues = [];
@@ -70,13 +70,9 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
   set isEnabled(bool value) => _isEnabled = value;
 
   final List<
-      ({
-        String chain,
-        int count,
-        int totalElements,
-        Rect? rect,
-        String typeName,
-      })> _scrollableData = [];
+    ({String chain, int count, int totalElements, Rect? rect, String typeName})
+  >
+  _scrollableData = [];
   final List<_ScrollableAccumulator> _scrollableStack = [];
 
   @override
@@ -153,26 +149,30 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
     _scrollableStack.clear();
     for (final (i, data) in _scrollableData.indexed) {
       if (data.count > threshold) {
-        final avgSubtreeSize =
-            data.count > 0 ? data.totalElements ~/ data.count : 0;
+        final avgSubtreeSize = data.count > 0
+            ? data.totalElements ~/ data.count
+            : 0;
 
         if (data.rect != null) {
-          _highlights.add(WidgetHighlight(
-            rect: data.rect!,
-            widgetName: data.typeName,
-            severity: data.count > threshold * 2
-                ? IssueSeverity.critical
-                : IssueSeverity.warning,
-            detectorName: 'KeepAlive',
-            detail: '${data.count} items kept alive in memory',
-          ));
+          _highlights.add(
+            WidgetHighlight(
+              rect: data.rect!,
+              widgetName: data.typeName,
+              severity: data.count > threshold * 2
+                  ? IssueSeverity.critical
+                  : IssueSeverity.warning,
+              detectorName: 'KeepAlive',
+              detail: '${data.count} items kept alive in memory',
+            ),
+          );
         }
-        final (hint, effort) =
-            FixHintBuilder.excessiveKeepAlive(count: data.count);
+        final (hint, effort) = FixHintBuilder.excessiveKeepAlive(
+          count: data.count,
+        );
 
         final subtreeCostLine = avgSubtreeSize > 0
             ? '\n~$avgSubtreeSize elements per page '
-                '(${data.totalElements} total in scrollable).'
+                  '(${data.totalElements} total in scrollable).'
             : '';
 
         _issues.add(
@@ -184,7 +184,8 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
             category: IssueCategory.memory,
             confidence: IssueConfidence.possible,
             title: 'Excessive Keep-Alive: ${data.count} in ${data.typeName}',
-            detail: '${data.count} widgets are using '
+            detail:
+                '${data.count} widgets are using '
                 'AutomaticKeepAliveClientMixin, keeping them all in '
                 'memory.$subtreeCostLine\n\n  • ${data.chain}',
             fixHint: hint,
@@ -210,19 +211,20 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hermetic reproducer pins the parameterised '
-            '`excessive_keep_alive:<i>` family on a PageView with '
-            'AutomaticKeepAliveClientMixin pages, above '
-            '`threshold` (strict-greater). Pages are visited via '
-            'PageController.jumpToPage so `_isActiveKeepAlive` reads '
-            'parent-data `true` — the stale '
-            '`element.widget.keepAlive` path stays false otherwise. '
-            'ListView-suppression, wantKeepAlive=false silence, and '
-            'at-threshold silence are pinned as negative controls. '
-            'Family prefix convention pinned at the `:` separator. '
-            'Not yet runtime-verified on a profile-mode capture.',
-        reproducerPath: 'test/validation/keep_alive_reproducer_test.dart',
-        coveredStableIds: {'excessive_keep_alive'},
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'Hermetic reproducer pins the parameterised '
+        '`excessive_keep_alive:<i>` family on a PageView with '
+        'AutomaticKeepAliveClientMixin pages, above '
+        '`threshold` (strict-greater). Pages are visited via '
+        'PageController.jumpToPage so `_isActiveKeepAlive` reads '
+        'parent-data `true` — the stale '
+        '`element.widget.keepAlive` path stays false otherwise. '
+        'ListView-suppression, wantKeepAlive=false silence, and '
+        'at-threshold silence are pinned as negative controls. '
+        'Family prefix convention pinned at the `:` separator. '
+        'Not yet runtime-verified on a profile-mode capture.',
+    reproducerPath: 'test/validation/keep_alive_reproducer_test.dart',
+    coveredStableIds: {'excessive_keep_alive'},
+  );
 }

@@ -173,8 +173,9 @@ Future<String?> defaultVersionSkewValidator(
 /// accepted-prior lineage drift, or a [ToolCallResult] error after
 /// disconnecting the bridge on major skew / missing packageVersion.
 Future<({Map<String, Object?>? diagnose, ToolCallResult? refusal})>
-    _enforceVersionSkew(VmBridge bridge) async {
-  final diag = bridge.lastDiagnoseEnvelope ??
+_enforceVersionSkew(VmBridge bridge) async {
+  final diag =
+      bridge.lastDiagnoseEnvelope ??
       await bridge.callExtension('ext.sleuth.diagnose');
   final clazz = _classifySkew(diag);
   switch (clazz) {
@@ -219,7 +220,9 @@ String? _connectWarningFor(_SkewClass clazz) {
 }
 
 Future<Object> _connectHandler(
-    VmBridge bridge, Map<String, Object?> args) async {
+  VmBridge bridge,
+  Map<String, Object?> args,
+) async {
   final uri = args['uri'];
   if (uri is! String || uri.isEmpty) {
     return ToolCallResult.text('missing_required_arg: uri', isError: true);
@@ -295,15 +298,18 @@ Future<Object> _getSnapshotHandler(
 
   final projectionRequested = extArgs.isNotEmpty;
   final diskHandoff = args['diskHandoff'] == true;
-  final envelope =
-      await bridge.callExtension('ext.sleuth.snapshot', args: extArgs);
+  final envelope = await bridge.callExtension(
+    'ext.sleuth.snapshot',
+    args: extArgs,
+  );
 
   // App errors carry a top-level `error` key — surface inline, never
   // disk-hand-off (would hide the error behind a file pointer).
   if (envelope.containsKey('error')) return envelope;
 
   final rawData = envelope['data'];
-  final isFallback = projectionRequested &&
+  final isFallback =
+      projectionRequested &&
       rawData is Map<String, Object?> &&
       !rawData.containsKey('_projectedSections') &&
       !rawData.containsKey('_projectionApplied');
@@ -416,8 +422,9 @@ Future<Object> _getIssuesHandler(
   // Optional severity gate: `warning` includes `critical`; `ok` / absent =
   // no gate.
   final severityAtLeast = args['severityAtLeast'];
-  final lower =
-      severityAtLeast is String ? severityAtLeast.toLowerCase() : null;
+  final lower = severityAtLeast is String
+      ? severityAtLeast.toLowerCase()
+      : null;
   bool included(Object? severity) {
     if (lower == null || lower == 'ok') return true;
     if (severity is! String) return false;
@@ -435,8 +442,11 @@ Future<Object> _getIssuesHandler(
   // Compact by default + cap to the top-N of the app's already-ranked order.
   // `verbose` keeps full fields; `maxIssueCount: 0` disables the cap.
   final verbose = args['verbose'] == true;
-  final projected =
-      projectIssues(filtered, verbose: verbose, maxCount: maxCount);
+  final projected = projectIssues(
+    filtered,
+    verbose: verbose,
+    maxCount: maxCount,
+  );
 
   final newData = Map<String, Object?>.from(data)
     ..['issues'] = projected.issues;
@@ -465,8 +475,10 @@ Future<Object> _getRouteHealthHandler(
   final route = args['route'];
   final hasRouteArg = route is String && route.isNotEmpty;
   if (hasRouteArg) extArgs['route'] = route;
-  final envelope =
-      await bridge.callExtension('ext.sleuth.routeHealth', args: extArgs);
+  final envelope = await bridge.callExtension(
+    'ext.sleuth.routeHealth',
+    args: extArgs,
+  );
   // Passthrough untouched for:
   //   - error envelopes (no `data` block);
   //   - absent-route shape (caller asked for the full route list and the
@@ -507,10 +519,7 @@ Future<Object> _explainIssueHandler(
 ) async {
   final stableId = args['stableId'];
   if (stableId is! String || stableId.isEmpty) {
-    return ToolCallResult.text(
-      'missing_required_arg: stableId',
-      isError: true,
-    );
+    return ToolCallResult.text('missing_required_arg: stableId', isError: true);
   }
   return _passThrough(bridge, 'ext.sleuth.explain', {'stableId': stableId});
 }
@@ -583,7 +592,8 @@ final Map<String, BuiltInTool> builtInTools = {
     descriptor: const Tool(
       name: 'get_snapshot',
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
-      description: 'Performance snapshot — issues, frame stats, route history. '
+      description:
+          'Performance snapshot — issues, frame stats, route history. '
           'Optional projection: `sections` (subset of payload), '
           '`maxIssueCount`/`maxRouteCount` (caps), `diskHandoff` (write to '
           'a temp file and return {path, sizeBytes, sha256} instead of '
@@ -595,7 +605,8 @@ final Map<String, BuiltInTool> builtInTools = {
           'sections': <String, Object?>{
             'type': 'array',
             'items': <String, Object?>{'type': 'string'},
-            'description': 'Subset of payload sections to include '
+            'description':
+                'Subset of payload sections to include '
                 '(metadata always returns). Omit for full payload.',
           },
           'maxIssueCount': <String, Object?>{
@@ -608,12 +619,14 @@ final Map<String, BuiltInTool> builtInTools = {
           },
           'diskHandoff': <String, Object?>{
             'type': 'boolean',
-            'description': 'Write the envelope to a temp file; response '
+            'description':
+                'Write the envelope to a temp file; response '
                 'becomes {path, sizeBytes, sha256, _projectedSections?}.',
           },
           'verbose': <String, Object?>{
             'type': 'boolean',
-            'description': 'Return full issue fields. Default false trims each '
+            'description':
+                'Return full issue fields. Default false trims each '
                 'currentIssue to the actionable subset.',
           },
         },
@@ -640,12 +653,14 @@ final Map<String, BuiltInTool> builtInTools = {
           },
           'maxIssueCount': {
             'type': 'integer',
-            'description': 'Keep top-N already-ranked issues. Default 50; '
+            'description':
+                'Keep top-N already-ranked issues. Default 50; '
                 '0 means unbounded. Applies whether or not verbose is set.',
           },
           'verbose': {
             'type': 'boolean',
-            'description': 'Return full issue fields instead of the compact '
+            'description':
+                'Return full issue fields instead of the compact '
                 'actionable subset. Field shape only — the maxIssueCount cap '
                 'still applies.',
           },
@@ -734,7 +749,8 @@ final Map<String, BuiltInTool> builtInTools = {
     descriptor: const Tool(
       name: 'diagnose',
       annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
-      description: 'Operational health — package version, VM connection state, '
+      description:
+          'Operational health — package version, VM connection state, '
           'unbound extension names. Adds sidecar version + pin.',
       inputSchema: _emptyObjectSchema,
     ),
@@ -749,12 +765,14 @@ final Map<String, BuiltInTool> builtInTools = {
 /// the session via `setDaemonSession()` between calls.
 Map<String, BuiltInTool> lifecycleTools(McpServer server) {
   ToolCallResult sessionMissing() => ToolCallResult.text(
-        'internal: daemon session not initialized on this server',
-        isError: true,
-      );
+    'internal: daemon session not initialized on this server',
+    isError: true,
+  );
 
   Future<Object> attachHandler(
-      VmBridge bridge, Map<String, Object?> args) async {
+    VmBridge bridge,
+    Map<String, Object?> args,
+  ) async {
     final session = server.daemonSession;
     if (session is! DaemonSession) return sessionMissing();
     // Trim at boundary so whitespace-only values (`udid: ' '`) don't
@@ -833,7 +851,8 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
               'ios_vmservice_busy',
               lastError,
               data: const <String, Object?>{
-                'remedy': 'swipe the app off the device home screen and '
+                'remedy':
+                    'swipe the app off the device home screen and '
                     'rerun attach_app; or rebuild the profile binary',
               },
             );
@@ -843,7 +862,8 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
               'ios_vmservice_unreachable',
               lastError,
               data: const <String, Object?>{
-                'remedy': 'wait ~30s for mDNS cache to clear, or swipe '
+                'remedy':
+                    'wait ~30s for mDNS cache to clear, or swipe '
                     'the app off the device and rerun attach_app',
               },
             );
@@ -903,7 +923,9 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
   }
 
   Future<Object> detachHandler(
-      VmBridge bridge, Map<String, Object?> args) async {
+    VmBridge bridge,
+    Map<String, Object?> args,
+  ) async {
     final session = server.daemonSession;
     if (session is! DaemonSession) return sessionMissing();
     await session.detach();
@@ -912,14 +934,18 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
   }
 
   Future<Object> statusHandler(
-      VmBridge bridge, Map<String, Object?> args) async {
+    VmBridge bridge,
+    Map<String, Object?> args,
+  ) async {
     final session = server.daemonSession;
     if (session is! DaemonSession) return sessionMissing();
     return session.status.toJson();
   }
 
   Future<Object> listDevicesHandler(
-      VmBridge bridge, Map<String, Object?> args) async {
+    VmBridge bridge,
+    Map<String, Object?> args,
+  ) async {
     final mobileOnly = args['mobileOnly'] != false;
     try {
       final devices = await _listDevicesLock.synchronized(_cachedListDevices);
@@ -942,7 +968,9 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
   }
 
   Future<Object> hotReloadHandler(
-      VmBridge bridge, Map<String, Object?> args) async {
+    VmBridge bridge,
+    Map<String, Object?> args,
+  ) async {
     final session = server.daemonSession;
     if (session is! DaemonSession) return sessionMissing();
     // iOS-direct sessions bypass the flutter daemon, so the daemon's
@@ -955,7 +983,8 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
             '(`attach_app(udid: ...)`). Re-attach via the flutter daemon '
             'using `attach_app(device: <name>)` to enable hot reload.',
         data: const <String, Object?>{
-          'remedy': 'detach_app then attach_app(device: <device-name>); the '
+          'remedy':
+              'detach_app then attach_app(device: <device-name>); the '
               'daemon path supports hot_reload',
         },
       );
@@ -978,7 +1007,8 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
           idempotentHint: false,
           openWorldHint: true,
         ),
-        description: 'Attach to a running Flutter app. Three routing modes:\n'
+        description:
+            'Attach to a running Flutter app. Three routing modes:\n'
             '  • `udid` (iOS UDID) — drives devicectl launch + Bonjour '
             'resolve + iproxy tunnel internally; one round-trip replaces '
             'the standalone `sleuth_mcp attach-ios` CLI. Requires `bundle`.\n'
@@ -995,18 +1025,19 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
               'type': 'string',
               'description':
                   'Device id or name from list_devices. Routes via flutter '
-                      'daemon. Required when more than one device is connected '
-                      'AND neither `udid` nor `debugUrl` is set.',
+                  'daemon. Required when more than one device is connected '
+                  'AND neither `udid` nor `debugUrl` is set.',
             },
             'debugUrl': {
               'type': 'string',
               'description':
                   'Escape hatch: connect directly to a known VM service '
-                      'WebSocket URI, bypassing flutter daemon discovery.',
+                  'WebSocket URI, bypassing flutter daemon discovery.',
             },
             'udid': {
               'type': 'string',
-              'description': 'iOS device UDID. When set, drives the iOS attach '
+              'description':
+                  'iOS device UDID. When set, drives the iOS attach '
                   'pipeline directly (no flutter daemon). Requires `bundle`. '
                   'Mutually exclusive with `device` / `debugUrl`.',
             },
@@ -1014,32 +1045,32 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
               'type': 'string',
               'description':
                   'iOS bundle identifier (required with `udid`). Example: '
-                      '`com.example.app`.',
+                  '`com.example.app`.',
             },
             'transport': {
               'type': 'string',
               'enum': ['auto', 'usb', 'wireless'],
               'description':
                   'Override iOS transport auto-detection. `usb` forces '
-                      'iproxy tunnel; `wireless` connects directly to '
-                      '`.local` host; `auto` (default) inspects `xcrun '
-                      'devicectl list devices`.',
+                  'iproxy tunnel; `wireless` connects directly to '
+                  '`.local` host; `auto` (default) inspects `xcrun '
+                  'devicectl list devices`.',
             },
             'authOverride': {
               'type': 'string',
               'description':
                   'iOS only: pin the Bonjour authCode (used when more '
-                      'than one pairing is announced — see error '
-                      '`ios_ambiguous_pairings`).',
+                  'than one pairing is announced — see error '
+                  '`ios_ambiguous_pairings`).',
             },
             'forceRelaunch': {
               'type': 'boolean',
               'description':
                   'iOS only: skip the Bonjour probe and drive a fresh '
-                      '`xcrun devicectl process launch`. Recovers from a '
-                      'stale mDNS cache pinning a dead VM service port '
-                      '(`ios_vmservice_busy` / `ios_vmservice_unreachable`) '
-                      'without a sidecar restart.',
+                  '`xcrun devicectl process launch`. Recovers from a '
+                  'stale mDNS cache pinning a dead VM service port '
+                  '(`ios_vmservice_busy` / `ios_vmservice_unreachable`) '
+                  'without a sidecar restart.',
             },
           },
           'required': <String>[],
@@ -1080,7 +1111,8 @@ Map<String, BuiltInTool> lifecycleTools(McpServer server) {
       descriptor: const Tool(
         name: 'list_devices',
         annotations: ToolAnnotations(readOnlyHint: true, openWorldHint: true),
-        description: 'List connected devices via `flutter devices --machine`. '
+        description:
+            'List connected devices via `flutter devices --machine`. '
             'Defaults to mobile-category only (android + ios). Pass '
             '`mobileOnly: false` to include desktop/web/embedded.',
         inputSchema: {
@@ -1169,14 +1201,8 @@ ToolCallResult _iosErrorEnvelope(
   return ToolCallResult(
     isError: true,
     content: [
-      {
-        'type': 'text',
-        'text': '$errorName: $message',
-      },
-      {
-        'type': 'text',
-        'text': _encodeIosErrorData(payload),
-      },
+      {'type': 'text', 'text': '$errorName: $message'},
+      {'type': 'text', 'text': _encodeIosErrorData(payload)},
     ],
   );
 }

@@ -10,10 +10,13 @@ Future<ToolCallResult> _runAttach(Map<String, Object?> args) async {
   final session = DaemonSession(
     bridge: bridge,
     server: server,
-    processFactory: (String exe, List<String> args,
-            {String? workingDirectory,
-            Map<String, String>? environment}) async =>
-        throw StateError('test path must not spawn flutter daemon'),
+    processFactory:
+        (
+          String exe,
+          List<String> args, {
+          String? workingDirectory,
+          Map<String, String>? environment,
+        }) async => throw StateError('test path must not spawn flutter daemon'),
   );
   server.setDaemonSession(session);
   final tools = lifecycleTools(server);

@@ -26,11 +26,11 @@ class JsonRpcMessage {
 /// JSON-RPC 2.0 response (`result` OR `error`, never both).
 class JsonRpcResponse {
   JsonRpcResponse.result({required this.id, required Object? result})
-      : _result = result,
-        error = null;
+    : _result = result,
+      error = null;
 
   JsonRpcResponse.error({required this.id, required this.error})
-      : _result = null;
+    : _result = null;
 
   final Object? id;
   final Object? _result;
@@ -41,37 +41,25 @@ class JsonRpcResponse {
 
   Map<String, Object?> toJson() {
     if (isError) {
-      return {
-        'jsonrpc': '2.0',
-        'id': id,
-        'error': error!.toJson(),
-      };
+      return {'jsonrpc': '2.0', 'id': id, 'error': error!.toJson()};
     }
-    return {
-      'jsonrpc': '2.0',
-      'id': id,
-      'result': _result,
-    };
+    return {'jsonrpc': '2.0', 'id': id, 'result': _result};
   }
 }
 
 /// JSON-RPC 2.0 error object.
 class JsonRpcError {
-  const JsonRpcError({
-    required this.code,
-    required this.message,
-    this.data,
-  });
+  const JsonRpcError({required this.code, required this.message, this.data});
 
   final int code;
   final String message;
   final Object? data;
 
   Map<String, Object?> toJson() => {
-        'code': code,
-        'message': message,
-        if (data != null) 'data': data,
-      };
+    'code': code,
+    'message': message,
+    if (data != null) 'data': data,
+  };
 
   static const int parseError = -32700;
   static const int invalidRequest = -32600;
@@ -96,11 +84,11 @@ class Tool {
   final ToolAnnotations? annotations;
 
   Map<String, Object?> toJson() => {
-        'name': name,
-        'description': description,
-        'inputSchema': inputSchema,
-        if (annotations != null) 'annotations': annotations!.toJson(),
-      };
+    'name': name,
+    'description': description,
+    'inputSchema': inputSchema,
+    if (annotations != null) 'annotations': annotations!.toJson(),
+  };
 }
 
 /// MCP tool `annotations` — client-advisory hints. `readOnlyHint` marks a
@@ -121,11 +109,11 @@ class ToolAnnotations {
   final bool? openWorldHint;
 
   Map<String, Object?> toJson() => {
-        if (readOnlyHint != null) 'readOnlyHint': readOnlyHint,
-        if (destructiveHint != null) 'destructiveHint': destructiveHint,
-        if (idempotentHint != null) 'idempotentHint': idempotentHint,
-        if (openWorldHint != null) 'openWorldHint': openWorldHint,
-      };
+    if (readOnlyHint != null) 'readOnlyHint': readOnlyHint,
+    if (destructiveHint != null) 'destructiveHint': destructiveHint,
+    if (idempotentHint != null) 'idempotentHint': idempotentHint,
+    if (openWorldHint != null) 'openWorldHint': openWorldHint,
+  };
 }
 
 /// MCP resource descriptor.
@@ -143,11 +131,11 @@ class Resource {
   final String mimeType;
 
   Map<String, Object?> toJson() => {
-        'uri': uri,
-        'name': name,
-        'description': description,
-        'mimeType': mimeType,
-      };
+    'uri': uri,
+    'name': name,
+    'description': description,
+    'mimeType': mimeType,
+  };
 }
 
 /// MCP prompt descriptor (`prompts/list` entry).
@@ -163,10 +151,10 @@ class Prompt {
   final List<PromptArgument> arguments;
 
   Map<String, Object?> toJson() => {
-        'name': name,
-        'description': description,
-        'arguments': arguments.map((a) => a.toJson()).toList(),
-      };
+    'name': name,
+    'description': description,
+    'arguments': arguments.map((a) => a.toJson()).toList(),
+  };
 }
 
 /// One declared argument of a [Prompt].
@@ -182,10 +170,10 @@ class PromptArgument {
   final bool required;
 
   Map<String, Object?> toJson() => {
-        'name': name,
-        'description': description,
-        'required': required,
-      };
+    'name': name,
+    'description': description,
+    'required': required,
+  };
 }
 
 /// MCP `tools/call` response shape.
@@ -213,8 +201,8 @@ class ToolCallResult {
   final Map<String, Object?>? structuredContent;
 
   Map<String, Object?> toJson() => {
-        'content': content,
-        if (isError) 'isError': true,
-        if (structuredContent != null) 'structuredContent': structuredContent,
-      };
+    'content': content,
+    if (isError) 'isError': true,
+    if (structuredContent != null) 'structuredContent': structuredContent,
+  };
 }

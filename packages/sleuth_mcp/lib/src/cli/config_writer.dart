@@ -29,9 +29,10 @@ class ConfigWriteException implements Exception {
 /// `<file>.tmp` then renames so a crash mid-write doesn't leave a
 /// half-written config.
 class ConfigWriter {
-  ConfigWriter(
-      {required this.configFile,
-      this.lockTimeout = const Duration(seconds: 5)});
+  ConfigWriter({
+    required this.configFile,
+    this.lockTimeout = const Duration(seconds: 5),
+  });
 
   /// The file to read/modify — usually `<home>/.claude.json`.
   final File configFile;
@@ -40,7 +41,8 @@ class ConfigWriter {
   /// Lock lives in a local cache dir — advisory locking is unreliable
   /// on userland file-provider filesystems (iCloud Drive, network shares).
   File get _lockFile {
-    final cache = Platform.environment['XDG_CACHE_HOME'] ??
+    final cache =
+        Platform.environment['XDG_CACHE_HOME'] ??
         '${Platform.environment['HOME'] ?? Directory.systemTemp.path}/.cache';
     final slug = Uri.encodeComponent(configFile.absolute.path);
     return File('$cache/sleuth_mcp/$slug.lock');
@@ -194,11 +196,15 @@ class ConfigWriter {
     } finally {
       try {
         await raf.unlock();
-      } catch (_) {/* ignore */}
+      } catch (_) {
+        /* ignore */
+      }
       await raf.close();
       try {
         await _lockFile.delete();
-      } catch (_) {/* best effort */}
+      } catch (_) {
+        /* best effort */
+      }
     }
   }
 

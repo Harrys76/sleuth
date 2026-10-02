@@ -61,8 +61,9 @@ class IssueExplanationBuilder {
           : apply(template.readingTheData!),
       whyItMatters: apply(template.whyItMatters),
       howToFix: apply(template.howToFix),
-      whenToIgnore:
-          template.whenToIgnore == null ? null : apply(template.whenToIgnore!),
+      whenToIgnore: template.whenToIgnore == null
+          ? null
+          : apply(template.whenToIgnore!),
       relatedIssues: template.relatedIssues,
     );
   }
@@ -76,8 +77,9 @@ class IssueExplanationBuilder {
   static String _substitutePlaceholders(String text, PerformanceIssue issue) {
     final widgetName = issue.widgetName ?? 'the widget';
     final routeName = issue.routeDisplayName ?? 'the current route';
-    final severity =
-        issue.severity == IssueSeverity.critical ? 'critical' : 'warning';
+    final severity = issue.severity == IssueSeverity.critical
+        ? 'critical'
+        : 'warning';
     final countMatch = _countExtractor.firstMatch(issue.title);
     final count = countMatch?.group(1) ?? 'several';
     return text
@@ -107,10 +109,12 @@ class IssueExplanationBuilder {
 
   /// Entries grouped by category, ordered by rendering pipeline phase.
   static List<
-      ({
-        IssueCategory category,
-        List<(String stableId, IssueExplanation entry)> entries,
-      })> get groupedEntries {
+    ({
+      IssueCategory category,
+      List<(String stableId, IssueExplanation entry)> entries,
+    })
+  >
+  get groupedEntries {
     final grouped = <IssueCategory, List<(String, IssueExplanation)>>{};
     for (final entry in _explanations.entries) {
       (grouped[entry.value.category] ??= []).add((entry.key, entry.value));
@@ -196,18 +200,20 @@ class IssueExplanationBuilder {
         'layout_bottleneck',
         'multiple_custom_fonts',
         'runtime_font_loading',
-        'shader_compilation'
+        'shader_compilation',
       ],
     ),
 
     'jank_detected': (
       displayName: 'Jank Detected',
       category: IssueCategory.build,
-      whatItIs: 'A single frame took longer than its time budget to render. At '
+      whatItIs:
+          'A single frame took longer than its time budget to render. At '
           '60 FPS the budget is 16.7ms — this frame exceeded that threshold. '
           'Unlike sustained jank, this is an isolated spike that may or may '
           'not indicate a systemic problem depending on frequency.',
-      readingTheData: 'Like a single skipped beat in music — noticeable '
+      readingTheData:
+          'Like a single skipped beat in music — noticeable '
           'but brief, unlike sustained jank which is the song repeatedly '
           'skipping.\n\n'
           '• Frame duration — Total time for one frame. '
@@ -241,7 +247,8 @@ class IssueExplanationBuilder {
     'raster_cache_thrashing': (
       displayName: 'Raster Cache Thrashing',
       category: IssueCategory.raster,
-      whatItIs: 'The raster cache is rapidly evicting and re-creating entries. '
+      whatItIs:
+          'The raster cache is rapidly evicting and re-creating entries. '
           'Flutter caches rendered layer images to avoid re-rasterizing them '
           'each frame — thrashing means this cache is not effective and '
           'the GPU must redo work it already completed.',
@@ -286,7 +293,8 @@ class IssueExplanationBuilder {
           '• Growth frames — Consecutive frames with increasing cache size. '
           'Normal: 0 (stable). Alert: 30+ consecutive growth frames.\n\n'
           '• Source: FrameTiming API cache bytes.',
-      whyItMatters: 'An ever-growing raster cache consumes GPU memory. On '
+      whyItMatters:
+          'An ever-growing raster cache consumes GPU memory. On '
           'memory-constrained devices this can trigger system memory pressure, '
           'leading to background app kills or system-level throttling.',
       howToFix:
@@ -302,7 +310,6 @@ class IssueExplanationBuilder {
     ),
 
     // ── Shader & Compute ──────────────────────────────────────────────────
-
     'shader_compilation': (
       displayName: 'Shader Compilation',
       category: IssueCategory.raster,
@@ -325,7 +332,8 @@ class IssueExplanationBuilder {
           'Shader compilation typically adds 20–200ms to a frame, causing '
           'severe single-frame jank. It only happens once per shader per app '
           'session, so it is most noticeable on first use of a visual effect.',
-      howToFix: 'Use Flutter\'s SkSL shader warm-up: run your app through all '
+      howToFix:
+          'Use Flutter\'s SkSL shader warm-up: run your app through all '
           'visual paths, capture the shader bundle with '
           '--cache-sksl, then include it in your build with '
           '--bundle-sksl-path. This pre-compiles shaders at app startup '
@@ -342,7 +350,8 @@ class IssueExplanationBuilder {
     'heavy_compute': (
       displayName: 'Heavy Computation',
       category: IssueCategory.build,
-      whatItIs: 'A long-running synchronous operation was detected on the UI '
+      whatItIs:
+          'A long-running synchronous operation was detected on the UI '
           'thread in {routeName}. The main isolate was blocked for longer '
           'than the frame budget, preventing the framework from building, '
           'laying out, or rendering any widgets until the computation '
@@ -390,16 +399,17 @@ class IssueExplanationBuilder {
     ),
 
     // ── Memory ────────────────────────────────────────────────────────────
-
     'gc_pressure': (
       displayName: 'GC Pressure',
       category: IssueCategory.memory,
-      whatItIs: 'The garbage collector is running frequently — more often than '
+      whatItIs:
+          'The garbage collector is running frequently — more often than '
           'expected for normal app operation. Each GC cycle pauses the Dart '
           'isolate briefly to reclaim unused memory, and when collections '
           'happen back-to-back the cumulative pauses become noticeable as '
           'micro-stutters.',
-      readingTheData: 'Like a janitor who keeps interrupting a meeting to '
+      readingTheData:
+          'Like a janitor who keeps interrupting a meeting to '
           'empty small trash cans — each visit is brief, but they add up and '
           'break concentration.\n\n'
           '• GC/min — Garbage collection events per minute. '
@@ -433,7 +443,7 @@ class IssueExplanationBuilder {
         'heap_growing',
         'stream_resource_growth',
         'sustained_jank',
-        'uncached_images'
+        'uncached_images',
       ],
     ),
 
@@ -486,14 +496,15 @@ class IssueExplanationBuilder {
         'stream_resource_growth',
         'tracked_resource_concurrent',
         'tracked_resource_long_lived',
-        'uncached_images'
+        'uncached_images',
       ],
     ),
 
     'stream_resource_growth': (
       displayName: 'Stream Resources Growing',
       category: IssueCategory.memory,
-      whatItIs: 'Watchlist async resource classes (StreamSubscription, '
+      whatItIs:
+          'Watchlist async resource classes (StreamSubscription, '
           'StreamController, WebSocketChannel, optional rxdart Subjects) '
           'are accumulating across a 4-sample VM allocation profile '
           'window AND `heap_growing` is currently active. The pattern '
@@ -513,14 +524,16 @@ class IssueExplanationBuilder {
           'cadence).\n\n'
           '• Source: VM Service `getAllocationProfile` polled at most '
           'once per `streamResourceSampleSeconds` (default 10 s).',
-      whyItMatters: 'Stream resource leaks are one of the most common Flutter '
+      whyItMatters:
+          'Stream resource leaks are one of the most common Flutter '
           'memory bugs: a forgotten `cancel()` on a `StreamSubscription` '
           'or `close()` on a `StreamController` retains every closure '
           'and captured widget reference along the subscription chain. '
           'The leak compounds as users navigate routes, eventually '
           'crashing the app or triggering OS-level kills on '
           'memory-constrained devices.',
-      howToFix: 'Audit dispose/cancel paths in recently navigated routes:\n\n'
+      howToFix:
+          'Audit dispose/cancel paths in recently navigated routes:\n\n'
           '• `StreamSubscription` returned by `Stream.listen()` — call '
           '`cancel()` in `State.dispose()`.\n'
           '• `StreamController` — call `close()` when ownership ends.\n'
@@ -534,27 +547,26 @@ class IssueExplanationBuilder {
           '`heap_growing` and `native_memory_growing` for alternative '
           'memory-pressure causes (cache bloat, image decode, GPU '
           'textures).',
-      whenToIgnore: 'A small steady-state retention of broadcast subscriptions '
+      whenToIgnore:
+          'A small steady-state retention of broadcast subscriptions '
           '(route observers, animation tickers, app-scoped streams) is '
           'normal. Concern starts when growth continues after the app '
           'reaches steady state, or when the top growth class points to '
           'a feature you recently navigated.',
-      relatedIssues: [
-        'heap_growing',
-        'native_memory_growing',
-        'gc_pressure',
-      ],
+      relatedIssues: ['heap_growing', 'native_memory_growing', 'gc_pressure'],
     ),
 
     'tracked_resource_concurrent': (
       displayName: 'Tracked Resource Concurrent',
       category: IssueCategory.memory,
-      whatItIs: 'Multiple live instances are registered under the same name '
+      whatItIs:
+          'Multiple live instances are registered under the same name '
           'via `Sleuth.trackResource(name, resource)`, exceeding the '
           'configured concurrent threshold. The tracker holds only a '
           '`WeakReference`, so each counted instance is reachable from '
           'somewhere outside Sleuth — confirmed retention.',
-      readingTheData: 'Like signing a guest book on entry: if the book shows 8 '
+      readingTheData:
+          'Like signing a guest book on entry: if the book shows 8 '
           'guests still inside an hour after the meeting ended, '
           'someone forgot to leave.\n\n'
           '• Resource name — the string passed to '
@@ -564,13 +576,15 @@ class IssueExplanationBuilder {
           'GC has not yet finalised.\n\n'
           '• Source: pure Dart `WeakReference` + `Finalizer`. No VM '
           'service required.',
-      whyItMatters: 'A confirmed leak: the user explicitly opted into tracking '
+      whyItMatters:
+          'A confirmed leak: the user explicitly opted into tracking '
           'this name, so the live count represents a real ownership '
           'claim. Each retained instance keeps its captured closures '
           'alive — common offenders are HTTP clients with connection '
           'pools, repository singletons stacked across feature scopes, '
           'and chat-socket-style services kept alive past their flow.',
-      howToFix: 'Audit dispose / cancel paths for the named resource:\n\n'
+      howToFix:
+          'Audit dispose / cancel paths for the named resource:\n\n'
           '• Find every `Sleuth.trackResource(name, ...)` call site.\n'
           '• Verify a matching `Sleuth.untrackResource` OR a clear '
           'ownership boundary (state.dispose, scope close, isolate '
@@ -581,19 +595,18 @@ class IssueExplanationBuilder {
           'OR per-name via `Sleuth.setResourceThreshold(name, '
           'maxConcurrent: N)` (per-name overrides survive bucket '
           'eviction).',
-      whenToIgnore: 'A pooled resource where the count IS the design (database '
+      whenToIgnore:
+          'A pooled resource where the count IS the design (database '
           'connection pool, prerendered tile cache). Tune the '
           'threshold rather than dispose what should be retained.',
-      relatedIssues: [
-        'heap_growing',
-        'tracked_resource_long_lived',
-      ],
+      relatedIssues: ['heap_growing', 'tracked_resource_long_lived'],
     ),
 
     'tracked_resource_long_lived': (
       displayName: 'Tracked Resource Long-Lived',
       category: IssueCategory.memory,
-      whatItIs: 'A single instance registered via `Sleuth.trackResource` has '
+      whatItIs:
+          'A single instance registered via `Sleuth.trackResource` has '
           'been alive longer than the configured long-lived threshold '
           '(default 5 minutes wall-clock). The Finalizer has not '
           'fired, so the GC has not reclaimed the target — something '
@@ -609,14 +622,16 @@ class IssueExplanationBuilder {
           'first surviving registration.\n\n'
           '• Source: pure Dart `WeakReference` + `Finalizer` against '
           'the user-tracked target.',
-      whyItMatters: 'Long-lived retention is a confirmed ownership claim. If '
+      whyItMatters:
+          'Long-lived retention is a confirmed ownership claim. If '
           'the resource was meant to be scope-bound (per-route '
           'service, per-feature subscription), the long lifetime '
           'indicates the owning scope never released it. If the '
           'resource was meant to be session-long (DI singleton, '
           'app-scope event bus), the warning is noise — exclude that '
           'name from tracking.',
-      howToFix: 'Decide the intent for the resource name:\n\n'
+      howToFix:
+          'Decide the intent for the resource name:\n\n'
           '• Scope-bound (route, feature, screen) — find the missing '
           'dispose call. Ownership boundaries: `State.dispose`, '
           '`Cubit.close`, `provider` autoDispose, isolate teardown.\n\n'
@@ -625,20 +640,19 @@ class IssueExplanationBuilder {
           '`SleuthConfig.thresholds.trackedResourceLongLivedSeconds` '
           'OR per-name via `Sleuth.setResourceThreshold(name, '
           'longLivedSeconds: N)` past the longest legitimate session.',
-      whenToIgnore: 'Singletons. Tracking is opt-in by name; if a name is '
+      whenToIgnore:
+          'Singletons. Tracking is opt-in by name; if a name is '
           'always meant to live the whole session, untrack it after '
           'the deliberate construction (one-shot tracking still '
           'catches accidental re-construction).',
-      relatedIssues: [
-        'heap_growing',
-        'tracked_resource_concurrent',
-      ],
+      relatedIssues: ['heap_growing', 'tracked_resource_concurrent'],
     ),
 
     'heap_near_capacity': (
       displayName: 'Heap Near Capacity',
       category: IssueCategory.memory,
-      whatItIs: 'The Dart heap is using more than 80% of its current capacity. '
+      whatItIs:
+          'The Dart heap is using more than 80% of its current capacity. '
           'The Dart VM dynamically resizes the heap, but when usage '
           'approaches capacity, GC runs more aggressively and the VM may '
           'need to request more memory from the OS.',
@@ -672,7 +686,7 @@ class IssueExplanationBuilder {
         'excessive_keep_alive',
         'heap_growing',
         'native_memory_growing',
-        'uncached_images'
+        'uncached_images',
       ],
     ),
 
@@ -716,11 +730,11 @@ class IssueExplanationBuilder {
     ),
 
     // ── Rebuild & Repaint ─────────────────────────────────────────────────
-
     'rebuild_activity': (
       displayName: 'Rebuild Activity',
       category: IssueCategory.build,
-      whatItIs: '{count} widget rebuilds were detected in a short time window '
+      whatItIs:
+          '{count} widget rebuilds were detected in a short time window '
           'around {widgetName}. The framework is reconstructing widget '
           'subtrees more frequently than expected for the current '
           'interaction.',
@@ -747,7 +761,8 @@ class IssueExplanationBuilder {
           'BlocBuilder/Selector to rebuild only the affected subtree. '
           'Use DevTools Widget Inspector to identify which widgets are '
           'rebuilding and trace the rebuild source.',
-      whenToIgnore: 'High rebuild activity during animations is expected — '
+      whenToIgnore:
+          'High rebuild activity during animations is expected — '
           'AnimationController drives 60 rebuilds/sec by design. Focus on '
           'rebuilds during user interactions like typing or scrolling.',
       relatedIssues: [
@@ -761,14 +776,15 @@ class IssueExplanationBuilder {
         'request_frequency',
         'setstate_scope',
         'shallow_rebuild_risk',
-        'stateful_density'
+        'stateful_density',
       ],
     ),
 
     'rebuild_debug': (
       displayName: 'Widget Rebuild (Debug)',
       category: IssueCategory.build,
-      whatItIs: 'A specific widget type is rebuilding at a high rate. Debug '
+      whatItIs:
+          'A specific widget type is rebuilding at a high rate. Debug '
           'callbacks identified this widget as a frequent rebuilder during '
           'the monitoring window.',
       readingTheData:
@@ -890,14 +906,15 @@ class IssueExplanationBuilder {
         'excessive_repaint_boundary',
         'frequent_repaint_painter',
         'missing_repaint_boundary',
-        'repaint_debug'
+        'repaint_debug',
       ],
     ),
 
     'repaint_debug': (
       displayName: 'Widget Repaint (Debug)',
       category: IssueCategory.paint,
-      whatItIs: 'A specific widget type is triggering frequent repaints. Debug '
+      whatItIs:
+          'A specific widget type is triggering frequent repaints. Debug '
           'callbacks identified this render object as painting more often '
           'than expected.',
       readingTheData:
@@ -908,10 +925,12 @@ class IssueExplanationBuilder {
           '• Widget type — The class name of the repainting widget.\n\n'
           '• Debug mode only — values may differ in profile mode.\n\n'
           '• Source: debugOnRepaintRenderObject callback.',
-      whyItMatters: 'When one widget type dominates paint activity, it often '
+      whyItMatters:
+          'When one widget type dominates paint activity, it often '
           'indicates a missing RepaintBoundary or a CustomPainter that '
           'always returns true from shouldRepaint().',
-      howToFix: 'Wrap the widget in a RepaintBoundary to prevent its repaints '
+      howToFix:
+          'Wrap the widget in a RepaintBoundary to prevent its repaints '
           'from propagating to parent layers. If it\'s a CustomPainter, '
           'implement shouldRepaint() to compare relevant fields. If it\'s '
           'an animation, ensure only the animating subtree repaints.',
@@ -933,7 +952,7 @@ class IssueExplanationBuilder {
       relatedIssues: [
         'excessive_repaint',
         'excessive_repaint_debug',
-        'missing_repaint_boundary'
+        'missing_repaint_boundary',
       ],
     ),
 
@@ -955,7 +974,8 @@ class IssueExplanationBuilder {
           'A high overall repaint rate means the raster thread is doing '
           'more work per frame than necessary, consuming GPU time that '
           'could cause raster-thread jank.',
-      howToFix: 'Identify the root cause: usually an animation or state change '
+      howToFix:
+          'Identify the root cause: usually an animation or state change '
           'high in the tree that invalidates many descendants. Insert '
           'RepaintBoundary widgets at natural boundaries (list items, '
           'cards, toolbar) to contain repaint propagation.',
@@ -972,16 +992,16 @@ class IssueExplanationBuilder {
         'always_repaint_painter',
         'animated_builder_no_child',
         'missing_repaint_boundary',
-        'repaint_debug'
+        'repaint_debug',
       ],
     ),
 
     // ── GPU & Raster ──────────────────────────────────────────────────────
-
     'raster_dominance': (
       displayName: 'Raster Dominance',
       category: IssueCategory.raster,
-      whatItIs: 'The raster thread is consistently taking longer than the UI '
+      whatItIs:
+          'The raster thread is consistently taking longer than the UI '
           'thread. Frame time is dominated by GPU work (compositing, '
           'painting to screen) rather than widget building.',
       readingTheData:
@@ -994,11 +1014,13 @@ class IssueExplanationBuilder {
           '• Raster ms / UI ms — Absolute times for each thread. Both must '
           'stay under 16.7ms to avoid jank.\n\n'
           '• Source: VM Timeline thread durations.',
-      whyItMatters: 'Raster-thread bottlenecks cannot be solved by optimizing '
+      whyItMatters:
+          'Raster-thread bottlenecks cannot be solved by optimizing '
           'build() methods — the GPU is the constraint. Users see jank '
           'even if the UI thread finishes quickly, because both threads '
           'must complete within the frame budget.',
-      howToFix: 'Reduce GPU workload: minimize saveLayer triggers (Opacity, '
+      howToFix:
+          'Reduce GPU workload: minimize saveLayer triggers (Opacity, '
           'ClipPath, ShaderMask), reduce the number of layers, simplify '
           'clip shapes, and add RepaintBoundary to cache static content. '
           'Decode images at display size to reduce texture upload cost. '
@@ -1012,14 +1034,15 @@ class IssueExplanationBuilder {
         'frequent_repaint_painter',
         'missing_repaint_boundary',
         'raster_cache_growing',
-        'raster_cache_thrashing'
+        'raster_cache_thrashing',
       ],
     ),
 
     'expensive_gpu_nodes': (
       displayName: 'Expensive GPU Nodes',
       category: IssueCategory.raster,
-      whatItIs: 'Render tree nodes that trigger expensive GPU operations were '
+      whatItIs:
+          'Render tree nodes that trigger expensive GPU operations were '
           'found: saveLayer (Opacity, ShaderMask), complex clips (ClipPath), '
           'or large texture uploads.',
       readingTheData:
@@ -1043,14 +1066,14 @@ class IssueExplanationBuilder {
           'use ColorFiltered on the image source rather than a stacked '
           'Opacity widget. Flatten layer trees by removing unnecessary '
           'decorations.',
-      whenToIgnore: 'Some visual effects genuinely require saveLayer (e.g., '
+      whenToIgnore:
+          'Some visual effects genuinely require saveLayer (e.g., '
           'BackdropFilter for blur). The concern is unnecessary layers '
           'from convenience widgets.',
       relatedIssues: ['opacity_zero'],
     ),
 
     // ── setState Scope ────────────────────────────────────────────────────
-
     'setstate_scope': (
       displayName: 'setState Scope',
       category: IssueCategory.build,
@@ -1068,11 +1091,13 @@ class IssueExplanationBuilder {
           '• Depth — How far above the leaf widgets the setState caller sits. '
           'Higher depth means wider blast radius.\n\n'
           '• Source: Structural tree walk.',
-      whyItMatters: 'When setState is called on a widget near the root, every '
+      whyItMatters:
+          'When setState is called on a widget near the root, every '
           'descendant\'s build() method runs again — even widgets whose '
           'data hasn\'t changed. This is the most common cause of '
           'unnecessary CPU work in Flutter apps.',
-      howToFix: 'Move state down to the smallest widget that needs it. '
+      howToFix:
+          'Move state down to the smallest widget that needs it. '
           'Extract the changing value into a ValueNotifier and use '
           'ValueListenableBuilder to rebuild only the dependent widget:\n\n'
           'Before (rebuilds entire subtree):\n'
@@ -1097,7 +1122,7 @@ class IssueExplanationBuilder {
         'rebuild_activity',
         'rebuild_debug',
         'shallow_rebuild_risk',
-        'stateful_density'
+        'stateful_density',
       ],
     ),
 
@@ -1108,11 +1133,11 @@ class IssueExplanationBuilder {
     // snapshot schemaVersion.
 
     // ── Shallow Rebuild Risk ──────────────────────────────────────────────
-
     'shallow_rebuild_risk': (
       displayName: 'Shallow Rebuild Risk',
       category: IssueCategory.build,
-      whatItIs: 'A StatefulWidget near the top of the tree was found without '
+      whatItIs:
+          'A StatefulWidget near the top of the tree was found without '
           'targeted state management. If this widget calls setState(), the '
           'entire deep subtree below it will rebuild.',
       readingTheData:
@@ -1142,11 +1167,11 @@ class IssueExplanationBuilder {
     ),
 
     // ── Structural: ListView ──────────────────────────────────────────────
-
     'non_lazy_list': (
       displayName: 'Non-Lazy List',
       category: IssueCategory.build,
-      whatItIs: '{widgetName} was found with {count} children built eagerly '
+      whatItIs:
+          '{widgetName} was found with {count} children built eagerly '
           'instead of lazily. This means every item in the list is '
           'constructed and laid out immediately, even items far off-screen.',
       readingTheData:
@@ -1161,7 +1186,8 @@ class IssueExplanationBuilder {
           'Eager list construction wastes memory and CPU. A list with 1,000 '
           'items builds all 1,000 widgets upfront, even though only ~10 are '
           'visible. This causes slow initial render and high memory usage.',
-      howToFix: 'Replace ListView(children: [...]) with ListView.builder():\n\n'
+      howToFix:
+          'Replace ListView(children: [...]) with ListView.builder():\n\n'
           'Before (eager — builds all items):\n'
           '  ListView(children: items.map((i) => ItemTile(i)).toList())\n\n'
           'After (lazy — builds only visible items):\n'
@@ -1182,16 +1208,16 @@ class IssueExplanationBuilder {
         'layout_bottleneck',
         'rebuild_activity',
         'sliver_to_box_adapter_large',
-        'sliver_to_box_adapter_shrinkwrap'
+        'sliver_to_box_adapter_shrinkwrap',
       ],
     ),
 
     // ── Structural: Image Memory ──────────────────────────────────────────
-
     'uncached_images': (
       displayName: 'Uncached Images',
       category: IssueCategory.memory,
-      whatItIs: 'Image widgets were found without cacheWidth or cacheHeight '
+      whatItIs:
+          'Image widgets were found without cacheWidth or cacheHeight '
           'parameters. The image codec will decode the full-resolution '
           'image into memory, regardless of how small it is displayed.',
       readingTheData:
@@ -1218,23 +1244,24 @@ class IssueExplanationBuilder {
           '  Image(image: ResizeImage(NetworkImage(url), width: 400))\n\n'
           'ResizeImage works with any ImageProvider and applies resize '
           'before caching, saving both memory and decode time.',
-      whenToIgnore: 'Small images (icons, avatars under 100×100 pixels) have '
+      whenToIgnore:
+          'Small images (icons, avatars under 100×100 pixels) have '
           'negligible full-resolution cost. SVG and vector images are '
           'not affected.',
       relatedIssues: [
         'gc_pressure',
         'heap_growing',
         'heap_near_capacity',
-        'native_memory_growing'
+        'native_memory_growing',
       ],
     ),
 
     // ── Structural: GlobalKey ─────────────────────────────────────────────
-
     'excessive_global_keys': (
       displayName: 'Excessive GlobalKeys',
       category: IssueCategory.build,
-      whatItIs: '{count} GlobalKey instances were found inside {widgetName}. '
+      whatItIs:
+          '{count} GlobalKey instances were found inside {widgetName}. '
           'Each GlobalKey maintains a persistent reference to its Element '
           'across the entire app.',
       readingTheData:
@@ -1247,11 +1274,13 @@ class IssueExplanationBuilder {
           '• Location — Whether keys are inside a scrollable (worse) or '
           'at page level (expected).\n\n'
           '• Source: Structural tree walk.',
-      whyItMatters: 'GlobalKeys are expensive: they prevent the framework from '
+      whyItMatters:
+          'GlobalKeys are expensive: they prevent the framework from '
           'efficiently recycling Elements during scroll, force global '
           'registry lookups, and can cause subtle bugs when two widgets '
           'try to use the same GlobalKey simultaneously.',
-      howToFix: 'Replace GlobalKey with ValueKey or ObjectKey for list item '
+      howToFix:
+          'Replace GlobalKey with ValueKey or ObjectKey for list item '
           'identification. Use GlobalKey only when you genuinely need '
           'cross-tree state preservation (e.g., moving a widget between '
           'parents). For form validation, use a single GlobalKey<FormState> '
@@ -1263,7 +1292,6 @@ class IssueExplanationBuilder {
     ),
 
     // ── Structural: Nested Scroll ─────────────────────────────────────────
-
     'nested_scroll': (
       displayName: 'Nested Scrollables',
       category: IssueCategory.build,
@@ -1285,7 +1313,8 @@ class IssueExplanationBuilder {
           'users struggle to predict which scroll view will respond. Same-axis '
           'nesting causes the inner list to eagerly build all children '
           '(losing lazy benefits) or causes scroll physics conflicts.',
-      howToFix: 'For same-axis nesting, convert inner ListView to SliverList '
+      howToFix:
+          'For same-axis nesting, convert inner ListView to SliverList '
           'inside a CustomScrollView. For cross-axis nesting '
           '(horizontal inside vertical), set a fixed height on the inner '
           'scrollable and use NeverScrollableScrollPhysics if the inner '
@@ -1319,7 +1348,8 @@ class IssueExplanationBuilder {
           '(2) confusing scroll physics where the user can\'t tell which '
           'list is scrolling, and (3) potential infinite height constraint '
           'errors.',
-      howToFix: 'Migrate to CustomScrollView with Slivers:\n\n'
+      howToFix:
+          'Migrate to CustomScrollView with Slivers:\n\n'
           'Before (nested same-axis):\n'
           '  ListView(children: [\n'
           '    Header(),\n'
@@ -1340,12 +1370,11 @@ class IssueExplanationBuilder {
       relatedIssues: [
         'layout_bottleneck',
         'rebuild_activity',
-        'sliver_fill_remaining_scrollable'
+        'sliver_fill_remaining_scrollable',
       ],
     ),
 
     // ── Structural: Opacity ───────────────────────────────────────────────
-
     'opacity_zero': (
       displayName: 'Opacity Zero',
       category: IssueCategory.layout,
@@ -1367,7 +1396,8 @@ class IssueExplanationBuilder {
           '(build, layout, paint, raster) plus allocates a saveLayer GPU '
           'buffer. It also confuses screen readers, which announce invisible '
           'content to accessibility users.',
-      howToFix: 'Replace Opacity(opacity: 0.0) with Visibility(visible: false) '
+      howToFix:
+          'Replace Opacity(opacity: 0.0) with Visibility(visible: false) '
           'to skip paint and hit-testing. Visibility provides granular '
           'control via flags:\n\n'
           '• maintainSize: true — keeps the widget\'s space in layout '
@@ -1385,7 +1415,6 @@ class IssueExplanationBuilder {
     ),
 
     // ── Structural: Layout ────────────────────────────────────────────────
-
     'layout_bottleneck': (
       displayName: 'Layout Bottleneck',
       category: IssueCategory.layout,
@@ -1406,7 +1435,8 @@ class IssueExplanationBuilder {
           'Two-pass layout doubles the layout cost for the affected subtree. '
           'When nested (IntrinsicHeight containing IntrinsicWidth), the cost '
           'grows exponentially — O(2^N) for N nesting levels.',
-      howToFix: 'Replace IntrinsicHeight with explicit height constraints from '
+      howToFix:
+          'Replace IntrinsicHeight with explicit height constraints from '
           'the parent (SizedBox, ConstrainedBox). For equal-height rows, '
           'use Table or CrossAxisAlignment.stretch in a Row with Expanded '
           'children. For text-dependent heights, measure text once with '
@@ -1423,12 +1453,11 @@ class IssueExplanationBuilder {
         'rebuild_activity',
         'setstate_scope',
         'sustained_jank',
-        'wrap_layout_bottleneck'
+        'wrap_layout_bottleneck',
       ],
     ),
 
     // ── Structural: CustomPainter ─────────────────────────────────────────
-
     'always_repaint_painter': (
       displayName: 'Always-Repaint Painter',
       category: IssueCategory.paint,
@@ -1450,24 +1479,27 @@ class IssueExplanationBuilder {
           'frame. For complex painters with many drawing operations, this '
           'wastes significant GPU time and prevents the raster cache from '
           'being effective.',
-      howToFix: 'Override shouldRepaint() to compare the fields that affect '
+      howToFix:
+          'Override shouldRepaint() to compare the fields that affect '
           'painting: return old.color != color || old.progress != progress. '
           'Only return true when the visual output would actually change. '
           'If the painter is driven by an animation, use AnimatedBuilder '
           'with a child parameter to separate animated and static content.',
-      whenToIgnore: 'Painters that genuinely change every frame (real-time '
+      whenToIgnore:
+          'Painters that genuinely change every frame (real-time '
           'visualizations, particle systems) need shouldRepaint → true.',
       relatedIssues: [
         'excessive_repaint',
         'excessive_repaint_debug',
-        'raster_dominance'
+        'raster_dominance',
       ],
     ),
 
     'frequent_repaint_painter': (
       displayName: 'Frequent Repaint Painter',
       category: IssueCategory.paint,
-      whatItIs: 'A CustomPainter is repainting at a high frequency. While '
+      whatItIs:
+          'A CustomPainter is repainting at a high frequency. While '
           'shouldRepaint() may be implemented, it is returning true too '
           'often — the painter\'s inputs are changing rapidly.',
       readingTheData:
@@ -1489,17 +1521,18 @@ class IssueExplanationBuilder {
           'reduced or whether some paint operations can be cached. Use '
           'RepaintBoundary to prevent the painter\'s repaints from '
           'propagating to parent layers.',
-      whenToIgnore: 'Painters used for active animations (progress indicators, '
+      whenToIgnore:
+          'Painters used for active animations (progress indicators, '
           'waveforms) are expected to repaint frequently.',
       relatedIssues: ['excessive_repaint', 'raster_dominance'],
     ),
 
     // ── Structural: Keep Alive ────────────────────────────────────────────
-
     'excessive_keep_alive': (
       displayName: 'Excessive KeepAlive',
       category: IssueCategory.memory,
-      whatItIs: '{count} pages or tab contents are using '
+      whatItIs:
+          '{count} pages or tab contents are using '
           'AutomaticKeepAliveClientMixin to stay alive when scrolled '
           'off-screen or when tabs switch. Each kept-alive subtree '
           'remains in memory with its full State.',
@@ -1531,11 +1564,11 @@ class IssueExplanationBuilder {
     ),
 
     // ── Structural: AnimatedBuilder ───────────────────────────────────────
-
     'animated_builder_no_child': (
       displayName: 'AnimatedBuilder Without Child',
       category: IssueCategory.build,
-      whatItIs: '{widgetName} was found without using the child parameter. '
+      whatItIs:
+          '{widgetName} was found without using the child parameter. '
           'The entire subtree inside the builder callback is rebuilt on '
           'every animation tick (60x/sec).',
       readingTheData:
@@ -1552,7 +1585,8 @@ class IssueExplanationBuilder {
           'the entire widget subtree inside the builder — even static '
           'content that doesn\'t depend on the animation value. For complex '
           'subtrees, this creates 60 expensive rebuilds per second.',
-      howToFix: 'Pass static widgets via the child parameter. The framework '
+      howToFix:
+          'Pass static widgets via the child parameter. The framework '
           'builds the child widget once, caches the resulting Element '
           'subtree, and passes the pre-built widget to the builder '
           'callback on every animation tick. Because the same widget '
@@ -1574,12 +1608,11 @@ class IssueExplanationBuilder {
       relatedIssues: [
         'excessive_repaint',
         'excessive_repaint_debug',
-        'rebuild_activity'
+        'rebuild_activity',
       ],
     ),
 
     // ── Structural: Font Loading ──────────────────────────────────────────
-
     'multiple_custom_fonts': (
       displayName: 'Multiple Custom Fonts',
       category: IssueCategory.font,
@@ -1614,7 +1647,6 @@ class IssueExplanationBuilder {
     ),
 
     // ── Structural: RepaintBoundary ───────────────────────────────────────
-
     'missing_repaint_boundary': (
       displayName: 'Missing RepaintBoundary',
       category: IssueCategory.paint,
@@ -1623,7 +1655,8 @@ class IssueExplanationBuilder {
           'or similar) was found without a RepaintBoundary ancestor. '
           'Without the boundary, repaints propagate up to the nearest '
           'existing boundary, potentially repainting a large parent region.',
-      readingTheData: 'Like a paint spill with no containment — without a tarp '
+      readingTheData:
+          'Like a paint spill with no containment — without a tarp '
           '(boundary), the spill spreads across the entire floor.\n\n'
           '• Expensive widget type — The GPU-heavy widget missing a boundary '
           '(CustomPainter, BackdropFilter, ShaderMask). Alert: any '
@@ -1636,7 +1669,8 @@ class IssueExplanationBuilder {
           'cheaper content, any change to either region repaints everything. '
           'A RepaintBoundary isolates the expensive region so it only '
           'repaints when its own content changes.',
-      howToFix: 'Wrap the expensive widget in a RepaintBoundary:\n'
+      howToFix:
+          'Wrap the expensive widget in a RepaintBoundary:\n'
           'RepaintBoundary(\n'
           '  child: CustomPaint(painter: myExpensivePainter),\n'
           ')\n'
@@ -1657,16 +1691,16 @@ class IssueExplanationBuilder {
         'excessive_repaint_boundary',
         'excessive_repaint_debug',
         'raster_dominance',
-        'repaint_debug'
+        'repaint_debug',
       ],
     ),
 
     // ── Network ───────────────────────────────────────────────────────────
-
     'slow_request': (
       displayName: 'Slow Request',
       category: IssueCategory.network,
-      whatItIs: 'An HTTP request took longer than the configured threshold '
+      whatItIs:
+          'An HTTP request took longer than the configured threshold '
           '(default: 2 seconds) to complete. The total time includes DNS '
           'resolution, TCP handshake, TLS negotiation, server processing, '
           'and response transfer.',
@@ -1679,7 +1713,8 @@ class IssueExplanationBuilder {
           'configurable), >5000ms (critical).\n\n'
           '• Worst request — Slowest URL and duration shown in the title.\n\n'
           '• Source: HTTP client instrumentation.',
-      whyItMatters: 'Slow network requests block UI updates that depend on the '
+      whyItMatters:
+          'Slow network requests block UI updates that depend on the '
           'response. Users see loading spinners, empty screens, or stale '
           'data. If the request is made during a frame callback (bad '
           'practice), it can directly cause jank.',
@@ -1746,11 +1781,13 @@ class IssueExplanationBuilder {
           '• Bursts during page load are expected; sustained high '
           'frequency is the concern.\n\n'
           '• Source: HTTP client instrumentation.',
-      whyItMatters: 'High request frequency wastes battery and bandwidth. Each '
+      whyItMatters:
+          'High request frequency wastes battery and bandwidth. Each '
           'request has connection overhead, and the response processing '
           'competes with UI work for CPU time. Servers may also rate-limit '
           'or throttle aggressive clients.',
-      howToFix: 'Batch or debounce repeated requests: combine multiple item '
+      howToFix:
+          'Batch or debounce repeated requests: combine multiple item '
           'fetches into a single list endpoint. Add request deduplication '
           'to prevent identical in-flight requests. For polling, use '
           'exponential backoff or WebSocket/SSE for real-time updates '
@@ -1802,11 +1839,11 @@ class IssueExplanationBuilder {
     ),
 
     // ── Platform Channel ──────────────────────────────────────────────────
-
     'platform_channel_traffic': (
       displayName: 'Platform Channel Traffic',
       category: IssueCategory.channel,
-      whatItIs: 'High-frequency platform channel calls were detected. Platform '
+      whatItIs:
+          'High-frequency platform channel calls were detected. Platform '
           'channels are the bridge between Dart and native code (Android/'
           'iOS) — each call involves serialization, thread switching, and '
           'deserialization.',
@@ -1820,12 +1857,14 @@ class IssueExplanationBuilder {
           '• Cumulative duration — Total time on channel calls per window. '
           'High duration means calls are slow, not just frequent.\n\n'
           '• Source: VM Timeline channel events.',
-      whyItMatters: 'Each platform channel message has ~0.1ms overhead for '
+      whyItMatters:
+          'Each platform channel message has ~0.1ms overhead for '
           'serialization and thread marshaling. At high frequency (100+/sec), '
           'this overhead becomes significant and can contribute to frame '
           'budget pressure. Channel calls also block the UI thread while '
           'awaiting the native response.',
-      howToFix: 'Batch multiple values into a single channel call rather than '
+      howToFix:
+          'Batch multiple values into a single channel call rather than '
           'sending one message per value. For continuous data streams '
           '(sensor data, location updates), use EventChannel with native-side '
           'throttling rather than polling via MethodChannel. Cache native '
@@ -1842,7 +1881,6 @@ class IssueExplanationBuilder {
     ),
 
     // ── v11.20: Missing entries ──────────────────────────────────────────
-
     'high_frequency_same_path': (
       displayName: 'High-Frequency Same-Path Requests',
       category: IssueCategory.network,
@@ -1894,7 +1932,8 @@ class IssueExplanationBuilder {
     'wrap_layout_bottleneck': (
       displayName: 'Wrap Layout Bottleneck',
       category: IssueCategory.layout,
-      whatItIs: 'A Wrap widget was found with a large number of children. Wrap '
+      whatItIs:
+          'A Wrap widget was found with a large number of children. Wrap '
           'performs O(N) layout passes to flow-position each child, measuring '
           'every child to determine line breaks.',
       readingTheData:
@@ -1911,7 +1950,8 @@ class IssueExplanationBuilder {
           'ListView it cannot lazily skip off-screen children. A Wrap with '
           '100+ children lays out all of them every frame, even those '
           'scrolled out of view, making it a hidden layout bottleneck.',
-      howToFix: 'For large collections of chips, tags, or badges, consider a '
+      howToFix:
+          'For large collections of chips, tags, or badges, consider a '
           'lazy alternative: place items in a ListView with rows computed '
           'manually, or use a flow-layout package that supports lazy '
           'rendering. For static content, ensure the Wrap is wrapped in a '
@@ -1939,12 +1979,14 @@ class IssueExplanationBuilder {
           '• Lazy alternative — SliverList.builder would lazily construct '
           'only visible items instead of all descendants.\n\n'
           '• Source: Structural tree walk.',
-      whyItMatters: 'Unlike SliverList which lazily builds only visible items, '
+      whyItMatters:
+          'Unlike SliverList which lazily builds only visible items, '
           'SliverToBoxAdapter builds its entire child subtree upfront. A '
           'large subtree (100+ descendants) defeats the purpose of using '
           'slivers for lazy rendering, causing slow initial build and '
           'high memory usage.',
-      howToFix: 'If the content is a list of items, replace SliverToBoxAdapter('
+      howToFix:
+          'If the content is a list of items, replace SliverToBoxAdapter('
           'child: Column(children: items)) with SliverList.builder() for '
           'lazy construction. If it is a single large widget, consider '
           'breaking it into multiple smaller slivers so only visible '
@@ -1958,7 +2000,8 @@ class IssueExplanationBuilder {
     'sliver_fill_remaining_scrollable': (
       displayName: 'SliverFillRemaining Scrollable',
       category: IssueCategory.build,
-      whatItIs: 'A SliverFillRemaining was found containing a scrollable child '
+      whatItIs:
+          'A SliverFillRemaining was found containing a scrollable child '
           '(ListView, SingleChildScrollView, etc.). SliverFillRemaining '
           'sizes its child to fill the remaining viewport space, creating '
           'a nested scroll conflict.',
@@ -1976,7 +2019,8 @@ class IssueExplanationBuilder {
           'CustomScrollView for gesture ownership. Users experience '
           'unpredictable scroll behavior where sometimes the inner list '
           'scrolls and sometimes the outer one does.',
-      howToFix: 'Replace SliverFillRemaining(child: ListView(...)) with a '
+      howToFix:
+          'Replace SliverFillRemaining(child: ListView(...)) with a '
           'SliverList that directly contains the items. If you need the '
           '"fill remaining space" behavior, use SliverFillRemaining with '
           'hasScrollBody: false for non-scrollable content, or restructure '
@@ -2008,7 +2052,8 @@ class IssueExplanationBuilder {
           'list\'s total height. Inside a sliver context this is doubly '
           'wasteful — you chose slivers for lazy rendering but shrinkWrap '
           'defeats it. A 500-item shrinkWrapped list builds all 500 items.',
-      howToFix: 'Replace SliverToBoxAdapter(child: ListView(shrinkWrap: true, '
+      howToFix:
+          'Replace SliverToBoxAdapter(child: ListView(shrinkWrap: true, '
           'children: items)) with SliverList.builder(itemBuilder: ..., '
           'itemCount: items.length). This gives true lazy construction '
           'within the CustomScrollView\'s viewport. If the items have a '
@@ -2024,7 +2069,8 @@ class IssueExplanationBuilder {
     'global_key_recreation': (
       displayName: 'GlobalKey Recreation',
       category: IssueCategory.build,
-      whatItIs: 'A GlobalKey is being created inside a build() method or other '
+      whatItIs:
+          'A GlobalKey is being created inside a build() method or other '
           'frequently-called code path. Each call creates a new GlobalKey '
           'instance, which unregisters the old key and re-registers the '
           'new one in the global registry.',
@@ -2097,7 +2143,8 @@ class IssueExplanationBuilder {
     'runtime_font_loading': (
       displayName: 'Runtime Font Loading',
       category: IssueCategory.font,
-      whatItIs: 'A custom font is being loaded at runtime (via FontLoader or '
+      whatItIs:
+          'A custom font is being loaded at runtime (via FontLoader or '
           'network) rather than being bundled in the app assets. The font '
           'is unavailable until the download and parsing completes.',
       readingTheData:
@@ -2115,7 +2162,8 @@ class IssueExplanationBuilder {
           'invisible or rendered in a fallback font until loading completes. '
           'On slow networks this can last several seconds, creating a '
           'jarring visual experience. Each font file is typically 50–500KB.',
-      howToFix: 'Bundle fonts in the app assets via pubspec.yaml rather than '
+      howToFix:
+          'Bundle fonts in the app assets via pubspec.yaml rather than '
           'loading them at runtime. If runtime loading is required (e.g., '
           'user-selected fonts), preload fonts during a splash screen or '
           'loading state before navigating to content that uses them. Use '
@@ -2130,11 +2178,11 @@ class IssueExplanationBuilder {
     ),
 
     // ── Startup ────────────────────────────────────────────────────────
-
     'slow_startup_ttff': (
       displayName: 'Slow Startup (TTFF)',
       category: IssueCategory.startup,
-      whatItIs: 'The time from Dart entry point (Sleuth.init()) to the first '
+      whatItIs:
+          'The time from Dart entry point (Sleuth.init()) to the first '
           'frame raster completion exceeds the configured threshold. This is '
           'the cold-start Time-to-First-Frame (TTFF) — how long the user '
           'stares at a splash screen or blank canvas before seeing content.',
@@ -2168,12 +2216,14 @@ class IssueExplanationBuilder {
           'timeline enrichment runs before the ring buffer evicts the '
           'FlutterEngineMainEnter event.\n\n'
           '• Source: SchedulerBinding.addTimingsCallback (one-shot).',
-      whyItMatters: 'Mobile users expect apps to launch in under 2 seconds. '
+      whyItMatters:
+          'Mobile users expect apps to launch in under 2 seconds. '
           'A 3+ second cold start is a retention risk — studies show 25% of '
           'users abandon apps that take more than 3 seconds to load. The '
           'first frame is also when the system decides whether to show an '
           'ANR dialog (Android) or terminate the app (iOS watchdog).',
-      howToFix: 'Optimize based on the dominant phase:\n\n'
+      howToFix:
+          'Optimize based on the dominant phase:\n\n'
           'Build-dominant: Reduce initial widget tree complexity. Defer '
           'below-fold content with FutureBuilder or lazy initialization. '
           'Move expensive init logic (database setup, large JSON parsing) '
@@ -2184,14 +2234,12 @@ class IssueExplanationBuilder {
           'Vsync-dominant: Minimize synchronous work before runApp(). Defer '
           'non-critical plugin initialization to post-first-frame callbacks '
           'using WidgetsBinding.instance.addPostFrameCallback.',
-      whenToIgnore: 'Debug mode cold starts are 3–10x slower than profile '
+      whenToIgnore:
+          'Debug mode cold starts are 3–10x slower than profile '
           'mode due to JIT compilation, asserts, and debug checks. Always '
           'measure in profile mode (flutter run --profile). Warm restarts '
           '(hot restart) are also misleading — the VM is already initialized.',
-      relatedIssues: [
-        'jank_detected',
-        'heavy_compute',
-      ],
+      relatedIssues: ['jank_detected', 'heavy_compute'],
     ),
   };
 }

@@ -24,13 +24,13 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
     this.coldStartShaderWindowSeconds = 5,
     this.shaderKeyframeWindowMs = 100,
     int? Function()? appStartMonotonicUsForTest,
-  })  : _appStartForTest = appStartMonotonicUsForTest,
-        super(
-          type: DetectorType.shaderJank,
-          lifecycle: DetectorLifecycle.vmOnly,
-          name: 'Shader Jank',
-          description: 'Detects shader compilation spikes (>100ms)',
-        );
+  }) : _appStartForTest = appStartMonotonicUsForTest,
+       super(
+         type: DetectorType.shaderJank,
+         lifecycle: DetectorLifecycle.vmOnly,
+         name: 'Shader Jank',
+         description: 'Detects shader compilation spikes (>100ms)',
+       );
 
   final int thresholdMs;
   final int coldStartShaderWindowSeconds;
@@ -75,25 +75,27 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
       if (ms >= thresholdMs) {
         final (hint, effort) = FixHintBuilder.shaderCompilation();
         final context = _classifyShaderWarmup(event.timestampUs, data);
-        _issues.add(PerformanceIssue(
-          stableId: 'shader_compilation',
-          severity: ms >= thresholdMs * 2
-              ? IssueSeverity.critical
-              : IssueSeverity.warning,
-          category: IssueCategory.raster,
-          confidence: IssueConfidence.confirmed,
-          title: 'Shader Compilation: ${ms.toStringAsFixed(0)}ms',
-          detail:
-              'A shader was compiled on-the-fly causing a ${ms.toStringAsFixed(0)}ms '
-              'spike. Total shader events so far: $_totalShaderEvents.',
-          fixHint: hint,
-          fixEffort: effort,
-          observationSource: ObservationSource.vmTimeline,
-          detectedAt: DateTime.now(),
-          confidenceReason:
-              'Measured directly from VM timeline shader_compile events',
-          extraTraceArgs: {'shaderWarmupContext': context},
-        ));
+        _issues.add(
+          PerformanceIssue(
+            stableId: 'shader_compilation',
+            severity: ms >= thresholdMs * 2
+                ? IssueSeverity.critical
+                : IssueSeverity.warning,
+            category: IssueCategory.raster,
+            confidence: IssueConfidence.confirmed,
+            title: 'Shader Compilation: ${ms.toStringAsFixed(0)}ms',
+            detail:
+                'A shader was compiled on-the-fly causing a ${ms.toStringAsFixed(0)}ms '
+                'spike. Total shader events so far: $_totalShaderEvents.',
+            fixHint: hint,
+            fixEffort: effort,
+            observationSource: ObservationSource.vmTimeline,
+            detectedAt: DateTime.now(),
+            confidenceReason:
+                'Measured directly from VM timeline shader_compile events',
+            extraTraceArgs: {'shaderWarmupContext': context},
+          ),
+        );
       }
     }
   }
@@ -123,10 +125,12 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
     // keyframe window (default 100 ms), so most causal pairs land in
     // the same batch.
     final keyframeWindowUs = shaderKeyframeWindowMs * 1000;
-    final hasNearbyBuild = data.phaseEvents.any((e) =>
-        e.phase == TimelinePhase.build &&
-        shaderTsUs >= e.timestampUs &&
-        shaderTsUs - e.timestampUs < keyframeWindowUs);
+    final hasNearbyBuild = data.phaseEvents.any(
+      (e) =>
+          e.phase == TimelinePhase.build &&
+          shaderTsUs >= e.timestampUs &&
+          shaderTsUs - e.timestampUs < keyframeWindowUs,
+    );
     return hasNearbyBuild ? 'keyframe' : 'hot_path';
   }
 
@@ -138,24 +142,25 @@ class ShaderJankDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'VM-only detector. Shader-compile duration threshold '
-            '(100ms inclusive, 2× critical) pinned by hermetic '
-            'reproducer feeding raw `List<TimelineEvent>` through '
-            '`TimelineParser.parse()` into the detector — exercises the '
-            'VM → parser → detector boundary including shader name '
-            'variants (ShaderCompilation, Pipeline::Create, lowercase) '
-            'and Impeller-zero suppression via consecutive empty polls. '
-            '`extraTraceArgs.shaderWarmupContext` discriminates '
-            'cold_start (within `coldStartShaderWindowSeconds` of '
-            '`Sleuth.dartEntryMonotonicUs`), keyframe (build event '
-            'within `shaderKeyframeWindowMs` BEFORE shader compile), '
-            'and hot_path (fallback) — pinned by per-context reproducer '
-            'tests with mocked app-start clock and synthetic '
-            '`PhaseEvent` fixtures. Fixtures hand-built against parser '
-            'allowlist; real-device capture comparison is '
-            'runtime-verified-tier work.',
-        reproducerPath: 'test/validation/shader_jank_reproducer_test.dart',
-        coveredStableIds: {'shader_compilation'},
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'VM-only detector. Shader-compile duration threshold '
+        '(100ms inclusive, 2× critical) pinned by hermetic '
+        'reproducer feeding raw `List<TimelineEvent>` through '
+        '`TimelineParser.parse()` into the detector — exercises the '
+        'VM → parser → detector boundary including shader name '
+        'variants (ShaderCompilation, Pipeline::Create, lowercase) '
+        'and Impeller-zero suppression via consecutive empty polls. '
+        '`extraTraceArgs.shaderWarmupContext` discriminates '
+        'cold_start (within `coldStartShaderWindowSeconds` of '
+        '`Sleuth.dartEntryMonotonicUs`), keyframe (build event '
+        'within `shaderKeyframeWindowMs` BEFORE shader compile), '
+        'and hot_path (fallback) — pinned by per-context reproducer '
+        'tests with mocked app-start clock and synthetic '
+        '`PhaseEvent` fixtures. Fixtures hand-built against parser '
+        'allowlist; real-device capture comparison is '
+        'runtime-verified-tier work.',
+    reproducerPath: 'test/validation/shader_jank_reproducer_test.dart',
+    coveredStableIds: {'shader_compilation'},
+  );
 }

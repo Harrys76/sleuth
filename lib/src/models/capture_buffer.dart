@@ -36,14 +36,13 @@ class CaptureEntry {
   }
 
   factory CaptureEntry.fromJson(Map<String, dynamic> json) => CaptureEntry(
-        frameStats:
-            FrameStats.fromJson(json['frameStats'] as Map<String, dynamic>),
-        verdict: FrameVerdict.fromJson(json['verdict'] as Map<String, dynamic>),
-        relatedIssues: (json['relatedIssues'] as List<dynamic>)
-            .map((e) => PerformanceIssue.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        capturedAt: DateTime.parse(json['capturedAt'] as String),
-      );
+    frameStats: FrameStats.fromJson(json['frameStats'] as Map<String, dynamic>),
+    verdict: FrameVerdict.fromJson(json['verdict'] as Map<String, dynamic>),
+    relatedIssues: (json['relatedIssues'] as List<dynamic>)
+        .map((e) => PerformanceIssue.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    capturedAt: DateTime.parse(json['capturedAt'] as String),
+  );
 }
 
 /// Bounded rolling buffer of worst jank frames.

@@ -17,11 +17,11 @@ class DiagnosticPrompt {
 
   /// MCP `prompts/get` message sequence — a single user turn carrying [text].
   List<Map<String, Object?>> messages() => [
-        {
-          'role': 'user',
-          'content': {'type': 'text', 'text': text},
-        },
-      ];
+    {
+      'role': 'user',
+      'content': {'type': 'text', 'text': text},
+    },
+  ];
 }
 
 const _triagePerformance = DiagnosticPrompt(
@@ -35,9 +35,10 @@ const _triagePerformance = DiagnosticPrompt(
     'get_snapshot',
     'get_issues',
     'explain_issue',
-    'get_route_health'
+    'get_route_health',
   },
-  text: 'You are triaging a Flutter app\'s runtime performance using the '
+  text:
+      'You are triaging a Flutter app\'s runtime performance using the '
       'Sleuth MCP tools. Work through these steps:\n'
       '1. Call `get_snapshot` for the current picture — issues, frame stats, '
       'route history.\n'
@@ -58,7 +59,8 @@ const _auditMemory = DiagnosticPrompt(
         'remediations.',
   ),
   usesTools: {'get_issues', 'explain_issue'},
-  text: 'You are auditing a Flutter app for memory growth and leaks using the '
+  text:
+      'You are auditing a Flutter app for memory growth and leaks using the '
       'Sleuth MCP tools. Work through these steps:\n'
       '1. Call `get_issues` and focus only on the memory class — heap growth, '
       'retained streams, and long-lived or over-concurrent tracked '
@@ -76,7 +78,8 @@ const _releaseCheck = DiagnosticPrompt(
         'Run a pre-release performance gate and report a PASS or FAIL verdict.',
   ),
   usesTools: {'check_budgets', 'get_issues'},
-  text: 'You are running a pre-release performance gate on a Flutter app using '
+  text:
+      'You are running a pre-release performance gate on a Flutter app using '
       'the Sleuth MCP tools. Work through these steps:\n'
       '1. Determine the team\'s budget thresholds (minimum FPS, max issues, '
       'max critical issues). If you do not already know them, ask the user '

@@ -70,8 +70,10 @@ void main() {
         detector.processTimelineData(highBuildActivityData(buildCount: 15));
         detector.evaluateNow();
 
-        expect(detector.issues.first.observationSource,
-            ObservationSource.vmTimeline);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.vmTimeline,
+        );
       });
 
       testWidgets('top widget name included in detail', (tester) async {
@@ -91,13 +93,12 @@ void main() {
         detector.evaluateNow();
 
         expect(detector.issues, isNotEmpty);
+        expect(detector.issues.first.detail, contains('TestStatefulWidget'));
         expect(
-          detector.issues.first.detail,
-          contains('TestStatefulWidget'),
+          detector.issues.first.widgetName,
+          isNull,
+          reason: 'Aggregate VM activity should not attribute a culprit widget',
         );
-        expect(detector.issues.first.widgetName, isNull,
-            reason:
-                'Aggregate VM activity should not attribute a culprit widget');
       });
 
       test('window resets after 1-second evaluation', () {
@@ -123,8 +124,9 @@ void main() {
         expect(detector.issues, isEmpty);
       });
 
-      testWidgets('scanTree triggers _evaluate which writes issues',
-          (tester) async {
+      testWidgets('scanTree triggers _evaluate which writes issues', (
+        tester,
+      ) async {
         // Stage VM data first
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(highBuildActivityData(buildCount: 15));
@@ -154,23 +156,28 @@ void main() {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(highBuildActivityData(buildCount: 15));
 
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {'MyWidget': 20},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {'MyWidget': 20},
+            totalPaintCount: 0,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         detector.evaluateNow();
 
         // Debug path should win — produces per-type issues
         expect(detector.issues, isNotEmpty);
         expect(detector.issues.first.title, contains('MyWidget'));
-        expect(detector.issues.first.observationSource,
-            ObservationSource.debugCallback);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.debugCallback,
+        );
       });
 
-      testWidgets('VM data takes priority over structural when connected',
-          (tester) async {
+      testWidgets('VM data takes priority over structural when connected', (
+        tester,
+      ) async {
         // Stage VM data
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(highBuildActivityData(buildCount: 15));
@@ -192,12 +199,15 @@ void main() {
         // VM path should win (connected + pending VM data)
         expect(detector.issues, isNotEmpty);
         expect(detector.issues.first.confidence, IssueConfidence.confirmed);
-        expect(detector.issues.first.observationSource,
-            ObservationSource.vmTimeline);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.vmTimeline,
+        );
       });
 
-      testWidgets('structural fallback used when no VM and no debug',
-          (tester) async {
+      testWidgets('structural fallback used when no VM and no debug', (
+        tester,
+      ) async {
         detector.vmConnected = false;
 
         await tester.pumpWidget(
@@ -215,8 +225,10 @@ void main() {
 
         expect(detector.issues, isNotEmpty);
         expect(detector.issues.first.confidence, IssueConfidence.possible);
-        expect(detector.issues.first.observationSource,
-            ObservationSource.structural);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.structural,
+        );
       });
 
       test('no-op when no fresh data — keeps existing issues', () {
@@ -253,11 +265,13 @@ void main() {
         expect(detector.issues, isNotEmpty);
 
         // Fresh debug snapshot with 0 rebuilds
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 0,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });
@@ -268,18 +282,22 @@ void main() {
         detector.processTimelineData(highBuildActivityData(buildCount: 15));
 
         // Stage debug snapshot with zero counts
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 0,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         detector.evaluateNow();
 
         // Should fall back to VM path — produces confirmed issue from VM
         expect(detector.issues, isNotEmpty);
-        expect(detector.issues.first.observationSource,
-            ObservationSource.vmTimeline);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.vmTimeline,
+        );
         expect(detector.issues.first.confidence, IssueConfidence.confirmed);
       });
 
@@ -289,11 +307,13 @@ void main() {
         detector.processTimelineData(highBuildActivityData(buildCount: 0));
 
         // Stage debug snapshot with zero counts
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 0,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         detector.evaluateNow();
 
@@ -304,11 +324,13 @@ void main() {
 
     group('debug callback path', () {
       test('produces confirmed issues with per-type rates', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {'MyWidget': 20, 'OtherWidget': 5},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {'MyWidget': 20, 'OtherWidget': 5},
+            totalPaintCount: 0,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
         // MyWidget at 20/sec exceeds threshold (10), OtherWidget at 5/sec does not
@@ -318,11 +340,13 @@ void main() {
       });
 
       test('normalizes to per-second rate using elapsed microseconds', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {'MyWidget': 10},
-          totalPaintCount: 0,
-          elapsed: Duration(milliseconds: 500),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {'MyWidget': 10},
+            totalPaintCount: 0,
+            elapsed: Duration(milliseconds: 500),
+          ),
+        );
         detector.evaluateNow();
 
         // 10 rebuilds in 0.5s = 20/sec, exceeds threshold
@@ -331,11 +355,13 @@ void main() {
       });
 
       test('per-widget-type attribution in issue detail and widgetName', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {'WidgetA': 15, 'WidgetB': 25},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {'WidgetA': 15, 'WidgetB': 25},
+            totalPaintCount: 0,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
         expect(detector.issues, hasLength(2));
@@ -348,23 +374,29 @@ void main() {
       });
 
       test('observationSource set to debugCallback', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {'MyWidget': 20},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {'MyWidget': 20},
+            totalPaintCount: 0,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
-        expect(detector.issues.first.observationSource,
-            ObservationSource.debugCallback);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.debugCallback,
+        );
       });
 
       test('critical severity at 3x threshold', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {'MyWidget': 35},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {'MyWidget': 35},
+            totalPaintCount: 0,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
         expect(detector.issues.first.severity, IssueSeverity.critical);
@@ -376,8 +408,9 @@ void main() {
         detector.vmConnected = false;
       });
 
-      testWidgets('reports high StatefulWidget density as possible',
-          (tester) async {
+      testWidgets('reports high StatefulWidget density as possible', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           Directionality(
             textDirection: TextDirection.ltr,
@@ -402,10 +435,7 @@ void main() {
           const Directionality(
             textDirection: TextDirection.ltr,
             child: Column(
-              children: [
-                TestStatefulWidget(),
-                TestStatefulWidget(),
-              ],
+              children: [TestStatefulWidget(), TestStatefulWidget()],
             ),
           ),
         );
@@ -430,13 +460,13 @@ void main() {
         detector.scanTree(tester.element(find.byType(Directionality)));
 
         expect(detector.issues, isNotEmpty);
+        expect(detector.issues.first.detail, contains('TestStatefulWidget'));
         expect(
-          detector.issues.first.detail,
-          contains('TestStatefulWidget'),
+          detector.issues.first.widgetName,
+          isNull,
+          reason:
+              'Structural fallback should provide screen context only, not attribution',
         );
-        expect(detector.issues.first.widgetName, isNull,
-            reason:
-                'Structural fallback should provide screen context only, not attribution');
       });
 
       testWidgets('observationSource is structural', (tester) async {
@@ -454,12 +484,15 @@ void main() {
 
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues.first.observationSource,
-            ObservationSource.structural);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.structural,
+        );
       });
 
-      testWidgets('private-named widgets excluded from density count',
-          (tester) async {
+      testWidgets('private-named widgets excluded from density count', (
+        tester,
+      ) async {
         // A tree with only private-named StatefulWidgets (starting with '_')
         // should NOT trigger stateful_density, because these are filtered as
         // likely framework internals.
@@ -476,13 +509,18 @@ void main() {
         );
 
         detector.scanTree(tester.element(find.byType(Directionality)));
-        expect(detector.issues, isEmpty,
-            reason: 'Private-named widgets should be filtered from '
-                'stateful_density count');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason:
+              'Private-named widgets should be filtered from '
+              'stateful_density count',
+        );
       });
 
-      testWidgets('user widgets still counted after framework filter',
-          (tester) async {
+      testWidgets('user widgets still counted after framework filter', (
+        tester,
+      ) async {
         // A tree with enough public-named user widgets SHOULD trigger.
         await tester.pumpWidget(
           Directionality(
@@ -497,9 +535,13 @@ void main() {
         );
 
         detector.scanTree(tester.element(find.byType(Directionality)));
-        expect(detector.issues, isNotEmpty,
-            reason: 'Public-named user widgets should trigger '
-                'stateful_density');
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason:
+              'Public-named user widgets should trigger '
+              'stateful_density',
+        );
         expect(detector.issues.first.stableId, 'stateful_density');
       });
     });
@@ -548,35 +590,36 @@ void main() {
       });
 
       testWidgets(
-          'after disconnect, next scanTree produces structural fallback',
-          (tester) async {
-        // Start connected with confirmed issues
-        fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
-        detector.evaluateNow();
-        expect(detector.issues, isNotEmpty);
+        'after disconnect, next scanTree produces structural fallback',
+        (tester) async {
+          // Start connected with confirmed issues
+          fakeNow = fakeNow.add(const Duration(seconds: 2));
+          detector.processTimelineData(highBuildActivityData(buildCount: 15));
+          detector.evaluateNow();
+          expect(detector.issues, isNotEmpty);
 
-        // Disconnect
-        detector.vmConnected = false;
+          // Disconnect
+          detector.vmConnected = false;
 
-        // Next scanTree should produce structural fallback
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: Column(
-              children: List.generate(
-                15,
-                (i) => TestStatefulWidget(key: ValueKey(i)),
+          // Next scanTree should produce structural fallback
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Column(
+                children: List.generate(
+                  15,
+                  (i) => TestStatefulWidget(key: ValueKey(i)),
+                ),
               ),
             ),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          );
+          detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isNotEmpty);
-        expect(detector.issues.first.confidence, IssueConfidence.possible);
-        expect(detector.issues.first.detail, contains('VM unavailable'));
-      });
+          expect(detector.issues, isNotEmpty);
+          expect(detector.issues.first.confidence, IssueConfidence.possible);
+          expect(detector.issues.first.detail, contains('VM unavailable'));
+        },
+      );
 
       testWidgets('reconnect flushes stale structural issues', (tester) async {
         // Start disconnected with structural issues
@@ -605,27 +648,29 @@ void main() {
         expect(detector.issues, isEmpty);
       });
 
-      test('after reconnect + new timeline data, confirmed issues can reappear',
-          () {
-        // Connected, build up issues
-        fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
-        detector.evaluateNow();
-        expect(detector.issues, isNotEmpty);
+      test(
+        'after reconnect + new timeline data, confirmed issues can reappear',
+        () {
+          // Connected, build up issues
+          fakeNow = fakeNow.add(const Duration(seconds: 2));
+          detector.processTimelineData(highBuildActivityData(buildCount: 15));
+          detector.evaluateNow();
+          expect(detector.issues, isNotEmpty);
 
-        // Disconnect
-        detector.vmConnected = false;
+          // Disconnect
+          detector.vmConnected = false;
 
-        // Reconnect
-        detector.vmConnected = true;
+          // Reconnect
+          detector.vmConnected = true;
 
-        // New timeline data triggers confirmed issues again
-        fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 20));
-        detector.evaluateNow();
-        expect(detector.issues, isNotEmpty);
-        expect(detector.issues.first.confidence, IssueConfidence.confirmed);
-      });
+          // New timeline data triggers confirmed issues again
+          fakeNow = fakeNow.add(const Duration(seconds: 2));
+          detector.processTimelineData(highBuildActivityData(buildCount: 20));
+          detector.evaluateNow();
+          expect(detector.issues, isNotEmpty);
+          expect(detector.issues.first.confidence, IssueConfidence.confirmed);
+        },
+      );
     });
   });
 
@@ -640,15 +685,16 @@ void main() {
     });
 
     test('enriched dirty names appear in VM path issue detail', () {
-      detector.processTimelineData(enrichedBuildActivityData(
-        buildCount: 50,
-        dirtyList: ['MyWidget', 'MyWidget', 'OtherWidget'],
-      ));
+      detector.processTimelineData(
+        enrichedBuildActivityData(
+          buildCount: 50,
+          dirtyList: ['MyWidget', 'MyWidget', 'OtherWidget'],
+        ),
+      );
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(enrichedBuildActivityData(
-        buildCount: 0,
-        dirtyList: null,
-      ));
+      detector.processTimelineData(
+        enrichedBuildActivityData(buildCount: 0, dirtyList: null),
+      );
       detector.evaluateNow();
 
       expect(detector.issues, hasLength(1));
@@ -669,14 +715,11 @@ void main() {
 
     test('enrichment cleared between evaluation cycles', () {
       // Cycle 1: enriched data
-      detector.processTimelineData(enrichedBuildActivityData(
-        buildCount: 50,
-        dirtyList: ['LeakyWidget'],
-      ));
+      detector.processTimelineData(
+        enrichedBuildActivityData(buildCount: 50, dirtyList: ['LeakyWidget']),
+      );
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(enrichedBuildActivityData(
-        buildCount: 0,
-      ));
+      detector.processTimelineData(enrichedBuildActivityData(buildCount: 0));
       detector.evaluateNow();
       expect(detector.issues.first.detail, contains('LeakyWidget'));
 
@@ -689,10 +732,12 @@ void main() {
     });
 
     test('debug snapshot path ignores enrichment', () {
-      detector.processTimelineData(enrichedBuildActivityData(
-        buildCount: 50,
-        dirtyList: ['ShouldBeIgnored'],
-      ));
+      detector.processTimelineData(
+        enrichedBuildActivityData(
+          buildCount: 50,
+          dirtyList: ['ShouldBeIgnored'],
+        ),
+      );
       fakeNow = fakeNow.add(const Duration(seconds: 2));
 
       // Deliver debug snapshot — takes priority over VM
@@ -703,16 +748,16 @@ void main() {
       );
       detector.updateDebugSnapshot(snapshot);
 
-      detector.processTimelineData(enrichedBuildActivityData(
-        buildCount: 0,
-      ));
+      detector.processTimelineData(enrichedBuildActivityData(buildCount: 0));
       detector.evaluateNow();
 
       // Should use debug path, not enriched VM path
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.title, contains('DebugWidget'));
       expect(
-          detector.issues.first.detail, isNot(contains('timeline enrichment')));
+        detector.issues.first.detail,
+        isNot(contains('timeline enrichment')),
+      );
     });
   });
 
@@ -727,41 +772,45 @@ void main() {
     });
 
     testWidgets(
-        'debug snapshot with high rebuild rate produces highlights for matching widgets',
-        (tester) async {
-      await tester.pumpWidget(
-        const Directionality(
-          textDirection: TextDirection.ltr,
-          child: TestStatefulWidget(),
-        ),
-      );
+      'debug snapshot with high rebuild rate produces highlights for matching widgets',
+      (tester) async {
+        await tester.pumpWidget(
+          const Directionality(
+            textDirection: TextDirection.ltr,
+            child: TestStatefulWidget(),
+          ),
+        );
 
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'TestStatefulWidget': 20},
-        totalPaintCount: 0,
-        elapsed: Duration(seconds: 1),
-      ));
-      detector.scanTree(tester.element(find.byType(Directionality)));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {'TestStatefulWidget': 20},
+            totalPaintCount: 0,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
 
-      expect(detector.highlights, isNotEmpty);
-      expect(detector.highlights.first.widgetName, 'TestStatefulWidget');
-      expect(detector.highlights.first.detectorName, 'Rebuild');
-      expect(detector.highlights.first.detail, contains('20 rebuilds/sec'));
-    });
+        expect(detector.highlights, isNotEmpty);
+        expect(detector.highlights.first.widgetName, 'TestStatefulWidget');
+        expect(detector.highlights.first.detectorName, 'Rebuild');
+        expect(detector.highlights.first.detail, contains('20 rebuilds/sec'));
+      },
+    );
 
     testWidgets(
-        'no debug snapshot and no enriched names produces no highlights',
-        (tester) async {
-      await tester.pumpWidget(
-        const Directionality(
-          textDirection: TextDirection.ltr,
-          child: TestStatefulWidget(),
-        ),
-      );
+      'no debug snapshot and no enriched names produces no highlights',
+      (tester) async {
+        await tester.pumpWidget(
+          const Directionality(
+            textDirection: TextDirection.ltr,
+            child: TestStatefulWidget(),
+          ),
+        );
 
-      detector.scanTree(tester.element(find.byType(Directionality)));
-      expect(detector.highlights, isEmpty);
-    });
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(detector.highlights, isEmpty);
+      },
+    );
 
     testWidgets('rate below threshold produces no highlights', (tester) async {
       await tester.pumpWidget(
@@ -771,11 +820,13 @@ void main() {
         ),
       );
 
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'TestStatefulWidget': 5},
-        totalPaintCount: 0,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {'TestStatefulWidget': 5},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.highlights, isEmpty);
@@ -794,11 +845,13 @@ void main() {
         ),
       );
 
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'TestStatefulWidget': 50},
-        totalPaintCount: 0,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {'TestStatefulWidget': 50},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.highlights.length, 3);
@@ -813,18 +866,21 @@ void main() {
         ),
       );
 
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'TestStatefulWidget': 50},
-        totalPaintCount: 0,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {'TestStatefulWidget': 50},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.highlights, isEmpty);
     });
 
-    testWidgets('enriched VM names produce highlights when no debug snapshot',
-        (tester) async {
+    testWidgets('enriched VM names produce highlights when no debug snapshot', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
@@ -836,17 +892,19 @@ void main() {
       // Build PhaseEvents with dirtyList containing 15 occurrences.
       final dirtyNames = List.generate(15, (_) => 'TestStatefulWidget');
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(ParsedTimelineData(
-        buildEventCount: 15,
-        phaseEvents: [
-          PhaseEvent(
-            phase: TimelinePhase.build,
-            timestampUs: 1000000,
-            durationUs: 5000,
-            dirtyList: dirtyNames,
-          ),
-        ],
-      ));
+      detector.processTimelineData(
+        ParsedTimelineData(
+          buildEventCount: 15,
+          phaseEvents: [
+            PhaseEvent(
+              phase: TimelinePhase.build,
+              timestampUs: 1000000,
+              durationUs: 5000,
+              dirtyList: dirtyNames,
+            ),
+          ],
+        ),
+      );
 
       detector.scanTree(tester.element(find.byType(Directionality)));
 
@@ -863,11 +921,13 @@ void main() {
       );
 
       // 35/sec > 10 * 3 = 30 → critical
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'TestStatefulWidget': 35},
-        totalPaintCount: 0,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {'TestStatefulWidget': 35},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.highlights.first.severity, IssueSeverity.critical);
@@ -881,11 +941,13 @@ void main() {
         ),
       );
 
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'TestStatefulWidget': 20},
-        totalPaintCount: 0,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {'TestStatefulWidget': 20},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
       expect(detector.highlights, isNotEmpty);
 
@@ -905,23 +967,30 @@ void main() {
     });
 
     test('StreamBuilder at 15/sec not flagged (below 3x threshold)', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'StreamBuilder': 15},
-        totalPaintCount: 0,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {'StreamBuilder': 15},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
 
-      expect(detector.issues, isEmpty,
-          reason: 'StreamBuilder at 15/sec < 30 (3x threshold of 10)');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: 'StreamBuilder at 15/sec < 30 (3x threshold of 10)',
+      );
     });
 
     test('StreamBuilder at 35/sec flagged with builder note', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'StreamBuilder': 35},
-        totalPaintCount: 0,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {'StreamBuilder': 35},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
 
       expect(detector.issues, hasLength(1));
@@ -930,22 +999,26 @@ void main() {
     });
 
     test('FutureBuilder at 25/sec not flagged', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'FutureBuilder': 25},
-        totalPaintCount: 0,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {'FutureBuilder': 25},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
 
       expect(detector.issues, isEmpty);
     });
 
     test('non-builder widget still flagged at normal threshold', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {'MyWidget': 15, 'StreamBuilder': 15},
-        totalPaintCount: 0,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {'MyWidget': 15, 'StreamBuilder': 15},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
 
       expect(detector.issues, hasLength(1));
@@ -953,8 +1026,9 @@ void main() {
       expect(detector.issues.first.detail, isNot(contains('builder widget')));
     });
 
-    testWidgets('enriched VM names path also applies builder multiplier',
-        (tester) async {
+    testWidgets('enriched VM names path also applies builder multiplier', (
+      tester,
+    ) async {
       final fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
       late DateTime now;
       now = fakeNow;
@@ -963,17 +1037,19 @@ void main() {
 
       // 20 StreamBuilder dirty names — below 3x threshold (30)
       final dirtyNames = List.generate(20, (_) => 'StreamBuilder');
-      det.processTimelineData(ParsedTimelineData(
-        buildEventCount: 50,
-        phaseEvents: [
-          PhaseEvent(
-            phase: TimelinePhase.build,
-            timestampUs: 1000000,
-            durationUs: 5000,
-            dirtyList: dirtyNames,
-          ),
-        ],
-      ));
+      det.processTimelineData(
+        ParsedTimelineData(
+          buildEventCount: 50,
+          phaseEvents: [
+            PhaseEvent(
+              phase: TimelinePhase.build,
+              timestampUs: 1000000,
+              durationUs: 5000,
+              dirtyList: dirtyNames,
+            ),
+          ],
+        ),
+      );
       now = fakeNow.add(const Duration(seconds: 2));
       det.processTimelineData(ParsedTimelineData(buildEventCount: 0));
       det.evaluateNow();
@@ -988,11 +1064,15 @@ void main() {
       );
       det.scanTree(tester.element(find.byType(Directionality)));
 
-      final streamHighlights =
-          det.highlights.where((h) => h.widgetName == 'StreamBuilder').toList();
-      expect(streamHighlights, isEmpty,
-          reason:
-              'StreamBuilder below 3x threshold should not produce highlights');
+      final streamHighlights = det.highlights
+          .where((h) => h.widgetName == 'StreamBuilder')
+          .toList();
+      expect(
+        streamHighlights,
+        isEmpty,
+        reason:
+            'StreamBuilder below 3x threshold should not produce highlights',
+      );
     });
   });
 
@@ -1012,8 +1092,9 @@ void main() {
   // detector doesn't understand, this test fails.
   // ---------------------------------------------------------------------
   group('real widget tree (anti-tautology)', () {
-    testWidgets('captured debug snapshot drives real per-type issue emission',
-        (tester) async {
+    testWidgets('captured debug snapshot drives real per-type issue emission', (
+      tester,
+    ) async {
       final key = GlobalKey<TestCounterWidgetState>();
       await tester.pumpWidget(
         Directionality(
@@ -1039,21 +1120,26 @@ void main() {
       // this assertion, independent of any hand-coded fixture.
       expect(snapshot.source, RebuildCountSource.debugCallback);
       expect(
-          snapshot.rebuildCounts['TestCounterWidget'], greaterThanOrEqualTo(15),
-          reason: 'Coordinator must count every real setState rebuild');
+        snapshot.rebuildCounts['TestCounterWidget'],
+        greaterThanOrEqualTo(15),
+        reason: 'Coordinator must count every real setState rebuild',
+      );
 
       final detector = RebuildDetector();
       detector.vmConnected = false; // Force debug-path priority
       detector.updateDebugSnapshot(snapshot);
       detector.scanTree(tester.element(find.byType(Directionality)));
 
-      expect(detector.issues, isNotEmpty,
-          reason:
-              'Detector must emit an issue from real-captured rebuild counts');
+      expect(
+        detector.issues,
+        isNotEmpty,
+        reason: 'Detector must emit an issue from real-captured rebuild counts',
+      );
       final issue = detector.issues.firstWhere(
         (i) => i.widgetName == 'TestCounterWidget',
         orElse: () => fail(
-            'Expected a rebuild_debug_TestCounterWidget issue in $detector.issues'),
+          'Expected a rebuild_debug_TestCounterWidget issue in $detector.issues',
+        ),
       );
       expect(issue.stableId, 'rebuild_debug_TestCounterWidget');
       expect(issue.confidence, IssueConfidence.confirmed);
@@ -1082,27 +1168,45 @@ void main() {
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(highBuildActivityData(buildCount: 5));
       detector.evaluateNow();
-      expect(detector.issues, isEmpty,
-          reason: '5 ≤ threshold (10) — no warning fires');
-      expect(detector.lastObservedRebuildRate, 5,
-          reason: 'Field-write must precede the emission gate so '
-              'sub-threshold buffers expose the value to capture tooling.');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: '5 ≤ threshold (10) — no warning fires',
+      );
+      expect(
+        detector.lastObservedRebuildRate,
+        5,
+        reason:
+            'Field-write must precede the emission gate so '
+            'sub-threshold buffers expose the value to capture tooling.',
+      );
     });
 
     test('at-threshold writes peak + emission carries arg parity', () {
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(highBuildActivityData(buildCount: 14));
       detector.evaluateNow();
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'rebuild_activity',
+      );
       expect(issue.severity, IssueSeverity.warning);
-      expect(issue.dedupIdentityMicros, isNotNull,
-          reason: 'capture-mode requires producer-side stable identity');
-      expect(issue.extraTraceArgs?['observedRebuildRate'], '14',
-          reason: 'audit gate cross-checks expectedMagnitude.observed '
-              'against this trace-event arg via observedAxisArgKey');
-      expect(detector.lastObservedRebuildRate, 14,
-          reason: 'getter and trace arg must agree (same source)');
+      expect(
+        issue.dedupIdentityMicros,
+        isNotNull,
+        reason: 'capture-mode requires producer-side stable identity',
+      );
+      expect(
+        issue.extraTraceArgs?['observedRebuildRate'],
+        '14',
+        reason:
+            'audit gate cross-checks expectedMagnitude.observed '
+            'against this trace-event arg via observedAxisArgKey',
+      );
+      expect(
+        detector.lastObservedRebuildRate,
+        14,
+        reason: 'getter and trace arg must agree (same source)',
+      );
     });
 
     test('resetCaptureState clears peak', () {
@@ -1111,14 +1215,17 @@ void main() {
       detector.evaluateNow();
       expect(detector.lastObservedRebuildRate, 25);
       detector.resetCaptureState();
-      expect(detector.lastObservedRebuildRate, 0,
-          reason: 'capture-mode session boundaries (markScenarioBegin '
-              'auto-reset) must clear stale peak so leg N+1 does not '
-              'inherit leg N evidence.');
+      expect(
+        detector.lastObservedRebuildRate,
+        0,
+        reason:
+            'capture-mode session boundaries (markScenarioBegin '
+            'auto-reset) must clear stale peak so leg N+1 does not '
+            'inherit leg N evidence.',
+      );
     });
 
-    test(
-        'resetCaptureState realigns window so first staged count after '
+    test('resetCaptureState realigns window so first staged count after '
         'scenario start contains only scenario events', () {
       // Pre-scenario: 7 BUILD events accumulate into _buildEventCount
       // mid-window (200 ms after construction; window has not closed).
@@ -1143,13 +1250,17 @@ void main() {
       detector.processTimelineData(highBuildActivityData(buildCount: 0));
       detector.evaluateNow();
 
-      expect(detector.lastObservedRebuildRate, 9,
-          reason: 'staged window must contain ONLY post-scenarioBegin '
-              'events (9), not the pre-scenario 7 accumulated before '
-              'resetCaptureState. If the field reads 16, the reset did '
-              'not clear _buildEventCount; if it reads 0, the window '
-              'never closed because _windowStart was not re-anchored '
-              'to scenario-begin time.');
+      expect(
+        detector.lastObservedRebuildRate,
+        9,
+        reason:
+            'staged window must contain ONLY post-scenarioBegin '
+            'events (9), not the pre-scenario 7 accumulated before '
+            'resetCaptureState. If the field reads 16, the reset did '
+            'not clear _buildEventCount; if it reads 0, the window '
+            'never closed because _windowStart was not re-anchored '
+            'to scenario-begin time.',
+      );
     });
   });
 
@@ -1178,20 +1289,32 @@ void main() {
     });
 
     test('default baseline is 0 — preserves live-monitoring semantics', () {
-      expect(detector.baselineRebuildRate, 0,
-          reason: 'Default must be 0. Any non-zero default would break '
-              'live monitoring by silently shifting the threshold.');
+      expect(
+        detector.baselineRebuildRate,
+        0,
+        reason:
+            'Default must be 0. Any non-zero default would break '
+            'live monitoring by silently shifting the threshold.',
+      );
 
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(highBuildActivityData(buildCount: 14));
       detector.evaluateNow();
 
-      expect(detector.lastObservedRebuildRate, 14,
-          reason: 'With baseline=0, observed rate must be raw count. '
-              'Subtraction must be a no-op.');
-      expect(detector.issues, isNotEmpty,
-          reason: 'Raw 14 > threshold 10 → warning fires (default '
-              'live-monitoring behavior unchanged).');
+      expect(
+        detector.lastObservedRebuildRate,
+        14,
+        reason:
+            'With baseline=0, observed rate must be raw count. '
+            'Subtraction must be a no-op.',
+      );
+      expect(
+        detector.issues,
+        isNotEmpty,
+        reason:
+            'Raw 14 > threshold 10 → warning fires (default '
+            'live-monitoring behavior unchanged).',
+      );
     });
 
     test('setBaseline subtracts ambient before threshold gate', () {
@@ -1201,10 +1324,16 @@ void main() {
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(highBuildActivityData(buildCount: 14));
       detector.evaluateNow();
-      expect(detector.lastObservedRebuildRate, 4,
-          reason: 'Field exposes adjusted (raw-baseline), not raw.');
-      expect(detector.issues, isEmpty,
-          reason: 'Adjusted 4 ≤ threshold 10 → no warning.');
+      expect(
+        detector.lastObservedRebuildRate,
+        4,
+        reason: 'Field exposes adjusted (raw-baseline), not raw.',
+      );
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: 'Adjusted 4 ≤ threshold 10 → no warning.',
+      );
 
       // Raw 25 - baseline 10 = 15 → above threshold → fires warning.
       fakeNow = fakeNow.add(const Duration(seconds: 2));
@@ -1216,10 +1345,14 @@ void main() {
           .toList();
       expect(warning, hasLength(1));
       expect(warning.first.severity, IssueSeverity.warning);
-      expect(warning.first.extraTraceArgs?['observedRebuildRate'], '15',
-          reason: 'extraTraceArgs must carry adjusted value so audit '
-              'gate cross-checks observed magnitude against the same '
-              'value the bracket-band schema validates.');
+      expect(
+        warning.first.extraTraceArgs?['observedRebuildRate'],
+        '15',
+        reason:
+            'extraTraceArgs must carry adjusted value so audit '
+            'gate cross-checks observed magnitude against the same '
+            'value the bracket-band schema validates.',
+      );
     });
 
     test('setBaseline negative input clamps to 0', () {
@@ -1236,47 +1369,59 @@ void main() {
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(highBuildActivityData(buildCount: 35));
       detector.evaluateNow();
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
-      expect(issue.severity, IssueSeverity.warning,
-          reason: 'Critical tier (`> threshold * 3 = 30`) must compare '
-              'adjusted (25), not raw (35). Otherwise users with high '
-              'ambient would see critical fires from below-warning-tier '
-              'user signal.');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'rebuild_activity',
+      );
+      expect(
+        issue.severity,
+        IssueSeverity.warning,
+        reason:
+            'Critical tier (`> threshold * 3 = 30`) must compare '
+            'adjusted (25), not raw (35). Otherwise users with high '
+            'ambient would see critical fires from below-warning-tier '
+            'user signal.',
+      );
     });
 
     test('resetCaptureState does NOT clear baseline', () {
       detector.setBaseline(10);
       detector.resetCaptureState();
-      expect(detector.baselineRebuildRate, 10,
-          reason: 'Baseline reflects ambient framework noise — stable '
-              'across capture-mode legs in the same session. Clearing '
-              'it would force a re-measurement for every leg, which '
-              'doubles capture time without benefit.');
+      expect(
+        detector.baselineRebuildRate,
+        10,
+        reason:
+            'Baseline reflects ambient framework noise — stable '
+            'across capture-mode legs in the same session. Clearing '
+            'it would force a re-measurement for every leg, which '
+            'doubles capture time without benefit.',
+      );
     });
 
-    test(
-      'vmConnected=false clears baseline so capture-mode subtraction '
-      'cannot leak into post-reconnect live monitoring',
-      () {
-        detector.setBaseline(15);
-        expect(detector.baselineRebuildRate, 15);
-        detector.vmConnected = false;
-        expect(detector.baselineRebuildRate, 0,
-            reason: 'VM disconnect is the implicit end of a capture '
-                'session. A baseline left set after disconnect would '
-                'silently suppress real rebuild storms in the '
-                '(threshold, threshold+baseline] band when VM '
-                'reconnects (DevTools attach/detach, app backgrounding, '
-                'debugger reattach).');
-        detector.vmConnected = true;
-        expect(detector.baselineRebuildRate, 0,
-            reason: 'Reconnect must not restore stale baseline.');
-      },
-    );
+    test('vmConnected=false clears baseline so capture-mode subtraction '
+        'cannot leak into post-reconnect live monitoring', () {
+      detector.setBaseline(15);
+      expect(detector.baselineRebuildRate, 15);
+      detector.vmConnected = false;
+      expect(
+        detector.baselineRebuildRate,
+        0,
+        reason:
+            'VM disconnect is the implicit end of a capture '
+            'session. A baseline left set after disconnect would '
+            'silently suppress real rebuild storms in the '
+            '(threshold, threshold+baseline] band when VM '
+            'reconnects (DevTools attach/detach, app backgrounding, '
+            'debugger reattach).',
+      );
+      detector.vmConnected = true;
+      expect(
+        detector.baselineRebuildRate,
+        0,
+        reason: 'Reconnect must not restore stale baseline.',
+      );
+    });
 
-    test(
-        'peakObservedRebuildRate tracks max-adjusted across staged '
+    test('peakObservedRebuildRate tracks max-adjusted across staged '
         'windows; reset clears it', () {
       // Three windows: adjusted = 12, 18, 14 (raw - baseline 0).
       fakeNow = fakeNow.add(const Duration(seconds: 2));
@@ -1287,21 +1432,34 @@ void main() {
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(highBuildActivityData(buildCount: 18));
       detector.evaluateNow();
-      expect(detector.peakObservedRebuildRate, 18,
-          reason: 'Peak must update when a higher window arrives.');
+      expect(
+        detector.peakObservedRebuildRate,
+        18,
+        reason: 'Peak must update when a higher window arrives.',
+      );
 
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(highBuildActivityData(buildCount: 14));
       detector.evaluateNow();
-      expect(detector.peakObservedRebuildRate, 18,
-          reason: 'Peak must NOT regress when a lower window arrives.');
-      expect(detector.lastObservedRebuildRate, 14,
-          reason: 'lastObservedRebuildRate tracks last; peak tracks max.');
+      expect(
+        detector.peakObservedRebuildRate,
+        18,
+        reason: 'Peak must NOT regress when a lower window arrives.',
+      );
+      expect(
+        detector.lastObservedRebuildRate,
+        14,
+        reason: 'lastObservedRebuildRate tracks last; peak tracks max.',
+      );
 
       detector.resetCaptureState();
-      expect(detector.peakObservedRebuildRate, 0,
-          reason: 'Peak must clear with the rest of the per-session '
-              'state at scenario boundaries.');
+      expect(
+        detector.peakObservedRebuildRate,
+        0,
+        reason:
+            'Peak must clear with the rest of the per-session '
+            'state at scenario boundaries.',
+      );
     });
   });
 }

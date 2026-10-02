@@ -45,9 +45,7 @@ void main() {
     ConstrainedBox findCardConstrainedBox(WidgetTester tester) {
       return tester.widget<ConstrainedBox>(
         find.ancestor(
-          of: find.byWidgetPredicate(
-            (w) => w is Material && w.elevation == 8,
-          ),
+          of: find.byWidgetPredicate((w) => w is Material && w.elevation == 8),
           matching: find.byType(ConstrainedBox),
         ),
       );
@@ -155,8 +153,9 @@ void main() {
       expect(box.constraints.maxWidth, 768.0);
     });
 
-    testWidgets('restore after maximize returns to default width',
-        (tester) async {
+    testWidgets('restore after maximize returns to default width', (
+      tester,
+    ) async {
       await tester.pumpWidget(buildCard());
 
       // Maximize

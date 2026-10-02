@@ -360,8 +360,9 @@ void main() {
     });
 
     test('includes URL when provided', () {
-      final (hint, _) =
-          FixHintBuilder.slowRequest(worstUrl: 'https://api.example.com/data');
+      final (hint, _) = FixHintBuilder.slowRequest(
+        worstUrl: 'https://api.example.com/data',
+      );
       expect(hint, contains('https://api.example.com/data'));
     });
   });
@@ -378,8 +379,9 @@ void main() {
     });
 
     test('includes URL when provided', () {
-      final (hint, _) =
-          FixHintBuilder.largeResponse(worstUrl: 'https://api.example.com/big');
+      final (hint, _) = FixHintBuilder.largeResponse(
+        worstUrl: 'https://api.example.com/big',
+      );
       expect(hint, contains('https://api.example.com/big'));
     });
   });
@@ -438,8 +440,9 @@ void main() {
     });
 
     test('includes method name when provided', () {
-      final (hint, _) =
-          FixHintBuilder.platformChannelTraffic(topMethod: 'getLocation');
+      final (hint, _) = FixHintBuilder.platformChannelTraffic(
+        topMethod: 'getLocation',
+      );
       expect(hint, contains('getLocation'));
     });
   });
@@ -449,14 +452,18 @@ void main() {
   // -------------------------------------------------------------------------
   group('rebuildDebug', () {
     test('returns medium effort', () {
-      final (_, effort) =
-          FixHintBuilder.rebuildDebug(typeName: 'MyWidget', rate: 25);
+      final (_, effort) = FixHintBuilder.rebuildDebug(
+        typeName: 'MyWidget',
+        rate: 25,
+      );
       expect(effort, FixEffort.medium);
     });
 
     test('includes type name and rate', () {
-      final (hint, _) =
-          FixHintBuilder.rebuildDebug(typeName: 'MyListItem', rate: 30);
+      final (hint, _) = FixHintBuilder.rebuildDebug(
+        typeName: 'MyListItem',
+        rate: 30,
+      );
       expect(hint, contains('MyListItem'));
       expect(hint, contains('30'));
     });
@@ -537,14 +544,18 @@ void main() {
 
   group('repaintDebugType', () {
     test('returns quick effort', () {
-      final (_, effort) =
-          FixHintBuilder.repaintDebugType(typeName: 'AnimWidget', rate: 60);
+      final (_, effort) = FixHintBuilder.repaintDebugType(
+        typeName: 'AnimWidget',
+        rate: 60,
+      );
       expect(effort, FixEffort.quick);
     });
 
     test('includes type name and rate', () {
-      final (hint, _) =
-          FixHintBuilder.repaintDebugType(typeName: 'ClockFace', rate: 60);
+      final (hint, _) = FixHintBuilder.repaintDebugType(
+        typeName: 'ClockFace',
+        rate: 60,
+      );
       expect(hint, contains('ClockFace'));
       expect(hint, contains('60'));
     });
@@ -621,14 +632,16 @@ void main() {
   // -------------------------------------------------------------------------
   group('shallowRebuildRisk', () {
     test('returns medium effort', () {
-      final (_, effort) =
-          FixHintBuilder.shallowRebuildRisk(widgetName: 'AppShell');
+      final (_, effort) = FixHintBuilder.shallowRebuildRisk(
+        widgetName: 'AppShell',
+      );
       expect(effort, FixEffort.medium);
     });
 
     test('includes widget name', () {
-      final (hint, _) =
-          FixHintBuilder.shallowRebuildRisk(widgetName: 'RootWidget');
+      final (hint, _) = FixHintBuilder.shallowRebuildRisk(
+        widgetName: 'RootWidget',
+      );
       expect(hint, contains('RootWidget'));
     });
 

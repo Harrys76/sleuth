@@ -80,9 +80,7 @@ class SuppressAnimatedBuilderRule extends CorrelationRule {
 
     // If any paint-category issues exist, AnimatedBuilder could be
     // contributing — don't suppress.
-    final hasPaintIssues = issues.any(
-      (i) => i.category == IssueCategory.paint,
-    );
+    final hasPaintIssues = issues.any((i) => i.category == IssueCategory.paint);
     if (hasPaintIssues) return issues;
 
     return [...issues]..removeAt(animBuilderIdx);
@@ -147,7 +145,8 @@ class MergeRebuildSetStateRule extends CorrelationRule {
 
     final merged = setState.copyWith(
       confidence: mergedConfidence,
-      detail: '${setState.detail}\n\n'
+      detail:
+          '${setState.detail}\n\n'
           '[Correlated] Rebuild evidence: ${matchedRebuild.title}',
     );
 
@@ -195,7 +194,8 @@ class EscalateGpuCustomPainterRule extends CorrelationRule {
       confidence: IssueConfidence.likely,
       confidenceReason:
           'Upgraded from possible: GPU raster pressure corroborates structural finding',
-      detail: '${painter.detail}\n\n'
+      detail:
+          '${painter.detail}\n\n'
           '[Correlated] GPU raster pressure detected — '
           'this painter is likely contributing to raster overhead.',
     );
@@ -226,9 +226,7 @@ class EscalateMemoryImageRule extends CorrelationRule {
     final hasHeapGrowing = issues.any((i) => i.stableId == 'heap_growing');
     if (!hasHeapGrowing) return issues;
 
-    final imageIdx = issues.indexWhere(
-      (i) => i.stableId == 'uncached_images',
-    );
+    final imageIdx = issues.indexWhere((i) => i.stableId == 'uncached_images');
     if (imageIdx == -1) return issues;
 
     final image = issues[imageIdx];
@@ -238,7 +236,8 @@ class EscalateMemoryImageRule extends CorrelationRule {
       confidence: IssueConfidence.likely,
       confidenceReason:
           'Upgraded from possible: heap growth corroborates structural finding',
-      detail: '${image.detail}\n\n'
+      detail:
+          '${image.detail}\n\n'
           '[Correlated] Heap growth detected — '
           'uncached images are likely contributing to memory pressure.',
     );
@@ -265,8 +264,9 @@ class EscalateKeepAliveMemoryRule extends CorrelationRule {
 
   @override
   List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
-    final hasHeapPressure = issues.any((i) =>
-        i.stableId == 'heap_growing' || i.stableId == 'heap_near_capacity');
+    final hasHeapPressure = issues.any(
+      (i) => i.stableId == 'heap_growing' || i.stableId == 'heap_near_capacity',
+    );
     if (!hasHeapPressure) return issues;
 
     // Find keep-alive issues (prefix match — stableId is 'excessive_keep_alive:$route')
@@ -288,7 +288,8 @@ class EscalateKeepAliveMemoryRule extends CorrelationRule {
             confidence: IssueConfidence.likely,
             confidenceReason:
                 'Upgraded from possible: heap pressure corroborates structural finding',
-            detail: '${issues[i].detail}\n\n'
+            detail:
+                '${issues[i].detail}\n\n'
                 '[Correlated] Heap pressure detected — '
                 'kept-alive pages may be contributing to memory growth.',
           )
@@ -332,7 +333,8 @@ class EscalateStructuralWithJankRule extends CorrelationRule {
   @override
   List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
     final hasJank = issues.any(
-        (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected');
+      (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected',
+    );
     if (!hasJank) return issues;
 
     var changed = false;
@@ -342,14 +344,17 @@ class EscalateStructuralWithJankRule extends CorrelationRule {
           issue.stableId != null &&
           _structuralIds.contains(issue.stableId)) {
         changed = true;
-        result.add(issue.copyWith(
-          confidence: IssueConfidence.likely,
-          confidenceReason:
-              'Upgraded from possible: frame jank corroborates structural finding',
-          detail: '${issue.detail}\n\n'
-              '[Correlated] Frame jank detected — '
-              'this structural pattern is likely contributing to jank.',
-        ));
+        result.add(
+          issue.copyWith(
+            confidence: IssueConfidence.likely,
+            confidenceReason:
+                'Upgraded from possible: frame jank corroborates structural finding',
+            detail:
+                '${issue.detail}\n\n'
+                '[Correlated] Frame jank detected — '
+                'this structural pattern is likely contributing to jank.',
+          ),
+        );
       } else {
         result.add(issue);
       }
@@ -373,9 +378,11 @@ class EscalateStructuralWithRebuildRule extends CorrelationRule {
 
   @override
   List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
-    final hasRebuildEvidence = issues.any((i) =>
-        i.stableId == 'rebuild_activity' ||
-        (i.stableId != null && i.stableId!.startsWith('rebuild_debug_')));
+    final hasRebuildEvidence = issues.any(
+      (i) =>
+          i.stableId == 'rebuild_activity' ||
+          (i.stableId != null && i.stableId!.startsWith('rebuild_debug_')),
+    );
     if (!hasRebuildEvidence) return issues;
 
     var changed = false;
@@ -385,14 +392,17 @@ class EscalateStructuralWithRebuildRule extends CorrelationRule {
           (issue.stableId == 'animated_builder_no_child' ||
               issue.stableId == 'setstate_scope')) {
         changed = true;
-        result.add(issue.copyWith(
-          confidence: IssueConfidence.likely,
-          confidenceReason:
-              'Upgraded from possible: rebuild evidence corroborates structural finding',
-          detail: '${issue.detail}\n\n'
-              '[Correlated] Rebuild activity detected — '
-              'this pattern is likely contributing to excessive rebuilds.',
-        ));
+        result.add(
+          issue.copyWith(
+            confidence: IssueConfidence.likely,
+            confidenceReason:
+                'Upgraded from possible: rebuild evidence corroborates structural finding',
+            detail:
+                '${issue.detail}\n\n'
+                '[Correlated] Rebuild activity detected — '
+                'this pattern is likely contributing to excessive rebuilds.',
+          ),
+        );
       } else {
         result.add(issue);
       }
@@ -416,8 +426,9 @@ class EnrichRebuildRepaintBoundaryRule extends CorrelationRule {
 
   @override
   List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
-    final hasMissingBoundary =
-        issues.any((i) => i.stableId == 'missing_repaint_boundary');
+    final hasMissingBoundary = issues.any(
+      (i) => i.stableId == 'missing_repaint_boundary',
+    );
     if (!hasMissingBoundary) return issues;
 
     // Find rebuild issues to annotate
@@ -435,7 +446,8 @@ class EnrichRebuildRepaintBoundaryRule extends CorrelationRule {
       for (var i = 0; i < issues.length; i++)
         if (rebuildIndices.contains(i))
           issues[i].copyWith(
-            detail: '${issues[i].detail}\n\n'
+            detail:
+                '${issues[i].detail}\n\n'
                 '[Correlated] Missing RepaintBoundary detected — '
                 'rebuilds may propagate unnecessary repaints.',
           )
@@ -508,8 +520,8 @@ class DeduplicateRebuildRepaintRule extends CorrelationRule {
   }
 
   static int _confidenceRank(IssueConfidence c) => switch (c) {
-        IssueConfidence.confirmed => 3,
-        IssueConfidence.likely => 2,
-        IssueConfidence.possible => 1,
-      };
+    IssueConfidence.confirmed => 3,
+    IssueConfidence.likely => 2,
+    IssueConfidence.possible => 1,
+  };
 }

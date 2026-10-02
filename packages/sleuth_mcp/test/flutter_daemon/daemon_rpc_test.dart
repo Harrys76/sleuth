@@ -106,27 +106,29 @@ void main() {
       await responses.close();
     });
 
-    test('correlates responses by id even when arriving out of order',
-        () async {
-      final stdin = _CapturingSink();
-      final responses = StreamController<DaemonRpcResponse>();
-      final rpc = DaemonRpc(stdin: stdin, responses: responses.stream);
+    test(
+      'correlates responses by id even when arriving out of order',
+      () async {
+        final stdin = _CapturingSink();
+        final responses = StreamController<DaemonRpcResponse>();
+        final rpc = DaemonRpc(stdin: stdin, responses: responses.stream);
 
-      final f1 = rpc.call('app.reload', const {});
-      final f2 = rpc.call('app.restart', const {});
+        final f1 = rpc.call('app.reload', const {});
+        final f2 = rpc.call('app.restart', const {});
 
-      // Reply to id=2 first.
-      responses.add(const DaemonRpcResponse(id: 2, result: 'restart-ok'));
-      responses.add(const DaemonRpcResponse(id: 1, result: 'reload-ok'));
+        // Reply to id=2 first.
+        responses.add(const DaemonRpcResponse(id: 2, result: 'restart-ok'));
+        responses.add(const DaemonRpcResponse(id: 1, result: 'reload-ok'));
 
-      final r1 = await f1;
-      final r2 = await f2;
-      expect(r1.result, 'reload-ok');
-      expect(r2.result, 'restart-ok');
+        final r1 = await f1;
+        final r2 = await f2;
+        expect(r1.result, 'reload-ok');
+        expect(r2.result, 'restart-ok');
 
-      await rpc.close();
-      await responses.close();
-    });
+        await rpc.close();
+        await responses.close();
+      },
+    );
 
     test('out-of-band response is dropped + logged', () async {
       final stdin = _CapturingSink();
@@ -154,8 +156,11 @@ void main() {
       final rpc = DaemonRpc(stdin: stdin, responses: responses.stream);
 
       expect(
-        rpc.call('app.reload', const {},
-            timeout: const Duration(milliseconds: 50)),
+        rpc.call(
+          'app.reload',
+          const {},
+          timeout: const Duration(milliseconds: 50),
+        ),
         throwsA(isA<DaemonRpcTimeoutException>()),
       );
       await Future<void>.delayed(const Duration(milliseconds: 100));

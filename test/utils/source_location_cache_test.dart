@@ -7,7 +7,8 @@ void main() {
     test('strips everything before lib/', () {
       expect(
         SourceLocationCache.abbreviatePath(
-            '/Users/dev/myapp/lib/screens/home.dart'),
+          '/Users/dev/myapp/lib/screens/home.dart',
+        ),
         'lib/screens/home.dart',
       );
     });
@@ -27,17 +28,11 @@ void main() {
     });
 
     test('single segment path returned as-is', () {
-      expect(
-        SourceLocationCache.abbreviatePath('main.dart'),
-        'main.dart',
-      );
+      expect(SourceLocationCache.abbreviatePath('main.dart'), 'main.dart');
     });
 
     test('empty path returned as-is', () {
-      expect(
-        SourceLocationCache.abbreviatePath(''),
-        '',
-      );
+      expect(SourceLocationCache.abbreviatePath(''), '');
     });
 
     test('path with multiple lib/ occurrences uses first', () {
@@ -50,7 +45,8 @@ void main() {
     test('file:// URI path with lib/', () {
       expect(
         SourceLocationCache.abbreviatePath(
-            'file:///Users/dev/myapp/lib/main.dart'),
+          'file:///Users/dev/myapp/lib/main.dart',
+        ),
         'lib/main.dart',
       );
     });
@@ -179,7 +175,8 @@ void main() {
     test('extracts package name from packages path', () {
       expect(
         SourceLocationCache.extractPackageName(
-            '/path/packages/my_app/lib/screens/home.dart'),
+          '/path/packages/my_app/lib/screens/home.dart',
+        ),
         'my_app',
       );
     });
@@ -194,22 +191,21 @@ void main() {
     test('extracts flutter from framework path', () {
       expect(
         SourceLocationCache.extractPackageName(
-            '/path/packages/flutter/lib/src/widgets/container.dart'),
+          '/path/packages/flutter/lib/src/widgets/container.dart',
+        ),
         'flutter',
       );
     });
 
     test('returns null for empty string', () {
-      expect(
-        SourceLocationCache.extractPackageName(''),
-        isNull,
-      );
+      expect(SourceLocationCache.extractPackageName(''), isNull);
     });
 
     test('handles Windows-style backslashes', () {
       expect(
         SourceLocationCache.extractPackageName(
-            'C:\\path\\packages\\my_app\\lib\\x.dart'),
+          'C:\\path\\packages\\my_app\\lib\\x.dart',
+        ),
         'my_app',
       );
     });
@@ -217,7 +213,8 @@ void main() {
     test('returns null when no /lib/ after package name', () {
       expect(
         SourceLocationCache.extractPackageName(
-            '/path/packages/my_app/src/widget.dart'),
+          '/path/packages/my_app/src/widget.dart',
+        ),
         isNull,
       );
     });
@@ -225,7 +222,8 @@ void main() {
     test('uses last /packages/ occurrence', () {
       expect(
         SourceLocationCache.extractPackageName(
-            '/packages/outer/lib/packages/inner/lib/widget.dart'),
+          '/packages/outer/lib/packages/inner/lib/widget.dart',
+        ),
         'inner',
       );
     });

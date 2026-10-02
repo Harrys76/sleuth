@@ -31,8 +31,11 @@ void main() {
         () => detector.processRecord(record),
       );
 
-      expect(avgUs, lessThan(500 * budgetMultiplier),
-          reason: 'processRecord should complete in < 500µs');
+      expect(
+        avgUs,
+        lessThan(500 * budgetMultiplier),
+        reason: 'processRecord should complete in < 500µs',
+      );
     });
 
     test('CpuSampleAggregator.aggregate 1000 samples < 5ms', () {
@@ -63,11 +66,7 @@ void main() {
 
       final samples = List.generate(
         1000,
-        (i) => CpuSample(
-          tid: 1,
-          timestamp: i * 100,
-          stack: [i % 50],
-        ),
+        (i) => CpuSample(tid: 1, timestamp: i * 100, stack: [i % 50]),
       );
 
       final cpuSamples = CpuSamples(
@@ -86,8 +85,11 @@ void main() {
         () => aggregator.aggregate(cpuSamples),
       );
 
-      expect(avgUs, lessThan(5000 * budgetMultiplier),
-          reason: 'aggregate 1000 samples should complete in < 5ms');
+      expect(
+        avgUs,
+        lessThan(5000 * budgetMultiplier),
+        reason: 'aggregate 1000 samples should complete in < 5ms',
+      );
     });
 
     test('MemoryPressureDetector.processHeapSample < 50µs', () {
@@ -95,21 +97,23 @@ void main() {
       detector.isEnabled = true;
 
       int sampleIndex = 0;
-      final avgUs = benchmarkUs(
-        'processHeapSample',
-        () {
-          detector.processHeapSample(HeapSample(
+      final avgUs = benchmarkUs('processHeapSample', () {
+        detector.processHeapSample(
+          HeapSample(
             heapUsage: 50000000 + sampleIndex * 1000,
             heapCapacity: 100000000,
             externalUsage: 5000000,
             timestamp: DateTime.now(),
-          ));
-          sampleIndex++;
-        },
-      );
+          ),
+        );
+        sampleIndex++;
+      });
 
-      expect(avgUs, lessThan(50 * budgetMultiplier),
-          reason: 'processHeapSample should complete in < 50µs');
+      expect(
+        avgUs,
+        lessThan(50 * budgetMultiplier),
+        reason: 'processHeapSample should complete in < 50µs',
+      );
     });
   });
 }

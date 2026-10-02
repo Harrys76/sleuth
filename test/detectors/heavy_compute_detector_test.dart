@@ -44,8 +44,10 @@ void main() {
       );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.critical);
-      expect(detector.issues.first.observationSource,
-          ObservationSource.vmTimeline);
+      expect(
+        detector.issues.first.observationSource,
+        ObservationSource.vmTimeline,
+      );
     });
 
     test('warning when between lagThresholdMs and 2x with default config', () {
@@ -161,12 +163,14 @@ void main() {
     });
 
     test('enriched build shows widget names in title', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 25000,
-        dirtyCount: 2,
-        dirtyList: ['MyWidget', 'OtherWidget'],
-        scopeContext: 'MyApp(dirty)',
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 25000,
+          dirtyCount: 2,
+          dirtyList: ['MyWidget', 'OtherWidget'],
+          scopeContext: 'MyApp(dirty)',
+        ),
+      );
 
       expect(detector.issues, hasLength(1));
       final issue = detector.issues.first;
@@ -176,12 +180,14 @@ void main() {
     });
 
     test('enriched build includes dirty count and widgets in detail', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 25000,
-        dirtyCount: 3,
-        dirtyList: ['A', 'B', 'C'],
-        scopeContext: 'TestApp',
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 25000,
+          dirtyCount: 3,
+          dirtyList: ['A', 'B', 'C'],
+          scopeContext: 'TestApp',
+        ),
+      );
 
       final issue = detector.issues.first;
       expect(issue.detail, contains('Dirty widget count: 3'));
@@ -190,11 +196,13 @@ void main() {
     });
 
     test('enriched build without dirty list uses generic title', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 25000,
-        dirtyCount: 5,
-        // no dirtyList
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 25000,
+          dirtyCount: 5,
+          // no dirtyList
+        ),
+      );
 
       final issue = detector.issues.first;
       expect(issue.title, contains('Heavy Computation:'));
@@ -202,10 +210,12 @@ void main() {
     });
 
     test('widget summary truncates at 3 names', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 25000,
-        dirtyList: ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'],
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 25000,
+          dirtyList: ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'],
+        ),
+      );
 
       final issue = detector.issues.first;
       expect(issue.title, contains('Alpha'));
@@ -226,38 +236,43 @@ void main() {
     });
 
     test('enriched warning-tier shows widget names', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 12000, // 12ms: warning tier
-        dirtyCount: 2,
-        dirtyList: ['WidgetA', 'WidgetB'],
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 12000, // 12ms: warning tier
+          dirtyCount: 2,
+          dirtyList: ['WidgetA', 'WidgetB'],
+        ),
+      );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.warning);
       expect(detector.issues.first.title, contains('Heavy Build:'));
     });
 
     test('enriched phaseEvent warning tier', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs:
-            10000, // 10ms: 10 > 8 triggers, 10 > 16 false → warning
-        dirtyList: ['SomeWidget'],
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs:
+              10000, // 10ms: 10 > 8 triggers, 10 > 16 false → warning
+          dirtyList: ['SomeWidget'],
+        ),
+      );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.warning);
     });
 
     test('phaseEvents below threshold produce no issues', () {
-      detector.processTimelineData(enrichedBuildData(
-        buildDurationUs: 8000, // 8ms, at threshold boundary (8 > 8 is false)
-        dirtyList: ['SomeWidget'],
-      ));
+      detector.processTimelineData(
+        enrichedBuildData(
+          buildDurationUs: 8000, // 8ms, at threshold boundary (8 > 8 is false)
+          dirtyList: ['SomeWidget'],
+        ),
+      );
 
       expect(detector.issues, isEmpty);
     });
 
     group('emissionPersistence (monotonic Stopwatch TTL)', () {
-      test(
-          'issue persists for emissionPersistence duration regardless of '
+      test('issue persists for emissionPersistence duration regardless of '
           'how many idle batches arrive within it', () {
         final fakeStopwatch = _FakeStopwatch();
         final ttlDetector = HeavyComputeDetector(testStopwatch: fakeStopwatch);
@@ -271,16 +286,18 @@ void main() {
           fakeStopwatch.advance(const Duration(milliseconds: 180));
           ttlDetector.processTimelineData(heavyComputeData());
         }
-        expect(ttlDetector.issues, hasLength(1),
-            reason: 'should persist through 50 idle batches in 9s');
+        expect(
+          ttlDetector.issues,
+          hasLength(1),
+          reason: 'should persist through 50 idle batches in 9s',
+        );
 
         fakeStopwatch.advance(const Duration(seconds: 2));
         ttlDetector.processTimelineData(heavyComputeData());
         expect(ttlDetector.issues, isEmpty);
       });
 
-      test(
-          'fresh emission immediately replaces stale issue and resets '
+      test('fresh emission immediately replaces stale issue and resets '
           'persistence window', () {
         final fakeStopwatch = _FakeStopwatch();
         final ttlDetector = HeavyComputeDetector(testStopwatch: fakeStopwatch);
@@ -321,9 +338,7 @@ void main() {
         final fakeStopwatch = _FakeStopwatch();
         final d = HeavyComputeDetector(testStopwatch: fakeStopwatch);
 
-        d.processTimelineData(
-          heavyComputeData(buildScopeDurationsUs: [12000]),
-        );
+        d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [12000]));
         expect(d.issues, hasLength(1));
 
         d.isEnabled = false;
@@ -335,9 +350,7 @@ void main() {
         final fakeStopwatch = _FakeStopwatch();
         final d = HeavyComputeDetector(testStopwatch: fakeStopwatch);
 
-        d.processTimelineData(
-          heavyComputeData(buildScopeDurationsUs: [12000]),
-        );
+        d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [12000]));
         expect(d.issues, hasLength(1));
 
         d.vmConnected = false;
@@ -347,8 +360,7 @@ void main() {
     });
 
     group('sourceRoute binding (route-during-TTL regression)', () {
-      test(
-          'persisted issue carries sourceRoute = route at emission, '
+      test('persisted issue carries sourceRoute = route at emission, '
           'not the route active at later aggregate cycles', () {
         // Simulate a route-changing provider: emission happens on
         // route A, subsequent retrieval happens after the user
@@ -360,9 +372,7 @@ void main() {
           sourceRouteProvider: () => currentRoute,
         );
 
-        d.processTimelineData(
-          heavyComputeData(buildScopeDurationsUs: [20000]),
-        );
+        d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [20000]));
         expect(d.issues, hasLength(1));
         expect(d.issues.first.sourceRoute, '/demo/CSV Import');
 
@@ -373,15 +383,16 @@ void main() {
 
         // Issue still retained AND still carries the original route.
         expect(d.issues, hasLength(1));
-        expect(d.issues.first.sourceRoute, '/demo/CSV Import',
-            reason: 'sourceRoute must NOT mutate during persistence window');
+        expect(
+          d.issues.first.sourceRoute,
+          '/demo/CSV Import',
+          reason: 'sourceRoute must NOT mutate during persistence window',
+        );
       });
 
       test('null sourceRouteProvider yields null sourceRoute', () {
         final d = HeavyComputeDetector();
-        d.processTimelineData(
-          heavyComputeData(buildScopeDurationsUs: [20000]),
-        );
+        d.processTimelineData(heavyComputeData(buildScopeDurationsUs: [20000]));
         expect(d.issues.first.sourceRoute, isNull);
       });
     });

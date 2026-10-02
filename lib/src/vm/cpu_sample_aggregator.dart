@@ -96,18 +96,23 @@ class CpuSampleAggregator {
 
     // Step 3: Apply framework filter.
     // Exclude framework functions unless they dominate >50% of samples.
-    final frameworkTotal =
-        frameworkCounts.values.fold<int>(0, (sum, c) => sum + c);
+    final frameworkTotal = frameworkCounts.values.fold<int>(
+      0,
+      (sum, c) => sum + c,
+    );
     final keepFramework = frameworkTotal > totalUsableSamples * 0.5;
 
-    final filteredCounts =
-        keepFramework ? exclusiveCounts : Map<int, int>.from(userCounts);
+    final filteredCounts = keepFramework
+        ? exclusiveCounts
+        : Map<int, int>.from(userCounts);
 
     if (filteredCounts.isEmpty) return const [];
 
     // Step 4: Compute percentages and build attributions (without chains).
-    final totalFiltered =
-        filteredCounts.values.fold<int>(0, (sum, c) => sum + c);
+    final totalFiltered = filteredCounts.values.fold<int>(
+      0,
+      (sum, c) => sum + c,
+    );
 
     final attributions = <(CpuAttribution, int)>[];
     for (final entry in filteredCounts.entries) {
@@ -117,12 +122,14 @@ class CpuSampleAggregator {
 
       // Inclusive uses same denominator as exclusive (totalFiltered)
       final inclCount = inclusiveCounts[entry.key] ?? 0;
-      final inclusivePct =
-          totalFiltered > 0 ? (inclCount / totalFiltered) * 100.0 : 0.0;
+      final inclusivePct = totalFiltered > 0
+          ? (inclCount / totalFiltered) * 100.0
+          : 0.0;
 
       // Clamp: inclusive must be >= exclusive
-      final clampedInclusivePct =
-          inclusivePct < exclusivePct ? exclusivePct : inclusivePct;
+      final clampedInclusivePct = inclusivePct < exclusivePct
+          ? exclusivePct
+          : inclusivePct;
 
       attributions.add((
         CpuAttribution(
@@ -227,8 +234,9 @@ class CpuSampleAggregator {
         if (funcIdx < 0 || funcIdx >= functions.length) break;
 
         final (funcName, className, libUri) = _extractInfo(functions[funcIdx]);
-        final display =
-            className.isNotEmpty ? '$className.$funcName' : funcName;
+        final display = className.isNotEmpty
+            ? '$className.$funcName'
+            : funcName;
         rawChain.add(display);
 
         if (userRootIdx == -1 && !_isFrameworkFunction(libUri)) {
@@ -259,8 +267,9 @@ class CpuSampleAggregator {
     if (chainFrequency.isEmpty) return null;
 
     // Pick most common chain
-    final bestKey =
-        chainFrequency.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+    final bestKey = chainFrequency.entries
+        .reduce((a, b) => a.value >= b.value ? a : b)
+        .key;
     return bestKey.split(' → ');
   }
 

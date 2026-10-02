@@ -34,12 +34,14 @@ void main() {
       // Feed enough jank frames to trigger sustained jank detection.
       // In basic mode (!vmConnected), _onFrameStats creates verdicts for jank.
       for (var i = 1; i <= 5; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(milliseconds: 50),
-          rasterDuration: const Duration(milliseconds: 10),
-          timestamp: DateTime.now(),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 50),
+            rasterDuration: const Duration(milliseconds: 10),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       expect(controller.captureBufferForTest.length, greaterThan(0));
@@ -49,12 +51,14 @@ void main() {
 
     test('non-jank frames not captured', () {
       for (var i = 1; i <= 5; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(milliseconds: 5),
-          rasterDuration: const Duration(milliseconds: 5),
-          timestamp: DateTime.now(),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 5),
+            rasterDuration: const Duration(milliseconds: 5),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       expect(controller.captureBufferForTest.isEmpty, isTrue);
@@ -62,18 +66,22 @@ void main() {
 
     test('duplicate frame guard prevents double capture', () {
       // Feed the same frame number twice — should only capture once.
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 50),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-      ));
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 50),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 50),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+        ),
+      );
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 50),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+        ),
+      );
 
       // At most 1 capture for frame #1
       final entries = controller.captureBufferForTest.entries
@@ -83,12 +91,14 @@ void main() {
     });
 
     test('exportSnapshotJson produces valid decodable JSON', () {
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 50),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 50),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+        ),
+      );
 
       final jsonStr = controller.exportSnapshotJson();
       expect(() => jsonDecode(jsonStr), returnsNormally);
@@ -101,12 +111,14 @@ void main() {
 
     test('frameStatsSummary reflects live buffer', () {
       for (var i = 1; i <= 10; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: Duration(milliseconds: i.isOdd ? 50 : 5),
-          rasterDuration: const Duration(milliseconds: 5),
-          timestamp: DateTime.now(),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: Duration(milliseconds: i.isOdd ? 50 : 5),
+            rasterDuration: const Duration(milliseconds: 5),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       final snapshot = controller.exportSnapshot();
@@ -121,12 +133,14 @@ void main() {
       smallController.initializeDetectorsForTest();
 
       for (var i = 1; i <= 10; i++) {
-        smallController.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(milliseconds: 50),
-          rasterDuration: const Duration(milliseconds: 10),
-          timestamp: DateTime.now(),
-        ));
+        smallController.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 50),
+            rasterDuration: const Duration(milliseconds: 10),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       expect(smallController.captureBufferForTest.length, lessThanOrEqualTo(2));
@@ -144,8 +158,9 @@ void main() {
       expect(snapshot.frameStatsSummary.totalFrames, 0);
     });
 
-    testWidgets('exported relatedIssues carry route/context tags',
-        (tester) async {
+    testWidgets('exported relatedIssues carry route/context tags', (
+      tester,
+    ) async {
       // Build a widget tree that triggers structural issues.
       // Opacity(0.0) reliably fires the OpacityDetector regardless of
       // framework widget filtering in other detectors.
@@ -166,20 +181,20 @@ void main() {
 
       // Run tree scan to populate and stamp issues.
       // Use Scaffold context (inside the route) so ModalRoute.of() resolves.
-      controller.runTreeScanForTest(
-        tester.element(find.byType(Scaffold)),
-      );
+      controller.runTreeScanForTest(tester.element(find.byType(Scaffold)));
 
       // Verify stamped issues exist.
       expect(controller.issuesNotifier.value, isNotEmpty);
 
       // Feed a jank frame to trigger capture.
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 50),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 50),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+        ),
+      );
 
       // Capture buffer should have an entry with stamped issues.
       expect(controller.captureBufferForTest.isEmpty, isFalse);
@@ -188,10 +203,16 @@ void main() {
 
       // Verify route/context tags were actually stamped by _aggregateIssues.
       final stamped = entry.relatedIssues.first;
-      expect(stamped.routeName, '/',
-          reason: 'routeName should be stamped from MaterialApp default route');
-      expect(stamped.debugModeDisclaimer, isTrue,
-          reason: 'debugModeDisclaimer should be true in debug mode');
+      expect(
+        stamped.routeName,
+        '/',
+        reason: 'routeName should be stamped from MaterialApp default route',
+      );
+      expect(
+        stamped.debugModeDisclaimer,
+        isTrue,
+        reason: 'debugModeDisclaimer should be true in debug mode',
+      );
     });
 
     test('phase events buffered from timeline data', () {
@@ -204,17 +225,18 @@ void main() {
 
       expect(controller.phaseEventBufferForTest, hasLength(1));
       expect(
-          controller.phaseEventBufferForTest.first.phase, TimelinePhase.build);
+        controller.phaseEventBufferForTest.first.phase,
+        TimelinePhase.build,
+      );
       expect(controller.phaseEventBufferForTest.first.dirtyCount, 5);
     });
 
     test('phase event buffer respects 100-event cap', () {
       // Feed 110 batches with 1 phase event each
       for (var i = 0; i < 110; i++) {
-        controller.feedTimelineDataForTest(enrichedBuildData(
-          buildDurationUs: 5000,
-          baseTimestampUs: i * 10000,
-        ));
+        controller.feedTimelineDataForTest(
+          enrichedBuildData(buildDurationUs: 5000, baseTimestampUs: i * 10000),
+        );
       }
 
       expect(controller.phaseEventBufferForTest, hasLength(100));
@@ -247,10 +269,9 @@ void main() {
     });
 
     test('export includes phaseEvents when buffer non-empty', () {
-      controller.feedTimelineDataForTest(enrichedBuildData(
-        buildDurationUs: 10000,
-        dirtyCount: 3,
-      ));
+      controller.feedTimelineDataForTest(
+        enrichedBuildData(buildDurationUs: 10000, dirtyCount: 3),
+      );
 
       final snapshot = controller.exportSnapshot();
       expect(snapshot.phaseEvents, isNotNull);
@@ -267,12 +288,14 @@ void main() {
 
     test('export includes recentFrames with full buffer contents', () {
       for (var i = 1; i <= 5; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(microseconds: 8000),
-          rasterDuration: const Duration(microseconds: 4000),
-          timestamp: DateTime.now(),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(microseconds: 8000),
+            rasterDuration: const Duration(microseconds: 4000),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       final snapshot = controller.exportSnapshot();
@@ -282,12 +305,14 @@ void main() {
 
     test('export includes fpsPercentiles when buffer has frames', () {
       for (var i = 1; i <= 10; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: Duration(microseconds: i * 5000),
-          rasterDuration: const Duration(microseconds: 3000),
-          timestamp: DateTime.now(),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: Duration(microseconds: i * 5000),
+            rasterDuration: const Duration(microseconds: 3000),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       final snapshot = controller.exportSnapshot();
@@ -311,18 +336,22 @@ void main() {
         ),
       );
 
-      controller.runTreeScanForTest(
-        tester.element(find.byType(Scaffold)),
-      );
+      controller.runTreeScanForTest(tester.element(find.byType(Scaffold)));
 
       // Only test if there are issues
       if (controller.issuesNotifier.value.isNotEmpty) {
         final snapshot = controller.exportSnapshot();
         for (final issue in snapshot.currentIssues) {
-          expect(issue.rankingScore, isNotNull,
-              reason: 'Every exported issue should have a ranking score');
-          expect(issue.rankingBreakdown, isNotNull,
-              reason: 'Every exported issue should have a ranking breakdown');
+          expect(
+            issue.rankingScore,
+            isNotNull,
+            reason: 'Every exported issue should have a ranking score',
+          );
+          expect(
+            issue.rankingBreakdown,
+            isNotNull,
+            reason: 'Every exported issue should have a ranking breakdown',
+          );
         }
       }
     });
@@ -341,17 +370,18 @@ void main() {
     test('JSON roundtrip of full v2 snapshot', () {
       // Feed frames and timeline data to populate all fields
       for (var i = 1; i <= 5; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(microseconds: 15000),
-          rasterDuration: const Duration(microseconds: 5000),
-          timestamp: DateTime.now(),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(microseconds: 15000),
+            rasterDuration: const Duration(microseconds: 5000),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
-      controller.feedTimelineDataForTest(enrichedBuildData(
-        buildDurationUs: 10000,
-        dirtyCount: 2,
-      ));
+      controller.feedTimelineDataForTest(
+        enrichedBuildData(buildDurationUs: 10000, dirtyCount: 2),
+      );
       controller.feedTimelineDataForTest(gcHeavyData(gcCount: 1));
 
       final snapshot = controller.exportSnapshot();
@@ -371,12 +401,14 @@ void main() {
 
     test('sessionSummary contains frameHistogram when frames exist', () {
       for (var i = 1; i <= 5; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(microseconds: 8000),
-          rasterDuration: const Duration(microseconds: 4000),
-          timestamp: DateTime.now(),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(microseconds: 8000),
+            rasterDuration: const Duration(microseconds: 4000),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       final snapshot = controller.exportSnapshot();
@@ -386,40 +418,50 @@ void main() {
 
     test('frame histogram bins are correct for known frame durations', () {
       // <16ms: ui=8ms, raster=4ms → totalDuration = max(8,4) = 8ms
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 1,
-        uiDuration: const Duration(milliseconds: 8),
-        rasterDuration: const Duration(milliseconds: 4),
-        timestamp: DateTime.now(),
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 1,
+          uiDuration: const Duration(milliseconds: 8),
+          rasterDuration: const Duration(milliseconds: 4),
+          timestamp: DateTime.now(),
+        ),
+      );
       // 16-33ms: ui=20ms, raster=10ms → totalDuration = 20ms
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 2,
-        uiDuration: const Duration(milliseconds: 20),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 2,
+          uiDuration: const Duration(milliseconds: 20),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+        ),
+      );
       // 33-50ms: ui=40ms, raster=10ms → totalDuration = 40ms
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 3,
-        uiDuration: const Duration(milliseconds: 40),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 3,
+          uiDuration: const Duration(milliseconds: 40),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+        ),
+      );
       // 50-100ms: ui=70ms, raster=10ms → totalDuration = 70ms
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 4,
-        uiDuration: const Duration(milliseconds: 70),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 4,
+          uiDuration: const Duration(milliseconds: 70),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+        ),
+      );
       // >100ms: ui=120ms, raster=10ms → totalDuration = 120ms
-      controller.addFrameForTest(FrameStats(
-        frameNumber: 5,
-        uiDuration: const Duration(milliseconds: 120),
-        rasterDuration: const Duration(milliseconds: 10),
-        timestamp: DateTime.now(),
-      ));
+      controller.addFrameForTest(
+        FrameStats(
+          frameNumber: 5,
+          uiDuration: const Duration(milliseconds: 120),
+          rasterDuration: const Duration(milliseconds: 10),
+          timestamp: DateTime.now(),
+        ),
+      );
 
       final snapshot = controller.exportSnapshot();
       final histogram =

@@ -21,12 +21,12 @@ import '../utils/widget_location.dart';
 class RepaintBoundaryDetector extends BaseDetector
     with DetectorMetadataProvider {
   RepaintBoundaryDetector({this.maxAncestorDepth = 5})
-      : super(
-          type: DetectorType.repaintBoundary,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'RepaintBoundary',
-          description: 'Detects expensive GPU widgets without RepaintBoundary',
-        );
+    : super(
+        type: DetectorType.repaintBoundary,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'RepaintBoundary',
+        description: 'Detects expensive GPU widgets without RepaintBoundary',
+      );
 
   final int maxAncestorDepth;
   final List<PerformanceIssue> _issues = [];
@@ -82,8 +82,9 @@ class RepaintBoundaryDetector extends BaseDetector
     // wrap each child in RepaintBoundary — these are framework-managed and
     // should not be flagged. Push -1 sentinel to skip counting for those.
     if (widget is BoxScrollView) {
-      _scrollableBoundaryStack
-          .add(_delegateAddsRepaintBoundaries(widget) ? -1 : 0);
+      _scrollableBoundaryStack.add(
+        _delegateAddsRepaintBoundaries(widget) ? -1 : 0,
+      );
     } else if (widget is CustomScrollView) {
       _scrollableBoundaryStack.add(0);
     } else if (widget is RepaintBoundary &&
@@ -110,13 +111,15 @@ class RepaintBoundaryDetector extends BaseDetector
         _typeNames.add(typeNameCache.lookup(widget));
         final rect = getGlobalRect(ro);
         if (rect != null) {
-          _highlights.add(WidgetHighlight(
-            rect: rect,
-            widgetName: typeNameCache.lookup(widget),
-            severity: IssueSeverity.warning,
-            detectorName: 'RepaintBoundary',
-            detail: 'No RepaintBoundary within $maxAncestorDepth ancestors',
-          ));
+          _highlights.add(
+            WidgetHighlight(
+              rect: rect,
+              widgetName: typeNameCache.lookup(widget),
+              severity: IssueSeverity.warning,
+              detectorName: 'RepaintBoundary',
+              detail: 'No RepaintBoundary within $maxAncestorDepth ancestors',
+            ),
+          );
         }
       }
     }
@@ -128,19 +131,24 @@ class RepaintBoundaryDetector extends BaseDetector
     if (widget is BoxScrollView || widget is CustomScrollView) {
       final count = _scrollableBoundaryStack.removeLast();
       if (count > _excessiveBoundaryThreshold) {
-        _excessiveFindings
-            .add((count: count, location: buildAncestorChain(element)));
+        _excessiveFindings.add((
+          count: count,
+          location: buildAncestorChain(element),
+        ));
         final ro = element.renderObject;
         if (ro != null) {
           final rect = getGlobalRect(ro);
           if (rect != null) {
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: typeNameCache.lookup(widget),
-              severity: IssueSeverity.warning,
-              detectorName: 'RepaintBoundary',
-              detail: '$count RepaintBoundary children — excessive GPU memory',
-            ));
+            _highlights.add(
+              WidgetHighlight(
+                rect: rect,
+                widgetName: typeNameCache.lookup(widget),
+                severity: IssueSeverity.warning,
+                detectorName: 'RepaintBoundary',
+                detail:
+                    '$count RepaintBoundary children — excessive GPU memory',
+              ),
+            );
           }
         }
       }
@@ -181,8 +189,9 @@ class RepaintBoundaryDetector extends BaseDetector
       for (final name in _typeNames) {
         typeCounts[name] = (typeCounts[name] ?? 0) + 1;
       }
-      final dominantType =
-          typeCounts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+      final dominantType = typeCounts.entries
+          .reduce((a, b) => a.value >= b.value ? a : b)
+          .key;
 
       final (hint, effort) = FixHintBuilder.missingRepaintBoundary(
         widgetName: dominantType,
@@ -196,9 +205,11 @@ class RepaintBoundaryDetector extends BaseDetector
               : IssueSeverity.warning,
           category: IssueCategory.paint,
           confidence: confidence,
-          title: 'Missing RepaintBoundary: ${_found.length} expensive '
+          title:
+              'Missing RepaintBoundary: ${_found.length} expensive '
               'widget${_found.length == 1 ? '' : 's'} unprotected',
-          detail: '${_found.length} GPU-expensive widget(s) found without a '
+          detail:
+              '${_found.length} GPU-expensive widget(s) found without a '
               'RepaintBoundary ancestor within $maxAncestorDepth levels. '
               'Repaints propagate up the render tree unnecessarily.'
               '\n\n$locations',
@@ -207,11 +218,11 @@ class RepaintBoundaryDetector extends BaseDetector
           observationSource: source,
           confidenceReason: confidence == IssueConfidence.confirmed
               ? 'Debug callback paint rate for the unprotected widget types '
-                  'confirms excessive repaints'
+                    'confirms excessive repaints'
               : confidence == IssueConfidence.likely
-                  ? 'Debug callback paint rate for the unprotected widget '
-                      'types + structural GPU node scan'
-                  : 'Structural scan only — enable debug callbacks for paint evidence',
+              ? 'Debug callback paint rate for the unprotected widget '
+                    'types + structural GPU node scan'
+              : 'Structural scan only — enable debug callbacks for paint evidence',
           detectedAt: DateTime.now(),
         ),
       );
@@ -230,7 +241,8 @@ class RepaintBoundaryDetector extends BaseDetector
           category: IssueCategory.paint,
           confidence: IssueConfidence.possible,
           title: 'Excessive RepaintBoundary: ${finding.count} in scrollable',
-          detail: '${finding.count} RepaintBoundary widgets inside a single '
+          detail:
+              '${finding.count} RepaintBoundary widgets inside a single '
               'scrollable. Each creates a separate compositing layer, '
               'increasing GPU memory.\n\n  • ${finding.location}',
           fixHint: exHint,
@@ -284,25 +296,26 @@ class RepaintBoundaryDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hermetic reproducer pins `missing_repaint_boundary` '
-            '(Opacity 0<x<1 and ClipPath without RepaintBoundary ancestor '
-            'within `maxAncestorDepth`) and `excessive_repaint_boundary` '
-            '(21 user-placed RepaintBoundaries in CustomScrollView with '
-            '`addRepaintBoundaries: false` cross the 20-boundary hardcoded '
-            'threshold). Known narrowing: the strict-greater at-threshold '
-            'boundary is NOT pinned — the framework\'s scrollable '
-            'pipeline injects extra RepaintBoundary nodes the detector '
-            'counter observes, so exactly-20 tests cross unpredictably '
-            'across Flutter SDK versions. Opacity 0.0/1.0 passthrough '
-            'suppression and framework-managed ListView auto-boundary '
-            'skip (-1 sentinel) are pinned as negative controls. '
-            'Fixtures use Opacity, not CustomPaint, to keep the '
-            'missing-branch test cross-detector clean.',
-        reproducerPath: 'test/validation/repaint_boundary_reproducer_test.dart',
-        coveredStableIds: {
-          'missing_repaint_boundary',
-          'excessive_repaint_boundary',
-        },
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'Hermetic reproducer pins `missing_repaint_boundary` '
+        '(Opacity 0<x<1 and ClipPath without RepaintBoundary ancestor '
+        'within `maxAncestorDepth`) and `excessive_repaint_boundary` '
+        '(21 user-placed RepaintBoundaries in CustomScrollView with '
+        '`addRepaintBoundaries: false` cross the 20-boundary hardcoded '
+        'threshold). Known narrowing: the strict-greater at-threshold '
+        'boundary is NOT pinned — the framework\'s scrollable '
+        'pipeline injects extra RepaintBoundary nodes the detector '
+        'counter observes, so exactly-20 tests cross unpredictably '
+        'across Flutter SDK versions. Opacity 0.0/1.0 passthrough '
+        'suppression and framework-managed ListView auto-boundary '
+        'skip (-1 sentinel) are pinned as negative controls. '
+        'Fixtures use Opacity, not CustomPaint, to keep the '
+        'missing-branch test cross-detector clean.',
+    reproducerPath: 'test/validation/repaint_boundary_reproducer_test.dart',
+    coveredStableIds: {
+      'missing_repaint_boundary',
+      'excessive_repaint_boundary',
+    },
+  );
 }

@@ -22,8 +22,8 @@ class SourceLocationCache {
   /// Results are cached by `widget.runtimeType`. Returns null when widget
   /// creation tracking is unavailable (profile mode, `--no-track-widget-creation`).
   String? lookup(Element element) {
-    _trackingAvailable ??=
-        WidgetInspectorService.instance.isWidgetCreationTracked();
+    _trackingAvailable ??= WidgetInspectorService.instance
+        .isWidgetCreationTracked();
     if (!_trackingAvailable!) return null;
 
     final typeName = element.widget.runtimeType.toString();
@@ -79,8 +79,8 @@ class SourceLocationCache {
   /// Unlike [lookup] which returns a formatted string, this returns the
   /// abbreviated path, line number, and extracted package name separately.
   ({String location, String? packageName})? lookupStructured(Element element) {
-    _trackingAvailable ??=
-        WidgetInspectorService.instance.isWidgetCreationTracked();
+    _trackingAvailable ??= WidgetInspectorService.instance
+        .isWidgetCreationTracked();
     if (!_trackingAvailable!) return null;
 
     final typeName = element.widget.runtimeType.toString();
@@ -103,7 +103,8 @@ class SourceLocationCache {
   }
 
   ({String location, String? packageName})? _resolveStructured(
-      Element element) {
+    Element element,
+  ) {
     try {
       final node = element.toDiagnosticsNode();
       final delegate = InspectorSerializationDelegate(
@@ -139,8 +140,9 @@ class SourceLocationCache {
     final packagesIdx = normalized.lastIndexOf('/packages/');
     if (packagesIdx == -1) return null;
 
-    final afterPackages =
-        normalized.substring(packagesIdx + '/packages/'.length);
+    final afterPackages = normalized.substring(
+      packagesIdx + '/packages/'.length,
+    );
     final libIdx = afterPackages.indexOf('/lib/');
     if (libIdx == -1) return null;
 

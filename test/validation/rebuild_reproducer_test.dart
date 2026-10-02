@@ -71,14 +71,9 @@ void main() {
     // -- Helpers ----------------------------------------------------------
 
     List<TimelineEvent> buildEvents(int n) => List.generate(
-          n,
-          (i) => buildEvent(
-            name: 'BUILD',
-            ph: 'X',
-            dur: 100,
-            ts: 1000 + i * 100,
-          ),
-        );
+      n,
+      (i) => buildEvent(name: 'BUILD', ph: 'X', dur: 100, ts: 1000 + i * 100),
+    );
 
     /// BUILD events carrying `build scope dirty list` enrichment in `args`.
     ///
@@ -87,32 +82,31 @@ void main() {
     /// (e.g. `'[Foo, Bar]'`). `TimelineParser._parseDirtyList` strips
     /// the `[]` wrapper and splits on `', '`. Each event's list is
     /// appended to the detector's `_pendingEnrichedNames` accumulator.
-    List<TimelineEvent> buildEventsWithDirtyList(int n,
-            {required List<String> dirtyPerEvent}) =>
-        List.generate(
-          n,
-          (i) => buildEvent(
-            name: 'BUILD',
-            ph: 'X',
-            dur: 100,
-            ts: 1000 + i * 100,
-            args: {
-              'build scope dirty list': '[${dirtyPerEvent.join(', ')}]',
-            },
-          ),
-        );
+    List<TimelineEvent> buildEventsWithDirtyList(
+      int n, {
+      required List<String> dirtyPerEvent,
+    }) => List.generate(
+      n,
+      (i) => buildEvent(
+        name: 'BUILD',
+        ph: 'X',
+        dur: 100,
+        ts: 1000 + i * 100,
+        args: {'build scope dirty list': '[${dirtyPerEvent.join(', ')}]'},
+      ),
+    );
 
     ParsedShape buildShape(int n) => (
-          buildEventCount: n,
-          buildScopeCount: n,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 0,
-          channelCount: 0,
-          gcCount: 0,
-          phaseEventCount: n,
-        );
+      buildEventCount: n,
+      buildScopeCount: n,
+      layoutCount: 0,
+      paintCount: 0,
+      rasterCount: 0,
+      shaderCount: 0,
+      channelCount: 0,
+      gcCount: 0,
+      phaseEventCount: n,
+    );
 
     /// Stage a VM window with [buildCount] build events. Advances the
     /// fake clock past the 1s threshold first so the call stages
@@ -169,47 +163,60 @@ void main() {
       });
 
       testWidgets(
-          'enriched dirty-list surfaces in detail (parser arg path exercised)',
-          (tester) async {
-        // Each BUILD event carries `args: {'build scope dirty list':
-        // '[Foo, Bar]'}`. Parser strips brackets + splits on `', '`;
-        // detector concatenates into `_pendingEnrichedNames` and emits
-        // top-3 in detail. Without this fixture the enrichment branch
-        // (`event.dirtyList != null`) is never entered.
-        fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
-        final events = buildEventsWithDirtyList(
-          11,
-          dirtyPerEvent: const ['Foo', 'Bar'],
-        );
-        final parsed = parseAndAssertShape(events, buildShape(11));
-        expect(
-          parsed.phaseEvents.every((e) => e.dirtyList?.length == 2),
-          isTrue,
-          reason: 'TimelineParser must decode `build scope dirty list` '
-              'arg into PhaseEvent.dirtyList; mismatch = arg-name typo '
-              'or list-format parse regression.',
-        );
-        detector.processTimelineData(parsed);
-        final issues = await scanAndIssues(tester, detector, const SizedBox());
-        expect(issues, hasStableId('rebuild_activity'));
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
-        expect(issue.detail, contains('timeline enrichment'));
-        expect(issue.detail, contains('Foo'));
-        expect(issue.detail, contains('Bar'));
-      });
+        'enriched dirty-list surfaces in detail (parser arg path exercised)',
+        (tester) async {
+          // Each BUILD event carries `args: {'build scope dirty list':
+          // '[Foo, Bar]'}`. Parser strips brackets + splits on `', '`;
+          // detector concatenates into `_pendingEnrichedNames` and emits
+          // top-3 in detail. Without this fixture the enrichment branch
+          // (`event.dirtyList != null`) is never entered.
+          fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
+          final events = buildEventsWithDirtyList(
+            11,
+            dirtyPerEvent: const ['Foo', 'Bar'],
+          );
+          final parsed = parseAndAssertShape(events, buildShape(11));
+          expect(
+            parsed.phaseEvents.every((e) => e.dirtyList?.length == 2),
+            isTrue,
+            reason:
+                'TimelineParser must decode `build scope dirty list` '
+                'arg into PhaseEvent.dirtyList; mismatch = arg-name typo '
+                'or list-format parse regression.',
+          );
+          detector.processTimelineData(parsed);
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(issues, hasStableId('rebuild_activity'));
+          final issue = issues.firstWhere(
+            (i) => i.stableId == 'rebuild_activity',
+          );
+          expect(issue.detail, contains('timeline enrichment'));
+          expect(issue.detail, contains('Foo'));
+          expect(issue.detail, contains('Bar'));
+        },
+      );
 
-      testWidgets('exact 1000ms elapsed: window stages (gate is `>=` not `>`)',
-          (tester) async {
-        // Pins `if (now.difference(_windowStart).inMilliseconds >= 1000)`.
-        // A regression flipping to strict `>` would only fail at exactly
-        // 1000ms; reproducer's 1100ms helper would still pass.
-        fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
-        final parsed = parseAndAssertShape(buildEvents(11), buildShape(11));
-        detector.processTimelineData(parsed);
-        final issues = await scanAndIssues(tester, detector, const SizedBox());
-        expect(issues, hasStableId('rebuild_activity'));
-      });
+      testWidgets(
+        'exact 1000ms elapsed: window stages (gate is `>=` not `>`)',
+        (tester) async {
+          // Pins `if (now.difference(_windowStart).inMilliseconds >= 1000)`.
+          // A regression flipping to strict `>` would only fail at exactly
+          // 1000ms; reproducer's 1100ms helper would still pass.
+          fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
+          final parsed = parseAndAssertShape(buildEvents(11), buildShape(11));
+          detector.processTimelineData(parsed);
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(issues, hasStableId('rebuild_activity'));
+        },
+      );
     });
 
     // -- Group A.1: rebuild_activity.critical bracket contract -----------
@@ -221,78 +228,111 @@ void main() {
     // catch it.
 
     group('rebuild_activity.critical bracket contract', () {
-      testWidgets('adjusted=31 stamps observedRebuildRate + critical severity',
-          (tester) async {
-        primeVmWindow(31);
-        final issues = await scanAndIssues(tester, detector, const SizedBox());
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
-        expect(issue.severity, IssueSeverity.critical);
-        expect(issue.extraTraceArgs, isNotNull);
-        expect(issue.extraTraceArgs!['observedRebuildRate'], equals('31'),
-            reason: 'Detector stamps integer-string adjusted rate so the '
+      testWidgets(
+        'adjusted=31 stamps observedRebuildRate + critical severity',
+        (tester) async {
+          primeVmWindow(31);
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          final issue = issues.firstWhere(
+            (i) => i.stableId == 'rebuild_activity',
+          );
+          expect(issue.severity, IssueSeverity.critical);
+          expect(issue.extraTraceArgs, isNotNull);
+          expect(
+            issue.extraTraceArgs!['observedRebuildRate'],
+            equals('31'),
+            reason:
+                'Detector stamps integer-string adjusted rate so the '
                 'audit cross-check + role-band invariant read the same '
-                'value the bracket band gates against.');
-      });
+                'value the bracket band gates against.',
+          );
+        },
+      );
 
       testWidgets('adjusted=30 stays warning (boundary)', (tester) async {
         primeVmWindow(30);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'rebuild_activity',
+        );
         expect(issue.severity, IssueSeverity.warning);
       });
 
-      testWidgets('adjusted=51 lies in critical at-band (last integer)',
-          (tester) async {
+      testWidgets('adjusted=51 lies in critical at-band (last integer)', (
+        tester,
+      ) async {
         // at-band = [threshold, threshold * (1 + atTolerance)]
         //         = [31, 31 * 1.65] = [31, 51.15]
         // Last integer in band: 51.
         primeVmWindow(51);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'rebuild_activity',
+        );
         expect(issue.severity, IssueSeverity.critical);
         expect(issue.extraTraceArgs!['observedRebuildRate'], equals('51'));
         // Bracket math: 51 must NOT exceed the at-band ceiling 51.15.
-        expect(51 <= 31 * 1.65, isTrue,
-            reason: 'BracketSpec at-band upper boundary computation.');
+        expect(
+          51 <= 31 * 1.65,
+          isTrue,
+          reason: 'BracketSpec at-band upper boundary computation.',
+        );
       });
 
-      testWidgets('adjusted=52 lies in above-band (first integer past at)',
-          (tester) async {
+      testWidgets('adjusted=52 lies in above-band (first integer past at)', (
+        tester,
+      ) async {
         primeVmWindow(52);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'rebuild_activity',
+        );
         expect(issue.severity, IssueSeverity.critical);
         expect(issue.extraTraceArgs!['observedRebuildRate'], equals('52'));
-        expect(52 > 31 * 1.65, isTrue,
-            reason: 'BracketSpec above-band lower boundary — first integer '
-                'past at-band upper.');
+        expect(
+          52 > 31 * 1.65,
+          isTrue,
+          reason:
+              'BracketSpec above-band lower boundary — first integer '
+              'past at-band upper.',
+        );
       });
 
-      testWidgets('adjusted=83 lies at-or-below above-ceiling (last integer)',
-          (tester) async {
+      testWidgets('adjusted=83 lies at-or-below above-ceiling (last integer)', (
+        tester,
+      ) async {
         // above-ceiling = threshold * aboveCeilingMultiplier = 31 * 2.7 = 83.7
         primeVmWindow(83);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'rebuild_activity',
+        );
         expect(issue.severity, IssueSeverity.critical);
-        expect(83 <= 31 * 2.7, isTrue,
-            reason: 'BracketSpec aboveCeilingMultiplier boundary.');
+        expect(
+          83 <= 31 * 2.7,
+          isTrue,
+          reason: 'BracketSpec aboveCeilingMultiplier boundary.',
+        );
       });
 
       testWidgets('adjusted=84 exceeds above-ceiling', (tester) async {
         primeVmWindow(84);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
-        final issue =
-            issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+        final issue = issues.firstWhere(
+          (i) => i.stableId == 'rebuild_activity',
+        );
         expect(issue.severity, IssueSeverity.critical);
-        expect(84 > 31 * 2.7, isTrue,
-            reason: 'First integer past above-ceiling — operator must '
-                're-record at lower target rate if leg lands here.');
+        expect(
+          84 > 31 * 2.7,
+          isTrue,
+          reason:
+              'First integer past above-ceiling — operator must '
+              're-record at lower target rate if leg lands here.',
+        );
       });
     });
 
@@ -335,8 +375,9 @@ void main() {
     // -- Group BB: per-widget builder triad (3× multiplier, >= 30) -------
 
     group('rebuild_debug_<Builder> builder triad (rate >= 30)', () {
-      testWidgets('rate = 29 (just-below builder threshold): no fire',
-          (tester) async {
+      testWidgets('rate = 29 (just-below builder threshold): no fire', (
+        tester,
+      ) async {
         detector.updateDebugSnapshot(
           perTypeSnapshot(rebuildCounts: const {'StreamBuilder': 29}),
         );
@@ -355,8 +396,9 @@ void main() {
         expect(issue.severity, IssueSeverity.warning);
       });
 
-      testWidgets('rate = 91 (> 3× builder threshold): critical',
-          (tester) async {
+      testWidgets('rate = 91 (> 3× builder threshold): critical', (
+        tester,
+      ) async {
         detector.updateDebugSnapshot(
           perTypeSnapshot(rebuildCounts: const {'StreamBuilder': 91}),
         );
@@ -371,8 +413,9 @@ void main() {
     // -- Group B': paired multiplier proof at identical rate -------------
 
     group('builder multiplier proof (paired at rate=25)', () {
-      testWidgets('non-builder MyWidget at 25/sec fires (25 > 10)',
-          (tester) async {
+      testWidgets('non-builder MyWidget at 25/sec fires (25 > 10)', (
+        tester,
+      ) async {
         detector.updateDebugSnapshot(
           perTypeSnapshot(rebuildCounts: const {'MyWidget': 25}),
         );
@@ -381,8 +424,9 @@ void main() {
         expect(issues, hasStableId('rebuild_debug_MyWidget'));
       });
 
-      testWidgets('builder StreamBuilder at 25/sec suppressed (25 < 30)',
-          (tester) async {
+      testWidgets('builder StreamBuilder at 25/sec suppressed (25 < 30)', (
+        tester,
+      ) async {
         detector.updateDebugSnapshot(
           perTypeSnapshot(rebuildCounts: const {'StreamBuilder': 25}),
         );
@@ -395,41 +439,52 @@ void main() {
 
     group('source-mode RebuildCountSource.flutterTimeline gate', () {
       testWidgets(
-          'flutterTimeline source: per-type path skipped even at warning rate',
-          (tester) async {
-        // Per-type rate 20/sec would normally fire warning. Profile-mode
-        // counts include initial inflations (KDD-5) so the per-type
-        // emission is gated off; route entry must not surface critical
-        // false positives for `ProductCard × 50` list inflations.
-        detector.updateDebugSnapshot(
-          perTypeSnapshot(
-            rebuildCounts: const {'ProductCard': 20},
-            source: RebuildCountSource.flutterTimeline,
-          ),
-        );
-        final issues = await scanAndIssues(tester, detector, const SizedBox());
-        expect(issues, isEmpty);
-      });
+        'flutterTimeline source: per-type path skipped even at warning rate',
+        (tester) async {
+          // Per-type rate 20/sec would normally fire warning. Profile-mode
+          // counts include initial inflations (KDD-5) so the per-type
+          // emission is gated off; route entry must not surface critical
+          // false positives for `ProductCard × 50` list inflations.
+          detector.updateDebugSnapshot(
+            perTypeSnapshot(
+              rebuildCounts: const {'ProductCard': 20},
+              source: RebuildCountSource.flutterTimeline,
+            ),
+          );
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(issues, isEmpty);
+        },
+      );
 
       testWidgets(
-          'default source none: per-type path active (backwards-compat)',
-          (tester) async {
-        // Same fixture, default source: pre-v15 const-literal snapshots
-        // keep exercising the per-type path unchanged.
-        detector.updateDebugSnapshot(
-          perTypeSnapshot(rebuildCounts: const {'ProductCard': 20}),
-        );
-        final issues = await scanAndIssues(tester, detector, const SizedBox());
-        expect(issues, hasLength(1));
-        expect(issues, hasStableId('rebuild_debug_ProductCard'));
-      });
+        'default source none: per-type path active (backwards-compat)',
+        (tester) async {
+          // Same fixture, default source: pre-v15 const-literal snapshots
+          // keep exercising the per-type path unchanged.
+          detector.updateDebugSnapshot(
+            perTypeSnapshot(rebuildCounts: const {'ProductCard': 20}),
+          );
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(issues, hasLength(1));
+          expect(issues, hasStableId('rebuild_debug_ProductCard'));
+        },
+      );
     });
 
     // -- Group D: structural fallback stateful_density -------------------
 
     group('stateful_density structural fallback (VM disconnected)', () {
-      testWidgets('11 public-named StatefulWidgets fires warning',
-          (tester) async {
+      testWidgets('11 public-named StatefulWidgets fires warning', (
+        tester,
+      ) async {
         detector.vmConnected = false;
         final issues = await scanAndIssues(
           tester,
@@ -444,8 +499,9 @@ void main() {
         expect(issue.observationSource, ObservationSource.structural);
       });
 
-      testWidgets('9 public-named StatefulWidgets stays below threshold',
-          (tester) async {
+      testWidgets('9 public-named StatefulWidgets stays below threshold', (
+        tester,
+      ) async {
         detector.vmConnected = false;
         final issues = await scanAndIssues(
           tester,
@@ -455,8 +511,9 @@ void main() {
         expect(issues, isEmpty);
       });
 
-      testWidgets('framework + private widgets do not inflate the count',
-          (tester) async {
+      testWidgets('framework + private widgets do not inflate the count', (
+        tester,
+      ) async {
         // `_PrivateLeaf` instances are skipped because their typeName
         // starts with `_`. 30 private-named widgets must not trigger
         // stateful_density even though raw count exceeds threshold.
@@ -474,27 +531,35 @@ void main() {
 
     group('VM reconnect flush', () {
       testWidgets(
-          'disconnect → reconnect clears prior rebuild_activity on next scan',
-          (tester) async {
-        primeVmWindow(11);
-        final firstIssues =
-            await scanAndIssues(tester, detector, const SizedBox());
-        expect(firstIssues, hasStableId('rebuild_activity'));
+        'disconnect → reconnect clears prior rebuild_activity on next scan',
+        (tester) async {
+          primeVmWindow(11);
+          final firstIssues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(firstIssues, hasStableId('rebuild_activity'));
 
-        detector.vmConnected = false;
-        detector.vmConnected = true;
+          detector.vmConnected = false;
+          detector.vmConnected = true;
 
-        final secondIssues =
-            await scanAndIssues(tester, detector, const SizedBox());
-        expect(secondIssues, isEmpty);
-      });
+          final secondIssues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(secondIssues, isEmpty);
+        },
+      );
     });
 
     // -- Group F: highlights cap (= 3) -----------------------------------
 
     group('highlights', () {
-      testWidgets('5 instances at hot rate emit only 3 highlights (cap)',
-          (tester) async {
+      testWidgets('5 instances at hot rate emit only 3 highlights (cap)', (
+        tester,
+      ) async {
         detector.updateDebugSnapshot(
           perTypeSnapshot(rebuildCounts: const {'_RebuildLeaf': 11}),
         );
@@ -521,57 +586,59 @@ void main() {
 
     group('highlight ↔ issue parity', () {
       testWidgets(
-          'flutterTimeline source: issues empty AND highlights empty (parity)',
-          (tester) async {
-        detector.updateDebugSnapshot(
-          perTypeSnapshot(
-            rebuildCounts: const {'AnimatedBuilder': 50},
-            source: RebuildCountSource.flutterTimeline,
-          ),
-        );
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          AnimatedBuilder(
-            animation: const AlwaysStoppedAnimation<double>(0.0),
-            builder: (_, __) => const SizedBox(),
-          ),
-        );
-        // Issue suppression for KDD-5 inflation false-positives.
-        expect(issues, isEmpty);
-        // Highlight path must share the gate. Without it, overlay paints
-        // hot-widget boxes for `ProductCard × 50` list-entry inflations
-        // even though the issue was correctly suppressed.
-        expect(detector.highlights, isEmpty);
-      });
+        'flutterTimeline source: issues empty AND highlights empty (parity)',
+        (tester) async {
+          detector.updateDebugSnapshot(
+            perTypeSnapshot(
+              rebuildCounts: const {'AnimatedBuilder': 50},
+              source: RebuildCountSource.flutterTimeline,
+            ),
+          );
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            AnimatedBuilder(
+              animation: const AlwaysStoppedAnimation<double>(0.0),
+              builder: (_, __) => const SizedBox(),
+            ),
+          );
+          // Issue suppression for KDD-5 inflation false-positives.
+          expect(issues, isEmpty);
+          // Highlight path must share the gate. Without it, overlay paints
+          // hot-widget boxes for `ProductCard × 50` list-entry inflations
+          // even though the issue was correctly suppressed.
+          expect(detector.highlights, isEmpty);
+        },
+      );
 
       testWidgets(
-          'builder warning rate: issue AND highlight both warning (severity parity)',
-          (tester) async {
-        // AnimatedBuilder is in `_builderWidgetTypes`. Effective threshold
-        // = 10 * 3 = 30/sec. Issue at rate=35 fires warning (35 ≤ 90,
-        // critical at > 90). Highlight must use the SAME effective × 3
-        // gate; a plain `rebuildsPerSecThreshold * 3` (= 30) would
-        // escalate this case to critical.
-        detector.updateDebugSnapshot(
-          perTypeSnapshot(rebuildCounts: const {'AnimatedBuilder': 35}),
-        );
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          AnimatedBuilder(
-            animation: const AlwaysStoppedAnimation<double>(0.0),
-            builder: (_, __) => const SizedBox(),
-          ),
-        );
-        expect(issues, hasLength(1));
-        expect(issues, hasStableId('rebuild_debug_AnimatedBuilder'));
-        expect(issues.single.severity, IssueSeverity.warning);
-        final highlight = detector.highlights.firstWhere(
-          (h) => h.widgetName == 'AnimatedBuilder',
-        );
-        expect(highlight.severity, IssueSeverity.warning);
-      });
+        'builder warning rate: issue AND highlight both warning (severity parity)',
+        (tester) async {
+          // AnimatedBuilder is in `_builderWidgetTypes`. Effective threshold
+          // = 10 * 3 = 30/sec. Issue at rate=35 fires warning (35 ≤ 90,
+          // critical at > 90). Highlight must use the SAME effective × 3
+          // gate; a plain `rebuildsPerSecThreshold * 3` (= 30) would
+          // escalate this case to critical.
+          detector.updateDebugSnapshot(
+            perTypeSnapshot(rebuildCounts: const {'AnimatedBuilder': 35}),
+          );
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            AnimatedBuilder(
+              animation: const AlwaysStoppedAnimation<double>(0.0),
+              builder: (_, __) => const SizedBox(),
+            ),
+          );
+          expect(issues, hasLength(1));
+          expect(issues, hasStableId('rebuild_debug_AnimatedBuilder'));
+          expect(issues.single.severity, IssueSeverity.warning);
+          final highlight = detector.highlights.firstWhere(
+            (h) => h.widgetName == 'AnimatedBuilder',
+          );
+          expect(highlight.severity, IssueSeverity.warning);
+        },
+      );
     });
 
     // -- Group H: stale `_pendingVmWindowCount` after flutterTimeline ----
@@ -586,26 +653,34 @@ void main() {
 
     group('stale VM stage (flutterTimeline fall-through)', () {
       testWidgets(
-          'flutterTimeline + VM staged: next empty scan does NOT replay '
-          'rebuild_activity', (tester) async {
-        primeVmWindow(15);
-        detector.updateDebugSnapshot(
-          perTypeSnapshot(
-            rebuildCounts: const {'ProductCard': 20},
-            source: RebuildCountSource.flutterTimeline,
-          ),
-        );
-        final firstIssues =
-            await scanAndIssues(tester, detector, const SizedBox());
-        expect(firstIssues, isEmpty);
+        'flutterTimeline + VM staged: next empty scan does NOT replay '
+        'rebuild_activity',
+        (tester) async {
+          primeVmWindow(15);
+          detector.updateDebugSnapshot(
+            perTypeSnapshot(
+              rebuildCounts: const {'ProductCard': 20},
+              source: RebuildCountSource.flutterTimeline,
+            ),
+          );
+          final firstIssues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(firstIssues, isEmpty);
 
-        final secondIssues =
-            await scanAndIssues(tester, detector, const SizedBox());
-        // Without the fix, `_pendingVmWindowCount=15` lingers from tick 1.
-        // Tick 2 takes the `else if (hasFreshVm)` branch and emits
-        // `rebuild_activity` for the stale window.
-        expect(secondIssues, isEmpty);
-      });
+          final secondIssues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          // Without the fix, `_pendingVmWindowCount=15` lingers from tick 1.
+          // Tick 2 takes the `else if (hasFreshVm)` branch and emits
+          // `rebuild_activity` for the stale window.
+          expect(secondIssues, isEmpty);
+        },
+      );
     });
 
     // -- Group I: same-tick VM fallback when per-type emits nothing -------
@@ -617,8 +692,7 @@ void main() {
     // with the snapshot, silently dropping real `rebuild_activity` evidence.
 
     group('same-tick VM fallback (sub-threshold per-type)', () {
-      testWidgets(
-          'totalRebuilds=50 spread sub-threshold + VM staged 50 → '
+      testWidgets('totalRebuilds=50 spread sub-threshold + VM staged 50 → '
           'rebuild_activity fires', (tester) async {
         primeVmWindow(50);
         detector.updateDebugSnapshot(
@@ -658,8 +732,7 @@ void main() {
     // skipped the production runtime-type shape.
 
     group('generic builder canonicalization', () {
-      testWidgets(
-          'StreamBuilder<int> at rate=35: warning (NOT critical), '
+      testWidgets('StreamBuilder<int> at rate=35: warning (NOT critical), '
           'builder threshold applied', (tester) async {
         detector.updateDebugSnapshot(
           perTypeSnapshot(
@@ -679,50 +752,58 @@ void main() {
       });
 
       testWidgets(
-          'StreamBuilder<int> at rate=29 (just-below builder threshold): '
-          'no fire', (tester) async {
-        // Without canonicalization, this would fire at non-builder
-        // threshold (29 > 10).
-        detector.updateDebugSnapshot(
-          perTypeSnapshot(rebuildCounts: const {'StreamBuilder<int>': 29}),
-        );
-        final issues = await scanAndIssues(tester, detector, const SizedBox());
-        expect(issues, isEmpty);
-      });
+        'StreamBuilder<int> at rate=29 (just-below builder threshold): '
+        'no fire',
+        (tester) async {
+          // Without canonicalization, this would fire at non-builder
+          // threshold (29 > 10).
+          detector.updateDebugSnapshot(
+            perTypeSnapshot(rebuildCounts: const {'StreamBuilder<int>': 29}),
+          );
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            const SizedBox(),
+          );
+          expect(issues, isEmpty);
+        },
+      );
 
       testWidgets(
-          'mounted StreamBuilder<int> at rate=35: issue + highlight both '
-          'warning (canonicalization end-to-end)', (tester) async {
-        // End-to-end pin: mounting a real `StreamBuilder<int>` widget
-        // exercises the highlight path (`_hotRebuildTypes` Priority 1 +
-        // `checkElement` severity) alongside the issue path
-        // (`_evaluateDebugData`). The runtime-type string the
-        // tree-walker observes (`'StreamBuilder<int>'`) matches the
-        // snapshot key and the canonicalized base name (`StreamBuilder`)
-        // matches the builder set → builder threshold 30/sec applies on
-        // BOTH paths.
-        final controller = StreamController<int>();
-        addTearDown(controller.close);
-        detector.updateDebugSnapshot(
-          perTypeSnapshot(rebuildCounts: const {'StreamBuilder<int>': 35}),
-        );
-        final issues = await scanAndIssues(
-          tester,
-          detector,
-          StreamBuilder<int>(
-            stream: controller.stream,
-            initialData: 0,
-            builder: (_, __) => const SizedBox(),
-          ),
-        );
-        expect(issues, hasLength(1));
-        expect(issues, hasStableId('rebuild_debug_StreamBuilder<int>'));
-        expect(issues.single.severity, IssueSeverity.warning);
-        final highlight = detector.highlights.firstWhere(
-          (h) => h.widgetName == 'StreamBuilder<int>',
-        );
-        expect(highlight.severity, IssueSeverity.warning);
-      });
+        'mounted StreamBuilder<int> at rate=35: issue + highlight both '
+        'warning (canonicalization end-to-end)',
+        (tester) async {
+          // End-to-end pin: mounting a real `StreamBuilder<int>` widget
+          // exercises the highlight path (`_hotRebuildTypes` Priority 1 +
+          // `checkElement` severity) alongside the issue path
+          // (`_evaluateDebugData`). The runtime-type string the
+          // tree-walker observes (`'StreamBuilder<int>'`) matches the
+          // snapshot key and the canonicalized base name (`StreamBuilder`)
+          // matches the builder set → builder threshold 30/sec applies on
+          // BOTH paths.
+          final controller = StreamController<int>();
+          addTearDown(controller.close);
+          detector.updateDebugSnapshot(
+            perTypeSnapshot(rebuildCounts: const {'StreamBuilder<int>': 35}),
+          );
+          final issues = await scanAndIssues(
+            tester,
+            detector,
+            StreamBuilder<int>(
+              stream: controller.stream,
+              initialData: 0,
+              builder: (_, __) => const SizedBox(),
+            ),
+          );
+          expect(issues, hasLength(1));
+          expect(issues, hasStableId('rebuild_debug_StreamBuilder<int>'));
+          expect(issues.single.severity, IssueSeverity.warning);
+          final highlight = detector.highlights.firstWhere(
+            (h) => h.widgetName == 'StreamBuilder<int>',
+          );
+          expect(highlight.severity, IssueSeverity.warning);
+        },
+      );
     });
 
     // -- Negative controls -----------------------------------------------
@@ -760,8 +841,11 @@ void main() {
       // restructure that splits the runner into a separate file
       // doesn't silently break this contract test.
       final demosDir = Directory('example/lib/demos');
-      expect(demosDir.existsSync(), isTrue,
-          reason: 'example/lib/demos/ must exist to enforce the contract');
+      expect(
+        demosDir.existsSync(),
+        isTrue,
+        reason: 'example/lib/demos/ must exist to enforce the contract',
+      );
       final dartFiles = demosDir
           .listSync(recursive: true)
           .whereType<File>()
@@ -786,31 +870,45 @@ void main() {
           break;
         }
       }
-      expect(runnerFile, isNotNull,
-          reason: 'rebuild_activity capture runner not found anywhere '
-              'under example/lib/demos/. Either restore the runner or '
-              'update this contract test if the capture flow has been '
-              'restructured.');
+      expect(
+        runnerFile,
+        isNotNull,
+        reason:
+            'rebuild_activity capture runner not found anywhere '
+            'under example/lib/demos/. Either restore the runner or '
+            'update this contract test if the capture flow has been '
+            'restructured.',
+      );
       final src = runnerSrc!;
       expect(
-        RegExp(r'observedRate\s*=\s*[a-zA-Z_]*[Tt]argetRebuildRate\s*;')
-            .hasMatch(src),
+        RegExp(
+          r'observedRate\s*=\s*[a-zA-Z_]*[Tt]argetRebuildRate\s*;',
+        ).hasMatch(src),
         isFalse,
-        reason: 'rebuild_activity capture must NOT export the planned '
+        reason:
+            'rebuild_activity capture must NOT export the planned '
             'target rate. Use Sleuth.rebuildDetector?.lastObservedRebuildRate '
             'so below-leg evidence reflects what the detector measured. '
             'Found in: ${runnerFile!.path}',
       );
-      expect(src.contains('lastObservedRebuildRate'), isTrue,
-          reason: 'rebuild_activity runner must read '
-              'Sleuth.rebuildDetector?.lastObservedRebuildRate as the '
-              'source of expectedMagnitude.observed. '
-              'Found in: ${runnerFile.path}');
-      expect(src.contains('Sleuth.flushTimelineNow('), isTrue,
-          reason: 'capture runner must call Sleuth.flushTimelineNow() '
-              'between Ticker stop and markScenarioEnd so detector '
-              'emissions drain into the VM trace buffer before the '
-              'scenario closes. Found in: ${runnerFile.path}');
+      expect(
+        src.contains('lastObservedRebuildRate'),
+        isTrue,
+        reason:
+            'rebuild_activity runner must read '
+            'Sleuth.rebuildDetector?.lastObservedRebuildRate as the '
+            'source of expectedMagnitude.observed. '
+            'Found in: ${runnerFile.path}',
+      );
+      expect(
+        src.contains('Sleuth.flushTimelineNow('),
+        isTrue,
+        reason:
+            'capture runner must call Sleuth.flushTimelineNow() '
+            'between Ticker stop and markScenarioEnd so detector '
+            'emissions drain into the VM trace buffer before the '
+            'scenario closes. Found in: ${runnerFile.path}',
+      );
       // Refresh-rate independence guard. The frame-modulus pattern
       // `60 / leg.targetRebuildRate` was retired because Ticker fires
       // at the device vsync rate — on a 120 Hz device the modulus
@@ -820,7 +918,8 @@ void main() {
       expect(
         RegExp(r'60\s*/\s*leg\.targetRebuildRate').hasMatch(src),
         isFalse,
-        reason: 'capture runner must NOT use 60 Hz frame-modulus '
+        reason:
+            'capture runner must NOT use 60 Hz frame-modulus '
             'pacing — it produces 2× target rate on 120 Hz devices. '
             'Use time-based throttling (`1000 / leg.targetRebuildRate` '
             'ms interval). Found in: ${runnerFile.path}',
@@ -828,7 +927,8 @@ void main() {
       expect(
         RegExp(r'1000\s*[/~]\s*/?\s*leg\.targetRebuildRate').hasMatch(src),
         isTrue,
-        reason: 'capture runner must use time-based throttling: '
+        reason:
+            'capture runner must use time-based throttling: '
             'compute intervalMs from `1000 / leg.targetRebuildRate` '
             'and gate setState on Stopwatch elapsedMilliseconds. '
             'Found in: ${runnerFile.path}',
@@ -842,79 +942,96 @@ void main() {
     // from the helper at this revision must reproduce the committed
     // bounds — drift between helper edits and JSON content silently
     // breaks re-record.
-    test(
-      'committed capture expectedMagnitude.min/max match capture screen '
-      'per-tier _legs constants (re-record reproducibility contract)',
-      () {
-        final captureDir = Directory(
-          'test/validation/captures/rebuild_detector',
+    test('committed capture expectedMagnitude.min/max match capture screen '
+        'per-tier _legs constants (re-record reproducibility contract)', () {
+      final captureDir = Directory('test/validation/captures/rebuild_detector');
+      if (!captureDir.existsSync()) {
+        markTestSkipped('rebuild_detector captures not present.');
+        return;
+      }
+      final screenSrc = File(
+        'example/lib/demos/rebuild_activity_capture_screen.dart',
+      ).readAsStringSync();
+      final legPattern = RegExp(
+        r"_Leg\(\s*label:\s*'(\w+)'\s*,\s*targetRebuildRate:\s*\d+\s*,\s*"
+        r'rateMin:\s*(\d+)\s*,\s*rateMax:\s*(\d+)\s*\)',
+      );
+
+      Map<String, ({int min, int max})> parseBounds(String block) {
+        final out = <String, ({int min, int max})>{};
+        for (final m in legPattern.allMatches(block)) {
+          out[m.group(1)!] = (
+            min: int.parse(m.group(2)!),
+            max: int.parse(m.group(3)!),
+          );
+        }
+        return out;
+      }
+
+      String slice(String marker) {
+        final start = screenSrc.indexOf(marker);
+        expect(
+          start,
+          greaterThanOrEqualTo(0),
+          reason: 'capture screen must declare const $marker.',
         );
-        if (!captureDir.existsSync()) {
-          markTestSkipped('rebuild_detector captures not present.');
-          return;
-        }
-        final screenSrc = File(
-          'example/lib/demos/rebuild_activity_capture_screen.dart',
-        ).readAsStringSync();
-        final legPattern = RegExp(
-          r"_Leg\(\s*label:\s*'(\w+)'\s*,\s*targetRebuildRate:\s*\d+\s*,\s*"
-          r'rateMin:\s*(\d+)\s*,\s*rateMax:\s*(\d+)\s*\)',
+        final end = screenSrc.indexOf('];', start);
+        expect(end, greaterThan(start));
+        return screenSrc.substring(start, end);
+      }
+
+      final warningBounds = parseBounds(slice('const _warningLegs = <_Leg>['));
+      final criticalBounds = parseBounds(
+        slice('const _criticalLegs = <_Leg>['),
+      );
+      expect(
+        warningBounds.length,
+        3,
+        reason:
+            '_warningLegs must declare 3 legs '
+            '(below, at, above). Found ${warningBounds.length}.',
+      );
+      expect(
+        criticalBounds.length,
+        3,
+        reason:
+            '_criticalLegs must declare 3 legs '
+            '(below, at, above). Found ${criticalBounds.length}.',
+      );
+
+      void check(
+        String fileBasename,
+        ({int min, int max}) bounds,
+        String tier,
+      ) {
+        final f = File('${captureDir.path}/$fileBasename.json');
+        if (!f.existsSync()) return;
+        final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+        final em = (j['sleuthMetadata'] as Map)['expectedMagnitude'] as Map;
+        final captureMin = em['min'] as int;
+        final captureMax = em['max'] as int;
+        expect(
+          captureMin,
+          equals(bounds.min),
+          reason:
+              'Drift: $fileBasename.json expectedMagnitude.min='
+              '$captureMin but ${tier}_legs rateMin=${bounds.min}.',
         );
+        expect(
+          captureMax,
+          equals(bounds.max),
+          reason:
+              'Drift: $fileBasename.json expectedMagnitude.max='
+              '$captureMax but ${tier}_legs rateMax=${bounds.max}.',
+        );
+        expect((j['sleuthMetadata'] as Map)['schemaVersion'], 'v1');
+      }
 
-        Map<String, ({int min, int max})> parseBounds(String block) {
-          final out = <String, ({int min, int max})>{};
-          for (final m in legPattern.allMatches(block)) {
-            out[m.group(1)!] = (
-              min: int.parse(m.group(2)!),
-              max: int.parse(m.group(3)!),
-            );
-          }
-          return out;
-        }
-
-        String slice(String marker) {
-          final start = screenSrc.indexOf(marker);
-          expect(start, greaterThanOrEqualTo(0),
-              reason: 'capture screen must declare const $marker.');
-          final end = screenSrc.indexOf('];', start);
-          expect(end, greaterThan(start));
-          return screenSrc.substring(start, end);
-        }
-
-        final warningBounds =
-            parseBounds(slice('const _warningLegs = <_Leg>['));
-        final criticalBounds =
-            parseBounds(slice('const _criticalLegs = <_Leg>['));
-        expect(warningBounds.length, 3,
-            reason: '_warningLegs must declare 3 legs '
-                '(below, at, above). Found ${warningBounds.length}.');
-        expect(criticalBounds.length, 3,
-            reason: '_criticalLegs must declare 3 legs '
-                '(below, at, above). Found ${criticalBounds.length}.');
-
-        void check(
-            String fileBasename, ({int min, int max}) bounds, String tier) {
-          final f = File('${captureDir.path}/$fileBasename.json');
-          if (!f.existsSync()) return;
-          final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
-          final em = (j['sleuthMetadata'] as Map)['expectedMagnitude'] as Map;
-          final captureMin = em['min'] as int;
-          final captureMax = em['max'] as int;
-          expect(captureMin, equals(bounds.min),
-              reason: 'Drift: $fileBasename.json expectedMagnitude.min='
-                  '$captureMin but ${tier}_legs rateMin=${bounds.min}.');
-          expect(captureMax, equals(bounds.max),
-              reason: 'Drift: $fileBasename.json expectedMagnitude.max='
-                  '$captureMax but ${tier}_legs rateMax=${bounds.max}.');
-          expect((j['sleuthMetadata'] as Map)['schemaVersion'], 'v1');
-        }
-
-        for (final leg in const ['below', 'at', 'above']) {
-          check(leg, warningBounds[leg]!, 'warning');
-          check('critical_$leg', criticalBounds[leg]!, 'critical');
-        }
-      },
-    );
+      for (final leg in const ['below', 'at', 'above']) {
+        check(leg, warningBounds[leg]!, 'warning');
+        check('critical_$leg', criticalBounds[leg]!, 'critical');
+      }
+    });
 
     // Capture-shape invariant: the rebuild capture runner emits TWO
     // scenario-marker pairs per leg (one for the inline baseline
@@ -926,12 +1043,9 @@ void main() {
     // dropped the span-overlap filter would silently invalidate every
     // rebuild capture. Pin the count here so the contract is asserted
     // by data, not by reading the export source.
-    test(
-        'rebuild capture JSONs contain exactly 1 scenario.begin + 1 '
+    test('rebuild capture JSONs contain exactly 1 scenario.begin + 1 '
         'scenario.end pair (exportCaptureJson span-filter contract)', () {
-      final captureDir = Directory(
-        'test/validation/captures/rebuild_detector',
-      );
+      final captureDir = Directory('test/validation/captures/rebuild_detector');
       if (!captureDir.existsSync()) {
         markTestSkipped(
           'rebuild_detector captures not present; v0.19.12 raise not '
@@ -944,24 +1058,34 @@ void main() {
         if (!f.existsSync()) continue;
         final json = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
         final events = (json['traceEvents'] as List).cast<Map>();
-        final begins =
-            events.where((e) => e['name'] == 'sleuth.scenario.begin').length;
-        final ends =
-            events.where((e) => e['name'] == 'sleuth.scenario.end').length;
-        expect(begins, equals(1),
-            reason: '$leg.json must contain exactly 1 '
-                '`sleuth.scenario.begin` marker after exportCaptureJson '
-                'span-filtering. Found $begins. The capture runner emits '
-                '2 begin markers per leg (baseline + workload); '
-                'exportCaptureJson must drop the baseline pair via '
-                'scenario-span ts overlap filtering. A regression that '
-                'kept all events would land both pairs in the JSON and '
-                'fail schema parse with "exactly one begin/end" — but '
-                'the test would only catch it after the audit gate '
-                'rejected. This pin catches it on the capture file.');
-        expect(ends, equals(1),
-            reason: '$leg.json must contain exactly 1 '
-                '`sleuth.scenario.end` marker. Found $ends.');
+        final begins = events
+            .where((e) => e['name'] == 'sleuth.scenario.begin')
+            .length;
+        final ends = events
+            .where((e) => e['name'] == 'sleuth.scenario.end')
+            .length;
+        expect(
+          begins,
+          equals(1),
+          reason:
+              '$leg.json must contain exactly 1 '
+              '`sleuth.scenario.begin` marker after exportCaptureJson '
+              'span-filtering. Found $begins. The capture runner emits '
+              '2 begin markers per leg (baseline + workload); '
+              'exportCaptureJson must drop the baseline pair via '
+              'scenario-span ts overlap filtering. A regression that '
+              'kept all events would land both pairs in the JSON and '
+              'fail schema parse with "exactly one begin/end" — but '
+              'the test would only catch it after the audit gate '
+              'rejected. This pin catches it on the capture file.',
+        );
+        expect(
+          ends,
+          equals(1),
+          reason:
+              '$leg.json must contain exactly 1 '
+              '`sleuth.scenario.end` marker. Found $ends.',
+        );
       }
     });
   });
@@ -984,26 +1108,21 @@ void main() {
     });
 
     List<TimelineEvent> buildEvents(int n) => List.generate(
-          n,
-          (i) => buildEvent(
-            name: 'BUILD',
-            ph: 'X',
-            dur: 100,
-            ts: 1000 + i * 100,
-          ),
-        );
+      n,
+      (i) => buildEvent(name: 'BUILD', ph: 'X', dur: 100, ts: 1000 + i * 100),
+    );
 
     ParsedShape buildShape(int n) => (
-          buildEventCount: n,
-          buildScopeCount: n,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 0,
-          channelCount: 0,
-          gcCount: 0,
-          phaseEventCount: n,
-        );
+      buildEventCount: n,
+      buildScopeCount: n,
+      layoutCount: 0,
+      paintCount: 0,
+      rasterCount: 0,
+      shaderCount: 0,
+      channelCount: 0,
+      gcCount: 0,
+      phaseEventCount: n,
+    );
 
     void primeVmWindow(RebuildDetector detector, int buildCount) {
       fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
@@ -1022,8 +1141,9 @@ void main() {
       );
       detector.vmConnected = true;
       primeVmWindow(detector, 12); // 12 > 10 threshold → fires warning
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'rebuild_activity',
+      );
       expect(issue.extraTraceArgs?['lifecyclePhase'], 'startup');
       // Existing observed-axis key remains intact alongside lifecyclePhase.
       expect(issue.extraTraceArgs?['observedRebuildRate'], '12');
@@ -1036,8 +1156,9 @@ void main() {
       );
       detector.vmConnected = true;
       primeVmWindow(detector, 12);
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'rebuild_activity',
+      );
       expect(issue.extraTraceArgs?['lifecyclePhase'], 'steady');
       expect(issue.extraTraceArgs?['observedRebuildRate'], '12');
     });
@@ -1048,16 +1169,19 @@ void main() {
         appStartMonotonicUsForTest: () => developer.Timeline.now - 1000000,
       );
       detector.vmConnected = true;
-      detector.updateDebugSnapshot(DebugSnapshot(
-        rebuildCounts: {'MyWidget': 12},
-        totalPaintCount: 0,
-        elapsed: const Duration(seconds: 1),
-        source: RebuildCountSource.none,
-      ));
+      detector.updateDebugSnapshot(
+        DebugSnapshot(
+          rebuildCounts: {'MyWidget': 12},
+          totalPaintCount: 0,
+          elapsed: const Duration(seconds: 1),
+          source: RebuildCountSource.none,
+        ),
+      );
       // Trigger _evaluate via timeline tick.
       primeVmWindow(detector, 0);
-      final issue = detector.issues
-          .firstWhere((i) => i.stableId == 'rebuild_debug_MyWidget');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'rebuild_debug_MyWidget',
+      );
       expect(issue.extraTraceArgs?['lifecyclePhase'], 'startup');
     });
 
@@ -1065,8 +1189,9 @@ void main() {
       final detector = RebuildDetector(clock: () => fakeNow);
       detector.vmConnected = true;
       primeVmWindow(detector, 12);
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'rebuild_activity',
+      );
       expect(issue.extraTraceArgs?.containsKey('lifecyclePhase'), false);
       expect(issue.extraTraceArgs?['observedRebuildRate'], '12');
     });
@@ -1082,17 +1207,22 @@ void main() {
       );
       detector.vmConnected = true;
       primeVmWindow(detector, 35); // above 3× critical → still has rate arg
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'rebuild_activity');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'rebuild_activity',
+      );
       // Named-key assertions rather than exact-length: future axis
       // additions to extraTraceArgs should not break this regression
       // guard. The load-bearing invariant is that observedRebuildRate
       // (the audit-gate bracket axis) and lifecyclePhase (the new tag)
       // both extract correctly from the same emission.
       expect(issue.extraTraceArgs, isNotNull);
-      expect(issue.extraTraceArgs!.containsKey('observedRebuildRate'), true,
-          reason: 'observedRebuildRate is the runtimeVerified bracket '
-              'axis key — adding lifecyclePhase must not displace it.');
+      expect(
+        issue.extraTraceArgs!.containsKey('observedRebuildRate'),
+        true,
+        reason:
+            'observedRebuildRate is the runtimeVerified bracket '
+            'axis key — adding lifecyclePhase must not displace it.',
+      );
       expect(issue.extraTraceArgs!['observedRebuildRate'], '35');
       expect(issue.extraTraceArgs!.containsKey('lifecyclePhase'), true);
       expect(issue.extraTraceArgs!['lifecyclePhase'], 'startup');
@@ -1109,10 +1239,7 @@ class _StatefulTree extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      children: List.generate(
-        leafCount,
-        (i) => StatefulLeaf(key: ValueKey(i)),
-      ),
+      children: List.generate(leafCount, (i) => StatefulLeaf(key: ValueKey(i))),
     );
   }
 }
@@ -1124,10 +1251,7 @@ class _PrivateStatefulTree extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      children: List.generate(
-        leafCount,
-        (i) => _PrivateLeaf(key: ValueKey(i)),
-      ),
+      children: List.generate(leafCount, (i) => _PrivateLeaf(key: ValueKey(i))),
     );
   }
 }
@@ -1139,10 +1263,7 @@ class _RebuildLeafTree extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      children: List.generate(
-        leafCount,
-        (i) => _RebuildLeaf(key: ValueKey(i)),
-      ),
+      children: List.generate(leafCount, (i) => _RebuildLeaf(key: ValueKey(i))),
     );
   }
 }

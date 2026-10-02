@@ -49,8 +49,10 @@ void main() {
 
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.title, contains('1 found'));
-      expect(detector.issues.first.observationSource,
-          ObservationSource.structural);
+      expect(
+        detector.issues.first.observationSource,
+        ObservationSource.structural,
+      );
     });
 
     testWidgets('no issue when Image uses ResizeImage', (tester) async {
@@ -163,8 +165,9 @@ void main() {
       expect(detector.uncachedImages.first.sourceName, contains('MemoryImage'));
     });
 
-    testWidgets('no highlights when all images use ResizeImage',
-        (tester) async {
+    testWidgets('no highlights when all images use ResizeImage', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -177,8 +180,9 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
 
-    testWidgets('highlight detail includes provider type for MemoryImage',
-        (tester) async {
+    testWidgets('highlight detail includes provider type for MemoryImage', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -189,7 +193,9 @@ void main() {
 
       expect(detector.highlights, hasLength(1));
       expect(
-          detector.highlights.first.detail, contains('Uncached MemoryImage'));
+        detector.highlights.first.detail,
+        contains('Uncached MemoryImage'),
+      );
       expect(detector.highlights.first.detail, contains('ResizeImage'));
     });
 
@@ -204,13 +210,15 @@ void main() {
       );
       expect(
         ImageMemoryDetector.extractSourceName(
-            const ExactAssetImage('icon.png')),
+          const ExactAssetImage('icon.png'),
+        ),
         'icon.png',
       );
     });
 
-    testWidgets('dispose clears issues, highlights, and uncachedImages',
-        (tester) async {
+    testWidgets('dispose clears issues, highlights, and uncachedImages', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -233,50 +241,51 @@ void main() {
     // -----------------------------------------------------------------
 
     group('DecorationImage detection', () {
-      testWidgets('flags DecoratedBox with DecorationImage without ResizeImage',
-          (tester) async {
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                image: DecorationImage(
-                  image: MemoryImage(_kTransparentPng),
+      testWidgets(
+        'flags DecoratedBox with DecorationImage without ResizeImage',
+        (tester) async {
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  image: DecorationImage(image: MemoryImage(_kTransparentPng)),
                 ),
               ),
             ),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          );
+          detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.stableId, 'uncached_images');
-        expect(detector.uncachedImages, hasLength(1));
-      });
+          expect(detector.issues, hasLength(1));
+          expect(detector.issues.first.stableId, 'uncached_images');
+          expect(detector.uncachedImages, hasLength(1));
+        },
+      );
 
       testWidgets(
-          'no issue for DecoratedBox with DecorationImage using ResizeImage',
-          (tester) async {
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                image: DecorationImage(
-                  image: ResizeImage(
-                    MemoryImage(_kTransparentPng),
-                    width: 100,
+        'no issue for DecoratedBox with DecorationImage using ResizeImage',
+        (tester) async {
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  image: DecorationImage(
+                    image: ResizeImage(
+                      MemoryImage(_kTransparentPng),
+                      width: 100,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          );
+          detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isEmpty);
-        expect(detector.uncachedImages, isEmpty);
-      });
+          expect(detector.issues, isEmpty);
+          expect(detector.uncachedImages, isEmpty);
+        },
+      );
 
       testWidgets('no issue for DecoratedBox without image', (tester) async {
         await tester.pumpWidget(
@@ -293,57 +302,58 @@ void main() {
         expect(detector.uncachedImages, isEmpty);
       });
 
-      testWidgets('highlight widgetName is DecoratedBox for decoration images',
-          (tester) async {
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                image: DecorationImage(
-                  image: MemoryImage(_kTransparentPng),
+      testWidgets(
+        'highlight widgetName is DecoratedBox for decoration images',
+        (tester) async {
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  image: DecorationImage(image: MemoryImage(_kTransparentPng)),
                 ),
               ),
             ),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          );
+          detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.highlights, hasLength(1));
-        expect(detector.highlights.first.widgetName, 'DecoratedBox');
-      });
+          expect(detector.highlights, hasLength(1));
+          expect(detector.highlights.first.widgetName, 'DecoratedBox');
+        },
+      );
 
       testWidgets(
-          'mixed Image widgets and DecoratedBox images are counted together',
-          (tester) async {
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: Column(
-              children: [
-                Image(image: MemoryImage(_kTransparentPng)),
-                SizedBox(
-                  width: 100,
-                  height: 100,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      image: DecorationImage(
-                        image: MemoryImage(_kTransparentPng),
+        'mixed Image widgets and DecoratedBox images are counted together',
+        (tester) async {
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Column(
+                children: [
+                  Image(image: MemoryImage(_kTransparentPng)),
+                  SizedBox(
+                    width: 100,
+                    height: 100,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        image: DecorationImage(
+                          image: MemoryImage(_kTransparentPng),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          );
+          detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.title, contains('2 found'));
-        expect(detector.uncachedImages, hasLength(2));
-        expect(detector.highlights, hasLength(2));
-      });
+          expect(detector.issues, hasLength(1));
+          expect(detector.issues.first.title, contains('2 found'));
+          expect(detector.uncachedImages, hasLength(2));
+          expect(detector.highlights, hasLength(2));
+        },
+      );
     });
 
     // -----------------------------------------------------------------
@@ -368,8 +378,11 @@ void main() {
         );
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isEmpty,
-            reason: 'Small images (<= 50px) should be suppressed');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'Small images (<= 50px) should be suppressed',
+        );
       });
 
       testWidgets('image at boundary (50x50) not flagged', (tester) async {
@@ -387,8 +400,11 @@ void main() {
         );
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isEmpty,
-            reason: '50x50 is at threshold — should be suppressed');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: '50x50 is at threshold — should be suppressed',
+        );
       });
 
       testWidgets('large image (300x300) still flagged', (tester) async {
@@ -406,8 +422,11 @@ void main() {
         );
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, hasLength(1),
-            reason: 'Large images should still be flagged');
+        expect(
+          detector.issues,
+          hasLength(1),
+          reason: 'Large images should still be flagged',
+        );
       });
 
       testWidgets('image at 51x51 still flagged', (tester) async {
@@ -425,8 +444,11 @@ void main() {
         );
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, hasLength(1),
-            reason: '51x51 is above threshold — should be flagged');
+        expect(
+          detector.issues,
+          hasLength(1),
+          reason: '51x51 is above threshold — should be flagged',
+        );
       });
 
       testWidgets('small DecoratedBox image also suppressed', (tester) async {
@@ -450,8 +472,11 @@ void main() {
         );
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isEmpty,
-            reason: 'Small DecoratedBox images should also be suppressed');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'Small DecoratedBox images should also be suppressed',
+        );
       });
     });
   });

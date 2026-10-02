@@ -59,7 +59,8 @@ class CaptureHelper {
     // it null — we fall back to detectedAt.microsecondsSinceEpoch
     // which IS the per-occurrence identifier for those detectors
     // (request completion timestamp).
-    final identityMicros = issue.dedupIdentityMicros ??
+    final identityMicros =
+        issue.dedupIdentityMicros ??
         (issue.detectedAt ?? DateTime.now()).microsecondsSinceEpoch;
     final args = <String, String>{
       // Flutter's Timeline arg encoding accepts `Map<String, Object?>`
@@ -93,10 +94,7 @@ class CaptureHelper {
   /// Records [issue] as a `sleuth.issue.<stableId>.<severity>` instant
   /// trace event when [captureMode] is true and the build is not
   /// release.
-  static void recordIssue(
-    PerformanceIssue issue, {
-    required bool captureMode,
-  }) {
+  static void recordIssue(PerformanceIssue issue, {required bool captureMode}) {
     if (kReleaseMode || !captureMode) return;
     final event = composeIssueEvent(issue);
     if (event == null) return;

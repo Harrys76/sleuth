@@ -15,13 +15,12 @@ ParsedTimelineData rasterDominantData({
   int buildUs = 5000,
   int layoutUs = 3000,
   int paintUs = 2000,
-}) =>
-    ParsedTimelineData(
-      rasterDurations: [rasterUs],
-      buildScopeDurations: [buildUs],
-      flushLayoutDurations: [layoutUs],
-      flushPaintDurations: [paintUs],
-    );
+}) => ParsedTimelineData(
+  rasterDurations: [rasterUs],
+  buildScopeDurations: [buildUs],
+  flushLayoutDurations: [layoutUs],
+  flushPaintDurations: [paintUs],
+);
 
 /// Factory for timeline data with paint events only.
 ParsedTimelineData highPaintActivityData({int paintCount = 40}) =>
@@ -31,25 +30,24 @@ ParsedTimelineData highPaintActivityData({int paintCount = 40}) =>
 
 /// Factory for timeline data with GC events.
 ParsedTimelineData gcHeavyData({int gcCount = 10}) => ParsedTimelineData(
-      gcEvents: List.generate(
-        gcCount,
-        (i) => TimelineEvent.parse({
-          'name': 'GC',
-          'cat': 'gc',
-          'ph': 'X',
-          'dur': 100,
-          'ts': i * 1000,
-          'pid': 1,
-          'tid': 1,
-        })!,
-      ),
-    );
+  gcEvents: List.generate(
+    gcCount,
+    (i) => TimelineEvent.parse({
+      'name': 'GC',
+      'cat': 'gc',
+      'ph': 'X',
+      'dur': 100,
+      'ts': i * 1000,
+      'pid': 1,
+      'tid': 1,
+    })!,
+  ),
+);
 
 /// Factory for timeline data with buildScope durations (for HeavyComputeDetector).
 ParsedTimelineData heavyComputeData({
   List<int> buildScopeDurationsUs = const [],
-}) =>
-    ParsedTimelineData(buildScopeDurations: buildScopeDurationsUs);
+}) => ParsedTimelineData(buildScopeDurations: buildScopeDurationsUs);
 
 /// Factory for timeline data with enriched build phaseEvents.
 ///
@@ -62,21 +60,20 @@ ParsedTimelineData enrichedBuildData({
   List<String>? dirtyList,
   String? scopeContext,
   int baseTimestampUs = 100000,
-}) =>
-    ParsedTimelineData(
-      buildScopeDurations: [buildDurationUs],
-      buildEventCount: 1,
-      phaseEvents: [
-        PhaseEvent(
-          phase: TimelinePhase.build,
-          timestampUs: baseTimestampUs,
-          durationUs: buildDurationUs,
-          dirtyCount: dirtyCount,
-          dirtyList: dirtyList,
-          scopeContext: scopeContext,
-        ),
-      ],
-    );
+}) => ParsedTimelineData(
+  buildScopeDurations: [buildDurationUs],
+  buildEventCount: 1,
+  phaseEvents: [
+    PhaseEvent(
+      phase: TimelinePhase.build,
+      timestampUs: baseTimestampUs,
+      durationUs: buildDurationUs,
+      dirtyCount: dirtyCount,
+      dirtyList: dirtyList,
+      scopeContext: scopeContext,
+    ),
+  ],
+);
 
 /// Factory for timeline data with enriched paint phaseEvents.
 ParsedTimelineData enrichedPaintData({
@@ -84,38 +81,36 @@ ParsedTimelineData enrichedPaintData({
   int? dirtyCount,
   int paintDurationUs = 1000,
   int baseTimestampUs = 100000,
-}) =>
-    ParsedTimelineData(
-      flushPaintDurations: List.generate(paintCount, (_) => paintDurationUs),
-      phaseEvents: List.generate(
-        paintCount,
-        (i) => PhaseEvent(
-          phase: TimelinePhase.paint,
-          timestampUs: baseTimestampUs + i * paintDurationUs,
-          durationUs: paintDurationUs,
-          dirtyCount: dirtyCount,
-        ),
-      ),
-    );
+}) => ParsedTimelineData(
+  flushPaintDurations: List.generate(paintCount, (_) => paintDurationUs),
+  phaseEvents: List.generate(
+    paintCount,
+    (i) => PhaseEvent(
+      phase: TimelinePhase.paint,
+      timestampUs: baseTimestampUs + i * paintDurationUs,
+      durationUs: paintDurationUs,
+      dirtyCount: dirtyCount,
+    ),
+  ),
+);
 
 /// Factory for build activity data with enriched dirty names.
 ParsedTimelineData enrichedBuildActivityData({
   int buildCount = 25,
   List<String>? dirtyList,
-}) =>
-    ParsedTimelineData(
-      buildEventCount: buildCount,
-      phaseEvents: dirtyList != null
-          ? [
-              PhaseEvent(
-                phase: TimelinePhase.build,
-                timestampUs: 100000,
-                durationUs: 5000,
-                dirtyList: dirtyList,
-              ),
-            ]
-          : const [],
-    );
+}) => ParsedTimelineData(
+  buildEventCount: buildCount,
+  phaseEvents: dirtyList != null
+      ? [
+          PhaseEvent(
+            phase: TimelinePhase.build,
+            timestampUs: 100000,
+            durationUs: 5000,
+            dirtyList: dirtyList,
+          ),
+        ]
+      : const [],
+);
 
 /// Factory for timeline data with shader compile durations (for ShaderJankDetector).
 ///
@@ -126,16 +121,16 @@ ParsedTimelineData enrichedBuildActivityData({
 /// intervals starting at 1_000_000 µs (1 s) so test fixtures land outside
 /// the default 5 s `coldStartShaderWindowSeconds` and classify as
 /// `'hot_path'` unless overridden by `appStartMonotonicUsForTest`.
-ParsedTimelineData shaderCompileData({
-  List<int> shaderDurationsUs = const [],
-}) {
+ParsedTimelineData shaderCompileData({List<int> shaderDurationsUs = const []}) {
   final phaseEvents = <PhaseEvent>[];
   for (var i = 0; i < shaderDurationsUs.length; i++) {
-    phaseEvents.add(PhaseEvent(
-      phase: TimelinePhase.shader,
-      timestampUs: 10000000 + i * 1000000,
-      durationUs: shaderDurationsUs[i],
-    ));
+    phaseEvents.add(
+      PhaseEvent(
+        phase: TimelinePhase.shader,
+        timestampUs: 10000000 + i * 1000000,
+        durationUs: shaderDurationsUs[i],
+      ),
+    );
   }
   return ParsedTimelineData(
     shaderCompileDurations: shaderDurationsUs,
@@ -148,21 +143,20 @@ ParsedTimelineData platformChannelData({
   int channelEventCount = 0,
   int durUs = 100,
   String? methodName,
-}) =>
-    ParsedTimelineData(
-      platformChannelEvents: List.generate(
-        channelEventCount,
-        (i) => TimelineEvent.parse({
-          'name': methodName ?? 'PlatformChannel',
-          'cat': '',
-          'ph': 'X',
-          'dur': durUs,
-          'ts': i * 1000,
-          'pid': 1,
-          'tid': 1,
-        })!,
-      ),
-    );
+}) => ParsedTimelineData(
+  platformChannelEvents: List.generate(
+    channelEventCount,
+    (i) => TimelineEvent.parse({
+      'name': methodName ?? 'PlatformChannel',
+      'cat': '',
+      'ph': 'X',
+      'dur': durUs,
+      'ts': i * 1000,
+      'pid': 1,
+      'tid': 1,
+    })!,
+  ),
+);
 
 /// Factory for timeline data with phaseEvents for frame-event correlation testing.
 ///

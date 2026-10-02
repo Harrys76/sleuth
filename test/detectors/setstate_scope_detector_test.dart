@@ -113,70 +113,74 @@ void main() {
 
     group('debug correlation', () {
       testWidgets(
-          'upgrades to confirmed when type is unique and appears in rebuildCounts',
-          (tester) async {
-        detector = SetStateScopeDetector(
-          dirtyRatioThreshold: 0.3,
-          minSubtreeSize: 3,
-        );
+        'upgrades to confirmed when type is unique and appears in rebuildCounts',
+        (tester) async {
+          detector = SetStateScopeDetector(
+            dirtyRatioThreshold: 0.3,
+            minSubtreeSize: 3,
+          );
 
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {'LargePageWidget': 15},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
+          detector.updateDebugSnapshot(
+            const DebugSnapshot(
+              rebuildCounts: {'LargePageWidget': 15},
+              totalPaintCount: 0,
+              elapsed: Duration(seconds: 1),
+            ),
+          );
 
-        // Only one LargePageWidget instance on screen
-        await tester.pumpWidget(const _Wrapper(child: LargePageWidget()));
-        detector.scanTree(tester.element(find.byType(_Wrapper)));
+          // Only one LargePageWidget instance on screen
+          await tester.pumpWidget(const _Wrapper(child: LargePageWidget()));
+          detector.scanTree(tester.element(find.byType(_Wrapper)));
 
-        expect(detector.issues, isNotEmpty);
-        expect(detector.issues.first.confidence, IssueConfidence.confirmed);
-      });
+          expect(detector.issues, isNotEmpty);
+          expect(detector.issues.first.confidence, IssueConfidence.confirmed);
+        },
+      );
 
       testWidgets(
-          'caps at likely when multiple instances of flagged type exist',
-          (tester) async {
+        'caps at likely when multiple instances of flagged type exist',
+        (tester) async {
+          detector = SetStateScopeDetector(
+            dirtyRatioThreshold: 0.3,
+            minSubtreeSize: 3,
+          );
+
+          detector.updateDebugSnapshot(
+            const DebugSnapshot(
+              rebuildCounts: {'LargePageWidget': 15},
+              totalPaintCount: 0,
+              elapsed: Duration(seconds: 1),
+            ),
+          );
+
+          // Two instances of LargePageWidget
+          await tester.pumpWidget(
+            const _Wrapper(
+              child: Column(children: [LargePageWidget(), LargePageWidget()]),
+            ),
+          );
+          detector.scanTree(tester.element(find.byType(_Wrapper)));
+
+          expect(detector.issues, isNotEmpty);
+          expect(detector.issues.first.confidence, IssueConfidence.likely);
+        },
+      );
+
+      testWidgets('stays possible when type not in rebuildCounts', (
+        tester,
+      ) async {
         detector = SetStateScopeDetector(
           dirtyRatioThreshold: 0.3,
           minSubtreeSize: 3,
         );
 
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {'LargePageWidget': 15},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
-
-        // Two instances of LargePageWidget
-        await tester.pumpWidget(
-          const _Wrapper(
-            child: Column(
-              children: [
-                LargePageWidget(),
-                LargePageWidget(),
-              ],
-            ),
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {'SomeOtherWidget': 15},
+            totalPaintCount: 0,
+            elapsed: Duration(seconds: 1),
           ),
         );
-        detector.scanTree(tester.element(find.byType(_Wrapper)));
-
-        expect(detector.issues, isNotEmpty);
-        expect(detector.issues.first.confidence, IssueConfidence.likely);
-      });
-
-      testWidgets('stays possible when type not in rebuildCounts',
-          (tester) async {
-        detector = SetStateScopeDetector(
-          dirtyRatioThreshold: 0.3,
-          minSubtreeSize: 3,
-        );
-
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {'SomeOtherWidget': 15},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
 
         await tester.pumpWidget(const _Wrapper(child: LargePageWidget()));
         detector.scanTree(tester.element(find.byType(_Wrapper)));
@@ -185,8 +189,9 @@ void main() {
         expect(detector.issues.first.confidence, IssueConfidence.possible);
       });
 
-      testWidgets('stays possible when no debug data available',
-          (tester) async {
+      testWidgets('stays possible when no debug data available', (
+        tester,
+      ) async {
         detector = SetStateScopeDetector(
           dirtyRatioThreshold: 0.3,
           minSubtreeSize: 3,
@@ -198,31 +203,38 @@ void main() {
 
         expect(detector.issues, isNotEmpty);
         expect(detector.issues.first.confidence, IssueConfidence.possible);
-        expect(detector.issues.first.observationSource,
-            ObservationSource.structural);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.structural,
+        );
       });
 
       testWidgets(
-          'observationSource set to debugCallbackAndStructural on upgrade',
-          (tester) async {
-        detector = SetStateScopeDetector(
-          dirtyRatioThreshold: 0.3,
-          minSubtreeSize: 3,
-        );
+        'observationSource set to debugCallbackAndStructural on upgrade',
+        (tester) async {
+          detector = SetStateScopeDetector(
+            dirtyRatioThreshold: 0.3,
+            minSubtreeSize: 3,
+          );
 
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {'LargePageWidget': 15},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
+          detector.updateDebugSnapshot(
+            const DebugSnapshot(
+              rebuildCounts: {'LargePageWidget': 15},
+              totalPaintCount: 0,
+              elapsed: Duration(seconds: 1),
+            ),
+          );
 
-        await tester.pumpWidget(const _Wrapper(child: LargePageWidget()));
-        detector.scanTree(tester.element(find.byType(_Wrapper)));
+          await tester.pumpWidget(const _Wrapper(child: LargePageWidget()));
+          detector.scanTree(tester.element(find.byType(_Wrapper)));
 
-        expect(detector.issues, isNotEmpty);
-        expect(detector.issues.first.observationSource,
-            ObservationSource.debugCallbackAndStructural);
-      });
+          expect(detector.issues, isNotEmpty);
+          expect(
+            detector.issues.first.observationSource,
+            ObservationSource.debugCallbackAndStructural,
+          );
+        },
+      );
     });
 
     group('abort safety', () {
@@ -295,8 +307,9 @@ void main() {
     // -----------------------------------------------------------------
 
     group('const subtree discounting', () {
-      testWidgets('first scan uses raw subtree size (no baseline)',
-          (tester) async {
+      testWidgets('first scan uses raw subtree size (no baseline)', (
+        tester,
+      ) async {
         detector = SetStateScopeDetector(
           dirtyRatioThreshold: 0.3,
           minSubtreeSize: 3,
@@ -309,43 +322,54 @@ void main() {
       });
 
       testWidgets(
-          'detail includes const count when rebuild evidence + const children',
-          (tester) async {
-        final key = GlobalKey<RebuildableConstHeavyWidgetState>();
-        // Use very low threshold so const-discounted ratio still triggers
-        detector = SetStateScopeDetector(
-          dirtyRatioThreshold: 0.01,
-          minSubtreeSize: 3,
-          rebuildEvidenceThreshold: 1,
-        );
+        'detail includes const count when rebuild evidence + const children',
+        (tester) async {
+          final key = GlobalKey<RebuildableConstHeavyWidgetState>();
+          // Use very low threshold so const-discounted ratio still triggers
+          detector = SetStateScopeDetector(
+            dirtyRatioThreshold: 0.01,
+            minSubtreeSize: 3,
+            rebuildEvidenceThreshold: 1,
+          );
 
-        await tester
-            .pumpWidget(_Wrapper(child: RebuildableConstHeavyWidget(key: key)));
+          await tester.pumpWidget(
+            _Wrapper(child: RebuildableConstHeavyWidget(key: key)),
+          );
 
-        // Scan 1: establish baseline (element widget identity snapshot)
-        detector.scanTree(tester.element(find.byType(_Wrapper)));
+          // Scan 1: establish baseline (element widget identity snapshot)
+          detector.scanTree(tester.element(find.byType(_Wrapper)));
 
-        // Trigger a real setState — changes the mutable child's identity
-        // while const children keep the same widget instance
-        key.currentState!.triggerRebuild();
-        await tester.pump();
+          // Trigger a real setState — changes the mutable child's identity
+          // while const children keep the same widget instance
+          key.currentState!.triggerRebuild();
+          await tester.pump();
 
-        // Scan 2: rebuild evidence fires (first child identity changed),
-        // const children are detected as stable
-        detector.scanTree(tester.element(find.byType(_Wrapper)));
+          // Scan 2: rebuild evidence fires (first child identity changed),
+          // const children are detected as stable
+          detector.scanTree(tester.element(find.byType(_Wrapper)));
 
-        expect(
-            detector.hasRebuildEvidenceFor('RebuildableConstHeavyWidget'), true,
-            reason: 'setState should produce rebuild evidence');
-        expect(detector.issues, isNotEmpty,
-            reason: 'Should still flag wide subtree at low threshold');
-        final detail = detector.issues.first.detail;
-        expect(detail, contains('mutable'),
-            reason: 'Detail should show const/mutable breakdown');
-      });
+          expect(
+            detector.hasRebuildEvidenceFor('RebuildableConstHeavyWidget'),
+            true,
+            reason: 'setState should produce rebuild evidence',
+          );
+          expect(
+            detector.issues,
+            isNotEmpty,
+            reason: 'Should still flag wide subtree at low threshold',
+          );
+          final detail = detector.issues.first.detail;
+          expect(
+            detail,
+            contains('mutable'),
+            reason: 'Detail should show const/mutable breakdown',
+          );
+        },
+      );
 
-      testWidgets('const discount suppresses issue that would otherwise fire',
-          (tester) async {
+      testWidgets('const discount suppresses issue that would otherwise fire', (
+        tester,
+      ) async {
         final key = GlobalKey<RebuildableConstHeavyWidgetState>();
         // Use a threshold where the RAW ratio (all elements) fires
         // but the MUTABLE ratio (after const discount) does not.
@@ -355,13 +379,17 @@ void main() {
           rebuildEvidenceThreshold: 1,
         );
 
-        await tester
-            .pumpWidget(_Wrapper(child: RebuildableConstHeavyWidget(key: key)));
+        await tester.pumpWidget(
+          _Wrapper(child: RebuildableConstHeavyWidget(key: key)),
+        );
 
         // Scan 1: establish baseline — no const discount, issues fire
         detector.scanTree(tester.element(find.byType(_Wrapper)));
-        expect(detector.issues, isNotEmpty,
-            reason: 'First scan (no baseline) should fire with raw size');
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason: 'First scan (no baseline) should fire with raw size',
+        );
 
         // Trigger rebuild
         key.currentState!.triggerRebuild();
@@ -369,13 +397,16 @@ void main() {
 
         // Scan 2: const discount reduces mutable ratio below threshold
         detector.scanTree(tester.element(find.byType(_Wrapper)));
-        expect(detector.issues, isEmpty,
-            reason:
-                'Const discount should reduce mutable ratio below threshold');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'Const discount should reduce mutable ratio below threshold',
+        );
       });
 
-      testWidgets('second scan without rebuild uses raw size (no discount)',
-          (tester) async {
+      testWidgets('second scan without rebuild uses raw size (no discount)', (
+        tester,
+      ) async {
         detector = SetStateScopeDetector(
           dirtyRatioThreshold: 0.3,
           minSubtreeSize: 3,
@@ -388,9 +419,11 @@ void main() {
 
         // Scan 2: no rebuild happened → should still detect (no discount)
         detector.scanTree(tester.element(find.byType(_Wrapper)));
-        expect(detector.issues, isNotEmpty,
-            reason:
-                'Without rebuild evidence, const discount should not apply');
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason: 'Without rebuild evidence, const discount should not apply',
+        );
       });
     });
 
@@ -430,62 +463,73 @@ void main() {
 
     group('real widget tree (anti-tautology)', () {
       testWidgets(
-          'real debug snapshot upgrades SetStateScope confidence to confirmed',
-          (tester) async {
-        detector = SetStateScopeDetector(
-          dirtyRatioThreshold: 0.3,
-          minSubtreeSize: 50,
-          rebuildEvidenceThreshold: 1,
-        );
+        'real debug snapshot upgrades SetStateScope confidence to confirmed',
+        (tester) async {
+          detector = SetStateScopeDetector(
+            dirtyRatioThreshold: 0.3,
+            minSubtreeSize: 50,
+            rebuildEvidenceThreshold: 1,
+          );
 
-        // childCount: 55 gives 56 SizedBoxes × 10px = 560px, fitting the
-        // 600px default test viewport. Subtree size is
-        // 1 (Column) + 56 (SizedBoxes) = 57 → exceeds minSubtreeSize: 50.
-        final key = GlobalKey<TestCounterWidgetState>();
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: TestCounterWidget(key: key, childCount: 55),
-          ),
-        );
+          // childCount: 55 gives 56 SizedBoxes × 10px = 560px, fitting the
+          // 600px default test viewport. Subtree size is
+          // 1 (Column) + 56 (SizedBoxes) = 57 → exceeds minSubtreeSize: 50.
+          final key = GlobalKey<TestCounterWidgetState>();
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: TestCounterWidget(key: key, childCount: 55),
+            ),
+          );
 
-        // Scan 1 — establishes the child-identity baseline for the
-        // between-scan rebuild check. On a first scan _childSnapshots
-        // is empty, so no evidence is staged here.
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          // Scan 1 — establishes the child-identity baseline for the
+          // between-scan rebuild check. On a first scan _childSnapshots
+          // is empty, so no evidence is staged here.
+          detector.scanTree(tester.element(find.byType(Directionality)));
 
-        // Drive one real setState rebuild through a real coordinator.
-        // The returned snapshot's shape is exactly what production
-        // detectors receive — not a hand-written fixture.
-        final snapshot = await captureDebugCallbackCounts(
-          tester: tester,
-          key: key,
-          count: 1,
-        );
+          // Drive one real setState rebuild through a real coordinator.
+          // The returned snapshot's shape is exactly what production
+          // detectors receive — not a hand-written fixture.
+          final snapshot = await captureDebugCallbackCounts(
+            tester: tester,
+            key: key,
+            count: 1,
+          );
 
-        expect(snapshot.source, RebuildCountSource.debugCallback);
-        expect(snapshot.rebuildCounts['TestCounterWidget'], greaterThan(0),
-            reason: 'real coordinator pipeline must count TestCounterWidget '
-                'rebuilds');
+          expect(snapshot.source, RebuildCountSource.debugCallback);
+          expect(
+            snapshot.rebuildCounts['TestCounterWidget'],
+            greaterThan(0),
+            reason:
+                'real coordinator pipeline must count TestCounterWidget '
+                'rebuilds',
+          );
 
-        // Scan 2 — TestCounterWidget's child identity has changed
-        // (setState bumped the counter → new Column instance), so the
-        // between-scan rebuild check stages evidence; the real snapshot
-        // then upgrades confidence to `confirmed` because the scanned
-        // tree holds exactly one TestCounterWidget instance.
-        detector.updateDebugSnapshot(snapshot);
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          // Scan 2 — TestCounterWidget's child identity has changed
+          // (setState bumped the counter → new Column instance), so the
+          // between-scan rebuild check stages evidence; the real snapshot
+          // then upgrades confidence to `confirmed` because the scanned
+          // tree holds exactly one TestCounterWidget instance.
+          detector.updateDebugSnapshot(snapshot);
+          detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.hasRebuildEvidenceFor('TestCounterWidget'), isTrue,
-            reason: 'real setState must produce child-identity change '
-                'that flows into _pendingEvidence');
-        expect(detector.issues, isNotEmpty);
-        final issue = detector.issues.first;
-        expect(issue.widgetName, 'TestCounterWidget');
-        expect(issue.confidence, IssueConfidence.confirmed);
-        expect(issue.observationSource,
-            ObservationSource.debugCallbackAndStructural);
-      });
+          expect(
+            detector.hasRebuildEvidenceFor('TestCounterWidget'),
+            isTrue,
+            reason:
+                'real setState must produce child-identity change '
+                'that flows into _pendingEvidence',
+          );
+          expect(detector.issues, isNotEmpty);
+          final issue = detector.issues.first;
+          expect(issue.widgetName, 'TestCounterWidget');
+          expect(issue.confidence, IssueConfidence.confirmed);
+          expect(
+            issue.observationSource,
+            ObservationSource.debugCallbackAndStructural,
+          );
+        },
+      );
     });
   });
 }

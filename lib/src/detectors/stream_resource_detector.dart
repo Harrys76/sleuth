@@ -135,20 +135,23 @@ class StreamResourceDetector extends BaseDetector
     this.windowSize = 4,
     @visibleForTesting
     Future<AllocationProfile?> Function()? allocationProfileFetcherForTest,
-  })  : assert(windowSize >= 2,
-            'windowSize must be >= 2 (need at least one transition).'),
-        assert(cooldownSeconds >= 0, 'cooldownSeconds must be >= 0.'),
-        _vmClientProvider = vmClientProvider,
-        _heapGrowingStateProvider = heapGrowingStateProvider,
-        _clock = clock ?? DateTime.now,
-        _allocationProfileFetcherForTest = allocationProfileFetcherForTest,
-        super(
-          type: DetectorType.streamResource,
-          lifecycle: DetectorLifecycle.vmOnly,
-          name: 'Stream Resource',
-          description: 'Detects likely retained async resources (streams, '
-              'subscriptions, sockets) via AllocationProfile diff',
-        );
+  }) : assert(
+         windowSize >= 2,
+         'windowSize must be >= 2 (need at least one transition).',
+       ),
+       assert(cooldownSeconds >= 0, 'cooldownSeconds must be >= 0.'),
+       _vmClientProvider = vmClientProvider,
+       _heapGrowingStateProvider = heapGrowingStateProvider,
+       _clock = clock ?? DateTime.now,
+       _allocationProfileFetcherForTest = allocationProfileFetcherForTest,
+       super(
+         type: DetectorType.streamResource,
+         lifecycle: DetectorLifecycle.vmOnly,
+         name: 'Stream Resource',
+         description:
+             'Detects likely retained async resources (streams, '
+             'subscriptions, sockets) via AllocationProfile diff',
+       );
 
   /// Polling cadence in seconds — at most one allocation-profile
   /// fetch per this interval.
@@ -458,7 +461,8 @@ class StreamResourceDetector extends BaseDetector
       if (profile == null) {
         _consecutivePollFailures++;
         if (_consecutivePollFailures >= 3) {
-          _pollPausedUntilMicros = _clock().microsecondsSinceEpoch +
+          _pollPausedUntilMicros =
+              _clock().microsecondsSinceEpoch +
               pollFailureBackoffSeconds * 1000000;
           _consecutivePollFailures = 0;
         }
@@ -755,10 +759,12 @@ class StreamResourceDetector extends BaseDetector
       severity: IssueSeverity.warning,
       category: IssueCategory.memory,
       confidence: IssueConfidence.likely,
-      title: 'Stream Resources Growing: '
+      title:
+          'Stream Resources Growing: '
           '${top.suffix} +${top.delta} instances '
           '(${growing.length} classes, $netDelta total)',
-      detail: 'Watchlist async resource classes are accumulating across '
+      detail:
+          'Watchlist async resource classes are accumulating across '
           'the sample window AND `heap_growing` is currently active. '
           'Top growth: ${top.suffix} (+${top.delta} instances). '
           'Other growing classes: ${suffixes.skip(1).take(3).join(', ')}. '
@@ -823,53 +829,52 @@ class StreamResourceDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'VM-only detector. Flags retained async resources '
-            '(streams, subscriptions, sockets) via `getAllocationProfile` '
-            'class-instance diff over a K=4 sample window, gated on a '
-            'recent `heap_growing` emission. Watchlist suffix-matches '
-            'dart:async / dart:io / web_socket_channel class names '
-            '(shields against private-class renames across SDK versions); '
-            'rxdart Subjects included only when `classRef.library.uri` '
-            'contains `rxdart`. Emission requires (a) `isHeapGrowingActive` '
-            'true within recency window (default 30 s), (b) ≥2 watchlist '
-            'classes show ≥3 of 3 ascending transitions (structural '
-            'precondition), (c) the dominant growing class\'s net delta '
-            '> `streamResourceMinDelta` (default 50). Single-class '
-            'magnitude gate so the firing axis matches the bracketed '
-            'axis (`extraTraceArgs.topGrowthDelta`). Confidence `likely` '
-            '— class growth alone is circumstantial. 3-cycle cooldown '
-            'collapses successive fires to one trace record via '
-            'producer-side dedup keyed on `_emissionStartMicros`.\n'
-            '\n'
-            '`stream_resource_growth.warning` is runtimeVerified via '
-            '`perStableIdTier`, backed by three iPhone 12 / iOS 17.5 / '
-            'Flutter 3.41.4 captures bracketing threshold 50 instances. '
-            'atTolerance 0.6 (at-band [50, 80]); aboveCeilingMultiplier '
-            '3.0 (ceiling 150) — wider than NetworkMonitor / Repaint to '
-            'absorb in-scenario heap_growing readiness-wait variance. '
-            'Single-family detector — no critical tier, ceiling set by '
-            'schema sanity bound. `requireUniqueDetectedAtMicros: true`.',
-        reproducerPath: 'test/validation/stream_resource_reproducer_test.dart',
-        coveredStableIds: {'stream_resource_growth'},
-        perStableIdTier: {
-          'stream_resource_growth': EvidenceTier.runtimeVerified,
-        },
-        coveredThresholds: {'stream_resource_growth.warning'},
-        profileCapturePaths: [
-          'test/validation/captures/stream_resource_growth/below.json',
-          'test/validation/captures/stream_resource_growth/at.json',
-          'test/validation/captures/stream_resource_growth/above.json',
-        ],
-        bracketStableId: 'stream_resource_growth',
-        bracketSeverityLabel: 'warning',
-        bracketThreshold: 50,
-        bracketUnit: 'instances',
-        bracketAtTolerance: 0.6,
-        aboveCeilingMultiplier: 3.0,
-        observedAxisArgKey: 'topGrowthDelta',
-        bracketRequireUniqueDetectedAtMicros: true,
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'VM-only detector. Flags retained async resources '
+        '(streams, subscriptions, sockets) via `getAllocationProfile` '
+        'class-instance diff over a K=4 sample window, gated on a '
+        'recent `heap_growing` emission. Watchlist suffix-matches '
+        'dart:async / dart:io / web_socket_channel class names '
+        '(shields against private-class renames across SDK versions); '
+        'rxdart Subjects included only when `classRef.library.uri` '
+        'contains `rxdart`. Emission requires (a) `isHeapGrowingActive` '
+        'true within recency window (default 30 s), (b) ≥2 watchlist '
+        'classes show ≥3 of 3 ascending transitions (structural '
+        'precondition), (c) the dominant growing class\'s net delta '
+        '> `streamResourceMinDelta` (default 50). Single-class '
+        'magnitude gate so the firing axis matches the bracketed '
+        'axis (`extraTraceArgs.topGrowthDelta`). Confidence `likely` '
+        '— class growth alone is circumstantial. 3-cycle cooldown '
+        'collapses successive fires to one trace record via '
+        'producer-side dedup keyed on `_emissionStartMicros`.\n'
+        '\n'
+        '`stream_resource_growth.warning` is runtimeVerified via '
+        '`perStableIdTier`, backed by three iPhone 12 / iOS 17.5 / '
+        'Flutter 3.41.4 captures bracketing threshold 50 instances. '
+        'atTolerance 0.6 (at-band [50, 80]); aboveCeilingMultiplier '
+        '3.0 (ceiling 150) — wider than NetworkMonitor / Repaint to '
+        'absorb in-scenario heap_growing readiness-wait variance. '
+        'Single-family detector — no critical tier, ceiling set by '
+        'schema sanity bound. `requireUniqueDetectedAtMicros: true`.',
+    reproducerPath: 'test/validation/stream_resource_reproducer_test.dart',
+    coveredStableIds: {'stream_resource_growth'},
+    perStableIdTier: {'stream_resource_growth': EvidenceTier.runtimeVerified},
+    coveredThresholds: {'stream_resource_growth.warning'},
+    profileCapturePaths: [
+      'test/validation/captures/stream_resource_growth/below.json',
+      'test/validation/captures/stream_resource_growth/at.json',
+      'test/validation/captures/stream_resource_growth/above.json',
+    ],
+    bracketStableId: 'stream_resource_growth',
+    bracketSeverityLabel: 'warning',
+    bracketThreshold: 50,
+    bracketUnit: 'instances',
+    bracketAtTolerance: 0.6,
+    aboveCeilingMultiplier: 3.0,
+    observedAxisArgKey: 'topGrowthDelta',
+    bracketRequireUniqueDetectedAtMicros: true,
+  );
 }
 
 class _IngestStats {

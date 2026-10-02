@@ -46,16 +46,18 @@ void main() {
 
   group('AiChatPage', () {
     testWidgets('renders header with Ask AI title', (tester) async {
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Ask AI'), findsOneWidget);
@@ -64,16 +66,18 @@ void main() {
 
     testWidgets('back button calls onClose', (tester) async {
       var closed = false;
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () => closed = true,
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () => closed = true,
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.arrow_back));
@@ -81,53 +85,60 @@ void main() {
     });
 
     testWidgets('shows issue context card with title', (tester) async {
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(title: 'Heap Near Capacity'),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(title: 'Heap Near Capacity'),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Heap Near Capacity'), findsOneWidget);
     });
 
     testWidgets('shows starter questions on initial render', (tester) async {
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(category: IssueCategory.memory),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(category: IssueCategory.memory),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Suggested questions'), findsOneWidget);
       expect(find.text('What is causing high memory usage?'), findsOneWidget);
     });
 
-    testWidgets('tapping starter question sends it as user message',
-        (tester) async {
+    testWidgets('tapping starter question sends it as user message', (
+      tester,
+    ) async {
       final controller = StreamController<String>();
       List<AiChatMessage>? lastHistory;
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(category: IssueCategory.memory),
-          allIssues: const [],
-          adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
-          history: const [],
-          onHistoryChanged: (msgs) => lastHistory = msgs,
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(category: IssueCategory.memory),
+            allIssues: const [],
+            adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+            history: const [],
+            onHistoryChanged: (msgs) => lastHistory = msgs,
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('What is causing high memory usage?'));
@@ -144,16 +155,18 @@ void main() {
     testWidgets('starter questions hidden after first message', (tester) async {
       final controller = StreamController<String>();
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(category: IssueCategory.memory),
-          allIssues: const [],
-          adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(category: IssueCategory.memory),
+            allIssues: const [],
+            adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Suggested questions'), findsOneWidget);
@@ -169,18 +182,20 @@ void main() {
     });
 
     testWidgets('starters hidden when history is non-empty', (tester) async {
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [
-            AiChatMessage(role: AiChatRole.user, text: 'Prior question'),
-          ],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [
+              AiChatMessage(role: AiChatRole.user, text: 'Prior question'),
+            ],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Suggested questions'), findsNothing);
@@ -190,16 +205,18 @@ void main() {
     testWidgets('user message appears in chat after send', (tester) async {
       final controller = StreamController<String>();
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField), 'My question');
@@ -215,16 +232,18 @@ void main() {
     testWidgets('empty input does not send', (tester) async {
       List<AiChatMessage>? lastHistory;
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [],
-          onHistoryChanged: (msgs) => lastHistory = msgs,
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [],
+            onHistoryChanged: (msgs) => lastHistory = msgs,
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField), '   ');
@@ -237,16 +256,18 @@ void main() {
     testWidgets('streaming response renders in AI bubble', (tester) async {
       final controller = StreamController<String>();
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Send a message
@@ -276,20 +297,23 @@ void main() {
       expect(find.text('AI'), findsOneWidget);
     });
 
-    testWidgets('thinking indicator visible before first token',
-        (tester) async {
+    testWidgets('thinking indicator visible before first token', (
+      tester,
+    ) async {
       final controller = StreamController<String>();
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Send a message
@@ -318,19 +342,21 @@ void main() {
     });
 
     testWidgets('copy icon visible on AI messages', (tester) async {
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [
-            AiChatMessage(role: AiChatRole.user, text: 'Q'),
-            AiChatMessage(role: AiChatRole.assistant, text: 'A'),
-          ],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [
+              AiChatMessage(role: AiChatRole.user, text: 'Q'),
+              AiChatMessage(role: AiChatRole.assistant, text: 'A'),
+            ],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.byIcon(Icons.copy), findsOneWidget);
@@ -340,16 +366,18 @@ void main() {
       final controller = StreamController<String>();
       final histories = <List<AiChatMessage>>[];
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
-          history: const [],
-          onHistoryChanged: (msgs) => histories.add(List.of(msgs)),
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+            history: const [],
+            onHistoryChanged: (msgs) => histories.add(List.of(msgs)),
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField), 'Hello');
@@ -369,16 +397,18 @@ void main() {
       final controller = StreamController<String>();
       final histories = <List<AiChatMessage>>[];
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
-          history: const [],
-          onHistoryChanged: (msgs) => histories.add(List.of(msgs)),
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+            history: const [],
+            onHistoryChanged: (msgs) => histories.add(List.of(msgs)),
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField), 'Q');
@@ -400,16 +430,18 @@ void main() {
         sendMessage: (_) => Stream<String>.error(Exception('API key invalid')),
       );
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: adapter,
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: adapter,
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField), 'Q');
@@ -417,28 +449,27 @@ void main() {
       await tester.pump();
 
       // In debug mode, the actual error is shown
-      expect(
-        find.textContaining('API key invalid'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('API key invalid'), findsOneWidget);
     });
 
     testWidgets('multiple messages render in order', (tester) async {
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [
-            AiChatMessage(role: AiChatRole.user, text: 'First'),
-            AiChatMessage(role: AiChatRole.assistant, text: 'Reply 1'),
-            AiChatMessage(role: AiChatRole.user, text: 'Second'),
-            AiChatMessage(role: AiChatRole.assistant, text: 'Reply 2'),
-          ],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [
+              AiChatMessage(role: AiChatRole.user, text: 'First'),
+              AiChatMessage(role: AiChatRole.assistant, text: 'Reply 1'),
+              AiChatMessage(role: AiChatRole.user, text: 'Second'),
+              AiChatMessage(role: AiChatRole.assistant, text: 'Reply 2'),
+            ],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('First'), findsOneWidget);
@@ -451,16 +482,18 @@ void main() {
       final controller = StreamController<String>();
       final histories = <List<AiChatMessage>>[];
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
-          history: const [],
-          onHistoryChanged: (msgs) => histories.add(List.of(msgs)),
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+            history: const [],
+            onHistoryChanged: (msgs) => histories.add(List.of(msgs)),
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Send first message
@@ -481,32 +514,36 @@ void main() {
     });
 
     testWidgets('input bar shows hint text', (tester) async {
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Ask about this issue...'), findsOneWidget);
     });
 
     testWidgets('copy button disabled when no messages', (tester) async {
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Button icon should be present but visually disabled (quaternary color).
@@ -516,16 +553,18 @@ void main() {
     testWidgets('copy button enabled after user sends message', (tester) async {
       final controller = StreamController<String>();
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
-          history: const [],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: AiChatAdapter(sendMessage: (_) => controller.stream),
+            history: const [],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Send a message
@@ -553,24 +592,28 @@ void main() {
         },
       );
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(
-            title: 'Excessive GlobalKeys: 25',
-            stableId: 'excessive_global_keys:0',
-            confidence: IssueConfidence.possible,
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(
+              title: 'Excessive GlobalKeys: 25',
+              stableId: 'excessive_global_keys:0',
+              confidence: IssueConfidence.possible,
+            ),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [
+              AiChatMessage(role: AiChatRole.user, text: 'Why is this bad?'),
+              AiChatMessage(
+                role: AiChatRole.assistant,
+                text: 'GlobalKeys are expensive.',
+              ),
+            ],
+            onHistoryChanged: (_) {},
+            onClose: () {},
           ),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [
-            AiChatMessage(role: AiChatRole.user, text: 'Why is this bad?'),
-            AiChatMessage(
-                role: AiChatRole.assistant, text: 'GlobalKeys are expensive.'),
-          ],
-          onHistoryChanged: (_) {},
-          onClose: () {},
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.copy_all_outlined));
@@ -587,8 +630,10 @@ void main() {
       expect(clipboardText!, contains('Assistant'));
       expect(clipboardText!, contains('GlobalKeys are expensive.'));
 
-      tester.binding.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null);
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
     });
 
     testWidgets('copy escapes markdown-significant characters', (tester) async {
@@ -604,21 +649,23 @@ void main() {
         },
       );
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(title: 'Issue *bold* `code` #heading'),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [
-            AiChatMessage(
-              role: AiChatRole.user,
-              text: 'What about [links] and <html>?',
-            ),
-          ],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(title: 'Issue *bold* `code` #heading'),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [
+              AiChatMessage(
+                role: AiChatRole.user,
+                text: 'What about [links] and <html>?',
+              ),
+            ],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.copy_all_outlined));
@@ -630,8 +677,10 @@ void main() {
       // Message text should have escaped brackets and angle brackets
       expect(clipboardText!, contains(r'What about \[links\] and \<html\>?'));
 
-      tester.binding.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null);
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
     });
 
     testWidgets('copy shows snackbar confirmation', (tester) async {
@@ -642,18 +691,18 @@ void main() {
         },
       );
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: const [
-            AiChatMessage(role: AiChatRole.user, text: 'Q'),
-          ],
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: const [AiChatMessage(role: AiChatRole.user, text: 'Q')],
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.copy_all_outlined));
@@ -661,8 +710,10 @@ void main() {
 
       expect(find.text('Conversation copied to clipboard'), findsOneWidget);
 
-      tester.binding.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null);
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
     });
 
     testWidgets('handles large history without error', (tester) async {
@@ -686,16 +737,18 @@ void main() {
         ),
       );
 
-      await tester.pumpWidget(wrap(
-        AiChatPage(
-          issue: makeIssue(),
-          allIssues: const [],
-          adapter: makeAdapter(),
-          history: largeHistory,
-          onHistoryChanged: (_) {},
-          onClose: () {},
+      await tester.pumpWidget(
+        wrap(
+          AiChatPage(
+            issue: makeIssue(),
+            allIssues: const [],
+            adapter: makeAdapter(),
+            history: largeHistory,
+            onHistoryChanged: (_) {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Tap copy — should not crash.
@@ -705,50 +758,58 @@ void main() {
       expect(clipboardText, isNotNull);
       expect(clipboardText!, contains('Message 99'));
 
-      tester.binding.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null);
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
     });
   });
 
   group('IssueCard onAskAi', () {
     testWidgets('Ask AI link visible when onAskAi is provided', (tester) async {
-      await tester.pumpWidget(wrap(
-        SingleChildScrollView(
-          child: IssueCard(
-            issue: makeIssue(stableId: 'heap_near_capacity'),
-            initiallyExpanded: true,
-            onAskAi: () {},
+      await tester.pumpWidget(
+        wrap(
+          SingleChildScrollView(
+            child: IssueCard(
+              issue: makeIssue(stableId: 'heap_near_capacity'),
+              initiallyExpanded: true,
+              onAskAi: () {},
+            ),
           ),
         ),
-      ));
+      );
 
       expect(find.text('Ask AI about this issue'), findsOneWidget);
     });
 
     testWidgets('Ask AI link hidden when onAskAi is null', (tester) async {
-      await tester.pumpWidget(wrap(
-        SingleChildScrollView(
-          child: IssueCard(
-            issue: makeIssue(stableId: 'heap_near_capacity'),
-            initiallyExpanded: true,
+      await tester.pumpWidget(
+        wrap(
+          SingleChildScrollView(
+            child: IssueCard(
+              issue: makeIssue(stableId: 'heap_near_capacity'),
+              initiallyExpanded: true,
+            ),
           ),
         ),
-      ));
+      );
 
       expect(find.text('Ask AI about this issue'), findsNothing);
     });
 
     testWidgets('tapping Ask AI calls callback', (tester) async {
       var tapped = false;
-      await tester.pumpWidget(wrap(
-        SingleChildScrollView(
-          child: IssueCard(
-            issue: makeIssue(stableId: 'heap_near_capacity'),
-            initiallyExpanded: true,
-            onAskAi: () => tapped = true,
+      await tester.pumpWidget(
+        wrap(
+          SingleChildScrollView(
+            child: IssueCard(
+              issue: makeIssue(stableId: 'heap_near_capacity'),
+              initiallyExpanded: true,
+              onAskAi: () => tapped = true,
+            ),
           ),
         ),
-      ));
+      );
 
       await tester.tap(find.text('Ask AI about this issue'));
       expect(tapped, isTrue);

@@ -18,67 +18,74 @@ void main() {
     });
 
     testWidgets(
-        'Listview detector highlights flow through to highlightsNotifier',
-        (tester) async {
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: SingleChildScrollView(
-            child: Column(
-              children: List.generate(
-                55,
-                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+      'Listview detector highlights flow through to highlightsNotifier',
+      (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  55,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                ),
               ),
             ),
           ),
-        ),
-      );
+        );
 
-      controller.runTreeScanForTest(
-        tester.element(find.byType(Directionality)),
-      );
+        controller.runTreeScanForTest(
+          tester.element(find.byType(Directionality)),
+        );
 
-      final highlights = controller.highlightsNotifier.value.items;
-      expect(
-        highlights.isNotEmpty,
-        isTrue,
-        reason:
-            'Listview detector highlights should flow through _collectHighlights',
-      );
-    });
+        final highlights = controller.highlightsNotifier.value.items;
+        expect(
+          highlights.isNotEmpty,
+          isTrue,
+          reason:
+              'Listview detector highlights should flow through _collectHighlights',
+        );
+      },
+    );
 
     testWidgets(
-        'GpuPressureDetector highlights flow through to highlightsNotifier',
-        (tester) async {
-      // Opacity with deep subtree triggers GpuPressureDetector's RenderOpacity detection
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.5,
-            child: Column(
-              children: List.generate(
-                10,
-                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+      'GpuPressureDetector highlights flow through to highlightsNotifier',
+      (tester) async {
+        // Opacity with deep subtree triggers GpuPressureDetector's RenderOpacity detection
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Opacity(
+              opacity: 0.5,
+              child: Column(
+                children: List.generate(
+                  10,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                ),
               ),
             ),
           ),
-        ),
-      );
+        );
 
-      controller.runTreeScanForTest(
-        tester.element(find.byType(Directionality)),
-      );
+        controller.runTreeScanForTest(
+          tester.element(find.byType(Directionality)),
+        );
 
-      final gpuHighlights = controller.highlightsNotifier.value.items
-          .where((h) => h.detectorName == 'GPU');
-      expect(gpuHighlights, isNotEmpty,
+        final gpuHighlights = controller.highlightsNotifier.value.items.where(
+          (h) => h.detectorName == 'GPU',
+        );
+        expect(
+          gpuHighlights,
+          isNotEmpty,
           reason:
-              'GPU detector highlights should flow through _collectHighlights');
-    });
+              'GPU detector highlights should flow through _collectHighlights',
+        );
+      },
+    );
 
-    testWidgets('highlights cleared and repopulated on each scan cycle',
-        (tester) async {
+    testWidgets('highlights cleared and repopulated on each scan cycle', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -108,24 +115,25 @@ void main() {
     });
 
     testWidgets(
-        'detector with issues but no highlights does not pollute highlightsNotifier',
-        (tester) async {
-      // Build a tree that triggers a structural detector that doesn't produce highlights
-      // (e.g., NestedScrollDetector or FontLoadingDetector)
-      await tester.pumpWidget(
-        const Directionality(
-          textDirection: TextDirection.ltr,
-          child: SizedBox(width: 10, height: 10),
-        ),
-      );
+      'detector with issues but no highlights does not pollute highlightsNotifier',
+      (tester) async {
+        // Build a tree that triggers a structural detector that doesn't produce highlights
+        // (e.g., NestedScrollDetector or FontLoadingDetector)
+        await tester.pumpWidget(
+          const Directionality(
+            textDirection: TextDirection.ltr,
+            child: SizedBox(width: 10, height: 10),
+          ),
+        );
 
-      controller.runTreeScanForTest(
-        tester.element(find.byType(Directionality)),
-      );
+        controller.runTreeScanForTest(
+          tester.element(find.byType(Directionality)),
+        );
 
-      // Simple tree — no highlights expected
-      expect(controller.highlightsNotifier.value.items, isEmpty);
-    });
+        // Simple tree — no highlights expected
+        expect(controller.highlightsNotifier.value.items, isEmpty);
+      },
+    );
   });
 
   group('highlight dirty-check (Pillar 2a M2)', () {
@@ -140,8 +148,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('generation unchanged when zero highlights across scans',
-        (tester) async {
+    testWidgets('generation unchanged when zero highlights across scans', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
@@ -156,8 +165,11 @@ void main() {
       controller.runTreeScanForTest(context);
       final gen2 = controller.highlightsNotifier.value.generation;
 
-      expect(gen2, gen1,
-          reason: 'Generation should not increment when 0→0 highlights');
+      expect(
+        gen2,
+        gen1,
+        reason: 'Generation should not increment when 0→0 highlights',
+      );
     });
 
     testWidgets('generation increments when highlights appear', (tester) async {
@@ -192,13 +204,17 @@ void main() {
       );
       final genAfter = controller.highlightsNotifier.value.generation;
 
-      expect(genAfter, greaterThan(genBefore),
-          reason: 'Generation must increment when highlights appear');
+      expect(
+        genAfter,
+        greaterThan(genBefore),
+        reason: 'Generation must increment when highlights appear',
+      );
       expect(controller.highlightsNotifier.value.items, isNotEmpty);
     });
 
-    testWidgets('generation increments when highlights disappear',
-        (tester) async {
+    testWidgets('generation increments when highlights disappear', (
+      tester,
+    ) async {
       // First scan: tree with Opacity(0.0) → highlights produced
       await tester.pumpWidget(
         Directionality(
@@ -231,8 +247,11 @@ void main() {
       );
       final genAfter = controller.highlightsNotifier.value.generation;
 
-      expect(genAfter, greaterThan(genBefore),
-          reason: 'Generation must increment when highlights disappear');
+      expect(
+        genAfter,
+        greaterThan(genBefore),
+        reason: 'Generation must increment when highlights disappear',
+      );
       expect(controller.highlightsNotifier.value.items, isEmpty);
     });
   });
@@ -276,7 +295,9 @@ void main() {
       final matched = controller.selectHighlightForIssue(issue);
       expect(matched, isTrue);
       expect(
-          controller.selectedHighlightNotifier.value?.widgetName, 'MyWidget');
+        controller.selectedHighlightNotifier.value?.widgetName,
+        'MyWidget',
+      );
     });
 
     test('falls back to detectorName via category mapping', () {
@@ -386,26 +407,30 @@ void main() {
 
   group('detectorNamesForCategory', () {
     test('layout category maps to Layout', () {
-      final names =
-          SleuthController.detectorNamesForCategory(IssueCategory.layout);
+      final names = SleuthController.detectorNamesForCategory(
+        IssueCategory.layout,
+      );
       expect(names, contains('Layout'));
     });
 
     test('raster category maps to GPU', () {
-      final names =
-          SleuthController.detectorNamesForCategory(IssueCategory.raster);
+      final names = SleuthController.detectorNamesForCategory(
+        IssueCategory.raster,
+      );
       expect(names, contains('GPU'));
     });
 
     test('build category maps to expected detector names', () {
-      final names =
-          SleuthController.detectorNamesForCategory(IssueCategory.build);
+      final names = SleuthController.detectorNamesForCategory(
+        IssueCategory.build,
+      );
       expect(names, containsAll(['Non-lazy', 'setState', 'Rebuild']));
     });
 
     test('paint category maps to expected detector names', () {
-      final names =
-          SleuthController.detectorNamesForCategory(IssueCategory.paint);
+      final names = SleuthController.detectorNamesForCategory(
+        IssueCategory.paint,
+      );
       expect(names, containsAll(['Painter', 'Repaint']));
     });
   });
@@ -422,8 +447,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('issues have null routeName when no ModalRoute in context',
-        (tester) async {
+    testWidgets('issues have null routeName when no ModalRoute in context', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -449,35 +475,33 @@ void main() {
       }
     });
 
-    testWidgets('issues stamped with route name from MaterialApp named route',
-        (tester) async {
+    testWidgets('issues stamped with route name from MaterialApp named route', (
+      tester,
+    ) async {
       const pageKey = Key('routeTestPage');
       await tester.pumpWidget(
         MaterialApp(
           initialRoute: '/home',
           routes: {
             '/home': (_) => Column(
-                  key: pageKey,
-                  children: [
-                    SingleChildScrollView(
-                      child: Column(
-                        children: List.generate(
-                          55,
-                          (i) =>
-                              SizedBox(key: ValueKey(i), width: 10, height: 10),
-                        ),
-                      ),
+              key: pageKey,
+              children: [
+                SingleChildScrollView(
+                  child: Column(
+                    children: List.generate(
+                      55,
+                      (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
                     ),
-                  ],
+                  ),
                 ),
+              ],
+            ),
           },
         ),
       );
 
       // Scan from the keyed Column so Opacity is visited as a child
-      controller.runTreeScanForTest(
-        tester.element(find.byKey(pageKey)),
-      );
+      controller.runTreeScanForTest(tester.element(find.byKey(pageKey)));
 
       final issues = controller.issuesNotifier.value;
       expect(issues, isNotEmpty, reason: 'Opacity(0.0) should produce issues');
@@ -488,34 +512,32 @@ void main() {
       );
     });
 
-    testWidgets('debugModeDisclaimer still stamped alongside routeName',
-        (tester) async {
+    testWidgets('debugModeDisclaimer still stamped alongside routeName', (
+      tester,
+    ) async {
       const pageKey = Key('routeTestPage2');
       await tester.pumpWidget(
         MaterialApp(
           initialRoute: '/home',
           routes: {
             '/home': (_) => Column(
-                  key: pageKey,
-                  children: [
-                    SingleChildScrollView(
-                      child: Column(
-                        children: List.generate(
-                          55,
-                          (i) =>
-                              SizedBox(key: ValueKey(i), width: 10, height: 10),
-                        ),
-                      ),
+              key: pageKey,
+              children: [
+                SingleChildScrollView(
+                  child: Column(
+                    children: List.generate(
+                      55,
+                      (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
                     ),
-                  ],
+                  ),
                 ),
+              ],
+            ),
           },
         ),
       );
 
-      controller.runTreeScanForTest(
-        tester.element(find.byKey(pageKey)),
-      );
+      controller.runTreeScanForTest(tester.element(find.byKey(pageKey)));
 
       final issues = controller.issuesNotifier.value;
       expect(issues, isNotEmpty);
@@ -526,34 +548,32 @@ void main() {
       }
     });
 
-    testWidgets('interactionContext stamped alongside routeName',
-        (tester) async {
+    testWidgets('interactionContext stamped alongside routeName', (
+      tester,
+    ) async {
       const pageKey = Key('routeTestPage3');
       await tester.pumpWidget(
         MaterialApp(
           initialRoute: '/home',
           routes: {
             '/home': (_) => Column(
-                  key: pageKey,
-                  children: [
-                    SingleChildScrollView(
-                      child: Column(
-                        children: List.generate(
-                          55,
-                          (i) =>
-                              SizedBox(key: ValueKey(i), width: 10, height: 10),
-                        ),
-                      ),
+              key: pageKey,
+              children: [
+                SingleChildScrollView(
+                  child: Column(
+                    children: List.generate(
+                      55,
+                      (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
                     ),
-                  ],
+                  ),
                 ),
+              ],
+            ),
           },
         ),
       );
 
-      controller.runTreeScanForTest(
-        tester.element(find.byKey(pageKey)),
-      );
+      controller.runTreeScanForTest(tester.element(find.byKey(pageKey)));
 
       final issues = controller.issuesNotifier.value;
       expect(issues, isNotEmpty);

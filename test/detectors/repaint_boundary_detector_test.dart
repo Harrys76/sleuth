@@ -28,8 +28,9 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
 
-    testWidgets('flags CustomPaint without RepaintBoundary ancestor',
-        (tester) async {
+    testWidgets('flags CustomPaint without RepaintBoundary ancestor', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -117,30 +118,30 @@ void main() {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 1.0,
-            child: SizedBox(width: 10, height: 10),
-          ),
+          child: Opacity(opacity: 1.0, child: SizedBox(width: 10, height: 10)),
         ),
       );
       detector.scanTree(tester.element(find.byType(Directionality)));
-      expect(detector.issues, isEmpty,
-          reason: 'Opacity 1.0 is a passthrough — no saveLayer');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: 'Opacity 1.0 is a passthrough — no saveLayer',
+      );
     });
 
     testWidgets('skips Opacity when opacity is 0.0', (tester) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: Opacity(
-            opacity: 0.0,
-            child: SizedBox(width: 10, height: 10),
-          ),
+          child: Opacity(opacity: 0.0, child: SizedBox(width: 10, height: 10)),
         ),
       );
       detector.scanTree(tester.element(find.byType(Directionality)));
-      expect(detector.issues, isEmpty,
-          reason: 'Opacity 0.0 short-circuits paint — no saveLayer');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: 'Opacity 0.0 short-circuits paint — no saveLayer',
+      );
     });
 
     testWidgets('flags multiple expensive widget types', (tester) async {
@@ -194,14 +195,17 @@ void main() {
     });
 
     group('debug paint escalation', () {
-      testWidgets('upgrades to likely with moderate paint rate',
-          (tester) async {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 30,
-          paintCounts: {'CustomPaint': 15},
-          elapsed: Duration(seconds: 1),
-        ));
+      testWidgets('upgrades to likely with moderate paint rate', (
+        tester,
+      ) async {
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 30,
+            paintCounts: {'CustomPaint': 15},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         await tester.pumpWidget(
           Directionality(
@@ -216,17 +220,21 @@ void main() {
 
         expect(detector.issues, hasLength(1));
         expect(detector.issues.first.confidence, IssueConfidence.likely);
-        expect(detector.issues.first.observationSource,
-            ObservationSource.debugCallbackAndStructural);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.debugCallbackAndStructural,
+        );
       });
 
       testWidgets('upgrades to confirmed with high paint rate', (tester) async {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          paintCounts: {'Opacity': 35},
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 50,
+            paintCounts: {'Opacity': 35},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         await tester.pumpWidget(
           Directionality(
@@ -241,24 +249,27 @@ void main() {
 
         expect(detector.issues, hasLength(1));
         expect(detector.issues.first.confidence, IssueConfidence.confirmed);
-        expect(detector.issues.first.observationSource,
-            ObservationSource.debugCallbackAndStructural);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.debugCallbackAndStructural,
+        );
       });
 
-      testWidgets(
-          'hot paint rate on an unrelated expensive type does not '
+      testWidgets('hot paint rate on an unrelated expensive type does not '
           'escalate confidence for a cold unprotected widget', (tester) async {
         // A hot Opacity elsewhere (35 paints/sec) must NOT lift the
         // confidence of an unprotected CustomPaint that is itself cold.
         // This is the Finding 4 per-type confidence guarantee: the paint
         // rate lookup is keyed by the types actually in `_found`, not the
         // full `_expensiveTypeNames` universe.
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 35,
-          paintCounts: {'Opacity': 35},
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 35,
+            paintCounts: {'Opacity': 35},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         await tester.pumpWidget(
           Directionality(
@@ -276,14 +287,17 @@ void main() {
       });
     });
 
-    testWidgets('dispose clears issues, highlights, and debug snapshot',
-        (tester) async {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 30,
-        paintCounts: {'CustomPaint': 15},
-        elapsed: Duration(seconds: 1),
-      ));
+    testWidgets('dispose clears issues, highlights, and debug snapshot', (
+      tester,
+    ) async {
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 30,
+          paintCounts: {'CustomPaint': 15},
+          elapsed: Duration(seconds: 1),
+        ),
+      );
 
       await tester.pumpWidget(
         Directionality(
@@ -314,8 +328,9 @@ void main() {
       // Note: addRepaintBoundaries: false on ListViews/GridViews to avoid
       // counting framework-added internal boundaries, testing only explicit ones.
 
-      testWidgets('flags ListView with >20 RepaintBoundary children',
-          (tester) async {
+      testWidgets('flags ListView with >20 RepaintBoundary children', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           Directionality(
             textDirection: TextDirection.ltr,
@@ -342,8 +357,9 @@ void main() {
         expect(excessiveIssues.first.category, IssueCategory.paint);
       });
 
-      testWidgets('no issue for ListView with <=20 RepaintBoundary children',
-          (tester) async {
+      testWidgets('no issue for ListView with <=20 RepaintBoundary children', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           Directionality(
             textDirection: TextDirection.ltr,
@@ -367,8 +383,9 @@ void main() {
         expect(excessiveIssues, isEmpty);
       });
 
-      testWidgets('flags GridView with >20 RepaintBoundary children',
-          (tester) async {
+      testWidgets('flags GridView with >20 RepaintBoundary children', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           Directionality(
             textDirection: TextDirection.ltr,
@@ -431,33 +448,34 @@ void main() {
       });
 
       testWidgets(
-          'framework-added boundaries (addRepaintBoundaries: true) are NOT counted',
-          (tester) async {
-        // Default ListView adds RepaintBoundary per child automatically.
-        // 25 items → 25 framework boundaries. These should NOT trigger
-        // the excessive threshold.
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: ListView.builder(
-              itemCount: 25,
-              itemBuilder: (_, i) => SizedBox(
-                key: ValueKey(i),
-                height: 10,
-                width: 10,
+        'framework-added boundaries (addRepaintBoundaries: true) are NOT counted',
+        (tester) async {
+          // Default ListView adds RepaintBoundary per child automatically.
+          // 25 items → 25 framework boundaries. These should NOT trigger
+          // the excessive threshold.
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: ListView.builder(
+                itemCount: 25,
+                itemBuilder: (_, i) =>
+                    SizedBox(key: ValueKey(i), height: 10, width: 10),
               ),
             ),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          );
+          detector.scanTree(tester.element(find.byType(Directionality)));
 
-        final excessiveIssues = detector.issues
-            .where((i) => i.stableId == 'excessive_repaint_boundary')
-            .toList();
-        expect(excessiveIssues, isEmpty,
+          final excessiveIssues = detector.issues
+              .where((i) => i.stableId == 'excessive_repaint_boundary')
+              .toList();
+          expect(
+            excessiveIssues,
+            isEmpty,
             reason:
-                'Framework-added RepaintBoundaries should not count toward threshold');
-      });
+                'Framework-added RepaintBoundaries should not count toward threshold',
+          );
+        },
+      );
 
       testWidgets('existing missing-boundary tests still pass', (tester) async {
         // Verify no interference: CustomPaint without boundary still detected

@@ -158,9 +158,7 @@ void main() {
     });
 
     test('null excludePatterns treats all URLs as monitored', () {
-      final overrides = SleuthHttpOverrides(
-        onRecord: capturedRecords.add,
-      );
+      final overrides = SleuthHttpOverrides(onRecord: capturedRecords.add);
       expect(overrides.excludePatterns, isNull);
 
       // Client should be created with monitoring (wrapping all requests)
@@ -184,11 +182,7 @@ void main() {
     test('multiple exclusion patterns stored correctly', () {
       final overrides = SleuthHttpOverrides(
         onRecord: capturedRecords.add,
-        excludePatterns: [
-          'analytics.example.com',
-          '/health',
-          'crashlytics',
-        ],
+        excludePatterns: ['analytics.example.com', '/health', 'crashlytics'],
       );
       expect(overrides.excludePatterns, hasLength(3));
       expect(overrides.excludePatterns, contains('analytics.example.com'));
@@ -344,29 +338,33 @@ void main() {
       HttpOverrides.global = null;
     });
 
-    test('throwing onRecord does not break response body consumption',
-        () async {
-      final success = _SuccessHttpOverrides();
-      HttpOverrides.global = success;
+    test(
+      'throwing onRecord does not break response body consumption',
+      () async {
+        final success = _SuccessHttpOverrides();
+        HttpOverrides.global = success;
 
-      final overrides = SleuthHttpOverrides(
-        onRecord: (_) => throw StateError('onRecord bug'),
-        onRequestStarted: (id, _) {},
-        onRequestEnded: (id) {},
-      );
-      SleuthHttpOverrides.install(overrides);
-      final client = overrides.createHttpClient(null);
+        final overrides = SleuthHttpOverrides(
+          onRecord: (_) => throw StateError('onRecord bug'),
+          onRequestStarted: (id, _) {},
+          onRequestEnded: (id) {},
+        );
+        SleuthHttpOverrides.install(overrides);
+        final client = overrides.createHttpClient(null);
 
-      final request =
-          await client.openUrl('GET', Uri.parse('https://example.com'));
-      final response = await request.close();
+        final request = await client.openUrl(
+          'GET',
+          Uri.parse('https://example.com'),
+        );
+        final response = await request.close();
 
-      // Body consumption must complete normally even though onRecord throws.
-      final body = await response.toList();
-      expect(body, hasLength(1));
-      expect(body.first, [72, 105]); // 'Hi'
-      client.close();
-    });
+        // Body consumption must complete normally even though onRecord throws.
+        final body = await response.toList();
+        expect(body, hasLength(1));
+        expect(body.first, [72, 105]); // 'Hi'
+        client.close();
+      },
+    );
 
     test('throwing onRequestEnded does not suppress onRecord', () async {
       final success = _SuccessHttpOverrides();
@@ -381,8 +379,10 @@ void main() {
       SleuthHttpOverrides.install(overrides);
       final client = overrides.createHttpClient(null);
 
-      final request =
-          await client.openUrl('GET', Uri.parse('https://example.com'));
+      final request = await client.openUrl(
+        'GET',
+        Uri.parse('https://example.com'),
+      );
       final response = await request.close();
       // Use toList() which passes onDone through listen() directly,
       // unlike drain() which uses asFuture() and replaces the handler.
@@ -502,9 +502,11 @@ class _FakeResponse extends Stream<List<int>> implements HttpClientResponse {
   @override
   bool get isBroadcast => false;
   @override
-  Future<HttpClientResponse> redirect(
-          [String? method, Uri? url, bool? followLoops]) =>
-      Future.value(this);
+  Future<HttpClientResponse> redirect([
+    String? method,
+    Uri? url,
+    bool? followLoops,
+  ]) => Future.value(this);
   @override
   Future<Socket> detachSocket() => throw UnsupportedError('detachSocket');
 }

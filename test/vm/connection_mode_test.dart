@@ -110,15 +110,17 @@ void main() {
       expect(computeConnectionMode(c), ConnectionMode.basic);
     });
 
-    test('warmup takes precedence when VM connected but warmup not elapsed',
-        () {
-      final c = SleuthController(config: _config);
-      addTearDown(c.dispose);
-      c.initializeDetectorsForTest();
-      c.markInitializedAtForTest(DateTime.now());
-      c.vmConnectedForTest = true;
-      expect(computeConnectionMode(c), ConnectionMode.warmup);
-    });
+    test(
+      'warmup takes precedence when VM connected but warmup not elapsed',
+      () {
+        final c = SleuthController(config: _config);
+        addTearDown(c.dispose);
+        c.initializeDetectorsForTest();
+        c.markInitializedAtForTest(DateTime.now());
+        c.vmConnectedForTest = true;
+        expect(computeConnectionMode(c), ConnectionMode.warmup);
+      },
+    );
 
     test('warmup wins even when verdict says correlated', () {
       final c = SleuthController(config: _config);

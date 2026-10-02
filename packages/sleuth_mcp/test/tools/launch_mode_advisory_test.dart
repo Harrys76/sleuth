@@ -24,10 +24,14 @@ FakeVmBridge _bridgeWithMode(
 void main() {
   group('launchModeAdvisoryFor', () {
     test('basic is gated on vmConnected', () {
-      expect(launchModeAdvisoryFor('basic', vmConnected: false),
-          launchAdvisoryBasic);
       expect(
-          launchModeAdvisoryFor('basic'), launchAdvisoryBasic); // conservative
+        launchModeAdvisoryFor('basic', vmConnected: false),
+        launchAdvisoryBasic,
+      );
+      expect(
+        launchModeAdvisoryFor('basic'),
+        launchAdvisoryBasic,
+      ); // conservative
       // VM connected — detectors live, no relaunch helps.
       expect(launchModeAdvisoryFor('basic', vmConnected: true), isNull);
     });
@@ -46,21 +50,25 @@ void main() {
   group('launchModeAdvisoryForEnvelope tolerates malformed payloads', () {
     test('non-bool vmConnected / non-String connectionMode → no throw', () {
       expect(
-          launchModeAdvisoryForEnvelope({
-            'connectionMode': 'basic',
-            'data': {'vmConnected': 'yes'}, // non-bool → unknown → conservative
-          }),
-          launchAdvisoryBasic);
+        launchModeAdvisoryForEnvelope({
+          'connectionMode': 'basic',
+          'data': {'vmConnected': 'yes'}, // non-bool → unknown → conservative
+        }),
+        launchAdvisoryBasic,
+      );
       expect(
-          launchModeAdvisoryForEnvelope({
-            'connectionMode': 'basic',
-            'data': {'vmConnected': true},
-          }),
-          isNull);
+        launchModeAdvisoryForEnvelope({
+          'connectionMode': 'basic',
+          'data': {'vmConnected': true},
+        }),
+        isNull,
+      );
       expect(launchModeAdvisoryForEnvelope({'connectionMode': 42}), isNull);
       // No data block (disposed-controller disconnected envelope).
-      expect(launchModeAdvisoryForEnvelope({'connectionMode': 'disconnected'}),
-          launchAdvisoryDisconnected);
+      expect(
+        launchModeAdvisoryForEnvelope({'connectionMode': 'disconnected'}),
+        launchAdvisoryDisconnected,
+      );
     });
   });
 
@@ -68,29 +76,37 @@ void main() {
     test('basic + no VM self-connect stamps the advisory', () async {
       final bridge = _bridgeWithMode('basic', vmConnected: false);
       final handler = builtInTools['connect']!.handler;
-      final map = await handler(bridge, {'uri': 'ws://localhost/ws'})
-          as Map<String, Object?>;
+      final map =
+          await handler(bridge, {'uri': 'ws://localhost/ws'})
+              as Map<String, Object?>;
       expect(map['launchModeAdvisory'], launchAdvisoryBasic);
     });
 
     test('basic but VM connected omits the advisory', () async {
       final bridge = defaultFakeBridge(); // basic + vmConnected:true
       final handler = builtInTools['connect']!.handler;
-      final map = await handler(bridge, {'uri': 'ws://localhost/ws'})
-          as Map<String, Object?>;
+      final map =
+          await handler(bridge, {'uri': 'ws://localhost/ws'})
+              as Map<String, Object?>;
       expect(map.containsKey('launchModeAdvisory'), isFalse);
     });
 
-    test('version-skew warning and advisory coexist as distinct keys',
-        () async {
-      final bridge = _bridgeWithMode('basic',
-          packageVersion: '0.36.99', vmConnected: false);
-      final handler = builtInTools['connect']!.handler;
-      final map = await handler(bridge, {'uri': 'ws://localhost/ws'})
-          as Map<String, Object?>;
-      expect(map['warning'], 'version_skew_minor');
-      expect(map['launchModeAdvisory'], launchAdvisoryBasic);
-    });
+    test(
+      'version-skew warning and advisory coexist as distinct keys',
+      () async {
+        final bridge = _bridgeWithMode(
+          'basic',
+          packageVersion: '0.36.99',
+          vmConnected: false,
+        );
+        final handler = builtInTools['connect']!.handler;
+        final map =
+            await handler(bridge, {'uri': 'ws://localhost/ws'})
+                as Map<String, Object?>;
+        expect(map['warning'], 'version_skew_minor');
+        expect(map['launchModeAdvisory'], launchAdvisoryBasic);
+      },
+    );
   });
 
   group('diagnose', () {
@@ -119,58 +135,71 @@ void main() {
   });
 
   group('attach_app', () {
-    test('debugUrl attach with no VM self-connect stamps advisory on status',
-        () async {
-      final bridge = defaultFakeBridge()
-        ..setEnvelope('ext.sleuth.diagnose', {
-          'connectionMode': 'basic',
-          'schemaVersion': 1,
-          'sessionUuid': 'fake-uuid',
-          'data': {'packageVersion': '0.36.0', 'vmConnected': false},
-        });
-      final server = McpServer(bridge: bridge)..registerDefaults();
-      await server.handleForTest(JsonRpcMessage(
-        method: 'initialize',
-        id: 0,
-        params: const {'protocolVersion': '2024-11-05'},
-      ));
-      final session = DaemonSession(
-        bridge: bridge,
-        server: server,
-        processFactory: (_, __,
-                {String? workingDirectory,
-                Map<String, String>? environment}) async =>
-            throw StateError('debugUrl path must bypass spawn'),
-      );
-      server.setDaemonSession(session);
+    test(
+      'debugUrl attach with no VM self-connect stamps advisory on status',
+      () async {
+        final bridge = defaultFakeBridge()
+          ..setEnvelope('ext.sleuth.diagnose', {
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': 'fake-uuid',
+            'data': {'packageVersion': '0.36.0', 'vmConnected': false},
+          });
+        final server = McpServer(bridge: bridge)..registerDefaults();
+        await server.handleForTest(
+          JsonRpcMessage(
+            method: 'initialize',
+            id: 0,
+            params: const {'protocolVersion': '2024-11-05'},
+          ),
+        );
+        final session = DaemonSession(
+          bridge: bridge,
+          server: server,
+          processFactory:
+              (
+                _,
+                __, {
+                String? workingDirectory,
+                Map<String, String>? environment,
+              }) async => throw StateError('debugUrl path must bypass spawn'),
+        );
+        server.setDaemonSession(session);
 
-      final resp = await server.handleForTest(JsonRpcMessage(
-        method: 'tools/call',
-        id: 1,
-        params: {
-          'name': 'attach_app',
-          'arguments': {'debugUrl': 'ws://127.0.0.1:1/tok/ws'},
-        },
-      ));
-      final result = resp!.result as Map<String, Object?>;
-      final text = (result['content'] as List)
-          .cast<Map<String, Object?>>()
-          .first['text'] as String;
-      final status = jsonDecode(text) as Map<String, Object?>;
-      expect(status['launchModeAdvisory'], launchAdvisoryBasic);
-    });
+        final resp = await server.handleForTest(
+          JsonRpcMessage(
+            method: 'tools/call',
+            id: 1,
+            params: {
+              'name': 'attach_app',
+              'arguments': {'debugUrl': 'ws://127.0.0.1:1/tok/ws'},
+            },
+          ),
+        );
+        final result = resp!.result as Map<String, Object?>;
+        final text =
+            (result['content'] as List)
+                    .cast<Map<String, Object?>>()
+                    .first['text']
+                as String;
+        final status = jsonDecode(text) as Map<String, Object?>;
+        expect(status['launchModeAdvisory'], launchAdvisoryBasic);
+      },
+    );
   });
 
   group('data tools warn on a degraded session', () {
-    test('get_snapshot stamps the advisory when basic + no VM self-connect',
-        () async {
-      final bridge = defaultFakeBridge(); // snapshot envelope is basic, no VM
-      await bridge.connect(Uri.parse('ws://localhost/ws'));
-      final handler = builtInTools['get_snapshot']!.handler;
-      final result = await handler(bridge, {}) as Map<String, Object?>;
-      final data = result['data'] as Map<String, Object?>;
-      expect(data['launchModeAdvisory'], launchAdvisoryBasic);
-    });
+    test(
+      'get_snapshot stamps the advisory when basic + no VM self-connect',
+      () async {
+        final bridge = defaultFakeBridge(); // snapshot envelope is basic, no VM
+        await bridge.connect(Uri.parse('ws://localhost/ws'));
+        final handler = builtInTools['get_snapshot']!.handler;
+        final result = await handler(bridge, {}) as Map<String, Object?>;
+        final data = result['data'] as Map<String, Object?>;
+        expect(data['launchModeAdvisory'], launchAdvisoryBasic);
+      },
+    );
 
     test('get_snapshot omits the advisory when the VM is connected', () async {
       final bridge = defaultFakeBridge()
@@ -191,14 +220,16 @@ void main() {
       expect(data.containsKey('launchModeAdvisory'), isFalse);
     });
 
-    test('get_issues stamps the advisory when basic + no VM self-connect',
-        () async {
-      final bridge = defaultFakeBridge();
-      await bridge.connect(Uri.parse('ws://localhost/ws'));
-      final handler = builtInTools['get_issues']!.handler;
-      final result = await handler(bridge, {}) as Map<String, Object?>;
-      final data = result['data'] as Map<String, Object?>;
-      expect(data['launchModeAdvisory'], launchAdvisoryBasic);
-    });
+    test(
+      'get_issues stamps the advisory when basic + no VM self-connect',
+      () async {
+        final bridge = defaultFakeBridge();
+        await bridge.connect(Uri.parse('ws://localhost/ws'));
+        final handler = builtInTools['get_issues']!.handler;
+        final result = await handler(bridge, {}) as Map<String, Object?>;
+        final data = result['data'] as Map<String, Object?>;
+        expect(data['launchModeAdvisory'], launchAdvisoryBasic);
+      },
+    );
   });
 }

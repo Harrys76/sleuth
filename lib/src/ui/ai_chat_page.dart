@@ -117,46 +117,49 @@ class _AiChatPageState extends State<AiChatPage>
     );
 
     _activeStream?.cancel();
-    _activeStream = widget.adapter.sendMessage(request).listen(
-      (token) {
-        if (!mounted) return;
-        setState(() => _streamBuffer += token);
-        _scrollToBottom();
-      },
-      onDone: () {
-        if (!mounted) return;
-        setState(() {
-          if (_streamBuffer.isNotEmpty) {
-            _messages.add(AiChatMessage(
-              role: AiChatRole.assistant,
-              text: _streamBuffer,
-            ));
-          }
-          _streamBuffer = '';
-          _isStreaming = false;
-        });
-        widget.onHistoryChanged(List.of(_messages));
-      },
-      onError: (Object error) {
-        if (!mounted) return;
-        if (!kReleaseMode) {
-          // ignore: avoid_print
-          print('Sleuth AI error: $error');
-        }
-        setState(() {
-          final errorText = !kReleaseMode
-              ? 'Error: $error'
-              : 'Something went wrong. Check your AI provider configuration.';
-          _messages.add(AiChatMessage(
-            role: AiChatRole.assistant,
-            text: errorText,
-          ));
-          _streamBuffer = '';
-          _isStreaming = false;
-        });
-        widget.onHistoryChanged(List.of(_messages));
-      },
-    );
+    _activeStream = widget.adapter
+        .sendMessage(request)
+        .listen(
+          (token) {
+            if (!mounted) return;
+            setState(() => _streamBuffer += token);
+            _scrollToBottom();
+          },
+          onDone: () {
+            if (!mounted) return;
+            setState(() {
+              if (_streamBuffer.isNotEmpty) {
+                _messages.add(
+                  AiChatMessage(
+                    role: AiChatRole.assistant,
+                    text: _streamBuffer,
+                  ),
+                );
+              }
+              _streamBuffer = '';
+              _isStreaming = false;
+            });
+            widget.onHistoryChanged(List.of(_messages));
+          },
+          onError: (Object error) {
+            if (!mounted) return;
+            if (!kReleaseMode) {
+              // ignore: avoid_print
+              print('Sleuth AI error: $error');
+            }
+            setState(() {
+              final errorText = !kReleaseMode
+                  ? 'Error: $error'
+                  : 'Something went wrong. Check your AI provider configuration.';
+              _messages.add(
+                AiChatMessage(role: AiChatRole.assistant, text: errorText),
+              );
+              _streamBuffer = '';
+              _isStreaming = false;
+            });
+            widget.onHistoryChanged(List.of(_messages));
+          },
+        );
   }
 
   void _scrollToBottom() {
@@ -205,9 +208,7 @@ class _AiChatPageState extends State<AiChatPage>
       ),
       decoration: BoxDecoration(
         color: theme.cardBackground,
-        border: Border(
-          bottom: BorderSide(color: theme.border, width: 0.5),
-        ),
+        border: Border(bottom: BorderSide(color: theme.border, width: 0.5)),
       ),
       child: Row(
         children: [
@@ -221,8 +222,11 @@ class _AiChatPageState extends State<AiChatPage>
                 width: 36,
                 height: 36,
                 child: Center(
-                  child: Icon(Icons.arrow_back,
-                      color: theme.textSecondary, size: 16),
+                  child: Icon(
+                    Icons.arrow_back,
+                    color: theme.textSecondary,
+                    size: 16,
+                  ),
                 ),
               ),
             ),
@@ -289,8 +293,10 @@ class _AiChatPageState extends State<AiChatPage>
     buf
       ..writeln('**Issue:** ${_escapeMd(issue.title)}')
       ..writeln('**Stable ID:** `${issue.stableId ?? '-'}`')
-      ..writeln('**Confidence:** ${issue.confidence.name.toUpperCase()}'
-          '${issue.confidenceReason != null ? ' — ${_escapeMd(issue.confidenceReason!)}' : ''}')
+      ..writeln(
+        '**Confidence:** ${issue.confidence.name.toUpperCase()}'
+        '${issue.confidenceReason != null ? ' — ${_escapeMd(issue.confidenceReason!)}' : ''}',
+      )
       ..writeln()
       ..writeln('---')
       ..writeln();
@@ -382,10 +388,7 @@ class _AiChatPageState extends State<AiChatPage>
             spacing: theme.spacingXs,
             runSpacing: theme.spacingXs,
             children: questions
-                .map((q) => _StarterChip(
-                      text: q,
-                      onTap: () => _sendMessage(q),
-                    ))
+                .map((q) => _StarterChip(text: q, onTap: () => _sendMessage(q)))
                 .toList(),
           ),
         ],
@@ -393,10 +396,7 @@ class _AiChatPageState extends State<AiChatPage>
     );
   }
 
-  Widget _buildAvatar({
-    required SleuthThemeData theme,
-    required bool isUser,
-  }) {
+  Widget _buildAvatar({required SleuthThemeData theme, required bool isUser}) {
     // DecoratedBox (NOT Container) to avoid breaking thinking-dots test
     // which counts Container widgets with BoxShape.circle.
     return SizedBox(
@@ -406,7 +406,9 @@ class _AiChatPageState extends State<AiChatPage>
         decoration: BoxDecoration(
           color: isUser
               ? Color.alphaBlend(
-                  const Color(0x33000000), theme.aiChatUserBubbleBg)
+                  const Color(0x33000000),
+                  theme.aiChatUserBubbleBg,
+                )
               : theme.textQuaternary,
           shape: BoxShape.circle,
         ),
@@ -478,10 +480,7 @@ class _AiChatPageState extends State<AiChatPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Spacer(flex: 1),
-                Flexible(
-                  flex: 4,
-                  child: bubble,
-                ),
+                Flexible(flex: 4, child: bubble),
                 SizedBox(width: theme.spacingMd),
                 _buildAvatar(theme: theme, isUser: true),
               ],
@@ -518,10 +517,7 @@ class _AiChatPageState extends State<AiChatPage>
             ],
           ),
           Padding(
-            padding: EdgeInsets.only(
-              left: labelInset,
-              top: theme.spacingXxs,
-            ),
+            padding: EdgeInsets.only(left: labelInset, top: theme.spacingXxs),
             child: Row(
               children: [
                 Text(
@@ -540,8 +536,11 @@ class _AiChatPageState extends State<AiChatPage>
                     height: 24,
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child:
-                          Icon(Icons.copy, color: theme.textTertiary, size: 12),
+                      child: Icon(
+                        Icons.copy,
+                        color: theme.textTertiary,
+                        size: 12,
+                      ),
                     ),
                   ),
                 ),
@@ -617,9 +616,7 @@ class _AiChatPageState extends State<AiChatPage>
       padding: EdgeInsets.all(theme.spacingMd),
       decoration: BoxDecoration(
         color: theme.cardBackground,
-        border: Border(
-          top: BorderSide(color: theme.border, width: 0.5),
-        ),
+        border: Border(top: BorderSide(color: theme.border, width: 0.5)),
       ),
       child: Row(
         children: [
@@ -663,8 +660,9 @@ class _AiChatPageState extends State<AiChatPage>
           ),
           SizedBox(width: theme.spacingMd),
           GestureDetector(
-            onTap:
-                _isStreaming ? null : () => _sendMessage(_inputController.text),
+            onTap: _isStreaming
+                ? null
+                : () => _sendMessage(_inputController.text),
             child: SizedBox(
               width: 32,
               height: 32,
@@ -695,10 +693,7 @@ class _AiChatPageState extends State<AiChatPage>
 
 /// Starter question pill chip with press-state visual feedback.
 class _StarterChip extends StatefulWidget {
-  const _StarterChip({
-    required this.text,
-    required this.onTap,
-  });
+  const _StarterChip({required this.text, required this.onTap});
 
   final String text;
   final VoidCallback onTap;
@@ -730,10 +725,7 @@ class _StarterChipState extends State<_StarterChip> {
         ),
         child: Text(
           widget.text,
-          style: TextStyle(
-            color: theme.textSecondary,
-            fontSize: theme.fontSm,
-          ),
+          style: TextStyle(color: theme.textSecondary, fontSize: theme.fontSm),
         ),
       ),
     );

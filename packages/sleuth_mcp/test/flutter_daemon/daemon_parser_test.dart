@@ -11,8 +11,11 @@ void main() {
       final file = File(
         'test/fixtures/daemon_attach_flutter_3_41_4_ios.ndjson',
       );
-      expect(file.existsSync(), isTrue,
-          reason: 'fixture missing; see test/fixtures/README.md');
+      expect(
+        file.existsSync(),
+        isTrue,
+        reason: 'fixture missing; see test/fixtures/README.md',
+      );
       final parser = DaemonParser();
       final events = await parser.parse(file.openRead()).toList();
       expect(events, isNotEmpty);
@@ -85,17 +88,19 @@ void main() {
       expect(rpc.isError, isFalse);
     });
 
-    test('rpc response with id + error yields DaemonRpcResponse.isError',
-        () async {
-      final parser = DaemonParser();
-      final stream = _stringStream([
-        '[{"id":7,"error":{"code":1,"message":"bad"}}]\n',
-      ]);
-      final events = await parser.parse(stream).toList();
-      final rpc = events.single as DaemonRpcResponse;
-      expect(rpc.isError, isTrue);
-      expect((rpc.error)?['message'], 'bad');
-    });
+    test(
+      'rpc response with id + error yields DaemonRpcResponse.isError',
+      () async {
+        final parser = DaemonParser();
+        final stream = _stringStream([
+          '[{"id":7,"error":{"code":1,"message":"bad"}}]\n',
+        ]);
+        final events = await parser.parse(stream).toList();
+        final rpc = events.single as DaemonRpcResponse;
+        expect(rpc.isError, isTrue);
+        expect((rpc.error)?['message'], 'bad');
+      },
+    );
 
     test('iterates multi-element arrays — no silent batch drop', () async {
       final parser = DaemonParser();

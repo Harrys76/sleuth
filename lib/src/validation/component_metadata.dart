@@ -117,20 +117,16 @@ class ComponentMetadata {
 
   @override
   int get hashCode => Object.hash(
-        componentName,
-        tier,
-        rationale,
-        citationUrl,
-        reproducerPath,
-        profileCapturePaths == null
-            ? null
-            : Object.hashAll(profileCapturePaths!),
-        bracketThreshold,
-        bracketUnit,
-        coveredClaimIds == null
-            ? null
-            : Object.hashAllUnordered(coveredClaimIds!),
-      );
+    componentName,
+    tier,
+    rationale,
+    citationUrl,
+    reproducerPath,
+    profileCapturePaths == null ? null : Object.hashAll(profileCapturePaths!),
+    bracketThreshold,
+    bracketUnit,
+    coveredClaimIds == null ? null : Object.hashAllUnordered(coveredClaimIds!),
+  );
 
   static bool _listEq(List<String>? a, List<String>? b) {
     if (identical(a, b)) return true;

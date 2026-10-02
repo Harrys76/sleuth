@@ -16,8 +16,9 @@ void main() {
     });
 
     // HARD GATE: fixture proof — verify KeepAlive nodes materialize
-    testWidgets('fixture proof: KeepAlive nodes appear after scrolling',
-        (tester) async {
+    testWidgets('fixture proof: KeepAlive nodes appear after scrolling', (
+      tester,
+    ) async {
       final controller = PageController();
       addTearDown(controller.dispose);
 
@@ -53,10 +54,15 @@ void main() {
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       // At least some KeepAlive nodes should exist from visited pages
-      expect(detector.issues, isNotEmpty,
-          reason: 'KeepAlive nodes should be in the tree after visiting pages');
-      expect(detector.issues.first.observationSource,
-          ObservationSource.structural);
+      expect(
+        detector.issues,
+        isNotEmpty,
+        reason: 'KeepAlive nodes should be in the tree after visiting pages',
+      );
+      expect(
+        detector.issues.first.observationSource,
+        ObservationSource.structural,
+      );
     });
 
     testWidgets('no issues when disabled', (tester) async {
@@ -260,8 +266,7 @@ void main() {
       expect(detector.highlights.first.detectorName, 'KeepAlive');
     });
 
-    testWidgets(
-        'not flagged when pages wrap in AutomaticKeepAlive with '
+    testWidgets('not flagged when pages wrap in AutomaticKeepAlive with '
         'wantKeepAlive=false', (tester) async {
       // Regression: `AutomaticKeepAlive.build()` ALWAYS wraps children in a
       // `KeepAlive(keepAlive: _keepingAlive, ...)`, even when no descendant
@@ -302,52 +307,59 @@ void main() {
       await tester.pumpAndSettle();
 
       detector.scanTree(tester.element(find.byType(Directionality)));
-      expect(detector.issues, isEmpty,
-          reason: 'inactive KeepAlive wrappers should not be counted');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason: 'inactive KeepAlive wrappers should not be counted',
+      );
     });
 
     testWidgets(
-        'mixed wantKeepAlive: only opted-in pages counted toward threshold',
-        (tester) async {
-      // Mirrors the combined chat demo's "fixed" pattern: a small subset of
-      // tabs keep alive, the majority opt out. The detector must count only
-      // the opted-in subset, so a reasonable threshold keeps the fixed path
-      // silent.
-      detector = KeepAliveDetector(threshold: 5);
-      final controller = PageController();
-      addTearDown(controller.dispose);
+      'mixed wantKeepAlive: only opted-in pages counted toward threshold',
+      (tester) async {
+        // Mirrors the combined chat demo's "fixed" pattern: a small subset of
+        // tabs keep alive, the majority opt out. The detector must count only
+        // the opted-in subset, so a reasonable threshold keeps the fixed path
+        // silent.
+        detector = KeepAliveDetector(threshold: 5);
+        final controller = PageController();
+        addTearDown(controller.dispose);
 
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: SizedBox(
-            height: 400,
-            width: 400,
-            child: PageView(
-              controller: controller,
-              children: List.generate(
-                6,
-                (i) => _ConfigurableKeepAlivePage(
-                  key: ValueKey(i),
-                  label: 'P$i',
-                  keepAlive: i < 2, // only first two opt in
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SizedBox(
+              height: 400,
+              width: 400,
+              child: PageView(
+                controller: controller,
+                children: List.generate(
+                  6,
+                  (i) => _ConfigurableKeepAlivePage(
+                    key: ValueKey(i),
+                    label: 'P$i',
+                    keepAlive: i < 2, // only first two opt in
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      for (int i = 1; i < 6; i++) {
-        controller.jumpToPage(i);
+        );
+        for (int i = 1; i < 6; i++) {
+          controller.jumpToPage(i);
+          await tester.pumpAndSettle();
+        }
+        controller.jumpToPage(0);
         await tester.pumpAndSettle();
-      }
-      controller.jumpToPage(0);
-      await tester.pumpAndSettle();
 
-      detector.scanTree(tester.element(find.byType(Directionality)));
-      expect(detector.issues, isEmpty,
-          reason: 'only 2 active keep-alives, below threshold of 5');
-    });
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'only 2 active keep-alives, below threshold of 5',
+        );
+      },
+    );
 
     testWidgets('not flagged in ListView', (tester) async {
       // KeepAlive in ListView is normal framework behavior — detector only
@@ -409,8 +421,9 @@ void main() {
     // Custom thresholds
     // -----------------------------------------------------------------
 
-    testWidgets('higher threshold allows more keep-alive pages',
-        (tester) async {
+    testWidgets('higher threshold allows more keep-alive pages', (
+      tester,
+    ) async {
       // threshold: 10 means up to 10 keep-alive pages are acceptable
       detector = KeepAliveDetector(threshold: 10);
       final controller = PageController();
@@ -485,8 +498,9 @@ void main() {
       expect(detector.issues.first.detail, contains('total in scrollable'));
     });
 
-    testWidgets('subtree cost increases with heavier page content',
-        (tester) async {
+    testWidgets('subtree cost increases with heavier page content', (
+      tester,
+    ) async {
       final controller = PageController();
       addTearDown(controller.dispose);
 
@@ -502,7 +516,10 @@ void main() {
               children: List.generate(
                 4,
                 (i) => _HeavyKeepAlivePage(
-                    key: ValueKey(i), label: 'Page $i', childCount: 20),
+                  key: ValueKey(i),
+                  label: 'Page $i',
+                  childCount: 20,
+                ),
               ),
             ),
           ),
@@ -521,8 +538,9 @@ void main() {
       expect(detector.issues, hasLength(1));
       // Heavy pages should report a larger total element count
       final detail = detector.issues.first.detail;
-      final totalMatch =
-          RegExp(r'\((\d+) total in scrollable\)').firstMatch(detail);
+      final totalMatch = RegExp(
+        r'\((\d+) total in scrollable\)',
+      ).firstMatch(detail);
       expect(totalMatch, isNotNull);
       final totalElements = int.parse(totalMatch!.group(1)!);
       // Each page has 20 SizedBox children + wrapper elements; total should
@@ -534,8 +552,9 @@ void main() {
     // v9.6: Per-scrollable accumulation
     // -----------------------------------------------------------------
 
-    testWidgets('two PageViews each above threshold produce two issues',
-        (tester) async {
+    testWidgets('two PageViews each above threshold produce two issues', (
+      tester,
+    ) async {
       final controller1 = PageController();
       final controller2 = PageController();
       addTearDown(controller1.dispose);

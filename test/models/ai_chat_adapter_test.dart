@@ -93,10 +93,9 @@ void main() {
 
     test('.google() sets networkExcludePatterns', () {
       final adapter = AiChatAdapter.google(apiKey: 'AIza-test');
-      expect(
-        adapter.networkExcludePatterns,
-        ['generativelanguage.googleapis.com'],
-      );
+      expect(adapter.networkExcludePatterns, [
+        'generativelanguage.googleapis.com',
+      ]);
       expect(adapter.sendMessage, isNotNull);
     });
   });

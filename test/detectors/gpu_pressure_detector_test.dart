@@ -33,12 +33,14 @@ void main() {
 
       testWidgets('no issue when raster <= UI x threshold', (tester) async {
         // Raster 10ms, UI 10ms — ratio = 1.0 (below 2.0 threshold)
-        detector.processTimelineData(rasterDominantData(
-          rasterUs: 10000,
-          buildUs: 5000,
-          layoutUs: 3000,
-          paintUs: 2000,
-        ));
+        detector.processTimelineData(
+          rasterDominantData(
+            rasterUs: 10000,
+            buildUs: 5000,
+            layoutUs: 3000,
+            paintUs: 2000,
+          ),
+        );
 
         await tester.pumpWidget(const _GpuTestApp());
         detector.scanTree(tester.element(find.byType(_GpuTestApp)));
@@ -48,12 +50,14 @@ void main() {
 
       testWidgets('warning when raster > UI x 2.0', (tester) async {
         // Raster 25ms, UI 10ms — ratio = 2.5
-        detector.processTimelineData(rasterDominantData(
-          rasterUs: 25000,
-          buildUs: 5000,
-          layoutUs: 3000,
-          paintUs: 2000,
-        ));
+        detector.processTimelineData(
+          rasterDominantData(
+            rasterUs: 25000,
+            buildUs: 5000,
+            layoutUs: 3000,
+            paintUs: 2000,
+          ),
+        );
 
         await tester.pumpWidget(const _GpuTestApp());
         detector.scanTree(tester.element(find.byType(_GpuTestApp)));
@@ -65,12 +69,14 @@ void main() {
 
       testWidgets('critical when raster > UI x 4.0', (tester) async {
         // Raster 50ms, UI 10ms — ratio = 5.0
-        detector.processTimelineData(rasterDominantData(
-          rasterUs: 50000,
-          buildUs: 5000,
-          layoutUs: 3000,
-          paintUs: 2000,
-        ));
+        detector.processTimelineData(
+          rasterDominantData(
+            rasterUs: 50000,
+            buildUs: 5000,
+            layoutUs: 3000,
+            paintUs: 2000,
+          ),
+        );
 
         await tester.pumpWidget(const _GpuTestApp());
         detector.scanTree(tester.element(find.byType(_GpuTestApp)));
@@ -79,14 +85,17 @@ void main() {
         expect(detector.issues.first.severity, IssueSeverity.critical);
       });
 
-      testWidgets('confidence is confirmed without expensive nodes',
-          (tester) async {
-        detector.processTimelineData(rasterDominantData(
-          rasterUs: 25000,
-          buildUs: 5000,
-          layoutUs: 3000,
-          paintUs: 2000,
-        ));
+      testWidgets('confidence is confirmed without expensive nodes', (
+        tester,
+      ) async {
+        detector.processTimelineData(
+          rasterDominantData(
+            rasterUs: 25000,
+            buildUs: 5000,
+            layoutUs: 3000,
+            paintUs: 2000,
+          ),
+        );
 
         // Simple tree — no expensive render objects
         await tester.pumpWidget(const _GpuTestApp());
@@ -96,14 +105,17 @@ void main() {
         expect(detector.issues.first.confidence, IssueConfidence.confirmed);
       });
 
-      testWidgets('splits observed raster signal from likely node cause',
-          (tester) async {
-        detector.processTimelineData(rasterDominantData(
-          rasterUs: 25000,
-          buildUs: 5000,
-          layoutUs: 3000,
-          paintUs: 2000,
-        ));
+      testWidgets('splits observed raster signal from likely node cause', (
+        tester,
+      ) async {
+        detector.processTimelineData(
+          rasterDominantData(
+            rasterUs: 25000,
+            buildUs: 5000,
+            layoutUs: 3000,
+            paintUs: 2000,
+          ),
+        );
 
         await tester.pumpWidget(const _OpacityDeepTree());
         detector.scanTree(tester.element(find.byType(Directionality)));
@@ -135,8 +147,11 @@ void main() {
         detector.scanTree(tester.element(find.byType(Directionality)));
 
         // RenderOpacity with >5 descendants should produce a structural issue
-        expect(detector.issues, isNotEmpty,
-            reason: 'RenderOpacity with deep subtree should be flagged');
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason: 'RenderOpacity with deep subtree should be flagged',
+        );
         expect(detector.issues.first.confidence, IssueConfidence.possible);
         expect(detector.issues.first.category, IssueCategory.raster);
         expect(detector.issues.first.title, contains('Expensive Render Nodes'));
@@ -148,8 +163,11 @@ void main() {
         await tester.pumpWidget(const _OpacityFullTree(opacity: 1.0));
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isEmpty,
-            reason: 'Opacity 1.0 skips saveLayer — should not be flagged');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'Opacity 1.0 skips saveLayer — should not be flagged',
+        );
       });
 
       testWidgets('skips RenderOpacity when opacity is 0.0', (tester) async {
@@ -158,30 +176,41 @@ void main() {
         await tester.pumpWidget(const _OpacityFullTree(opacity: 0.0));
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isEmpty,
-            reason: 'Opacity 0.0 short-circuits paint — should not be flagged');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'Opacity 0.0 short-circuits paint — should not be flagged',
+        );
       });
 
-      testWidgets('flags RenderOpacity when opacity is fractional',
-          (tester) async {
+      testWidgets('flags RenderOpacity when opacity is fractional', (
+        tester,
+      ) async {
         detector.vmConnected = false;
 
         await tester.pumpWidget(const _OpacityFullTree(opacity: 0.5));
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isNotEmpty,
-            reason: 'Fractional opacity triggers saveLayer — should flag');
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason: 'Fractional opacity triggers saveLayer — should flag',
+        );
       });
 
-      testWidgets('flags ColorFiltered with deep subtree (v11.8)',
-          (tester) async {
+      testWidgets('flags ColorFiltered with deep subtree (v11.8)', (
+        tester,
+      ) async {
         detector.vmConnected = false;
 
         await tester.pumpWidget(const _ColorFilteredDeepTree());
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isNotEmpty,
-            reason: 'ColorFiltered with deep subtree should be flagged');
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason: 'ColorFiltered with deep subtree should be flagged',
+        );
         expect(detector.issues.first.detail, contains('RenderColorFiltered'));
       });
 
@@ -191,25 +220,32 @@ void main() {
         await tester.pumpWidget(const _OpacityDeepTree());
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isNotEmpty,
-            reason: 'Should flag expensive nodes even without VM');
-        final rasterIssues =
-            detector.issues.where((i) => i.category == IssueCategory.raster);
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason: 'Should flag expensive nodes even without VM',
+        );
+        final rasterIssues = detector.issues.where(
+          (i) => i.category == IssueCategory.raster,
+        );
         expect(rasterIssues, isNotEmpty);
         expect(rasterIssues.first.detail, contains('VM unavailable'));
       });
     });
 
     group('vmConnected setter', () {
-      testWidgets('confirmed/likely issues cleared immediately on disconnect',
-          (tester) async {
+      testWidgets('confirmed/likely issues cleared immediately on disconnect', (
+        tester,
+      ) async {
         detector.vmConnected = true;
-        detector.processTimelineData(rasterDominantData(
-          rasterUs: 25000,
-          buildUs: 5000,
-          layoutUs: 3000,
-          paintUs: 2000,
-        ));
+        detector.processTimelineData(
+          rasterDominantData(
+            rasterUs: 25000,
+            buildUs: 5000,
+            layoutUs: 3000,
+            paintUs: 2000,
+          ),
+        );
 
         await tester.pumpWidget(const _GpuTestApp());
         detector.scanTree(tester.element(find.byType(_GpuTestApp)));
@@ -228,71 +264,80 @@ void main() {
       });
 
       testWidgets(
-          'structural issue survives disconnect with downgraded confidence',
-          (tester) async {
-        detector.vmConnected = true;
-        detector.processTimelineData(rasterDominantData(
-          rasterUs: 25000,
-          buildUs: 5000,
-          layoutUs: 3000,
-          paintUs: 2000,
-        ));
+        'structural issue survives disconnect with downgraded confidence',
+        (tester) async {
+          detector.vmConnected = true;
+          detector.processTimelineData(
+            rasterDominantData(
+              rasterUs: 25000,
+              buildUs: 5000,
+              layoutUs: 3000,
+              paintUs: 2000,
+            ),
+          );
 
-        // Use OpacityDeepTree to generate both raster_dominance + expensive_gpu_nodes
-        await tester.pumpWidget(const _OpacityDeepTree());
-        detector.scanTree(tester.element(find.byType(Directionality)));
-        expect(detector.issues, hasLength(2));
+          // Use OpacityDeepTree to generate both raster_dominance + expensive_gpu_nodes
+          await tester.pumpWidget(const _OpacityDeepTree());
+          detector.scanTree(tester.element(find.byType(Directionality)));
+          expect(detector.issues, hasLength(2));
 
-        // Verify expensive_gpu_nodes starts as likely (corroborated by raster dominance)
-        final nodesBefore = detector.issues
-            .firstWhere((i) => i.stableId == 'expensive_gpu_nodes');
-        expect(nodesBefore.confidence, IssueConfidence.likely);
+          // Verify expensive_gpu_nodes starts as likely (corroborated by raster dominance)
+          final nodesBefore = detector.issues.firstWhere(
+            (i) => i.stableId == 'expensive_gpu_nodes',
+          );
+          expect(nodesBefore.confidence, IssueConfidence.likely);
 
-        // Disconnect
-        detector.vmConnected = false;
+          // Disconnect
+          detector.vmConnected = false;
 
-        // raster_dominance should be removed
-        expect(
-          detector.issues.where((i) => i.stableId == 'raster_dominance'),
-          isEmpty,
-        );
+          // raster_dominance should be removed
+          expect(
+            detector.issues.where((i) => i.stableId == 'raster_dominance'),
+            isEmpty,
+          );
 
-        // expensive_gpu_nodes should survive but downgraded to possible
-        final nodesAfter =
-            detector.issues.where((i) => i.stableId == 'expensive_gpu_nodes');
-        expect(nodesAfter, hasLength(1));
-        expect(nodesAfter.first.confidence, IssueConfidence.possible);
-      });
+          // expensive_gpu_nodes should survive but downgraded to possible
+          final nodesAfter = detector.issues.where(
+            (i) => i.stableId == 'expensive_gpu_nodes',
+          );
+          expect(nodesAfter, hasLength(1));
+          expect(nodesAfter.first.confidence, IssueConfidence.possible);
+        },
+      );
 
       testWidgets(
-          'after disconnect, next scanTree only produces structural issues',
-          (tester) async {
-        detector.vmConnected = true;
-        detector.processTimelineData(rasterDominantData(
-          rasterUs: 25000,
-          buildUs: 5000,
-          layoutUs: 3000,
-          paintUs: 2000,
-        ));
+        'after disconnect, next scanTree only produces structural issues',
+        (tester) async {
+          detector.vmConnected = true;
+          detector.processTimelineData(
+            rasterDominantData(
+              rasterUs: 25000,
+              buildUs: 5000,
+              layoutUs: 3000,
+              paintUs: 2000,
+            ),
+          );
 
-        await tester.pumpWidget(const _GpuTestApp());
-        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
-        expect(detector.issues, isNotEmpty);
+          await tester.pumpWidget(const _GpuTestApp());
+          detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+          expect(detector.issues, isNotEmpty);
 
-        // Disconnect
-        detector.vmConnected = false;
+          // Disconnect
+          detector.vmConnected = false;
 
-        // Next scan should not produce raster ratio issues
-        detector.scanTree(tester.element(find.byType(_GpuTestApp)));
-        for (final issue in detector.issues) {
-          expect(issue.confidence, IssueConfidence.possible);
-        }
-      });
+          // Next scan should not produce raster ratio issues
+          detector.scanTree(tester.element(find.byType(_GpuTestApp)));
+          for (final issue in detector.issues) {
+            expect(issue.confidence, IssueConfidence.possible);
+          }
+        },
+      );
     });
 
     group('highlights', () {
-      testWidgets('no highlights when no expensive nodes found',
-          (tester) async {
+      testWidgets('no highlights when no expensive nodes found', (
+        tester,
+      ) async {
         await tester.pumpWidget(const _GpuTestApp());
         detector.scanTree(tester.element(find.byType(_GpuTestApp)));
 
@@ -309,8 +354,9 @@ void main() {
     // Custom thresholds
     // -----------------------------------------------------------------
 
-    testWidgets('custom rasterMultiplierThreshold fires at adjusted ratio',
-        (tester) async {
+    testWidgets('custom rasterMultiplierThreshold fires at adjusted ratio', (
+      tester,
+    ) async {
       detector = GpuPressureDetector(rasterMultiplierThreshold: 3.0);
       detector.vmConnected = true;
       // UI = 5000+3000+2000 = 10000; Raster 35000; ratio = 3.5 > 3.0 → warning
@@ -347,36 +393,45 @@ void main() {
     // -----------------------------------------------------------------
 
     group('BackdropFilter sigma-aware severity', () {
-      testWidgets('suppresses BackdropFilter with low sigma (<=2.0)',
-          (tester) async {
+      testWidgets('suppresses BackdropFilter with low sigma (<=2.0)', (
+        tester,
+      ) async {
         await tester.pumpWidget(const _BackdropFilterTree(sigma: 1.0));
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isEmpty,
-            reason: 'Low sigma (1.0) should be suppressed');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'Low sigma (1.0) should be suppressed',
+        );
         expect(detector.highlights, isEmpty);
       });
 
-      testWidgets('suppresses BackdropFilter at sigma boundary (2.0)',
-          (tester) async {
+      testWidgets('suppresses BackdropFilter at sigma boundary (2.0)', (
+        tester,
+      ) async {
         await tester.pumpWidget(const _BackdropFilterTree(sigma: 2.0));
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isEmpty,
-            reason: 'Sigma 2.0 at threshold — should be suppressed');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'Sigma 2.0 at threshold — should be suppressed',
+        );
       });
 
-      testWidgets('flags BackdropFilter with medium sigma (5.0)',
-          (tester) async {
+      testWidgets('flags BackdropFilter with medium sigma (5.0)', (
+        tester,
+      ) async {
         await tester.pumpWidget(const _BackdropFilterTree(sigma: 5.0));
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isNotEmpty,
-            reason: 'Sigma 5.0 should be flagged');
         expect(
-          detector.issues.first.detail,
-          contains('σ=5.0'),
+          detector.issues,
+          isNotEmpty,
+          reason: 'Sigma 5.0 should be flagged',
         );
+        expect(detector.issues.first.detail, contains('σ=5.0'));
       });
 
       testWidgets('critical highlight for high sigma (>10.0)', (tester) async {
@@ -401,19 +456,20 @@ void main() {
         detector.scanTree(tester.element(find.byType(Directionality)));
 
         expect(detector.issues, isNotEmpty);
-        expect(
-          detector.issues.first.detail,
-          contains('σ=8.0'),
-        );
+        expect(detector.issues.first.detail, contains('σ=8.0'));
       });
 
-      testWidgets('sigma just above threshold (3.0) is flagged',
-          (tester) async {
+      testWidgets('sigma just above threshold (3.0) is flagged', (
+        tester,
+      ) async {
         await tester.pumpWidget(const _BackdropFilterTree(sigma: 3.0));
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isNotEmpty,
-            reason: 'Sigma 3.0 is above 2.0 threshold — should flag');
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason: 'Sigma 3.0 is above 2.0 threshold — should flag',
+        );
       });
 
       testWidgets('non-blur ImageFilter gracefully handled', (tester) async {
@@ -422,8 +478,11 @@ void main() {
         await tester.pumpWidget(const _BackdropFilterNonBlur());
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isNotEmpty,
-            reason: 'Non-blur BackdropFilter should still be flagged');
+        expect(
+          detector.issues,
+          isNotEmpty,
+          reason: 'Non-blur BackdropFilter should still be flagged',
+        );
         // No sigma in detail since it's not a blur filter.
         expect(detector.issues.first.detail, isNot(contains('σ=')));
       });
@@ -501,8 +560,10 @@ class _ColorFilteredDeepTree extends StatelessWidget {
     return Directionality(
       textDirection: TextDirection.ltr,
       child: ColorFiltered(
-        colorFilter:
-            const ColorFilter.mode(Color(0x80000000), BlendMode.srcATop),
+        colorFilter: const ColorFilter.mode(
+          Color(0x80000000),
+          BlendMode.srcATop,
+        ),
         child: Column(
           children: List.generate(
             10,

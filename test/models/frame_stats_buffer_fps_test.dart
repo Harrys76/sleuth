@@ -2,11 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/frame_stats.dart';
 
 /// Helper: create a [FrameStats] with configurable durations (in microseconds).
-FrameStats _frame({
-  required int number,
-  int uiUs = 4000,
-  int rasterUs = 3000,
-}) {
+FrameStats _frame({required int number, int uiUs = 4000, int rasterUs = 3000}) {
   return FrameStats(
     frameNumber: number,
     uiDuration: Duration(microseconds: uiUs),
@@ -177,10 +173,7 @@ void main() {
     test('clear() resets both FPS metrics and sample count', () {
       final buffer = FrameStatsBuffer();
       for (var i = 0; i < 60; i++) {
-        buffer.add(frameAt(
-          frameNumber: i + 1,
-          rasterUs: 1000000 + i * 16666,
-        ));
+        buffer.add(frameAt(frameNumber: i + 1, rasterUs: 1000000 + i * 16666));
       }
       expect(buffer.actualFps, greaterThan(0));
       buffer.clear();
@@ -193,10 +186,7 @@ void main() {
     test('memoization — repeated reads return consistent value', () {
       final buffer = FrameStatsBuffer();
       for (var i = 0; i < 60; i++) {
-        buffer.add(frameAt(
-          frameNumber: i + 1,
-          rasterUs: 1000000 + i * 16666,
-        ));
+        buffer.add(frameAt(frameNumber: i + 1, rasterUs: 1000000 + i * 16666));
       }
       final first = buffer.actualFps;
       final second = buffer.actualFps;
@@ -230,11 +220,7 @@ void main() {
   // rasterFinishUs, the window anchor must not freeze on old valid
   // timestamps while the engine clock (vsyncStartUs) keeps advancing.
   group('FrameStatsBuffer.actualFps — C3 null-tail decay', () {
-    FrameStats frameAt({
-      required int number,
-      int? rasterUs,
-      int? vsyncUs,
-    }) {
+    FrameStats frameAt({required int number, int? rasterUs, int? vsyncUs}) {
       return FrameStats(
         frameNumber: number,
         uiDuration: const Duration(milliseconds: 10),
@@ -249,97 +235,103 @@ void main() {
       final buffer = FrameStatsBuffer();
       for (var i = 0; i < 60; i++) {
         final raster = 1000000 + i * 16666;
-        buffer.add(frameAt(
-          number: i + 1,
-          rasterUs: raster,
-          vsyncUs: raster - 10000,
-        ));
+        buffer.add(
+          frameAt(number: i + 1, rasterUs: raster, vsyncUs: raster - 10000),
+        );
       }
       expect(buffer.actualFps, 60);
       expect(buffer.windowSampleCount, 60);
     });
 
-    test('null-raster tail >1s past last valid raster → actualFps decays to 0',
-        () {
-      final buffer = FrameStatsBuffer();
-      // 30 healthy frames at 60 fps, rasterUs [1_000_000 .. 1_483_300].
-      for (var i = 0; i < 30; i++) {
-        final raster = 1000000 + i * 16666;
-        buffer.add(frameAt(
-          number: i + 1,
-          rasterUs: raster,
-          vsyncUs: raster - 10000,
-        ));
-      }
-      // Now the engine stops presenting but vsyncStart keeps advancing.
-      // Five frames arrive with null rasterFinishUs, latest vsync jumps
-      // 2 seconds past the last valid rasterFinishUs.
-      final lastRaster = 1000000 + 29 * 16666;
-      for (var i = 0; i < 5; i++) {
-        buffer.add(frameAt(
-          number: 31 + i,
-          rasterUs: null,
-          vsyncUs: lastRaster + 2000000 + i * 16666,
-        ));
-      }
-      // Both getters must decay to 0 so the UI warm-up re-engages.
-      expect(buffer.actualFps, 0);
-      expect(buffer.windowSampleCount, 0);
-    });
+    test(
+      'null-raster tail >1s past last valid raster → actualFps decays to 0',
+      () {
+        final buffer = FrameStatsBuffer();
+        // 30 healthy frames at 60 fps, rasterUs [1_000_000 .. 1_483_300].
+        for (var i = 0; i < 30; i++) {
+          final raster = 1000000 + i * 16666;
+          buffer.add(
+            frameAt(number: i + 1, rasterUs: raster, vsyncUs: raster - 10000),
+          );
+        }
+        // Now the engine stops presenting but vsyncStart keeps advancing.
+        // Five frames arrive with null rasterFinishUs, latest vsync jumps
+        // 2 seconds past the last valid rasterFinishUs.
+        final lastRaster = 1000000 + 29 * 16666;
+        for (var i = 0; i < 5; i++) {
+          buffer.add(
+            frameAt(
+              number: 31 + i,
+              rasterUs: null,
+              vsyncUs: lastRaster + 2000000 + i * 16666,
+            ),
+          );
+        }
+        // Both getters must decay to 0 so the UI warm-up re-engages.
+        expect(buffer.actualFps, 0);
+        expect(buffer.windowSampleCount, 0);
+      },
+    );
 
-    test('null-raster tail within 1s keeps counting in-window valid frames',
-        () {
-      // Short null tail (~100 ms) is not a freeze — transient missing
-      // rasterFinish should not clobber the otherwise-valid window.
-      final buffer = FrameStatsBuffer();
-      for (var i = 0; i < 30; i++) {
-        final raster = 1000000 + i * 16666;
-        buffer.add(frameAt(
-          number: i + 1,
-          rasterUs: raster,
-          vsyncUs: raster - 10000,
-        ));
-      }
-      final lastRaster = 1000000 + 29 * 16666;
-      // One null-raster frame 100 ms past last valid raster → inside 1 s
-      // threshold, window stays live.
-      buffer.add(frameAt(
-        number: 31,
-        rasterUs: null,
-        vsyncUs: lastRaster + 100000,
-      ));
-      expect(buffer.actualFps, 30);
-      expect(buffer.windowSampleCount, 30);
-    });
+    test(
+      'null-raster tail within 1s keeps counting in-window valid frames',
+      () {
+        // Short null tail (~100 ms) is not a freeze — transient missing
+        // rasterFinish should not clobber the otherwise-valid window.
+        final buffer = FrameStatsBuffer();
+        for (var i = 0; i < 30; i++) {
+          final raster = 1000000 + i * 16666;
+          buffer.add(
+            frameAt(number: i + 1, rasterUs: raster, vsyncUs: raster - 10000),
+          );
+        }
+        final lastRaster = 1000000 + 29 * 16666;
+        // One null-raster frame 100 ms past last valid raster → inside 1 s
+        // threshold, window stays live.
+        buffer.add(
+          frameAt(number: 31, rasterUs: null, vsyncUs: lastRaster + 100000),
+        );
+        expect(buffer.actualFps, 30);
+        expect(buffer.windowSampleCount, 30);
+      },
+    );
 
-    test('all frames have null rasterFinishUs → actualFps 0 (empty anchor)',
-        () {
-      final buffer = FrameStatsBuffer();
-      for (var i = 0; i < 10; i++) {
-        buffer.add(frameAt(
-          number: i + 1,
-          rasterUs: null,
-          vsyncUs: 1000000 + i * 16666,
-        ));
-      }
-      expect(buffer.actualFps, 0);
-      expect(buffer.windowSampleCount, 0);
-    });
+    test(
+      'all frames have null rasterFinishUs → actualFps 0 (empty anchor)',
+      () {
+        final buffer = FrameStatsBuffer();
+        for (var i = 0; i < 10; i++) {
+          buffer.add(
+            frameAt(
+              number: i + 1,
+              rasterUs: null,
+              vsyncUs: 1000000 + i * 16666,
+            ),
+          );
+        }
+        expect(buffer.actualFps, 0);
+        expect(buffer.windowSampleCount, 0);
+      },
+    );
 
-    test('no vsyncStartUs data available → anchor fallback, no decay trigger',
-        () {
-      // If frames carry rasterFinishUs but no vsyncStartUs, the decay
-      // sentinel cannot fire (latestVsync stays -1). Preserve v0.17.0 baseline
-      // behavior — count rasterFinishUs window as before.
-      final buffer = FrameStatsBuffer();
-      for (var i = 0; i < 60; i++) {
-        buffer.add(frameAt(
-          number: i + 1,
-          rasterUs: 1000000 + i * 16666,
-          vsyncUs: null,
-        ));
-      }
-      expect(buffer.actualFps, 60);
-    });
+    test(
+      'no vsyncStartUs data available → anchor fallback, no decay trigger',
+      () {
+        // If frames carry rasterFinishUs but no vsyncStartUs, the decay
+        // sentinel cannot fire (latestVsync stays -1). Preserve v0.17.0 baseline
+        // behavior — count rasterFinishUs window as before.
+        final buffer = FrameStatsBuffer();
+        for (var i = 0; i < 60; i++) {
+          buffer.add(
+            frameAt(
+              number: i + 1,
+              rasterUs: 1000000 + i * 16666,
+              vsyncUs: null,
+            ),
+          );
+        }
+        expect(buffer.actualFps, 60);
+      },
+    );
   });
 }

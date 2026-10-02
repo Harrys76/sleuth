@@ -48,9 +48,11 @@ class FakeFlutterProcess implements Process {
 
   /// Convenience: emit a `[{event, params}]` frame.
   void emitEvent(String event, Map<String, Object?> params) {
-    emit(jsonEncode([
-      {'event': event, 'params': params},
-    ]));
+    emit(
+      jsonEncode([
+        {'event': event, 'params': params},
+      ]),
+    );
   }
 
   /// Convenience: emit `[{id, result}]` or `[{id, error}]`.

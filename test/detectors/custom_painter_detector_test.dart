@@ -28,8 +28,9 @@ void main() {
       expect(detector.highlights, isEmpty);
     });
 
-    testWidgets('flags CustomPaint with always-true shouldRepaint',
-        (tester) async {
+    testWidgets('flags CustomPaint with always-true shouldRepaint', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -63,9 +64,7 @@ void main() {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: CustomPaint(
-            child: SizedBox(width: 10, height: 10),
-          ),
+          child: CustomPaint(child: SizedBox(width: 10, height: 10)),
         ),
       );
       detector.scanTree(tester.element(find.byType(Directionality)));
@@ -96,8 +95,9 @@ void main() {
       expect(detector.issues.first.title, contains('2 found'));
     });
 
-    testWidgets('highlights produced per always-repaint painter',
-        (tester) async {
+    testWidgets('highlights produced per always-repaint painter', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -174,14 +174,17 @@ void main() {
     });
 
     group('debug paint confirmation', () {
-      testWidgets('upgrades to likely when CustomPaint paint rate is high',
-          (tester) async {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          paintCounts: {'CustomPaint': 20},
-          elapsed: Duration(seconds: 1),
-        ));
+      testWidgets('upgrades to likely when CustomPaint paint rate is high', (
+        tester,
+      ) async {
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 50,
+            paintCounts: {'CustomPaint': 20},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         await tester.pumpWidget(
           Directionality(
@@ -196,17 +199,21 @@ void main() {
 
         expect(detector.issues, hasLength(1));
         expect(detector.issues.first.confidence, IssueConfidence.likely);
-        expect(detector.issues.first.observationSource,
-            ObservationSource.debugCallbackAndStructural);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.debugCallbackAndStructural,
+        );
       });
 
       testWidgets('remains possible when paint rate is low', (tester) async {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 10,
-          paintCounts: {'CustomPaint': 5},
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 10,
+            paintCounts: {'CustomPaint': 5},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         await tester.pumpWidget(
           Directionality(
@@ -225,65 +232,73 @@ void main() {
       });
 
       testWidgets(
-          'flags frequent repainting when shouldRepaint returns false for self',
-          (tester) async {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          paintCounts: {'CustomPaint': 50},
-          elapsed: Duration(seconds: 1),
-        ));
-
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: CustomPaint(
-              painter: _NeverRepaintPainter(),
-              child: const SizedBox(width: 10, height: 10),
+        'flags frequent repainting when shouldRepaint returns false for self',
+        (tester) async {
+          detector.updateDebugSnapshot(
+            const DebugSnapshot(
+              rebuildCounts: {},
+              totalPaintCount: 50,
+              paintCounts: {'CustomPaint': 50},
+              elapsed: Duration(seconds: 1),
             ),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          );
 
-        expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.stableId, 'frequent_repaint_painter');
-        expect(detector.issues.first.severity, IssueSeverity.warning);
-        expect(detector.issues.first.confidence, IssueConfidence.possible);
-        expect(detector.issues.first.title, contains('50/sec'));
-      });
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: CustomPaint(
+                painter: _NeverRepaintPainter(),
+                child: const SizedBox(width: 10, height: 10),
+              ),
+            ),
+          );
+          detector.scanTree(tester.element(find.byType(Directionality)));
+
+          expect(detector.issues, hasLength(1));
+          expect(detector.issues.first.stableId, 'frequent_repaint_painter');
+          expect(detector.issues.first.severity, IssueSeverity.warning);
+          expect(detector.issues.first.confidence, IssueConfidence.possible);
+          expect(detector.issues.first.title, contains('50/sec'));
+        },
+      );
 
       testWidgets(
-          'no duplicate issue when always-repaint painter has high paint rate',
-          (tester) async {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          paintCounts: {'CustomPaint': 50},
-          elapsed: Duration(seconds: 1),
-        ));
-
-        await tester.pumpWidget(
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: CustomPaint(
-              painter: _AlwaysRepaintPainter(),
-              child: const SizedBox(width: 10, height: 10),
+        'no duplicate issue when always-repaint painter has high paint rate',
+        (tester) async {
+          detector.updateDebugSnapshot(
+            const DebugSnapshot(
+              rebuildCounts: {},
+              totalPaintCount: 50,
+              paintCounts: {'CustomPaint': 50},
+              elapsed: Duration(seconds: 1),
             ),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          );
 
-        // Only the always_repaint_painter issue, NOT frequent_repaint_painter
-        expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.stableId, 'always_repaint_painter');
-      });
+          await tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: CustomPaint(
+                painter: _AlwaysRepaintPainter(),
+                child: const SizedBox(width: 10, height: 10),
+              ),
+            ),
+          );
+          detector.scanTree(tester.element(find.byType(Directionality)));
+
+          // Only the always_repaint_painter issue, NOT frequent_repaint_painter
+          expect(detector.issues, hasLength(1));
+          expect(detector.issues.first.stableId, 'always_repaint_painter');
+        },
+      );
 
       testWidgets('remains possible when paintCounts empty', (tester) async {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 50,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         await tester.pumpWidget(
           Directionality(

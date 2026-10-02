@@ -62,10 +62,10 @@ class RecurrenceEntry {
   final int? severityIndex;
 
   Map<String, dynamic> toJson() => {
-        'scanCycle': scanCycle,
-        'present': present,
-        if (severityIndex != null) 'severityIndex': severityIndex,
-      };
+    'scanCycle': scanCycle,
+    'present': present,
+    if (severityIndex != null) 'severityIndex': severityIndex,
+  };
 
   factory RecurrenceEntry.fromJson(Map<String, dynamic> json) =>
       RecurrenceEntry(
@@ -106,19 +106,18 @@ class RecurrenceTrend {
 
   /// Record that the issue was present during [scanCycle].
   void recordPresent(int scanCycle, {required int severityIndex}) {
-    _add(RecurrenceEntry(
-      scanCycle: scanCycle,
-      present: true,
-      severityIndex: severityIndex,
-    ));
+    _add(
+      RecurrenceEntry(
+        scanCycle: scanCycle,
+        present: true,
+        severityIndex: severityIndex,
+      ),
+    );
   }
 
   /// Record that the issue was absent during [scanCycle].
   void recordAbsent(int scanCycle) {
-    _add(RecurrenceEntry(
-      scanCycle: scanCycle,
-      present: false,
-    ));
+    _add(RecurrenceEntry(scanCycle: scanCycle, present: false));
   }
 
   void _add(RecurrenceEntry entry) {
@@ -161,10 +160,10 @@ class RecurrenceTrend {
 
     final firstAvg =
         firstHalf.fold<double>(0, (s, e) => s + (e.severityIndex ?? 0)) /
-            firstHalf.length;
+        firstHalf.length;
     final secondAvg =
         secondHalf.fold<double>(0, (s, e) => s + (e.severityIndex ?? 0)) /
-            secondHalf.length;
+        secondHalf.length;
 
     final delta = secondAvg - firstAvg;
     if (delta > 0.3) return TrendDirection.worsening;
@@ -185,8 +184,9 @@ class RecurrenceTrend {
 
   /// Summary for export (not the full ring buffer).
   Map<String, dynamic> toJson() {
-    final presentSeverities =
-        _entries.where((e) => e.present).map((e) => e.severityIndex ?? 0);
+    final presentSeverities = _entries
+        .where((e) => e.present)
+        .map((e) => e.severityIndex ?? 0);
     return {
       'trend': trend.name,
       'totalOccurrences': presentCount,

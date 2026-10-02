@@ -14,12 +14,12 @@ import '../utils/widget_location.dart';
 /// **Structural Detector** — checks CustomPaint widgets for always-true repaint.
 class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
   CustomPainterDetector()
-      : super(
-          type: DetectorType.customPainter,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'CustomPainter',
-          description: 'Detects CustomPainter with shouldRepaint always true',
-        );
+    : super(
+        type: DetectorType.customPainter,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'CustomPainter',
+        description: 'Detects CustomPainter with shouldRepaint always true',
+      );
 
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
@@ -76,13 +76,15 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
         if (ro != null) {
           final rect = getGlobalRect(ro);
           if (rect != null) {
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: 'CustomPaint',
-              severity: IssueSeverity.warning,
-              detectorName: 'Painter',
-              detail: 'shouldRepaint always true',
-            ));
+            _highlights.add(
+              WidgetHighlight(
+                rect: rect,
+                widgetName: 'CustomPaint',
+                severity: IssueSeverity.warning,
+                detectorName: 'Painter',
+                detail: 'shouldRepaint always true',
+              ),
+            );
           }
         }
       }
@@ -120,7 +122,8 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
           category: IssueCategory.paint,
           confidence: confidence,
           title: 'Always-Repaint CustomPainter: ${_found.length} found',
-          detail: '${_found.length} CustomPainter(s) return true from '
+          detail:
+              '${_found.length} CustomPainter(s) return true from '
               'shouldRepaint(). This causes unnecessary repaint on every '
               'frame.\n\n$locations',
           fixHint: hint1,
@@ -143,21 +146,24 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
         if (cpRate > 30) {
           final (hint2, effort2) = FixHintBuilder.frequentRepaintPainter();
 
-          _issues.add(PerformanceIssue(
-            stableId: 'frequent_repaint_painter',
-            severity: IssueSeverity.warning,
-            category: IssueCategory.paint,
-            confidence: IssueConfidence.possible,
-            title: 'Frequent CustomPainter Repaints: ${cpRate.round()}/sec',
-            detail: 'CustomPainter is repainting at ${cpRate.round()}/sec. '
-                'Verify shouldRepaint() returns false when visual state '
-                "hasn't changed.",
-            fixHint: hint2,
-            fixEffort: effort2,
-            observationSource: ObservationSource.debugCallbackAndStructural,
-            confidenceReason: 'Debug callback paint rate + structural scan',
-            detectedAt: DateTime.now(),
-          ));
+          _issues.add(
+            PerformanceIssue(
+              stableId: 'frequent_repaint_painter',
+              severity: IssueSeverity.warning,
+              category: IssueCategory.paint,
+              confidence: IssueConfidence.possible,
+              title: 'Frequent CustomPainter Repaints: ${cpRate.round()}/sec',
+              detail:
+                  'CustomPainter is repainting at ${cpRate.round()}/sec. '
+                  'Verify shouldRepaint() returns false when visual state '
+                  "hasn't changed.",
+              fixHint: hint2,
+              fixEffort: effort2,
+              observationSource: ObservationSource.debugCallbackAndStructural,
+              confidenceReason: 'Debug callback paint rate + structural scan',
+              detectedAt: DateTime.now(),
+            ),
+          );
         }
       }
     }
@@ -173,20 +179,18 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hermetic reproducer pins both emission branches: '
-            '`always_repaint_painter` (shouldRepaint self-comparison returns '
-            'true, exercised on both `painter` and `foregroundPainter` '
-            'slots) and `frequent_repaint_painter` (paintsPerSecond > 30 '
-            'via injected `DebugSnapshot`, silent at threshold — '
-            'strict-greater). The "always-repaint suppresses frequent" '
-            'ordering contract is pinned as a negative control so both '
-            'branches cannot fire simultaneously. Not yet runtime-verified '
-            'against a real paint-counter stream.',
-        reproducerPath: 'test/validation/custom_painter_reproducer_test.dart',
-        coveredStableIds: {
-          'always_repaint_painter',
-          'frequent_repaint_painter',
-        },
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'Hermetic reproducer pins both emission branches: '
+        '`always_repaint_painter` (shouldRepaint self-comparison returns '
+        'true, exercised on both `painter` and `foregroundPainter` '
+        'slots) and `frequent_repaint_painter` (paintsPerSecond > 30 '
+        'via injected `DebugSnapshot`, silent at threshold — '
+        'strict-greater). The "always-repaint suppresses frequent" '
+        'ordering contract is pinned as a negative control so both '
+        'branches cannot fire simultaneously. Not yet runtime-verified '
+        'against a real paint-counter stream.',
+    reproducerPath: 'test/validation/custom_painter_reproducer_test.dart',
+    coveredStableIds: {'always_repaint_painter', 'frequent_repaint_painter'},
+  );
 }

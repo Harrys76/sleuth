@@ -60,16 +60,20 @@ void main(List<String> args) {
   // Writing the wrapped output back over the raw input destroys the
   // unmodified DevTools export and makes re-wrapping impossible.
   if (_canonicalPath(parsed.input) == _canonicalPath(parsed.output)) {
-    stderr.writeln('Refusing to write output to the same path as --input '
-        '(${parsed.input}). The raw DevTools export must remain '
-        'untouched. Pick a separate --output path.');
+    stderr.writeln(
+      'Refusing to write output to the same path as --input '
+      '(${parsed.input}). The raw DevTools export must remain '
+      'untouched. Pick a separate --output path.',
+    );
     exit(2);
   }
   final outFile = File(parsed.output);
   if (outFile.existsSync() && !parsed.force) {
-    stderr.writeln('Output already exists: ${parsed.output}. Pass --force to '
-        'overwrite, or pick a different --output path. Refusing to '
-        'clobber a previous wrapped capture by default.');
+    stderr.writeln(
+      'Output already exists: ${parsed.output}. Pass --force to '
+      'overwrite, or pick a different --output path. Refusing to '
+      'clobber a previous wrapped capture by default.',
+    );
     exit(2);
   }
   final rawJson = json.decode(inputFile.readAsStringSync());
@@ -79,18 +83,20 @@ void main(List<String> args) {
   }
   if (rawJson['traceEvents'] is! List) {
     stderr.writeln(
-        'Input lacks `traceEvents` array — not a DevTools timeline export.');
+      'Input lacks `traceEvents` array — not a DevTools timeline export.',
+    );
     exit(2);
   }
   // Guard: refuse to double-wrap. If sleuthMetadata is already
   // present, the input is already a wrapped capture and re-running
   // the tool would silently overwrite the prior metadata block.
   if (rawJson['sleuthMetadata'] != null) {
-    stderr
-        .writeln('Input already contains a `sleuthMetadata` block — looks like '
-            'an already-wrapped capture, not a raw DevTools export. '
-            'Re-export from DevTools (Save timeline JSON) or re-wrap from '
-            'the original raw file.');
+    stderr.writeln(
+      'Input already contains a `sleuthMetadata` block — looks like '
+      'an already-wrapped capture, not a raw DevTools export. '
+      'Re-export from DevTools (Save timeline JSON) or re-wrap from '
+      'the original raw file.',
+    );
     exit(2);
   }
 
@@ -113,16 +119,18 @@ void main(List<String> args) {
     final delta = (buildMs - parsed.magnitudeObserved).abs();
     final tolerance = parsed.magnitudeObserved * 0.10;
     if (delta > tolerance && !parsed.force) {
-      stderr.writeln('BUILD-event duration inside the scenario span '
-          '(${buildMs.toStringAsFixed(2)} ms) disagrees with '
-          '--magnitude-observed (${parsed.magnitudeObserved}) by '
-          '${delta.toStringAsFixed(2)} ms — outside ±10 % tolerance. '
-          'The detector classifies on the BUILD event; the wrapped '
-          'capture\'s observed magnitude should match. Either re-record '
-          'with the correct iteration count, pass --magnitude-observed '
-          '${buildMs.toStringAsFixed(1)}, or pass --force to override '
-          '(NOT recommended: the trace record\'s severity may not match '
-          'what the schema audit will accept).');
+      stderr.writeln(
+        'BUILD-event duration inside the scenario span '
+        '(${buildMs.toStringAsFixed(2)} ms) disagrees with '
+        '--magnitude-observed (${parsed.magnitudeObserved}) by '
+        '${delta.toStringAsFixed(2)} ms — outside ±10 % tolerance. '
+        'The detector classifies on the BUILD event; the wrapped '
+        'capture\'s observed magnitude should match. Either re-record '
+        'with the correct iteration count, pass --magnitude-observed '
+        '${buildMs.toStringAsFixed(1)}, or pass --force to override '
+        '(NOT recommended: the trace record\'s severity may not match '
+        'what the schema audit will accept).',
+      );
       exit(2);
     }
     // Severity-boundary check. The ±10% BUILD tolerance is too loose
@@ -143,14 +151,15 @@ void main(List<String> args) {
       for (final boundary in parsed.severityBoundaries) {
         if (lo < boundary && boundary <= hi) {
           stderr.writeln(
-              'BUILD-event duration (${buildMs.toStringAsFixed(2)} ms) and '
-              '--magnitude-observed (${parsed.magnitudeObserved}) straddle '
-              'severity boundary $boundary ${parsed.unit}. '
-              'A capture whose observed/BUILD pair crosses a detector '
-              'severity threshold cannot reliably claim a single '
-              'severity tier — re-record so both magnitudes fall on the '
-              'same side of every boundary, or pass --force to override '
-              '(NOT recommended).');
+            'BUILD-event duration (${buildMs.toStringAsFixed(2)} ms) and '
+            '--magnitude-observed (${parsed.magnitudeObserved}) straddle '
+            'severity boundary $boundary ${parsed.unit}. '
+            'A capture whose observed/BUILD pair crosses a detector '
+            'severity threshold cannot reliably claim a single '
+            'severity tier — re-record so both magnitudes fall on the '
+            'same side of every boundary, or pass --force to override '
+            '(NOT recommended).',
+          );
           exit(2);
         }
       }
@@ -164,7 +173,8 @@ void main(List<String> args) {
       'device': parsed.device,
       'deviceOsVersion': parsed.deviceOs,
       'flutterVersion': parsed.flutterVersion,
-      'captureCommand': parsed.captureCommand ??
+      'captureCommand':
+          parsed.captureCommand ??
           'fvm flutter run --profile -d <${parsed.device}>',
       'scenario': parsed.scenario,
       'expectedMagnitude': <String, Object?>{
@@ -179,8 +189,9 @@ void main(List<String> args) {
     },
   };
   outFile.parent.createSync(recursive: true);
-  outFile
-      .writeAsStringSync(const JsonEncoder.withIndent('  ').convert(wrapped));
+  outFile.writeAsStringSync(
+    const JsonEncoder.withIndent('  ').convert(wrapped),
+  );
   stdout.writeln('Wrapped capture written to ${parsed.output}');
 }
 
@@ -245,7 +256,8 @@ double? _findScenarioBuildMs(List events) {
       final tsInt = ts.toInt();
       final durInt = dur.toInt();
       final tsEnd = tsInt + durInt;
-      final inSpan = (tsInt >= scenarioBeginTs && tsInt <= scenarioEndTs) ||
+      final inSpan =
+          (tsInt >= scenarioBeginTs && tsInt <= scenarioEndTs) ||
           (tsEnd >= scenarioBeginTs && tsEnd <= scenarioEndTs) ||
           (tsInt <= scenarioBeginTs && tsEnd >= scenarioEndTs);
       if (inSpan && durInt > maxBuildDurUs) maxBuildDurUs = durInt;
@@ -272,7 +284,8 @@ double? _findScenarioBuildMs(List events) {
         final tsInt = ts.toInt();
         final durUs = tsInt - start;
         if (durUs <= 0) continue;
-        final inSpan = (start >= scenarioBeginTs && start <= scenarioEndTs) ||
+        final inSpan =
+            (start >= scenarioBeginTs && start <= scenarioEndTs) ||
             (tsInt >= scenarioBeginTs && tsInt <= scenarioEndTs) ||
             (start <= scenarioBeginTs && tsInt >= scenarioEndTs);
         if (inSpan && durUs > maxBuildDurUs) maxBuildDurUs = durUs;
@@ -429,16 +442,19 @@ _Args _parseArgs(List<String> args) {
     } else if (base.endsWith('_above.json')) {
       role = 'above';
     } else {
-      stderr
-          .writeln('--role not passed AND output filename "$base" does not end '
-              'with _below.json / _at.json / _above.json. Pass --role '
-              'explicitly: --role below|at|above.');
+      stderr.writeln(
+        '--role not passed AND output filename "$base" does not end '
+        'with _below.json / _at.json / _above.json. Pass --role '
+        'explicitly: --role below|at|above.',
+      );
       exit(2);
     }
   }
   if (!const {'below', 'at', 'above'}.contains(role)) {
-    stderr.writeln('--role must be exactly one of: below, at, above '
-        '(case-sensitive). Got: "$role".');
+    stderr.writeln(
+      '--role must be exactly one of: below, at, above '
+      '(case-sensitive). Got: "$role".',
+    );
     exit(2);
   }
   return _Args(
@@ -462,11 +478,15 @@ _Args _parseArgs(List<String> args) {
 
 void _printUsage() {
   stderr.writeln(
-      'Usage: dart tool/wrap_capture.dart --input <raw.json> --output <wrapped.json> ');
+    'Usage: dart tool/wrap_capture.dart --input <raw.json> --output <wrapped.json> ',
+  );
   stderr.writeln(
-      '       --scenario <name> --magnitude-min <n> --magnitude-observed <n>');
+    '       --scenario <name> --magnitude-min <n> --magnitude-observed <n>',
+  );
   stderr.writeln(
-      '       --magnitude-max <n> --unit <s> --device <s> --device-os <s>');
+    '       --magnitude-max <n> --unit <s> --device <s> --device-os <s>',
+  );
   stderr.writeln(
-      '       --flutter-version <s> [--capture-command <s>] [--capture-notes <s>]');
+    '       --flutter-version <s> [--capture-command <s>] [--capture-notes <s>]',
+  );
 }

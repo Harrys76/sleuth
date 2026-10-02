@@ -56,26 +56,33 @@ void main() {
         expect(detector.issues, isEmpty);
       });
 
-      test('100ms shader DOES emit shader_compilation (inclusive threshold)',
-          () {
-        final events = [
-          buildEvent(name: 'ShaderCompilation', ph: 'X', dur: 100000, ts: 1000),
-        ];
-        final parsed = parseAndAssertShape(events, (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 1,
-          channelCount: 0,
-          gcCount: 0,
-          phaseEventCount: 1,
-        ));
-        detector.processTimelineData(parsed);
-        expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.stableId, 'shader_compilation');
-      });
+      test(
+        '100ms shader DOES emit shader_compilation (inclusive threshold)',
+        () {
+          final events = [
+            buildEvent(
+              name: 'ShaderCompilation',
+              ph: 'X',
+              dur: 100000,
+              ts: 1000,
+            ),
+          ];
+          final parsed = parseAndAssertShape(events, (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 1,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          ));
+          detector.processTimelineData(parsed);
+          expect(detector.issues, hasLength(1));
+          expect(detector.issues.first.stableId, 'shader_compilation');
+        },
+      );
 
       test('101ms shader emits shader_compilation', () {
         final events = [
@@ -208,7 +215,11 @@ void main() {
         // 2_000_000 - 0 = 2_000_000 < 5_000_000 → cold_start.
         final events = [
           buildEvent(
-              name: 'ShaderCompilation', ph: 'X', dur: 150000, ts: 2000000),
+            name: 'ShaderCompilation',
+            ph: 'X',
+            dur: 150000,
+            ts: 2000000,
+          ),
         ];
         final parsed = parseAndAssertShape(events, (
           buildEventCount: 0,
@@ -229,32 +240,38 @@ void main() {
         );
       });
 
-      test('hot_path: shader at +10s past cold-start window, no nearby build',
-          () {
-        // Shader at ts=10_000_000 µs (10 s). 10s > 5s → not cold_start.
-        // No build events → not keyframe → fallback hot_path.
-        final events = [
-          buildEvent(
-              name: 'ShaderCompilation', ph: 'X', dur: 150000, ts: 10000000),
-        ];
-        final parsed = parseAndAssertShape(events, (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 1,
-          channelCount: 0,
-          gcCount: 0,
-          phaseEventCount: 1,
-        ));
-        attrDetector.processTimelineData(parsed);
-        expect(attrDetector.issues, hasLength(1));
-        expect(
-          attrDetector.issues.first.extraTraceArgs?['shaderWarmupContext'],
-          'hot_path',
-        );
-      });
+      test(
+        'hot_path: shader at +10s past cold-start window, no nearby build',
+        () {
+          // Shader at ts=10_000_000 µs (10 s). 10s > 5s → not cold_start.
+          // No build events → not keyframe → fallback hot_path.
+          final events = [
+            buildEvent(
+              name: 'ShaderCompilation',
+              ph: 'X',
+              dur: 150000,
+              ts: 10000000,
+            ),
+          ];
+          final parsed = parseAndAssertShape(events, (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 1,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          ));
+          attrDetector.processTimelineData(parsed);
+          expect(attrDetector.issues, hasLength(1));
+          expect(
+            attrDetector.issues.first.extraTraceArgs?['shaderWarmupContext'],
+            'hot_path',
+          );
+        },
+      );
 
       test('keyframe: shader at +10s with build event 50ms before', () {
         // Build at ts=9_950_000 µs, shader at ts=10_000_000 µs.
@@ -263,7 +280,11 @@ void main() {
         final events = [
           buildEvent(name: 'BUILD', ph: 'X', dur: 5000, ts: 9950000),
           buildEvent(
-              name: 'ShaderCompilation', ph: 'X', dur: 150000, ts: 10000000),
+            name: 'ShaderCompilation',
+            ph: 'X',
+            dur: 150000,
+            ts: 10000000,
+          ),
         ];
         final parsed = parseAndAssertShape(events, (
           buildEventCount: 1,
@@ -284,43 +305,51 @@ void main() {
         );
       });
 
-      test('hot_path: shader event timestamp BEFORE app-start (negative delta)',
-          () {
-        // VM ring-buffer replay or late `Sleuth.init` can surface shader
-        // events with timestamps BEFORE the captured app-start. Without
-        // the `deltaUs >= 0` guard, `negative < window` would trivially
-        // satisfy the cold_start branch. Pin the guard.
-        final earlyStartDetector = ShaderJankDetector(
-          coldStartShaderWindowSeconds: 5,
-          shaderKeyframeWindowMs: 100,
-          appStartMonotonicUsForTest: () => 10000000, // app-start = 10 s
-        );
-        earlyStartDetector.vmConnected = true;
-        // Shader at ts=9_000_000 µs (1 s BEFORE captured app-start).
-        final events = [
-          buildEvent(
-              name: 'ShaderCompilation', ph: 'X', dur: 150000, ts: 9000000),
-        ];
-        final parsed = parseAndAssertShape(events, (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 1,
-          channelCount: 0,
-          gcCount: 0,
-          phaseEventCount: 1,
-        ));
-        earlyStartDetector.processTimelineData(parsed);
-        expect(earlyStartDetector.issues, hasLength(1));
-        expect(
-          earlyStartDetector
-              .issues.first.extraTraceArgs?['shaderWarmupContext'],
-          'hot_path',
-          reason: 'negative delta must NOT satisfy cold_start branch.',
-        );
-      });
+      test(
+        'hot_path: shader event timestamp BEFORE app-start (negative delta)',
+        () {
+          // VM ring-buffer replay or late `Sleuth.init` can surface shader
+          // events with timestamps BEFORE the captured app-start. Without
+          // the `deltaUs >= 0` guard, `negative < window` would trivially
+          // satisfy the cold_start branch. Pin the guard.
+          final earlyStartDetector = ShaderJankDetector(
+            coldStartShaderWindowSeconds: 5,
+            shaderKeyframeWindowMs: 100,
+            appStartMonotonicUsForTest: () => 10000000, // app-start = 10 s
+          );
+          earlyStartDetector.vmConnected = true;
+          // Shader at ts=9_000_000 µs (1 s BEFORE captured app-start).
+          final events = [
+            buildEvent(
+              name: 'ShaderCompilation',
+              ph: 'X',
+              dur: 150000,
+              ts: 9000000,
+            ),
+          ];
+          final parsed = parseAndAssertShape(events, (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 1,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          ));
+          earlyStartDetector.processTimelineData(parsed);
+          expect(earlyStartDetector.issues, hasLength(1));
+          expect(
+            earlyStartDetector
+                .issues
+                .first
+                .extraTraceArgs?['shaderWarmupContext'],
+            'hot_path',
+            reason: 'negative delta must NOT satisfy cold_start branch.',
+          );
+        },
+      );
 
       test('hot_path: build event 200ms before shader is OUTSIDE window', () {
         // Build at ts=9_800_000 µs, shader at ts=10_000_000 µs.
@@ -329,7 +358,11 @@ void main() {
         final events = [
           buildEvent(name: 'BUILD', ph: 'X', dur: 5000, ts: 9800000),
           buildEvent(
-              name: 'ShaderCompilation', ph: 'X', dur: 150000, ts: 10000000),
+            name: 'ShaderCompilation',
+            ph: 'X',
+            dur: 150000,
+            ts: 10000000,
+          ),
         ];
         final parsed = parseAndAssertShape(events, (
           buildEventCount: 1,
@@ -351,35 +384,36 @@ void main() {
       });
 
       test(
-          'cold_start: shader event timestamp EXACTLY at app-start (delta == 0 inclusive boundary)',
-          () {
-        // app-start = 0 (group setUp). Shader at ts=0 → delta = 0.
-        // Pins inclusive lower bound of `deltaUs >= 0 && deltaUs < window`.
-        // Companion to the negative-delta test above: together they pin
-        // both sides of the `>= 0` guard.
-        final events = [
-          buildEvent(name: 'ShaderCompilation', ph: 'X', dur: 150000, ts: 0),
-        ];
-        final parsed = parseAndAssertShape(events, (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 1,
-          channelCount: 0,
-          gcCount: 0,
-          phaseEventCount: 1,
-        ));
-        attrDetector.processTimelineData(parsed);
-        expect(attrDetector.issues, hasLength(1));
-        expect(
-          attrDetector.issues.first.extraTraceArgs?['shaderWarmupContext'],
-          'cold_start',
-          reason:
-              'delta == 0 must satisfy cold_start branch (inclusive lower bound).',
-        );
-      });
+        'cold_start: shader event timestamp EXACTLY at app-start (delta == 0 inclusive boundary)',
+        () {
+          // app-start = 0 (group setUp). Shader at ts=0 → delta = 0.
+          // Pins inclusive lower bound of `deltaUs >= 0 && deltaUs < window`.
+          // Companion to the negative-delta test above: together they pin
+          // both sides of the `>= 0` guard.
+          final events = [
+            buildEvent(name: 'ShaderCompilation', ph: 'X', dur: 150000, ts: 0),
+          ];
+          final parsed = parseAndAssertShape(events, (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 1,
+            channelCount: 0,
+            gcCount: 0,
+            phaseEventCount: 1,
+          ));
+          attrDetector.processTimelineData(parsed);
+          expect(attrDetector.issues, hasLength(1));
+          expect(
+            attrDetector.issues.first.extraTraceArgs?['shaderWarmupContext'],
+            'cold_start',
+            reason:
+                'delta == 0 must satisfy cold_start branch (inclusive lower bound).',
+          );
+        },
+      );
     });
 
     group('negative control', () {

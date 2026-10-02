@@ -68,8 +68,10 @@ void main() {
     test('entries returns unmodifiable list', () {
       final buffer = JankCaptureBuffer(capacity: 5);
       buffer.add(_entry(totalDurationUs: 20000));
-      expect(() => buffer.entries.add(_entry(totalDurationUs: 10000)),
-          throwsUnsupportedError);
+      expect(
+        () => buffer.entries.add(_entry(totalDurationUs: 10000)),
+        throwsUnsupportedError,
+      );
     });
 
     test('empty state', () {

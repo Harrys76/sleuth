@@ -274,9 +274,7 @@ void main() {
         timeExtentMicros: 1000,
       );
 
-      final client = VmServiceClient(
-        onTimelineData: receivedData.add,
-      );
+      final client = VmServiceClient(onTimelineData: receivedData.add);
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
       await client.pollTimelineSync();
@@ -314,44 +312,49 @@ void main() {
       expect(mock.getVMTimelineCalled, isFalse);
     });
 
-    test('pollTimelineSync barrier waits for in-flight poll then forces fresh',
-        () async {
-      // Capture-flow `Sleuth.flushTimelineNow` MUST guarantee a fresh
-      // VM-poll observation before returning, even when a periodic
-      // poll is already in flight. Without barrier semantics, the
-      // periodic poll's snapshot may pre-date the BUILD the capture
-      // flow wants to observe, and the issue trace event lands outside
-      // the scenario span.
-      //
-      // Verifies: two concurrent pollTimelineSync calls produce TWO
-      // getVMTimeline invocations on the mock — the second waits for
-      // the first to complete, then runs fresh. (Previous v0.18.1
-      // behaviour short-circuited the second call; v0.18.2 changes
-      // this to barrier semantics for capture-flow correctness.)
-      final mock = _MockVmService();
-      mock.timelineResult = Timeline(
-        traceEvents: [],
-        timeOriginMicros: 0,
-        timeExtentMicros: 0,
-      );
-      mock.getVMTimelineDelay = const Duration(milliseconds: 50);
-      final client = VmServiceClient();
-      client.setServiceForTest(mock, isolateId: 'isolate-1');
-
-      final first = client.pollTimelineSync();
-      // Second call lands while first is awaiting getVMTimeline.
-      final second = client.pollTimelineSync();
-      await Future.wait([first, second]);
-
-      expect(mock.getVMTimelineCallCount, 2,
-          reason: 'Barrier must run a fresh poll after the in-flight one '
-              'completes — capture flow needs guaranteed-fresh observation '
-              'before markScenarioEnd fires.');
-      client.dispose();
-    });
-
     test(
-        'cross-batch BUILD reconstruction survives clearVMTimeline on '
+      'pollTimelineSync barrier waits for in-flight poll then forces fresh',
+      () async {
+        // Capture-flow `Sleuth.flushTimelineNow` MUST guarantee a fresh
+        // VM-poll observation before returning, even when a periodic
+        // poll is already in flight. Without barrier semantics, the
+        // periodic poll's snapshot may pre-date the BUILD the capture
+        // flow wants to observe, and the issue trace event lands outside
+        // the scenario span.
+        //
+        // Verifies: two concurrent pollTimelineSync calls produce TWO
+        // getVMTimeline invocations on the mock — the second waits for
+        // the first to complete, then runs fresh. (Previous v0.18.1
+        // behaviour short-circuited the second call; v0.18.2 changes
+        // this to barrier semantics for capture-flow correctness.)
+        final mock = _MockVmService();
+        mock.timelineResult = Timeline(
+          traceEvents: [],
+          timeOriginMicros: 0,
+          timeExtentMicros: 0,
+        );
+        mock.getVMTimelineDelay = const Duration(milliseconds: 50);
+        final client = VmServiceClient();
+        client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+        final first = client.pollTimelineSync();
+        // Second call lands while first is awaiting getVMTimeline.
+        final second = client.pollTimelineSync();
+        await Future.wait([first, second]);
+
+        expect(
+          mock.getVMTimelineCallCount,
+          2,
+          reason:
+              'Barrier must run a fresh poll after the in-flight one '
+              'completes — capture flow needs guaranteed-fresh observation '
+              'before markScenarioEnd fires.',
+        );
+        client.dispose();
+      },
+    );
+
+    test('cross-batch BUILD reconstruction survives clearVMTimeline on '
         'default !retainTimeline polling path', () async {
       // iOS profile mode emits BUILD as `ph: 'B'` / `ph: 'E'` pairs
       // instead of `ph: 'X'` complete-form. When a poll boundary falls
@@ -382,10 +385,16 @@ void main() {
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
       await client.pollTimelineSync();
-      expect(mock.clearVMTimelineCalled, isTrue,
-          reason: 'Default !retainTimeline path must clear VM buffer.');
-      expect(received.expand((p) => p.buildScopeDurations), isEmpty,
-          reason: 'Batch 1 has B without E; no dur reconstructed yet.');
+      expect(
+        mock.clearVMTimelineCalled,
+        isTrue,
+        reason: 'Default !retainTimeline path must clear VM buffer.',
+      );
+      expect(
+        received.expand((p) => p.buildScopeDurations),
+        isEmpty,
+        reason: 'Batch 1 has B without E; no dur reconstructed yet.',
+      );
 
       // Batch 2: matching BUILD end. The B from batch 1 must still be
       // in `_pendingBuildBegins` for reconstruction to work.
@@ -406,18 +415,22 @@ void main() {
       );
 
       await client.pollTimelineSync();
-      final allBuildDurs =
-          received.expand((p) => p.buildScopeDurations).toList();
-      expect(allBuildDurs, equals([5000]),
-          reason: 'Cross-batch reconstruction must emit dur = E.ts - B.ts '
-              '(5000 us) on the default polling path. Wiping '
-              '_pendingBuildBegins on clearVMTimeline would silently '
-              'drop this BUILD.');
+      final allBuildDurs = received
+          .expand((p) => p.buildScopeDurations)
+          .toList();
+      expect(
+        allBuildDurs,
+        equals([5000]),
+        reason:
+            'Cross-batch reconstruction must emit dur = E.ts - B.ts '
+            '(5000 us) on the default polling path. Wiping '
+            '_pendingBuildBegins on clearVMTimeline would silently '
+            'drop this BUILD.',
+      );
       client.dispose();
     });
 
-    test(
-        'capture-mode buffer re-read does not inflate counters across '
+    test('capture-mode buffer re-read does not inflate counters across '
         'polls (E2E watermark dedup)', () async {
       // Capture mode (`retainTimeline=true`) skips `clearVMTimeline()`
       // so the VM keeps returning the FULL retained buffer on every
@@ -466,24 +479,36 @@ void main() {
       await client.pollTimelineSync();
       await client.pollTimelineSync();
 
-      expect(mock.clearVMTimelineCalled, isFalse,
-          reason: 'retainTimeline=true must skip clearVMTimeline.');
+      expect(
+        mock.clearVMTimelineCalled,
+        isFalse,
+        reason: 'retainTimeline=true must skip clearVMTimeline.',
+      );
       // Aggregate across all onTimelineData callbacks.
       final allDurs = received.expand((p) => p.buildScopeDurations).toList();
-      final totalBuildCount =
-          received.fold<int>(0, (sum, p) => sum + p.buildEventCount);
-      expect(allDurs, equals([1000, 1500]),
-          reason: '2 real BUILDs across 3 polls must yield 2 dur entries '
-              '(not 6). Watermark dedup must skip re-observed events.');
-      expect(totalBuildCount, 2,
-          reason: 'buildEventCount must equal real BUILDs (2), not 3× '
-              '(6). RebuildDetector consumes this raw and would '
-              'false-positive without the watermark.');
+      final totalBuildCount = received.fold<int>(
+        0,
+        (sum, p) => sum + p.buildEventCount,
+      );
+      expect(
+        allDurs,
+        equals([1000, 1500]),
+        reason:
+            '2 real BUILDs across 3 polls must yield 2 dur entries '
+            '(not 6). Watermark dedup must skip re-observed events.',
+      );
+      expect(
+        totalBuildCount,
+        2,
+        reason:
+            'buildEventCount must equal real BUILDs (2), not 3× '
+            '(6). RebuildDetector consumes this raw and would '
+            'false-positive without the watermark.',
+      );
       client.dispose();
     });
 
-    test(
-        'cursor sweep evicts tids idle past the 30s ceiling so '
+    test('cursor sweep evicts tids idle past the 30s ceiling so '
         'long-lived sessions with churning tids do not leak', () async {
       // Behavioural check: an evicted cursor lets a low-ts event on
       // that tid pass through (otherwise the watermark would skip it
@@ -552,14 +577,17 @@ void main() {
       await client.pollTimelineSync();
 
       final allDurs = received.expand((p) => p.buildScopeDurations).toList();
-      expect(allDurs, contains(50),
-          reason: 'tid=1 cursor must be evicted by poll 2 sweep so the '
-              'tid=1 ts=500 event in poll 3 is not skipped as stale.');
+      expect(
+        allDurs,
+        contains(50),
+        reason:
+            'tid=1 cursor must be evicted by poll 2 sweep so the '
+            'tid=1 ts=500 event in poll 3 is not skipped as stale.',
+      );
       client.dispose();
     });
 
-    test(
-        'capture mode (retainTimeline=true) does NOT evict cursors — '
+    test('capture mode (retainTimeline=true) does NOT evict cursors — '
         'retained-buffer re-reads across 30s+ cross-tid gaps stay '
         'deduped (no replay of old events)', () async {
       // The cursor map is the dedup mechanism in capture mode because
@@ -592,8 +620,11 @@ void main() {
         timeExtentMicros: 100,
       );
       await client.pollTimelineSync();
-      expect(mock.clearVMTimelineCalled, isFalse,
-          reason: 'retainTimeline=true must not clear the VM buffer.');
+      expect(
+        mock.clearVMTimelineCalled,
+        isFalse,
+        reason: 'retainTimeline=true must not clear the VM buffer.',
+      );
 
       // Poll 2: full retained buffer + new tid=2 event 31s later.
       // anchorTs=31_000_001; cursorCutoff would be 1_000_001 if the
@@ -633,53 +664,69 @@ void main() {
 
       final allDurs = received.expand((p) => p.buildScopeDurations).toList()
         ..sort();
-      final totalBuildCount =
-          received.fold<int>(0, (sum, p) => sum + p.buildEventCount);
-      expect(allDurs, equals([100, 200]),
-          reason: 'Each BUILD must appear exactly once across 3 polls of '
-              'retained buffer. Cursor eviction in capture mode would '
-              'replay tid=1 ts=1000 → [100, 100, 200] or similar.');
-      expect(totalBuildCount, 2,
-          reason: 'buildEventCount must equal real BUILDs (2). '
-              'Replay would inflate to 3+.');
-      client.dispose();
-    });
-
-    test('in-flight poll dropped if dispose runs during getVMTimeline await',
-        () async {
-      // Pin the generation-fence: an in-flight poll resuming after
-      // dispose must not fire onTimelineData with stale data.
-      final received = <ParsedTimelineData>[];
-      final mock = _MockVmService();
-      mock.timelineResult = Timeline(
-        traceEvents: [
-          TimelineEvent.parse({
-            'name': 'Build',
-            'cat': 'flutter',
-            'ph': 'X',
-            'dur': 1000,
-            'ts': 100000,
-            'pid': 1,
-            'tid': 1,
-          })!,
-        ],
-        timeOriginMicros: 100000,
-        timeExtentMicros: 1000,
+      final totalBuildCount = received.fold<int>(
+        0,
+        (sum, p) => sum + p.buildEventCount,
       );
-      mock.getVMTimelineDelay = const Duration(milliseconds: 80);
-
-      final client = VmServiceClient(onTimelineData: received.add);
-      client.setServiceForTest(mock, isolateId: 'isolate-1');
-
-      final pollFuture = client.pollTimelineSync();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        allDurs,
+        equals([100, 200]),
+        reason:
+            'Each BUILD must appear exactly once across 3 polls of '
+            'retained buffer. Cursor eviction in capture mode would '
+            'replay tid=1 ts=1000 → [100, 100, 200] or similar.',
+      );
+      expect(
+        totalBuildCount,
+        2,
+        reason:
+            'buildEventCount must equal real BUILDs (2). '
+            'Replay would inflate to 3+.',
+      );
       client.dispose();
-      await pollFuture;
-
-      expect(received, isEmpty,
-          reason: 'Stale poll resuming after dispose must not fire '
-              'onTimelineData.');
     });
+
+    test(
+      'in-flight poll dropped if dispose runs during getVMTimeline await',
+      () async {
+        // Pin the generation-fence: an in-flight poll resuming after
+        // dispose must not fire onTimelineData with stale data.
+        final received = <ParsedTimelineData>[];
+        final mock = _MockVmService();
+        mock.timelineResult = Timeline(
+          traceEvents: [
+            TimelineEvent.parse({
+              'name': 'Build',
+              'cat': 'flutter',
+              'ph': 'X',
+              'dur': 1000,
+              'ts': 100000,
+              'pid': 1,
+              'tid': 1,
+            })!,
+          ],
+          timeOriginMicros: 100000,
+          timeExtentMicros: 1000,
+        );
+        mock.getVMTimelineDelay = const Duration(milliseconds: 80);
+
+        final client = VmServiceClient(onTimelineData: received.add);
+        client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+        final pollFuture = client.pollTimelineSync();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        client.dispose();
+        await pollFuture;
+
+        expect(
+          received,
+          isEmpty,
+          reason:
+              'Stale poll resuming after dispose must not fire '
+              'onTimelineData.',
+        );
+      },
+    );
   });
 
   // =========================================================================
@@ -700,9 +747,7 @@ void main() {
         externalUsage: 5000000,
       );
 
-      final client = VmServiceClient(
-        onHeapSample: receivedSamples.add,
-      );
+      final client = VmServiceClient(onHeapSample: receivedSamples.add);
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
       await client.pollTimelineSync();
@@ -742,9 +787,7 @@ void main() {
       );
       mock.memoryUsageResult = MemoryUsage();
 
-      final client = VmServiceClient(
-        onHeapSample: receivedSamples.add,
-      );
+      final client = VmServiceClient(onHeapSample: receivedSamples.add);
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
       await client.pollTimelineSync();
@@ -795,9 +838,7 @@ void main() {
         systemIsolateGroups: [],
       );
 
-      final client = VmServiceClient(
-        onHeapSample: receivedSamples.add,
-      );
+      final client = VmServiceClient(onHeapSample: receivedSamples.add);
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
       await client.pollTimelineSync();
@@ -819,9 +860,7 @@ void main() {
       );
       mock.memoryUsageThrows = Exception('memory poll failed');
 
-      final client = VmServiceClient(
-        onHeapSample: receivedSamples.add,
-      );
+      final client = VmServiceClient(onHeapSample: receivedSamples.add);
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
       await client.pollTimelineSync();

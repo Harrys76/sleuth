@@ -45,24 +45,18 @@ class BonjourAnnouncement {
 
 /// Injection seams. Default to real `Process.run` / `Process.start`;
 /// tests override with hermetic stubs.
-typedef ProcessRunner = Future<ProcessResult> Function(
-  String executable,
-  List<String> arguments,
-);
-typedef ProcessSpawner = Future<Process> Function(
-  String executable,
-  List<String> arguments,
-);
+typedef ProcessRunner =
+    Future<ProcessResult> Function(String executable, List<String> arguments);
+typedef ProcessSpawner =
+    Future<Process> Function(String executable, List<String> arguments);
 
 /// Tool presence check seam (`which <tool>` by default).
 typedef ToolChecker = Future<bool> Function(String tool);
 
 /// Stream-of-lines emitted by `dns-sd -L`. Real impl spawns the process
 /// and pipes stdout; tests pass a `Stream.fromIterable([...])`.
-typedef BonjourLineStream = Stream<String> Function(
-  String bundleId,
-  String service,
-);
+typedef BonjourLineStream =
+    Stream<String> Function(String bundleId, String service);
 
 /// Optional probe — `true` ⇒ this announcement's authCode + port works
 /// through the local iproxy tunnel. Real impl issues a 1-second HTTP
@@ -188,12 +182,14 @@ Future<List<BonjourAnnouncement>> collectBonjourAnnouncements({
       }
       final code = parseAuthCodeLine(line);
       if (code != null && pending != null) {
-        out.add(BonjourAnnouncement(
-          interfaceIndex: pending!.interfaceIndex,
-          host: pending!.host,
-          port: pending!.port,
-          authCode: code,
-        ));
+        out.add(
+          BonjourAnnouncement(
+            interfaceIndex: pending!.interfaceIndex,
+            host: pending!.host,
+            port: pending!.port,
+            authCode: code,
+          ),
+        );
         pending = null;
         if (out.length >= maxAnnouncements && !completer.isCompleted) {
           completer.complete();
@@ -472,8 +468,13 @@ Future<IosTransport> detectIosTransport({
 }) async {
   final ProcessResult result;
   try {
-    result = await run(
-        'xcrun', ['devicectl', 'list', 'devices', '--json-output', '-']);
+    result = await run('xcrun', [
+      'devicectl',
+      'list',
+      'devices',
+      '--json-output',
+      '-',
+    ]);
   } catch (_) {
     return IosTransport.unknown;
   }
@@ -708,8 +709,9 @@ Future<AttachIosResult> runAttachIosCommand({
     transport = parsed.transportMode!;
   } else {
     final detected = await detectIosTransport(udid: udid, run: run);
-    transport =
-        detected == IosTransport.unknown ? IosTransport.wired : detected;
+    transport = detected == IosTransport.unknown
+        ? IosTransport.wired
+        : detected;
   }
   final isWireless = transport == IosTransport.wireless;
 
@@ -954,18 +956,15 @@ Future<AttachIosResult> runAttachIosCommand({
     if (!exitCompleter.isCompleted) exitCompleter.complete();
   }
 
-  final stderrSub = iproxy.stderr.listen(
-    (chunk) {
-      final remaining = stderrCap - stderrBuf.length;
-      if (chunk.length <= remaining) {
-        stderrBuf.add(chunk);
-      } else {
-        if (remaining > 0) stderrBuf.add(chunk.sublist(0, remaining));
-        stderrTruncated = true;
-      }
-    },
-    onDone: markIproxyExit,
-  );
+  final stderrSub = iproxy.stderr.listen((chunk) {
+    final remaining = stderrCap - stderrBuf.length;
+    if (chunk.length <= remaining) {
+      stderrBuf.add(chunk);
+    } else {
+      if (remaining > 0) stderrBuf.add(chunk.sublist(0, remaining));
+      stderrTruncated = true;
+    }
+  }, onDone: markIproxyExit);
   unawaited(iproxy.stdout.drain<void>().then((_) => markIproxyExit()));
 
   // Readiness window: if iproxy exits inside the window the tunnel
@@ -1002,9 +1001,7 @@ Future<AttachIosResult> runAttachIosCommand({
   out.writeln(
     "Paste the wsUri above into your agent: attach_app(debugUrl: '$wsUri')",
   );
-  out.writeln(
-    'iproxy running (pid ${iproxy.pid}). Press Ctrl-C to tear down.',
-  );
+  out.writeln('iproxy running (pid ${iproxy.pid}). Press Ctrl-C to tear down.');
 
   if (!waitForSignal) {
     await stderrSub.cancel();

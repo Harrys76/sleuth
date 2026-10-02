@@ -75,10 +75,12 @@ class _TriggerButtonState extends State<TriggerButton> {
             child: ValueListenableBuilder<List<PerformanceIssue>>(
               valueListenable: widget.issuesNotifier,
               builder: (context, issues, _) {
-                final hasCritical =
-                    issues.any((i) => i.severity == IssueSeverity.critical);
-                final hasWarning =
-                    issues.any((i) => i.severity == IssueSeverity.warning);
+                final hasCritical = issues.any(
+                  (i) => i.severity == IssueSeverity.critical,
+                );
+                final hasWarning = issues.any(
+                  (i) => i.severity == IssueSeverity.warning,
+                );
 
                 Color bgColor;
                 if (hasCritical) {
@@ -145,8 +147,10 @@ class _TriggerButtonState extends State<TriggerButton> {
                                   color: theme.severityWarning,
                                   shape: BoxShape.circle,
                                 ),
-                                child: Text('⚠️',
-                                    style: TextStyle(fontSize: theme.fontSm)),
+                                child: Text(
+                                  '⚠️',
+                                  style: TextStyle(fontSize: theme.fontSm),
+                                ),
                               ),
                             ),
                         ],
@@ -160,8 +164,10 @@ class _TriggerButtonState extends State<TriggerButton> {
                         // Parity with `_StatusRow`: throughputFps primary,
                         // warm-up placeholder until buffer has 3 frames.
                         final isWarming = buffer.length < 3;
-                        final fps = buffer.throughputFps
-                            .clamp(0.0, widget.fpsTarget.toDouble());
+                        final fps = buffer.throughputFps.clamp(
+                          0.0,
+                          widget.fpsTarget.toDouble(),
+                        );
                         return Text(
                           isWarming ? '—' : fps.toStringAsFixed(0),
                           style: TextStyle(
@@ -171,10 +177,7 @@ class _TriggerButtonState extends State<TriggerButton> {
                             fontSize: theme.fontBase,
                             fontWeight: FontWeight.bold,
                             shadows: [
-                              Shadow(
-                                color: theme.shadow,
-                                blurRadius: 4,
-                              ),
+                              Shadow(color: theme.shadow, blurRadius: 4),
                             ],
                           ),
                         );

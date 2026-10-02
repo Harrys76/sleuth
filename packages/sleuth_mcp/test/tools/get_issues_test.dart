@@ -18,10 +18,9 @@ void main() {
     final bridge = defaultFakeBridge();
     await bridge.connect(Uri.parse('ws://localhost/ws'));
     final handler = builtInTools['get_issues']!.handler;
-    final result = await handler(
-      bridge,
-      {'severityAtLeast': 'warning'},
-    ) as Map<String, Object?>;
+    final result =
+        await handler(bridge, {'severityAtLeast': 'warning'})
+            as Map<String, Object?>;
     final data = result['data'] as Map<String, Object?>;
     expect((data['issues'] as List), hasLength(2));
   });
@@ -30,10 +29,9 @@ void main() {
     final bridge = defaultFakeBridge();
     await bridge.connect(Uri.parse('ws://localhost/ws'));
     final handler = builtInTools['get_issues']!.handler;
-    final result = await handler(
-      bridge,
-      {'severityAtLeast': 'critical'},
-    ) as Map<String, Object?>;
+    final result =
+        await handler(bridge, {'severityAtLeast': 'critical'})
+            as Map<String, Object?>;
     final data = result['data'] as Map<String, Object?>;
     expect((data['issues'] as List), hasLength(1));
   });
@@ -42,31 +40,38 @@ void main() {
     final bridge = defaultFakeBridge();
     await bridge.connect(Uri.parse('ws://localhost/ws'));
     final handler = builtInTools['get_issues']!.handler;
-    final result = await handler(
-      bridge,
-      {'severityAtLeast': 'CRITICAL'},
-    ) as Map<String, Object?>;
+    final result =
+        await handler(bridge, {'severityAtLeast': 'CRITICAL'})
+            as Map<String, Object?>;
     final data = result['data'] as Map<String, Object?>;
     expect((data['issues'] as List), hasLength(1));
   });
 
-  test('compact by default: each issue trimmed to the actionable subset',
-      () async {
-    final bridge = defaultFakeBridge();
-    await bridge.connect(Uri.parse('ws://localhost/ws'));
-    final handler = builtInTools['get_issues']!.handler;
-    final result = await handler(bridge, {}) as Map<String, Object?>;
-    final data = result['data'] as Map<String, Object?>;
-    final issues = (data['issues'] as List).cast<Map<String, Object?>>();
-    expect(issues.first['stableId'], 'jank_detected');
-    expect(issues.first.containsKey('rankingScore'), isFalse,
-        reason: 'verbose noise must be dropped by default');
-    expect(issues.first.containsKey('title'), isTrue,
-        reason: 'actionable fields are kept');
-    // No cap hit ⇒ no truncation stamp.
-    expect(data.containsKey('_truncated'), isFalse);
-    expect(data.containsKey('_totalCount'), isFalse);
-  });
+  test(
+    'compact by default: each issue trimmed to the actionable subset',
+    () async {
+      final bridge = defaultFakeBridge();
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final handler = builtInTools['get_issues']!.handler;
+      final result = await handler(bridge, {}) as Map<String, Object?>;
+      final data = result['data'] as Map<String, Object?>;
+      final issues = (data['issues'] as List).cast<Map<String, Object?>>();
+      expect(issues.first['stableId'], 'jank_detected');
+      expect(
+        issues.first.containsKey('rankingScore'),
+        isFalse,
+        reason: 'verbose noise must be dropped by default',
+      );
+      expect(
+        issues.first.containsKey('title'),
+        isTrue,
+        reason: 'actionable fields are kept',
+      );
+      // No cap hit ⇒ no truncation stamp.
+      expect(data.containsKey('_truncated'), isFalse);
+      expect(data.containsKey('_totalCount'), isFalse);
+    },
+  );
 
   test('verbose: full issue fields returned', () async {
     final bridge = defaultFakeBridge();
@@ -92,21 +97,28 @@ void main() {
     expect(data['_totalCount'], 2, reason: 'pre-cap count after any filter');
   });
 
-  test('cap is applied after the severity filter (total is post-filter)',
-      () async {
-    final bridge = defaultFakeBridge();
-    await bridge.connect(Uri.parse('ws://localhost/ws'));
-    final handler = builtInTools['get_issues']!.handler;
-    // Filter to critical (1 issue), cap at 1 ⇒ no truncation.
-    final result = await handler(
-      bridge,
-      {'severityAtLeast': 'critical', 'maxIssueCount': 1},
-    ) as Map<String, Object?>;
-    final data = result['data'] as Map<String, Object?>;
-    expect((data['issues'] as List), hasLength(1));
-    expect(data.containsKey('_truncated'), isFalse,
-        reason: 'post-filter count (1) does not exceed the cap (1)');
-  });
+  test(
+    'cap is applied after the severity filter (total is post-filter)',
+    () async {
+      final bridge = defaultFakeBridge();
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final handler = builtInTools['get_issues']!.handler;
+      // Filter to critical (1 issue), cap at 1 ⇒ no truncation.
+      final result =
+          await handler(bridge, {
+                'severityAtLeast': 'critical',
+                'maxIssueCount': 1,
+              })
+              as Map<String, Object?>;
+      final data = result['data'] as Map<String, Object?>;
+      expect((data['issues'] as List), hasLength(1));
+      expect(
+        data.containsKey('_truncated'),
+        isFalse,
+        reason: 'post-filter count (1) does not exceed the cap (1)',
+      );
+    },
+  );
 
   test('negative maxIssueCount is rejected with arg_invalid_int', () async {
     final bridge = defaultFakeBridge();

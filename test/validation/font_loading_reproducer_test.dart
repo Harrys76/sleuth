@@ -25,39 +25,39 @@ void main() {
     // --- runtime_font_loading ------------------------------------------
 
     testWidgets(
-        'runtime_font_loading: custom family + fontFamilyFallback fires',
-        (tester) async {
-      final detector = FontLoadingDetector();
-      final issues = await scanAndIssues(
-        tester,
-        detector,
-        const Text(
-          'hi',
-          style: TextStyle(
-            fontFamily: 'SomeCustomFont',
-            fontFamilyFallback: ['Roboto'],
+      'runtime_font_loading: custom family + fontFamilyFallback fires',
+      (tester) async {
+        final detector = FontLoadingDetector();
+        final issues = await scanAndIssues(
+          tester,
+          detector,
+          const Text(
+            'hi',
+            style: TextStyle(
+              fontFamily: 'SomeCustomFont',
+              fontFamilyFallback: ['Roboto'],
+            ),
           ),
-        ),
-      );
-      expect(issues, hasStableId('runtime_font_loading'));
-    });
+        );
+        expect(issues, hasStableId('runtime_font_loading'));
+      },
+    );
 
-    testWidgets('runtime_font_loading: custom family WITHOUT fallback silent',
-        (tester) async {
+    testWidgets('runtime_font_loading: custom family WITHOUT fallback silent', (
+      tester,
+    ) async {
       final detector = FontLoadingDetector();
       final issues = await scanAndIssues(
         tester,
         detector,
-        const Text(
-          'hi',
-          style: TextStyle(fontFamily: 'BundledFont'),
-        ),
+        const Text('hi', style: TextStyle(fontFamily: 'BundledFont')),
       );
       expect(issues, lacksStableId('runtime_font_loading'));
     });
 
-    testWidgets('runtime_font_loading: system font + fallback silent',
-        (tester) async {
+    testWidgets('runtime_font_loading: system font + fallback silent', (
+      tester,
+    ) async {
       // System fonts are in _systemFonts — skipped early, never added to
       // _runtimeLoadedFamilies even when fallback is present.
       final detector = FontLoadingDetector();
@@ -66,17 +66,15 @@ void main() {
         detector,
         const Text(
           'hi',
-          style: TextStyle(
-            fontFamily: 'Roboto',
-            fontFamilyFallback: ['Arial'],
-          ),
+          style: TextStyle(fontFamily: 'Roboto', fontFamilyFallback: ['Arial']),
         ),
       );
       expect(issues, lacksStableId('runtime_font_loading'));
     });
 
-    testWidgets('runtime_font_loading: RichText path also exercised',
-        (tester) async {
+    testWidgets('runtime_font_loading: RichText path also exercised', (
+      tester,
+    ) async {
       final detector = FontLoadingDetector();
       final issues = await scanAndIssues(
         tester,
@@ -97,24 +95,24 @@ void main() {
     // --- multiple_custom_fonts -----------------------------------------
 
     testWidgets(
-        'multiple_custom_fonts: 2 custom families > maxFamilies:1 fires',
-        (tester) async {
-      final detector = FontLoadingDetector(maxFamilies: 1);
-      final issues = await scanAndIssues(
-        tester,
-        detector,
-        const Column(
-          children: [
-            Text('a', style: TextStyle(fontFamily: 'FontA')),
-            Text('b', style: TextStyle(fontFamily: 'FontB')),
-          ],
-        ),
-      );
-      expect(issues, hasStableId('multiple_custom_fonts'));
-    });
+      'multiple_custom_fonts: 2 custom families > maxFamilies:1 fires',
+      (tester) async {
+        final detector = FontLoadingDetector(maxFamilies: 1);
+        final issues = await scanAndIssues(
+          tester,
+          detector,
+          const Column(
+            children: [
+              Text('a', style: TextStyle(fontFamily: 'FontA')),
+              Text('b', style: TextStyle(fontFamily: 'FontB')),
+            ],
+          ),
+        );
+        expect(issues, hasStableId('multiple_custom_fonts'));
+      },
+    );
 
-    testWidgets(
-        'multiple_custom_fonts: exactly maxFamilies silent '
+    testWidgets('multiple_custom_fonts: exactly maxFamilies silent '
         '(strict-greater: `> maxFamilies`)', (tester) async {
       final detector = FontLoadingDetector(maxFamilies: 1);
       final issues = await scanAndIssues(
@@ -125,8 +123,9 @@ void main() {
       expect(issues, lacksStableId('multiple_custom_fonts'));
     });
 
-    testWidgets('multiple_custom_fonts: duplicate family only counts once',
-        (tester) async {
+    testWidgets('multiple_custom_fonts: duplicate family only counts once', (
+      tester,
+    ) async {
       final detector = FontLoadingDetector(maxFamilies: 1);
       final issues = await scanAndIssues(
         tester,
@@ -138,8 +137,11 @@ void main() {
           ],
         ),
       );
-      expect(issues, lacksStableId('multiple_custom_fonts'),
-          reason: 'Same family used twice = 1 family, not > maxFamilies:1.');
+      expect(
+        issues,
+        lacksStableId('multiple_custom_fonts'),
+        reason: 'Same family used twice = 1 family, not > maxFamilies:1.',
+      );
     });
 
     // The detector's source comment claims it does NOT detect fonts

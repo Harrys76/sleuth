@@ -37,8 +37,10 @@ void main() {
 
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.title, contains('1 intrinsic'));
-      expect(detector.issues.first.observationSource,
-          ObservationSource.structural);
+      expect(
+        detector.issues.first.observationSource,
+        ObservationSource.structural,
+      );
     });
 
     testWidgets('flags IntrinsicWidth widget', (tester) async {
@@ -149,9 +151,7 @@ void main() {
         const Directionality(
           textDirection: TextDirection.ltr,
           child: IntrinsicHeight(
-            child: IntrinsicHeight(
-              child: SizedBox(width: 10, height: 10),
-            ),
+            child: IntrinsicHeight(child: SizedBox(width: 10, height: 10)),
           ),
         ),
       );
@@ -167,9 +167,7 @@ void main() {
         const Directionality(
           textDirection: TextDirection.ltr,
           child: IntrinsicHeight(
-            child: IntrinsicHeight(
-              child: SizedBox(width: 10, height: 10),
-            ),
+            child: IntrinsicHeight(child: SizedBox(width: 10, height: 10)),
           ),
         ),
       );
@@ -189,9 +187,7 @@ void main() {
           child: Column(
             children: [
               IntrinsicHeight(
-                child: IntrinsicHeight(
-                  child: SizedBox(width: 10, height: 10),
-                ),
+                child: IntrinsicHeight(child: SizedBox(width: 10, height: 10)),
               ),
               IntrinsicWidth(child: SizedBox(width: 10, height: 10)),
             ],
@@ -210,8 +206,9 @@ void main() {
     // -----------------------------------------------------------------
 
     group('framework widget suppression', () {
-      testWidgets('IntrinsicWidth inside DropdownButton is NOT flagged',
-          (tester) async {
+      testWidgets('IntrinsicWidth inside DropdownButton is NOT flagged', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           MaterialApp(
             home: Material(
@@ -228,8 +225,11 @@ void main() {
         );
         detector.scanTree(tester.element(find.byType(Material).last));
 
-        expect(detector.issues, isEmpty,
-            reason: 'DropdownButton uses IntrinsicWidth internally — suppress');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'DropdownButton uses IntrinsicWidth internally — suppress',
+        );
       });
 
       testWidgets('standalone IntrinsicWidth is still flagged', (tester) async {
@@ -244,8 +244,9 @@ void main() {
         expect(detector.issues, hasLength(1));
       });
 
-      testWidgets('IntrinsicHeight inside AlertDialog is NOT flagged',
-          (tester) async {
+      testWidgets('IntrinsicHeight inside AlertDialog is NOT flagged', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           MaterialApp(
             home: AlertDialog(
@@ -260,8 +261,11 @@ void main() {
         // on Flutter version. If it does, it should be suppressed.
         // If it doesn't, no issues either. Both are correct.
         for (final issue in detector.issues) {
-          expect(issue.detail, isNot(contains('AlertDialog')),
-              reason: 'Intrinsics inside AlertDialog should be suppressed');
+          expect(
+            issue.detail,
+            isNot(contains('AlertDialog')),
+            reason: 'Intrinsics inside AlertDialog should be suppressed',
+          );
         }
       });
     });
@@ -318,8 +322,9 @@ void main() {
         expect(wrapIssues, isEmpty);
       });
 
-      testWidgets('Wrap alongside IntrinsicHeight reports both',
-          (tester) async {
+      testWidgets('Wrap alongside IntrinsicHeight reports both', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           Directionality(
             textDirection: TextDirection.ltr,

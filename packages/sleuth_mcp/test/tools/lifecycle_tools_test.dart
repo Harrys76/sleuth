@@ -22,20 +22,26 @@ Map<String, Object?> _decodeJsonText(Map<String, Object?> result) {
 }
 
 Future<({McpServer server, FakeVmBridge bridge, DaemonSession session})>
-    _setup() async {
+_setup() async {
   final bridge = defaultFakeBridge();
   final server = McpServer(bridge: bridge)..registerDefaults();
-  await server
-      .handleForTest(JsonRpcMessage(method: 'initialize', id: 0, params: {
-    'protocolVersion': '2024-11-05',
-  }));
+  await server.handleForTest(
+    JsonRpcMessage(
+      method: 'initialize',
+      id: 0,
+      params: {'protocolVersion': '2024-11-05'},
+    ),
+  );
   final session = DaemonSession(
     bridge: bridge,
     server: server,
-    processFactory: (_, __,
-            {String? workingDirectory,
-            Map<String, String>? environment}) async =>
-        throw StateError('no process factory bound for this test'),
+    processFactory:
+        (
+          _,
+          __, {
+          String? workingDirectory,
+          Map<String, String>? environment,
+        }) async => throw StateError('no process factory bound for this test'),
   );
   server.setDaemonSession(session);
   return (server: server, bridge: bridge, session: session);
@@ -45,61 +51,61 @@ void main() {
   group('attach_app tool', () {
     test('debugUrl path → returns ready status', () async {
       final ctx = await _setup();
-      final resp = await ctx.server.handleForTest(_toolCall(
-        'attach_app',
-        {'debugUrl': 'ws://127.0.0.1:1/tok/ws'},
-      ));
+      final resp = await ctx.server.handleForTest(
+        _toolCall('attach_app', {'debugUrl': 'ws://127.0.0.1:1/tok/ws'}),
+      );
       final status = _decodeJsonText(resp!.result as Map<String, Object?>);
       expect(status['state'], 'ready');
       expect(status['attached'], isTrue);
     });
 
-    test(
-      'lifecycle tool running longer than the generic tool timeout still '
-      'succeeds + does NOT disconnect the bridge',
-      () async {
-        // Lifecycle tools own their own deadlines; the generic _toolTimeout
-        // must not disconnect the bridge mid-operation.
-        final inner = defaultFakeBridge();
-        final bridge = _SlowConnectBridge(
-          inner,
-          delay: const Duration(milliseconds: 300),
-        );
-        final server = McpServer(
-          bridge: bridge,
-          toolTimeout: const Duration(milliseconds: 100),
-        )..registerDefaults();
-        await server.handleForTest(JsonRpcMessage(
-            method: 'initialize',
-            id: 0,
-            params: {'protocolVersion': '2024-11-05'}));
-        final session = DaemonSession(
-          bridge: bridge,
-          server: server,
-          processFactory: (_, __,
-                  {String? workingDirectory,
-                  Map<String, String>? environment}) async =>
-              throw StateError('debugUrl path bypasses spawn'),
-        );
-        server.setDaemonSession(session);
-        final resp = await server.handleForTest(_toolCall(
-          'attach_app',
-          {'debugUrl': 'ws://127.0.0.1:1/tok/ws'},
-        ));
-        final result = resp!.result as Map<String, Object?>;
-        expect(result['isError'], isNot(isTrue));
-        expect(bridge.isConnected, isTrue);
-      },
-    );
+    test('lifecycle tool running longer than the generic tool timeout still '
+        'succeeds + does NOT disconnect the bridge', () async {
+      // Lifecycle tools own their own deadlines; the generic _toolTimeout
+      // must not disconnect the bridge mid-operation.
+      final inner = defaultFakeBridge();
+      final bridge = _SlowConnectBridge(
+        inner,
+        delay: const Duration(milliseconds: 300),
+      );
+      final server = McpServer(
+        bridge: bridge,
+        toolTimeout: const Duration(milliseconds: 100),
+      )..registerDefaults();
+      await server.handleForTest(
+        JsonRpcMessage(
+          method: 'initialize',
+          id: 0,
+          params: {'protocolVersion': '2024-11-05'},
+        ),
+      );
+      final session = DaemonSession(
+        bridge: bridge,
+        server: server,
+        processFactory:
+            (
+              _,
+              __, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+            }) async => throw StateError('debugUrl path bypasses spawn'),
+      );
+      server.setDaemonSession(session);
+      final resp = await server.handleForTest(
+        _toolCall('attach_app', {'debugUrl': 'ws://127.0.0.1:1/tok/ws'}),
+      );
+      final result = resp!.result as Map<String, Object?>;
+      expect(result['isError'], isNot(isTrue));
+      expect(bridge.isConnected, isTrue);
+    });
   });
 
   group('hot_reload / hot_restart tools', () {
     test('hot_reload refuses when not attached', () async {
       final ctx = await _setup();
-      final resp = await ctx.server.handleForTest(_toolCall(
-        'hot_reload',
-        const <String, Object?>{},
-      ));
+      final resp = await ctx.server.handleForTest(
+        _toolCall('hot_reload', const <String, Object?>{}),
+      );
       final result = resp!.result as Map<String, Object?>;
       expect(result['isError'], isTrue);
     });
@@ -107,27 +113,32 @@ void main() {
     test('hot_reload happy path via daemon path', () async {
       final bridge = defaultFakeBridge();
       final server = McpServer(bridge: bridge)..registerDefaults();
-      await server
-          .handleForTest(JsonRpcMessage(method: 'initialize', id: 0, params: {
-        'protocolVersion': '2024-11-05',
-      }));
+      await server.handleForTest(
+        JsonRpcMessage(
+          method: 'initialize',
+          id: 0,
+          params: {'protocolVersion': '2024-11-05'},
+        ),
+      );
       final fake = FakeFlutterProcess();
       final session = DaemonSession(
         bridge: bridge,
         server: server,
-        processFactory: (_, __,
-                {String? workingDirectory,
-                Map<String, String>? environment}) async =>
-            fake,
+        processFactory:
+            (
+              _,
+              __, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+            }) async => fake,
         attachTimeout: const Duration(seconds: 2),
         hotReloadTimeout: const Duration(seconds: 2),
       );
       server.setDaemonSession(session);
 
-      final attachFuture = server.handleForTest(_toolCall(
-        'attach_app',
-        const <String, Object?>{},
-      ));
+      final attachFuture = server.handleForTest(
+        _toolCall('attach_app', const <String, Object?>{}),
+      );
       await Future<void>.delayed(Duration.zero);
       fake.emitEvent('daemon.connected', {'version': '0.6.1', 'pid': 100});
       await Future<void>.delayed(Duration.zero);
@@ -144,16 +155,15 @@ void main() {
         'wsUri': 'ws://127.0.0.1:4242/tok/ws',
       });
       final attached = await attachFuture;
-      final attachedStatus =
-          _decodeJsonText(attached!.result as Map<String, Object?>);
+      final attachedStatus = _decodeJsonText(
+        attached!.result as Map<String, Object?>,
+      );
       expect(attachedStatus['state'], 'ready');
       final genBefore = bridge.baselineGeneration;
 
-      final reloadFuture = server.handleForTest(_toolCall(
-        'hot_reload',
-        const <String, Object?>{},
-        id: 2,
-      ));
+      final reloadFuture = server.handleForTest(
+        _toolCall('hot_reload', const <String, Object?>{}, id: 2),
+      );
       await Future<void>.delayed(Duration.zero);
       final reqFrame = jsonDecode(fake.stdinFrames.last) as List;
       final rpcId = (reqFrame.first as Map)['id'] as int;
@@ -196,9 +206,10 @@ class _SlowConnectBridge implements VmBridge {
       inner.refreshBaseline(acceptSessionRotation: acceptSessionRotation);
 
   @override
-  Future<Map<String, Object?>> callExtension(String method,
-          {Map<String, dynamic> args = const <String, dynamic>{}}) =>
-      inner.callExtension(method, args: args);
+  Future<Map<String, Object?>> callExtension(
+    String method, {
+    Map<String, dynamic> args = const <String, dynamic>{},
+  }) => inner.callExtension(method, args: args);
 
   @override
   Future<void> disconnect() => inner.disconnect();

@@ -18,22 +18,26 @@ void main() {
     'wire round-trip: real Service.controlWebServer + double-decode',
     () async {
       developer.registerExtension('ext.test.sleuth_echo', (method, args) async {
-        return developer.ServiceExtensionResponse.result(jsonEncode({
-          'connectionMode': 'basic',
-          'schemaVersion': 1,
-          'sessionUuid': 'wire-test-uuid',
-          'data': {'echoedArgs': args, 'echoMethod': method},
-        }));
+        return developer.ServiceExtensionResponse.result(
+          jsonEncode({
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': 'wire-test-uuid',
+            'data': {'echoedArgs': args, 'echoMethod': method},
+          }),
+        );
       });
       developer.registerExtension('ext.sleuth.diagnose', (method, args) async {
-        return developer.ServiceExtensionResponse.result(jsonEncode({
-          'connectionMode': 'basic',
-          'schemaVersion': 1,
-          'sessionUuid': 'wire-test-uuid',
-          // Literal — interpolating sleuthPackageVersionPin would let a typo
-          // in the production const silently pass the fixture check.
-          'data': {'packageVersion': '0.34.0'},
-        }));
+        return developer.ServiceExtensionResponse.result(
+          jsonEncode({
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': 'wire-test-uuid',
+            // Literal — interpolating sleuthPackageVersionPin would let a typo
+            // in the production const silently pass the fixture check.
+            'data': {'packageVersion': '0.34.0'},
+          }),
+        );
       });
 
       final info = await developer.Service.controlWebServer(
@@ -70,8 +74,10 @@ void main() {
   test(
     'extension error surfaces as VmBridgeException, not transport-close',
     () async {
-      developer.registerExtension('ext.test.always_error',
-          (method, args) async {
+      developer.registerExtension('ext.test.always_error', (
+        method,
+        args,
+      ) async {
         return developer.ServiceExtensionResponse.error(
           developer.ServiceExtensionResponse.extensionError,
           'synthetic extension failure',
@@ -115,15 +121,19 @@ void main() {
       // `ext.sleuth.diagnose` is registered by the first test in this
       // file — `registerExtension` throws on re-register so we rely on
       // that prior registration here.
-      developer.registerExtension('ext.sleuth.routeHealth',
-          (method, args) async {
-        return developer.ServiceExtensionResponse.result(jsonEncode({
-          'connectionMode': 'basic',
-          'schemaVersion': 1,
-          'sessionUuid': 'wire-test-uuid',
-          // Inline v0.32 shape — RouteSession.toJson() directly as data.
-          'data': {'routeName': 'home', 'sessionId': 'sess-1'},
-        }));
+      developer.registerExtension('ext.sleuth.routeHealth', (
+        method,
+        args,
+      ) async {
+        return developer.ServiceExtensionResponse.result(
+          jsonEncode({
+            'connectionMode': 'basic',
+            'schemaVersion': 1,
+            'sessionUuid': 'wire-test-uuid',
+            // Inline v0.32 shape — RouteSession.toJson() directly as data.
+            'data': {'routeName': 'home', 'sessionId': 'sess-1'},
+          }),
+        );
       });
 
       final info = await developer.Service.controlWebServer(
@@ -145,9 +155,13 @@ void main() {
         final result =
             await handler(bridge, {'route': 'home'}) as Map<String, Object?>;
         final data = result['data'] as Map<String, Object?>;
-        expect(data.containsKey('route'), isTrue,
-            reason: 'tool layer must wrap inline shape under `route` so the '
-                'sidecar always surfaces the canonical v0.33 contract');
+        expect(
+          data.containsKey('route'),
+          isTrue,
+          reason:
+              'tool layer must wrap inline shape under `route` so the '
+              'sidecar always surfaces the canonical v0.33 contract',
+        );
         final routeMap = data['route'] as Map<String, Object?>;
         expect(routeMap['routeName'], 'home');
         expect(routeMap['sessionId'], 'sess-1');

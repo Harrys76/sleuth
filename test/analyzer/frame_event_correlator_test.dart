@@ -353,7 +353,8 @@ void main() {
         return PhaseEvent(
           phase: i.isEven ? TimelinePhase.build : TimelinePhase.raster,
           timestampUs: i.isEven
-              ? buildStart + 2000 // inside build window
+              ? buildStart +
+                    2000 // inside build window
               : buildStart + 12000, // inside raster window
           durationUs: 500,
         );
@@ -367,8 +368,10 @@ void main() {
       stopwatch.stop();
 
       // All 500 events should match some frame
-      final totalMatched =
-          result.values.fold(0, (sum, d) => sum + d.matchedEventCount);
+      final totalMatched = result.values.fold(
+        0,
+        (sum, d) => sum + d.matchedEventCount,
+      );
       expect(totalMatched, eventCount);
       expect(result, hasLength(frameCount));
 

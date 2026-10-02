@@ -111,8 +111,8 @@ class StartupMetrics {
   /// both [engineEnterUs] and [firstFrameRasterizedUs].
   double? get engineTtffMs =>
       engineEnterUs != null && firstFrameRasterizedUs != null
-          ? (firstFrameRasterizedUs! - engineEnterUs!) / 1000.0
-          : null;
+      ? (firstFrameRasterizedUs! - engineEnterUs!) / 1000.0
+      : null;
 
   /// The pipeline phase that consumed the largest share of first-frame time.
   ///
@@ -156,93 +156,91 @@ class StartupMetrics {
     int? frameworkInitDurationUs,
     int? engineEnterUs,
     int? firstFrameRasterizedUs,
-  }) =>
-      StartupMetrics(
-        dartEntryTimestamp: dartEntryTimestamp,
-        ttffMs: ttffMs,
-        ttiMs: ttiMs ?? this.ttiMs,
-        firstFrameVsyncOverheadMs: firstFrameVsyncOverheadMs,
-        firstFrameBuildMs: firstFrameBuildMs,
-        firstFrameRasterMs: firstFrameRasterMs,
-        firstFrameTotalMs: firstFrameTotalMs,
-        vmFirstBuildScopeMs: vmFirstBuildScopeMs ?? this.vmFirstBuildScopeMs,
-        vmFirstFlushLayoutMs: vmFirstFlushLayoutMs ?? this.vmFirstFlushLayoutMs,
-        vmFirstFlushPaintMs: vmFirstFlushPaintMs ?? this.vmFirstFlushPaintMs,
-        vmFirstRasterMs: vmFirstRasterMs ?? this.vmFirstRasterMs,
-        dartEntryMonotonicUs: dartEntryMonotonicUs ?? this.dartEntryMonotonicUs,
-        frameworkInitDurationUs:
-            frameworkInitDurationUs ?? this.frameworkInitDurationUs,
-        engineEnterUs: engineEnterUs ?? this.engineEnterUs,
-        firstFrameRasterizedUs:
-            firstFrameRasterizedUs ?? this.firstFrameRasterizedUs,
-      );
+  }) => StartupMetrics(
+    dartEntryTimestamp: dartEntryTimestamp,
+    ttffMs: ttffMs,
+    ttiMs: ttiMs ?? this.ttiMs,
+    firstFrameVsyncOverheadMs: firstFrameVsyncOverheadMs,
+    firstFrameBuildMs: firstFrameBuildMs,
+    firstFrameRasterMs: firstFrameRasterMs,
+    firstFrameTotalMs: firstFrameTotalMs,
+    vmFirstBuildScopeMs: vmFirstBuildScopeMs ?? this.vmFirstBuildScopeMs,
+    vmFirstFlushLayoutMs: vmFirstFlushLayoutMs ?? this.vmFirstFlushLayoutMs,
+    vmFirstFlushPaintMs: vmFirstFlushPaintMs ?? this.vmFirstFlushPaintMs,
+    vmFirstRasterMs: vmFirstRasterMs ?? this.vmFirstRasterMs,
+    dartEntryMonotonicUs: dartEntryMonotonicUs ?? this.dartEntryMonotonicUs,
+    frameworkInitDurationUs:
+        frameworkInitDurationUs ?? this.frameworkInitDurationUs,
+    engineEnterUs: engineEnterUs ?? this.engineEnterUs,
+    firstFrameRasterizedUs:
+        firstFrameRasterizedUs ?? this.firstFrameRasterizedUs,
+  );
 
   Map<String, dynamic> toJson() => {
-        'dartEntryTimestamp': dartEntryTimestamp.toIso8601String(),
-        if (ttffMs != null) 'ttffMs': double.parse(ttffMs!.toStringAsFixed(1)),
-        if (ttiMs != null) 'ttiMs': double.parse(ttiMs!.toStringAsFixed(1)),
-        if (firstFrameVsyncOverheadMs != null)
-          'firstFrameVsyncOverheadMs':
-              double.parse(firstFrameVsyncOverheadMs!.toStringAsFixed(2)),
-        if (firstFrameBuildMs != null)
-          'firstFrameBuildMs':
-              double.parse(firstFrameBuildMs!.toStringAsFixed(2)),
-        if (firstFrameRasterMs != null)
-          'firstFrameRasterMs':
-              double.parse(firstFrameRasterMs!.toStringAsFixed(2)),
-        if (firstFrameTotalMs != null)
-          'firstFrameTotalMs':
-              double.parse(firstFrameTotalMs!.toStringAsFixed(2)),
-        if (vmFirstBuildScopeMs != null)
-          'vmFirstBuildScopeMs':
-              double.parse(vmFirstBuildScopeMs!.toStringAsFixed(2)),
-        if (vmFirstFlushLayoutMs != null)
-          'vmFirstFlushLayoutMs':
-              double.parse(vmFirstFlushLayoutMs!.toStringAsFixed(2)),
-        if (vmFirstFlushPaintMs != null)
-          'vmFirstFlushPaintMs':
-              double.parse(vmFirstFlushPaintMs!.toStringAsFixed(2)),
-        if (vmFirstRasterMs != null)
-          'vmFirstRasterMs': double.parse(vmFirstRasterMs!.toStringAsFixed(2)),
-        if (dartEntryMonotonicUs != null)
-          'dartEntryMonotonicUs': dartEntryMonotonicUs,
-        if (frameworkInitDurationUs != null)
-          'frameworkInitDurationUs': frameworkInitDurationUs,
-        if (engineEnterUs != null) 'engineEnterUs': engineEnterUs,
-        if (firstFrameRasterizedUs != null)
-          'firstFrameRasterizedUs': firstFrameRasterizedUs,
-        if (frameworkInitMs != null)
-          'frameworkInitMs': double.parse(frameworkInitMs!.toStringAsFixed(2)),
-        if (preDartOverheadMs != null)
-          'preDartOverheadMs':
-              double.parse(preDartOverheadMs!.toStringAsFixed(2)),
-        if (engineTtffMs != null)
-          'engineTtffMs': double.parse(engineTtffMs!.toStringAsFixed(2)),
-        'dominantPhase': dominantPhase,
-        'dominantPhasePercent':
-            double.parse(dominantPhasePercent.toStringAsFixed(1)),
-      };
+    'dartEntryTimestamp': dartEntryTimestamp.toIso8601String(),
+    if (ttffMs != null) 'ttffMs': double.parse(ttffMs!.toStringAsFixed(1)),
+    if (ttiMs != null) 'ttiMs': double.parse(ttiMs!.toStringAsFixed(1)),
+    if (firstFrameVsyncOverheadMs != null)
+      'firstFrameVsyncOverheadMs': double.parse(
+        firstFrameVsyncOverheadMs!.toStringAsFixed(2),
+      ),
+    if (firstFrameBuildMs != null)
+      'firstFrameBuildMs': double.parse(firstFrameBuildMs!.toStringAsFixed(2)),
+    if (firstFrameRasterMs != null)
+      'firstFrameRasterMs': double.parse(
+        firstFrameRasterMs!.toStringAsFixed(2),
+      ),
+    if (firstFrameTotalMs != null)
+      'firstFrameTotalMs': double.parse(firstFrameTotalMs!.toStringAsFixed(2)),
+    if (vmFirstBuildScopeMs != null)
+      'vmFirstBuildScopeMs': double.parse(
+        vmFirstBuildScopeMs!.toStringAsFixed(2),
+      ),
+    if (vmFirstFlushLayoutMs != null)
+      'vmFirstFlushLayoutMs': double.parse(
+        vmFirstFlushLayoutMs!.toStringAsFixed(2),
+      ),
+    if (vmFirstFlushPaintMs != null)
+      'vmFirstFlushPaintMs': double.parse(
+        vmFirstFlushPaintMs!.toStringAsFixed(2),
+      ),
+    if (vmFirstRasterMs != null)
+      'vmFirstRasterMs': double.parse(vmFirstRasterMs!.toStringAsFixed(2)),
+    if (dartEntryMonotonicUs != null)
+      'dartEntryMonotonicUs': dartEntryMonotonicUs,
+    if (frameworkInitDurationUs != null)
+      'frameworkInitDurationUs': frameworkInitDurationUs,
+    if (engineEnterUs != null) 'engineEnterUs': engineEnterUs,
+    if (firstFrameRasterizedUs != null)
+      'firstFrameRasterizedUs': firstFrameRasterizedUs,
+    if (frameworkInitMs != null)
+      'frameworkInitMs': double.parse(frameworkInitMs!.toStringAsFixed(2)),
+    if (preDartOverheadMs != null)
+      'preDartOverheadMs': double.parse(preDartOverheadMs!.toStringAsFixed(2)),
+    if (engineTtffMs != null)
+      'engineTtffMs': double.parse(engineTtffMs!.toStringAsFixed(2)),
+    'dominantPhase': dominantPhase,
+    'dominantPhasePercent': double.parse(
+      dominantPhasePercent.toStringAsFixed(1),
+    ),
+  };
 
   factory StartupMetrics.fromJson(Map<String, dynamic> json) => StartupMetrics(
-        dartEntryTimestamp:
-            DateTime.parse(json['dartEntryTimestamp'] as String),
-        ttffMs: (json['ttffMs'] as num?)?.toDouble(),
-        ttiMs: (json['ttiMs'] as num?)?.toDouble(),
-        firstFrameVsyncOverheadMs:
-            (json['firstFrameVsyncOverheadMs'] as num?)?.toDouble(),
-        firstFrameBuildMs: (json['firstFrameBuildMs'] as num?)?.toDouble(),
-        firstFrameRasterMs: (json['firstFrameRasterMs'] as num?)?.toDouble(),
-        firstFrameTotalMs: (json['firstFrameTotalMs'] as num?)?.toDouble(),
-        vmFirstBuildScopeMs: (json['vmFirstBuildScopeMs'] as num?)?.toDouble(),
-        vmFirstFlushLayoutMs:
-            (json['vmFirstFlushLayoutMs'] as num?)?.toDouble(),
-        vmFirstFlushPaintMs: (json['vmFirstFlushPaintMs'] as num?)?.toDouble(),
-        vmFirstRasterMs: (json['vmFirstRasterMs'] as num?)?.toDouble(),
-        dartEntryMonotonicUs: (json['dartEntryMonotonicUs'] as num?)?.toInt(),
-        frameworkInitDurationUs:
-            (json['frameworkInitDurationUs'] as num?)?.toInt(),
-        engineEnterUs: (json['engineEnterUs'] as num?)?.toInt(),
-        firstFrameRasterizedUs:
-            (json['firstFrameRasterizedUs'] as num?)?.toInt(),
-      );
+    dartEntryTimestamp: DateTime.parse(json['dartEntryTimestamp'] as String),
+    ttffMs: (json['ttffMs'] as num?)?.toDouble(),
+    ttiMs: (json['ttiMs'] as num?)?.toDouble(),
+    firstFrameVsyncOverheadMs: (json['firstFrameVsyncOverheadMs'] as num?)
+        ?.toDouble(),
+    firstFrameBuildMs: (json['firstFrameBuildMs'] as num?)?.toDouble(),
+    firstFrameRasterMs: (json['firstFrameRasterMs'] as num?)?.toDouble(),
+    firstFrameTotalMs: (json['firstFrameTotalMs'] as num?)?.toDouble(),
+    vmFirstBuildScopeMs: (json['vmFirstBuildScopeMs'] as num?)?.toDouble(),
+    vmFirstFlushLayoutMs: (json['vmFirstFlushLayoutMs'] as num?)?.toDouble(),
+    vmFirstFlushPaintMs: (json['vmFirstFlushPaintMs'] as num?)?.toDouble(),
+    vmFirstRasterMs: (json['vmFirstRasterMs'] as num?)?.toDouble(),
+    dartEntryMonotonicUs: (json['dartEntryMonotonicUs'] as num?)?.toInt(),
+    frameworkInitDurationUs: (json['frameworkInitDurationUs'] as num?)?.toInt(),
+    engineEnterUs: (json['engineEnterUs'] as num?)?.toInt(),
+    firstFrameRasterizedUs: (json['firstFrameRasterizedUs'] as num?)?.toInt(),
+  );
 }

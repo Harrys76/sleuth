@@ -28,16 +28,29 @@ Future<void> main(List<String> argv) async {
   }
 
   final parser = ArgParser()
-    ..addOption('uri',
-        help:
-            'WebSocket URI of the target app VM service (from flutter run output).')
-    ..addOption('tool-timeout',
-        help: 'Per-tool timeout in seconds.', defaultsTo: '10')
-    ..addFlag('verbose',
-        abbr: 'v', negatable: false, help: 'Verbose logging to stderr.')
+    ..addOption(
+      'uri',
+      help:
+          'WebSocket URI of the target app VM service (from flutter run output).',
+    )
+    ..addOption(
+      'tool-timeout',
+      help: 'Per-tool timeout in seconds.',
+      defaultsTo: '10',
+    )
+    ..addFlag(
+      'verbose',
+      abbr: 'v',
+      negatable: false,
+      help: 'Verbose logging to stderr.',
+    )
     ..addFlag('version', negatable: false, help: 'Print version and exit.')
-    ..addFlag('help',
-        abbr: 'h', negatable: false, help: 'Print usage and exit.');
+    ..addFlag(
+      'help',
+      abbr: 'h',
+      negatable: false,
+      help: 'Print usage and exit.',
+    );
 
   ArgResults parsed;
   try {
@@ -51,13 +64,15 @@ Future<void> main(List<String> argv) async {
 
   if (parsed['help'] as bool) {
     stdout.writeln(
-        'sleuth_mcp — MCP stdio sidecar for the sleuth Flutter package.\n');
+      'sleuth_mcp — MCP stdio sidecar for the sleuth Flutter package.\n',
+    );
     stdout.writeln(parser.usage);
     return;
   }
   if (parsed['version'] as bool) {
     stdout.writeln(
-        'sleuth_mcp $sleuthMcpVersion (against sleuth $sleuthPackageVersionPin)');
+      'sleuth_mcp $sleuthMcpVersion (against sleuth $sleuthPackageVersionPin)',
+    );
     return;
   }
 
@@ -80,8 +95,9 @@ Future<void> main(List<String> argv) async {
     try {
       await bridge.connect(Uri.parse(uri));
       final uuid = bridge.baselineSessionUuid;
-      final shortUuid =
-          uuid == null ? '<none>' : uuid.substring(0, math.min(8, uuid.length));
+      final shortUuid = uuid == null
+          ? '<none>'
+          : uuid.substring(0, math.min(8, uuid.length));
       logger?.add('connected; sessionUuid=$shortUuid…');
     } catch (e) {
       stderr.writeln('initial --uri connect failed: $e');
@@ -94,11 +110,7 @@ Future<void> main(List<String> argv) async {
     toolTimeout: Duration(seconds: timeoutSeconds),
     logger: logger,
   )..registerDefaults();
-  final session = DaemonSession(
-    bridge: bridge,
-    server: server,
-    logger: logger,
-  );
+  final session = DaemonSession(bridge: bridge, server: server, logger: logger);
   server.setDaemonSession(session);
 
   // Cooperative exit — signal handlers ask the server to drain, then
@@ -108,10 +120,12 @@ Future<void> main(List<String> argv) async {
     server.shutdown();
   }
 
-  final sigintSub =
-      ProcessSignal.sigint.watch().listen((_) => requestShutdown('SIGINT'));
-  final sigtermSub =
-      ProcessSignal.sigterm.watch().listen((_) => requestShutdown('SIGTERM'));
+  final sigintSub = ProcessSignal.sigint.watch().listen(
+    (_) => requestShutdown('SIGINT'),
+  );
+  final sigtermSub = ProcessSignal.sigterm.watch().listen(
+    (_) => requestShutdown('SIGTERM'),
+  );
 
   try {
     await server.serve(input: stdin, output: stdout);

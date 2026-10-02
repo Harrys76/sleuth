@@ -83,49 +83,49 @@ class FrameStats {
       rasterFinishUs != null;
 
   Map<String, dynamic> toJson() => {
-        'frameNumber': frameNumber,
-        'uiDurationUs': uiDuration.inMicroseconds,
-        'rasterDurationUs': rasterDuration.inMicroseconds,
-        'timestamp': timestamp.toIso8601String(),
-        'vsyncOverheadUs': vsyncOverhead.inMicroseconds,
-        'layerCacheCount': layerCacheCount,
-        'layerCacheBytes': layerCacheBytes,
-        'pictureCacheCount': pictureCacheCount,
-        'pictureCacheBytes': pictureCacheBytes,
-        'frameBudgetMs': frameBudgetMs,
-        if (totalSpan != null) 'totalSpanUs': totalSpan!.inMicroseconds,
-        if (buildToRasterGap != Duration.zero)
-          'buildToRasterGapUs': buildToRasterGap.inMicroseconds,
-        if (vsyncStartUs != null) 'vsyncStartUs': vsyncStartUs,
-        if (buildStartUs != null) 'buildStartUs': buildStartUs,
-        if (buildFinishUs != null) 'buildFinishUs': buildFinishUs,
-        if (rasterStartUs != null) 'rasterStartUs': rasterStartUs,
-        if (rasterFinishUs != null) 'rasterFinishUs': rasterFinishUs,
-      };
+    'frameNumber': frameNumber,
+    'uiDurationUs': uiDuration.inMicroseconds,
+    'rasterDurationUs': rasterDuration.inMicroseconds,
+    'timestamp': timestamp.toIso8601String(),
+    'vsyncOverheadUs': vsyncOverhead.inMicroseconds,
+    'layerCacheCount': layerCacheCount,
+    'layerCacheBytes': layerCacheBytes,
+    'pictureCacheCount': pictureCacheCount,
+    'pictureCacheBytes': pictureCacheBytes,
+    'frameBudgetMs': frameBudgetMs,
+    if (totalSpan != null) 'totalSpanUs': totalSpan!.inMicroseconds,
+    if (buildToRasterGap != Duration.zero)
+      'buildToRasterGapUs': buildToRasterGap.inMicroseconds,
+    if (vsyncStartUs != null) 'vsyncStartUs': vsyncStartUs,
+    if (buildStartUs != null) 'buildStartUs': buildStartUs,
+    if (buildFinishUs != null) 'buildFinishUs': buildFinishUs,
+    if (rasterStartUs != null) 'rasterStartUs': rasterStartUs,
+    if (rasterFinishUs != null) 'rasterFinishUs': rasterFinishUs,
+  };
 
   factory FrameStats.fromJson(Map<String, dynamic> json) => FrameStats(
-        frameNumber: json['frameNumber'] as int,
-        uiDuration: Duration(microseconds: json['uiDurationUs'] as int),
-        rasterDuration: Duration(microseconds: json['rasterDurationUs'] as int),
-        timestamp: DateTime.parse(json['timestamp'] as String),
-        vsyncOverhead:
-            Duration(microseconds: json['vsyncOverheadUs'] as int? ?? 0),
-        layerCacheCount: json['layerCacheCount'] as int? ?? 0,
-        layerCacheBytes: json['layerCacheBytes'] as int? ?? 0,
-        pictureCacheCount: json['pictureCacheCount'] as int? ?? 0,
-        pictureCacheBytes: json['pictureCacheBytes'] as int? ?? 0,
-        frameBudgetMs: json['frameBudgetMs'] as int? ?? 16,
-        totalSpan: json['totalSpanUs'] != null
-            ? Duration(microseconds: json['totalSpanUs'] as int)
-            : null,
-        buildToRasterGap:
-            Duration(microseconds: json['buildToRasterGapUs'] as int? ?? 0),
-        vsyncStartUs: json['vsyncStartUs'] as int?,
-        buildStartUs: json['buildStartUs'] as int?,
-        buildFinishUs: json['buildFinishUs'] as int?,
-        rasterStartUs: json['rasterStartUs'] as int?,
-        rasterFinishUs: json['rasterFinishUs'] as int?,
-      );
+    frameNumber: json['frameNumber'] as int,
+    uiDuration: Duration(microseconds: json['uiDurationUs'] as int),
+    rasterDuration: Duration(microseconds: json['rasterDurationUs'] as int),
+    timestamp: DateTime.parse(json['timestamp'] as String),
+    vsyncOverhead: Duration(microseconds: json['vsyncOverheadUs'] as int? ?? 0),
+    layerCacheCount: json['layerCacheCount'] as int? ?? 0,
+    layerCacheBytes: json['layerCacheBytes'] as int? ?? 0,
+    pictureCacheCount: json['pictureCacheCount'] as int? ?? 0,
+    pictureCacheBytes: json['pictureCacheBytes'] as int? ?? 0,
+    frameBudgetMs: json['frameBudgetMs'] as int? ?? 16,
+    totalSpan: json['totalSpanUs'] != null
+        ? Duration(microseconds: json['totalSpanUs'] as int)
+        : null,
+    buildToRasterGap: Duration(
+      microseconds: json['buildToRasterGapUs'] as int? ?? 0,
+    ),
+    vsyncStartUs: json['vsyncStartUs'] as int?,
+    buildStartUs: json['buildStartUs'] as int?,
+    buildFinishUs: json['buildFinishUs'] as int?,
+    rasterStartUs: json['rasterStartUs'] as int?,
+    rasterFinishUs: json['rasterFinishUs'] as int?,
+  );
 
   Duration get totalDuration {
     final ui = uiDuration.inMicroseconds;
@@ -203,7 +203,7 @@ class FrameStats {
 /// Circular buffer holding the last [capacity] frames for live display.
 class FrameStatsBuffer {
   FrameStatsBuffer({int? capacity, int fpsTarget = 60})
-      : capacity = capacity ?? (fpsTarget * 2).clamp(60, 240);
+    : capacity = capacity ?? (fpsTarget * 2).clamp(60, 240);
 
   /// Shallow copy — shares [FrameStats] instances (they're immutable).
   ///
@@ -336,13 +336,13 @@ class FrameStatsBuffer {
       final us = f.effectiveTotalDuration.inMicroseconds;
       if (us <= 0) return 120.0;
       return (1000000.0 / us).clamp(0.0, 120.0);
-    }).toList()
-      ..sort();
+    }).toList()..sort();
 
     double percentile(double p) {
       final index = ((fpsValues.length - 1) * p).floor();
       return double.parse(
-          fpsValues[math.min(index, fpsValues.length - 1)].toStringAsFixed(1));
+        fpsValues[math.min(index, fpsValues.length - 1)].toStringAsFixed(1),
+      );
     }
 
     _cachedPercentiles = FpsPercentiles(
@@ -382,14 +382,14 @@ class FpsPercentiles {
   final double p99;
 
   Map<String, dynamic> toJson() => {
-        'p50': double.parse(p50.toStringAsFixed(1)),
-        'p95': double.parse(p95.toStringAsFixed(1)),
-        'p99': double.parse(p99.toStringAsFixed(1)),
-      };
+    'p50': double.parse(p50.toStringAsFixed(1)),
+    'p95': double.parse(p95.toStringAsFixed(1)),
+    'p99': double.parse(p99.toStringAsFixed(1)),
+  };
 
   factory FpsPercentiles.fromJson(Map<String, dynamic> json) => FpsPercentiles(
-        p50: (json['p50'] as num).toDouble(),
-        p95: (json['p95'] as num).toDouble(),
-        p99: (json['p99'] as num).toDouble(),
-      );
+    p50: (json['p50'] as num).toDouble(),
+    p95: (json['p95'] as num).toDouble(),
+    p99: (json['p99'] as num).toDouble(),
+  );
 }

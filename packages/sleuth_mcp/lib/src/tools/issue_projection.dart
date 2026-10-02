@@ -57,8 +57,9 @@ ProjectedIssues projectIssues(
   required int maxCount,
 }) {
   final total = issues.length;
-  final kept =
-      (maxCount > 0 && total > maxCount) ? issues.sublist(0, maxCount) : issues;
+  final kept = (maxCount > 0 && total > maxCount)
+      ? issues.sublist(0, maxCount)
+      : issues;
   return (
     issues: verbose ? kept : [for (final i in kept) compactIssue(i)],
     truncated: kept.length < total,

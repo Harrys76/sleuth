@@ -7,26 +7,26 @@ PerformanceIssue _issue({
   required String stableId,
   IssueSeverity severity = IssueSeverity.warning,
   int rankingScore = 200,
-}) =>
-    PerformanceIssue(
-      severity: severity,
-      category: IssueCategory.build,
-      confidence: IssueConfidence.possible,
-      title: 'test',
-      detail: '',
-      fixHint: '',
-      widgetName: widgetName,
-      stableId: stableId,
-      rankingScore: rankingScore,
-    );
+}) => PerformanceIssue(
+  severity: severity,
+  category: IssueCategory.build,
+  confidence: IssueConfidence.possible,
+  title: 'test',
+  detail: '',
+  fixHint: '',
+  widgetName: widgetName,
+  stableId: stableId,
+  rankingScore: rankingScore,
+);
 
 void main() {
   group('buildWidgetHeatMap', () {
     test('aggregates issues by widgetName', () {
       final issues = [
         _issue(
-            widgetName: 'MyProductCard',
-            stableId: 'rebuild_debug_MyProductCard'),
+          widgetName: 'MyProductCard',
+          stableId: 'rebuild_debug_MyProductCard',
+        ),
         _issue(widgetName: 'MyProductCard', stableId: 'uncached_images'),
         _issue(widgetName: 'MyProductCard', stableId: 'layout_bottleneck'),
       ];

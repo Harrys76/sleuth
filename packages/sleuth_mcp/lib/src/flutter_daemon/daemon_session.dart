@@ -19,12 +19,13 @@ import 'daemon_parser.dart';
 import 'daemon_rpc.dart';
 
 /// Injection seam for `Process.start` so tests can fake the flutter child.
-typedef ProcessFactory = Future<Process> Function(
-  String executable,
-  List<String> arguments, {
-  String? workingDirectory,
-  Map<String, String>? environment,
-});
+typedef ProcessFactory =
+    Future<Process> Function(
+      String executable,
+      List<String> arguments, {
+      String? workingDirectory,
+      Map<String, String>? environment,
+    });
 
 class DaemonSessionException implements Exception {
   DaemonSessionException(this.message);
@@ -50,12 +51,12 @@ class DaemonSession implements DaemonSessionLifecycle {
     Duration hotReloadTimeout = const Duration(seconds: 30),
     Duration hotRestartTimeout = const Duration(seconds: 45),
     String flutterExecutable = 'flutter',
-  })  : _processFactory = processFactory ?? Process.start,
-        _logger = logger,
-        _attachTimeout = attachTimeout,
-        _hotReloadTimeout = hotReloadTimeout,
-        _hotRestartTimeout = hotRestartTimeout,
-        _flutterExecutable = flutterExecutable;
+  }) : _processFactory = processFactory ?? Process.start,
+       _logger = logger,
+       _attachTimeout = attachTimeout,
+       _hotReloadTimeout = hotReloadTimeout,
+       _hotRestartTimeout = hotRestartTimeout,
+       _flutterExecutable = flutterExecutable;
 
   final VmBridge bridge;
   final McpServer server;
@@ -113,23 +114,23 @@ class DaemonSession implements DaemonSessionLifecycle {
   AppDebugPortEvent? _restartDebugPort;
 
   AppStatusPayload get status => AppStatusPayload(
-        attached: _state == AppSessionState.ready,
-        state: _state.name,
-        device: _deviceId,
-        appId: _appId,
-        sessionUuid: bridge.baselineSessionUuid,
-        launchMode: _launchMode,
-        mode: _mode,
-        lastError: _lastError,
-        transportMode: _iosTransport == null
-            ? null
-            : (_iosTransport == IosTransport.wireless
-                ? 'wireless'
-                : _iosTransport == IosTransport.wired
-                    ? 'wired'
-                    : 'unknown'),
-        wsUri: _iosWsUri,
-      );
+    attached: _state == AppSessionState.ready,
+    state: _state.name,
+    device: _deviceId,
+    appId: _appId,
+    sessionUuid: bridge.baselineSessionUuid,
+    launchMode: _launchMode,
+    mode: _mode,
+    lastError: _lastError,
+    transportMode: _iosTransport == null
+        ? null
+        : (_iosTransport == IosTransport.wireless
+              ? 'wireless'
+              : _iosTransport == IosTransport.wired
+              ? 'wired'
+              : 'unknown'),
+    wsUri: _iosWsUri,
+  );
 
   /// Returns devices reported by `flutter devices --machine`. Each entry
   /// is the raw map from flutter — caller filters by `category`/`platform`.
@@ -143,28 +144,27 @@ class DaemonSession implements DaemonSessionLifecycle {
     final out = StringBuffer();
     final outDone = proc.stdout.transform(utf8.decoder).forEach(out.write);
     proc.stderr.drain<void>();
-    final exit = await proc.exitCode.timeout(timeout, onTimeout: () {
-      proc.kill();
-      return -1;
-    });
+    final exit = await proc.exitCode.timeout(
+      timeout,
+      onTimeout: () {
+        proc.kill();
+        return -1;
+      },
+    );
     await outDone;
     if (exit != 0) {
-      throw DaemonSessionException(
-        'flutter devices --machine exited $exit',
-      );
+      throw DaemonSessionException('flutter devices --machine exited $exit');
     }
     final decoded = jsonDecode(out.toString());
     if (decoded is! List) {
       throw DaemonSessionException(
-          'flutter devices --machine did not return an array');
+        'flutter devices --machine did not return an array',
+      );
     }
     return decoded.whereType<Map<String, Object?>>().toList(growable: false);
   }
 
-  Future<AppStatusPayload> attach({
-    String? device,
-    String? debugUrl,
-  }) async {
+  Future<AppStatusPayload> attach({String? device, String? debugUrl}) async {
     if (_state != AppSessionState.idle && _state != AppSessionState.error) {
       throw StateError(
         'already attached or attaching (state=${_state.name}); '
@@ -291,14 +291,16 @@ class DaemonSession implements DaemonSessionLifecycle {
 
     // Crashed flutter must not leave the session hung. Generation guard
     // stops a stale listener from a prior attach flipping a fresh session.
-    unawaited(_child!.exitCode.then((code) {
-      if (gen != _sessionGeneration) return;
-      if (_state != AppSessionState.detaching &&
-          _state != AppSessionState.idle) {
-        _state = AppSessionState.error;
-        _lastError = 'flutter daemon exited unexpectedly (code $code)';
-      }
-    }));
+    unawaited(
+      _child!.exitCode.then((code) {
+        if (gen != _sessionGeneration) return;
+        if (_state != AppSessionState.detaching &&
+            _state != AppSessionState.idle) {
+          _state = AppSessionState.error;
+          _lastError = 'flutter daemon exited unexpectedly (code $code)';
+        }
+      }),
+    );
 
     try {
       final connectedEvent = await connected.future.timeout(_attachTimeout);
@@ -337,7 +339,8 @@ class DaemonSession implements DaemonSessionLifecycle {
       await _cleanup();
       if (_detachRequested) return status;
       _state = AppSessionState.error;
-      _lastError = 'no daemon.connected / app.debugPort within '
+      _lastError =
+          'no daemon.connected / app.debugPort within '
           '${_attachTimeout.inSeconds}s — is the Flutter app running on the device?';
       return status;
     } on VmBridgeException catch (e) {
@@ -432,7 +435,8 @@ class DaemonSession implements DaemonSessionLifecycle {
               // Advancing broadly is safe here (unlike the bridge-connect
               // catch): attach()'s errors are pipeline-only, no contract
               // failures. Only the fatal-for-all kinds are excluded.
-              final advanceable = e.kind != IosAttachErrorKind.missingTool &&
+              final advanceable =
+                  e.kind != IosAttachErrorKind.missingTool &&
                   e.kind != IosAttachErrorKind.cancelled;
               if (advanceable && candidateQueue.isNotEmpty && budgetLeft) {
                 candidateAuth = candidateQueue.removeAt(0);
@@ -444,7 +448,8 @@ class DaemonSession implements DaemonSessionLifecycle {
                 budgetLeft) {
               // whereType (not cast) so a malformed entry is skipped, not
               // thrown as an uncaught CastError out of attachViaIos.
-              final codes = (e.data?['distinctAuthCodes'] as List?)
+              final codes =
+                  (e.data?['distinctAuthCodes'] as List?)
                       ?.whereType<String>()
                       .toList() ??
                   const <String>[];
@@ -496,7 +501,8 @@ class DaemonSession implements DaemonSessionLifecycle {
               continue;
             }
             _state = AppSessionState.error;
-            _lastError = 'ios_vmservice_unreachable: bridge connect timed '
+            _lastError =
+                'ios_vmservice_unreachable: bridge connect timed '
                 'out after ${bridgeConnectTimeout.inSeconds}s. Common cause: '
                 'half-open VM service that accepts the WS handshake but '
                 'never returns `getVM`. Swipe the app off the device and '
@@ -533,7 +539,8 @@ class DaemonSession implements DaemonSessionLifecycle {
             // (iOS retains the prior session's record ~1-2 min). Retry once,
             // re-resolving with that port excluded so a coexisting live
             // announcement wins.
-            final canRecover = attempt == 1 &&
+            final canRecover =
+                attempt == 1 &&
                 attachStopwatch.elapsed < attachBudget &&
                 _isStaleRecoverable(message);
             if (canRecover) {
@@ -596,7 +603,8 @@ class DaemonSession implements DaemonSessionLifecycle {
       // dispatch the app.restart RPC. Return a structured error rather
       // than throwing so the tool wrapper surfaces an actionable message.
       _state = AppSessionState.error;
-      _lastError = 'hot ${fullRestart ? "restart" : "reload"} requires a '
+      _lastError =
+          'hot ${fullRestart ? "restart" : "reload"} requires a '
           'daemon-spawn attach (attach_app device: …); debugUrl sessions '
           'are connect-only';
       return status;
@@ -606,7 +614,8 @@ class DaemonSession implements DaemonSessionLifecycle {
     // mid-restart against a half-rebuilt bridge.
     final timeout = fullRestart ? _hotRestartTimeout : _hotReloadTimeout;
     server.pauseDispatch(
-        autoResumeAfter: timeout + const Duration(seconds: 30));
+      autoResumeAfter: timeout + const Duration(seconds: 30),
+    );
     // Settle completer armed pre-RPC: daemon can emit app.started in
     // the same event-loop turn as the response; lazy firstWhere misses it.
     final settleCompleter = fullRestart ? Completer<DaemonEvent>() : null;
@@ -616,25 +625,27 @@ class DaemonSession implements DaemonSessionLifecycle {
       await server.awaitPendingDrain();
       DaemonRpcResponse rpcResponse;
       try {
-        rpcResponse = await rpc.call(
-          'app.restart',
-          {'appId': appId, 'fullRestart': fullRestart},
-          timeout: timeout,
-        );
+        rpcResponse = await rpc.call('app.restart', {
+          'appId': appId,
+          'fullRestart': fullRestart,
+        }, timeout: timeout);
       } on DaemonRpcTimeoutException catch (e) {
         _state = AppSessionState.error;
-        _lastError = 'hot ${fullRestart ? 'restart' : 'reload'} '
+        _lastError =
+            'hot ${fullRestart ? 'restart' : 'reload'} '
             'timed out after ${e.timeout.inSeconds}s';
         return status;
       } on DaemonRpcException catch (e) {
         _state = AppSessionState.error;
-        _lastError = 'hot ${fullRestart ? 'restart' : 'reload'} '
+        _lastError =
+            'hot ${fullRestart ? 'restart' : 'reload'} '
             'rpc failed: ${e.message}';
         return status;
       }
       if (rpcResponse.isError) {
         _state = AppSessionState.error;
-        _lastError = 'hot ${fullRestart ? 'restart' : 'reload'} '
+        _lastError =
+            'hot ${fullRestart ? 'restart' : 'reload'} '
             'rpc error: ${rpcResponse.error}';
         return status;
       }
@@ -656,8 +667,9 @@ class DaemonSession implements DaemonSessionLifecycle {
         // would hit a `[Sentinel kind: Collected]`. Always reconnect on
         // full restart so the bridge re-picks the live main isolate.
         if (fullRestart) {
-          final reconnectUri =
-              newDebugPort != null ? Uri.parse(newDebugPort.wsUri) : _lastWsUri;
+          final reconnectUri = newDebugPort != null
+              ? Uri.parse(newDebugPort.wsUri)
+              : _lastWsUri;
           if (reconnectUri != null) {
             await bridge.connect(reconnectUri);
             _lastWsUri = reconnectUri;
@@ -694,12 +706,12 @@ class DaemonSession implements DaemonSessionLifecycle {
       final appId = _appId;
       if (rpc != null && appId != null) {
         try {
-          await rpc.call(
-            'app.detach',
-            {'appId': appId},
-            timeout: const Duration(seconds: 5),
-          );
-        } catch (_) {/* daemon may be dead; cleanup proceeds */}
+          await rpc.call('app.detach', {
+            'appId': appId,
+          }, timeout: const Duration(seconds: 5));
+        } catch (_) {
+          /* daemon may be dead; cleanup proceeds */
+        }
       }
     } finally {
       await _cleanup();
@@ -748,7 +760,9 @@ class DaemonSession implements DaemonSessionLifecycle {
       // crashed or the iproxy tunnel is half-open. Bound the wait so
       // the iOS teardown below still gets a chance to release the
       // iproxy child + pidfile.
-    } catch (_) {/* best effort */}
+    } catch (_) {
+      /* best effort */
+    }
     // iOS-direct teardown — kill iproxy + remove pidfile. 6s outer
     // must exceed inner 3s grace + SIGKILL + pidfile-delete; otherwise
     // a back-to-back `attach_app` races the still-bound port.
@@ -759,7 +773,9 @@ class DaemonSession implements DaemonSessionLifecycle {
       } on TimeoutException {
         // iproxy refused to exit within budget; SIGKILL fallback is
         // already wired inside the teardown callback.
-      } catch (_) {/* best effort */}
+      } catch (_) {
+        /* best effort */
+      }
       _iosTeardown = null;
     }
     _iosTransport = null;

@@ -38,27 +38,23 @@ void main() {
 
   group('IssueEncyclopediaPage', () {
     testWidgets('renders page header', (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
 
       expect(find.text('Issue Encyclopedia'), findsOneWidget);
     });
 
     testWidgets('back button calls onClose', (tester) async {
       var closed = false;
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () => closed = true),
-      ));
+      await tester.pumpWidget(
+        wrap(IssueEncyclopediaPage(onClose: () => closed = true)),
+      );
 
       await tester.tap(find.byIcon(Icons.arrow_back));
       expect(closed, isTrue);
     });
 
     testWidgets('shows all 8 category group headers', (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       expect(find.text('BUILD & REBUILD'), findsOneWidget);
@@ -72,9 +68,7 @@ void main() {
     });
 
     testWidgets('shows entries by display name', (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       // Sample from different categories
@@ -83,11 +77,10 @@ void main() {
       expect(find.text('Shader Compilation'), findsOneWidget);
     });
 
-    testWidgets('expanding an entry shows explanation sections',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+    testWidgets('expanding an entry shows explanation sections', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       // Tap to expand "Sustained Jank"
@@ -100,11 +93,10 @@ void main() {
       expect(find.text('How to fix'), findsOneWidget);
     });
 
-    testWidgets('collapsing an entry hides explanation sections',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+    testWidgets('collapsing an entry hides explanation sections', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       // Expand
@@ -119,9 +111,7 @@ void main() {
     });
 
     testWidgets('search filters entries', (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       // Use a specific term that only matches memory entries
@@ -139,9 +129,7 @@ void main() {
     });
 
     testWidgets('search hides empty category groups', (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       // "thread marshaling" appears only in platform_channel_traffic content
@@ -157,11 +145,10 @@ void main() {
       expect(find.text('PAINT & REPAINT'), findsNothing);
     });
 
-    testWidgets('search shows "No matching issues" when zero results',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+    testWidgets('search shows "No matching issues" when zero results', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField), 'xyznonexistent');
@@ -172,9 +159,7 @@ void main() {
     });
 
     testWidgets('clear search shows all entries', (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       // Search to filter
@@ -191,27 +176,30 @@ void main() {
       expect(find.text('MEMORY'), findsOneWidget);
     });
 
-    testWidgets('scrollToStableId opens with that entry expanded',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(
-          onClose: () {},
-          scrollToStableId: 'heap_near_capacity',
+    testWidgets('scrollToStableId opens with that entry expanded', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          IssueEncyclopediaPage(
+            onClose: () {},
+            scrollToStableId: 'heap_near_capacity',
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // The entry should be expanded — explanation sections visible
-      final explanation =
-          IssueExplanationBuilder.explain('heap_near_capacity')!;
+      final explanation = IssueExplanationBuilder.explain(
+        'heap_near_capacity',
+      )!;
       expect(find.text(explanation.whatItIs), findsOneWidget);
     });
 
-    testWidgets('whenToIgnore hidden when null (heavy_compute)',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+    testWidgets('whenToIgnore hidden when null (heavy_compute)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       // Expand heavy_compute
@@ -226,14 +214,17 @@ void main() {
       expect(find.text('When to ignore'), findsNothing);
     });
 
-    testWidgets('unknown scrollToStableId opens page gracefully',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(
-          onClose: () {},
-          scrollToStableId: 'nonexistent_detector_xyz',
+    testWidgets('unknown scrollToStableId opens page gracefully', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          IssueEncyclopediaPage(
+            onClose: () {},
+            scrollToStableId: 'nonexistent_detector_xyz',
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Page renders normally, all categories visible
@@ -241,14 +232,17 @@ void main() {
       expect(find.text('BUILD & REBUILD'), findsOneWidget);
     });
 
-    testWidgets('Reading the data visible for runtime entry (gc_pressure)',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(
-          onClose: () {},
-          scrollToStableId: 'gc_pressure',
+    testWidgets('Reading the data visible for runtime entry (gc_pressure)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          IssueEncyclopediaPage(
+            onClose: () {},
+            scrollToStableId: 'gc_pressure',
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Reading the data'), findsOneWidget);
@@ -256,14 +250,17 @@ void main() {
       expect(find.text(explanation.readingTheData!), findsOneWidget);
     });
 
-    testWidgets('Reading the data shown for structural entry (non_lazy_list)',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(
-          onClose: () {},
-          scrollToStableId: 'non_lazy_list',
+    testWidgets('Reading the data shown for structural entry (non_lazy_list)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          IssueEncyclopediaPage(
+            onClose: () {},
+            scrollToStableId: 'non_lazy_list',
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // v11.22: all entries now have readingTheData
@@ -273,9 +270,7 @@ void main() {
     });
 
     testWidgets('search matches readingTheData content', (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       // "GC/min" appears only in gc_pressure's readingTheData
@@ -290,9 +285,7 @@ void main() {
     });
 
     testWidgets('renders search bar', (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       expect(find.byType(TextField), findsOneWidget);
@@ -300,9 +293,7 @@ void main() {
     });
 
     testWidgets('clear button resets search', (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(onClose: () {}),
-      ));
+      await tester.pumpWidget(wrap(IssueEncyclopediaPage(onClose: () {})));
       await tester.pumpAndSettle();
 
       // Search to filter
@@ -322,14 +313,17 @@ void main() {
     });
 
     // v11.28: relatedIssues rendering
-    testWidgets('shows Related issues section for entry with relations',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(
-          onClose: () {},
-          scrollToStableId: 'uncached_images',
+    testWidgets('shows Related issues section for entry with relations', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          IssueEncyclopediaPage(
+            onClose: () {},
+            scrollToStableId: 'uncached_images',
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // uncached_images has relatedIssues
@@ -342,12 +336,14 @@ void main() {
     testWidgets('related issue display names appear in chips', (tester) async {
       // Use an entry with few relations for simpler assertions.
       // opacity_zero has relatedIssues: [expensive_gpu_nodes]
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(
-          onClose: () {},
-          scrollToStableId: 'opacity_zero',
+      await tester.pumpWidget(
+        wrap(
+          IssueEncyclopediaPage(
+            onClose: () {},
+            scrollToStableId: 'opacity_zero',
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Should show the related issue chip
@@ -359,8 +355,9 @@ void main() {
   });
 
   group('contextIssue substitution (M4)', () {
-    testWidgets('substitutes widgetName and count in target entry',
-        (tester) async {
+    testWidgets('substitutes widgetName and count in target entry', (
+      tester,
+    ) async {
       final issueWithWidget = PerformanceIssue(
         stableId: 'excessive_global_keys',
         title: '12 GlobalKeys in MyForm',
@@ -372,13 +369,15 @@ void main() {
         widgetName: 'MyForm',
       );
 
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(
-          onClose: () {},
-          scrollToStableId: 'excessive_global_keys',
-          contextIssue: issueWithWidget,
+      await tester.pumpWidget(
+        wrap(
+          IssueEncyclopediaPage(
+            onClose: () {},
+            scrollToStableId: 'excessive_global_keys',
+            contextIssue: issueWithWidget,
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // The template says "{count} GlobalKey instances were found inside {widgetName}."
@@ -387,14 +386,17 @@ void main() {
       expect(find.textContaining('MyForm'), findsWidgets);
     });
 
-    testWidgets('without contextIssue uses fallback placeholders',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        IssueEncyclopediaPage(
-          onClose: () {},
-          scrollToStableId: 'excessive_global_keys',
+    testWidgets('without contextIssue uses fallback placeholders', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          IssueEncyclopediaPage(
+            onClose: () {},
+            scrollToStableId: 'excessive_global_keys',
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Without contextIssue, placeholders resolve to built-in fallbacks
@@ -429,46 +431,54 @@ void main() {
   });
 
   group('IssueCard onLearnMore', () {
-    testWidgets('Learn more link visible when onLearnMore is provided',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        SingleChildScrollView(
-          child: IssueCard(
-            issue: makeIssue(stableId: 'heap_near_capacity'),
-            initiallyExpanded: true,
-            onLearnMore: () {},
+    testWidgets('Learn more link visible when onLearnMore is provided', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          SingleChildScrollView(
+            child: IssueCard(
+              issue: makeIssue(stableId: 'heap_near_capacity'),
+              initiallyExpanded: true,
+              onLearnMore: () {},
+            ),
           ),
         ),
-      ));
+      );
 
       expect(find.text('Learn more about this issue'), findsOneWidget);
     });
 
-    testWidgets('Learn more link hidden when onLearnMore is null',
-        (tester) async {
-      await tester.pumpWidget(wrap(
-        SingleChildScrollView(
-          child: IssueCard(
-            issue: makeIssue(stableId: 'heap_near_capacity'),
-            initiallyExpanded: true,
+    testWidgets('Learn more link hidden when onLearnMore is null', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          SingleChildScrollView(
+            child: IssueCard(
+              issue: makeIssue(stableId: 'heap_near_capacity'),
+              initiallyExpanded: true,
+            ),
           ),
         ),
-      ));
+      );
 
       expect(find.text('Learn more about this issue'), findsNothing);
     });
 
     testWidgets('tapping Learn more calls callback', (tester) async {
       var tapped = false;
-      await tester.pumpWidget(wrap(
-        SingleChildScrollView(
-          child: IssueCard(
-            issue: makeIssue(stableId: 'heap_near_capacity'),
-            initiallyExpanded: true,
-            onLearnMore: () => tapped = true,
+      await tester.pumpWidget(
+        wrap(
+          SingleChildScrollView(
+            child: IssueCard(
+              issue: makeIssue(stableId: 'heap_near_capacity'),
+              initiallyExpanded: true,
+              onLearnMore: () => tapped = true,
+            ),
           ),
         ),
-      ));
+      );
 
       await tester.tap(find.text('Learn more about this issue'));
       expect(tapped, isTrue);

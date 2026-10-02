@@ -50,8 +50,10 @@ void main() {
 
     test('slow issue at exactly warning threshold (1000 ms)', () {
       detector.processRecord(makeRecord(durationMs: 1000));
-      expect(detector.issues.where((i) => i.stableId == 'slow_request'),
-          hasLength(1));
+      expect(
+        detector.issues.where((i) => i.stableId == 'slow_request'),
+        hasLength(1),
+      );
       expect(detector.issues.first.severity, IssueSeverity.warning);
     });
 
@@ -68,11 +70,13 @@ void main() {
     });
 
     test('slow request detail contains URL and duration', () {
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'POST',
-        durationMs: 3200,
-      ));
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'POST',
+          durationMs: 3200,
+        ),
+      );
       final issue = detector.issues.first;
       expect(issue.detail, contains('POST'));
       expect(issue.detail, contains('/users'));
@@ -85,26 +89,31 @@ void main() {
 
     test('no large issue when response below threshold', () {
       detector.processRecord(makeRecord(responseBytes: 1048575)); // 1MB - 1
-      final largeIssues =
-          detector.issues.where((i) => i.stableId == 'large_response');
+      final largeIssues = detector.issues.where(
+        (i) => i.stableId == 'large_response',
+      );
       expect(largeIssues, isEmpty);
     });
 
     test('large issue at exactly threshold', () {
       detector.processRecord(makeRecord(responseBytes: 1048576));
-      final largeIssues =
-          detector.issues.where((i) => i.stableId == 'large_response');
+      final largeIssues = detector.issues.where(
+        (i) => i.stableId == 'large_response',
+      );
       expect(largeIssues, hasLength(1));
       expect(largeIssues.first.severity, IssueSeverity.warning);
     });
 
     test('large response detail contains URL and size', () {
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/images',
-        responseBytes: 2097152, // 2MB
-      ));
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'large_response');
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/images',
+          responseBytes: 2097152, // 2MB
+        ),
+      );
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'large_response',
+      );
       expect(issue.detail, contains('/images'));
       expect(issue.detail, contains('2.0 MB'));
     });
@@ -117,8 +126,9 @@ void main() {
       for (int i = 0; i < 30; i++) {
         detector.processRecord(makeRecord(startedAt: fakeNow));
       }
-      final freqIssues =
-          detector.issues.where((i) => i.stableId == 'request_frequency');
+      final freqIssues = detector.issues.where(
+        (i) => i.stableId == 'request_frequency',
+      );
       expect(freqIssues, isEmpty);
     });
 
@@ -126,8 +136,9 @@ void main() {
       for (int i = 0; i < 31; i++) {
         detector.processRecord(makeRecord(startedAt: fakeNow));
       }
-      final freqIssues =
-          detector.issues.where((i) => i.stableId == 'request_frequency');
+      final freqIssues = detector.issues.where(
+        (i) => i.stableId == 'request_frequency',
+      );
       expect(freqIssues, hasLength(1));
       expect(freqIssues.first.severity, IssueSeverity.warning);
     });
@@ -136,8 +147,9 @@ void main() {
       for (int i = 0; i < 35; i++) {
         detector.processRecord(makeRecord(startedAt: fakeNow));
       }
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'request_frequency');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'request_frequency',
+      );
       expect(issue.detail, contains('35'));
       expect(issue.detail, contains('30/5s'));
     });
@@ -156,8 +168,9 @@ void main() {
 
     test('stableId, confidence, and category for large response', () {
       detector.processRecord(makeRecord(responseBytes: 2000000));
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'large_response');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'large_response',
+      );
       expect(issue.confidence, IssueConfidence.confirmed);
       expect(issue.category, IssueCategory.network);
     });
@@ -166,8 +179,9 @@ void main() {
       for (int i = 0; i < 31; i++) {
         detector.processRecord(makeRecord(startedAt: fakeNow));
       }
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'request_frequency');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'request_frequency',
+      );
       expect(issue.confidence, IssueConfidence.confirmed);
       expect(issue.category, IssueCategory.network);
     });
@@ -183,8 +197,9 @@ void main() {
 
     test('large response fixHint mentions pagination or compression', () {
       detector.processRecord(makeRecord(responseBytes: 2000000));
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'large_response');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'large_response',
+      );
       expect(issue.fixHint, contains('Paginate'));
     });
 
@@ -192,8 +207,9 @@ void main() {
       for (int i = 0; i < 31; i++) {
         detector.processRecord(makeRecord(startedAt: fakeNow));
       }
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'request_frequency');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'request_frequency',
+      );
       expect(issue.fixHint, contains('Batch'));
     });
 
@@ -202,15 +218,19 @@ void main() {
       for (int i = 0; i < 31; i++) {
         detector.processRecord(makeRecord(startedAt: fakeNow));
       }
-      expect(detector.issues.where((i) => i.stableId == 'request_frequency'),
-          hasLength(1));
+      expect(
+        detector.issues.where((i) => i.stableId == 'request_frequency'),
+        hasLength(1),
+      );
 
       // Advance 10 seconds — well past the 5s detection window, but
       // records still in buffer. Issue should persist.
       fakeNow = fakeNow.add(const Duration(seconds: 10));
       detector.processRecord(makeRecord(startedAt: fakeNow));
-      expect(detector.issues.where((i) => i.stableId == 'request_frequency'),
-          hasLength(1));
+      expect(
+        detector.issues.where((i) => i.stableId == 'request_frequency'),
+        hasLength(1),
+      );
 
       // Route transition clears records — issue disappears.
       detector.clearRecords();
@@ -224,10 +244,9 @@ void main() {
 
     test('buffer evicts oldest record after 200 entries', () {
       for (int i = 0; i < 201; i++) {
-        detector.processRecord(makeRecord(
-          url: 'https://example.com/api/$i',
-          startedAt: fakeNow,
-        ));
+        detector.processRecord(
+          makeRecord(url: 'https://example.com/api/$i', startedAt: fakeNow),
+        );
       }
       expect(detector.records, hasLength(200));
       // First record (index 0) should be evicted; first should be index 1
@@ -237,24 +256,27 @@ void main() {
     test('slow issue disappears after triggering record evicted', () {
       // Add one slow record
       detector.processRecord(makeRecord(durationMs: 3000));
-      expect(detector.issues.where((i) => i.stableId == 'slow_request'),
-          hasLength(1));
+      expect(
+        detector.issues.where((i) => i.stableId == 'slow_request'),
+        hasLength(1),
+      );
 
       // Fill buffer with 200 fast records to push out the slow one
       for (int i = 0; i < 200; i++) {
-        detector.processRecord(makeRecord(
-          durationMs: 100,
-          startedAt: fakeNow,
-        ));
+        detector.processRecord(makeRecord(durationMs: 100, startedAt: fakeNow));
       }
       expect(
-          detector.issues.where((i) => i.stableId == 'slow_request'), isEmpty);
+        detector.issues.where((i) => i.stableId == 'slow_request'),
+        isEmpty,
+      );
     });
 
     test('clearRecords clears all records and issues', () {
       detector.processRecord(makeRecord(durationMs: 3000, startedAt: fakeNow));
-      expect(detector.issues.where((i) => i.stableId == 'slow_request'),
-          hasLength(1));
+      expect(
+        detector.issues.where((i) => i.stableId == 'slow_request'),
+        hasLength(1),
+      );
       expect(detector.records, isNotEmpty);
 
       // Simulate route transition
@@ -275,30 +297,36 @@ void main() {
       fakeNow = fakeNow.add(const Duration(seconds: 1));
       detector.processRecord(makeRecord(durationMs: 100, startedAt: fakeNow));
       expect(
-          detector.issues.where((i) => i.stableId == 'slow_request'), isEmpty);
+        detector.issues.where((i) => i.stableId == 'slow_request'),
+        isEmpty,
+      );
       expect(detector.records, hasLength(1));
     });
 
-    test('in-flight responses from previous page dropped after clearRecords',
-        () {
-      // Simulate: request started at t=0 on page A
-      final requestStartedAt = fakeNow;
+    test(
+      'in-flight responses from previous page dropped after clearRecords',
+      () {
+        // Simulate: request started at t=0 on page A
+        final requestStartedAt = fakeNow;
 
-      // Navigate at t=1s — clearRecords called
-      fakeNow = fakeNow.add(const Duration(seconds: 1));
-      detector.clearRecords();
+        // Navigate at t=1s — clearRecords called
+        fakeNow = fakeNow.add(const Duration(seconds: 1));
+        detector.clearRecords();
 
-      // Response arrives at t=3s (slow request from page A)
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processRecord(makeRecord(
-        durationMs: 3000,
-        startedAt: requestStartedAt, // started before clear
-      ));
+        // Response arrives at t=3s (slow request from page A)
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        detector.processRecord(
+          makeRecord(
+            durationMs: 3000,
+            startedAt: requestStartedAt, // started before clear
+          ),
+        );
 
-      // Should be silently dropped — no issues on home page
-      expect(detector.issues, isEmpty);
-      expect(detector.records, isEmpty);
-    });
+        // Should be silently dropped — no issues on home page
+        expect(detector.issues, isEmpty);
+        expect(detector.records, isEmpty);
+      },
+    );
 
     test('requests started after clearRecords are accepted', () {
       // Navigate at t=0
@@ -306,14 +334,18 @@ void main() {
 
       // New request starts at t=1s on the new page
       fakeNow = fakeNow.add(const Duration(seconds: 1));
-      detector.processRecord(makeRecord(
-        durationMs: 3000,
-        startedAt: fakeNow, // started after clear
-      ));
+      detector.processRecord(
+        makeRecord(
+          durationMs: 3000,
+          startedAt: fakeNow, // started after clear
+        ),
+      );
 
       // Should be accepted — issue shows on new page
-      expect(detector.issues.where((i) => i.stableId == 'slow_request'),
-          hasLength(1));
+      expect(
+        detector.issues.where((i) => i.stableId == 'slow_request'),
+        hasLength(1),
+      );
       expect(detector.records, hasLength(1));
     });
 
@@ -328,8 +360,10 @@ void main() {
         clock: () => fakeNow,
       );
       detector.processRecord(makeRecord(durationMs: 600));
-      expect(detector.issues.where((i) => i.stableId == 'slow_request'),
-          hasLength(1));
+      expect(
+        detector.issues.where((i) => i.stableId == 'slow_request'),
+        hasLength(1),
+      );
     });
 
     test('custom criticalSlowThresholdMs controls severity boundary', () {
@@ -392,8 +426,10 @@ void main() {
       for (int i = 0; i < 6; i++) {
         detector.processRecord(makeRecord(startedAt: fakeNow));
       }
-      expect(detector.issues.where((i) => i.stableId == 'request_frequency'),
-          hasLength(1));
+      expect(
+        detector.issues.where((i) => i.stableId == 'request_frequency'),
+        hasLength(1),
+      );
     });
 
     test('custom large response threshold works', () {
@@ -402,8 +438,10 @@ void main() {
         clock: () => fakeNow,
       );
       detector.processRecord(makeRecord(responseBytes: 2048));
-      expect(detector.issues.where((i) => i.stableId == 'large_response'),
-          hasLength(1));
+      expect(
+        detector.issues.where((i) => i.stableId == 'large_response'),
+        hasLength(1),
+      );
     });
 
     // ---------------------------------------------------------------
@@ -416,17 +454,21 @@ void main() {
         clock: () => fakeNow,
       );
       // Add a slow + large record
-      detector.processRecord(makeRecord(
-        durationMs: 5000,
-        responseBytes: 2000000,
-        startedAt: fakeNow,
-      ));
+      detector.processRecord(
+        makeRecord(
+          durationMs: 5000,
+          responseBytes: 2000000,
+          startedAt: fakeNow,
+        ),
+      );
       // Add more records with different URLs to trigger frequency without duplicates
       for (int i = 0; i < 3; i++) {
-        detector.processRecord(makeRecord(
-          url: 'https://example.com/api/endpoint$i',
-          startedAt: fakeNow,
-        ));
+        detector.processRecord(
+          makeRecord(
+            url: 'https://example.com/api/endpoint$i',
+            startedAt: fakeNow,
+          ),
+        );
       }
       expect(detector.issues, hasLength(3));
       expect(detector.issues.map((i) => i.stableId).toSet(), {
@@ -442,25 +484,31 @@ void main() {
 
     test('no error spike with fewer than 3 errors', () {
       for (int i = 0; i < 2; i++) {
-        detector.processRecord(makeRecord(
-          statusCode: 500,
-          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            statusCode: 500,
+            startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
-      final errorIssues =
-          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      final errorIssues = detector.issues.where(
+        (i) => i.stableId == 'http_error_spike',
+      );
       expect(errorIssues, isEmpty);
     });
 
     test('error spike at 3 errors in 5s window', () {
       for (int i = 0; i < 3; i++) {
-        detector.processRecord(makeRecord(
-          statusCode: 500,
-          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            statusCode: 500,
+            startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
-      final errorIssues =
-          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      final errorIssues = detector.issues.where(
+        (i) => i.stableId == 'http_error_spike',
+      );
       expect(errorIssues, hasLength(1));
       expect(errorIssues.first.severity, IssueSeverity.warning);
       expect(errorIssues.first.confidence, IssueConfidence.confirmed);
@@ -470,39 +518,51 @@ void main() {
     test('error spike uses peak 5s window, not entire buffer', () {
       // Spread 4 errors across 20 seconds — no 5s window has 3
       for (int i = 0; i < 4; i++) {
-        detector.processRecord(makeRecord(
-          statusCode: 500,
-          startedAt: fakeNow.add(Duration(seconds: i * 6)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            statusCode: 500,
+            startedAt: fakeNow.add(Duration(seconds: i * 6)),
+          ),
+        );
       }
-      final errorIssues =
-          detector.issues.where((i) => i.stableId == 'http_error_spike');
-      expect(errorIssues, isEmpty,
-          reason: 'Each 5s window has at most 1 error');
+      final errorIssues = detector.issues.where(
+        (i) => i.stableId == 'http_error_spike',
+      );
+      expect(
+        errorIssues,
+        isEmpty,
+        reason: 'Each 5s window has at most 1 error',
+      );
     });
 
     test('error spike critical at 10+ errors in 5s window', () {
       for (int i = 0; i < 10; i++) {
-        detector.processRecord(makeRecord(
-          statusCode: 500,
-          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            statusCode: 500,
+            startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
-      final errorIssues =
-          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      final errorIssues = detector.issues.where(
+        (i) => i.stableId == 'http_error_spike',
+      );
       expect(errorIssues, hasLength(1));
       expect(errorIssues.first.severity, IssueSeverity.critical);
     });
 
     test('error spike critical at 5+ server errors in peak window', () {
       for (int i = 0; i < 5; i++) {
-        detector.processRecord(makeRecord(
-          statusCode: 502,
-          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            statusCode: 502,
+            startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
-      final errorIssues =
-          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      final errorIssues = detector.issues.where(
+        (i) => i.stableId == 'http_error_spike',
+      );
       expect(errorIssues, hasLength(1));
       expect(errorIssues.first.severity, IssueSeverity.critical);
     });
@@ -511,33 +571,41 @@ void main() {
       // 6 server errors spread over 25s — peak 5s window has only 2
       // plus 1 transport failure in the same window = 3 total errors
       // but only 2 server errors in peak → should be warning, not critical
-      detector.processRecord(makeRecord(
-        statusCode: 500,
-        startedAt: fakeNow,
-      ));
-      detector.processRecord(makeRecord(
-        statusCode: 500,
-        startedAt: fakeNow.add(const Duration(milliseconds: 100)),
-      ));
-      detector.processRecord(makeRecord(
-        statusCode: -1,
-        startedAt: fakeNow.add(const Duration(milliseconds: 200)),
-      ));
+      detector.processRecord(makeRecord(statusCode: 500, startedAt: fakeNow));
+      detector.processRecord(
+        makeRecord(
+          statusCode: 500,
+          startedAt: fakeNow.add(const Duration(milliseconds: 100)),
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          statusCode: -1,
+          startedAt: fakeNow.add(const Duration(milliseconds: 200)),
+        ),
+      );
       // Gap > 5s
-      detector.processRecord(makeRecord(
-        statusCode: 500,
-        startedAt: fakeNow.add(const Duration(seconds: 10)),
-      ));
-      detector.processRecord(makeRecord(
-        statusCode: 500,
-        startedAt: fakeNow.add(const Duration(seconds: 15)),
-      ));
-      detector.processRecord(makeRecord(
-        statusCode: 500,
-        startedAt: fakeNow.add(const Duration(seconds: 20)),
-      ));
-      final errorIssues =
-          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      detector.processRecord(
+        makeRecord(
+          statusCode: 500,
+          startedAt: fakeNow.add(const Duration(seconds: 10)),
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          statusCode: 500,
+          startedAt: fakeNow.add(const Duration(seconds: 15)),
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          statusCode: 500,
+          startedAt: fakeNow.add(const Duration(seconds: 20)),
+        ),
+      );
+      final errorIssues = detector.issues.where(
+        (i) => i.stableId == 'http_error_spike',
+      );
       expect(errorIssues, hasLength(1));
       // Peak window has 3 errors (2 server + 1 transport) — warning
       expect(errorIssues.first.severity, IssueSeverity.warning);
@@ -545,26 +613,32 @@ void main() {
 
     test('transport failures reported in error spike detail', () {
       for (int i = 0; i < 3; i++) {
-        detector.processRecord(makeRecord(
-          statusCode: -1,
-          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            statusCode: -1,
+            startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'http_error_spike');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'http_error_spike',
+      );
       expect(issue.detail, contains('transport failures'));
       expect(issue.title, contains('3 errors'));
     });
 
     test('4xx errors counted in error spike', () {
       for (int i = 0; i < 3; i++) {
-        detector.processRecord(makeRecord(
-          statusCode: 404,
-          startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            statusCode: 404,
+            startedAt: fakeNow.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
-      final errorIssues =
-          detector.issues.where((i) => i.stableId == 'http_error_spike');
+      final errorIssues = detector.issues.where(
+        (i) => i.stableId == 'http_error_spike',
+      );
       expect(errorIssues, hasLength(1));
     });
 
@@ -602,20 +676,24 @@ void main() {
     test('records getter returns unmodifiable view', () {
       detector.processRecord(makeRecord());
       expect(detector.records, hasLength(1));
-      expect(() => (detector.records as List).add(makeRecord()),
-          throwsUnsupportedError);
+      expect(
+        () => (detector.records as List).add(makeRecord()),
+        throwsUnsupportedError,
+      );
     });
 
     // ---------------------------------------------------------------
     // Active request tracking (v5.6)
     // ---------------------------------------------------------------
 
-    test('pendingRequestSnapshot returns (0, null) when no active requests',
-        () {
-      final (count, slowestMs) = detector.pendingRequestSnapshot();
-      expect(count, 0);
-      expect(slowestMs, isNull);
-    });
+    test(
+      'pendingRequestSnapshot returns (0, null) when no active requests',
+      () {
+        final (count, slowestMs) = detector.pendingRequestSnapshot();
+        expect(count, 0);
+        expect(slowestMs, isNull);
+      },
+    );
 
     test('startRequest/endRequest tracks in-flight requests correctly', () {
       detector.startRequest(1, fakeNow);
@@ -668,14 +746,17 @@ void main() {
     test('3 identical GET requests within 500ms flagged as duplicate', () {
       final base = fakeNow;
       for (int i = 0; i < 3; i++) {
-        detector.processRecord(makeRecord(
-          url: 'https://api.example.com/users?page=1',
-          method: 'GET',
-          startedAt: base.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            url: 'https://api.example.com/users?page=1',
+            method: 'GET',
+            startedAt: base.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
       final dupIssues = detector.issues.where(
-          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
+        (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+      );
       expect(dupIssues, hasLength(1));
       expect(dupIssues.first.severity, IssueSeverity.warning);
       expect(dupIssues.first.confidence, IssueConfidence.likely);
@@ -685,116 +766,153 @@ void main() {
     test('2 identical requests NOT flagged (below threshold)', () {
       final base = fakeNow;
       for (int i = 0; i < 2; i++) {
-        detector.processRecord(makeRecord(
-          url: 'https://api.example.com/users',
-          method: 'GET',
-          startedAt: base.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            url: 'https://api.example.com/users',
+            method: 'GET',
+            startedAt: base.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
       final dupIssues = detector.issues.where(
-          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
+        (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+      );
       expect(dupIssues, isEmpty);
     });
 
     test('same URL but different methods not grouped as duplicates', () {
       final base = fakeNow;
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'GET',
-        startedAt: base,
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'POST',
-        startedAt: base.add(const Duration(milliseconds: 100)),
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'PUT',
-        startedAt: base.add(const Duration(milliseconds: 200)),
-      ));
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: base,
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'POST',
+          startedAt: base.add(const Duration(milliseconds: 100)),
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'PUT',
+          startedAt: base.add(const Duration(milliseconds: 200)),
+        ),
+      );
       final dupIssues = detector.issues.where(
-          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
+        (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+      );
       expect(dupIssues, isEmpty);
     });
 
     test('requests exactly 500ms apart are still clustered', () {
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'GET',
-        startedAt: fakeNow,
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'GET',
-        startedAt: fakeNow.add(const Duration(milliseconds: 250)),
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'GET',
-        startedAt: fakeNow.add(const Duration(milliseconds: 500)),
-      ));
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: fakeNow,
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: fakeNow.add(const Duration(milliseconds: 250)),
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: fakeNow.add(const Duration(milliseconds: 500)),
+        ),
+      );
       final dupIssues = detector.issues.where(
-          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
-      expect(dupIssues, hasLength(1),
-          reason: '500ms span (0→500) should be within window (<=500ms)');
+        (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+      );
+      expect(
+        dupIssues,
+        hasLength(1),
+        reason: '500ms span (0→500) should be within window (<=500ms)',
+      );
     });
 
     test('requests at 501ms apart are NOT clustered', () {
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'GET',
-        startedAt: fakeNow,
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'GET',
-        startedAt: fakeNow.add(const Duration(milliseconds: 250)),
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users',
-        method: 'GET',
-        startedAt: fakeNow.add(const Duration(milliseconds: 501)),
-      ));
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: fakeNow,
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: fakeNow.add(const Duration(milliseconds: 250)),
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users',
+          method: 'GET',
+          startedAt: fakeNow.add(const Duration(milliseconds: 501)),
+        ),
+      );
       final dupIssues = detector.issues.where(
-          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
+        (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+      );
       expect(dupIssues, isEmpty, reason: '501ms span exceeds 500ms window');
     });
 
     test('severity critical at 10+ duplicate requests', () {
       final base = fakeNow;
       for (int i = 0; i < 10; i++) {
-        detector.processRecord(makeRecord(
-          url: 'https://api.example.com/data',
-          method: 'GET',
-          startedAt: base.add(Duration(milliseconds: i * 40)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            url: 'https://api.example.com/data',
+            method: 'GET',
+            startedAt: base.add(Duration(milliseconds: i * 40)),
+          ),
+        );
       }
       final dupIssues = detector.issues.where(
-          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
+        (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+      );
       expect(dupIssues, hasLength(1));
       expect(dupIssues.first.severity, IssueSeverity.critical);
     });
 
     test('different query params treated as same endpoint for dedup', () {
       final base = fakeNow;
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users?page=1',
-        method: 'GET',
-        startedAt: base,
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users?page=2',
-        method: 'GET',
-        startedAt: base.add(const Duration(milliseconds: 100)),
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/users?page=3',
-        method: 'GET',
-        startedAt: base.add(const Duration(milliseconds: 200)),
-      ));
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users?page=1',
+          method: 'GET',
+          startedAt: base,
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users?page=2',
+          method: 'GET',
+          startedAt: base.add(const Duration(milliseconds: 100)),
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/users?page=3',
+          method: 'GET',
+          startedAt: base.add(const Duration(milliseconds: 200)),
+        ),
+      );
       final dupIssues = detector.issues.where(
-          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
+        (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+      );
       expect(dupIssues, hasLength(1));
     });
 
@@ -802,49 +920,66 @@ void main() {
       // Regression: [0ms, 100ms, 200ms, 700ms, 800ms]
       // First cluster=3, second cluster=2. maxCluster should be 3.
       final base = fakeNow;
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/data',
-        method: 'GET',
-        startedAt: base,
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/data',
-        method: 'GET',
-        startedAt: base.add(const Duration(milliseconds: 100)),
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/data',
-        method: 'GET',
-        startedAt: base.add(const Duration(milliseconds: 200)),
-      ));
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/data',
+          method: 'GET',
+          startedAt: base,
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/data',
+          method: 'GET',
+          startedAt: base.add(const Duration(milliseconds: 100)),
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/data',
+          method: 'GET',
+          startedAt: base.add(const Duration(milliseconds: 200)),
+        ),
+      );
       // Gap > 500ms
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/data',
-        method: 'GET',
-        startedAt: base.add(const Duration(milliseconds: 700)),
-      ));
-      detector.processRecord(makeRecord(
-        url: 'https://api.example.com/data',
-        method: 'GET',
-        startedAt: base.add(const Duration(milliseconds: 800)),
-      ));
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/data',
+          method: 'GET',
+          startedAt: base.add(const Duration(milliseconds: 700)),
+        ),
+      );
+      detector.processRecord(
+        makeRecord(
+          url: 'https://api.example.com/data',
+          method: 'GET',
+          startedAt: base.add(const Duration(milliseconds: 800)),
+        ),
+      );
       final dupIssues = detector.issues.where(
-          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
-      expect(dupIssues, hasLength(1),
-          reason: 'First cluster of 3 should exceed threshold');
+        (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+      );
+      expect(
+        dupIssues,
+        hasLength(1),
+        reason: 'First cluster of 3 should exceed threshold',
+      );
     });
 
     test('duplicate fixHint mentions caching and deduplication', () {
       final base = fakeNow;
       for (int i = 0; i < 3; i++) {
-        detector.processRecord(makeRecord(
-          url: 'https://api.example.com/users',
-          method: 'GET',
-          startedAt: base.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            url: 'https://api.example.com/users',
+            method: 'GET',
+            startedAt: base.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
       final issue = detector.issues.firstWhere(
-          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
+        (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+      );
       expect(issue.fixHint, contains('Cache'));
       expect(issue.fixHint, contains('Deduplicate'));
     });
@@ -853,21 +988,26 @@ void main() {
       final base = fakeNow;
       // Add duplicates for two different endpoints
       for (int i = 0; i < 3; i++) {
-        detector.processRecord(makeRecord(
-          url: 'https://api.example.com/users',
-          method: 'GET',
-          startedAt: base.add(Duration(milliseconds: i * 100)),
-        ));
-        detector.processRecord(makeRecord(
-          url: 'https://api.example.com/posts',
-          method: 'GET',
-          startedAt: base.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            url: 'https://api.example.com/users',
+            method: 'GET',
+            startedAt: base.add(Duration(milliseconds: i * 100)),
+          ),
+        );
+        detector.processRecord(
+          makeRecord(
+            url: 'https://api.example.com/posts',
+            method: 'GET',
+            startedAt: base.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
 
       final dupIssues = detector.issues
           .where(
-              (i) => i.stableId?.startsWith('high_frequency_same_path') == true)
+            (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+          )
           .toList();
       expect(dupIssues, hasLength(2));
 
@@ -879,20 +1019,25 @@ void main() {
       fakeNow = base; // reset clock
       final detector2 = NetworkMonitorDetector(clock: () => fakeNow);
       for (int i = 0; i < 3; i++) {
-        detector2.processRecord(makeRecord(
-          url: 'https://api.example.com/users',
-          method: 'GET',
-          startedAt: base.add(Duration(milliseconds: i * 100)),
-        ));
-        detector2.processRecord(makeRecord(
-          url: 'https://api.example.com/posts',
-          method: 'GET',
-          startedAt: base.add(Duration(milliseconds: i * 100)),
-        ));
+        detector2.processRecord(
+          makeRecord(
+            url: 'https://api.example.com/users',
+            method: 'GET',
+            startedAt: base.add(Duration(milliseconds: i * 100)),
+          ),
+        );
+        detector2.processRecord(
+          makeRecord(
+            url: 'https://api.example.com/posts',
+            method: 'GET',
+            startedAt: base.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
       final ids2 = detector2.issues
           .where(
-              (i) => i.stableId?.startsWith('high_frequency_same_path') == true)
+            (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+          )
           .map((i) => i.stableId)
           .toSet();
       expect(ids2, ids, reason: 'Same endpoints should produce same stableIds');
@@ -901,31 +1046,43 @@ void main() {
     test('POST requests not flagged as duplicates', () {
       final base = fakeNow;
       for (int i = 0; i < 5; i++) {
-        detector.processRecord(makeRecord(
-          url: 'https://api.example.com/submit',
-          method: 'POST',
-          startedAt: base.add(Duration(milliseconds: i * 50)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            url: 'https://api.example.com/submit',
+            method: 'POST',
+            startedAt: base.add(Duration(milliseconds: i * 50)),
+          ),
+        );
       }
       final dupIssues = detector.issues.where(
-          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
-      expect(dupIssues, isEmpty,
-          reason: 'POST may have different payloads — not idempotent');
+        (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+      );
+      expect(
+        dupIssues,
+        isEmpty,
+        reason: 'POST may have different payloads — not idempotent',
+      );
     });
 
     test('HEAD requests flagged as duplicates (idempotent)', () {
       final base = fakeNow;
       for (int i = 0; i < 3; i++) {
-        detector.processRecord(makeRecord(
-          url: 'https://api.example.com/health',
-          method: 'HEAD',
-          startedAt: base.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            url: 'https://api.example.com/health',
+            method: 'HEAD',
+            startedAt: base.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
       final dupIssues = detector.issues.where(
-          (i) => i.stableId?.startsWith('high_frequency_same_path') == true);
-      expect(dupIssues, hasLength(1),
-          reason: 'HEAD is idempotent — duplicates should be flagged');
+        (i) => i.stableId?.startsWith('high_frequency_same_path') == true,
+      );
+      expect(
+        dupIssues,
+        hasLength(1),
+        reason: 'HEAD is idempotent — duplicates should be flagged',
+      );
     });
 
     // ---------------------------------------------------------------
@@ -940,47 +1097,66 @@ void main() {
       // observation rather than the operator's plan.
       final base = fakeNow;
       for (int i = 0; i < 25; i++) {
-        detector.processRecord(makeRecord(
-          url: 'http://127.0.0.1/ping?seq=$i',
-          startedAt: base.add(Duration(milliseconds: i * 160)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            url: 'http://127.0.0.1/ping?seq=$i',
+            startedAt: base.add(Duration(milliseconds: i * 160)),
+          ),
+        );
       }
       final freq = detector.issues
           .where((i) => i.stableId == 'request_frequency')
           .toList();
-      expect(freq, isEmpty,
-          reason: '25 records ≤ frequencyLimit (30) — must not fire warning');
-      expect(detector.lastObservedPeakCount, 25,
-          reason: 'Peak compute always-on so capture-mode operators read '
-              'detector-measured value for sub-threshold legs.');
+      expect(
+        freq,
+        isEmpty,
+        reason: '25 records ≤ frequencyLimit (30) — must not fire warning',
+      );
+      expect(
+        detector.lastObservedPeakCount,
+        25,
+        reason:
+            'Peak compute always-on so capture-mode operators read '
+            'detector-measured value for sub-threshold legs.',
+      );
     });
 
-    test('lastObservedPeakCount matches at-threshold peak with warning fired',
-        () {
-      final base = fakeNow;
-      for (int i = 0; i < 38; i++) {
-        detector.processRecord(makeRecord(
-          url: 'http://127.0.0.1/ping?seq=$i',
-          startedAt: base.add(Duration(milliseconds: i * 100)),
-        ));
-      }
-      final freq = detector.issues
-          .where((i) => i.stableId == 'request_frequency')
-          .toList();
-      expect(freq, hasLength(1), reason: '38 records > 30 — warning must fire');
-      expect(detector.lastObservedPeakCount, 38);
-      // Trace-event arg matches the getter — same source.
-      final argRaw = freq.single.extraTraceArgs?['observedRequestCount'];
-      expect(int.parse(argRaw!), detector.lastObservedPeakCount);
-    });
+    test(
+      'lastObservedPeakCount matches at-threshold peak with warning fired',
+      () {
+        final base = fakeNow;
+        for (int i = 0; i < 38; i++) {
+          detector.processRecord(
+            makeRecord(
+              url: 'http://127.0.0.1/ping?seq=$i',
+              startedAt: base.add(Duration(milliseconds: i * 100)),
+            ),
+          );
+        }
+        final freq = detector.issues
+            .where((i) => i.stableId == 'request_frequency')
+            .toList();
+        expect(
+          freq,
+          hasLength(1),
+          reason: '38 records > 30 — warning must fire',
+        );
+        expect(detector.lastObservedPeakCount, 38);
+        // Trace-event arg matches the getter — same source.
+        final argRaw = freq.single.extraTraceArgs?['observedRequestCount'];
+        expect(int.parse(argRaw!), detector.lastObservedPeakCount);
+      },
+    );
 
     test('flushFrequencyEvaluation forces synchronous peak compute', () {
       final base = fakeNow;
       for (int i = 0; i < 10; i++) {
-        detector.processRecord(makeRecord(
-          url: 'http://127.0.0.1/ping',
-          startedAt: base.add(Duration(milliseconds: i * 200)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            url: 'http://127.0.0.1/ping',
+            startedAt: base.add(Duration(milliseconds: i * 200)),
+          ),
+        );
       }
       expect(detector.lastObservedPeakCount, 10);
       // Re-flush — same buffer, same peak.
@@ -988,8 +1164,7 @@ void main() {
       expect(detector.lastObservedPeakCount, 10);
     });
 
-    test(
-        'flushFrequencyEvaluation does not append duplicate '
+    test('flushFrequencyEvaluation does not append duplicate '
         'request_frequency issues on at-threshold buffer', () {
       // Seed an at-threshold buffer (38 > limit=30). The driving
       // processRecord chain emits exactly one request_frequency issue
@@ -998,16 +1173,21 @@ void main() {
       // additional issues — the public flush API is peak-only.
       final base = fakeNow;
       for (int i = 0; i < 38; i++) {
-        detector.processRecord(makeRecord(
-          url: 'http://127.0.0.1/ping?seq=$i',
-          startedAt: base.add(Duration(milliseconds: i * 100)),
-        ));
+        detector.processRecord(
+          makeRecord(
+            url: 'http://127.0.0.1/ping?seq=$i',
+            startedAt: base.add(Duration(milliseconds: i * 100)),
+          ),
+        );
       }
       final baseline = detector.issues
           .where((i) => i.stableId == 'request_frequency')
           .length;
-      expect(baseline, 1,
-          reason: 'driving _evaluate clears + emits exactly one issue');
+      expect(
+        baseline,
+        1,
+        reason: 'driving _evaluate clears + emits exactly one issue',
+      );
 
       // Three explicit flushes — peak compute idempotent and side-
       // effect free for issue emission.
@@ -1015,33 +1195,44 @@ void main() {
       detector.flushFrequencyEvaluation();
       detector.flushFrequencyEvaluation();
 
-      expect(detector.lastObservedPeakCount, 38,
-          reason: 'peak unchanged across flushes');
+      expect(
+        detector.lastObservedPeakCount,
+        38,
+        reason: 'peak unchanged across flushes',
+      );
       final after = detector.issues
           .where((i) => i.stableId == 'request_frequency')
           .length;
-      expect(after, baseline,
-          reason: 'flushFrequencyEvaluation must not emit duplicate '
-              'request_frequency issues — capture-mode operators '
-              'export trace records by detectedAtMicros, so duplicate '
-              'in-process issues with fresh dedup keys would inflate '
-              'capture-file trace event counts and break N+1 '
-              'producer-dedup invariants.');
+      expect(
+        after,
+        baseline,
+        reason:
+            'flushFrequencyEvaluation must not emit duplicate '
+            'request_frequency issues — capture-mode operators '
+            'export trace records by detectedAtMicros, so duplicate '
+            'in-process issues with fresh dedup keys would inflate '
+            'capture-file trace event counts and break N+1 '
+            'producer-dedup invariants.',
+      );
     });
 
     test('clearRecords resets lastObservedPeakCount to 0', () {
       final base = fakeNow;
       for (int i = 0; i < 25; i++) {
-        detector.processRecord(makeRecord(
-          startedAt: base.add(Duration(milliseconds: i * 160)),
-        ));
+        detector.processRecord(
+          makeRecord(startedAt: base.add(Duration(milliseconds: i * 160))),
+        );
       }
       expect(detector.lastObservedPeakCount, 25);
       detector.clearRecords();
-      expect(detector.lastObservedPeakCount, 0,
-          reason: 'Capture-mode session boundaries (markScenarioBegin auto-'
-              'reset) must clear stale peak so leg N+1 does not inherit '
-              'leg N evidence.');
+      expect(
+        detector.lastObservedPeakCount,
+        0,
+        reason:
+            'Capture-mode session boundaries (markScenarioBegin auto-'
+            'reset) must clear stale peak so leg N+1 does not inherit '
+            'leg N evidence.',
+      );
     });
 
     test('peak compute O(buffer-cap) perf budget', () {
@@ -1053,20 +1244,24 @@ void main() {
       // sessions do not regress — not to police µs-precision in CI.
       final base = fakeNow;
       for (int i = 0; i < 200; i++) {
-        detector.processRecord(makeRecord(
-          startedAt: base.add(Duration(milliseconds: i * 20)),
-        ));
+        detector.processRecord(
+          makeRecord(startedAt: base.add(Duration(milliseconds: i * 20))),
+        );
       }
       final stopwatch = Stopwatch()..start();
       for (int i = 0; i < 100; i++) {
         detector.flushFrequencyEvaluation();
       }
       stopwatch.stop();
-      expect(stopwatch.elapsedMilliseconds, lessThan(250),
-          reason: 'Always-on peak compute on full 200-record buffer must '
-              'stay well under timer cadence (5 s) so production '
-              'sessions do not regress. Budget allows ~2.5 ms/tick to '
-              'accommodate slow CI runners.');
+      expect(
+        stopwatch.elapsedMilliseconds,
+        lessThan(250),
+        reason:
+            'Always-on peak compute on full 200-record buffer must '
+            'stay well under timer cadence (5 s) so production '
+            'sessions do not regress. Budget allows ~2.5 ms/tick to '
+            'accommodate slow CI runners.',
+      );
     });
   });
 }

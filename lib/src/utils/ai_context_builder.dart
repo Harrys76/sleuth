@@ -25,9 +25,11 @@ class AiContextBuilder {
     final buf = StringBuffer();
 
     // 1. Role preamble
-    buf.writeln('You are a Flutter performance expert helping a developer '
-        'investigate a specific issue detected by Sleuth, a runtime '
-        'performance diagnostics tool.');
+    buf.writeln(
+      'You are a Flutter performance expert helping a developer '
+      'investigate a specific issue detected by Sleuth, a runtime '
+      'performance diagnostics tool.',
+    );
     buf.writeln();
 
     // 2. Focus issue
@@ -66,8 +68,9 @@ class AiContextBuilder {
       final display = causeIds.length <= cap
           ? causeIds.join(', ')
           : '${causeIds.take(cap).join(', ')} (+${causeIds.length - cap} more)';
-      final label =
-          causeIds.length == 1 ? 'Root cause issue' : 'Root cause issues';
+      final label = causeIds.length == 1
+          ? 'Root cause issue'
+          : 'Root cause issues';
       buf.writeln('$label: $display');
     }
     if (issue.downstreamIds != null && issue.downstreamIds!.isNotEmpty) {
@@ -102,16 +105,16 @@ class AiContextBuilder {
     }
 
     // 4. Other active issues (max 5)
-    final otherIssues = allIssues
-        .where((i) => i.stableId != issue.stableId)
-        .toList()
-      ..sort((a, b) => b.severity.index.compareTo(a.severity.index));
+    final otherIssues =
+        allIssues.where((i) => i.stableId != issue.stableId).toList()
+          ..sort((a, b) => b.severity.index.compareTo(a.severity.index));
     if (otherIssues.isNotEmpty) {
       final capped = otherIssues.take(5);
       buf.writeln('## Other Active Issues');
       for (final other in capped) {
         buf.writeln(
-            '- ${other.title} (${other.severity.name}, ${other.category.name})');
+          '- ${other.title} (${other.severity.name}, ${other.category.name})',
+        );
       }
       if (otherIssues.length > 5) {
         buf.writeln('- ...and ${otherIssues.length - 5} more');
@@ -121,10 +124,12 @@ class AiContextBuilder {
 
     // 5. Instructions
     buf.writeln('## Instructions');
-    buf.writeln('Answer concisely. Reference the specific metrics and '
-        'values shown in the issue detail. Suggest concrete code changes '
-        'when possible. If the developer asks about something outside your '
-        'knowledge, say so rather than guessing.');
+    buf.writeln(
+      'Answer concisely. Reference the specific metrics and '
+      'values shown in the issue detail. Suggest concrete code changes '
+      'when possible. If the developer asks about something outside your '
+      'knowledge, say so rather than guessing.',
+    );
 
     return buf.toString();
   }

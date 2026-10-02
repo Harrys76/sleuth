@@ -9,22 +9,28 @@ import '../helpers/fake_vm_bridge.dart';
 void main() {
   tearDown(snapshotDiskHandoff.cleanupAll);
 
-  test('no args ⇒ no projection stamp, currentIssues compacted by default',
-      () async {
-    final bridge = defaultFakeBridge();
-    await bridge.connect(Uri.parse('ws://localhost/ws'));
-    final handler = builtInTools['get_snapshot']!.handler;
-    final result = await handler(bridge, {}) as Map<String, Object?>;
-    expect(result['sessionUuid'], 'fake-uuid');
-    final data = result['data'] as Map<String, Object?>;
-    expect(data.containsKey('_projectionApplied'), isFalse);
-    final issues = (data['currentIssues'] as List).cast<Map<String, Object?>>();
-    expect(issues, hasLength(2));
-    expect(issues.first['stableId'], 'jank_detected');
-    expect(issues.first.containsKey('rankingScore'), isFalse,
-        reason: 'snapshot issues are compact by default');
-    expect(issues.first.containsKey('title'), isTrue);
-  });
+  test(
+    'no args ⇒ no projection stamp, currentIssues compacted by default',
+    () async {
+      final bridge = defaultFakeBridge();
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final handler = builtInTools['get_snapshot']!.handler;
+      final result = await handler(bridge, {}) as Map<String, Object?>;
+      expect(result['sessionUuid'], 'fake-uuid');
+      final data = result['data'] as Map<String, Object?>;
+      expect(data.containsKey('_projectionApplied'), isFalse);
+      final issues = (data['currentIssues'] as List)
+          .cast<Map<String, Object?>>();
+      expect(issues, hasLength(2));
+      expect(issues.first['stableId'], 'jank_detected');
+      expect(
+        issues.first.containsKey('rankingScore'),
+        isFalse,
+        reason: 'snapshot issues are compact by default',
+      );
+      expect(issues.first.containsKey('title'), isTrue);
+    },
+  );
 
   test('verbose:true keeps full currentIssues fields', () async {
     final bridge = defaultFakeBridge();
@@ -44,16 +50,18 @@ void main() {
     final result =
         await handler(bridge, {'diskHandoff': true}) as Map<String, Object?>;
 
-    expect(result.containsKey('data'), isFalse,
-        reason: 'handoff response omits inline data');
+    expect(
+      result.containsKey('data'),
+      isFalse,
+      reason: 'handoff response omits inline data',
+    );
     final path = result['path'] as String;
     expect(File(path).existsSync(), isTrue);
     expect(result['sizeBytes'], isA<int>());
     expect(result['sha256'], isA<String>());
   });
 
-  test(
-      'diskHandoff stamps _projectionApplied=by_sidecar_fallback when the app '
+  test('diskHandoff stamps _projectionApplied=by_sidecar_fallback when the app '
       'response carries no projection metadata', () async {
     // defaultFakeBridge returns a snapshot WITHOUT _projectedSections —
     // simulates an app that predates projection support (lineage
@@ -62,61 +70,75 @@ void main() {
     final bridge = defaultFakeBridge();
     await bridge.connect(Uri.parse('ws://localhost/ws'));
     final handler = builtInTools['get_snapshot']!.handler;
-    final result = await handler(bridge, {
-      'diskHandoff': true,
-      'sections': ['currentIssues']
-    }) as Map<String, Object?>;
-    expect(result['_projectionApplied'], 'by_sidecar_fallback');
-  });
-
-  test(
-      'INLINE projection against a pre-0.35 app returns '
-      'projection_unsupported_by_app (full inline payload would overflow)',
-      () async {
-    // defaultFakeBridge returns a snapshot WITHOUT _projectedSections.
-    // An inline projection request against that (no diskHandoff) must
-    // refuse rather than dump the full payload the caller asked to trim.
-    final bridge = defaultFakeBridge();
-    await bridge.connect(Uri.parse('ws://localhost/ws'));
-    final handler = builtInTools['get_snapshot']!.handler;
-    final result = await handler(bridge, {
-      'sections': ['currentIssues']
-    });
-    final tc = result as ToolCallResult;
-    expect(tc.isError, isTrue);
-    expect(tc.content.first['text'] as String,
-        startsWith('projection_unsupported_by_app:'));
-  });
-
-  test('sections:[] is treated as full payload, NOT a projection request',
-      () async {
-    // Empty list must not forward an empty `sections` string nor trip the
-    // fallback path — it means "full payload" per the documented contract.
-    final bridge = defaultFakeBridge();
-    await bridge.connect(Uri.parse('ws://localhost/ws'));
-    final handler = builtInTools['get_snapshot']!.handler;
     final result =
-        await handler(bridge, {'sections': <String>[]}) as Map<String, Object?>;
-    final data = result['data'] as Map<String, Object?>;
-    expect(data.containsKey('_projectionApplied'), isFalse,
-        reason: 'empty sections is a full-payload request, not a projection');
-  });
-
-  test('diskHandoff fallback path still writes + stamps by_sidecar_fallback',
-      () async {
-    final bridge = defaultFakeBridge();
-    await bridge.connect(Uri.parse('ws://localhost/ws'));
-    final handler = builtInTools['get_snapshot']!.handler;
-    final result = await handler(bridge, {
-      'diskHandoff': true,
-      'sections': ['currentIssues']
-    }) as Map<String, Object?>;
+        await handler(bridge, {
+              'diskHandoff': true,
+              'sections': ['currentIssues'],
+            })
+            as Map<String, Object?>;
     expect(result['_projectionApplied'], 'by_sidecar_fallback');
-    expect(result.containsKey('path'), isTrue);
   });
 
   test(
-      'diskHandoff:true with an app ERROR envelope surfaces the error '
+    'INLINE projection against a pre-0.35 app returns '
+    'projection_unsupported_by_app (full inline payload would overflow)',
+    () async {
+      // defaultFakeBridge returns a snapshot WITHOUT _projectedSections.
+      // An inline projection request against that (no diskHandoff) must
+      // refuse rather than dump the full payload the caller asked to trim.
+      final bridge = defaultFakeBridge();
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final handler = builtInTools['get_snapshot']!.handler;
+      final result = await handler(bridge, {
+        'sections': ['currentIssues'],
+      });
+      final tc = result as ToolCallResult;
+      expect(tc.isError, isTrue);
+      expect(
+        tc.content.first['text'] as String,
+        startsWith('projection_unsupported_by_app:'),
+      );
+    },
+  );
+
+  test(
+    'sections:[] is treated as full payload, NOT a projection request',
+    () async {
+      // Empty list must not forward an empty `sections` string nor trip the
+      // fallback path — it means "full payload" per the documented contract.
+      final bridge = defaultFakeBridge();
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final handler = builtInTools['get_snapshot']!.handler;
+      final result =
+          await handler(bridge, {'sections': <String>[]})
+              as Map<String, Object?>;
+      final data = result['data'] as Map<String, Object?>;
+      expect(
+        data.containsKey('_projectionApplied'),
+        isFalse,
+        reason: 'empty sections is a full-payload request, not a projection',
+      );
+    },
+  );
+
+  test(
+    'diskHandoff fallback path still writes + stamps by_sidecar_fallback',
+    () async {
+      final bridge = defaultFakeBridge();
+      await bridge.connect(Uri.parse('ws://localhost/ws'));
+      final handler = builtInTools['get_snapshot']!.handler;
+      final result =
+          await handler(bridge, {
+                'diskHandoff': true,
+                'sections': ['currentIssues'],
+              })
+              as Map<String, Object?>;
+      expect(result['_projectionApplied'], 'by_sidecar_fallback');
+      expect(result.containsKey('path'), isTrue);
+    },
+  );
+
+  test('diskHandoff:true with an app ERROR envelope surfaces the error '
       'inline, never a file pointer', () async {
     final bridge = FakeVmBridge(fakeSessionUuid: 'u')
       ..setEnvelope('ext.sleuth.diagnose', {
@@ -133,12 +155,17 @@ void main() {
       });
     await bridge.connect(Uri.parse('ws://localhost/ws'));
     final handler = builtInTools['get_snapshot']!.handler;
-    final result = await handler(bridge, {
-      'diskHandoff': true,
-      'sections': ['bogus']
-    }) as Map<String, Object?>;
+    final result =
+        await handler(bridge, {
+              'diskHandoff': true,
+              'sections': ['bogus'],
+            })
+            as Map<String, Object?>;
     expect(result.containsKey('error'), isTrue);
-    expect(result.containsKey('path'), isFalse,
-        reason: 'error envelopes must never be disk-handed-off');
+    expect(
+      result.containsKey('path'),
+      isFalse,
+      reason: 'error envelopes must never be disk-handed-off',
+    );
   });
 }

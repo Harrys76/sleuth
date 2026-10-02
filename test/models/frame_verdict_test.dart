@@ -89,18 +89,17 @@ void main() {
       List<CpuAttribution>? topFunctions,
       int? pendingRequestCount,
       int? slowestPendingMs,
-    }) =>
-        FrameVerdict(
-          frameNumber: 1,
-          totalFrameTime: const Duration(milliseconds: 32),
-          uiThreadTime: const Duration(milliseconds: 28),
-          rasterThreadTime: const Duration(milliseconds: 4),
-          suspectedPhase: PipelinePhase.build,
-          reason: 'Build phase dominant',
-          topFunctions: topFunctions,
-          pendingRequestCount: pendingRequestCount,
-          slowestPendingMs: slowestPendingMs,
-        );
+    }) => FrameVerdict(
+      frameNumber: 1,
+      totalFrameTime: const Duration(milliseconds: 32),
+      uiThreadTime: const Duration(milliseconds: 28),
+      rasterThreadTime: const Duration(milliseconds: 4),
+      suspectedPhase: PipelinePhase.build,
+      reason: 'Build phase dominant',
+      topFunctions: topFunctions,
+      pendingRequestCount: pendingRequestCount,
+      slowestPendingMs: slowestPendingMs,
+    );
 
     test('toJson/fromJson round-trips network context fields', () {
       final original = makeVerdict(
@@ -129,28 +128,30 @@ void main() {
       expect(restored.slowestPendingMs, isNull);
     });
 
-    test('withNetworkContext preserves existing fields including topFunctions',
-        () {
-      const attribution = CpuAttribution(
-        functionName: 'build',
-        className: 'MyWidget',
-        libraryUri: 'package:app/w.dart',
-        percentage: 42.5,
-      );
-      final original = makeVerdict(topFunctions: [attribution]);
+    test(
+      'withNetworkContext preserves existing fields including topFunctions',
+      () {
+        const attribution = CpuAttribution(
+          functionName: 'build',
+          className: 'MyWidget',
+          libraryUri: 'package:app/w.dart',
+          percentage: 42.5,
+        );
+        final original = makeVerdict(topFunctions: [attribution]);
 
-      final enriched = original.withNetworkContext(
-        pendingRequestCount: 2,
-        slowestPendingMs: 800,
-      );
+        final enriched = original.withNetworkContext(
+          pendingRequestCount: 2,
+          slowestPendingMs: 800,
+        );
 
-      expect(enriched.pendingRequestCount, 2);
-      expect(enriched.slowestPendingMs, 800);
-      expect(enriched.topFunctions, hasLength(1));
-      expect(enriched.frameNumber, original.frameNumber);
-      expect(enriched.totalFrameTime, original.totalFrameTime);
-      expect(enriched.suspectedPhase, original.suspectedPhase);
-    });
+        expect(enriched.pendingRequestCount, 2);
+        expect(enriched.slowestPendingMs, 800);
+        expect(enriched.topFunctions, hasLength(1));
+        expect(enriched.frameNumber, original.frameNumber);
+        expect(enriched.totalFrameTime, original.totalFrameTime);
+        expect(enriched.suspectedPhase, original.suspectedPhase);
+      },
+    );
 
     test('withTopFunctions preserves network context', () {
       const attribution = CpuAttribution(

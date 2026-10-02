@@ -160,14 +160,14 @@ void main() {
     test('caps other-issues at 5', () {
       final others = List.generate(
         8,
-        (i) => makeIssue(
-          title: 'Issue $i',
-          stableId: 'issue_$i',
-        ),
+        (i) => makeIssue(title: 'Issue $i', stableId: 'issue_$i'),
       );
       final prompt = AiContextBuilder.buildSystemPrompt(
         issue: makeIssue(stableId: 'focus_issue'),
-        allIssues: [makeIssue(stableId: 'focus_issue'), ...others],
+        allIssues: [
+          makeIssue(stableId: 'focus_issue'),
+          ...others,
+        ],
       );
       // Should show 5 + "and N more"
       expect(prompt, contains('and 3 more'));
@@ -198,8 +198,7 @@ void main() {
       expect(prompt, contains('gc_pressure, heap_growing'));
     });
 
-    test(
-        'multi-parent: lists every cause, plural label, no truncation '
+    test('multi-parent: lists every cause, plural label, no truncation '
         'under 5', () {
       final prompt = AiContextBuilder.buildSystemPrompt(
         issue: makeIssue(
@@ -207,26 +206,22 @@ void main() {
         ),
       );
       expect(
-          prompt,
-          contains(
-              'Root cause issues: stream_resource_growth, uncached_images'));
+        prompt,
+        contains('Root cause issues: stream_resource_growth, uncached_images'),
+      );
       expect(prompt, isNot(contains('more)')));
     });
 
     test('multi-parent: caps at 5 with "+N more" suffix', () {
       final prompt = AiContextBuilder.buildSystemPrompt(
-        issue: makeIssue(
-          rootCauseIds: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
-        ),
+        issue: makeIssue(rootCauseIds: ['a', 'b', 'c', 'd', 'e', 'f', 'g']),
       );
       expect(prompt, contains('Root cause issues: a, b, c, d, e (+2 more)'));
       expect(prompt, isNot(contains('f, g')));
     });
 
     test('includes response instructions', () {
-      final prompt = AiContextBuilder.buildSystemPrompt(
-        issue: makeIssue(),
-      );
+      final prompt = AiContextBuilder.buildSystemPrompt(issue: makeIssue());
       expect(prompt, contains('Instructions'));
       expect(prompt, contains('Answer concisely'));
     });
@@ -238,8 +233,11 @@ void main() {
         final questions = AiContextBuilder.starterQuestions(
           makeIssue(category: category),
         );
-        expect(questions.length, inInclusiveRange(2, 3),
-            reason: 'Wrong count for $category');
+        expect(
+          questions.length,
+          inInclusiveRange(2, 3),
+          reason: 'Wrong count for $category',
+        );
       }
     });
 

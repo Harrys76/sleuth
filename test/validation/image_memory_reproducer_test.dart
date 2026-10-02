@@ -78,16 +78,19 @@ void main() {
     testWidgets('40×40 Image (below 50dp threshold) does NOT fire', (
       tester,
     ) async {
-      await tester.pumpWidget(_wrapSized(
-        size: 40,
-        child: Image(image: MemoryImage(_kTransparentPng)),
-      ));
+      await tester.pumpWidget(
+        _wrapSized(
+          size: 40,
+          child: Image(image: MemoryImage(_kTransparentPng)),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(
         detector.issues.where((i) => i.stableId == 'uncached_images'),
         isEmpty,
-        reason: 'images at or below 50dp are suppressed to avoid noise on '
+        reason:
+            'images at or below 50dp are suppressed to avoid noise on '
             'icon-sized assets — savings from cacheWidth/cacheHeight are '
             'negligible at this size (< 10 KB).',
       );
@@ -98,10 +101,12 @@ void main() {
     ) async {
       // Boundary contract: `size.width <= 50 && size.height <= 50` is
       // small. Exactly-50 is inclusive of the skip band.
-      await tester.pumpWidget(_wrapSized(
-        size: 50,
-        child: Image(image: MemoryImage(_kTransparentPng)),
-      ));
+      await tester.pumpWidget(
+        _wrapSized(
+          size: 50,
+          child: Image(image: MemoryImage(_kTransparentPng)),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(
@@ -114,10 +119,12 @@ void main() {
     testWidgets('51×51 Image (just above threshold) fires uncached_images', (
       tester,
     ) async {
-      await tester.pumpWidget(_wrapSized(
-        size: 51,
-        child: Image(image: MemoryImage(_kTransparentPng)),
-      ));
+      await tester.pumpWidget(
+        _wrapSized(
+          size: 51,
+          child: Image(image: MemoryImage(_kTransparentPng)),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       final issues = detector.issues
@@ -130,10 +137,12 @@ void main() {
     testWidgets('100×100 Image (well above threshold) fires uncached_images', (
       tester,
     ) async {
-      await tester.pumpWidget(_wrapSized(
-        size: 100,
-        child: Image(image: MemoryImage(_kTransparentPng)),
-      ));
+      await tester.pumpWidget(
+        _wrapSized(
+          size: 100,
+          child: Image(image: MemoryImage(_kTransparentPng)),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       final issues = detector.issues
@@ -145,18 +154,21 @@ void main() {
     testWidgets('100×100 ResizeImage wrapper suppresses (any size)', (
       tester,
     ) async {
-      await tester.pumpWidget(_wrapSized(
-        size: 100,
-        child: Image(
-          image: ResizeImage(MemoryImage(_kTransparentPng), width: 100),
+      await tester.pumpWidget(
+        _wrapSized(
+          size: 100,
+          child: Image(
+            image: ResizeImage(MemoryImage(_kTransparentPng), width: 100),
+          ),
         ),
-      ));
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(
         detector.issues.where((i) => i.stableId == 'uncached_images'),
         isEmpty,
-        reason: 'ResizeImage wrapping is the documented fix — its presence '
+        reason:
+            'ResizeImage wrapping is the documented fix — its presence '
             'suppresses the detector unconditionally.',
       );
     });
@@ -180,33 +192,41 @@ void main() {
     });
 
     testWidgets(
-        '100×100 Container(decoration: BoxDecoration(image: DecorationImage)) '
-        'fires uncached_images via the DecoratedBox branch', (tester) async {
-      // `Container(decoration: BoxDecoration(image: ...))` hoists to a
-      // `DecoratedBox` during element build, so the tree walk reaches
-      // `_checkDecorationImage` (detector line 87-101), a sibling branch
-      // to the `Image` widget branch. Without this case, a regression
-      // isolated to the decoration path (missing ResizeImage bail-out,
-      // BoxDecoration semantics drift, Container→DecoratedBox hoist
-      // change) would ship with the reproducerOnly badge and no failing
-      // test.
-      await tester.pumpWidget(_wrapSized(
-        size: 100,
-        child: Container(
-          decoration: BoxDecoration(
-            image: DecorationImage(image: MemoryImage(_kTransparentPng)),
+      '100×100 Container(decoration: BoxDecoration(image: DecorationImage)) '
+      'fires uncached_images via the DecoratedBox branch',
+      (tester) async {
+        // `Container(decoration: BoxDecoration(image: ...))` hoists to a
+        // `DecoratedBox` during element build, so the tree walk reaches
+        // `_checkDecorationImage` (detector line 87-101), a sibling branch
+        // to the `Image` widget branch. Without this case, a regression
+        // isolated to the decoration path (missing ResizeImage bail-out,
+        // BoxDecoration semantics drift, Container→DecoratedBox hoist
+        // change) would ship with the reproducerOnly badge and no failing
+        // test.
+        await tester.pumpWidget(
+          _wrapSized(
+            size: 100,
+            child: Container(
+              decoration: BoxDecoration(
+                image: DecorationImage(image: MemoryImage(_kTransparentPng)),
+              ),
+            ),
           ),
-        ),
-      ));
-      detector.scanTree(tester.element(find.byType(Directionality)));
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
 
-      final issues = detector.issues
-          .where((i) => i.stableId == 'uncached_images')
-          .toList();
-      expect(issues, hasLength(1),
-          reason: 'DecoratedBox emission path must fire just like the '
-              'Image widget branch when above the 50dp threshold.');
-    });
+        final issues = detector.issues
+            .where((i) => i.stableId == 'uncached_images')
+            .toList();
+        expect(
+          issues,
+          hasLength(1),
+          reason:
+              'DecoratedBox emission path must fire just like the '
+              'Image widget branch when above the 50dp threshold.',
+        );
+      },
+    );
 
     testWidgets('100×100 DecorationImage wrapping ResizeImage suppresses', (
       tester,
@@ -215,22 +235,25 @@ void main() {
       // `_checkDecorationImage` guard must also bail out when the inner
       // provider is a ResizeImage, or the documented fix is unenforced
       // on the decoration path.
-      await tester.pumpWidget(_wrapSized(
-        size: 100,
-        child: Container(
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              image: ResizeImage(MemoryImage(_kTransparentPng), width: 100),
+      await tester.pumpWidget(
+        _wrapSized(
+          size: 100,
+          child: Container(
+            decoration: BoxDecoration(
+              image: DecorationImage(
+                image: ResizeImage(MemoryImage(_kTransparentPng), width: 100),
+              ),
             ),
           ),
         ),
-      ));
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(
         detector.issues.where((i) => i.stableId == 'uncached_images'),
         isEmpty,
-        reason: 'ResizeImage-inside-DecorationImage is the documented fix '
+        reason:
+            'ResizeImage-inside-DecorationImage is the documented fix '
             'for the DecoratedBox emission branch.',
       );
     });

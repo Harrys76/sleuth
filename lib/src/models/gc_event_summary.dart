@@ -24,16 +24,16 @@ class GcEventSummary {
   final String name;
 
   Map<String, dynamic> toJson() => {
-        'timestampUs': timestampUs,
-        'durationUs': durationUs,
-        'category': category,
-        'name': name,
-      };
+    'timestampUs': timestampUs,
+    'durationUs': durationUs,
+    'category': category,
+    'name': name,
+  };
 
   factory GcEventSummary.fromJson(Map<String, dynamic> json) => GcEventSummary(
-        timestampUs: json['timestampUs'] as int,
-        durationUs: json['durationUs'] as int,
-        category: json['category'] as String,
-        name: json['name'] as String,
-      );
+    timestampUs: json['timestampUs'] as int,
+    durationUs: json['durationUs'] as int,
+    category: json['category'] as String,
+    name: json['name'] as String,
+  );
 }

@@ -60,15 +60,12 @@ Future<Object> compareSnapshotsHandler(
     final afterSev = afterIssuesMap[id]?['severity'];
     if (beforeSev != afterSev &&
         _severityRank(afterSev) > _severityRank(beforeSev)) {
-      elevated.add({
-        'stableId': id,
-        'before': beforeSev,
-        'after': afterSev,
-      });
+      elevated.add({'stableId': id, 'before': beforeSev, 'after': afterSev});
     }
   }
   elevated.sort(
-      (a, b) => (a['stableId'] as String).compareTo(b['stableId'] as String));
+    (a, b) => (a['stableId'] as String).compareTo(b['stableId'] as String),
+  );
 
   final beforeFps = _avgFps(before, 'before');
   if (beforeFps is ToolCallResult) return beforeFps;

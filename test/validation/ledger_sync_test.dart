@@ -47,8 +47,7 @@ void main() {
       controller.dispose();
     });
 
-    test(
-        'ledger per-tier counts match controller.detectorsForAudit '
+    test('ledger per-tier counts match controller.detectorsForAudit '
         'tier counts', () {
       final ledgerFile = File('doc/validation_ledger.md');
       if (!ledgerFile.existsSync()) {
@@ -74,14 +73,23 @@ void main() {
       // the tier vocabulary and must be excluded.
       final startOfDetectors = source.indexOf('## Ledger');
       final endOfDetectors = source.indexOf('## Non-Detector Components');
-      expect(startOfDetectors, greaterThan(0),
-          reason: 'Ledger must have a `## Ledger` heading.');
-      expect(endOfDetectors, greaterThan(startOfDetectors),
-          reason: 'Ledger must have a Non-Detector Components section to '
-              'bound the detector count; not finding it likely means the '
-              'ledger was restructured and this test needs updating.');
-      final detectorSection =
-          source.substring(startOfDetectors, endOfDetectors);
+      expect(
+        startOfDetectors,
+        greaterThan(0),
+        reason: 'Ledger must have a `## Ledger` heading.',
+      );
+      expect(
+        endOfDetectors,
+        greaterThan(startOfDetectors),
+        reason:
+            'Ledger must have a Non-Detector Components section to '
+            'bound the detector count; not finding it likely means the '
+            'ledger was restructured and this test needs updating.',
+      );
+      final detectorSection = source.substring(
+        startOfDetectors,
+        endOfDetectors,
+      );
 
       final fromLedger = <EvidenceTier, int>{
         for (final t in EvidenceTier.values) t: 0,
@@ -92,18 +100,21 @@ void main() {
         fromLedger[tier] = pattern.allMatches(detectorSection).length;
       }
 
-      expect(fromLedger, equals(fromMetadata),
-          reason: 'Ledger detector rows diverge from detector metadata.\n'
-              'Ledger counts: $fromLedger\n'
-              'Metadata counts: $fromMetadata\n'
-              'If a detector tier was raised in code, update '
-              'doc/validation_ledger.md to match. If the ledger already '
-              'promises a tier the detector does not carry, raise the '
-              'detector or roll the ledger back.');
+      expect(
+        fromLedger,
+        equals(fromMetadata),
+        reason:
+            'Ledger detector rows diverge from detector metadata.\n'
+            'Ledger counts: $fromLedger\n'
+            'Metadata counts: $fromMetadata\n'
+            'If a detector tier was raised in code, update '
+            'doc/validation_ledger.md to match. If the ledger already '
+            'promises a tier the detector does not carry, raise the '
+            'detector or roll the ledger back.',
+      );
     });
 
-    test(
-        'ledger summary line matches the total detector count for the '
+    test('ledger summary line matches the total detector count for the '
         'dominant tier', () {
       final ledgerFile = File('doc/validation_ledger.md');
       if (!ledgerFile.existsSync()) {
@@ -122,23 +133,38 @@ void main() {
       // with a `**Summary:**` anchor.
       final startOfDetectors = source.indexOf('## Ledger');
       final endOfDetectors = source.indexOf('## Non-Detector Components');
-      expect(startOfDetectors, greaterThan(0),
-          reason: 'Ledger must have a `## Ledger` heading.');
-      expect(endOfDetectors, greaterThan(startOfDetectors),
-          reason: 'Ledger must have a Non-Detector Components section '
-              'to bound the detector summary line.');
-      final detectorSection =
-          source.substring(startOfDetectors, endOfDetectors);
+      expect(
+        startOfDetectors,
+        greaterThan(0),
+        reason: 'Ledger must have a `## Ledger` heading.',
+      );
+      expect(
+        endOfDetectors,
+        greaterThan(startOfDetectors),
+        reason:
+            'Ledger must have a Non-Detector Components section '
+            'to bound the detector summary line.',
+      );
+      final detectorSection = source.substring(
+        startOfDetectors,
+        endOfDetectors,
+      );
 
       // Multiline match on a single line anchored by `**Summary:**`.
-      final summaryLinePattern =
-          RegExp(r'^\*\*Summary:\*\*\s+(.+)$', multiLine: true);
+      final summaryLinePattern = RegExp(
+        r'^\*\*Summary:\*\*\s+(.+)$',
+        multiLine: true,
+      );
       final summaryMatch = summaryLinePattern.firstMatch(detectorSection);
-      expect(summaryMatch, isNotNull,
-          reason: 'Detector section must have a `**Summary:** ...` line '
-              'as the first prose after the `## Ledger` heading; not '
-              'finding it likely means the ledger was restructured and '
-              'this test needs updating.');
+      expect(
+        summaryMatch,
+        isNotNull,
+        reason:
+            'Detector section must have a `**Summary:** ...` line '
+            'as the first prose after the `## Ledger` heading; not '
+            'finding it likely means the ledger was restructured and '
+            'this test needs updating.',
+      );
       final summaryLine = summaryMatch!.group(1)!;
 
       final totalDetectors = controller.detectorsForAudit.length;
@@ -146,21 +172,28 @@ void main() {
       // `totalDetectors` as the denominator.
       final denominatorPattern = RegExp(r'/\s*(\d+)\s+at\s+`');
       final matches = denominatorPattern.allMatches(summaryLine).toList();
-      expect(matches, isNotEmpty,
-          reason: 'Ledger summary line did not contain any '
-              '"N / TOTAL at `tier`" fragments; summary prose must have '
-              'been restructured.');
+      expect(
+        matches,
+        isNotEmpty,
+        reason:
+            'Ledger summary line did not contain any '
+            '"N / TOTAL at `tier`" fragments; summary prose must have '
+            'been restructured.',
+      );
       for (final m in matches) {
         final denom = int.parse(m.group(1)!);
-        expect(denom, equals(totalDetectors),
-            reason: 'Ledger summary denominator ($denom) does not match '
-                'the actual detector count ($totalDetectors). A detector '
-                'was added or removed without updating the ledger summary.');
+        expect(
+          denom,
+          equals(totalDetectors),
+          reason:
+              'Ledger summary denominator ($denom) does not match '
+              'the actual detector count ($totalDetectors). A detector '
+              'was added or removed without updating the ledger summary.',
+        );
       }
     });
 
-    test(
-        'pinned detector-row assertion — NetworkMonitorDetector is on '
+    test('pinned detector-row assertion — NetworkMonitorDetector is on '
         'the ledger at reproducerOnly with slow_request raised via '
         'perStableIdTier (v0.19.0)', () {
       // AB-9: The tier-counts test above is coarse — it proves "N
@@ -187,8 +220,10 @@ void main() {
 
       final startOfDetectors = source.indexOf('## Ledger');
       final endOfDetectors = source.indexOf('## Non-Detector Components');
-      final detectorSection =
-          source.substring(startOfDetectors, endOfDetectors);
+      final detectorSection = source.substring(
+        startOfDetectors,
+        endOfDetectors,
+      );
 
       // Pin both halves of the v0.18.3 representation: the row's tier
       // cell must show the base tier, and the row's Notes cell must
@@ -199,16 +234,23 @@ void main() {
       final pinnedRow = RegExp(
         r'\|\s*Network Monitor\s*\|\s*`reproducerOnly`\s*\|',
       );
-      expect(pinnedRow.hasMatch(detectorSection), isTrue,
-          reason: 'Ledger must carry a pinned row `| Network Monitor | '
-              '`reproducerOnly` | ...` — a silent tier swap would '
-              'otherwise pass the tier-count gate.');
-      expect(detectorSection,
-          contains('perStableIdTier{slow_request: runtimeVerified}'),
-          reason: 'Ledger Notes column for NetworkMonitor must declare '
-              'the perStableIdTier raise of slow_request — this is the '
-              'evidence that the runtimeVerified bracket is still being '
-              'enforced after the v0.18.3 base-tier drop.');
+      expect(
+        pinnedRow.hasMatch(detectorSection),
+        isTrue,
+        reason:
+            'Ledger must carry a pinned row `| Network Monitor | '
+            '`reproducerOnly` | ...` — a silent tier swap would '
+            'otherwise pass the tier-count gate.',
+      );
+      expect(
+        detectorSection,
+        contains('perStableIdTier{slow_request: runtimeVerified}'),
+        reason:
+            'Ledger Notes column for NetworkMonitor must declare '
+            'the perStableIdTier raise of slow_request — this is the '
+            'evidence that the runtimeVerified bracket is still being '
+            'enforced after the v0.18.3 base-tier drop.',
+      );
     });
 
     // AB-7: the detector-side gates slice out everything under
@@ -226,8 +268,7 @@ void main() {
     // the first real registration lands (v0.16.6), this test file is
     // the canonical place to dispatch `registerMetadata()` from
     // `setUpAll` so the registry reflects the post-dispatch state.
-    test(
-        'component-ledger per-tier counts match ValidatedComponentRegistry '
+    test('component-ledger per-tier counts match ValidatedComponentRegistry '
         'tier counts (AB-7)', () {
       final ledgerFile = File('doc/validation_ledger.md');
       if (!ledgerFile.existsSync()) {
@@ -238,13 +279,22 @@ void main() {
 
       final startOfComponents = source.indexOf('## Non-Detector Components');
       final endOfComponents = source.indexOf('## Roadmap');
-      expect(startOfComponents, greaterThan(0),
-          reason: 'Ledger must have a `## Non-Detector Components` heading.');
-      expect(endOfComponents, greaterThan(startOfComponents),
-          reason: 'Ledger must have a `## Roadmap` section to bound the '
-              'component section.');
-      final componentSection =
-          source.substring(startOfComponents, endOfComponents);
+      expect(
+        startOfComponents,
+        greaterThan(0),
+        reason: 'Ledger must have a `## Non-Detector Components` heading.',
+      );
+      expect(
+        endOfComponents,
+        greaterThan(startOfComponents),
+        reason:
+            'Ledger must have a `## Roadmap` section to bound the '
+            'component section.',
+      );
+      final componentSection = source.substring(
+        startOfComponents,
+        endOfComponents,
+      );
 
       final registered = ValidatedComponentRegistry.instance.all;
       final fromRegistry = <EvidenceTier, int>{
@@ -262,19 +312,22 @@ void main() {
         fromLedger[tier] = pattern.allMatches(componentSection).length;
       }
 
-      expect(fromLedger, equals(fromRegistry),
-          reason: 'Component-ledger rows diverge from '
-              'ValidatedComponentRegistry tier counts.\n'
-              'Ledger counts: $fromLedger\n'
-              'Registry counts: $fromRegistry\n'
-              'If a component was registered with a stronger tier, update '
-              'the Non-Detector Components table in validation_ledger.md. '
-              'If the ledger promises a tier with no matching registration, '
-              'roll the ledger back or register the component.');
+      expect(
+        fromLedger,
+        equals(fromRegistry),
+        reason:
+            'Component-ledger rows diverge from '
+            'ValidatedComponentRegistry tier counts.\n'
+            'Ledger counts: $fromLedger\n'
+            'Registry counts: $fromRegistry\n'
+            'If a component was registered with a stronger tier, update '
+            'the Non-Detector Components table in validation_ledger.md. '
+            'If the ledger promises a tier with no matching registration, '
+            'roll the ledger back or register the component.',
+      );
     });
 
-    test(
-        'component-ledger summary matches registry size when non-empty '
+    test('component-ledger summary matches registry size when non-empty '
         '(AB-7)', () {
       final ledgerFile = File('doc/validation_ledger.md');
       if (!ledgerFile.existsSync()) {
@@ -284,8 +337,10 @@ void main() {
       final source = ledgerFile.readAsStringSync();
       final startOfComponents = source.indexOf('## Non-Detector Components');
       final endOfComponents = source.indexOf('## Roadmap');
-      final componentSection =
-          source.substring(startOfComponents, endOfComponents);
+      final componentSection = source.substring(
+        startOfComponents,
+        endOfComponents,
+      );
 
       final total = ValidatedComponentRegistry.instance.all.length;
 
@@ -296,27 +351,45 @@ void main() {
       // summary edit that claims registrations before they exist also
       // fails.
       if (total == 0) {
-        expect(componentSection, contains('0 components currently registered'),
-            reason: 'Empty registry must be reflected by the summary line.');
-        expect(componentSection, contains('_(none yet)_'),
-            reason: 'Empty registry must leave the _(none yet)_ placeholder '
-                'row in place.');
+        expect(
+          componentSection,
+          contains('0 components currently registered'),
+          reason: 'Empty registry must be reflected by the summary line.',
+        );
+        expect(
+          componentSection,
+          contains('_(none yet)_'),
+          reason:
+              'Empty registry must leave the _(none yet)_ placeholder '
+              'row in place.',
+        );
       } else {
         // When the first real registration lands (v0.16.6), extend this
         // block with a per-tier denominator check mirroring the detector
         // summary gate.
-        final summaryLinePattern =
-            RegExp(r'^\*\*Summary:\*\*\s+(.+)$', multiLine: true);
+        final summaryLinePattern = RegExp(
+          r'^\*\*Summary:\*\*\s+(.+)$',
+          multiLine: true,
+        );
         final summaryMatch = summaryLinePattern.firstMatch(componentSection);
-        expect(summaryMatch, isNotNull,
-            reason: 'Component section must carry a `**Summary:**` line '
-                'once the first component is registered.');
+        expect(
+          summaryMatch,
+          isNotNull,
+          reason:
+              'Component section must carry a `**Summary:**` line '
+              'once the first component is registered.',
+        );
         final denominatorPattern = RegExp(r'/\s*(\d+)\s+at\s+`');
-        for (final m
-            in denominatorPattern.allMatches(summaryMatch!.group(1)!)) {
-          expect(int.parse(m.group(1)!), total,
-              reason: 'Component-summary denominator does not match the '
-                  'registered component count ($total).');
+        for (final m in denominatorPattern.allMatches(
+          summaryMatch!.group(1)!,
+        )) {
+          expect(
+            int.parse(m.group(1)!),
+            total,
+            reason:
+                'Component-summary denominator does not match the '
+                'registered component count ($total).',
+          );
         }
       }
     });

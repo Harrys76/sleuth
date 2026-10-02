@@ -76,10 +76,10 @@ import '../vm/timeline_parser.dart';
 /// Central controller aggregating all detectors and the pipeline analyzer.
 class SleuthController {
   SleuthController({SleuthConfig? config})
-      : config = config ?? const SleuthConfig(),
-        _captureBuffer = JankCaptureBuffer(
-          capacity: (config ?? const SleuthConfig()).captureBufferCapacity,
-        ) {
+    : config = config ?? const SleuthConfig(),
+      _captureBuffer = JankCaptureBuffer(
+        capacity: (config ?? const SleuthConfig()).captureBufferCapacity,
+      ) {
     // Runtime validation for fields that cannot be asserted in a const
     // constructor because Duration operators are not const-evaluable.
     // These would otherwise silently hang the scan loop with a zero-tick
@@ -345,7 +345,7 @@ class SleuthController {
   /// a single int instead of relying on list identity.
   int _highlightGeneration = 0;
   final ValueNotifier<({int generation, List<WidgetHighlight> items})>
-      highlightsNotifier = ValueNotifier((generation: 0, items: []));
+  highlightsNotifier = ValueNotifier((generation: 0, items: []));
 
   /// Whether the highlight overlay is active.
   final ValueNotifier<bool> highlightEnabledNotifier = ValueNotifier(false);
@@ -401,8 +401,9 @@ class SleuthController {
 
   /// Notifies listeners when route history changes (new session created or
   /// old session evicted). Value is an unmodifiable snapshot.
-  final ValueNotifier<List<RouteSession>> routeHistoryNotifier =
-      ValueNotifier([]);
+  final ValueNotifier<List<RouteSession>> routeHistoryNotifier = ValueNotifier(
+    [],
+  );
 
   /// Number of issues hidden by the suppression list after the last aggregation.
   final ValueNotifier<int> suppressedCountNotifier = ValueNotifier(0);
@@ -459,11 +460,7 @@ class SleuthController {
   static List<String> detectorNamesForCategory(IssueCategory category) {
     return switch (category) {
       IssueCategory.layout => ['Layout'],
-      IssueCategory.build => [
-          'Non-lazy',
-          'setState',
-          'Rebuild',
-        ],
+      IssueCategory.build => ['Non-lazy', 'setState', 'Rebuild'],
       IssueCategory.paint => ['Painter', 'Repaint'],
       IssueCategory.raster => ['GPU'],
       IssueCategory.memory => ['Image', 'KeepAlive'],
@@ -495,7 +492,8 @@ class SleuthController {
   bool get isDeepInstrumentationActive {
     bool result = false;
     assert(() {
-      result = _prevProfileBuildsEnabled != null ||
+      result =
+          _prevProfileBuildsEnabled != null ||
           _prevProfileLayoutsEnabled != null ||
           _prevProfilePaintsEnabled != null ||
           _prevEnhanceBuildArgs != null ||
@@ -794,29 +792,27 @@ class SleuthController {
     // reduces the unified walk iteration count (M6: lazy initialization).
     final factories = <DetectorType, BaseDetector Function()>{
       DetectorType.shaderJank: () => ShaderJankDetector(
-            thresholdMs: config.thresholds.shaderJankMs,
-            coldStartShaderWindowSeconds:
-                config.thresholds.coldStartShaderWindowSeconds,
-            shaderKeyframeWindowMs: config.thresholds.shaderKeyframeWindowMs,
-          ),
+        thresholdMs: config.thresholds.shaderJankMs,
+        coldStartShaderWindowSeconds:
+            config.thresholds.coldStartShaderWindowSeconds,
+        shaderKeyframeWindowMs: config.thresholds.shaderKeyframeWindowMs,
+      ),
       DetectorType.heavyCompute: () => HeavyComputeDetector(
-            lagThresholdMs: config.thresholds.heavyComputeGapMs,
-            sourceRouteProvider: _currentRouteName,
-          ),
+        lagThresholdMs: config.thresholds.heavyComputeGapMs,
+        sourceRouteProvider: _currentRouteName,
+      ),
       DetectorType.platformChannel: () => PlatformChannelDetector(
-            callsPerSecThreshold: config.platformChannelLimit,
-            durationThresholdUs:
-                config.platformChannelDurationThresholdMs * 1000,
-            sourceRouteProvider: _currentRouteName,
-          ),
+        callsPerSecThreshold: config.platformChannelLimit,
+        durationThresholdUs: config.platformChannelDurationThresholdMs * 1000,
+        sourceRouteProvider: _currentRouteName,
+      ),
       DetectorType.repaint: RepaintDetector.new,
       DetectorType.setStateScope: () => SetStateScopeDetector(
-            dirtyRatioThreshold:
-                config.thresholds.setStateScopeOwnershipPercent,
-          ),
+        dirtyRatioThreshold: config.thresholds.setStateScopeOwnershipPercent,
+      ),
       DetectorType.gpuPressure: () => GpuPressureDetector(
-            rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
-          ),
+        rasterMultiplierThreshold: config.thresholds.gpuPressureRatio,
+      ),
       DetectorType.layoutBottleneck: LayoutBottleneckDetector.new,
       DetectorType.listview: () =>
           ListviewDetector(childThreshold: config.maxListChildren),
@@ -825,13 +821,13 @@ class SleuthController {
       DetectorType.keepAlive: () =>
           KeepAliveDetector(threshold: config.thresholds.keepAliveMax),
       DetectorType.fontLoading: () => FontLoadingDetector(
-            maxFamilies: config.thresholds.fontLoadingMaxFamilies,
-          ),
+        maxFamilies: config.thresholds.fontLoadingMaxFamilies,
+      ),
       DetectorType.repaintBoundary: RepaintBoundaryDetector.new,
       DetectorType.startup: () => StartupDetector(
-            ttffWarningMs: config.thresholds.startupTtffWarningMs,
-            ttffCriticalMs: config.thresholds.startupTtffCriticalMs,
-          ),
+        ttffWarningMs: config.thresholds.startupTtffWarningMs,
+        ttffCriticalMs: config.thresholds.startupTtffCriticalMs,
+      ),
     };
 
     // Persist factory map for runtime enable/disable (enableDetector).
@@ -860,7 +856,8 @@ class SleuthController {
       // gating" signal (see [BaseDetector.key] doc).
       for (final d in config.customDetectors)
         d
-          ..isEnabled = d.key == null ||
+          ..isEnabled =
+              d.key == null ||
               !config.disabledCustomDetectorKeys.contains(d.key),
     ];
     _detectorsReady = true;
@@ -1050,10 +1047,10 @@ class SleuthController {
   /// matching the old `Map<String, int>` semantics.
   @visibleForTesting
   Map<String, int> get recurrenceCountsForTest => {
-        for (final e in _recurrenceTrends.entries)
-          if (e.value.entries.isNotEmpty && e.value.entries.last.present)
-            e.key: e.value.presentCount,
-      };
+    for (final e in _recurrenceTrends.entries)
+      if (e.value.entries.isNotEmpty && e.value.entries.last.present)
+        e.key: e.value.presentCount,
+  };
 
   /// Unmodifiable view of the current recurrence trend map, keyed by
   /// issue `stableId`. Intended for the floating card to render "Seen X/Y"
@@ -1091,9 +1088,7 @@ class SleuthController {
   @visibleForTesting
   List<BaseDetector> get detectorsForAudit {
     final customs = config.customDetectors.toSet();
-    return List.unmodifiable(
-      _detectors.where((d) => !customs.contains(d)),
-    );
+    return List.unmodifiable(_detectors.where((d) => !customs.contains(d)));
   }
 
   /// Computed scan interval: backs off when the app is healthy.
@@ -1235,7 +1230,7 @@ class SleuthController {
   /// `markScenarioEnd`, putting them outside the scenario span and
   /// causing `exportCaptureJson` to refuse the role-vs-records gate.
   Future<StreamResourcePollResult>
-      pollStreamResourceAllocationProfileNowWithCapture() async {
+  pollStreamResourceAllocationProfileNowWithCapture() async {
     if (!_detectorsReady) {
       return const StreamResourcePollResult(
         succeeded: false,
@@ -1341,14 +1336,15 @@ class SleuthController {
   /// FPS percentiles, phase/GC/platform-channel event buffers, and
   /// a recent-frames time series.
   SessionSnapshot exportSnapshot() {
-    final buffer =
-        _initialized ? _frameTiming.frameBuffer : frameStatsNotifier.value;
+    final buffer = _initialized
+        ? _frameTiming.frameBuffer
+        : frameStatsNotifier.value;
     final frames = buffer.frames;
     final worstUs = frames.isEmpty
         ? 0
         : frames
-            .map((f) => f.effectiveTotalDuration.inMicroseconds)
-            .reduce((a, b) => a > b ? a : b);
+              .map((f) => f.effectiveTotalDuration.inMicroseconds)
+              .reduce((a, b) => a > b ? a : b);
 
     // Compute FPS percentiles at export time (lazy, not cached).
     // Clamp to fpsTarget so ProMotion 120Hz idle screens report ≤ target.
@@ -1364,8 +1360,9 @@ class SleuthController {
 
     // Attach ranking scores to issues (export-only, not on the hot path).
     // Before init, _frameTiming is not available — use default context.
-    final rankingContext =
-        _initialized ? _buildRankingContext() : const IssueRankingContext();
+    final rankingContext = _initialized
+        ? _buildRankingContext()
+        : const IssueRankingContext();
     final rankedWithScores = _ranker.rankWithScores(
       issuesNotifier.value,
       rankingContext,
@@ -1375,11 +1372,7 @@ class SleuthController {
     final heapSamples = _initialized && _memoryPressure.heapSamples.isNotEmpty
         ? _memoryPressure.heapSamples
         : null;
-    final summary = _buildSessionSummary(
-      rankedWithScores,
-      frames,
-      heapSamples,
-    );
+    final summary = _buildSessionSummary(rankedWithScores, frames, heapSamples);
 
     // Serialize route history (v4).
     final routeSessions = _routeHistory.isNotEmpty
@@ -1408,7 +1401,8 @@ class SleuthController {
       packageVersion: kSleuthPackageVersion,
       isVmConnected: isVmConnected,
       isDebugMode: isDebugMode,
-      recentRequests: _initialized &&
+      recentRequests:
+          _initialized &&
               _networkMonitor.isEnabled &&
               _networkMonitor.records.isNotEmpty
           ? _networkMonitor.records
@@ -1418,17 +1412,15 @@ class SleuthController {
       phaseEvents: _phaseEventBuffer.isNotEmpty
           ? List.unmodifiable(_phaseEventBuffer)
           : null,
-      gcEvents:
-          _gcEventBuffer.isNotEmpty ? List.unmodifiable(_gcEventBuffer) : null,
+      gcEvents: _gcEventBuffer.isNotEmpty
+          ? List.unmodifiable(_gcEventBuffer)
+          : null,
       platformChannelEvents: _platformChannelBuffer.isNotEmpty
           ? List.unmodifiable(_platformChannelBuffer)
           : null,
       recentFrames: frames.isNotEmpty ? List.unmodifiable(frames) : null,
       recurrenceTrends: _recurrenceTrends.isNotEmpty
-          ? {
-              for (final e in _recurrenceTrends.entries)
-                e.key: e.value.toJson(),
-            }
+          ? {for (final e in _recurrenceTrends.entries) e.key: e.value.toJson()}
           : null,
       widgetHeatMap: rankedWithScores.isNotEmpty
           ? buildWidgetHeatMap(rankedWithScores)
@@ -1613,10 +1605,11 @@ class SleuthController {
   }) async {
     if (!ProfileCaptureSchema.allowedRoles.contains(role)) {
       throw ArgumentError.value(
-          role,
-          'role',
-          'Must be exactly one of '
-              '${ProfileCaptureSchema.allowedRoles.toList()..sort()}');
+        role,
+        'role',
+        'Must be exactly one of '
+            '${ProfileCaptureSchema.allowedRoles.toList()..sort()}',
+      );
     }
     _lastCaptureExportFailure = null;
     final client = _vmClient;
@@ -1631,7 +1624,8 @@ class SleuthController {
     }
     final events = await client.fetchRawTimelineEventsJson();
     if (events.isEmpty) {
-      const reason = 'VM service returned 0 timeline events. Either the '
+      const reason =
+          'VM service returned 0 timeline events. Either the '
           'buffer was just cleared or the VM service handshake is '
           'incomplete.';
       _lastCaptureExportFailure = reason;
@@ -1690,11 +1684,14 @@ class SleuthController {
     }
     if (beginTs == null || endTs == null) {
       final scenarioMarkersInBuffer = events
-          .where((e) =>
-              e['name'] == 'sleuth.scenario.begin' ||
-              e['name'] == 'sleuth.scenario.end')
+          .where(
+            (e) =>
+                e['name'] == 'sleuth.scenario.begin' ||
+                e['name'] == 'sleuth.scenario.end',
+          )
           .length;
-      final reason = 'Scenario markers not found (begin=$beginTs, end=$endTs). '
+      final reason =
+          'Scenario markers not found (begin=$beginTs, end=$endTs). '
           '$scenarioMarkersInBuffer scenario markers exist in buffer but '
           'none match scenario name "$scenario". Causes: (1) captureMode '
           'is OFF — verify SleuthConfig(captureMode: true) AND '
@@ -1748,7 +1745,8 @@ class SleuthController {
               'fire at sub-threshold input.';
           _lastCaptureExportFailure = reason;
           debugPrint(
-              'Sleuth.exportCaptureJson($scenario): null return — $reason');
+            'Sleuth.exportCaptureJson($scenario): null return — $reason',
+          );
           return null;
         }
       } else {
@@ -1764,7 +1762,8 @@ class SleuthController {
               'event but timeline buffer rolled it off (overflow).';
           _lastCaptureExportFailure = reason;
           debugPrint(
-              'Sleuth.exportCaptureJson($scenario): null return — $reason');
+            'Sleuth.exportCaptureJson($scenario): null return — $reason',
+          );
           return null;
         }
       }
@@ -1784,7 +1783,8 @@ class SleuthController {
       final tsInt = ts.toInt();
       final durRaw = e['dur'];
       final tsEnd = (durRaw is num) ? tsInt + durRaw.toInt() : tsInt;
-      final inSpan = (tsInt >= spanLo && tsInt <= spanHi) ||
+      final inSpan =
+          (tsInt >= spanLo && tsInt <= spanHi) ||
           (tsEnd >= spanLo && tsEnd <= spanHi) ||
           (tsInt <= spanLo && tsEnd >= spanHi);
       if (inSpan) filtered.add(e);
@@ -1887,16 +1887,20 @@ class SleuthController {
 
     // Top 5 issues by ranking score
     if (ranked.isNotEmpty) {
-      final top = ranked.take(5).map((i) => {
-            'stableId': i.stableId,
-            'title': i.title,
-            'severity': i.severity.name,
-            'confidence': i.confidence.name,
-            if (i.confidenceReason != null)
-              'confidenceReason': i.confidenceReason,
-            if (i.rankingScore != null) 'rankingScore': i.rankingScore,
-            if (i.widgetName != null) 'widgetName': i.widgetName,
-          });
+      final top = ranked
+          .take(5)
+          .map(
+            (i) => {
+              'stableId': i.stableId,
+              'title': i.title,
+              'severity': i.severity.name,
+              'confidence': i.confidence.name,
+              if (i.confidenceReason != null)
+                'confidenceReason': i.confidenceReason,
+              if (i.rankingScore != null) 'rankingScore': i.rankingScore,
+              if (i.widgetName != null) 'widgetName': i.widgetName,
+            },
+          );
       summary['topIssues'] = top.toList();
     }
 
@@ -1949,8 +1953,9 @@ class SleuthController {
     if (heapSamples != null && heapSamples.length >= 2) {
       final first = heapSamples.first;
       final last = heapSamples.last;
-      final peak =
-          heapSamples.map((s) => s.heapUsage).reduce((a, b) => a > b ? a : b);
+      final peak = heapSamples
+          .map((s) => s.heapUsage)
+          .reduce((a, b) => a > b ? a : b);
       final elapsedSecs = last.timestamp.difference(first.timestamp).inSeconds;
       final growthRate = elapsedSecs > 0
           ? (last.heapUsage - first.heapUsage) / elapsedSecs
@@ -2145,34 +2150,31 @@ class SleuthController {
   void _scheduleNextScan() {
     if (_disposed) return;
     final generation = _scanTimerGeneration;
-    _treeScanTimer = Timer(
-      Duration(milliseconds: _currentScanIntervalMs),
-      () {
-        if (_disposed || generation != _scanTimerGeneration) return;
-        final ctx = _overlayContext;
-        if (ctx != null) {
-          final element = ctx as Element;
-          if (element.mounted) {
-            SchedulerBinding.instance.addPostFrameCallback((_) {
-              if (_disposed || generation != _scanTimerGeneration) return;
-              try {
-                if (element.mounted) _scanTree(ctx);
-              } catch (e, st) {
-                assert(() {
-                  debugPrint('Sleuth: scan error: $e\n$st');
-                  return true;
-                }());
-              }
-              _scheduleNextScan();
-            });
-          } else {
+    _treeScanTimer = Timer(Duration(milliseconds: _currentScanIntervalMs), () {
+      if (_disposed || generation != _scanTimerGeneration) return;
+      final ctx = _overlayContext;
+      if (ctx != null) {
+        final element = ctx as Element;
+        if (element.mounted) {
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            if (_disposed || generation != _scanTimerGeneration) return;
+            try {
+              if (element.mounted) _scanTree(ctx);
+            } catch (e, st) {
+              assert(() {
+                debugPrint('Sleuth: scan error: $e\n$st');
+                return true;
+              }());
+            }
             _scheduleNextScan();
-          }
+          });
         } else {
           _scheduleNextScan();
         }
-      },
-    );
+      } else {
+        _scheduleNextScan();
+      }
+    });
   }
 
   void _scanTree(BuildContext context) {
@@ -2261,8 +2263,10 @@ class SleuthController {
       _interactionState = InteractionContext.navigating;
       if (highlightsNotifier.value.items.isNotEmpty) {
         _highlightGeneration++;
-        highlightsNotifier.value =
-            (generation: _highlightGeneration, items: []);
+        highlightsNotifier.value = (
+          generation: _highlightGeneration,
+          items: [],
+        );
       }
       selectedHighlightNotifier.value = null;
       for (final d in _detectors) {
@@ -2324,7 +2328,8 @@ class SleuthController {
     final currentHashKey = _currentVisibleScaffoldHash;
     final active = _activeRouteSession;
 
-    final bool nameChanged = active == null ||
+    final bool nameChanged =
+        active == null ||
         (currentName != null && active.routeName != currentName) ||
         (currentName == null && !active.routeName.startsWith('<unnamed-'));
     final bool hashChanged =
@@ -2350,8 +2355,9 @@ class SleuthController {
           _routeHistory.removeFirst();
         }
         _routeHistory.add(_activeRouteSession!);
-        routeHistoryNotifier.value =
-            List<RouteSession>.unmodifiable(_routeHistory.toList());
+        routeHistoryNotifier.value = List<RouteSession>.unmodifiable(
+          _routeHistory.toList(),
+        );
       } else {
         _activeRouteSession = null;
       }
@@ -2510,8 +2516,9 @@ class SleuthController {
         ancestorSet.add(a);
         return true;
       });
-      final allNested =
-          scaffolds.take(scaffolds.length - 1).every(ancestorSet.contains);
+      final allNested = scaffolds
+          .take(scaffolds.length - 1)
+          .every(ancestorSet.contains);
       if (!allNested) return null; // Real transition / sibling scaffolds.
       // Nested — treat the innermost Scaffold as the visible page.
       scaffolds
@@ -2802,13 +2809,15 @@ class SleuthController {
     Object e,
     StackTrace s,
   ) {
-    FlutterError.reportError(FlutterErrorDetails(
-      exception: e,
-      stack: s,
-      library: 'sleuth',
-      context: ErrorDescription('while running ${d.name}.$stage'),
-      silent: false,
-    ));
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: e,
+        stack: s,
+        library: 'sleuth',
+        context: ErrorDescription('while running ${d.name}.$stage'),
+        silent: false,
+      ),
+    );
   }
 
   /// Run all tree-scanning detectors (hybrid + structural) in a single
@@ -2862,9 +2871,12 @@ class SleuthController {
     // (one-shot metrics come from FrameTiming, not the widget tree).
     final walkDetectors = _isScaffoldFreeScan
         ? unified
-            .where((d) =>
-                d.type != DetectorType.startup && d is! SetStateScopeDetector)
-            .toList()
+              .where(
+                (d) =>
+                    d.type != DetectorType.startup &&
+                    d is! SetStateScopeDetector,
+              )
+              .toList()
         : unified.where((d) => d.type != DetectorType.startup).toList();
 
     void visitor(Element element) {
@@ -2894,12 +2906,14 @@ class SleuthController {
       scanContext.visitChildElements(visitor);
       walkCompleted = true;
     } catch (e, s) {
-      FlutterError.reportError(FlutterErrorDetails(
-        exception: e,
-        stack: s,
-        library: 'sleuth',
-        context: ErrorDescription('while walking the element tree'),
-      ));
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: e,
+          stack: s,
+          library: 'sleuth',
+          context: ErrorDescription('while walking the element tree'),
+        ),
+      );
     }
 
     // Phase 3: Finalization
@@ -3173,12 +3187,14 @@ class SleuthController {
         captureVerdict != null &&
         captureFrame.frameNumber != _lastCapturedFrameNumber) {
       _lastCapturedFrameNumber = captureFrame.frameNumber;
-      _captureBuffer.add(CaptureEntry(
-        frameStats: captureFrame,
-        verdict: captureVerdict,
-        relatedIssues: List.of(issuesNotifier.value),
-        capturedAt: DateTime.now(),
-      ));
+      _captureBuffer.add(
+        CaptureEntry(
+          frameStats: captureFrame,
+          verdict: captureVerdict,
+          relatedIssues: List.of(issuesNotifier.value),
+          capturedAt: DateTime.now(),
+        ),
+      );
     }
 
     // Two-phase verdict: enrich with CPU attribution asynchronously.
@@ -3200,23 +3216,27 @@ class SleuthController {
         _gcEventBuffer.removeFirst();
       }
       final json = event.json!;
-      _gcEventBuffer.add(GcEventSummary(
-        timestampUs: json['ts'] as int? ?? 0,
-        durationUs: json['dur'] as int? ?? 0,
-        category: (json['cat'] as String?) ?? 'gc',
-        name: (json['name'] as String?) ?? 'GC',
-      ));
+      _gcEventBuffer.add(
+        GcEventSummary(
+          timestampUs: json['ts'] as int? ?? 0,
+          durationUs: json['dur'] as int? ?? 0,
+          category: (json['cat'] as String?) ?? 'gc',
+          name: (json['name'] as String?) ?? 'GC',
+        ),
+      );
     }
     for (final event in data.platformChannelEvents) {
       if (_platformChannelBuffer.length >= _platformChannelBufferCapacity) {
         _platformChannelBuffer.removeFirst();
       }
       final json = event.json!;
-      _platformChannelBuffer.add(PlatformChannelSummary(
-        timestampUs: json['ts'] as int? ?? 0,
-        durationUs: json['dur'] as int? ?? 0,
-        name: (json['name'] as String?) ?? 'channel',
-      ));
+      _platformChannelBuffer.add(
+        PlatformChannelSummary(
+          timestampUs: json['ts'] as int? ?? 0,
+          durationUs: json['dur'] as int? ?? 0,
+          name: (json['name'] as String?) ?? 'channel',
+        ),
+      );
     }
   }
 
@@ -3284,31 +3304,36 @@ class SleuthController {
       // Capture inside the jank guard with most-recently-stamped issues.
       if (latest.frameNumber != _lastCapturedFrameNumber) {
         _lastCapturedFrameNumber = latest.frameNumber;
-        _captureBuffer.add(CaptureEntry(
-          frameStats: latest,
-          verdict: verdictNotifier.value!,
-          relatedIssues: List.of(issuesNotifier.value),
-          capturedAt: DateTime.now(),
-        ));
+        _captureBuffer.add(
+          CaptureEntry(
+            frameStats: latest,
+            verdict: verdictNotifier.value!,
+            relatedIssues: List.of(issuesNotifier.value),
+            capturedAt: DateTime.now(),
+          ),
+        );
       }
     }
   }
 
   void _onHeapSample(HeapSample sample) {
     if (_disposed) return;
-    final hadHeapGrowing =
-        _memoryPressure.issues.any((i) => i.stableId == 'heap_growing');
+    final hadHeapGrowing = _memoryPressure.issues.any(
+      (i) => i.stableId == 'heap_growing',
+    );
 
     _memoryPressure.processHeapSample(sample);
 
-    final hasHeapGrowing =
-        _memoryPressure.issues.any((i) => i.stableId == 'heap_growing');
+    final hasHeapGrowing = _memoryPressure.issues.any(
+      (i) => i.stableId == 'heap_growing',
+    );
 
     // Trigger allocation profiling when heap growth is first detected.
     // Cooldown prevents repeated queries if slope oscillates near threshold.
     if (!hadHeapGrowing && hasHeapGrowing) {
       final now = DateTime.now();
-      final cooldownExpired = _lastAllocationEnrichmentTime == null ||
+      final cooldownExpired =
+          _lastAllocationEnrichmentTime == null ||
           now.difference(_lastAllocationEnrichmentTime!).inSeconds >= 10;
       if (cooldownExpired) {
         _lastAllocationEnrichmentTime = now;
@@ -3363,22 +3388,23 @@ class SleuthController {
     client
         .getCpuSamples(timeOriginUs: timeOriginUs, timeExtentUs: timeExtentUs)
         .then((cpuSamples) {
-      if (_disposed || cpuSamples == null) return;
-      final topFunctions = _cpuAggregator.aggregate(cpuSamples);
-      if (topFunctions.isEmpty) return;
+          if (_disposed || cpuSamples == null) return;
+          final topFunctions = _cpuAggregator.aggregate(cpuSamples);
+          if (topFunctions.isEmpty) return;
 
-      // Re-emit verdict with CPU attribution (phase 2)
-      final enriched = verdict.withTopFunctions(topFunctions);
-      verdictNotifier.value = enriched;
+          // Re-emit verdict with CPU attribution (phase 2)
+          final enriched = verdict.withTopFunctions(topFunctions);
+          verdictNotifier.value = enriched;
 
-      // Update capture buffer entry if it was captured
-      _captureBuffer.updateVerdict(frame.frameNumber, enriched);
-    }).catchError((Object e) {
-      assert(() {
-        debugPrint('Sleuth: CPU attribution failed: $e');
-        return true;
-      }());
-    });
+          // Update capture buffer entry if it was captured
+          _captureBuffer.updateVerdict(frame.frameNumber, enriched);
+        })
+        .catchError((Object e) {
+          assert(() {
+            debugPrint('Sleuth: CPU attribution failed: $e');
+            return true;
+          }());
+        });
   }
 
   /// Query allocation profile when heap growth is detected and re-emit
@@ -3469,13 +3495,15 @@ class SleuthController {
     final result = <AllocationEntry>[];
 
     for (final s in userClasses.take(5)) {
-      result.add(AllocationEntry(
-        className: s.name,
-        libraryUri: s.lib,
-        instancesDelta: s.instances,
-        bytesDelta: s.bytes,
-        percentage: (s.bytes / totalBytes * 100),
-      ));
+      result.add(
+        AllocationEntry(
+          className: s.name,
+          libraryUri: s.lib,
+          instancesDelta: s.instances,
+          bytesDelta: s.bytes,
+          percentage: (s.bytes / totalBytes * 100),
+        ),
+      );
     }
 
     // If fewer than 5 user classes, fill with framework classes
@@ -3485,13 +3513,15 @@ class SleuthController {
         if (result.length >= 5) break;
         final pct = s.bytes / totalBytes * 100;
         if (pct > 50) {
-          result.add(AllocationEntry(
-            className: s.name,
-            libraryUri: s.lib,
-            instancesDelta: s.instances,
-            bytesDelta: s.bytes,
-            percentage: pct,
-          ));
+          result.add(
+            AllocationEntry(
+              className: s.name,
+              libraryUri: s.lib,
+              instancesDelta: s.instances,
+              bytesDelta: s.bytes,
+              percentage: pct,
+            ),
+          );
         }
       }
     }
@@ -3594,8 +3624,9 @@ class SleuthController {
     if (active != null && active.endedAt == null) {
       active.endedAt = DateTime.now();
       // Republish history so listeners see the newly-closed session.
-      routeHistoryNotifier.value =
-          List<RouteSession>.unmodifiable(_routeHistory.toList());
+      routeHistoryNotifier.value = List<RouteSession>.unmodifiable(
+        _routeHistory.toList(),
+      );
     }
     _activeRouteSession = null;
     _hotReloadGeneration++;
@@ -3723,7 +3754,7 @@ class SleuthController {
 
       final reason = issue.confidenceReason != null
           ? '${issue.confidenceReason} '
-              '[Auto-escalated: persisted for ${trend.presentCount} scan cycles]'
+                '[Auto-escalated: persisted for ${trend.presentCount} scan cycles]'
           : 'Auto-escalated: persisted for ${trend.presentCount} scan cycles';
 
       issues[i] = issue.copyWith(
@@ -3735,8 +3766,8 @@ class SleuthController {
 
   @visibleForTesting
   void resortRootCauseIdsByCurrentSeverityForTest(
-          List<PerformanceIssue> issues) =>
-      _resortRootCauseIdsByCurrentSeverity(issues);
+    List<PerformanceIssue> issues,
+  ) => _resortRootCauseIdsByCurrentSeverity(issues);
 
   /// Re-sorts `rootCauseIds` on every issue using current (post-escalation)
   /// severity ranks.
@@ -3761,17 +3792,18 @@ class SleuthController {
     };
 
     int rank(IssueSeverity s) => switch (s) {
-          IssueSeverity.critical => 2,
-          IssueSeverity.warning => 1,
-          IssueSeverity.ok => 0,
-        };
+      IssueSeverity.critical => 2,
+      IssueSeverity.warning => 1,
+      IssueSeverity.ok => 0,
+    };
 
     for (var i = 0; i < issues.length; i++) {
       final issue = issues[i];
       final rootIds = issue.rootCauseIds;
       if (rootIds == null || rootIds.length < 2) continue;
 
-      final sorted = [...rootIds]..sort((a, b) {
+      final sorted = [...rootIds]
+        ..sort((a, b) {
           final sa = severityById[a];
           final sb = severityById[b];
           // Missing parents sort last (rank 0) so present parents lead.
@@ -3901,10 +3933,10 @@ class SleuthController {
   }
 
   static int _severityToIndex(IssueSeverity s) => switch (s) {
-        IssueSeverity.critical => 3,
-        IssueSeverity.warning => 2,
-        IssueSeverity.ok => 1,
-      };
+    IssueSeverity.critical => 3,
+    IssueSeverity.warning => 2,
+    IssueSeverity.ok => 1,
+  };
 
   List<PerformanceIssue> _getAllIssues() {
     if (_cachedIssueGeneration == _issueGeneration &&
@@ -3968,10 +4000,12 @@ class SleuthController {
         // Falls back to detectedAt for runtime-lifecycle detectors
         // (e.g. NetworkMonitor) whose detectedAt IS the per-occurrence
         // identifier (request completion timestamp).
-        final micros = issue.dedupIdentityMicros ??
+        final micros =
+            issue.dedupIdentityMicros ??
             issue.detectedAt?.microsecondsSinceEpoch ??
             0;
-        final key = '${d.runtimeType}|$stableId'
+        final key =
+            '${d.runtimeType}|$stableId'
             '|${issue.severity.name}|$micros';
         if (!_captureEmittedKeys.add(key)) continue;
         CaptureHelper.recordIssue(issue, captureMode: config.captureMode);
@@ -4287,81 +4321,75 @@ class SleuthConfig {
     this.routeIgnorePatterns = const {},
     this.routeHistoryCapacity = 50,
     this.captureMode = false,
-  })  : assert(
-          fpsTarget >= 1 && fpsTarget <= 120,
-          'fpsTarget must be between 1 and 120. '
-          'Common values: 60, 90, 120.',
-        ),
-        assert(
-          rebuildThreshold >= 1,
-          'rebuildThreshold must be at least 1. To disable rebuild '
-          'detection entirely, exclude DetectorType.rebuild from '
-          'enabledDetectors instead.',
-        ),
-        assert(
-          maxListChildren >= 1,
-          'maxListChildren must be at least 1.',
-        ),
-        assert(
-          platformChannelLimit >= 1,
-          'platformChannelLimit must be at least 1.',
-        ),
-        // Note: `treeScanInterval > Duration.zero` cannot be asserted in a
-        // const constructor (Duration operators are not const-evaluable).
-        // Runtime validation lives in the [SleuthController] constructor
-        // body and fires with the same intent.
-        assert(
-          captureBufferCapacity >= 0,
-          'captureBufferCapacity must be >= 0. Use 0 to disable the buffer.',
-        ),
-        assert(
-          maxTrackedTypes >= 1,
-          'maxTrackedTypes must be at least 1.',
-        ),
-        assert(
-          slowRequestThresholdMs >= 0,
-          'slowRequestThresholdMs must be >= 0.',
-        ),
-        assert(
-          criticalSlowRequestThresholdMs > slowRequestThresholdMs,
-          'criticalSlowRequestThresholdMs must be strictly greater than '
-          'slowRequestThresholdMs so the critical tier is reachable.',
-        ),
-        assert(
-          requestFrequencyLimit >= 1,
-          'requestFrequencyLimit must be at least 1.',
-        ),
-        assert(
-          largeResponseThresholdBytes >= 0,
-          'largeResponseThresholdBytes must be >= 0.',
-        ),
-        assert(
-          memoryWarmupDurationMs >= 0,
-          'memoryWarmupDurationMs must be >= 0.',
-        ),
-        assert(
-          gcRateThresholdPerMin >= 1,
-          'gcRateThresholdPerMin must be at least 1. To disable '
-          'gc_pressure detection entirely, exclude '
-          'DetectorType.memoryPressure from enabledDetectors instead.',
-        ),
-        assert(
-          frameTimingWarmupFrameCount >= 0,
-          'frameTimingWarmupFrameCount must be >= 0. '
-          'Set to 0 in tests to disable warmup suppression.',
-        ),
-        // Duration operators are not const-evaluable. Runtime validation
-        // for `frameTimingWarmupDuration >= Duration.zero` lives in the
-        // [SleuthController] constructor body alongside the companion
-        // `treeScanInterval > Duration.zero` check.
-        assert(
-          platformChannelDurationThresholdMs >= 0,
-          'platformChannelDurationThresholdMs must be >= 0.',
-        ),
-        assert(
-          routeHistoryCapacity >= 1,
-          'routeHistoryCapacity must be at least 1.',
-        );
+  }) : assert(
+         fpsTarget >= 1 && fpsTarget <= 120,
+         'fpsTarget must be between 1 and 120. '
+         'Common values: 60, 90, 120.',
+       ),
+       assert(
+         rebuildThreshold >= 1,
+         'rebuildThreshold must be at least 1. To disable rebuild '
+         'detection entirely, exclude DetectorType.rebuild from '
+         'enabledDetectors instead.',
+       ),
+       assert(maxListChildren >= 1, 'maxListChildren must be at least 1.'),
+       assert(
+         platformChannelLimit >= 1,
+         'platformChannelLimit must be at least 1.',
+       ),
+       // Note: `treeScanInterval > Duration.zero` cannot be asserted in a
+       // const constructor (Duration operators are not const-evaluable).
+       // Runtime validation lives in the [SleuthController] constructor
+       // body and fires with the same intent.
+       assert(
+         captureBufferCapacity >= 0,
+         'captureBufferCapacity must be >= 0. Use 0 to disable the buffer.',
+       ),
+       assert(maxTrackedTypes >= 1, 'maxTrackedTypes must be at least 1.'),
+       assert(
+         slowRequestThresholdMs >= 0,
+         'slowRequestThresholdMs must be >= 0.',
+       ),
+       assert(
+         criticalSlowRequestThresholdMs > slowRequestThresholdMs,
+         'criticalSlowRequestThresholdMs must be strictly greater than '
+         'slowRequestThresholdMs so the critical tier is reachable.',
+       ),
+       assert(
+         requestFrequencyLimit >= 1,
+         'requestFrequencyLimit must be at least 1.',
+       ),
+       assert(
+         largeResponseThresholdBytes >= 0,
+         'largeResponseThresholdBytes must be >= 0.',
+       ),
+       assert(
+         memoryWarmupDurationMs >= 0,
+         'memoryWarmupDurationMs must be >= 0.',
+       ),
+       assert(
+         gcRateThresholdPerMin >= 1,
+         'gcRateThresholdPerMin must be at least 1. To disable '
+         'gc_pressure detection entirely, exclude '
+         'DetectorType.memoryPressure from enabledDetectors instead.',
+       ),
+       assert(
+         frameTimingWarmupFrameCount >= 0,
+         'frameTimingWarmupFrameCount must be >= 0. '
+         'Set to 0 in tests to disable warmup suppression.',
+       ),
+       // Duration operators are not const-evaluable. Runtime validation
+       // for `frameTimingWarmupDuration >= Duration.zero` lives in the
+       // [SleuthController] constructor body alongside the companion
+       // `treeScanInterval > Duration.zero` check.
+       assert(
+         platformChannelDurationThresholdMs >= 0,
+         'platformChannelDurationThresholdMs must be >= 0.',
+       ),
+       assert(
+         routeHistoryCapacity >= 1,
+         'routeHistoryCapacity must be at least 1.',
+       );
 
   /// Minimal configuration for first-time integration.
   ///
@@ -4375,23 +4403,23 @@ class SleuthConfig {
   /// want to read 25 parameter docs.
   ///
   factory SleuthConfig.minimal({SleuthThemeData? theme}) => SleuthConfig(
-        theme: theme,
-        enableNetworkMonitoring: false,
-        enableDebugCallbacks: false,
-        enableDeepDebugInstrumentation: false,
-        enabledDetectors: const {
-          DetectorType.frameTiming,
-          DetectorType.rebuild,
-          DetectorType.repaint,
-          DetectorType.listview,
-          DetectorType.imageMemory,
-          DetectorType.layoutBottleneck,
-          DetectorType.customPainter,
-          DetectorType.fontLoading,
-          DetectorType.repaintBoundary,
-          DetectorType.startup,
-        },
-      );
+    theme: theme,
+    enableNetworkMonitoring: false,
+    enableDebugCallbacks: false,
+    enableDeepDebugInstrumentation: false,
+    enabledDetectors: const {
+      DetectorType.frameTiming,
+      DetectorType.rebuild,
+      DetectorType.repaint,
+      DetectorType.listview,
+      DetectorType.imageMemory,
+      DetectorType.layoutBottleneck,
+      DetectorType.customPainter,
+      DetectorType.fontLoading,
+      DetectorType.repaintBoundary,
+      DetectorType.startup,
+    },
+  );
 
   /// Configuration optimized for low-overhead profiling runs.
   ///
@@ -4405,27 +4433,27 @@ class SleuthConfig {
   /// - [DetectorType.frameTiming] — runtime lifecycle.
   ///
   factory SleuthConfig.performance({SleuthThemeData? theme}) => SleuthConfig(
-        theme: theme,
-        treeScanInterval: const Duration(seconds: 2),
-        adaptiveScanEnabled: true,
-        captureBufferCapacity: 10,
-        enableNetworkMonitoring: false,
-        enableDebugCallbacks: false,
-        enableDeepDebugInstrumentation: false,
-        enabledDetectors: const {
-          // Every structural-lifecycle detector. Verified against the
-          // lifecycle fields of each detector file.
-          DetectorType.listview,
-          DetectorType.imageMemory,
-          DetectorType.customPainter,
-          DetectorType.layoutBottleneck,
-          DetectorType.fontLoading,
-          DetectorType.repaintBoundary,
-          DetectorType.setStateScope,
-          DetectorType.keepAlive,
-          DetectorType.startup,
-        },
-      );
+    theme: theme,
+    treeScanInterval: const Duration(seconds: 2),
+    adaptiveScanEnabled: true,
+    captureBufferCapacity: 10,
+    enableNetworkMonitoring: false,
+    enableDebugCallbacks: false,
+    enableDeepDebugInstrumentation: false,
+    enabledDetectors: const {
+      // Every structural-lifecycle detector. Verified against the
+      // lifecycle fields of each detector file.
+      DetectorType.listview,
+      DetectorType.imageMemory,
+      DetectorType.customPainter,
+      DetectorType.layoutBottleneck,
+      DetectorType.fontLoading,
+      DetectorType.repaintBoundary,
+      DetectorType.setStateScope,
+      DetectorType.keepAlive,
+      DetectorType.startup,
+    },
+  );
 
   /// Custom theme for the overlay UI.
   ///
@@ -4930,8 +4958,9 @@ class SleuthConfig {
     bool? captureMode,
   }) {
     return SleuthConfig(
-      theme:
-          identical(theme, _sentinel) ? this.theme : theme as SleuthThemeData?,
+      theme: identical(theme, _sentinel)
+          ? this.theme
+          : theme as SleuthThemeData?,
       fpsTarget: fpsTarget ?? this.fpsTarget,
       rebuildThreshold: rebuildThreshold ?? this.rebuildThreshold,
       maxListChildren: maxListChildren ?? this.maxListChildren,
@@ -4969,15 +4998,17 @@ class SleuthConfig {
           frameTimingWarmupFrameCount ?? this.frameTimingWarmupFrameCount,
       frameTimingWarmupDuration:
           frameTimingWarmupDuration ?? this.frameTimingWarmupDuration,
-      platformChannelDurationThresholdMs: platformChannelDurationThresholdMs ??
+      platformChannelDurationThresholdMs:
+          platformChannelDurationThresholdMs ??
           this.platformChannelDurationThresholdMs,
       suppressedIssues: suppressedIssues ?? this.suppressedIssues,
       customDetectors: customDetectors ?? this.customDetectors,
       disabledCustomDetectorKeys:
           disabledCustomDetectorKeys ?? this.disabledCustomDetectorKeys,
       thresholds: thresholds ?? this.thresholds,
-      aiChat:
-          identical(aiChat, _sentinel) ? this.aiChat : aiChat as AiChatAdapter?,
+      aiChat: identical(aiChat, _sentinel)
+          ? this.aiChat
+          : aiChat as AiChatAdapter?,
       showDebugModeBanner: showDebugModeBanner ?? this.showDebugModeBanner,
       triggerButtonAlignment:
           triggerButtonAlignment ?? this.triggerButtonAlignment,

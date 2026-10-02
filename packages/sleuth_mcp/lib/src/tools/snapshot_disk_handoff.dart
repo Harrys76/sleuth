@@ -12,7 +12,7 @@ import 'package:crypto/crypto.dart';
 /// swept by age on each new write.
 class SnapshotDiskHandoff {
   SnapshotDiskHandoff({Directory? tempDir, Duration? maxAge})
-      : _maxAge = maxAge ?? const Duration(minutes: 30) {
+    : _maxAge = maxAge ?? const Duration(minutes: 30) {
     // Per-process subdir so a concurrent sidecar instance's age-sweep
     // can never delete this instance's in-flight handoff (each instance
     // only sweeps its own dir).
@@ -65,8 +65,9 @@ class SnapshotDiskHandoff {
     _written.add(file.path);
 
     final data = envelope['data'];
-    final meta =
-        data is Map<String, Object?> ? data : const <String, Object?>{};
+    final meta = data is Map<String, Object?>
+        ? data
+        : const <String, Object?>{};
 
     return <String, Object?>{
       'path': file.path,

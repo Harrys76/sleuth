@@ -5,8 +5,9 @@ import 'package:sleuth/src/ui/sleuth_theme.dart';
 
 void main() {
   group('Theme auto-detection', () {
-    testWidgets('dark brightness resolves to dark theme colors',
-        (tester) async {
+    testWidgets('dark brightness resolves to dark theme colors', (
+      tester,
+    ) async {
       late SleuthThemeData captured;
 
       await tester.pumpWidget(
@@ -19,8 +20,8 @@ void main() {
                 final mq = MediaQuery.maybeOf(context);
                 final theme =
                     mq != null && mq.platformBrightness == Brightness.light
-                        ? const SleuthThemeData.light()
-                        : const SleuthThemeData();
+                    ? const SleuthThemeData.light()
+                    : const SleuthThemeData();
                 captured = theme;
                 return SleuthTheme(data: theme, child: const SizedBox());
               },
@@ -33,8 +34,9 @@ void main() {
       expect(captured.textPrimary, const Color(0xFFFFFFFF));
     });
 
-    testWidgets('light brightness resolves to light theme colors',
-        (tester) async {
+    testWidgets('light brightness resolves to light theme colors', (
+      tester,
+    ) async {
       late SleuthThemeData captured;
 
       await tester.pumpWidget(
@@ -47,8 +49,8 @@ void main() {
                 final mq = MediaQuery.maybeOf(context);
                 final theme =
                     mq != null && mq.platformBrightness == Brightness.light
-                        ? const SleuthThemeData.light()
-                        : const SleuthThemeData();
+                    ? const SleuthThemeData.light()
+                    : const SleuthThemeData();
                 captured = theme;
                 return SleuthTheme(data: theme, child: const SizedBox());
               },
@@ -61,8 +63,9 @@ void main() {
       expect(captured.textPrimary, const Color(0xFF111827));
     });
 
-    testWidgets('explicit config.theme overrides auto-detection',
-        (tester) async {
+    testWidgets('explicit config.theme overrides auto-detection', (
+      tester,
+    ) async {
       late SleuthThemeData captured;
       final explicit = const SleuthThemeData().copyWith(
         pageBackground: const Color(0xFFABCDEF),

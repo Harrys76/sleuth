@@ -158,8 +158,9 @@ const _frameworkCandidates = <String>{
 /// character class is intentionally permissive (`[\w,\s<>?]`) so nested
 /// generic bounds still match.
 final _overlayClassRegex = RegExp(
-    r'^class\s+(\w+)(?:<[\w,\s<>?]*>)?\s+extends\s+(?:Stateless|Stateful|Inherited)Widget',
-    multiLine: true);
+  r'^class\s+(\w+)(?:<[\w,\s<>?]*>)?\s+extends\s+(?:Stateless|Stateful|Inherited)Widget',
+  multiLine: true,
+);
 
 /// Returns `true` when [name] is used as a widget constructor in [source].
 /// A constructor call looks like `Name(` or `Name<…>(`. We exclude method
@@ -211,11 +212,12 @@ void main() {
 
     setUpAll(() {
       uiFiles = _uiSourceFiles();
-      uiSources = {
-        for (final f in uiFiles) f: f.readAsStringSync(),
-      };
-      expect(uiFiles, isNotEmpty,
-          reason: 'lib/src/ui/ must contain at least one .dart file');
+      uiSources = {for (final f in uiFiles) f: f.readAsStringSync()};
+      expect(
+        uiFiles,
+        isNotEmpty,
+        reason: 'lib/src/ui/ must contain at least one .dart file',
+      );
     });
 
     test('_overlayClassRegex captures generic class declarations', () {
@@ -243,7 +245,8 @@ class _WithMulti<A, B extends Foo> extends InheritedWidget {}
           '_WithNested',
           '_WithMulti',
         }),
-        reason: '_overlayClassRegex must match both plain and generic '
+        reason:
+            '_overlayClassRegex must match both plain and generic '
             'class declarations or the audit will miss future overlay '
             'widgets that take type parameters.',
       );
@@ -257,8 +260,11 @@ class _WithMulti<A, B extends Foo> extends InheritedWidget {}
         }
       }
 
-      expect(overlayClasses, isNotEmpty,
-          reason: 'Expected to find at least one overlay widget class');
+      expect(
+        overlayClasses,
+        isNotEmpty,
+        reason: 'Expected to find at least one overlay widget class',
+      );
 
       final denyList =
           DebugInstrumentationCoordinator.debugFrameworkWidgetDenyList;
@@ -267,7 +273,8 @@ class _WithMulti<A, B extends Foo> extends InheritedWidget {}
       expect(
         missing,
         isEmpty,
-        reason: 'These Sleuth overlay widget classes are NOT in '
+        reason:
+            'These Sleuth overlay widget classes are NOT in '
             '`_frameworkWidgetDenyList`, so Sleuth will self-measure them '
             'in profile mode (KDD-10). Add them to the denylist in '
             'lib/src/debug/debug_instrumentation_coordinator.dart:\n'
@@ -275,16 +282,16 @@ class _WithMulti<A, B extends Foo> extends InheritedWidget {}
       );
     });
 
-    test(
-        'every framework widget used under lib/src/ui/ is in the '
+    test('every framework widget used under lib/src/ui/ is in the '
         'denylist', () {
       final denyList =
           DebugInstrumentationCoordinator.debugFrameworkWidgetDenyList;
       final usedButNotDenied = <String>{};
 
       for (final candidate in _frameworkCandidates) {
-        final usedSomewhere = uiSources.values
-            .any((src) => _isWidgetConstructorUsed(candidate, src));
+        final usedSomewhere = uiSources.values.any(
+          (src) => _isWidgetConstructorUsed(candidate, src),
+        );
         if (usedSomewhere && !denyList.contains(candidate)) {
           usedButNotDenied.add(candidate);
         }
@@ -293,7 +300,8 @@ class _WithMulti<A, B extends Foo> extends InheritedWidget {}
       expect(
         usedButNotDenied,
         isEmpty,
-        reason: 'These Flutter framework widgets are used inside '
+        reason:
+            'These Flutter framework widgets are used inside '
             'lib/src/ui/ but are NOT in `_frameworkWidgetDenyList`. Add '
             'them to the denylist in '
             'lib/src/debug/debug_instrumentation_coordinator.dart:\n'
@@ -301,8 +309,7 @@ class _WithMulti<A, B extends Foo> extends InheritedWidget {}
       );
     });
 
-    test(
-        'every framework entry in the denylist still corresponds to a UI '
+    test('every framework entry in the denylist still corresponds to a UI '
         'source usage (catches stale entries)', () {
       // An overlay-widget-class prefix filter: if an entry looks like a
       // Sleuth-internal widget class (either matches an overlay class or
@@ -321,15 +328,17 @@ class _WithMulti<A, B extends Foo> extends InheritedWidget {}
       for (final entry in denyList) {
         if (entry.startsWith('_')) continue; // private overlay class
         if (overlayClasses.contains(entry)) continue; // public overlay class
-        final used =
-            uiSources.values.any((src) => _isWidgetConstructorUsed(entry, src));
+        final used = uiSources.values.any(
+          (src) => _isWidgetConstructorUsed(entry, src),
+        );
         if (!used) staleFrameworkEntries.add(entry);
       }
 
       expect(
         staleFrameworkEntries,
         isEmpty,
-        reason: 'These framework-widget denylist entries are no longer '
+        reason:
+            'These framework-widget denylist entries are no longer '
             'used anywhere under lib/src/ui/. If the widget was '
             'intentionally removed from the overlay, remove it from '
             '`_frameworkWidgetDenyList` too so the denylist stays '

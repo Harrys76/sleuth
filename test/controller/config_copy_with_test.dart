@@ -225,30 +225,32 @@ void main() {
       );
     });
 
-    test('criticalSlowRequestThresholdMs must be strictly greater than slow',
-        () {
-      const original = SleuthConfig();
-      // Raising slow above default critical (3000) without also raising
-      // critical must fail — the critical tier would become unreachable.
-      expect(
-        () => original.copyWith(slowRequestThresholdMs: 5000),
-        throwsA(isA<AssertionError>()),
-      );
-      // Setting critical equal to slow must fail.
-      expect(
-        () => original.copyWith(
+    test(
+      'criticalSlowRequestThresholdMs must be strictly greater than slow',
+      () {
+        const original = SleuthConfig();
+        // Raising slow above default critical (3000) without also raising
+        // critical must fail — the critical tier would become unreachable.
+        expect(
+          () => original.copyWith(slowRequestThresholdMs: 5000),
+          throwsA(isA<AssertionError>()),
+        );
+        // Setting critical equal to slow must fail.
+        expect(
+          () => original.copyWith(
+            slowRequestThresholdMs: 2000,
+            criticalSlowRequestThresholdMs: 2000,
+          ),
+          throwsA(isA<AssertionError>()),
+        );
+        // Raising both in order is fine.
+        final bumped = original.copyWith(
           slowRequestThresholdMs: 2000,
-          criticalSlowRequestThresholdMs: 2000,
-        ),
-        throwsA(isA<AssertionError>()),
-      );
-      // Raising both in order is fine.
-      final bumped = original.copyWith(
-        slowRequestThresholdMs: 2000,
-        criticalSlowRequestThresholdMs: 5000,
-      );
-      expect(bumped.slowRequestThresholdMs, 2000);
-      expect(bumped.criticalSlowRequestThresholdMs, 5000);
-    });
+          criticalSlowRequestThresholdMs: 5000,
+        );
+        expect(bumped.slowRequestThresholdMs, 2000);
+        expect(bumped.criticalSlowRequestThresholdMs, 5000);
+      },
+    );
   });
 }

@@ -228,19 +228,16 @@ class VmServiceClient {
 
         // Use a timeout to avoid hanging on unreachable addresses
         // (common on Android where the URI is host-forwarded).
-        _service = await vmServiceConnectUri(wsUri.toString())
-            .timeout(const Duration(seconds: 3));
+        _service = await vmServiceConnectUri(
+          wsUri.toString(),
+        ).timeout(const Duration(seconds: 3));
         if (_disposed) {
           _cleanup();
           return false;
         }
 
         // Enable timeline streams for framework events
-        await _service!.setVMTimelineFlags([
-          'Dart',
-          'Embedder',
-          'GC',
-        ]);
+        await _service!.setVMTimelineFlags(['Dart', 'Embedder', 'GC']);
 
         // Resolve main isolate ID for getMemoryUsage() polling
         _mainIsolateId = await _resolveMainIsolateId();
@@ -571,13 +568,15 @@ class VmServiceClient {
         try {
           final mem = await _service!.getMemoryUsage(_mainIsolateId!);
           if (myGen != _sessionGeneration || _disposed) return;
-          onHeapSample?.call(HeapSample(
-            heapUsage: mem.heapUsage ?? 0,
-            heapCapacity: mem.heapCapacity ?? 0,
-            externalUsage: mem.externalUsage ?? 0,
-            timestamp: DateTime.now(),
-            rssBytes: _readRssBytes(),
-          ));
+          onHeapSample?.call(
+            HeapSample(
+              heapUsage: mem.heapUsage ?? 0,
+              heapCapacity: mem.heapCapacity ?? 0,
+              externalUsage: mem.externalUsage ?? 0,
+              timestamp: DateTime.now(),
+              rssBytes: _readRssBytes(),
+            ),
+          );
         } on SentinelException {
           // Isolate ID stale (e.g., after hot restart) — re-fetch
           _mainIsolateId = await _resolveMainIsolateId();
@@ -648,8 +647,9 @@ class VmServiceClient {
     _evictStaleBegins(_pendingRasterBegins, pendingCutoff);
     if (!retainTimeline) {
       final cursorCutoff = anchorTs - _cursorMaxIdleMicros;
-      _lastProcessedTsByTid
-          .removeWhere((_, cursor) => cursor.lastTs < cursorCutoff);
+      _lastProcessedTsByTid.removeWhere(
+        (_, cursor) => cursor.lastTs < cursorCutoff,
+      );
     }
   }
 
@@ -696,8 +696,9 @@ class VmServiceClient {
   }
 
   Uri _toWebSocketUri(Uri httpUri) {
-    final path =
-        httpUri.path.endsWith('/') ? '${httpUri.path}ws' : '${httpUri.path}/ws';
+    final path = httpUri.path.endsWith('/')
+        ? '${httpUri.path}ws'
+        : '${httpUri.path}/ws';
     return httpUri.replace(
       scheme: httpUri.scheme == 'https' ? 'wss' : 'ws',
       path: path,

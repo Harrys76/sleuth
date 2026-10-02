@@ -90,7 +90,8 @@ class _SleuthOverlayState extends State<SleuthOverlay>
     if (kReleaseMode) return widget.child;
 
     final themeOverride = widget.controller.themeOverride.value;
-    final theme = themeOverride ??
+    final theme =
+        themeOverride ??
         widget.controller.config.theme ??
         _resolveTheme(context);
 

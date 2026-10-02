@@ -21,11 +21,11 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     this.rasterMultiplierThreshold = 2.0,
     this.maxFrameRasterFloorUs = 8000,
   }) : super(
-          type: DetectorType.gpuPressure,
-          lifecycle: DetectorLifecycle.hybrid,
-          name: 'GPU Pressure',
-          description: 'Detects GPU bottlenecks (raster > UI × 2.0)',
-        );
+         type: DetectorType.gpuPressure,
+         lifecycle: DetectorLifecycle.hybrid,
+         name: 'GPU Pressure',
+         description: 'Detects GPU bottlenecks (raster > UI × 2.0)',
+       );
 
   /// Flag when raster time exceeds UI time by this factor.
   final double rasterMultiplierThreshold;
@@ -97,10 +97,12 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     if (!_isEnabled) return;
     if (data.rasterDurations.isNotEmpty) {
       _lastRasterUs = data.rasterDurations.fold(0, (s, d) => s + d);
-      _lastMaxFrameRasterUs =
-          data.rasterDurations.reduce((a, b) => a > b ? a : b);
+      _lastMaxFrameRasterUs = data.rasterDurations.reduce(
+        (a, b) => a > b ? a : b,
+      );
     }
-    final totalUi = data.totalBuildScopeUs +
+    final totalUi =
+        data.totalBuildScopeUs +
         data.totalFlushLayoutUs +
         data.totalFlushPaintUs;
     if (totalUi > 0) _lastUiUs = totalUi;
@@ -144,8 +146,9 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
       typeName = 'RenderClipPath';
     } else if (ro is RenderBackdropFilter) {
       if (element.widget is BackdropFilter) {
-        backdropSigma =
-            _extractMaxBlurSigma((element.widget as BackdropFilter).filter);
+        backdropSigma = _extractMaxBlurSigma(
+          (element.widget as BackdropFilter).filter,
+        );
         if (backdropSigma != null && backdropSigma <= _lowSigmaThreshold) {
           return;
         }
@@ -180,13 +183,15 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
       _expensiveNodes.add(nodeDetail);
       final rect = getGlobalRect(ro);
       if (rect != null) {
-        _highlights.add(WidgetHighlight(
-          rect: rect,
-          widgetName: typeName, // known from type check — no toString()
-          severity: highlightSeverity,
-          detectorName: 'GPU',
-          detail: highlightDetail,
-        ));
+        _highlights.add(
+          WidgetHighlight(
+            rect: rect,
+            widgetName: typeName, // known from type check — no toString()
+            severity: highlightSeverity,
+            detectorName: 'GPU',
+            detail: highlightDetail,
+          ),
+        );
       }
     }
   }
@@ -207,7 +212,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
     // bad raster frame in an otherwise-idle batch. Tradeoff documented
     // in DetectorMetadata rationale.
     final ratio = hasRasterTiming ? _lastMaxFrameRasterUs / _lastUiUs : 0.0;
-    final hasRasterDominance = hasRasterTiming &&
+    final hasRasterDominance =
+        hasRasterTiming &&
         _lastMaxFrameRasterUs > maxFrameRasterFloorUs &&
         ratio > rasterMultiplierThreshold;
 
@@ -222,7 +228,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
           category: IssueCategory.raster,
           confidence: IssueConfidence.confirmed,
           title: 'Raster Dominance: ${ratio.toStringAsFixed(1)}× UI time',
-          detail: 'Worst-frame raster '
+          detail:
+              'Worst-frame raster '
               '(${(_lastMaxFrameRasterUs / 1000).toStringAsFixed(1)}ms) is '
               '${ratio.toStringAsFixed(1)}× the UI thread total '
               '(${(_lastUiUs / 1000).toStringAsFixed(1)}ms).',
@@ -296,44 +303,45 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hybrid detector. v0.17.5 tier-quality audit: VM leg '
-            'feeds raster + UI timeline events through '
-            '`TimelineParser.parse()` into the detector — closes the '
-            'parser-boundary gap. Two families pinned. '
-            '`raster_dominance` (VM): ratio = `_lastMaxFrameRasterUs / '
-            '_lastUiUs` with strict `> 2.0` threshold; critical at `> 4.0`. '
-            'Numerator is the WORST single-frame raster scope (not aggregate) '
-            'so idle vsync raster scopes cannot inflate the ratio. Two '
-            'preconditions: `hasRasterTiming` (`vmConnected && _lastUiUs > 0 '
-            '&& _lastRasterUs > 0`) and `_lastMaxFrameRasterUs > '
-            'maxFrameRasterFloorUs` (default 8000us = half 60Hz budget). '
-            'Tradeoff: sustained moderate raster across an active multi-frame '
-            'batch may under-classify (UI denominator is still aggregate); a '
-            'per-frame UI proxy would close that gap. '
-            '`expensive_gpu_nodes` (structural): subtree-size strict `> 5` '
-            'gate over 4 RenderObject checks (`RenderOpacity` with '
-            'opacity-value short-circuit at 0.0 / 1.0 pinned by 4-axis '
-            'matrix; `RenderClipPath`; `RenderBackdropFilter` with sigma '
-            '3-band — ≤ 2.0 suppressed, (2.0, 10.0] warning highlight, '
-            '> 10.0 critical highlight; `RenderShaderMask`) plus 1 '
-            'widget-level check (`element.widget is ColorFiltered`; '
-            'no public RenderObject type for ColorFiltered). The '
-            '`expensive_gpu_nodes` issue severity is always `warning` — '
-            'the high-sigma "critical" only escalates the corresponding '
-            '`WidgetHighlight` entry. Nested-expense '
-            'subtree-stack arithmetic verified by Opacity-wrapping-'
-            'Opacity test. Confidence correlation: `expensive_gpu_nodes` '
-            'is `likely` only when `hasRasterDominance` true; `possible` '
-            'in 3 sub-cases — vmConnected=false, vmConnected=true with no '
-            'raster, and vmConnected=true with ratio ≤ 2.0. VM-disconnect '
-            'setter removes `raster_dominance` and downgrades '
-            '`expensive_gpu_nodes` confidence in-place. `_vmConnected` '
-            'defaults to false; reproducer setUp explicitly sets true so '
-            'VM-backed tests are not silently routed into structural '
-            'fallback. Not runtime-verified against Impeller/Skia '
-            'budgets or externally cited.',
-        reproducerPath: 'test/validation/gpu_pressure_reproducer_test.dart',
-        coveredStableIds: {'raster_dominance', 'expensive_gpu_nodes'},
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'Hybrid detector. v0.17.5 tier-quality audit: VM leg '
+        'feeds raster + UI timeline events through '
+        '`TimelineParser.parse()` into the detector — closes the '
+        'parser-boundary gap. Two families pinned. '
+        '`raster_dominance` (VM): ratio = `_lastMaxFrameRasterUs / '
+        '_lastUiUs` with strict `> 2.0` threshold; critical at `> 4.0`. '
+        'Numerator is the WORST single-frame raster scope (not aggregate) '
+        'so idle vsync raster scopes cannot inflate the ratio. Two '
+        'preconditions: `hasRasterTiming` (`vmConnected && _lastUiUs > 0 '
+        '&& _lastRasterUs > 0`) and `_lastMaxFrameRasterUs > '
+        'maxFrameRasterFloorUs` (default 8000us = half 60Hz budget). '
+        'Tradeoff: sustained moderate raster across an active multi-frame '
+        'batch may under-classify (UI denominator is still aggregate); a '
+        'per-frame UI proxy would close that gap. '
+        '`expensive_gpu_nodes` (structural): subtree-size strict `> 5` '
+        'gate over 4 RenderObject checks (`RenderOpacity` with '
+        'opacity-value short-circuit at 0.0 / 1.0 pinned by 4-axis '
+        'matrix; `RenderClipPath`; `RenderBackdropFilter` with sigma '
+        '3-band — ≤ 2.0 suppressed, (2.0, 10.0] warning highlight, '
+        '> 10.0 critical highlight; `RenderShaderMask`) plus 1 '
+        'widget-level check (`element.widget is ColorFiltered`; '
+        'no public RenderObject type for ColorFiltered). The '
+        '`expensive_gpu_nodes` issue severity is always `warning` — '
+        'the high-sigma "critical" only escalates the corresponding '
+        '`WidgetHighlight` entry. Nested-expense '
+        'subtree-stack arithmetic verified by Opacity-wrapping-'
+        'Opacity test. Confidence correlation: `expensive_gpu_nodes` '
+        'is `likely` only when `hasRasterDominance` true; `possible` '
+        'in 3 sub-cases — vmConnected=false, vmConnected=true with no '
+        'raster, and vmConnected=true with ratio ≤ 2.0. VM-disconnect '
+        'setter removes `raster_dominance` and downgrades '
+        '`expensive_gpu_nodes` confidence in-place. `_vmConnected` '
+        'defaults to false; reproducer setUp explicitly sets true so '
+        'VM-backed tests are not silently routed into structural '
+        'fallback. Not runtime-verified against Impeller/Skia '
+        'budgets or externally cited.',
+    reproducerPath: 'test/validation/gpu_pressure_reproducer_test.dart',
+    coveredStableIds: {'raster_dominance', 'expensive_gpu_nodes'},
+  );
 }

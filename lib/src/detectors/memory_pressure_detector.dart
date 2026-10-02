@@ -30,13 +30,13 @@ class MemoryPressureDetector extends BaseDetector
     this.growthThresholdBytesPerSec = 512000,
     this.capacityThresholdPercent = 0.80,
     this.gcRateThresholdPerMin = _defaultGcRateThresholdPerMin,
-  })  : _clock = clock ?? DateTime.now,
-        super(
-          type: DetectorType.memoryPressure,
-          lifecycle: DetectorLifecycle.vmOnly,
-          name: 'Memory Pressure',
-          description: 'Detects memory pressure via GC frequency + heap trends',
-        );
+  }) : _clock = clock ?? DateTime.now,
+       super(
+         type: DetectorType.memoryPressure,
+         lifecycle: DetectorLifecycle.vmOnly,
+         name: 'Memory Pressure',
+         description: 'Detects memory pressure via GC frequency + heap trends',
+       );
 
   /// Duration in milliseconds to suppress heap trend alerts after first sample.
   /// Prevents false positives from normal startup allocation.
@@ -245,7 +245,8 @@ class MemoryPressureDetector extends BaseDetector
     //
     // During warmup we keep the window empty so post-warmup evaluation
     // cannot inherit pre-warmup over-threshold samples.
-    final inWarmup = _firstHeapSampleTime != null &&
+    final inWarmup =
+        _firstHeapSampleTime != null &&
         _clock().difference(_firstHeapSampleTime!).inMilliseconds <
             warmupDurationMs;
     if (inWarmup) {
@@ -318,25 +319,26 @@ class MemoryPressureDetector extends BaseDetector
       // threshold so a new overage produces a fresh identity.
       _gcOverageStart ??= _gcWindow.first.ts;
       final (hint, effort) = FixHintBuilder.gcPressure();
-      _issues.add(PerformanceIssue(
-        stableId: 'gc_pressure',
-        severity: IssueSeverity.warning,
-        category: IssueCategory.memory,
-        confidence: IssueConfidence.likely,
-        title: 'High GC Pressure: ${gcPerMinute.toStringAsFixed(0)} GC/min',
-        detail: 'Garbage collection is running frequently '
-            '(${gcPerMinute.toStringAsFixed(0)}/min), indicating high '
-            'object creation/disposal rate.',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.vmTimeline,
-        detectedAt: _clock(),
-        dedupIdentityMicros: _gcOverageStart!.microsecondsSinceEpoch,
-        extraTraceArgs: {
-          'observedGcEvents': windowEvents.toString(),
-        },
-        confidenceReason: 'VM GC frequency elevated + object churn rate',
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'gc_pressure',
+          severity: IssueSeverity.warning,
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+          title: 'High GC Pressure: ${gcPerMinute.toStringAsFixed(0)} GC/min',
+          detail:
+              'Garbage collection is running frequently '
+              '(${gcPerMinute.toStringAsFixed(0)}/min), indicating high '
+              'object creation/disposal rate.',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.vmTimeline,
+          detectedAt: _clock(),
+          dedupIdentityMicros: _gcOverageStart!.microsecondsSinceEpoch,
+          extraTraceArgs: {'observedGcEvents': windowEvents.toString()},
+          confidenceReason: 'VM GC frequency elevated + object churn rate',
+        ),
+      );
     } else {
       // Below the per-minute threshold. Clearing here (instead of only on
       // windowEvents == 0) ensures two distinct overage episodes separated
@@ -361,48 +363,53 @@ class MemoryPressureDetector extends BaseDetector
 
     if (slope > growthThresholdBytesPerSec) {
       _sustainedGrowthStart ??= _heapSamples.last.timestamp;
-      final sustained =
-          _heapSamples.last.timestamp.difference(_sustainedGrowthStart!);
+      final sustained = _heapSamples.last.timestamp.difference(
+        _sustainedGrowthStart!,
+      );
       if (sustained.inSeconds >= _sustainedGrowthDurationSec) {
         final slopeKbSec = slope / 1024;
         final (hint, effort) = FixHintBuilder.heapGrowing();
-        _issues.add(PerformanceIssue(
-          stableId: 'heap_growing',
-          severity: IssueSeverity.warning,
-          category: IssueCategory.memory,
-          confidence: IssueConfidence.likely,
-          title: 'Heap Growing: +${slopeKbSec.toStringAsFixed(0)} KB/s '
-              'for ${sustained.inSeconds}s',
-          detail:
-              'Heap has been growing at ${slopeKbSec.toStringAsFixed(1)} KB/sec '
-              'for ${sustained.inSeconds} seconds. '
-              'Current: ${_formatBytes(_heapSamples.last.heapUsage)}, '
-              'Window: ${_heapSamples.length} samples over '
-              '${_heapSamples.last.timestamp.difference(_heapSamples.first.timestamp).inSeconds}s.',
-          fixHint: hint,
-          fixEffort: effort,
-          observationSource: ObservationSource.vmTimeline,
-          detectedAt: _clock(),
-          // Stable per-trigger identity for capture-mode producer-side
-          // dedup. `_sustainedGrowthStart` is set once when the slope
-          // first crosses threshold (above) and persists until the slope
-          // drops below, so multiple polls during one sustained-growth
-          // episode emit issues with the same `dedupIdentityMicros` →
-          // the controller's composite-key dedup collapses them to a
-          // single trace record. A scenario that observes ≥2 records
-          // with distinct identities means the sustained window broke
-          // and re-engaged — capture-procedure validator catches that.
-          dedupIdentityMicros: _sustainedGrowthStart!.microsecondsSinceEpoch,
-          // Stringified per the wire-format contract for VM timeline args
-          // (see also HeavyComputeDetector.observedDurationMs,
-          // RebuildDetector.observedRebuildRate). Schema's `args` parser
-          // accepts both string and num and round-trips via num.tryParse.
-          extraTraceArgs: {
-            'observedSlopeBytesPerSec': slope.toStringAsFixed(0),
-          },
-          topAllocators: _lastTopAllocators,
-          confidenceReason: 'Heap trend analysis + sustained growth regression',
-        ));
+        _issues.add(
+          PerformanceIssue(
+            stableId: 'heap_growing',
+            severity: IssueSeverity.warning,
+            category: IssueCategory.memory,
+            confidence: IssueConfidence.likely,
+            title:
+                'Heap Growing: +${slopeKbSec.toStringAsFixed(0)} KB/s '
+                'for ${sustained.inSeconds}s',
+            detail:
+                'Heap has been growing at ${slopeKbSec.toStringAsFixed(1)} KB/sec '
+                'for ${sustained.inSeconds} seconds. '
+                'Current: ${_formatBytes(_heapSamples.last.heapUsage)}, '
+                'Window: ${_heapSamples.length} samples over '
+                '${_heapSamples.last.timestamp.difference(_heapSamples.first.timestamp).inSeconds}s.',
+            fixHint: hint,
+            fixEffort: effort,
+            observationSource: ObservationSource.vmTimeline,
+            detectedAt: _clock(),
+            // Stable per-trigger identity for capture-mode producer-side
+            // dedup. `_sustainedGrowthStart` is set once when the slope
+            // first crosses threshold (above) and persists until the slope
+            // drops below, so multiple polls during one sustained-growth
+            // episode emit issues with the same `dedupIdentityMicros` →
+            // the controller's composite-key dedup collapses them to a
+            // single trace record. A scenario that observes ≥2 records
+            // with distinct identities means the sustained window broke
+            // and re-engaged — capture-procedure validator catches that.
+            dedupIdentityMicros: _sustainedGrowthStart!.microsecondsSinceEpoch,
+            // Stringified per the wire-format contract for VM timeline args
+            // (see also HeavyComputeDetector.observedDurationMs,
+            // RebuildDetector.observedRebuildRate). Schema's `args` parser
+            // accepts both string and num and round-trips via num.tryParse.
+            extraTraceArgs: {
+              'observedSlopeBytesPerSec': slope.toStringAsFixed(0),
+            },
+            topAllocators: _lastTopAllocators,
+            confidenceReason:
+                'Heap trend analysis + sustained growth regression',
+          ),
+        );
         _lastHeapGrowingEmittedAtMicros = _clock().microsecondsSinceEpoch;
       }
     } else {
@@ -475,28 +482,32 @@ class MemoryPressureDetector extends BaseDetector
     final ratio = latest.heapUsage / latest.heapCapacity;
     final pct = (ratio * 100).toStringAsFixed(0);
     final (hint, effort) = FixHintBuilder.heapNearCapacity();
-    _issues.add(PerformanceIssue(
-      stableId: 'heap_near_capacity',
-      severity: IssueSeverity.critical,
-      category: IssueCategory.memory,
-      confidence: IssueConfidence.confirmed,
-      title: 'Heap Near Capacity: $pct% used (and growing)',
-      detail: 'App is using ${_formatBytes(latest.heapUsage)} of '
-          '${_formatBytes(latest.heapCapacity)} available heap ($pct%) '
-          'and the heap is still growing. GC may become frequent and '
-          'cause jank.',
-      fixHint: hint,
-      fixEffort: effort,
-      observationSource: ObservationSource.vmTimeline,
-      detectedAt: _clock(),
-      confidenceReason:
-          'Sustained high heap usage + active growth (both required)',
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'heap_near_capacity',
+        severity: IssueSeverity.critical,
+        category: IssueCategory.memory,
+        confidence: IssueConfidence.confirmed,
+        title: 'Heap Near Capacity: $pct% used (and growing)',
+        detail:
+            'App is using ${_formatBytes(latest.heapUsage)} of '
+            '${_formatBytes(latest.heapCapacity)} available heap ($pct%) '
+            'and the heap is still growing. GC may become frequent and '
+            'cause jank.',
+        fixHint: hint,
+        fixEffort: effort,
+        observationSource: ObservationSource.vmTimeline,
+        detectedAt: _clock(),
+        confidenceReason:
+            'Sustained high heap usage + active growth (both required)',
+      ),
+    );
   }
 
   void _evaluateNativeGrowth() {
-    final nativeSamples =
-        _heapSamples.where((s) => s.nativeBytes != null).toList();
+    final nativeSamples = _heapSamples
+        .where((s) => s.nativeBytes != null)
+        .toList();
     if (nativeSamples.length < 4) return;
 
     // Suppress during warmup (same guard as heap trend)
@@ -509,33 +520,38 @@ class MemoryPressureDetector extends BaseDetector
 
     if (slope > _nativeGrowthThresholdBytesPerSec) {
       _sustainedNativeGrowthStart ??= nativeSamples.last.timestamp;
-      final sustained =
-          nativeSamples.last.timestamp.difference(_sustainedNativeGrowthStart!);
+      final sustained = nativeSamples.last.timestamp.difference(
+        _sustainedNativeGrowthStart!,
+      );
       if (sustained.inSeconds >= _sustainedGrowthDurationSec) {
         final slopeMbSec = slope / (1024 * 1024);
         final (hint, effort) = FixHintBuilder.nativeMemoryGrowth();
-        _issues.add(PerformanceIssue(
-          stableId: 'native_memory_growing',
-          severity: IssueSeverity.warning,
-          category: IssueCategory.memory,
-          confidence: IssueConfidence.likely,
-          title: 'Native Memory Growing: '
-              '+${slopeMbSec.toStringAsFixed(1)} MB/s '
-              'for ${sustained.inSeconds}s',
-          detail: 'Process memory outside the Dart heap is growing at '
-              '${slopeMbSec.toStringAsFixed(2)} MB/sec for '
-              '${sustained.inSeconds} seconds. This may indicate undisposed '
-              'GPU textures, decoded images at full resolution, or platform '
-              'channel buffer accumulation. '
-              'Current native estimate: '
-              '${_formatBytes(nativeSamples.last.nativeBytes!)}.',
-          fixHint: hint,
-          fixEffort: effort,
-          observationSource: ObservationSource.vmTimeline,
-          detectedAt: _clock(),
-          confidenceReason:
-              'Native memory trend analysis + sustained growth regression',
-        ));
+        _issues.add(
+          PerformanceIssue(
+            stableId: 'native_memory_growing',
+            severity: IssueSeverity.warning,
+            category: IssueCategory.memory,
+            confidence: IssueConfidence.likely,
+            title:
+                'Native Memory Growing: '
+                '+${slopeMbSec.toStringAsFixed(1)} MB/s '
+                'for ${sustained.inSeconds}s',
+            detail:
+                'Process memory outside the Dart heap is growing at '
+                '${slopeMbSec.toStringAsFixed(2)} MB/sec for '
+                '${sustained.inSeconds} seconds. This may indicate undisposed '
+                'GPU textures, decoded images at full resolution, or platform '
+                'channel buffer accumulation. '
+                'Current native estimate: '
+                '${_formatBytes(nativeSamples.last.nativeBytes!)}.',
+            fixHint: hint,
+            fixEffort: effort,
+            observationSource: ObservationSource.vmTimeline,
+            detectedAt: _clock(),
+            confidenceReason:
+                'Native memory trend analysis + sustained growth regression',
+          ),
+        );
       }
     } else {
       _sustainedNativeGrowthStart = null;
@@ -600,88 +616,87 @@ class MemoryPressureDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'VM-only detector. 4 families pinned by hermetic '
-            'reproducer at detector entrypoints (`processHeapSample` + '
-            '`recordGcCycle`): `gc_pressure` (>10 cycles / 10s sliding '
-            'window = >60/min rate, default; configurable), '
-            '`heap_growing` (slope > 512KB/s '
-            'sustained ≥10s), `heap_near_capacity` (>80% AND 4-of-5 '
-            'samples over AND correlated heap_growing), '
-            '`native_memory_growing` (RSS-heap gap slope > 1MB/s '
-            'sustained ≥10s). Null-rssBytes (web) and zero-heap / '
-            'zero-capacity null-coalesce edges asserted non-emitting.\n'
-            '\n'
-            'v0.19.3 raises `heap_growing` (warning tier, 512 KB/s '
-            'sustained ≥10 s) to runtimeVerified via `perStableIdTier`, '
-            'backed by three on-device captures (iPhone 12 / iOS 17.5 / '
-            'Flutter 3.41.x) recorded via the in-app capture procedure: '
-            '`MemoryPressureCaptureScreen` calibrates an allocation-loop '
-            'rate, narrows VM timeline streams to `Dart` only (so 30 s '
-            'of heavy allocation does not overflow the ring buffer), '
-            'drives a 30 s sustained-allocation phase inside '
-            '`Sleuth.markScenarioBegin/End` with a 600 ms pre-end dwell '
-            '(detector emission landing) and 800 ms post-end dwell '
-            '(VM-service buffer flush), then exports the wrapped JSON '
-            'via the iOS clipboard. `markScenarioBegin` resets the '
-            'detector window so the regression slope is computed on '
-            'scenario allocation only — pre-scenario flat samples '
-            'would otherwise dilute slope below threshold. Producer-'
-            'side dedup keys on `_sustainedGrowthStart.microsecondsSinceEpoch` '
-            'for stable per-trigger identity → '
-            '`requireUniqueDetectedAtMicros: true` locks single-issue '
-            'replay protection. Other 3 families (`gc_pressure`, '
-            '`heap_near_capacity`, `native_memory_growing`) stay '
-            'reproducerOnly — each requires a separate capture campaign '
-            'with multi-axis brackets the current single-bracket schema '
-            'cannot express. v0.19.18 backfills the '
-            '`observedSlopeBytesPerSec` extraTraceArgs stamp + '
-            '`observedAxisArgKey` declaration on the canonical bracket; '
-            'cross-check is plumbing-only until on-device captures are '
-            'refreshed (schema skips per-record when the arg is absent).\n'
-            '\n'
-            'Three upstream hops disclosed as skipped: (1) '
-            '`VmServiceClient.getMemoryUsage` repacks '
-            '`vm_service.MemoryUsage` into `HeapSample` with `null → 0` '
-            'fallback on heap/capacity/external fields — the '
-            'zero-coalesce edge is exercised but the repack is not; '
-            '(2) `EventStreams.kGC → _onGcEvent → recordGcCycle` is '
-            'the authoritative per-cycle GC signal and is called '
-            'directly, bypassing the VM-service stream plumbing; '
-            '(3) `VmServiceClient._readRssBytes() → '
-            '`ProcessInfo.currentRss` is the OS-level RSS collection '
-            'boundary that sources `HeapSample.rssBytes` and therefore '
-            'gates `native_memory_growing` (which derives `nativeBytes '
-            '= rssBytes - heapUsage`) — the null-rssBytes edge (web / '
-            'unusual embeddings) is exercised but the `ProcessInfo` '
-            'call and its try/catch are not. '
-            'TimelineParser\'s `gcEvents` list is NOT used by this '
-            'detector (it over-counts GC sub-phase events 5–15× per '
-            'cycle); that design choice is verified at the controller '
-            'boundary, not here.',
-        reproducerPath: 'test/validation/memory_pressure_reproducer_test.dart',
-        profileCapturePaths: [
-          'test/validation/captures/memory_pressure/heap_growing_below.json',
-          'test/validation/captures/memory_pressure/heap_growing_at.json',
-          'test/validation/captures/memory_pressure/heap_growing_above.json',
-        ],
-        bracketThreshold: 512000,
-        bracketUnit: 'bytes/sec',
-        bracketStableId: 'heap_growing',
-        bracketSeverityLabel: 'warning',
-        bracketAtTolerance: 0.50,
-        aboveCeilingMultiplier: 2.0,
-        observedAxisArgKey: 'observedSlopeBytesPerSec',
-        coveredStableIds: {
-          'gc_pressure',
-          'heap_growing',
-          'heap_near_capacity',
-          'native_memory_growing',
-        },
-        perStableIdTier: {
-          'heap_growing': EvidenceTier.runtimeVerified,
-        },
-        coveredThresholds: {'heap_growing.warning'},
-        bracketRequireUniqueDetectedAtMicros: true,
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'VM-only detector. 4 families pinned by hermetic '
+        'reproducer at detector entrypoints (`processHeapSample` + '
+        '`recordGcCycle`): `gc_pressure` (>10 cycles / 10s sliding '
+        'window = >60/min rate, default; configurable), '
+        '`heap_growing` (slope > 512KB/s '
+        'sustained ≥10s), `heap_near_capacity` (>80% AND 4-of-5 '
+        'samples over AND correlated heap_growing), '
+        '`native_memory_growing` (RSS-heap gap slope > 1MB/s '
+        'sustained ≥10s). Null-rssBytes (web) and zero-heap / '
+        'zero-capacity null-coalesce edges asserted non-emitting.\n'
+        '\n'
+        'v0.19.3 raises `heap_growing` (warning tier, 512 KB/s '
+        'sustained ≥10 s) to runtimeVerified via `perStableIdTier`, '
+        'backed by three on-device captures (iPhone 12 / iOS 17.5 / '
+        'Flutter 3.41.x) recorded via the in-app capture procedure: '
+        '`MemoryPressureCaptureScreen` calibrates an allocation-loop '
+        'rate, narrows VM timeline streams to `Dart` only (so 30 s '
+        'of heavy allocation does not overflow the ring buffer), '
+        'drives a 30 s sustained-allocation phase inside '
+        '`Sleuth.markScenarioBegin/End` with a 600 ms pre-end dwell '
+        '(detector emission landing) and 800 ms post-end dwell '
+        '(VM-service buffer flush), then exports the wrapped JSON '
+        'via the iOS clipboard. `markScenarioBegin` resets the '
+        'detector window so the regression slope is computed on '
+        'scenario allocation only — pre-scenario flat samples '
+        'would otherwise dilute slope below threshold. Producer-'
+        'side dedup keys on `_sustainedGrowthStart.microsecondsSinceEpoch` '
+        'for stable per-trigger identity → '
+        '`requireUniqueDetectedAtMicros: true` locks single-issue '
+        'replay protection. Other 3 families (`gc_pressure`, '
+        '`heap_near_capacity`, `native_memory_growing`) stay '
+        'reproducerOnly — each requires a separate capture campaign '
+        'with multi-axis brackets the current single-bracket schema '
+        'cannot express. v0.19.18 backfills the '
+        '`observedSlopeBytesPerSec` extraTraceArgs stamp + '
+        '`observedAxisArgKey` declaration on the canonical bracket; '
+        'cross-check is plumbing-only until on-device captures are '
+        'refreshed (schema skips per-record when the arg is absent).\n'
+        '\n'
+        'Three upstream hops disclosed as skipped: (1) '
+        '`VmServiceClient.getMemoryUsage` repacks '
+        '`vm_service.MemoryUsage` into `HeapSample` with `null → 0` '
+        'fallback on heap/capacity/external fields — the '
+        'zero-coalesce edge is exercised but the repack is not; '
+        '(2) `EventStreams.kGC → _onGcEvent → recordGcCycle` is '
+        'the authoritative per-cycle GC signal and is called '
+        'directly, bypassing the VM-service stream plumbing; '
+        '(3) `VmServiceClient._readRssBytes() → '
+        '`ProcessInfo.currentRss` is the OS-level RSS collection '
+        'boundary that sources `HeapSample.rssBytes` and therefore '
+        'gates `native_memory_growing` (which derives `nativeBytes '
+        '= rssBytes - heapUsage`) — the null-rssBytes edge (web / '
+        'unusual embeddings) is exercised but the `ProcessInfo` '
+        'call and its try/catch are not. '
+        'TimelineParser\'s `gcEvents` list is NOT used by this '
+        'detector (it over-counts GC sub-phase events 5–15× per '
+        'cycle); that design choice is verified at the controller '
+        'boundary, not here.',
+    reproducerPath: 'test/validation/memory_pressure_reproducer_test.dart',
+    profileCapturePaths: [
+      'test/validation/captures/memory_pressure/heap_growing_below.json',
+      'test/validation/captures/memory_pressure/heap_growing_at.json',
+      'test/validation/captures/memory_pressure/heap_growing_above.json',
+    ],
+    bracketThreshold: 512000,
+    bracketUnit: 'bytes/sec',
+    bracketStableId: 'heap_growing',
+    bracketSeverityLabel: 'warning',
+    bracketAtTolerance: 0.50,
+    aboveCeilingMultiplier: 2.0,
+    observedAxisArgKey: 'observedSlopeBytesPerSec',
+    coveredStableIds: {
+      'gc_pressure',
+      'heap_growing',
+      'heap_near_capacity',
+      'native_memory_growing',
+    },
+    perStableIdTier: {'heap_growing': EvidenceTier.runtimeVerified},
+    coveredThresholds: {'heap_growing.warning'},
+    bracketRequireUniqueDetectedAtMicros: true,
+  );
 }

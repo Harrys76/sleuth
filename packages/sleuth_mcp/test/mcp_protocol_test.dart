@@ -16,9 +16,9 @@ void main() {
     test('parses well-formed request with int id', () async {
       final codec = McpProtocolCodec();
       final events = await codec
-          .decode(_lines([
-            '{"jsonrpc":"2.0","method":"ping","params":{},"id":1}',
-          ]))
+          .decode(
+            _lines(['{"jsonrpc":"2.0","method":"ping","params":{},"id":1}']),
+          )
           .toList();
       expect(events, hasLength(1));
       final msg = events.first as JsonRpcMessage;
@@ -30,9 +30,7 @@ void main() {
     test('parses string id', () async {
       final codec = McpProtocolCodec();
       final events = await codec
-          .decode(_lines([
-            '{"jsonrpc":"2.0","method":"ping","id":"abc"}',
-          ]))
+          .decode(_lines(['{"jsonrpc":"2.0","method":"ping","id":"abc"}']))
           .toList();
       final msg = events.first as JsonRpcMessage;
       expect(msg.id, 'abc');
@@ -41,9 +39,9 @@ void main() {
     test('parses null id (notification)', () async {
       final codec = McpProtocolCodec();
       final events = await codec
-          .decode(_lines([
-            '{"jsonrpc":"2.0","method":"notifications/initialized"}',
-          ]))
+          .decode(
+            _lines(['{"jsonrpc":"2.0","method":"notifications/initialized"}']),
+          )
           .toList();
       final msg = events.first as JsonRpcMessage;
       expect(msg.id, isNull);
@@ -53,9 +51,7 @@ void main() {
     test('normalizes missing params to {}', () async {
       final codec = McpProtocolCodec();
       final events = await codec
-          .decode(_lines([
-            '{"jsonrpc":"2.0","method":"tools/list","id":1}',
-          ]))
+          .decode(_lines(['{"jsonrpc":"2.0","method":"tools/list","id":1}']))
           .toList();
       final msg = events.first as JsonRpcMessage;
       expect(msg.params, <String, Object?>{});
@@ -64,9 +60,11 @@ void main() {
     test('normalizes params: null to {}', () async {
       final codec = McpProtocolCodec();
       final events = await codec
-          .decode(_lines([
-            '{"jsonrpc":"2.0","method":"tools/list","params":null,"id":1}',
-          ]))
+          .decode(
+            _lines([
+              '{"jsonrpc":"2.0","method":"tools/list","params":null,"id":1}',
+            ]),
+          )
           .toList();
       final msg = events.first as JsonRpcMessage;
       expect(msg.params, <String, Object?>{});
@@ -83,9 +81,11 @@ void main() {
     test('UTF-8 emoji round-trips', () async {
       final codec = McpProtocolCodec();
       final events = await codec
-          .decode(_lines([
-            '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"🎯"},"id":1}',
-          ]))
+          .decode(
+            _lines([
+              '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"🎯"},"id":1}',
+            ]),
+          )
           .toList();
       final msg = events.first as JsonRpcMessage;
       expect(msg.params['name'], '🎯');

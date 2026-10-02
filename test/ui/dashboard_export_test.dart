@@ -20,10 +20,7 @@ void main() {
     Widget buildCard() {
       return MaterialApp(
         home: Scaffold(
-          body: FloatingIssuesCard(
-            controller: controller,
-            onClose: () {},
-          ),
+          body: FloatingIssuesCard(controller: controller, onClose: () {}),
         ),
       );
     }
@@ -31,10 +28,7 @@ void main() {
     testWidgets('export button is present in header', (tester) async {
       await tester.pumpWidget(buildCard());
 
-      expect(
-        find.byIcon(Icons.ios_share),
-        findsOneWidget,
-      );
+      expect(find.byIcon(Icons.ios_share), findsOneWidget);
     });
 
     testWidgets('tapping export copies JSON to clipboard', (tester) async {

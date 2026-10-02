@@ -10,14 +10,13 @@ HeapSample _sample({
   int externalUsage = 0,
   int? rssBytes,
   required DateTime timestamp,
-}) =>
-    HeapSample(
-      heapUsage: heapUsage,
-      heapCapacity: heapCapacity,
-      externalUsage: externalUsage,
-      timestamp: timestamp,
-      rssBytes: rssBytes,
-    );
+}) => HeapSample(
+  heapUsage: heapUsage,
+  heapCapacity: heapCapacity,
+  externalUsage: externalUsage,
+  timestamp: timestamp,
+  rssBytes: rssBytes,
+);
 
 void main() {
   group('MemoryPressureDetector', () {
@@ -52,12 +51,12 @@ void main() {
     test('no issues with no GC events', () {
       // No recordGcCycle calls → empty sliding window → no gc_pressure.
       fakeNow = fakeNow.add(const Duration(seconds: 5));
-      detector.processHeapSample(_sample(
-        heapUsage: 50000000,
-        timestamp: fakeNow,
-      ));
-      final gcIssues =
-          detector.issues.where((i) => i.stableId == 'gc_pressure');
+      detector.processHeapSample(
+        _sample(heapUsage: 50000000, timestamp: fakeNow),
+      );
+      final gcIssues = detector.issues.where(
+        (i) => i.stableId == 'gc_pressure',
+      );
       expect(gcIssues, isEmpty);
     });
 
@@ -79,8 +78,10 @@ void main() {
 
       expect(detector.issues, isNotEmpty);
       expect(detector.issues.first.title, contains('GC Pressure'));
-      expect(detector.issues.first.observationSource,
-          ObservationSource.vmTimeline);
+      expect(
+        detector.issues.first.observationSource,
+        ObservationSource.vmTimeline,
+      );
     });
 
     test('GC severity uses warning level', () {
@@ -122,7 +123,8 @@ void main() {
       expect(
         defaultDetector.issues.where((i) => i.stableId == 'gc_pressure'),
         isEmpty,
-        reason: 'gcPerMinute == 60 must not fire when threshold is 60 '
+        reason:
+            'gcPerMinute == 60 must not fire when threshold is 60 '
             '(strictly-greater-than gate). Young-gen scavenges at this '
             'cadence are normal Dart UI behaviour.',
       );
@@ -169,28 +171,28 @@ void main() {
       // 30 samples at 500ms intervals, all same heap size
       for (var i = 0; i < 30; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000, timestamp: fakeNow),
+        );
       }
 
-      final heapIssues =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
+      final heapIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssues, isEmpty);
     });
 
     test('no heap_growing issue with declining heap', () {
       for (var i = 0; i < 30; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 80000000 - i * 500000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 80000000 - i * 500000, timestamp: fakeNow),
+        );
       }
 
-      final heapIssues =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
+      final heapIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssues, isEmpty);
     });
 
@@ -198,14 +200,17 @@ void main() {
       // ~400KB/s = 200KB per 500ms interval — below 512000 bytes/sec threshold
       for (var i = 0; i < 30; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 200000, // 200KB per step
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 50000000 + i * 200000, // 200KB per step
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final heapIssues =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
+      final heapIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssues, isEmpty);
     });
 
@@ -213,14 +218,17 @@ void main() {
       // 1MB/s growth but only for 8 seconds (16 samples at 500ms)
       for (var i = 0; i < 16; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 512000, // ~1MB/s
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 50000000 + i * 512000, // ~1MB/s
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final heapIssues =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
+      final heapIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssues, isEmpty);
     });
 
@@ -228,28 +236,31 @@ void main() {
       // 1MB/s growth for 12 seconds (24 samples at 500ms)
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 512000, // ~1MB/s
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 50000000 + i * 512000, // ~1MB/s
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final heapIssues =
-          detector.issues.where((i) => i.stableId == 'heap_growing').toList();
+      final heapIssues = detector.issues
+          .where((i) => i.stableId == 'heap_growing')
+          .toList();
       expect(heapIssues, hasLength(1));
     });
 
     test('heap_growing stableId, confidence, category correct', () {
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 512000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 512000, timestamp: fakeNow),
+        );
       }
 
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'heap_growing');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(issue.stableId, 'heap_growing');
       expect(issue.confidence, IssueConfidence.likely);
       expect(issue.category, IssueCategory.memory);
@@ -260,14 +271,14 @@ void main() {
     test('heap_growing detail contains rate and duration', () {
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 512000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 512000, timestamp: fakeNow),
+        );
       }
 
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'heap_growing');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(issue.detail, contains('KB/sec'));
       expect(issue.detail, contains('seconds'));
       expect(issue.title, contains('KB/s'));
@@ -276,14 +287,14 @@ void main() {
     test('heap_growing fix hint is actionable', () {
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 512000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 512000, timestamp: fakeNow),
+        );
       }
 
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'heap_growing');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(issue.fixHint, contains('undisposed'));
       expect(issue.fixHint, contains('DevTools'));
     });
@@ -298,14 +309,14 @@ void main() {
         } else {
           heap -= 800000; // GC drops 800KB
         }
-        detector.processHeapSample(_sample(
-          heapUsage: heap,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: heap, timestamp: fakeNow),
+        );
       }
 
-      final heapIssues =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
+      final heapIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssues, isEmpty);
     });
 
@@ -313,23 +324,25 @@ void main() {
       // Sharp rise for 3s, then flat for 12s
       for (var i = 0; i < 6; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 2000000, // 4MB/s rise
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 50000000 + i * 2000000, // 4MB/s rise
+            timestamp: fakeNow,
+          ),
+        );
       }
       // Plateau
       final plateauValue = 50000000 + 6 * 2000000;
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: plateauValue,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: plateauValue, timestamp: fakeNow),
+        );
       }
 
-      final heapIssues =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
+      final heapIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssues, isEmpty);
     });
 
@@ -337,10 +350,9 @@ void main() {
       // Phase 1: Grow for 12s (24 samples) — triggers heap_growing
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 600000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 600000, timestamp: fakeNow),
+        );
       }
       expect(
         detector.issues.where((i) => i.stableId == 'heap_growing'),
@@ -354,10 +366,9 @@ void main() {
       // with flat data so slope drops to ~0 and _sustainedGrowthStart resets
       for (var i = 0; i < 60; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: plateau,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: plateau, timestamp: fakeNow),
+        );
       }
       expect(
         detector.issues.where((i) => i.stableId == 'heap_growing'),
@@ -370,16 +381,19 @@ void main() {
       // Phase 2, so this 8s growth period is under the 10s threshold.
       for (var i = 0; i < 16; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: plateau + i * 2000000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: plateau + i * 2000000, timestamp: fakeNow),
+        );
       }
 
-      final heapIssues =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
-      expect(heapIssues, isEmpty,
-          reason: 'Phase 3: <10s sustained growth should not trigger');
+      final heapIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
+      expect(
+        heapIssues,
+        isEmpty,
+        reason: 'Phase 3: <10s sustained growth should not trigger',
+      );
     });
 
     // -- Heap Capacity (heap_near_capacity) --
@@ -397,14 +411,17 @@ void main() {
 
     test('no heap_near_capacity when usage < 80%', () {
       fakeNow = fakeNow.add(const Duration(seconds: 1));
-      detector.processHeapSample(_sample(
-        heapUsage: 70000000,
-        heapCapacity: 100000000,
-        timestamp: fakeNow,
-      ));
+      detector.processHeapSample(
+        _sample(
+          heapUsage: 70000000,
+          heapCapacity: 100000000,
+          timestamp: fakeNow,
+        ),
+      );
 
-      final capIssues =
-          detector.issues.where((i) => i.stableId == 'heap_near_capacity');
+      final capIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_near_capacity',
+      );
       expect(capIssues, isEmpty);
     });
 
@@ -414,11 +431,13 @@ void main() {
       // `_sustainedGrowthStart` on the slope check at sample 4.
       for (var i = 0; i < 6; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 82000000 + i * 600000, // 82M → 85M
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 82000000 + i * 600000, // 82M → 85M
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
       final capIssues = detector.issues
@@ -430,30 +449,36 @@ void main() {
     test('heap_near_capacity severity is critical', () {
       for (var i = 0; i < 6; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 87000000 + i * 600000, // 87M → 90M
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 87000000 + i * 600000, // 87M → 90M
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'heap_near_capacity');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'heap_near_capacity',
+      );
       expect(issue.severity, IssueSeverity.critical);
     });
 
     test('heap_near_capacity confidence is confirmed', () {
       for (var i = 0; i < 6; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 87000000 + i * 600000,
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 87000000 + i * 600000,
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'heap_near_capacity');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'heap_near_capacity',
+      );
       expect(issue.confidence, IssueConfidence.confirmed);
       expect(issue.category, IssueCategory.memory);
       expect(issue.observationSource, ObservationSource.vmTimeline);
@@ -462,15 +487,18 @@ void main() {
     test('heap_near_capacity detail shows usage percentage', () {
       for (var i = 0; i < 6; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 92000000 + i * 600000, // 92M → 95M
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 92000000 + i * 600000, // 92M → 95M
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final issue =
-          detector.issues.firstWhere((i) => i.stableId == 'heap_near_capacity');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'heap_near_capacity',
+      );
       expect(issue.title, contains('95%'));
       expect(issue.detail, contains('MB'));
     });
@@ -482,68 +510,89 @@ void main() {
       // and prevent any heap_near_capacity issue from firing.
       for (var i = 0; i < 6; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 80000000,
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 80000000,
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final capIssues =
-          detector.issues.where((i) => i.stableId == 'heap_near_capacity');
-      expect(capIssues, isEmpty,
-          reason: 'Exactly 80% should not trigger (strict > comparison)');
+      final capIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_near_capacity',
+      );
+      expect(
+        capIssues,
+        isEmpty,
+        reason: 'Exactly 80% should not trigger (strict > comparison)',
+      );
     });
 
-    test('no heap_near_capacity when ratio > 80% but heap flat (no growth)',
-        () {
-      // Phase 1 growth correlation guard: a steady-state high committed
-      // arena must not fire heap_near_capacity, even with 5+ consecutive
-      // samples over the threshold. This is the exact false-positive the
-      // Phase 0 diagnostic captured on the idle home screen.
-      for (var i = 0; i < 10; i++) {
-        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 92000000, // flat at 92 %
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
-      }
+    test(
+      'no heap_near_capacity when ratio > 80% but heap flat (no growth)',
+      () {
+        // Phase 1 growth correlation guard: a steady-state high committed
+        // arena must not fire heap_near_capacity, even with 5+ consecutive
+        // samples over the threshold. This is the exact false-positive the
+        // Phase 0 diagnostic captured on the idle home screen.
+        for (var i = 0; i < 10; i++) {
+          fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+          detector.processHeapSample(
+            _sample(
+              heapUsage: 92000000, // flat at 92 %
+              heapCapacity: 100000000,
+              timestamp: fakeNow,
+            ),
+          );
+        }
 
-      final capIssues =
-          detector.issues.where((i) => i.stableId == 'heap_near_capacity');
-      expect(capIssues, isEmpty,
+        final capIssues = detector.issues.where(
+          (i) => i.stableId == 'heap_near_capacity',
+        );
+        expect(
+          capIssues,
+          isEmpty,
           reason:
               'Flat heap over threshold is steady-state — growth correlation '
-              'guard must suppress heap_near_capacity.');
-    });
+              'guard must suppress heap_near_capacity.',
+        );
+      },
+    );
 
     test(
-        'no heap_near_capacity when growing but < 5 samples in capacity window',
-        () {
-      // 4 growing samples above the threshold — window reaches size 4,
-      // below the required window size of 5. Sustained growth is set on
-      // sample 4 (slope check), but the window-size guard must still
-      // suppress heap_near_capacity until a full window of samples has
-      // been observed.
-      for (var i = 0; i < 4; i++) {
-        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 85000000 + i * 600000,
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
-      }
+      'no heap_near_capacity when growing but < 5 samples in capacity window',
+      () {
+        // 4 growing samples above the threshold — window reaches size 4,
+        // below the required window size of 5. Sustained growth is set on
+        // sample 4 (slope check), but the window-size guard must still
+        // suppress heap_near_capacity until a full window of samples has
+        // been observed.
+        for (var i = 0; i < 4; i++) {
+          fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+          detector.processHeapSample(
+            _sample(
+              heapUsage: 85000000 + i * 600000,
+              heapCapacity: 100000000,
+              timestamp: fakeNow,
+            ),
+          );
+        }
 
-      final capIssues =
-          detector.issues.where((i) => i.stableId == 'heap_near_capacity');
-      expect(capIssues, isEmpty,
-          reason: 'Window-size guard should suppress until 5 samples '
-              'have been observed');
-    });
+        final capIssues = detector.issues.where(
+          (i) => i.stableId == 'heap_near_capacity',
+        );
+        expect(
+          capIssues,
+          isEmpty,
+          reason:
+              'Window-size guard should suppress until 5 samples '
+              'have been observed',
+        );
+      },
+    );
 
-    test(
-        'heap_near_capacity tolerates one sub-threshold dip within 5-sample '
+    test('heap_near_capacity tolerates one sub-threshold dip within 5-sample '
         'window', () {
       // Phase 1 / M2 fix: a "K of N" window (4 of last 5) replaces the
       // strict consecutive counter so the normal Dart GC sawtooth
@@ -555,43 +604,59 @@ void main() {
       final heapValues = [82000000, 83000000, 79000000, 85000000, 86000000];
       for (var i = 0; i < heapValues.length; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: heapValues[i],
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: heapValues[i],
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final capIssues =
-          detector.issues.where((i) => i.stableId == 'heap_near_capacity');
-      expect(capIssues, hasLength(1),
-          reason: 'A single sub-threshold dip in a 5-sample window should '
-              'not block firing when 4 of 5 samples are still over and '
-              'the heap is growing.');
+      final capIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_near_capacity',
+      );
+      expect(
+        capIssues,
+        hasLength(1),
+        reason:
+            'A single sub-threshold dip in a 5-sample window should '
+            'not block firing when 4 of 5 samples are still over and '
+            'the heap is growing.',
+      );
     });
 
-    test('two sub-threshold samples in window suppresses heap_near_capacity',
-        () {
-      // Complement to the K-of-N tolerance test above: when the window
-      // has only 3 of 5 over-threshold samples, the guard must suppress
-      // even if growth is active. Verifies the required-hits threshold
-      // actually bites.
-      final heapValues = [82000000, 78000000, 83000000, 77000000, 86000000];
-      for (var i = 0; i < heapValues.length; i++) {
-        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: heapValues[i],
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
-      }
+    test(
+      'two sub-threshold samples in window suppresses heap_near_capacity',
+      () {
+        // Complement to the K-of-N tolerance test above: when the window
+        // has only 3 of 5 over-threshold samples, the guard must suppress
+        // even if growth is active. Verifies the required-hits threshold
+        // actually bites.
+        final heapValues = [82000000, 78000000, 83000000, 77000000, 86000000];
+        for (var i = 0; i < heapValues.length; i++) {
+          fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+          detector.processHeapSample(
+            _sample(
+              heapUsage: heapValues[i],
+              heapCapacity: 100000000,
+              timestamp: fakeNow,
+            ),
+          );
+        }
 
-      final capIssues =
-          detector.issues.where((i) => i.stableId == 'heap_near_capacity');
-      expect(capIssues, isEmpty,
-          reason: 'Only 3 of 5 samples over threshold — below the required '
-              '4-of-5 hit count, must not fire.');
-    });
+        final capIssues = detector.issues.where(
+          (i) => i.stableId == 'heap_near_capacity',
+        );
+        expect(
+          capIssues,
+          isEmpty,
+          reason:
+              'Only 3 of 5 samples over threshold — below the required '
+              '4-of-5 hit count, must not fire.',
+        );
+      },
+    );
 
     test('heap_near_capacity does not fire on first post-warmup sample', () {
       // Phase 1 / M4 fix: the capacity window is cleared on every sample
@@ -608,11 +673,13 @@ void main() {
       // both a legacy consecutive counter and sustainedGrowthStart.
       for (var i = 0; i < 6; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        warmupDetector.processHeapSample(_sample(
-          heapUsage: 82000000 + i * 1000000,
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        warmupDetector.processHeapSample(
+          _sample(
+            heapUsage: 82000000 + i * 1000000,
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
       // First post-warmup sample: warmup guard has just released. The
@@ -620,16 +687,19 @@ void main() {
       // warmup window) so a single sample cannot satisfy the 5-sample
       // window-size guard.
       fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-      warmupDetector.processHeapSample(_sample(
-        heapUsage: 88000000,
-        heapCapacity: 100000000,
-        timestamp: fakeNow,
-      ));
+      warmupDetector.processHeapSample(
+        _sample(
+          heapUsage: 88000000,
+          heapCapacity: 100000000,
+          timestamp: fakeNow,
+        ),
+      );
 
       expect(
         warmupDetector.issues.where((i) => i.stableId == 'heap_near_capacity'),
         isEmpty,
-        reason: 'Capacity window must start empty at the warmup boundary — '
+        reason:
+            'Capacity window must start empty at the warmup boundary — '
             'the first post-warmup sample alone cannot fire.',
       );
     });
@@ -655,7 +725,8 @@ void main() {
       expect(
         detector.issues.where((i) => i.stableId == 'gc_pressure'),
         isEmpty,
-        reason: 'vmConnected=false must both clear the sliding window '
+        reason:
+            'vmConnected=false must both clear the sliding window '
             'and re-evaluate so the stale gc_pressure issue is removed '
             'immediately (not on the next incoming event).',
       );
@@ -675,7 +746,8 @@ void main() {
       expect(
         detector.issues.where((i) => i.stableId == 'gc_pressure'),
         isEmpty,
-        reason: 'Post-disconnect cycle must contribute to an empty '
+        reason:
+            'Post-disconnect cycle must contribute to an empty '
             'window — a single cycle is 6/min, below the threshold.',
       );
     });
@@ -685,16 +757,15 @@ void main() {
 
       // Should not throw — guard returns early when heapCapacity <= 0
       expect(
-        () => detector.processHeapSample(_sample(
-          heapUsage: 50000000,
-          heapCapacity: 0,
-          timestamp: fakeNow,
-        )),
+        () => detector.processHeapSample(
+          _sample(heapUsage: 50000000, heapCapacity: 0, timestamp: fakeNow),
+        ),
         returnsNormally,
       );
 
-      final capIssues =
-          detector.issues.where((i) => i.stableId == 'heap_near_capacity');
+      final capIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_near_capacity',
+      );
       expect(capIssues, isEmpty);
     });
 
@@ -704,10 +775,9 @@ void main() {
       // Fill to capacity (60) + 1 extra
       for (var i = 0; i <= 60; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 1000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 1000, timestamp: fakeNow),
+        );
       }
 
       expect(detector.heapSamples, hasLength(60));
@@ -731,10 +801,9 @@ void main() {
       // Feed enough heap growth for heap_growing
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 600000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 600000, timestamp: fakeNow),
+        );
       }
       // Feed enough GC cycles for gc_pressure (10 cycles in the 10 s window
       // → 60 GC/min, above the 30/min threshold).
@@ -753,11 +822,13 @@ void main() {
       // growth).
       for (var i = 0; i < 6; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 87000000 + i * 600000, // 87 M → 90 M
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 87000000 + i * 600000, // 87 M → 90 M
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
       // Feed enough GC cycles for gc_pressure.
       for (var i = 0; i < 10; i++) {
@@ -774,11 +845,13 @@ void main() {
     test('processHeapSample ignored when disabled', () {
       detector.isEnabled = false;
       fakeNow = fakeNow.add(const Duration(seconds: 1));
-      detector.processHeapSample(_sample(
-        heapUsage: 95000000,
-        heapCapacity: 100000000,
-        timestamp: fakeNow,
-      ));
+      detector.processHeapSample(
+        _sample(
+          heapUsage: 95000000,
+          heapCapacity: 100000000,
+          timestamp: fakeNow,
+        ),
+      );
 
       expect(detector.issues, isEmpty);
       expect(detector.heapSamples, isEmpty);
@@ -788,10 +861,9 @@ void main() {
       // Build up state
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 600000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 600000, timestamp: fakeNow),
+        );
       }
       expect(detector.issues, isNotEmpty);
       expect(detector.heapSamples, isNotEmpty);
@@ -803,13 +875,13 @@ void main() {
       // Re-feed with no growth — should produce no issues
       for (var i = 0; i < 10; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000, timestamp: fakeNow),
+        );
       }
-      final heapIssues =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
+      final heapIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssues, isEmpty);
     });
 
@@ -824,14 +896,14 @@ void main() {
       // Feed 1MB/s growth for 4 seconds (within warmup)
       for (var i = 0; i < 8; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        warmupDetector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 512000,
-          timestamp: fakeNow,
-        ));
+        warmupDetector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 512000, timestamp: fakeNow),
+        );
       }
 
-      final heapIssues =
-          warmupDetector.issues.where((i) => i.stableId == 'heap_growing');
+      final heapIssues = warmupDetector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssues, isEmpty, reason: 'Should not alert during warmup');
     });
 
@@ -845,16 +917,19 @@ void main() {
       // sustained threshold of 10s met at ~15s)
       for (var i = 0; i < 40; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        warmupDetector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 512000,
-          timestamp: fakeNow,
-        ));
+        warmupDetector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 512000, timestamp: fakeNow),
+        );
       }
 
-      final heapIssues =
-          warmupDetector.issues.where((i) => i.stableId == 'heap_growing');
-      expect(heapIssues, hasLength(1),
-          reason: 'Should alert after warmup + sustained threshold');
+      final heapIssues = warmupDetector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
+      expect(
+        heapIssues,
+        hasLength(1),
+        reason: 'Should alert after warmup + sustained threshold',
+      );
     });
 
     test('GC pressure still fires during warmup', () {
@@ -870,10 +945,14 @@ void main() {
         warmupDetector.recordGcCycle();
       }
 
-      final gcIssues =
-          warmupDetector.issues.where((i) => i.stableId == 'gc_pressure');
-      expect(gcIssues, hasLength(1),
-          reason: 'GC pressure should not be affected by warmup');
+      final gcIssues = warmupDetector.issues.where(
+        (i) => i.stableId == 'gc_pressure',
+      );
+      expect(
+        gcIssues,
+        hasLength(1),
+        reason: 'GC pressure should not be affected by warmup',
+      );
     });
 
     test('heap_near_capacity is suppressed during warmup', () {
@@ -891,19 +970,25 @@ void main() {
       // Total elapsed = 6 × 300 ms = 1.8 s, well under the 5 s warmup.
       for (var i = 0; i < 6; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 300));
-        warmupDetector.processHeapSample(_sample(
-          heapUsage: 87000000 + i * 600000,
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        warmupDetector.processHeapSample(
+          _sample(
+            heapUsage: 87000000 + i * 600000,
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final capacityIssues = warmupDetector.issues
-          .where((i) => i.stableId == 'heap_near_capacity');
-      expect(capacityIssues, isEmpty,
-          reason:
-              'heap_near_capacity must be suppressed during warmup to avoid '
-              'firing on startup allocation spikes');
+      final capacityIssues = warmupDetector.issues.where(
+        (i) => i.stableId == 'heap_near_capacity',
+      );
+      expect(
+        capacityIssues,
+        isEmpty,
+        reason:
+            'heap_near_capacity must be suppressed during warmup to avoid '
+            'firing on startup allocation spikes',
+      );
     });
 
     test('heap_near_capacity fires after warmup ends', () {
@@ -921,28 +1006,36 @@ void main() {
       // start pushing the ratio high.
       for (var i = 0; i < 12; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        warmupDetector.processHeapSample(_sample(
-          heapUsage: 50000000,
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        warmupDetector.processHeapSample(
+          _sample(
+            heapUsage: 50000000,
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
       // Now feed 6 growing samples at 90 % after warmup has elapsed.
       for (var i = 0; i < 6; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        warmupDetector.processHeapSample(_sample(
-          heapUsage: 87000000 + i * 600000,
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        warmupDetector.processHeapSample(
+          _sample(
+            heapUsage: 87000000 + i * 600000,
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final capacityIssues = warmupDetector.issues
-          .where((i) => i.stableId == 'heap_near_capacity');
-      expect(capacityIssues, hasLength(1),
-          reason:
-              'heap_near_capacity should fire after warmup + guards satisfied');
+      final capacityIssues = warmupDetector.issues.where(
+        (i) => i.stableId == 'heap_near_capacity',
+      );
+      expect(
+        capacityIssues,
+        hasLength(1),
+        reason:
+            'heap_near_capacity should fire after warmup + guards satisfied',
+      );
     });
 
     test('dispose clears heap samples and issues', () {
@@ -953,10 +1046,9 @@ void main() {
       for (var i = 0; i < 10; i++) {
         detector.recordGcCycle();
       }
-      detector.processHeapSample(_sample(
-        heapUsage: 50000000,
-        timestamp: fakeNow,
-      ));
+      detector.processHeapSample(
+        _sample(heapUsage: 50000000, timestamp: fakeNow),
+      );
       expect(detector.issues, isNotEmpty);
       expect(detector.heapSamples, isNotEmpty);
 
@@ -973,8 +1065,10 @@ void main() {
       }
 
       // Only GC issue, no heap trend or capacity.
-      final heapIssues = detector.issues.where((i) =>
-          i.stableId == 'heap_growing' || i.stableId == 'heap_near_capacity');
+      final heapIssues = detector.issues.where(
+        (i) =>
+            i.stableId == 'heap_growing' || i.stableId == 'heap_near_capacity',
+      );
       expect(heapIssues, isEmpty);
     });
 
@@ -984,14 +1078,14 @@ void main() {
       // 24 samples with growing heap but no rssBytes
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 512000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 512000, timestamp: fakeNow),
+        );
       }
 
-      final nativeIssues =
-          detector.issues.where((i) => i.stableId == 'native_memory_growing');
+      final nativeIssues = detector.issues.where(
+        (i) => i.stableId == 'native_memory_growing',
+      );
       expect(nativeIssues, isEmpty);
     });
 
@@ -1000,15 +1094,18 @@ void main() {
       for (var i = 0; i < 30; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
         final heap = 50000000 + i * 512000;
-        detector.processHeapSample(_sample(
-          heapUsage: heap,
-          rssBytes: heap + 100000000, // constant 100MB native
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: heap,
+            rssBytes: heap + 100000000, // constant 100MB native
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final nativeIssues =
-          detector.issues.where((i) => i.stableId == 'native_memory_growing');
+      final nativeIssues = detector.issues.where(
+        (i) => i.stableId == 'native_memory_growing',
+      );
       expect(nativeIssues, isEmpty);
     });
 
@@ -1016,15 +1113,18 @@ void main() {
       // ~800KB/s native growth (below 1MB/s threshold)
       for (var i = 0; i < 30; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000, // flat heap
-          rssBytes: 150000000 + i * 400000, // ~800KB/s native
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 50000000, // flat heap
+            rssBytes: 150000000 + i * 400000, // ~800KB/s native
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final nativeIssues =
-          detector.issues.where((i) => i.stableId == 'native_memory_growing');
+      final nativeIssues = detector.issues.where(
+        (i) => i.stableId == 'native_memory_growing',
+      );
       expect(nativeIssues, isEmpty);
     });
 
@@ -1032,49 +1132,58 @@ void main() {
       // 2MB/s native growth but only 8 seconds (16 samples)
       for (var i = 0; i < 16; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000, // flat heap
-          rssBytes: 150000000 + i * 1048576, // ~2MB/s native
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 50000000, // flat heap
+            rssBytes: 150000000 + i * 1048576, // ~2MB/s native
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final nativeIssues =
-          detector.issues.where((i) => i.stableId == 'native_memory_growing');
+      final nativeIssues = detector.issues.where(
+        (i) => i.stableId == 'native_memory_growing',
+      );
       expect(nativeIssues, isEmpty);
     });
 
     test(
-        'flags native_memory_growing when growth > 1MB/s sustained 10+ seconds',
-        () {
-      // 2MB/s native growth for 12 seconds (24 samples), flat heap
-      for (var i = 0; i < 24; i++) {
-        fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000, // flat heap
-          rssBytes: 150000000 + i * 1048576, // ~2MB/s native
-          timestamp: fakeNow,
-        ));
-      }
+      'flags native_memory_growing when growth > 1MB/s sustained 10+ seconds',
+      () {
+        // 2MB/s native growth for 12 seconds (24 samples), flat heap
+        for (var i = 0; i < 24; i++) {
+          fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+          detector.processHeapSample(
+            _sample(
+              heapUsage: 50000000, // flat heap
+              rssBytes: 150000000 + i * 1048576, // ~2MB/s native
+              timestamp: fakeNow,
+            ),
+          );
+        }
 
-      final nativeIssues = detector.issues
-          .where((i) => i.stableId == 'native_memory_growing')
-          .toList();
-      expect(nativeIssues, hasLength(1));
-    });
+        final nativeIssues = detector.issues
+            .where((i) => i.stableId == 'native_memory_growing')
+            .toList();
+        expect(nativeIssues, hasLength(1));
+      },
+    );
 
     test('native_memory_growing stableId, confidence, category correct', () {
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000,
-          rssBytes: 150000000 + i * 1048576,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 50000000,
+            rssBytes: 150000000 + i * 1048576,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final issue = detector.issues
-          .firstWhere((i) => i.stableId == 'native_memory_growing');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'native_memory_growing',
+      );
       expect(issue.stableId, 'native_memory_growing');
       expect(issue.confidence, IssueConfidence.likely);
       expect(issue.category, IssueCategory.memory);
@@ -1085,15 +1194,18 @@ void main() {
     test('native_memory_growing detail contains rate and native estimate', () {
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000,
-          rssBytes: 150000000 + i * 1048576,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 50000000,
+            rssBytes: 150000000 + i * 1048576,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final issue = detector.issues
-          .firstWhere((i) => i.stableId == 'native_memory_growing');
+      final issue = detector.issues.firstWhere(
+        (i) => i.stableId == 'native_memory_growing',
+      );
       expect(issue.detail, contains('MB/sec'));
       expect(issue.detail, contains('native estimate'));
       expect(issue.title, contains('MB/s'));
@@ -1103,11 +1215,13 @@ void main() {
       // Both heap and native growing
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 600000, // ~1.2MB/s heap growth
-          rssBytes: 200000000 + i * 2000000, // ~4MB/s RSS growth
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 50000000 + i * 600000, // ~1.2MB/s heap growth
+            rssBytes: 200000000 + i * 2000000, // ~4MB/s RSS growth
+            timestamp: fakeNow,
+          ),
+        );
       }
 
       final stableIds = detector.issues.map((i) => i.stableId).toSet();
@@ -1124,15 +1238,18 @@ void main() {
       // 2MB/s native growth for 4 seconds (within warmup)
       for (var i = 0; i < 8; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        warmupDetector.processHeapSample(_sample(
-          heapUsage: 50000000,
-          rssBytes: 150000000 + i * 1048576,
-          timestamp: fakeNow,
-        ));
+        warmupDetector.processHeapSample(
+          _sample(
+            heapUsage: 50000000,
+            rssBytes: 150000000 + i * 1048576,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final nativeIssues = warmupDetector.issues
-          .where((i) => i.stableId == 'native_memory_growing');
+      final nativeIssues = warmupDetector.issues.where(
+        (i) => i.stableId == 'native_memory_growing',
+      );
       expect(nativeIssues, isEmpty, reason: 'Should not alert during warmup');
     });
 
@@ -1146,28 +1263,36 @@ void main() {
       // sustained threshold of 10s met at ~15s)
       for (var i = 0; i < 40; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        warmupDetector.processHeapSample(_sample(
-          heapUsage: 50000000,
-          rssBytes: 150000000 + i * 1048576,
-          timestamp: fakeNow,
-        ));
+        warmupDetector.processHeapSample(
+          _sample(
+            heapUsage: 50000000,
+            rssBytes: 150000000 + i * 1048576,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final nativeIssues = warmupDetector.issues
-          .where((i) => i.stableId == 'native_memory_growing');
-      expect(nativeIssues, hasLength(1),
-          reason: 'Should alert after warmup + sustained threshold');
+      final nativeIssues = warmupDetector.issues.where(
+        (i) => i.stableId == 'native_memory_growing',
+      );
+      expect(
+        nativeIssues,
+        hasLength(1),
+        reason: 'Should alert after warmup + sustained threshold',
+      );
     });
 
     test('reset clears native sustained growth tracking', () {
       // Trigger native_memory_growing
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000,
-          rssBytes: 150000000 + i * 1048576,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 50000000,
+            rssBytes: 150000000 + i * 1048576,
+            timestamp: fakeNow,
+          ),
+        );
       }
       expect(
         detector.issues.where((i) => i.stableId == 'native_memory_growing'),
@@ -1179,17 +1304,23 @@ void main() {
       // Re-feed with < 10s native growth — should NOT trigger
       for (var i = 0; i < 16; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000,
-          rssBytes: 150000000 + i * 1048576,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(
+            heapUsage: 50000000,
+            rssBytes: 150000000 + i * 1048576,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final nativeIssues =
-          detector.issues.where((i) => i.stableId == 'native_memory_growing');
-      expect(nativeIssues, isEmpty,
-          reason: '<10s sustained growth after reset should not trigger');
+      final nativeIssues = detector.issues.where(
+        (i) => i.stableId == 'native_memory_growing',
+      );
+      expect(
+        nativeIssues,
+        isEmpty,
+        reason: '<10s sustained growth after reset should not trigger',
+      );
     });
 
     // -- Allocation Enrichment --
@@ -1198,14 +1329,14 @@ void main() {
       // Trigger heap_growing first
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 600000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 600000, timestamp: fakeNow),
+        );
       }
 
-      final heapIssues =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
+      final heapIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssues, hasLength(1));
       expect(heapIssues.first.topAllocators, isNull);
 
@@ -1221,8 +1352,9 @@ void main() {
       ];
       detector.enrichHeapGrowingIssue(allocators);
 
-      final enriched =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
+      final enriched = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(enriched, hasLength(1));
       expect(enriched.first.topAllocators, hasLength(1));
       expect(enriched.first.topAllocators![0].className, 'MyWidget');
@@ -1251,10 +1383,9 @@ void main() {
       // Trigger heap_growing
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 600000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 600000, timestamp: fakeNow),
+        );
       }
 
       expect(
@@ -1276,14 +1407,14 @@ void main() {
 
       // Process another sample (triggers _evaluate() → _issues.clear() → rebuild)
       fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-      detector.processHeapSample(_sample(
-        heapUsage: 50000000 + 24 * 600000 + 600000,
-        timestamp: fakeNow,
-      ));
+      detector.processHeapSample(
+        _sample(heapUsage: 50000000 + 24 * 600000 + 600000, timestamp: fakeNow),
+      );
 
       // Enrichment should survive the rebuild
-      final heapIssue =
-          detector.issues.firstWhere((i) => i.stableId == 'heap_growing');
+      final heapIssue = detector.issues.firstWhere(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssue.topAllocators, isNotNull);
       expect(heapIssue.topAllocators, hasLength(1));
       expect(heapIssue.topAllocators![0].className, 'Item');
@@ -1293,10 +1424,9 @@ void main() {
       // Trigger heap_growing
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 600000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 600000, timestamp: fakeNow),
+        );
       }
 
       // Enrich
@@ -1315,10 +1445,9 @@ void main() {
       final plateau = 50000000 + 24 * 600000;
       for (var i = 0; i < 60; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: plateau,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: plateau, timestamp: fakeNow),
+        );
       }
 
       // heap_growing should be gone (slope dropped)
@@ -1330,17 +1459,20 @@ void main() {
       // Now trigger growth again — should NOT have stale enrichment
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: plateau + i * 600000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: plateau + i * 600000, timestamp: fakeNow),
+        );
       }
 
-      final regrown =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
+      final regrown = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       if (regrown.isNotEmpty) {
-        expect(regrown.first.topAllocators, isNull,
-            reason: 'Stale enrichment from prior episode should be cleared');
+        expect(
+          regrown.first.topAllocators,
+          isNull,
+          reason: 'Stale enrichment from prior episode should be cleared',
+        );
       }
     });
 
@@ -1359,14 +1491,17 @@ void main() {
       // ~300KB/s growth for 12 seconds — above 256KB/s but below default 512KB/s
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        custom.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 150000, // 300KB/s
-          timestamp: fakeNow,
-        ));
+        custom.processHeapSample(
+          _sample(
+            heapUsage: 50000000 + i * 150000, // 300KB/s
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final heapIssues =
-          custom.issues.where((i) => i.stableId == 'heap_growing');
+      final heapIssues = custom.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssues, hasLength(1));
     });
 
@@ -1382,15 +1517,18 @@ void main() {
       // threshold and sustained growth.
       for (var i = 0; i < 6; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        custom.processHeapSample(_sample(
-          heapUsage: 62000000 + i * 600000, // 62 M → 65 M
-          heapCapacity: 100000000,
-          timestamp: fakeNow,
-        ));
+        custom.processHeapSample(
+          _sample(
+            heapUsage: 62000000 + i * 600000, // 62 M → 65 M
+            heapCapacity: 100000000,
+            timestamp: fakeNow,
+          ),
+        );
       }
 
-      final capIssues =
-          custom.issues.where((i) => i.stableId == 'heap_near_capacity');
+      final capIssues = custom.issues.where(
+        (i) => i.stableId == 'heap_near_capacity',
+      );
       expect(capIssues, hasLength(1));
     });
 
@@ -1398,14 +1536,14 @@ void main() {
       // Verify default 512KB/s threshold does NOT fire at 300KB/s
       for (var i = 0; i < 24; i++) {
         fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-        detector.processHeapSample(_sample(
-          heapUsage: 50000000 + i * 150000,
-          timestamp: fakeNow,
-        ));
+        detector.processHeapSample(
+          _sample(heapUsage: 50000000 + i * 150000, timestamp: fakeNow),
+        );
       }
 
-      final heapIssues =
-          detector.issues.where((i) => i.stableId == 'heap_growing');
+      final heapIssues = detector.issues.where(
+        (i) => i.stableId == 'heap_growing',
+      );
       expect(heapIssues, isEmpty);
     });
   });

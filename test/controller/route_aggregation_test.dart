@@ -46,12 +46,14 @@ void main() {
 
       // Feed jank frames to produce frameTiming issues.
       for (var i = 0; i < 10; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(milliseconds: 40),
-          rasterDuration: const Duration(milliseconds: 40),
-          timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 40),
+            rasterDuration: const Duration(milliseconds: 40),
+            timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
+          ),
+        );
       }
 
       // Re-scan to trigger aggregation.
@@ -71,20 +73,23 @@ void main() {
       }
     });
 
-    testWidgets('issues from different routes live in different sessions',
-        (tester) async {
+    testWidgets('issues from different routes live in different sessions', (
+      tester,
+    ) async {
       await tester.pumpWidget(_multiRouteApp());
       await tester.pumpAndSettle();
 
       // Scan /home with jank.
       controller.scanTreeFullPathForTest(_rootContext(tester));
       for (var i = 0; i < 10; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(milliseconds: 40),
-          rasterDuration: const Duration(milliseconds: 40),
-          timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 40),
+            rasterDuration: const Duration(milliseconds: 40),
+            timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
+          ),
+        );
       }
       controller.scanTreeFullPathForTest(_rootContext(tester));
       final homeIssueCount =
@@ -103,13 +108,15 @@ void main() {
       expect(controller.activeRouteSessionForTest!.issueSnapshots, isEmpty);
 
       // Home session retains its issues.
-      final homeSession = controller.routeHistoryNotifier.value
-          .firstWhere((s) => s.routeName == '/home');
+      final homeSession = controller.routeHistoryNotifier.value.firstWhere(
+        (s) => s.routeName == '/home',
+      );
       expect(homeSession.issueSnapshots.length, homeIssueCount);
     });
 
-    testWidgets('new route session starts with empty issueSnapshots',
-        (tester) async {
+    testWidgets('new route session starts with empty issueSnapshots', (
+      tester,
+    ) async {
       await tester.pumpWidget(_multiRouteApp());
       await tester.pumpAndSettle();
 
@@ -125,20 +132,23 @@ void main() {
       expect(controller.activeRouteSessionForTest!.issueSnapshots, isEmpty);
     });
 
-    testWidgets('upsert replaces existing issue with latest observation',
-        (tester) async {
+    testWidgets('upsert replaces existing issue with latest observation', (
+      tester,
+    ) async {
       await tester.pumpWidget(_multiRouteApp());
       await tester.pumpAndSettle();
 
       // Establish route + jank.
       controller.scanTreeFullPathForTest(_rootContext(tester));
       for (var i = 0; i < 10; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i,
-          uiDuration: const Duration(milliseconds: 40),
-          rasterDuration: const Duration(milliseconds: 40),
-          timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 40),
+            rasterDuration: const Duration(milliseconds: 40),
+            timestamp: DateTime(2026, 1, 1).add(Duration(milliseconds: i * 16)),
+          ),
+        );
       }
       controller.scanTreeFullPathForTest(_rootContext(tester));
 

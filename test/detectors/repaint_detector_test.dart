@@ -66,8 +66,10 @@ void main() {
         detector.processTimelineData(highPaintActivityData(paintCount: 35));
         detector.evaluateNow();
 
-        expect(detector.issues.first.observationSource,
-            ObservationSource.vmTimeline);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.vmTimeline,
+        );
       });
 
       test('window resets after 1-second evaluation', () {
@@ -92,8 +94,9 @@ void main() {
         expect(detector.issues, isEmpty);
       });
 
-      testWidgets('scanTree triggers _evaluate which writes issues',
-          (tester) async {
+      testWidgets('scanTree triggers _evaluate which writes issues', (
+        tester,
+      ) async {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(highPaintActivityData(paintCount: 50));
 
@@ -121,17 +124,21 @@ void main() {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(highPaintActivityData(paintCount: 50));
 
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 100,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 100,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         detector.evaluateNow();
 
         expect(detector.issues, isNotEmpty);
-        expect(detector.issues.first.observationSource,
-            ObservationSource.vmTimeline);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.vmTimeline,
+        );
       });
 
       test('no-op when no fresh data — keeps existing issues', () {
@@ -160,19 +167,23 @@ void main() {
         // Disconnect VM so debug path is used
         detector.vmConnected = false;
 
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 100,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 100,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
 
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 0,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 0,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });
@@ -184,11 +195,13 @@ void main() {
       });
 
       test('produces aggregate paint rate issue from debug data', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 50,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
         expect(detector.issues, hasLength(1));
@@ -196,33 +209,39 @@ void main() {
       });
 
       test('no widgetName on paint-only issues (aggregate data)', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 50,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
         expect(detector.issues.first.widgetName, isNull);
       });
 
       test('confidence is likely for aggregate paint data (not confirmed)', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 50,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
         expect(detector.issues.first.confidence, IssueConfidence.likely);
       });
 
       test('normalizes paint count to per-second using elapsed', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 20,
-          elapsed: Duration(milliseconds: 500),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 20,
+            elapsed: Duration(milliseconds: 500),
+          ),
+        );
         detector.evaluateNow();
 
         // 20 paints in 0.5s = 40/sec, exceeds threshold of 30
@@ -231,26 +250,32 @@ void main() {
       });
 
       test('no issues when debug paint rate below threshold', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 10,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 10,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
         expect(detector.issues, isEmpty);
       });
 
       test('observationSource is debugCallback', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 50,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
-        expect(detector.issues.first.observationSource,
-            ObservationSource.debugCallback);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.debugCallback,
+        );
       });
     });
 
@@ -267,11 +292,13 @@ void main() {
       test('reconnect flushes stale debug issues', () {
         // Start disconnected with debug-based issues
         detector.vmConnected = false;
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 50,
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
         expect(detector.issues.first.confidence, IssueConfidence.likely);
@@ -295,20 +322,24 @@ void main() {
       });
 
       test('produces per-widget issues with confirmed confidence', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 80,
-          paintCounts: {'CustomPaint': 50, 'SomeWidget': 5},
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 80,
+            paintCounts: {'CustomPaint': 50, 'SomeWidget': 5},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
         expect(detector.issues, hasLength(1));
         expect(detector.issues.first.title, contains('CustomPaint'));
         expect(detector.issues.first.confidence, IssueConfidence.confirmed);
         expect(detector.issues.first.widgetName, 'CustomPaint');
-        expect(detector.issues.first.observationSource,
-            ObservationSource.debugCallback);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.debugCallback,
+        );
       });
 
       test('per-widget takes priority over VM when both available', () {
@@ -317,28 +348,34 @@ void main() {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         detector.processTimelineData(highPaintActivityData(paintCount: 50));
 
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 80,
-          paintCounts: {'CustomPaint': 50},
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 80,
+            paintCounts: {'CustomPaint': 50},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         detector.evaluateNow();
 
         expect(detector.issues, isNotEmpty);
         expect(detector.issues.first.title, contains('CustomPaint'));
-        expect(detector.issues.first.observationSource,
-            ObservationSource.debugCallback);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.debugCallback,
+        );
       });
 
       test('normalizes per-widget rate using elapsed', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 30,
-          paintCounts: {'CustomPaint': 20},
-          elapsed: Duration(milliseconds: 500),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 30,
+            paintCounts: {'CustomPaint': 20},
+            elapsed: Duration(milliseconds: 500),
+          ),
+        );
         detector.evaluateNow();
 
         // 20 paints in 0.5s = 40/sec, exceeds threshold of 30
@@ -347,12 +384,14 @@ void main() {
       });
 
       test('no per-widget issues when paintCounts empty — uses aggregate', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 50,
-          paintCounts: {},
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 50,
+            paintCounts: {},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
         expect(detector.issues, hasLength(1));
@@ -367,25 +406,30 @@ void main() {
         detector.processTimelineData(highPaintActivityData(paintCount: 50));
 
         // Stage debug per-widget data
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 60,
-          paintCounts: {'MyWidget': 50},
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 60,
+            paintCounts: {'MyWidget': 50},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         detector.evaluateNow();
-        expect(detector.issues.first.observationSource,
-            ObservationSource.debugCallback);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.debugCallback,
+        );
 
         // Next evaluate should have no fresh data — issues kept as-is.
         detector.evaluateNow();
-        expect(detector.issues.first.observationSource,
-            ObservationSource.debugCallback);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.debugCallback,
+        );
       });
 
-      test(
-          'falls through to VM when paintCounts exist but no type crosses '
+      test('falls through to VM when paintCounts exist but no type crosses '
           'threshold', () {
         detector.vmConnected = true;
 
@@ -394,28 +438,34 @@ void main() {
         detector.processTimelineData(highPaintActivityData(paintCount: 50));
 
         // Stage debug data: many types, none above threshold individually
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 60,
-          paintCounts: {'TypeA': 5, 'TypeB': 5, 'TypeC': 5},
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 60,
+            paintCounts: {'TypeA': 5, 'TypeB': 5, 'TypeC': 5},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
 
         detector.evaluateNow();
 
         // Per-widget found no issues; should fall through to VM aggregate
         expect(detector.issues, hasLength(1));
-        expect(detector.issues.first.observationSource,
-            ObservationSource.vmTimeline);
+        expect(
+          detector.issues.first.observationSource,
+          ObservationSource.vmTimeline,
+        );
       });
 
       test('critical severity when per-widget rate exceeds 2x threshold', () {
-        detector.updateDebugSnapshot(const DebugSnapshot(
-          rebuildCounts: {},
-          totalPaintCount: 100,
-          paintCounts: {'HeavyWidget': 70},
-          elapsed: Duration(seconds: 1),
-        ));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 100,
+            paintCounts: {'HeavyWidget': 70},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
         detector.evaluateNow();
 
         expect(detector.issues.first.severity, IssueSeverity.critical);
@@ -434,14 +484,11 @@ void main() {
     });
 
     test('enriched dirty count appears in VM path issue detail', () {
-      detector.processTimelineData(enrichedPaintData(
-        paintCount: 50,
-        dirtyCount: 8,
-      ));
+      detector.processTimelineData(
+        enrichedPaintData(paintCount: 50, dirtyCount: 8),
+      );
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(enrichedPaintData(
-        paintCount: 0,
-      ));
+      detector.processTimelineData(enrichedPaintData(paintCount: 0));
       detector.evaluateNow();
 
       expect(detector.issues, hasLength(1));
@@ -462,10 +509,9 @@ void main() {
 
     test('enrichment cleared between evaluation cycles', () {
       // Cycle 1: enriched data
-      detector.processTimelineData(enrichedPaintData(
-        paintCount: 50,
-        dirtyCount: 5,
-      ));
+      detector.processTimelineData(
+        enrichedPaintData(paintCount: 50, dirtyCount: 5),
+      );
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(enrichedPaintData(paintCount: 0));
       detector.evaluateNow();
@@ -477,7 +523,9 @@ void main() {
       detector.processTimelineData(highPaintActivityData(paintCount: 0));
       detector.evaluateNow();
       expect(
-          detector.issues.first.detail, isNot(contains('dirty RenderObjects')));
+        detector.issues.first.detail,
+        isNot(contains('dirty RenderObjects')),
+      );
     });
   });
 
@@ -490,28 +538,31 @@ void main() {
     });
 
     testWidgets(
-        'debug snapshot with high paint rate produces highlights for matching widgets',
-        (tester) async {
-      await tester.pumpWidget(
-        const Directionality(
-          textDirection: TextDirection.ltr,
-          child: _TestPaintWidget(),
-        ),
-      );
+      'debug snapshot with high paint rate produces highlights for matching widgets',
+      (tester) async {
+        await tester.pumpWidget(
+          const Directionality(
+            textDirection: TextDirection.ltr,
+            child: _TestPaintWidget(),
+          ),
+        );
 
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 50,
-        paintCounts: {'_TestPaintWidget': 50},
-        elapsed: Duration(seconds: 1),
-      ));
-      detector.scanTree(tester.element(find.byType(Directionality)));
+        detector.updateDebugSnapshot(
+          const DebugSnapshot(
+            rebuildCounts: {},
+            totalPaintCount: 50,
+            paintCounts: {'_TestPaintWidget': 50},
+            elapsed: Duration(seconds: 1),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
 
-      expect(detector.highlights, isNotEmpty);
-      expect(detector.highlights.first.widgetName, '_TestPaintWidget');
-      expect(detector.highlights.first.detectorName, 'Repaint');
-      expect(detector.highlights.first.detail, contains('50 repaints/sec'));
-    });
+        expect(detector.highlights, isNotEmpty);
+        expect(detector.highlights.first.widgetName, '_TestPaintWidget');
+        expect(detector.highlights.first.detectorName, 'Repaint');
+        expect(detector.highlights.first.detail, contains('50 repaints/sec'));
+      },
+    );
 
     testWidgets('no debug snapshot produces no highlights', (tester) async {
       await tester.pumpWidget(
@@ -533,12 +584,14 @@ void main() {
         ),
       );
 
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 10,
-        paintCounts: {'_TestPaintWidget': 10},
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 10,
+          paintCounts: {'_TestPaintWidget': 10},
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.highlights, isEmpty);
@@ -557,12 +610,14 @@ void main() {
         ),
       );
 
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 50,
-        paintCounts: {'_TestPaintWidget': 50},
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 50,
+          paintCounts: {'_TestPaintWidget': 50},
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.highlights.length, 3);
@@ -577,12 +632,14 @@ void main() {
       );
 
       // 65/sec > 30 * 2 = 60 → critical
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 65,
-        paintCounts: {'_TestPaintWidget': 65},
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 65,
+          paintCounts: {'_TestPaintWidget': 65},
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
 
       expect(detector.highlights.first.severity, IssueSeverity.critical);
@@ -596,12 +653,14 @@ void main() {
         ),
       );
 
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 50,
-        paintCounts: {'_TestPaintWidget': 50},
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 50,
+          paintCounts: {'_TestPaintWidget': 50},
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.scanTree(tester.element(find.byType(Directionality)));
       expect(detector.highlights, isNotEmpty);
 
@@ -648,36 +707,48 @@ void main() {
     // T1 — Gate A: every paint of `CustomPaint` is owned (residual=0)
     // → no issue emitted even at 60 paints/sec.
     test('Gate A skips per-widget when fully owned (residual=0)', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 60,
-        paintCounts: {'CustomPaint': 60},
-        animationOwnedPaintCounts: {'CustomPaint': 60},
-        totalAnimationOwnedPaintCount: 60,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 60,
+          paintCounts: {'CustomPaint': 60},
+          animationOwnedPaintCounts: {'CustomPaint': 60},
+          totalAnimationOwnedPaintCount: 60,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
-      expect(detector.issues, isEmpty,
-          reason: 'CustomPaint with residual=0 must NOT fire even at '
-              '60 paints/sec.');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason:
+            'CustomPaint with residual=0 must NOT fire even at '
+            '60 paints/sec.',
+      );
     });
 
     // T2 — Gate A default-fire: no owned-counts entry → ownedCount
     // defaults to 0, residual = total → fires. Preserves the
     // "never silently mask a real bug" invariant.
     test('Gate A fires when no owned attribution recorded (default-fire)', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 60,
-        paintCounts: {'CustomPaint': 60},
-        // animationOwnedPaintCounts intentionally omitted (defaults to
-        // const {}). Coordinator never marked any of these as owned.
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 60,
+          paintCounts: {'CustomPaint': 60},
+          // animationOwnedPaintCounts intentionally omitted (defaults to
+          // const {}). Coordinator never marked any of these as owned.
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
-      expect(detector.issues, hasLength(1),
-          reason: 'No owned attribution means no evidence to suppress on; '
-              'the detector MUST NOT silently mask a real bug.');
+      expect(
+        detector.issues,
+        hasLength(1),
+        reason:
+            'No owned attribution means no evidence to suppress on; '
+            'the detector MUST NOT silently mask a real bug.',
+      );
       expect(detector.issues.first.stableId, 'repaint_debug_CustomPaint');
     });
 
@@ -685,13 +756,15 @@ void main() {
     // is the same as missing key → fires. (Defends against a future
     // change that decides to write zeros instead of omitting keys.)
     test('Gate A fires when explicit owned count is zero', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 60,
-        paintCounts: {'CustomPaint': 60},
-        animationOwnedPaintCounts: {'CustomPaint': 0},
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 60,
+          paintCounts: {'CustomPaint': 60},
+          animationOwnedPaintCounts: {'CustomPaint': 0},
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.stableId, 'repaint_debug_CustomPaint');
@@ -706,18 +779,24 @@ void main() {
     // chain did) — both wrong. Post-fix, the residual is exactly the
     // unowned half and the issue fires with the residual rate.
     test('Gate A fires with residual rate on partial ownership (C1)', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 60,
-        paintCounts: {'CustomPaint': 60},
-        animationOwnedPaintCounts: {'CustomPaint': 30},
-        totalAnimationOwnedPaintCount: 30,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 60,
+          paintCounts: {'CustomPaint': 60},
+          animationOwnedPaintCounts: {'CustomPaint': 30},
+          totalAnimationOwnedPaintCount: 30,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
-      expect(detector.issues, hasLength(1),
-          reason: 'Residual=30/sec is at threshold and must fire even '
-              'though the other half of paints are owned.');
+      expect(
+        detector.issues,
+        hasLength(1),
+        reason:
+            'Residual=30/sec is at threshold and must fire even '
+            'though the other half of paints are owned.',
+      );
       final issue = detector.issues.first;
       expect(issue.stableId, 'repaint_debug_CustomPaint');
       // Title reports the residual rate (30), not the raw 60.
@@ -732,14 +811,16 @@ void main() {
     // residual which is BELOW the 30/sec threshold → suppressed even
     // though the unowned subset exists.
     test('Gate A suppresses when residual rate is below threshold', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 60,
-        paintCounts: {'CustomPaint': 60},
-        animationOwnedPaintCounts: {'CustomPaint': 35},
-        totalAnimationOwnedPaintCount: 35,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 60,
+          paintCounts: {'CustomPaint': 60},
+          animationOwnedPaintCounts: {'CustomPaint': 35},
+          totalAnimationOwnedPaintCount: 35,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
       expect(detector.issues, isEmpty);
     });
@@ -749,40 +830,50 @@ void main() {
     // sub-threshold (skipping Gate A's residual check), but the VM
     // window says >30/sec — without Gate B that VM gate would fire
     // `excessive_repaint`.
-    testWidgets('Gate B suppresses VM fallback when all per-widget owned',
-        (tester) async {
+    testWidgets('Gate B suppresses VM fallback when all per-widget owned', (
+      tester,
+    ) async {
       detector.vmConnected = true;
       // VM window: 50 paints/sec, will close on next processTimelineData.
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(highPaintActivityData(paintCount: 50));
       // Per-widget data: 10 paints/sec, fully owned (residual=0).
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 10,
-        paintCounts: {'CustomPaint': 10},
-        animationOwnedPaintCounts: {'CustomPaint': 10},
-        totalAnimationOwnedPaintCount: 10,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 10,
+          paintCounts: {'CustomPaint': 10},
+          animationOwnedPaintCounts: {'CustomPaint': 10},
+          totalAnimationOwnedPaintCount: 10,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
-      expect(detector.issues, isEmpty,
-          reason: 'All known per-widget activity is animation-owned, so '
-              'the VM aggregate fallback must be suppressed.');
+      expect(
+        detector.issues,
+        isEmpty,
+        reason:
+            'All known per-widget activity is animation-owned, so '
+            'the VM aggregate fallback must be suppressed.',
+      );
     });
 
     // T7 — Gate B does NOT suppress when paintCounts is empty (no
     // per-widget evidence) — VM gate must still fire.
-    testWidgets('Gate B fires VM fallback when paintCounts empty',
-        (tester) async {
+    testWidgets('Gate B fires VM fallback when paintCounts empty', (
+      tester,
+    ) async {
       detector.vmConnected = true;
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(highPaintActivityData(paintCount: 50));
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 0,
-        paintCounts: {},
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 0,
+          paintCounts: {},
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
       // paintCounts.isEmpty → falls into the `else if (hasFreshVm)`
       // branch which has no Gate B guard.
@@ -793,25 +884,25 @@ void main() {
     // T8 — Gate B does NOT suppress when at least one per-widget paint
     // is NOT animation-owned (mixed scene). One typeName fully owned,
     // the other has zero ownership → all-owned check fails → VM fires.
-    testWidgets('Gate B fires VM fallback in mixed-owner scene',
-        (tester) async {
+    testWidgets('Gate B fires VM fallback in mixed-owner scene', (
+      tester,
+    ) async {
       detector.vmConnected = true;
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(highPaintActivityData(paintCount: 50));
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 20,
-        paintCounts: {
-          'CustomPaint': 10,
-          'MyChartWidget': 10,
-        },
-        animationOwnedPaintCounts: {
-          'CustomPaint': 10,
-          // MyChartWidget intentionally absent (residual=10 > 0).
-        },
-        totalAnimationOwnedPaintCount: 10,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 20,
+          paintCounts: {'CustomPaint': 10, 'MyChartWidget': 10},
+          animationOwnedPaintCounts: {
+            'CustomPaint': 10,
+            // MyChartWidget intentionally absent (residual=10 > 0).
+          },
+          totalAnimationOwnedPaintCount: 10,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
       // Per-widget rates are sub-threshold so Gate A loop emits
       // nothing; Gate B is checked → MyChartWidget breaks the
@@ -832,13 +923,15 @@ void main() {
     // missed the `DebugCreator` cast or were dropped by the 200-type
     // cap), while still attributing some of them to animation owners.
     test('Gate C fires with residual rate when residual > threshold', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 200,
-        paintCounts: {},
-        totalAnimationOwnedPaintCount: 120,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 200,
+          paintCounts: {},
+          totalAnimationOwnedPaintCount: 120,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
       expect(detector.issues, hasLength(1));
       final issue = detector.issues.first;
@@ -855,13 +948,15 @@ void main() {
     // attributed). Belt-and-braces for arithmetic edge cases where
     // `totalAnimationOwnedPaintCount == totalPaintCount`.
     test('Gate C short-circuits when residualCount is zero', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 200,
-        paintCounts: {},
-        totalAnimationOwnedPaintCount: 200,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 200,
+          paintCounts: {},
+          totalAnimationOwnedPaintCount: 200,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
       expect(detector.issues, isEmpty);
     });
@@ -869,13 +964,15 @@ void main() {
     // T11 — Gate C residual subtraction: total=200, totalOwned=180,
     // residual=20/sec which is BELOW the 30/sec threshold → suppressed.
     test('Gate C suppresses when residual rate is below threshold', () {
-      detector.updateDebugSnapshot(const DebugSnapshot(
-        rebuildCounts: {},
-        totalPaintCount: 200,
-        paintCounts: {},
-        totalAnimationOwnedPaintCount: 180,
-        elapsed: Duration(seconds: 1),
-      ));
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 200,
+          paintCounts: {},
+          totalAnimationOwnedPaintCount: 180,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
       expect(detector.issues, isEmpty);
     });
@@ -902,31 +999,38 @@ void main() {
       expect(issue.extraTraceArgs?['observedPaintCount'], '35');
     });
 
-    test('window-completion stamps lastObservedPaintCount even sub-threshold',
-        () {
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 6));
-      // 6 paints/sec is below 30 threshold — no issue should fire,
-      // but the observable getter must still surface the measurement
-      // for capture-mode below-leg export.
-      detector.evaluateNow();
+    test(
+      'window-completion stamps lastObservedPaintCount even sub-threshold',
+      () {
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        detector.processTimelineData(highPaintActivityData(paintCount: 6));
+        // 6 paints/sec is below 30 threshold — no issue should fire,
+        // but the observable getter must still surface the measurement
+        // for capture-mode below-leg export.
+        detector.evaluateNow();
 
-      expect(detector.issues, isEmpty);
-      expect(detector.lastObservedPaintCount, 6);
-    });
+        expect(detector.issues, isEmpty);
+        expect(detector.lastObservedPaintCount, 6);
+      },
+    );
 
-    test('flushPaintEvaluation populates observable without emitting issues',
-        () {
-      detector.processTimelineData(highPaintActivityData(paintCount: 12));
-      // No window has elapsed (fakeNow not advanced) — _paintEventCount
-      // is staged but _pendingVmWindowCount is null.
-      expect(detector.lastObservedPaintCount, 0);
+    test(
+      'flushPaintEvaluation populates observable without emitting issues',
+      () {
+        detector.processTimelineData(highPaintActivityData(paintCount: 12));
+        // No window has elapsed (fakeNow not advanced) — _paintEventCount
+        // is staged but _pendingVmWindowCount is null.
+        expect(detector.lastObservedPaintCount, 0);
 
-      detector.flushPaintEvaluation();
-      expect(detector.lastObservedPaintCount, 12);
-      expect(detector.issues, isEmpty,
-          reason: 'flush is observable refresh only — never emits');
-    });
+        detector.flushPaintEvaluation();
+        expect(detector.lastObservedPaintCount, 12);
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'flush is observable refresh only — never emits',
+        );
+      },
+    );
 
     test('flushPaintEvaluation does NOT update peakObservedPaintCount', () {
       // Partial-window counts must not leak into peak — peak is the
@@ -940,10 +1044,16 @@ void main() {
       expect(detector.peakObservedPaintCount, 0);
 
       detector.flushPaintEvaluation();
-      expect(detector.lastObservedPaintCount, 50,
-          reason: 'flush updates the last observable');
-      expect(detector.peakObservedPaintCount, 0,
-          reason: 'peak stays bound to naturally-closed windows only');
+      expect(
+        detector.lastObservedPaintCount,
+        50,
+        reason: 'flush updates the last observable',
+      );
+      expect(
+        detector.peakObservedPaintCount,
+        0,
+        reason: 'peak stays bound to naturally-closed windows only',
+      );
     });
 
     test('resetCaptureState clears all per-leg accumulator fields', () {
@@ -989,8 +1099,11 @@ void main() {
       detector.processTimelineData(highPaintActivityData(paintCount: 8));
       detector.evaluateNow();
       expect(detector.lastObservedPaintCount, 8);
-      expect(detector.peakObservedPaintCount, 45,
-          reason: 'peak must hold max across all windows since reset');
+      expect(
+        detector.peakObservedPaintCount,
+        45,
+        reason: 'peak must hold max across all windows since reset',
+      );
     });
 
     test('dedupIdentityMicros stamped on emission', () {

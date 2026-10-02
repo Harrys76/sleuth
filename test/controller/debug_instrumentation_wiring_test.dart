@@ -9,15 +9,16 @@ import 'package:sleuth/src/models/performance_issue.dart';
 void main() {
   group('debug instrumentation wiring', () {
     test(
-        'coordinator not installed when enableDebugCallbacks is false (default)',
-        () {
-      final controller = SleuthController();
-      controller.initializeDetectorsForTest();
+      'coordinator not installed when enableDebugCallbacks is false (default)',
+      () {
+        final controller = SleuthController();
+        controller.initializeDetectorsForTest();
 
-      expect(controller.isDebugCallbacksActive, isFalse);
+        expect(controller.isDebugCallbacksActive, isFalse);
 
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
 
     test('evaluateNow called on rebuild/repaint in _onTimelineData path', () {
       // Use a controller with detectors initialized but no VM client.
@@ -61,8 +62,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('observationSource appears in aggregated issues when stamped',
-        (tester) async {
+    testWidgets('observationSource appears in aggregated issues when stamped', (
+      tester,
+    ) async {
       final controller = SleuthController(
         config: const SleuthConfig(rebuildThreshold: 5),
       );
@@ -87,11 +89,14 @@ void main() {
       );
 
       final issues = controller.issuesNotifier.value;
-      final rebuildIssues =
-          issues.where((i) => i.title.contains('StatefulWidget'));
+      final rebuildIssues = issues.where(
+        (i) => i.title.contains('StatefulWidget'),
+      );
       if (rebuildIssues.isNotEmpty) {
-        expect(rebuildIssues.first.observationSource,
-            ObservationSource.structural);
+        expect(
+          rebuildIssues.first.observationSource,
+          ObservationSource.structural,
+        );
       }
 
       controller.dispose();
@@ -183,8 +188,7 @@ void main() {
       controller.dispose();
     });
 
-    test(
-        'initializeDetectorsForTest exercises same setup as initialize '
+    test('initializeDetectorsForTest exercises same setup as initialize '
         '(heavy flags enabled)', () {
       // `layoutProfiling` and `paintProfiling` are `false` by default
       // (see `DebugInstrumentationConfig`). This test explicitly opts

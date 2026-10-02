@@ -39,8 +39,11 @@ void main() {
         'downstreamIds',
         'packageName',
       ]) {
-        expect(compact.containsKey(dropped), isFalse,
-            reason: '$dropped must be dropped by compaction');
+        expect(
+          compact.containsKey(dropped),
+          isFalse,
+          reason: '$dropped must be dropped by compaction',
+        );
       }
     });
 
@@ -54,8 +57,11 @@ void main() {
 
   group('projectIssues', () {
     test('compact (default) trims fields, no cap drop ⇒ not truncated', () {
-      final result =
-          projectIssues(fullFakeIssues(), verbose: false, maxCount: 50);
+      final result = projectIssues(
+        fullFakeIssues(),
+        verbose: false,
+        maxCount: 50,
+      );
       expect(result.issues, hasLength(2));
       expect(result.truncated, isFalse);
       expect(result.total, 2);
@@ -63,15 +69,21 @@ void main() {
     });
 
     test('verbose keeps full fields', () {
-      final result =
-          projectIssues(fullFakeIssues(), verbose: true, maxCount: 50);
+      final result = projectIssues(
+        fullFakeIssues(),
+        verbose: true,
+        maxCount: 50,
+      );
       expect(result.issues, hasLength(2));
       expect(result.issues.first.containsKey('rankingScore'), isTrue);
     });
 
     test('cap drops the tail and reports pre-cap total', () {
-      final result =
-          projectIssues(fullFakeIssues(), verbose: false, maxCount: 1);
+      final result = projectIssues(
+        fullFakeIssues(),
+        verbose: false,
+        maxCount: 1,
+      );
       expect(result.issues, hasLength(1));
       expect(result.truncated, isTrue);
       expect(result.total, 2);
@@ -80,8 +92,11 @@ void main() {
     });
 
     test('cap applies even when verbose (field shape is orthogonal)', () {
-      final result =
-          projectIssues(fullFakeIssues(), verbose: true, maxCount: 1);
+      final result = projectIssues(
+        fullFakeIssues(),
+        verbose: true,
+        maxCount: 1,
+      );
       expect(result.issues, hasLength(1));
       expect(result.truncated, isTrue);
       // Still full fields on the kept entry.
@@ -89,8 +104,11 @@ void main() {
     });
 
     test('maxCount 0 means unbounded', () {
-      final result =
-          projectIssues(fullFakeIssues(), verbose: false, maxCount: 0);
+      final result = projectIssues(
+        fullFakeIssues(),
+        verbose: false,
+        maxCount: 0,
+      );
       expect(result.issues, hasLength(2));
       expect(result.truncated, isFalse);
     });

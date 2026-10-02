@@ -48,14 +48,13 @@ class IssueVerificationEntry {
   final int? currentScore;
 
   Map<String, dynamic> toJson() => {
-        'stableId': stableId,
-        'status': status.name,
-        if (baselineSeverity != null)
-          'baselineSeverity': baselineSeverity!.name,
-        if (currentSeverity != null) 'currentSeverity': currentSeverity!.name,
-        if (baselineScore != null) 'baselineScore': baselineScore,
-        if (currentScore != null) 'currentScore': currentScore,
-      };
+    'stableId': stableId,
+    'status': status.name,
+    if (baselineSeverity != null) 'baselineSeverity': baselineSeverity!.name,
+    if (currentSeverity != null) 'currentSeverity': currentSeverity!.name,
+    if (baselineScore != null) 'baselineScore': baselineScore,
+    if (currentScore != null) 'currentScore': currentScore,
+  };
 }
 
 /// Result of comparing current issues against a captured baseline.
@@ -97,17 +96,17 @@ class FixVerificationResult {
       entries.where((e) => e.status == FixVerificationStatus.newIssue).toList();
 
   Map<String, dynamic> toJson() => {
-        'baselineCapturedAt': baselineCapturedAt.toIso8601String(),
-        'comparedAt': comparedAt.toIso8601String(),
-        'summary': {
-          'resolved': resolved.length,
-          'improved': improved.length,
-          'unchanged': unchanged.length,
-          'worsened': worsened.length,
-          'newIssues': newIssues.length,
-        },
-        'entries': entries.map((e) => e.toJson()).toList(),
-      };
+    'baselineCapturedAt': baselineCapturedAt.toIso8601String(),
+    'comparedAt': comparedAt.toIso8601String(),
+    'summary': {
+      'resolved': resolved.length,
+      'improved': improved.length,
+      'unchanged': unchanged.length,
+      'worsened': worsened.length,
+      'newIssues': newIssues.length,
+    },
+    'entries': entries.map((e) => e.toJson()).toList(),
+  };
 }
 
 /// A captured baseline snapshot for fix verification.
@@ -116,10 +115,7 @@ class FixVerificationResult {
 /// and ranking score. NOT a full PerformanceIssue — we don't need
 /// titles, details, or fix hints for comparison.
 class FixBaseline {
-  FixBaseline({
-    required this.capturedAt,
-    required this.issueSnapshots,
-  });
+  FixBaseline({required this.capturedAt, required this.issueSnapshots});
 
   /// When the baseline was captured.
   final DateTime capturedAt;
@@ -169,20 +165,24 @@ class FixBaseline {
       if (current == null) {
         // Issue is absent — check cooldown
         if (isResolved(id, cooldownCycles: cooldownCycles)) {
-          entries.add(IssueVerificationEntry(
-            stableId: id,
-            status: FixVerificationStatus.resolved,
-            baselineSeverity: baseline.severity,
-            baselineScore: baseline.rankingScore,
-          ));
+          entries.add(
+            IssueVerificationEntry(
+              stableId: id,
+              status: FixVerificationStatus.resolved,
+              baselineSeverity: baseline.severity,
+              baselineScore: baseline.rankingScore,
+            ),
+          );
         } else {
           // Not enough absent cycles yet — treat as unchanged (in progress)
-          entries.add(IssueVerificationEntry(
-            stableId: id,
-            status: FixVerificationStatus.unchanged,
-            baselineSeverity: baseline.severity,
-            baselineScore: baseline.rankingScore,
-          ));
+          entries.add(
+            IssueVerificationEntry(
+              stableId: id,
+              status: FixVerificationStatus.unchanged,
+              baselineSeverity: baseline.severity,
+              baselineScore: baseline.rankingScore,
+            ),
+          );
         }
       } else {
         // Issue still present — compare severity and score
@@ -199,25 +199,29 @@ class FixBaseline {
           status = FixVerificationStatus.unchanged;
         }
 
-        entries.add(IssueVerificationEntry(
-          stableId: id,
-          status: status,
-          baselineSeverity: baseline.severity,
-          currentSeverity: current.severity,
-          baselineScore: baseline.rankingScore,
-          currentScore: current.rankingScore,
-        ));
+        entries.add(
+          IssueVerificationEntry(
+            stableId: id,
+            status: status,
+            baselineSeverity: baseline.severity,
+            currentSeverity: current.severity,
+            baselineScore: baseline.rankingScore,
+            currentScore: current.rankingScore,
+          ),
+        );
       }
     }
 
     // New issues not in baseline
     for (final entry in currentById.entries) {
-      entries.add(IssueVerificationEntry(
-        stableId: entry.key,
-        status: FixVerificationStatus.newIssue,
-        currentSeverity: entry.value.severity,
-        currentScore: entry.value.rankingScore,
-      ));
+      entries.add(
+        IssueVerificationEntry(
+          stableId: entry.key,
+          status: FixVerificationStatus.newIssue,
+          currentSeverity: entry.value.severity,
+          currentScore: entry.value.rankingScore,
+        ),
+      );
     }
 
     return FixVerificationResult(
@@ -245,8 +249,5 @@ FixBaseline captureFixBaseline(List<PerformanceIssue> currentIssues) {
       rankingScore: issue.rankingScore,
     );
   }
-  return FixBaseline(
-    capturedAt: DateTime.now(),
-    issueSnapshots: snapshots,
-  );
+  return FixBaseline(capturedAt: DateTime.now(), issueSnapshots: snapshots);
 }

@@ -78,20 +78,22 @@ void main() {
       coordinator.dispose();
     });
 
-    test('uninstallProfileMode restores prior debugCollectionEnabled value',
-        () {
-      FlutterTimeline.debugCollectionEnabled = false;
-      final coordinator = DebugInstrumentationCoordinator();
+    test(
+      'uninstallProfileMode restores prior debugCollectionEnabled value',
+      () {
+        FlutterTimeline.debugCollectionEnabled = false;
+        final coordinator = DebugInstrumentationCoordinator();
 
-      coordinator.installProfileMode();
-      expect(FlutterTimeline.debugCollectionEnabled, isTrue);
+        coordinator.installProfileMode();
+        expect(FlutterTimeline.debugCollectionEnabled, isTrue);
 
-      coordinator.uninstallProfileMode();
-      expect(FlutterTimeline.debugCollectionEnabled, isFalse);
-      expect(coordinator.isProfileModeInstalled, isFalse);
+        coordinator.uninstallProfileMode();
+        expect(FlutterTimeline.debugCollectionEnabled, isFalse);
+        expect(coordinator.isProfileModeInstalled, isFalse);
 
-      coordinator.dispose();
-    });
+        coordinator.dispose();
+      },
+    );
 
     test('double installProfileMode is a silent no-op', () {
       FlutterTimeline.debugCollectionEnabled = false;
@@ -110,26 +112,26 @@ void main() {
     });
 
     test(
-        'installProfileMode is a no-op after install() (debug mode already on)',
-        () {
-      FlutterTimeline.debugCollectionEnabled = false;
-      final coordinator = DebugInstrumentationCoordinator();
-      // Install the debug-mode path first (callbacks). This moves
-      // `_installedMode` to `debug`, so a subsequent `installProfileMode`
-      // hits the idempotent early-return.
-      coordinator.install();
+      'installProfileMode is a no-op after install() (debug mode already on)',
+      () {
+        FlutterTimeline.debugCollectionEnabled = false;
+        final coordinator = DebugInstrumentationCoordinator();
+        // Install the debug-mode path first (callbacks). This moves
+        // `_installedMode` to `debug`, so a subsequent `installProfileMode`
+        // hits the idempotent early-return.
+        coordinator.install();
 
-      coordinator.installProfileMode();
+        coordinator.installProfileMode();
 
-      // Flag must remain untouched — debug path installed, profile refused.
-      expect(FlutterTimeline.debugCollectionEnabled, isFalse);
-      expect(coordinator.isProfileModeInstalled, isFalse);
+        // Flag must remain untouched — debug path installed, profile refused.
+        expect(FlutterTimeline.debugCollectionEnabled, isFalse);
+        expect(coordinator.isProfileModeInstalled, isFalse);
 
-      coordinator.dispose();
-    });
+        coordinator.dispose();
+      },
+    );
 
-    test(
-        'snapshot drains FlutterTimeline buffer, aggregates, and filters '
+    test('snapshot drains FlutterTimeline buffer, aggregates, and filters '
         'via canonicalization', () {
       FlutterTimeline.debugCollectionEnabled = false;
       final coordinator = DebugInstrumentationCoordinator();
@@ -155,8 +157,11 @@ void main() {
 
       expect(snapshot.source, RebuildCountSource.flutterTimeline);
       expect(snapshot.rebuildCounts['ProductCard'], 2);
-      expect(snapshot.rebuildCounts['Provider'], 2,
-          reason: 'Provider<SomeModel> and Provider<OtherModel> must merge');
+      expect(
+        snapshot.rebuildCounts['Provider'],
+        2,
+        reason: 'Provider<SomeModel> and Provider<OtherModel> must merge',
+      );
       expect(snapshot.rebuildCounts.containsKey('BUILD'), isFalse);
       expect(snapshot.rebuildCounts.containsKey('Foo Bar'), isFalse);
       // Profile path leaves paint + ancestor chains empty — those come from
@@ -169,19 +174,20 @@ void main() {
     });
 
     test(
-        'snapshot with empty buffer returns zero counts tagged flutterTimeline',
-        () {
-      FlutterTimeline.debugCollectionEnabled = false;
-      final coordinator = DebugInstrumentationCoordinator();
-      coordinator.installProfileMode();
+      'snapshot with empty buffer returns zero counts tagged flutterTimeline',
+      () {
+        FlutterTimeline.debugCollectionEnabled = false;
+        final coordinator = DebugInstrumentationCoordinator();
+        coordinator.installProfileMode();
 
-      final snapshot = coordinator.snapshot();
+        final snapshot = coordinator.snapshot();
 
-      expect(snapshot.source, RebuildCountSource.flutterTimeline);
-      expect(snapshot.rebuildCounts, isEmpty);
+        expect(snapshot.source, RebuildCountSource.flutterTimeline);
+        expect(snapshot.rebuildCounts, isEmpty);
 
-      coordinator.dispose();
-    });
+        coordinator.dispose();
+      },
+    );
 
     test('snapshot elapsed advances across successive drains', () {
       FlutterTimeline.debugCollectionEnabled = false;
@@ -251,26 +257,36 @@ void main() {
       );
       expect(
         DebugInstrumentationCoordinator.canonicalizeTypeName(
-            'Consumer<Bar<Baz>>'),
+          'Consumer<Bar<Baz>>',
+        ),
         'Consumer',
       );
     });
 
     test('rejects denylisted frame scopes', () {
       expect(
-          DebugInstrumentationCoordinator.canonicalizeTypeName('BUILD'), isNull,
-          reason: 'BUILD is a framework frame scope, not a widget type');
-      expect(DebugInstrumentationCoordinator.canonicalizeTypeName('LAYOUT'),
-          isNull);
-      expect(DebugInstrumentationCoordinator.canonicalizeTypeName('PAINT'),
-          isNull);
+        DebugInstrumentationCoordinator.canonicalizeTypeName('BUILD'),
+        isNull,
+        reason: 'BUILD is a framework frame scope, not a widget type',
+      );
       expect(
-          DebugInstrumentationCoordinator.canonicalizeTypeName('FINALIZE TREE'),
-          isNull);
+        DebugInstrumentationCoordinator.canonicalizeTypeName('LAYOUT'),
+        isNull,
+      );
       expect(
-          DebugInstrumentationCoordinator.canonicalizeTypeName(
-              'Preparing Hot Reload (widgets)'),
-          isNull);
+        DebugInstrumentationCoordinator.canonicalizeTypeName('PAINT'),
+        isNull,
+      );
+      expect(
+        DebugInstrumentationCoordinator.canonicalizeTypeName('FINALIZE TREE'),
+        isNull,
+      );
+      expect(
+        DebugInstrumentationCoordinator.canonicalizeTypeName(
+          'Preparing Hot Reload (widgets)',
+        ),
+        isNull,
+      );
       // v0.15.1 follow-up (KDD-10b): identifier-shaped frame scopes that
       // were missing from the original denylist and leaked into the
       // Rebuild Stats drilldown as fake "widgets" with one entry per
@@ -280,25 +296,27 @@ void main() {
       expect(
         DebugInstrumentationCoordinator.canonicalizeTypeName('POST_FRAME'),
         isNull,
-        reason: 'POST_FRAME is the post-frame-callbacks phase scope, not a '
+        reason:
+            'POST_FRAME is the post-frame-callbacks phase scope, not a '
             'widget type — scheduler/binding.dart:1353',
       );
       expect(
         DebugInstrumentationCoordinator.canonicalizeTypeName('COMPOSITING'),
         isNull,
-        reason: 'COMPOSITING is the layer-tree upload phase scope, not a '
+        reason:
+            'COMPOSITING is the layer-tree upload phase scope, not a '
             'widget type — rendering/view.dart:349',
       );
       expect(
         DebugInstrumentationCoordinator.canonicalizeTypeName('SEMANTICS'),
         isNull,
-        reason: 'SEMANTICS is the semantics-tree phase scope, not a widget '
+        reason:
+            'SEMANTICS is the semantics-tree phase scope, not a widget '
             'type — rendering/object.dart:1440',
       );
     });
 
-    test(
-        'frame-phase scopes with the (root) suffix are dropped by the '
+    test('frame-phase scopes with the (root) suffix are dropped by the '
         'identifier-shape regex layer (defense in depth for the variants '
         'in `_denyList`)', () {
       // Flutter's rendering/object.dart appends ` (root)` to LAYOUT,
@@ -324,7 +342,8 @@ void main() {
         expect(
           DebugInstrumentationCoordinator.canonicalizeTypeName(scope),
           isNull,
-          reason: '$scope must be dropped (framework phase scope, not a '
+          reason:
+              '$scope must be dropped (framework phase scope, not a '
               'widget). Either the explicit denylist or the identifier '
               'regex must reject it.',
         );
@@ -373,18 +392,21 @@ void main() {
       );
       expect(
         DebugInstrumentationCoordinator.canonicalizeTypeName(
-            'RenderConstrainedBox'),
+          'RenderConstrainedBox',
+        ),
         isNull,
       );
       expect(
         DebugInstrumentationCoordinator.canonicalizeTypeName(
-            'RenderSemanticsAnnotations'),
+          'RenderSemanticsAnnotations',
+        ),
         isNull,
       );
       // Private render objects are also filtered.
       expect(
         DebugInstrumentationCoordinator.canonicalizeTypeName(
-            '_RenderCustomPainter'),
+          '_RenderCustomPainter',
+        ),
         isNull,
       );
     });
@@ -410,13 +432,13 @@ void main() {
       // But RenderSliver* is a RenderObject subclass → filtered.
       expect(
         DebugInstrumentationCoordinator.canonicalizeTypeName(
-            'RenderSliverList'),
+          'RenderSliverList',
+        ),
         isNull,
       );
     });
 
-    test(
-        'admits user widget names that happen to share a Render prefix '
+    test('admits user widget names that happen to share a Render prefix '
         'substring', () {
       // Only a *leading* `Render` or `_Render` prefix is filtered; user
       // widgets like `RendererProfile` (unusual but not reserved) would
@@ -462,19 +484,21 @@ void main() {
       );
     });
 
-    test('still rejects non-identifier shapes even with leading underscore',
-        () {
-      // Lowercase after underscore is not a Dart type identifier.
-      expect(
-        DebugInstrumentationCoordinator.canonicalizeTypeName('_privateField'),
-        isNull,
-      );
-      // Plain leading lowercase still rejected.
-      expect(
-        DebugInstrumentationCoordinator.canonicalizeTypeName('_'),
-        isNull,
-      );
-    });
+    test(
+      'still rejects non-identifier shapes even with leading underscore',
+      () {
+        // Lowercase after underscore is not a Dart type identifier.
+        expect(
+          DebugInstrumentationCoordinator.canonicalizeTypeName('_privateField'),
+          isNull,
+        );
+        // Plain leading lowercase still rejected.
+        expect(
+          DebugInstrumentationCoordinator.canonicalizeTypeName('_'),
+          isNull,
+        );
+      },
+    );
 
     // v0.15.1 hotfix KDD-10: every entry in the framework + Sleuth-overlay
     // denylist must canonicalize to null so the profile-mode drain never
@@ -490,14 +514,16 @@ void main() {
             DebugInstrumentationCoordinator.debugFrameworkWidgetDenyList;
         final leaked = <String>[];
         for (final entry in denyList) {
-          final result =
-              DebugInstrumentationCoordinator.canonicalizeTypeName(entry);
+          final result = DebugInstrumentationCoordinator.canonicalizeTypeName(
+            entry,
+          );
           if (result != null) leaked.add('$entry → $result');
         }
         expect(
           leaked,
           isEmpty,
-          reason: 'These denylist entries passed through canonicalizeTypeName '
+          reason:
+              'These denylist entries passed through canonicalizeTypeName '
               'instead of being dropped, which means Sleuth will self-measure '
               'them in profile mode (KDD-10 regression):\n'
               '  ${leaked..sort()}',
@@ -511,19 +537,22 @@ void main() {
         // self-measures its own progress indicators.
         expect(
           DebugInstrumentationCoordinator.canonicalizeTypeName(
-              'ValueListenableBuilder<int>'),
+            'ValueListenableBuilder<int>',
+          ),
           isNull,
         );
         expect(
           DebugInstrumentationCoordinator.canonicalizeTypeName(
-              'NotificationListener<ScrollNotification>'),
+            'NotificationListener<ScrollNotification>',
+          ),
           isNull,
         );
         // Sleuth-internal overlay widgets are non-generic but the same
         // filter path must still drop them.
         expect(
           DebugInstrumentationCoordinator.canonicalizeTypeName(
-              'FloatingIssuesCard'),
+            'FloatingIssuesCard',
+          ),
           isNull,
         );
         expect(
@@ -555,7 +584,8 @@ void main() {
         // public `FloatingIssuesCard`.
         expect(
           DebugInstrumentationCoordinator.canonicalizeTypeName(
-              '_MyPrivateCard'),
+            '_MyPrivateCard',
+          ),
           '_MyPrivateCard',
         );
       });

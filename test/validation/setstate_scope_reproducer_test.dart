@@ -65,32 +65,35 @@ void main() {
     // --- setstate_scope (structural / possible-confidence) -------------
 
     testWidgets(
-        'setstate_scope: public StatefulWidget owning ~all of tree fires '
-        '(structural path, possible confidence)', (tester) async {
-      final detector = SetStateScopeDetector(
-        dirtyRatioThreshold: 0.1,
-        minSubtreeSize: 1,
-      );
-      final issues = await scanAndIssues(
-        tester,
-        detector,
-        HeavyStateful(
-          child: Column(
-            children: List.generate(8, (i) => SizedBox(key: ValueKey(i))),
+      'setstate_scope: public StatefulWidget owning ~all of tree fires '
+      '(structural path, possible confidence)',
+      (tester) async {
+        final detector = SetStateScopeDetector(
+          dirtyRatioThreshold: 0.1,
+          minSubtreeSize: 1,
+        );
+        final issues = await scanAndIssues(
+          tester,
+          detector,
+          HeavyStateful(
+            child: Column(
+              children: List.generate(8, (i) => SizedBox(key: ValueKey(i))),
+            ),
           ),
-        ),
-      );
-      expect(issues, hasStableId('setstate_scope'));
-      // Structural / no-rebuild-evidence branch → warning + possible.
-      // The critical-severity branch (`hasRebuildEvidence && ratio > 0.5`)
-      // is disclosed as uncovered at this tier.
-      final issue = issues.firstWhere((i) => i.stableId == 'setstate_scope');
-      expect(issue.severity, IssueSeverity.warning);
-      expect(issue.confidence, IssueConfidence.possible);
-    });
+        );
+        expect(issues, hasStableId('setstate_scope'));
+        // Structural / no-rebuild-evidence branch → warning + possible.
+        // The critical-severity branch (`hasRebuildEvidence && ratio > 0.5`)
+        // is disclosed as uncovered at this tier.
+        final issue = issues.firstWhere((i) => i.stableId == 'setstate_scope');
+        expect(issue.severity, IssueSeverity.warning);
+        expect(issue.confidence, IssueConfidence.possible);
+      },
+    );
 
-    testWidgets('setstate_scope: no user StatefulWidget → silent',
-        (tester) async {
+    testWidgets('setstate_scope: no user StatefulWidget → silent', (
+      tester,
+    ) async {
       // Stateless-only tree has no StatefulElement candidate; `_widestElement`
       // stays null and finalizeScan early-returns before ratio check.
       final detector = SetStateScopeDetector(
@@ -100,15 +103,12 @@ void main() {
       final issues = await scanAndIssues(
         tester,
         detector,
-        Column(
-          children: List.generate(8, (i) => SizedBox(key: ValueKey(i))),
-        ),
+        Column(children: List.generate(8, (i) => SizedBox(key: ValueKey(i)))),
       );
       expect(issues, lacksStableId('setstate_scope'));
     });
 
-    testWidgets(
-        'setstate_scope: private-named StatefulWidget skipped '
+    testWidgets('setstate_scope: private-named StatefulWidget skipped '
         '(filter `!name.startsWith("_")`)', (tester) async {
       // _PrivateHeavy is the only stateful candidate — filter skips it,
       // `_widestStatefulWidget` stays null, finalizeScan early-returns.
@@ -128,8 +128,7 @@ void main() {
       expect(issues, lacksStableId('setstate_scope'));
     });
 
-    testWidgets(
-        'setstate_scope: subtree below minSubtreeSize silent '
+    testWidgets('setstate_scope: subtree below minSubtreeSize silent '
         '(guard: `_maxSubtreeSize < minSubtreeSize`)', (tester) async {
       // Only 2 descendant elements — with minSubtreeSize=50 (production
       // default) finalizeScan early-returns before ratio check.
@@ -145,8 +144,7 @@ void main() {
       expect(issues, lacksStableId('setstate_scope'));
     });
 
-    testWidgets(
-        'setstate_scope: widest subtree contains AnimatedBuilder → '
+    testWidgets('setstate_scope: widest subtree contains AnimatedBuilder → '
         'suppressed (`hasAnimScope && !hasRebuildEvidence`)', (tester) async {
       // Detector's _containsAnimationScope walks up to 5 levels down and
       // treats AnimatedWidget descendants as "animation scope" —
@@ -171,10 +169,10 @@ void main() {
       expect(issues, lacksStableId('setstate_scope'));
     });
 
-    testWidgets(
-        'setstate_scope: widest subtree contains generic '
-        '`ValueListenableBuilder<int>` → suppressed (canonicalization pin)',
-        (tester) async {
+    testWidgets('setstate_scope: widest subtree contains generic '
+        '`ValueListenableBuilder<int>` → suppressed (canonicalization pin)', (
+      tester,
+    ) async {
       // `_containsAnimationScope` falls back to a name-equality check for
       // `ListenableBuilder` / `ValueListenableBuilder`. Production runtime
       // types arrive as `ValueListenableBuilder<int>` etc.; without

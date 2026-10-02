@@ -79,14 +79,20 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                             width: 48,
                             height: 48,
                             child: Center(
-                              child: Icon(Icons.arrow_back,
-                                  color: theme.textPrimary, size: 22),
+                              child: Icon(
+                                Icons.arrow_back,
+                                color: theme.textPrimary,
+                                size: 22,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                      Icon(Icons.rocket_launch_outlined,
-                          color: theme.categoryStartup, size: 18),
+                      Icon(
+                        Icons.rocket_launch_outlined,
+                        color: theme.categoryStartup,
+                        size: 18,
+                      ),
                       SizedBox(width: theme.spacingXs),
                       Text(
                         'Startup Metrics',
@@ -106,7 +112,11 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
               Expanded(
                 child: SingleChildScrollView(
                   padding: EdgeInsets.fromLTRB(
-                      theme.spacingXl, theme.spacingLg, theme.spacingXl, 24),
+                    theme.spacingXl,
+                    theme.spacingLg,
+                    theme.spacingXl,
+                    24,
+                  ),
                   child: metrics == null
                       ? _noDataMessage(theme)
                       : _buildContent(metrics, theme),
@@ -232,7 +242,9 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
             children: [
               Padding(
                 padding: EdgeInsets.symmetric(
-                    horizontal: 14, vertical: theme.spacingLg),
+                  horizontal: 14,
+                  vertical: theme.spacingLg,
+                ),
                 child: Row(
                   children: [
                     Container(
@@ -333,7 +345,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
             m.dominantPhase == 'balanced'
                 ? 'Balanced \u2014 no phase exceeds 50%'
                 : 'Dominant: ${m.dominantPhase} '
-                    '(${m.dominantPhasePercent.round()}% of first frame)',
+                      '(${m.dominantPhasePercent.round()}% of first frame)',
           ),
       ],
     );
@@ -364,8 +376,10 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
             subtitle: 'WidgetsFlutterBinding.ensureInitialized()',
           ),
         if (m.preDartOverheadMs == null && m.engineEnterUs == null)
-          _infoChip(theme,
-              'Engine timestamps not available \u2014 VM connected too late'),
+          _infoChip(
+            theme,
+            'Engine timestamps not available \u2014 VM connected too late',
+          ),
       ],
     );
   }
@@ -423,8 +437,10 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
       fontSize: theme.fontMd,
       fontWeight: FontWeight.w600,
     );
-    final bodyStyle =
-        TextStyle(color: theme.textTertiary, fontSize: theme.fontSm);
+    final bodyStyle = TextStyle(
+      color: theme.textTertiary,
+      fontSize: theme.fontSm,
+    );
     final dimStyle = TextStyle(
       color: theme.textQuaternary,
       fontSize: theme.fontXs,
@@ -434,8 +450,10 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Sleuth does NOT use flutter run --trace-startup.',
-            style: labelStyle),
+        Text(
+          'Sleuth does NOT use flutter run --trace-startup.',
+          style: labelStyle,
+        ),
         SizedBox(height: theme.spacingXs),
         Text(
           'Instead, it captures startup data using two independent layers:',
@@ -514,18 +532,26 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
         for (final item in items)
           Padding(
             padding: EdgeInsets.only(
-                left: theme.spacingMd, bottom: theme.spacingXxs),
+              left: theme.spacingMd,
+              bottom: theme.spacingXxs,
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('\u2022 ',
-                    style: TextStyle(
-                        color: theme.textQuaternary, fontSize: theme.fontSm)),
+                Text(
+                  '\u2022 ',
+                  style: TextStyle(
+                    color: theme.textQuaternary,
+                    fontSize: theme.fontSm,
+                  ),
+                ),
                 Expanded(
                   child: Text(
                     item,
                     style: TextStyle(
-                        color: theme.textTertiary, fontSize: theme.fontSm),
+                      color: theme.textTertiary,
+                      fontSize: theme.fontSm,
+                    ),
                   ),
                 ),
               ],
@@ -602,7 +628,9 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
                 child: Text(
                   label,
                   style: TextStyle(
-                      color: theme.textSecondary, fontSize: theme.fontMd),
+                    color: theme.textSecondary,
+                    fontSize: theme.fontMd,
+                  ),
                 ),
               ),
               Text(
@@ -642,10 +670,7 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
       ),
       child: Text(
         text,
-        style: TextStyle(
-          color: theme.categoryStartup,
-          fontSize: theme.fontSm,
-        ),
+        style: TextStyle(color: theme.categoryStartup, fontSize: theme.fontSm),
       ),
     );
   }

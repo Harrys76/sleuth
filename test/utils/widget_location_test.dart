@@ -59,8 +59,9 @@ void main() {
       expect(chain, isNot(contains('Directionality')));
     });
 
-    testWidgets('private-named widgets filtered from ancestors',
-        (tester) async {
+    testWidgets('private-named widgets filtered from ancestors', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
@@ -80,7 +81,9 @@ void main() {
       await tester.pumpWidget(
         const Directionality(
           textDirection: TextDirection.ltr,
-          child: TestA(child: TestB(child: TestC(child: TestLeafWidget()))),
+          child: TestA(
+            child: TestB(child: TestC(child: TestLeafWidget())),
+          ),
         ),
       );
 

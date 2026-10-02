@@ -12,12 +12,12 @@ import '../utils/fix_hint_builder.dart';
 /// that may not be loaded, causing invisible text or layout shifts.
 class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
   FontLoadingDetector({this.maxFamilies = 3})
-      : super(
-          type: DetectorType.fontLoading,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'Font Loading',
-          description: 'Detects unloaded fonts in use',
-        );
+    : super(
+        type: DetectorType.fontLoading,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Font Loading',
+        description: 'Detects unloaded fonts in use',
+      );
 
   final int maxFamilies;
   final List<PerformanceIssue> _issues = [];
@@ -111,26 +111,30 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
         families: families,
       );
 
-      _issues.add(PerformanceIssue(
-        stableId: 'runtime_font_loading',
-        severity: count > 2 ? IssueSeverity.critical : IssueSeverity.warning,
-        category: IssueCategory.font,
-        confidence: IssueConfidence.possible,
-        title: 'Runtime Font Loading: $count '
-            'famil${count == 1 ? 'y' : 'ies'}',
-        detail: '$count font famil${count == 1 ? 'y' : 'ies'} '
-            'appear${count == 1 ? 's' : ''} to be loaded at runtime '
-            '(fontFamilyFallback detected): '
-            '${families.take(5).join(", ")}.\n'
-            'Runtime-loaded fonts trigger HTTP requests during first render, '
-            'causing visible text flicker (FOUT/FOIT).',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.structural,
-        confidenceReason:
-            'Structural scan only — runtime font loading heuristic',
-        detectedAt: DateTime.now(),
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'runtime_font_loading',
+          severity: count > 2 ? IssueSeverity.critical : IssueSeverity.warning,
+          category: IssueCategory.font,
+          confidence: IssueConfidence.possible,
+          title:
+              'Runtime Font Loading: $count '
+              'famil${count == 1 ? 'y' : 'ies'}',
+          detail:
+              '$count font famil${count == 1 ? 'y' : 'ies'} '
+              'appear${count == 1 ? 's' : ''} to be loaded at runtime '
+              '(fontFamilyFallback detected): '
+              '${families.take(5).join(", ")}.\n'
+              'Runtime-loaded fonts trigger HTTP requests during first render, '
+              'causing visible text flicker (FOUT/FOIT).',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.structural,
+          confidenceReason:
+              'Structural scan only — runtime font loading heuristic',
+          detectedAt: DateTime.now(),
+        ),
+      );
     }
 
     // Note: We can detect custom font usage but can't confirm loading
@@ -141,22 +145,25 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
         families: _customFonts.toList(),
       );
 
-      _issues.add(PerformanceIssue(
-        stableId: 'multiple_custom_fonts',
-        severity: IssueSeverity.warning,
-        category: IssueCategory.font,
-        confidence: IssueConfidence.possible,
-        title: 'Multiple Custom Fonts: ${_customFonts.length} families',
-        detail: 'Using ${_customFonts.length} custom font families: '
-            '${_customFonts.take(5).join(", ")}.\n'
-            'Each font adds to download/load time.',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.structural,
-        confidenceReason:
-            'Structural scan only — font families detected in widget tree',
-        detectedAt: DateTime.now(),
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'multiple_custom_fonts',
+          severity: IssueSeverity.warning,
+          category: IssueCategory.font,
+          confidence: IssueConfidence.possible,
+          title: 'Multiple Custom Fonts: ${_customFonts.length} families',
+          detail:
+              'Using ${_customFonts.length} custom font families: '
+              '${_customFonts.take(5).join(", ")}.\n'
+              'Each font adds to download/load time.',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.structural,
+          confidenceReason:
+              'Structural scan only — font families detected in widget tree',
+          detectedAt: DateTime.now(),
+        ),
+      );
     }
   }
 
@@ -169,16 +176,17 @@ class FontLoadingDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hermetic reproducer pins `runtime_font_loading` '
-            '(custom `fontFamily` + non-empty `fontFamilyFallback`, '
-            'exercised on both Text and RichText paths) and '
-            '`multiple_custom_fonts` (distinct-family count > '
-            '`maxFamilies`, strict-greater). System-font suppression, '
-            'no-fallback silence, and duplicate-family dedup are '
-            'pinned as negative controls. Not yet runtime-verified '
-            'against a device-specific font-load profile.',
-        reproducerPath: 'test/validation/font_loading_reproducer_test.dart',
-        coveredStableIds: {'runtime_font_loading', 'multiple_custom_fonts'},
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'Hermetic reproducer pins `runtime_font_loading` '
+        '(custom `fontFamily` + non-empty `fontFamilyFallback`, '
+        'exercised on both Text and RichText paths) and '
+        '`multiple_custom_fonts` (distinct-family count > '
+        '`maxFamilies`, strict-greater). System-font suppression, '
+        'no-fallback silence, and duplicate-family dedup are '
+        'pinned as negative controls. Not yet runtime-verified '
+        'against a device-specific font-load profile.',
+    reproducerPath: 'test/validation/font_loading_reproducer_test.dart',
+    coveredStableIds: {'runtime_font_loading', 'multiple_custom_fonts'},
+  );
 }

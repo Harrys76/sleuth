@@ -61,8 +61,9 @@ class FrameEventCorrelator {
     if (phaseEvents.isEmpty) return const {};
 
     // Filter to frames with phase timestamps
-    final eligibleFrames =
-        recentFrames.where((f) => f.hasPhaseTimestamps).toList();
+    final eligibleFrames = recentFrames
+        .where((f) => f.hasPhaseTimestamps)
+        .toList();
     if (eligibleFrames.isEmpty) return const {};
 
     // Mutable buckets for accumulating per-frame durations
@@ -92,7 +93,8 @@ class FrameEventCorrelator {
 
     // For each event, binary search for the matching frame (O(E log F))
     for (final event in phaseEvents) {
-      final isUiThread = event.phase == TimelinePhase.build ||
+      final isUiThread =
+          event.phase == TimelinePhase.build ||
           event.phase == TimelinePhase.layout ||
           event.phase == TimelinePhase.paint;
 

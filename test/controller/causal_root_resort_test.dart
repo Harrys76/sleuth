@@ -18,17 +18,16 @@ void main() {
       List<String>? rootCauseIds,
       IssueCategory category = IssueCategory.memory,
       IssueConfidence confidence = IssueConfidence.confirmed,
-    }) =>
-        PerformanceIssue(
-          severity: severity,
-          category: category,
-          confidence: confidence,
-          title: stableId,
-          detail: 'Detail',
-          fixHint: 'Fix',
-          stableId: stableId,
-          rootCauseIds: rootCauseIds,
-        );
+    }) => PerformanceIssue(
+      severity: severity,
+      category: category,
+      confidence: confidence,
+      title: stableId,
+      detail: 'Detail',
+      fixHint: 'Fix',
+      stableId: stableId,
+      rootCauseIds: rootCauseIds,
+    );
 
     setUp(() {
       controller = SleuthController();
@@ -39,8 +38,7 @@ void main() {
       controller.dispose();
     });
 
-    test(
-        'tied parents at correlation: post-escalation promotes one parent → '
+    test('tied parents at correlation: post-escalation promotes one parent → '
         're-sort puts critical parent first (overrides alphabetical)', () {
       // Simulates the post-correlate state: A and B tied at warning,
       // alphabetically sorted by apply(). C is the downstream. Then
@@ -59,9 +57,13 @@ void main() {
       controller.resortRootCauseIdsByCurrentSeverityForTest(issues);
 
       final c = issues.firstWhere((i) => i.stableId == 'C');
-      expect(c.rootCauseIds, ['B', 'A'],
-          reason: 'critical-severity B must lead after re-sort even though '
-              'apply() placed A first under tied-warning semantics');
+      expect(
+        c.rootCauseIds,
+        ['B', 'A'],
+        reason:
+            'critical-severity B must lead after re-sort even though '
+            'apply() placed A first under tied-warning semantics',
+      );
     });
 
     test('alphabetical tie-break preserved when severities truly tied', () {
@@ -78,8 +80,10 @@ void main() {
       controller.resortRootCauseIdsByCurrentSeverityForTest(issues);
 
       final c = issues.firstWhere((i) => i.stableId == 'C');
-      expect(c.rootCauseIds, ['A', 'B'],
-          reason: 'tied severity → alphabetical stableId tie-break');
+      expect(c.rootCauseIds, [
+        'A',
+        'B',
+      ], reason: 'tied severity → alphabetical stableId tie-break');
     });
 
     test('missing parent (suppressed by ranker) sorts last', () {
@@ -98,8 +102,10 @@ void main() {
       controller.resortRootCauseIdsByCurrentSeverityForTest(issues);
 
       final c = issues.firstWhere((i) => i.stableId == 'C');
-      expect(c.rootCauseIds, ['A', 'missing'],
-          reason: 'a present parent must lead a suppressed/absent one');
+      expect(c.rootCauseIds, [
+        'A',
+        'missing',
+      ], reason: 'a present parent must lead a suppressed/absent one');
     });
 
     test('single-parent rootCauseIds is left unchanged (skip cost)', () {
@@ -146,8 +152,11 @@ void main() {
       controller.resortRootCauseIdsByCurrentSeverityForTest(issues);
 
       final c = issues.firstWhere((i) => i.stableId == 'C');
-      expect(identical(c, original), isTrue,
-          reason: 'no copyWith allocation when sort produces the same order');
+      expect(
+        identical(c, original),
+        isTrue,
+        reason: 'no copyWith allocation when sort produces the same order',
+      );
     });
   });
 }

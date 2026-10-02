@@ -36,9 +36,9 @@ class DaemonRpc {
     required Stream<DaemonRpcResponse> responses,
     Duration writeTimeout = const Duration(seconds: 5),
     Sink<String>? logger,
-  })  : _stdin = stdin,
-        _writeTimeout = writeTimeout,
-        _logger = logger {
+  }) : _stdin = stdin,
+       _writeTimeout = writeTimeout,
+       _logger = logger {
     _sub = responses.listen(_dispatchResponse);
   }
 

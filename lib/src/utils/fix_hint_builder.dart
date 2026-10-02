@@ -214,7 +214,7 @@ class FixHintBuilder {
   }) {
     final prefix = dirtyWidgets != null && dirtyWidgets.isNotEmpty
         ? 'Heavy build involving ${dirtyWidgets.take(3).join(", ")}'
-            '${durationMs != null ? " (${durationMs.toStringAsFixed(1)}ms)" : ""}. '
+              '${durationMs != null ? " (${durationMs.toStringAsFixed(1)}ms)" : ""}. '
         : '';
     return (
       '${prefix}Move heavy work to a background isolate '
@@ -432,8 +432,9 @@ class FixHintBuilder {
     int? topGrowthDelta,
   }) {
     final suffixList = growingClassSuffixes.take(3).join(', ');
-    final deltaInfo =
-        topGrowthDelta != null ? ' (top class +$topGrowthDelta instances)' : '';
+    final deltaInfo = topGrowthDelta != null
+        ? ' (top class +$topGrowthDelta instances)'
+        : '';
     return (
       'Async resources accumulating: $suffixList$deltaInfo. '
           'Audit dispose/cancel paths in recently navigated routes:\n'
@@ -527,14 +528,16 @@ class FixHintBuilder {
       ..writeln()
       ..writeln('Common causes:')
       ..writeln(
-          '  1. Retry storms — failed requests triggering exponential retries')
+        '  1. Retry storms — failed requests triggering exponential retries',
+      )
       ..writeln('  2. Backend outage — server returning 5xx errors')
       ..writeln('  3. Network connectivity — device losing connection');
     if (transportFailures > 0) {
       buffer
         ..writeln()
         ..writeln(
-            'Transport failures ($transportFailures) suggest network/DNS issues.');
+          'Transport failures ($transportFailures) suggest network/DNS issues.',
+        );
     }
     buffer
       ..writeln()
@@ -755,8 +758,9 @@ class FixHintBuilder {
     required String widgetName,
     bool hasVmData = false,
   }) {
-    final vmSuffix =
-        hasVmData ? '' : ' Run in profile mode with VM for build counts.';
+    final vmSuffix = hasVmData
+        ? ''
+        : ' Run in profile mode with VM for build counts.';
     return (
       '$widgetName is high in the widget tree. '
           'Use specific inherited widget accessors:\n'
@@ -813,8 +817,9 @@ class FixHintBuilder {
   }) {
     final buffer = StringBuffer()
       ..writeln(
-          'Time-to-first-frame is ${ttffMs.toStringAsFixed(0)} ms — users '
-          'perceive anything above 1.5 s as slow.')
+        'Time-to-first-frame is ${ttffMs.toStringAsFixed(0)} ms — users '
+        'perceive anything above 1.5 s as slow.',
+      )
       ..writeln()
       ..writeln('Fixes by dominant phase:');
 

@@ -7,10 +7,10 @@ import 'package:sleuth/src/models/simple_structural_detector.dart';
 /// A minimal subclass that flags every [Placeholder] widget it encounters.
 class _PlaceholderDetector extends SimpleStructuralDetector {
   _PlaceholderDetector({super.key})
-      : super(
-          name: 'Placeholder Detector',
-          description: 'Flags every Placeholder widget',
-        );
+    : super(
+        name: 'Placeholder Detector',
+        description: 'Flags every Placeholder widget',
+      );
 
   int inspectCount = 0;
   int prepareCount = 0;
@@ -41,18 +41,21 @@ class _PlaceholderDetector extends SimpleStructuralDetector {
 
 void main() {
   group('SimpleStructuralDetector', () {
-    testWidgets('inspect is called for each element and report emits issues',
-        (tester) async {
-      await tester.pumpWidget(const Directionality(
-        textDirection: TextDirection.ltr,
-        child: Column(
-          children: [
-            SizedBox(width: 100, height: 100, child: Placeholder()),
-            SizedBox(width: 100, height: 100, child: Placeholder()),
-            Text('hi'),
-          ],
+    testWidgets('inspect is called for each element and report emits issues', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              SizedBox(width: 100, height: 100, child: Placeholder()),
+              SizedBox(width: 100, height: 100, child: Placeholder()),
+              Text('hi'),
+            ],
+          ),
         ),
-      ));
+      );
       final context = tester.element(find.byType(Directionality));
 
       final detector = _PlaceholderDetector();
@@ -61,10 +64,7 @@ void main() {
       expect(detector.inspectCount, greaterThan(0));
       // Two placeholders in the tree → two issues.
       expect(detector.issues.length, 2);
-      expect(
-        detector.issues.first.title,
-        'Placeholder in production tree',
-      );
+      expect(detector.issues.first.title, 'Placeholder in production tree');
       // Both highlights have real rects because the Placeholders laid out.
       expect(detector.highlights.length, 2);
       for (final h in detector.highlights) {
@@ -76,10 +76,12 @@ void main() {
     });
 
     testWidgets('issues and highlights clear between scans', (tester) async {
-      await tester.pumpWidget(const Directionality(
-        textDirection: TextDirection.ltr,
-        child: Placeholder(),
-      ));
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Placeholder(),
+        ),
+      );
       final context = tester.element(find.byType(Directionality));
 
       final detector = _PlaceholderDetector();
@@ -94,12 +96,15 @@ void main() {
       expect(detector.prepareCount, 2);
     });
 
-    testWidgets('isEnabled=false short-circuits the entire scan',
-        (tester) async {
-      await tester.pumpWidget(const Directionality(
-        textDirection: TextDirection.ltr,
-        child: SizedBox(width: 100, height: 100, child: Placeholder()),
-      ));
+    testWidgets('isEnabled=false short-circuits the entire scan', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(width: 100, height: 100, child: Placeholder()),
+        ),
+      );
       final context = tester.element(find.byType(Directionality));
 
       final detector = _PlaceholderDetector()..isEnabled = false;
@@ -141,10 +146,12 @@ void main() {
     testWidgets(
       'inspect throwing does not crash the detector or bypass finalizeScan',
       (tester) async {
-        await tester.pumpWidget(const Directionality(
-          textDirection: TextDirection.ltr,
-          child: Placeholder(),
-        ));
+        await tester.pumpWidget(
+          const Directionality(
+            textDirection: TextDirection.ltr,
+            child: Placeholder(),
+          ),
+        );
         final context = tester.element(find.byType(Directionality));
 
         final detector = _ThrowingDetector();
@@ -168,10 +175,10 @@ void main() {
 /// detector misbehaves.
 class _ThrowingDetector extends SimpleStructuralDetector {
   _ThrowingDetector()
-      : super(
-          name: 'Throwing Detector',
-          description: 'Intentionally throws from inspect for tests',
-        );
+    : super(
+        name: 'Throwing Detector',
+        description: 'Intentionally throws from inspect for tests',
+      );
 
   bool prepareCalled = false;
   bool finalizeCalled = false;

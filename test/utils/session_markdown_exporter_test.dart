@@ -181,9 +181,7 @@ void main() {
 
     test('escapes brackets, angle brackets, and pipes in title', () {
       final snapshot = makeSnapshot(
-        issues: [
-          makeIssue(title: 'See [docs] <html> | table', stableId: 'x'),
-        ],
+        issues: [makeIssue(title: 'See [docs] <html> | table', stableId: 'x')],
       );
       final md = SessionMarkdownExporter.render(snapshot, topN: 5);
 
@@ -211,7 +209,7 @@ void main() {
     test('issue without stableId falls back to category name', () {
       final snapshot = makeSnapshot(
         issues: [
-          makeIssue(title: 'Unknown issue', category: IssueCategory.memory)
+          makeIssue(title: 'Unknown issue', category: IssueCategory.memory),
         ],
       );
       final md = SessionMarkdownExporter.render(snapshot, topN: 5);

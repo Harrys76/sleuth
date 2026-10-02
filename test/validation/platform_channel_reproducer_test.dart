@@ -28,8 +28,10 @@ void main() {
 
     setUp(() {
       now = DateTime(2026, 4, 25, 12);
-      detector =
-          PlatformChannelDetector(callsPerSecThreshold: 20, clock: () => now);
+      detector = PlatformChannelDetector(
+        callsPerSecThreshold: 20,
+        clock: () => now,
+      );
       detector.vmConnected = true;
     });
 
@@ -60,9 +62,8 @@ void main() {
         ));
         detector.processTimelineData(parsed);
         now = now.add(const Duration(milliseconds: 1100));
-        detector.processTimelineData(parseAndAssertShape(
-          <TimelineEvent>[],
-          (
+        detector.processTimelineData(
+          parseAndAssertShape(<TimelineEvent>[], (
             buildEventCount: 0,
             buildScopeCount: 0,
             layoutCount: 0,
@@ -72,8 +73,8 @@ void main() {
             channelCount: 0,
             gcCount: 0,
             phaseEventCount: 0,
-          ),
-        ));
+          )),
+        );
         expect(detector.issues, lacksStableId('platform_channel_traffic'));
       });
 
@@ -92,9 +93,8 @@ void main() {
         ));
         detector.processTimelineData(parsed);
         now = now.add(const Duration(milliseconds: 1100));
-        detector.processTimelineData(parseAndAssertShape(
-          <TimelineEvent>[],
-          (
+        detector.processTimelineData(
+          parseAndAssertShape(<TimelineEvent>[], (
             buildEventCount: 0,
             buildScopeCount: 0,
             layoutCount: 0,
@@ -104,8 +104,8 @@ void main() {
             channelCount: 0,
             gcCount: 0,
             phaseEventCount: 0,
-          ),
-        ));
+          )),
+        );
         expect(detector.issues, hasStableId('platform_channel_traffic'));
         expect(detector.issues.first.severity.name, 'warning');
       });
@@ -125,9 +125,8 @@ void main() {
         ));
         detector.processTimelineData(parsed);
         now = now.add(const Duration(milliseconds: 1100));
-        detector.processTimelineData(parseAndAssertShape(
-          <TimelineEvent>[],
-          (
+        detector.processTimelineData(
+          parseAndAssertShape(<TimelineEvent>[], (
             buildEventCount: 0,
             buildScopeCount: 0,
             layoutCount: 0,
@@ -137,8 +136,8 @@ void main() {
             channelCount: 0,
             gcCount: 0,
             phaseEventCount: 0,
-          ),
-        ));
+          )),
+        );
         expect(detector.issues, hasStableId('platform_channel_traffic'));
         expect(detector.issues.first.severity.name, 'critical');
       });
@@ -167,9 +166,8 @@ void main() {
         ));
         detector.processTimelineData(parsed);
         now = now.add(const Duration(milliseconds: 1100));
-        detector.processTimelineData(parseAndAssertShape(
-          <TimelineEvent>[],
-          (
+        detector.processTimelineData(
+          parseAndAssertShape(<TimelineEvent>[], (
             buildEventCount: 0,
             buildScopeCount: 0,
             layoutCount: 0,
@@ -179,8 +177,8 @@ void main() {
             channelCount: 0,
             gcCount: 0,
             phaseEventCount: 0,
-          ),
-        ));
+          )),
+        );
         expect(detector.issues, lacksStableId('platform_channel_traffic'));
       });
 
@@ -207,9 +205,8 @@ void main() {
         ));
         detector.processTimelineData(parsed);
         now = now.add(const Duration(milliseconds: 1100));
-        detector.processTimelineData(parseAndAssertShape(
-          <TimelineEvent>[],
-          (
+        detector.processTimelineData(
+          parseAndAssertShape(<TimelineEvent>[], (
             buildEventCount: 0,
             buildScopeCount: 0,
             layoutCount: 0,
@@ -219,8 +216,8 @@ void main() {
             channelCount: 0,
             gcCount: 0,
             phaseEventCount: 0,
-          ),
-        ));
+          )),
+        );
         expect(detector.issues, hasStableId('platform_channel_traffic'));
       });
     });
@@ -244,9 +241,8 @@ void main() {
 
       void advanceAndEvaluate() {
         now = now.add(const Duration(milliseconds: 1100));
-        detector.processTimelineData(parseAndAssertShape(
-          <TimelineEvent>[],
-          (
+        detector.processTimelineData(
+          parseAndAssertShape(<TimelineEvent>[], (
             buildEventCount: 0,
             buildScopeCount: 0,
             layoutCount: 0,
@@ -256,29 +252,30 @@ void main() {
             channelCount: 0,
             gcCount: 0,
             phaseEventCount: 0,
-          ),
-        ));
+          )),
+        );
       }
 
       test('3 events × 2666µs = 7998µs cumulative does NOT emit', () {
         final events = syncChannelCallsWithDur(2666);
-        detector.processTimelineData(parseAndAssertShape(events, (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 0,
-          channelCount: 3,
-          gcCount: 0,
-          phaseEventCount: 0,
-        )));
+        detector.processTimelineData(
+          parseAndAssertShape(events, (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 0,
+            channelCount: 3,
+            gcCount: 0,
+            phaseEventCount: 0,
+          )),
+        );
         advanceAndEvaluate();
         expect(detector.issues, lacksStableId('platform_channel_traffic'));
       });
 
-      test(
-          '8 events × 1000µs = 8000µs cumulative does NOT emit '
+      test('8 events × 1000µs = 8000µs cumulative does NOT emit '
           '(inclusive-greater-than boundary)', () {
         final events = List.generate(
           8,
@@ -289,75 +286,83 @@ void main() {
             ts: 1000 + i,
           ),
         );
-        detector.processTimelineData(parseAndAssertShape(events, (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 0,
-          channelCount: 8,
-          gcCount: 0,
-          phaseEventCount: 0,
-        )));
-        advanceAndEvaluate();
-        expect(detector.issues, lacksStableId('platform_channel_traffic'));
-      });
-
-      test('3 events × 2667µs = 8001µs cumulative emits via duration axis', () {
-        final events = syncChannelCallsWithDur(2667);
-        detector.processTimelineData(parseAndAssertShape(events, (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 0,
-          channelCount: 3,
-          gcCount: 0,
-          phaseEventCount: 0,
-        )));
-        advanceAndEvaluate();
-        expect(detector.issues, hasStableId('platform_channel_traffic'));
-        final issue = detector.issues
-            .firstWhere((i) => i.stableId == 'platform_channel_traffic');
-        expect(issue.title, contains('Slow Platform Channels'));
-      });
-    });
-
-    group('warning/critical escalation boundary (2× thresholds)', () {
-      test('40 calls/window stays at warning (not critical at 2× threshold)',
-          () {
-        final events = asyncChannelCalls(40);
-        detector.processTimelineData(parseAndAssertShape(events, (
-          buildEventCount: 0,
-          buildScopeCount: 0,
-          layoutCount: 0,
-          paintCount: 0,
-          rasterCount: 0,
-          shaderCount: 0,
-          channelCount: 40,
-          gcCount: 0,
-          phaseEventCount: 0,
-        )));
-        now = now.add(const Duration(milliseconds: 1100));
-        detector.processTimelineData(parseAndAssertShape(
-          <TimelineEvent>[],
-          (
+        detector.processTimelineData(
+          parseAndAssertShape(events, (
             buildEventCount: 0,
             buildScopeCount: 0,
             layoutCount: 0,
             paintCount: 0,
             rasterCount: 0,
             shaderCount: 0,
-            channelCount: 0,
+            channelCount: 8,
             gcCount: 0,
             phaseEventCount: 0,
-          ),
-        ));
-        expect(detector.issues, hasStableId('platform_channel_traffic'));
-        expect(detector.issues.first.severity.name, 'warning');
+          )),
+        );
+        advanceAndEvaluate();
+        expect(detector.issues, lacksStableId('platform_channel_traffic'));
       });
+
+      test('3 events × 2667µs = 8001µs cumulative emits via duration axis', () {
+        final events = syncChannelCallsWithDur(2667);
+        detector.processTimelineData(
+          parseAndAssertShape(events, (
+            buildEventCount: 0,
+            buildScopeCount: 0,
+            layoutCount: 0,
+            paintCount: 0,
+            rasterCount: 0,
+            shaderCount: 0,
+            channelCount: 3,
+            gcCount: 0,
+            phaseEventCount: 0,
+          )),
+        );
+        advanceAndEvaluate();
+        expect(detector.issues, hasStableId('platform_channel_traffic'));
+        final issue = detector.issues.firstWhere(
+          (i) => i.stableId == 'platform_channel_traffic',
+        );
+        expect(issue.title, contains('Slow Platform Channels'));
+      });
+    });
+
+    group('warning/critical escalation boundary (2× thresholds)', () {
+      test(
+        '40 calls/window stays at warning (not critical at 2× threshold)',
+        () {
+          final events = asyncChannelCalls(40);
+          detector.processTimelineData(
+            parseAndAssertShape(events, (
+              buildEventCount: 0,
+              buildScopeCount: 0,
+              layoutCount: 0,
+              paintCount: 0,
+              rasterCount: 0,
+              shaderCount: 0,
+              channelCount: 40,
+              gcCount: 0,
+              phaseEventCount: 0,
+            )),
+          );
+          now = now.add(const Duration(milliseconds: 1100));
+          detector.processTimelineData(
+            parseAndAssertShape(<TimelineEvent>[], (
+              buildEventCount: 0,
+              buildScopeCount: 0,
+              layoutCount: 0,
+              paintCount: 0,
+              rasterCount: 0,
+              shaderCount: 0,
+              channelCount: 0,
+              gcCount: 0,
+              phaseEventCount: 0,
+            )),
+          );
+          expect(detector.issues, hasStableId('platform_channel_traffic'));
+          expect(detector.issues.first.severity.name, 'warning');
+        },
+      );
     });
 
     group('negative control', () {
@@ -377,9 +382,8 @@ void main() {
         ));
         detector.processTimelineData(parsed);
         now = now.add(const Duration(milliseconds: 1100));
-        detector.processTimelineData(parseAndAssertShape(
-          <TimelineEvent>[],
-          (
+        detector.processTimelineData(
+          parseAndAssertShape(<TimelineEvent>[], (
             buildEventCount: 0,
             buildScopeCount: 0,
             layoutCount: 0,
@@ -389,8 +393,8 @@ void main() {
             channelCount: 0,
             gcCount: 0,
             phaseEventCount: 0,
-          ),
-        ));
+          )),
+        );
         expect(detector.issues, lacksStableId('platform_channel_traffic'));
       });
     });

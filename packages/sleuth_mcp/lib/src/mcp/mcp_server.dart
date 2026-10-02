@@ -39,10 +39,8 @@ const String sleuthPackageVersionPin = '0.36.0';
 /// Tool handler signature. Returns either a `data` map (wrapped as text
 /// content) or a `ToolCallResult` directly when the handler needs full
 /// control over the response shape.
-typedef ToolHandler = Future<Object> Function(
-  VmBridge bridge,
-  Map<String, Object?> args,
-);
+typedef ToolHandler =
+    Future<Object> Function(VmBridge bridge, Map<String, Object?> args);
 
 /// Minimal contract that the MCP server depends on. Concrete
 /// `DaemonSession` implementation lives in `lib/src/flutter_daemon/` and
@@ -86,16 +84,18 @@ class McpServer {
     required this.bridge,
     Duration toolTimeout = const Duration(seconds: 10),
     Sink<String>? logger,
-  })  : _toolTimeout = toolTimeout,
-        _logger = logger;
+  }) : _toolTimeout = toolTimeout,
+       _logger = logger;
 
   final VmBridge bridge;
   final Duration _toolTimeout;
   final Sink<String>? _logger;
-  late final EncyclopediaResource _encyclopedia =
-      EncyclopediaResource(bridge: bridge);
-  late final CausalGraphResource _causalGraph =
-      CausalGraphResource(bridge: bridge);
+  late final EncyclopediaResource _encyclopedia = EncyclopediaResource(
+    bridge: bridge,
+  );
+  late final CausalGraphResource _causalGraph = CausalGraphResource(
+    bridge: bridge,
+  );
   bool _initialized = false;
   String _negotiatedProtocolVersion = mcpProtocolVersion;
   final Map<String, _RegisteredTool> _tools = {};
@@ -178,25 +178,24 @@ class McpServer {
   /// Drive the server over stdio. Returns when stdin closes, when
   /// [shutdown] is called, or when a write failure trips fatal shutdown.
   /// Drains pending dispatches + the write chain before returning.
-  Future<void> serve({
-    Stream<List<int>>? input,
-    IOSink? output,
-  }) async {
+  Future<void> serve({Stream<List<int>>? input, IOSink? output}) async {
     final codec = McpProtocolCodec();
     final out = output ?? stdout;
     final stream = input ?? stdin;
     final done = _serveDone = Completer<void>();
-    final sub = codec.decode(stream).listen(
-      (event) => _handleDecodeEvent(event, out, codec),
-      onDone: () {
-        if (!done.isCompleted) done.complete();
-      },
-      onError: (Object e) {
-        _log('decode stream error: $e');
-        if (!done.isCompleted) done.complete();
-      },
-      cancelOnError: false,
-    );
+    final sub = codec
+        .decode(stream)
+        .listen(
+          (event) => _handleDecodeEvent(event, out, codec),
+          onDone: () {
+            if (!done.isCompleted) done.complete();
+          },
+          onError: (Object e) {
+            _log('decode stream error: $e');
+            if (!done.isCompleted) done.complete();
+          },
+          cancelOnError: false,
+        );
     try {
       await done.future;
     } finally {
@@ -247,16 +246,16 @@ class McpServer {
   /// pass a window that exceeds their longest legitimate hold time —
   /// otherwise the timer can unpause mid-operation and route deferred
   /// tool calls against a half-rebuilt bridge.
-  void pauseDispatch({
-    Duration autoResumeAfter = const Duration(seconds: 90),
-  }) {
+  void pauseDispatch({Duration autoResumeAfter = const Duration(seconds: 90)}) {
     if (_paused) return;
     _paused = true;
     _pauseAutoResumeTimer?.cancel();
     _pauseAutoResumeTimer = Timer(autoResumeAfter, () {
       if (_paused) {
-        _log('pauseDispatch auto-resume timeout fired after '
-            '${autoResumeAfter.inSeconds}s');
+        _log(
+          'pauseDispatch auto-resume timeout fired after '
+          '${autoResumeAfter.inSeconds}s',
+        );
         resumeDispatch();
       }
     });
@@ -303,14 +302,19 @@ class McpServer {
     final session = _daemonSession;
     if (session != null) {
       _daemonSession = null;
-      unawaited(session.detach().timeout(
-        const Duration(seconds: 2),
-        onTimeout: () {
-          _log('daemon session detach timed out during shutdown');
-        },
-      ).catchError((Object e) {
-        _log('daemon session detach failed during shutdown: $e');
-      }));
+      unawaited(
+        session
+            .detach()
+            .timeout(
+              const Duration(seconds: 2),
+              onTimeout: () {
+                _log('daemon session detach timed out during shutdown');
+              },
+            )
+            .catchError((Object e) {
+              _log('daemon session detach failed during shutdown: $e');
+            }),
+      );
     }
     final done = _serveDone;
     if (done != null && !done.isCompleted) done.complete();
@@ -369,7 +373,9 @@ class McpServer {
       return msg.isNotification
           ? null
           : JsonRpcResponse.result(
-              id: msg.id, result: const <String, Object?>{});
+              id: msg.id,
+              result: const <String, Object?>{},
+            );
     }
     if (!_initialized) {
       return msg.isNotification
@@ -430,18 +436,18 @@ class McpServer {
     }
     _initialized = true;
     _negotiatedProtocolVersion = negotiated;
-    return JsonRpcResponse.result(id: msg.id, result: {
-      'protocolVersion': negotiated,
-      'serverInfo': {
-        'name': 'sleuth_mcp',
-        'version': sleuthMcpVersion,
+    return JsonRpcResponse.result(
+      id: msg.id,
+      result: {
+        'protocolVersion': negotiated,
+        'serverInfo': {'name': 'sleuth_mcp', 'version': sleuthMcpVersion},
+        'capabilities': {
+          'tools': const <String, Object?>{},
+          'resources': const <String, Object?>{},
+          'prompts': const <String, Object?>{},
+        },
       },
-      'capabilities': {
-        'tools': const <String, Object?>{},
-        'resources': const <String, Object?>{},
-        'prompts': const <String, Object?>{},
-      },
-    });
+    );
   }
 
   JsonRpcResponse _handleToolsList(JsonRpcMessage msg) {
@@ -551,10 +557,7 @@ class McpServer {
       _log('tool "$name" threw: $e\n$st');
       return JsonRpcResponse.result(
         id: msg.id,
-        result: ToolCallResult.text(
-          'error: $e',
-          isError: true,
-        ).toJson(),
+        result: ToolCallResult.text('error: $e', isError: true).toJson(),
       );
     }
   }
@@ -587,15 +590,18 @@ class McpServer {
     }
     try {
       final content = await res.read(bridge).timeout(_toolTimeout);
-      return JsonRpcResponse.result(id: msg.id, result: {
-        'contents': [
-          {
-            'uri': uri,
-            'mimeType': res.descriptor.mimeType,
-            'text': jsonEncode(content),
-          },
-        ],
-      });
+      return JsonRpcResponse.result(
+        id: msg.id,
+        result: {
+          'contents': [
+            {
+              'uri': uri,
+              'mimeType': res.descriptor.mimeType,
+              'text': jsonEncode(content),
+            },
+          ],
+        },
+      );
     } on TimeoutException {
       try {
         await bridge.disconnect();
@@ -657,10 +663,13 @@ class McpServer {
         ),
       );
     }
-    return JsonRpcResponse.result(id: msg.id, result: {
-      'description': prompt.descriptor.description,
-      'messages': prompt.messages(),
-    });
+    return JsonRpcResponse.result(
+      id: msg.id,
+      result: {
+        'description': prompt.descriptor.description,
+        'messages': prompt.messages(),
+      },
+    );
   }
 
   String? _validateArgs(

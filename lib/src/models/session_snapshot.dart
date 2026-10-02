@@ -139,14 +139,15 @@ class SessionSnapshot {
 
     final issues =
         (maxIssueCount != null && maxIssueCount < currentIssues.length
-            ? currentIssues.take(maxIssueCount)
-            : currentIssues);
+        ? currentIssues.take(maxIssueCount)
+        : currentIssues);
 
     List<Map<String, dynamic>>? routes = routeSessions;
     if (routes != null &&
         maxRouteCount != null &&
         maxRouteCount < routes.length) {
-      routes = [...routes]..sort((a, b) {
+      routes = [...routes]
+        ..sort((a, b) {
           final sa = a['startedAt'];
           final sb = b['startedAt'];
           final da = sa is String ? DateTime.tryParse(sa) : null;
@@ -194,8 +195,9 @@ class SessionSnapshot {
       if (inc(SnapshotSection.platformChannelEvents) &&
           platformChannelEvents != null &&
           platformChannelEvents!.isNotEmpty)
-        'platformChannelEvents':
-            platformChannelEvents!.map((e) => e.toJson()).toList(),
+        'platformChannelEvents': platformChannelEvents!
+            .map((e) => e.toJson())
+            .toList(),
       if (inc(SnapshotSection.recentFrames) &&
           recentFrames != null &&
           recentFrames!.isNotEmpty)
@@ -219,10 +221,11 @@ class SessionSnapshot {
           routes.isNotEmpty)
         'routeSessions': routes,
       if (projected) ...{
-        '_projectedSections': (include ?? SnapshotSection.values.toSet())
-            .map((s) => s.jsonKey)
-            .toList()
-          ..sort(),
+        '_projectedSections':
+            (include ?? SnapshotSection.values.toSet())
+                .map((s) => s.jsonKey)
+                .toList()
+              ..sort(),
         if (maxIssueCount != null || maxRouteCount != null)
           '_projectionLimits': {
             if (maxIssueCount != null) 'maxIssueCount': maxIssueCount,
@@ -249,7 +252,8 @@ class SessionSnapshot {
       isVmConnected: json['isVmConnected'] as bool? ?? false,
       isDebugMode: json['isDebugMode'] as bool? ?? false,
       frameStatsSummary: FrameStatsSummary.fromJson(
-          json['frameStatsSummary'] as Map<String, dynamic>),
+        json['frameStatsSummary'] as Map<String, dynamic>,
+      ),
       capturedFrames: (json['capturedFrames'] as List<dynamic>)
           .map((e) => CaptureEntry.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -260,30 +264,34 @@ class SessionSnapshot {
       // recentRequests and heapSamples are export-only; not deserialized
       phaseEvents: json['phaseEvents'] != null
           ? (json['phaseEvents'] as List<dynamic>)
-              .map((e) => PhaseEvent.fromJson(e as Map<String, dynamic>))
-              .toList()
+                .map((e) => PhaseEvent.fromJson(e as Map<String, dynamic>))
+                .toList()
           : null,
       gcEvents: json['gcEvents'] != null
           ? (json['gcEvents'] as List<dynamic>)
-              .map((e) => GcEventSummary.fromJson(e as Map<String, dynamic>))
-              .toList()
+                .map((e) => GcEventSummary.fromJson(e as Map<String, dynamic>))
+                .toList()
           : null,
       platformChannelEvents: json['platformChannelEvents'] != null
           ? (json['platformChannelEvents'] as List<dynamic>)
-              .map((e) =>
-                  PlatformChannelSummary.fromJson(e as Map<String, dynamic>))
-              .toList()
+                .map(
+                  (e) => PlatformChannelSummary.fromJson(
+                    e as Map<String, dynamic>,
+                  ),
+                )
+                .toList()
           : null,
       recentFrames: json['recentFrames'] != null
           ? (json['recentFrames'] as List<dynamic>)
-              .map((e) => FrameStats.fromJson(e as Map<String, dynamic>))
-              .toList()
+                .map((e) => FrameStats.fromJson(e as Map<String, dynamic>))
+                .toList()
           : null,
       widgetHeatMap: json['widgetHeatMap'] != null
           ? (json['widgetHeatMap'] as List<dynamic>)
-              .map(
-                  (e) => WidgetHeatMapEntry.fromJson(e as Map<String, dynamic>))
-              .toList()
+                .map(
+                  (e) => WidgetHeatMapEntry.fromJson(e as Map<String, dynamic>),
+                )
+                .toList()
           : null,
       recurrenceTrends: json['recurrenceTrends'] != null
           ? (json['recurrenceTrends'] as Map<String, dynamic>).map(
@@ -293,12 +301,13 @@ class SessionSnapshot {
       sessionSummary: json['sessionSummary'] as Map<String, dynamic>?,
       startupMetrics: json['startupMetrics'] != null
           ? StartupMetrics.fromJson(
-              json['startupMetrics'] as Map<String, dynamic>)
+              json['startupMetrics'] as Map<String, dynamic>,
+            )
           : null,
       routeSessions: json['routeSessions'] != null
           ? (json['routeSessions'] as List<dynamic>)
-              .map((e) => e as Map<String, dynamic>)
-              .toList()
+                .map((e) => e as Map<String, dynamic>)
+                .toList()
           : null,
     );
   }
@@ -315,9 +324,9 @@ class FrameStatsSummary {
     double? throughputFps,
     double? actualFpsRaw,
     this.fpsPercentiles,
-  })  : actualFps = actualFps ?? averageFps,
-        throughputFps = throughputFps ?? averageFps,
-        actualFpsRaw = actualFpsRaw ?? (actualFps ?? averageFps);
+  }) : actualFps = actualFps ?? averageFps,
+       throughputFps = throughputFps ?? averageFps,
+       actualFpsRaw = actualFpsRaw ?? (actualFps ?? averageFps);
 
   /// Total frames observed since monitoring started.
   final int totalFrames;
@@ -351,15 +360,15 @@ class FrameStatsSummary {
   final FpsPercentiles? fpsPercentiles;
 
   Map<String, dynamic> toJson() => {
-        'totalFrames': totalFrames,
-        'jankFrames': jankFrames,
-        'actualFps': double.parse(actualFps.toStringAsFixed(1)),
-        'actualFpsRaw': double.parse(actualFpsRaw.toStringAsFixed(1)),
-        'throughputFps': double.parse(throughputFps.toStringAsFixed(1)),
-        'averageFps': double.parse(averageFps.toStringAsFixed(1)),
-        'worstFrameTimeUs': worstFrameTimeUs,
-        if (fpsPercentiles != null) 'fpsPercentiles': fpsPercentiles!.toJson(),
-      };
+    'totalFrames': totalFrames,
+    'jankFrames': jankFrames,
+    'actualFps': double.parse(actualFps.toStringAsFixed(1)),
+    'actualFpsRaw': double.parse(actualFpsRaw.toStringAsFixed(1)),
+    'throughputFps': double.parse(throughputFps.toStringAsFixed(1)),
+    'averageFps': double.parse(averageFps.toStringAsFixed(1)),
+    'worstFrameTimeUs': worstFrameTimeUs,
+    if (fpsPercentiles != null) 'fpsPercentiles': fpsPercentiles!.toJson(),
+  };
 
   factory FrameStatsSummary.fromJson(Map<String, dynamic> json) {
     final rawAverage = (json['averageFps'] as num?)?.toDouble() ?? 0.0;
@@ -378,7 +387,8 @@ class FrameStatsSummary {
       worstFrameTimeUs: json['worstFrameTimeUs'] as int,
       fpsPercentiles: json['fpsPercentiles'] != null
           ? FpsPercentiles.fromJson(
-              json['fpsPercentiles'] as Map<String, dynamic>)
+              json['fpsPercentiles'] as Map<String, dynamic>,
+            )
           : null,
     );
   }

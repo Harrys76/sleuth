@@ -34,9 +34,10 @@ class IssueCard extends StatefulWidget {
     this.onLearnMore,
     this.onAskAi,
   }) : assert(
-            suppressedParentCount >= 0,
-            'suppressedParentCount must be >= 0; negative values produce '
-            'incorrect "Caused by (N):" header counts');
+         suppressedParentCount >= 0,
+         'suppressedParentCount must be >= 0; negative values produce '
+         'incorrect "Caused by (N):" header counts',
+       );
 
   final PerformanceIssue issue;
 
@@ -130,11 +131,12 @@ class _IssueCardState extends State<IssueCard> {
       color: widget.jankFlash
           ? theme.cardJankFlash
           : widget.highlighted
-              ? theme.cardHighlighted
-              : theme.cardDefault,
+          ? theme.cardHighlighted
+          : theme.cardDefault,
       margin: EdgeInsets.only(bottom: theme.spacingSm),
       shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(theme.radiusXl)),
+        borderRadius: BorderRadius.circular(theme.radiusXl),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: _toggle,
@@ -173,12 +175,17 @@ class _IssueCardState extends State<IssueCard> {
                       ),
                     ),
                     _confidenceBadge(
-                        issue.confidence, theme, issue.confidenceReason),
+                      issue.confidence,
+                      theme,
+                      issue.confidenceReason,
+                    ),
                     if (widget.jankCorrelated) ...[
                       SizedBox(width: theme.spacingXs),
                       Container(
                         padding: EdgeInsets.symmetric(
-                            horizontal: theme.spacingXs, vertical: 1),
+                          horizontal: theme.spacingXs,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
                           color: theme.severityCritical.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(theme.radiusSm),
@@ -198,7 +205,9 @@ class _IssueCardState extends State<IssueCard> {
                       SizedBox(width: theme.spacingXs),
                       Container(
                         padding: EdgeInsets.symmetric(
-                            horizontal: theme.spacingXs, vertical: 1),
+                          horizontal: theme.spacingXs,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
                           color: theme.effectsBadge.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(theme.radiusSm),
@@ -239,8 +248,9 @@ class _IssueCardState extends State<IssueCard> {
                               child: Icon(
                                 Icons.push_pin,
                                 size: 14,
-                                color:
-                                    theme.textSecondary.withValues(alpha: 0.55),
+                                color: theme.textSecondary.withValues(
+                                  alpha: 0.55,
+                                ),
                               ),
                             )
                           : const SizedBox.shrink(),
@@ -291,15 +301,14 @@ class _IssueCardState extends State<IssueCard> {
   }
 
   List<Widget> _buildExpandedContent(
-      PerformanceIssue issue, SleuthThemeData theme) {
+    PerformanceIssue issue,
+    SleuthThemeData theme,
+  ) {
     return [
       SizedBox(height: theme.spacingMd),
       Text(
         issue.detail,
-        style: TextStyle(
-          color: theme.textSecondary,
-          fontSize: theme.fontMd,
-        ),
+        style: TextStyle(color: theme.textSecondary, fontSize: theme.fontMd),
       ),
       if (issue.routeDisplayName != null)
         Padding(
@@ -475,7 +484,9 @@ class _IssueCardState extends State<IssueCard> {
             children: [
               Container(
                 padding: EdgeInsets.symmetric(
-                    horizontal: theme.spacingXs, vertical: 1),
+                  horizontal: theme.spacingXs,
+                  vertical: 1,
+                ),
                 decoration: BoxDecoration(
                   color: theme.bannerSuccessBg,
                   borderRadius: BorderRadius.circular(theme.radiusSm),
@@ -491,7 +502,9 @@ class _IssueCardState extends State<IssueCard> {
               SizedBox(width: theme.spacingXs),
               Container(
                 padding: EdgeInsets.symmetric(
-                    horizontal: theme.spacingXs, vertical: 1),
+                  horizontal: theme.spacingXs,
+                  vertical: 1,
+                ),
                 decoration: BoxDecoration(
                   color: theme.bannerWarningBg,
                   borderRadius: BorderRadius.circular(theme.radiusSm),
@@ -623,7 +636,8 @@ class _IssueCardState extends State<IssueCard> {
           borderRadius: BorderRadius.circular(theme.radiusMd),
         ),
         child: Semantics(
-          label: '$totalParents '
+          label:
+              '$totalParents '
               '${totalParents == 1 ? "cause" : "causes"} for this issue',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -838,9 +852,9 @@ class _IssueCardState extends State<IssueCard> {
     final (label, color) = switch (trend.trend) {
       TrendDirection.worsening => ('worsening', theme.severityCritical),
       TrendDirection.stable when ratio >= 0.9 => (
-          'persistent',
-          theme.severityWarning
-        ),
+        'persistent',
+        theme.severityWarning,
+      ),
       TrendDirection.stable => ('stable', theme.textSecondary),
       TrendDirection.improving => ('improving', theme.severityOk),
       TrendDirection.intermittent => ('flaky', theme.textSecondary),
@@ -895,13 +909,16 @@ class _IssueCardState extends State<IssueCard> {
   }
 
   IconData _confidenceIcon(IssueConfidence c) => switch (c) {
-        IssueConfidence.confirmed => Icons.check_circle_outline,
-        IssueConfidence.likely => Icons.help_outline,
-        IssueConfidence.possible => Icons.info_outline,
-      };
+    IssueConfidence.confirmed => Icons.check_circle_outline,
+    IssueConfidence.likely => Icons.help_outline,
+    IssueConfidence.possible => Icons.info_outline,
+  };
 
   Widget _confidenceBadge(
-      IssueConfidence confidence, SleuthThemeData theme, String? reason) {
+    IssueConfidence confidence,
+    SleuthThemeData theme,
+    String? reason,
+  ) {
     final color = theme.confidenceColor(confidence);
     final label = switch (confidence) {
       IssueConfidence.confirmed => 'CONFIRMED',
@@ -911,7 +928,9 @@ class _IssueCardState extends State<IssueCard> {
 
     final badge = Container(
       padding: EdgeInsets.symmetric(
-          horizontal: theme.spacingSm, vertical: theme.spacingXxs),
+        horizontal: theme.spacingSm,
+        vertical: theme.spacingXxs,
+      ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(theme.radiusLg),
@@ -1075,7 +1094,9 @@ class _AskAiShimmerLinkState extends State<_AskAiShimmerLink>
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
                   style: TextStyle(
-                      fontSize: theme.fontXs, fontWeight: FontWeight.w600),
+                    fontSize: theme.fontXs,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],

@@ -81,7 +81,7 @@ String stripDartComments(String source) {
     // Outside a string: look for comments or string openings.
     if (c == 0x2f /* / */ && i + 1 < len) {
       final next = source.codeUnitAt(i + 1);
-      if (next == 0x2f /* / */) {
+      if (next == 0x2f /* / */ ) {
         // Line comment — skip to EOL (preserve the newline itself).
         var j = i + 2;
         while (j < len && source.codeUnitAt(j) != 0x0a) {
@@ -90,7 +90,7 @@ String stripDartComments(String source) {
         i = j;
         continue;
       }
-      if (next == 0x2a /* * */) {
+      if (next == 0x2a /* * */ ) {
         // Block comment — skip to closing `*/`, preserving any newlines
         // inside so downstream line numbers stay aligned.
         var j = i + 2;
@@ -121,7 +121,8 @@ String stripDartComments(String source) {
     final openCu = source.codeUnitAt(stringStart);
     if (openCu == 0x27 || openCu == 0x22) {
       // Determine delimiter length (1 or 3).
-      final triple = stringStart + 2 < len &&
+      final triple =
+          stringStart + 2 < len &&
           source.codeUnitAt(stringStart + 1) == openCu &&
           source.codeUnitAt(stringStart + 2) == openCu;
       final delimLen = triple ? 3 : 1;
@@ -228,11 +229,15 @@ List<String> checkRationale(String label, String rationale) {
   if (trimmed.isEmpty) {
     failures.add('$label: empty rationale');
   } else if (trimmed.length < minRationaleLength) {
-    failures.add('$label: rationale too short '
-        '(${trimmed.length} chars, need >= $minRationaleLength)');
+    failures.add(
+      '$label: rationale too short '
+      '(${trimmed.length} chars, need >= $minRationaleLength)',
+    );
   } else if (!trimmed.contains('.')) {
-    failures.add('$label: rationale must contain at least one period '
-        '(should read as one or more sentences)');
+    failures.add(
+      '$label: rationale must contain at least one period '
+      '(should read as one or more sentences)',
+    );
   }
   return failures;
 }
@@ -264,7 +269,7 @@ List<String> checkCitationUrl(
       (parsed.scheme != 'http' && parsed.scheme != 'https')) {
     return [
       '$label: citationUrl must use http or https scheme (got '
-          '"${parsed.scheme}"): $url'
+          '"${parsed.scheme}"): $url',
     ];
   }
   if (!parsed.hasAuthority || parsed.host.isEmpty) {
@@ -333,7 +338,8 @@ String? _rejectPrivateRangeHost(String label, String rawHost, String url) {
     }
     final first = octets[0];
     final second = octets[1];
-    final isRfc1918 = first == 10 ||
+    final isRfc1918 =
+        first == 10 ||
         (first == 172 && second >= 16 && second <= 31) ||
         (first == 192 && second == 168);
     final isLinkLocal = first == 169 && second == 254;
@@ -392,15 +398,19 @@ List<String> checkReproducerFile({
   }
   final failures = <String>[];
   if (!isPathInsideRepo(reproducerPath, repoRoot: rootDirPath)) {
-    failures.add('$label: reproducerPath escapes the repo root: '
-        '$reproducerPath (absolute / ".." traversal / symlink target '
-        'outside the repo are rejected — reproducers must live in-tree '
-        'so the audit is hermetic)');
+    failures.add(
+      '$label: reproducerPath escapes the repo root: '
+      '$reproducerPath (absolute / ".." traversal / symlink target '
+      'outside the repo are rejected — reproducers must live in-tree '
+      'so the audit is hermetic)',
+    );
     return failures;
   }
-  final file = File(p.isAbsolute(reproducerPath)
-      ? reproducerPath
-      : p.join(rootDirPath, reproducerPath));
+  final file = File(
+    p.isAbsolute(reproducerPath)
+        ? reproducerPath
+        : p.join(rootDirPath, reproducerPath),
+  );
   if (!file.existsSync()) {
     failures.add('$label: reproducerPath does not exist: $reproducerPath');
     return failures;
@@ -440,13 +450,17 @@ List<String> checkReproducerFile({
     );
     result.unit.visitChildren(visitor);
   } on ArgumentError catch (e) {
-    failures.add('$label: reproducer file failed to parse as Dart '
-        '(file: $reproducerPath): $e');
+    failures.add(
+      '$label: reproducer file failed to parse as Dart '
+      '(file: $reproducerPath): $e',
+    );
     return failures;
   }
   if (!visitor.hasTestInvocation) {
-    failures.add('$label: reproducer file has no test()/testWidgets() calls '
-        'outside of comments (line or block): $reproducerPath');
+    failures.add(
+      '$label: reproducer file has no test()/testWidgets() calls '
+      'outside of comments (line or block): $reproducerPath',
+    );
     return failures;
   }
   for (final token in requiredTokens) {
@@ -456,20 +470,24 @@ List<String> checkReproducerFile({
     // tearDownAll / group). Top-level declarations / import re-exports
     // don't count.
     if (!visitor.tokensFoundInScope.contains(token)) {
-      failures.add('$label: reproducer file does not reference "$token" '
-          'by name inside a test/testWidgets/setUp/tearDown/group body — '
-          'the reproducer must exercise the thing under claim from real '
-          'test-harness code (file: $reproducerPath)');
+      failures.add(
+        '$label: reproducer file does not reference "$token" '
+        'by name inside a test/testWidgets/setUp/tearDown/group body — '
+        'the reproducer must exercise the thing under claim from real '
+        'test-harness code (file: $reproducerPath)',
+      );
       continue;
     }
     // The token must be instantiated at least once inside a test scope.
     // Components that publish metadata for a utility class with only
     // static methods opt out via `requireInstantiation: false`.
     if (requireInstantiation && !visitor.tokensInstantiated.contains(token)) {
-      failures.add('$label: reproducer file never instantiates "$token" '
-          '(no `$token(...)` construction found inside a test scope) — '
-          'the reproducer must drive the detector through its real '
-          'construction path (file: $reproducerPath)');
+      failures.add(
+        '$label: reproducer file never instantiates "$token" '
+        '(no `$token(...)` construction found inside a test scope) — '
+        'the reproducer must drive the detector through its real '
+        'construction path (file: $reproducerPath)',
+      );
     }
   }
   // Bare/colon families and underscore-parametric families track in
@@ -480,28 +498,33 @@ List<String> checkReproducerFile({
   if (declaredBare.isNotEmpty) {
     final missing = declaredBare.difference(visitor.matchedBareFamilies);
     if (missing.isNotEmpty) {
-      failures.add('$label: reproducer does not assert against every family '
-          'declared in coveredStableIds. Missing: $missing. Each family '
-          'must appear as a credited string literal where the assertion '
-          'is AST-provable as detector-derived (argument to `hasStableId` '
-          '/ `hasStableIdPrefix` / `lacksStableId`; operand of `==` against '
-          '`<x>.stableId`; `<x>.stableId.startsWith/contains/endsWith`; or '
-          '`expect(<x>.stableId, ...)` where the actual references '
-          '`.stableId`). Bare/colon families: exact match or `<family>:` '
-          'prefix. (file: $reproducerPath)');
+      failures.add(
+        '$label: reproducer does not assert against every family '
+        'declared in coveredStableIds. Missing: $missing. Each family '
+        'must appear as a credited string literal where the assertion '
+        'is AST-provable as detector-derived (argument to `hasStableId` '
+        '/ `hasStableIdPrefix` / `lacksStableId`; operand of `==` against '
+        '`<x>.stableId`; `<x>.stableId.startsWith/contains/endsWith`; or '
+        '`expect(<x>.stableId, ...)` where the actual references '
+        '`.stableId`). Bare/colon families: exact match or `<family>:` '
+        'prefix. (file: $reproducerPath)',
+      );
     }
   }
   final declaredParametric = parametricFamilies ?? const <String>{};
   if (declaredParametric.isNotEmpty) {
-    final missing =
-        declaredParametric.difference(visitor.matchedParametricFamilies);
+    final missing = declaredParametric.difference(
+      visitor.matchedParametricFamilies,
+    );
     if (missing.isNotEmpty) {
-      failures.add('$label: reproducer does not assert against every family '
-          'declared in parametricFamilies. Missing: $missing. Each family '
-          'must appear as a credited string literal of the form '
-          '`<family>_<non-empty-suffix>` where the assertion is AST-provable '
-          'as detector-derived (see coveredStableIds message for accepted '
-          'shapes). (file: $reproducerPath)');
+      failures.add(
+        '$label: reproducer does not assert against every family '
+        'declared in parametricFamilies. Missing: $missing. Each family '
+        'must appear as a credited string literal of the form '
+        '`<family>_<non-empty-suffix>` where the assertion is AST-provable '
+        'as detector-derived (see coveredStableIds message for accepted '
+        'shapes). (file: $reproducerPath)',
+      );
     }
   }
   return failures;
@@ -605,11 +628,7 @@ class _ReproducerAstVisitor extends RecursiveAstVisitor<void> {
   /// Methods on a required-token instance that emit detector output.
   /// `scanTree` / `scanFrame` are `BaseDetector` APIs; `issues` covers
   /// both the getter form and the rare method-invocation form.
-  static const _producerMethods = <String>{
-    'scanTree',
-    'scanFrame',
-    'issues',
-  };
+  static const _producerMethods = <String>{'scanTree', 'scanFrame', 'issues'};
 
   /// Parameter position that iterates over detector elements per
   /// method. Filter/map methods → position 0. `reduce` / `fold` →
@@ -1117,12 +1136,15 @@ List<String> checkCapturePaths({
   for (final capture in capturePaths) {
     if (capture.trim().isEmpty) continue;
     if (!isPathInsideRepo(capture, repoRoot: rootDirPath)) {
-      failures.add('$label: profileCapturePath escapes the repo root: '
-          '$capture');
+      failures.add(
+        '$label: profileCapturePath escapes the repo root: '
+        '$capture',
+      );
       continue;
     }
-    final file =
-        File(p.isAbsolute(capture) ? capture : p.join(rootDirPath, capture));
+    final file = File(
+      p.isAbsolute(capture) ? capture : p.join(rootDirPath, capture),
+    );
     if (!file.existsSync()) {
       failures.add('$label: profileCapturePath does not exist: $capture');
       continue;
@@ -1236,64 +1258,85 @@ List<String> checkCoveredThresholds({
   for (final raw in coveredThresholds) {
     final entry = raw.trim();
     if (entry.isEmpty) {
-      failures
-          .add('$label: coveredThresholds contains an empty/whitespace entry');
+      failures.add(
+        '$label: coveredThresholds contains an empty/whitespace entry',
+      );
       continue;
     }
     final parts = entry.split('.');
     final isDotted = parts.length > 1;
     if (isDotted) {
       if (parts.length != 2) {
-        failures.add('$label: coveredThresholds entry "$entry" has '
-            '${parts.length - 1} dots — must be "<stableId>.<severity>" '
-            'with exactly one separator');
+        failures.add(
+          '$label: coveredThresholds entry "$entry" has '
+          '${parts.length - 1} dots — must be "<stableId>.<severity>" '
+          'with exactly one separator',
+        );
         continue;
       }
       final stableId = parts[0];
       final severity = parts[1];
       if (stableId.isEmpty) {
-        failures.add('$label: coveredThresholds entry "$entry" has an '
-            'empty stableId prefix before "."');
+        failures.add(
+          '$label: coveredThresholds entry "$entry" has an '
+          'empty stableId prefix before "."',
+        );
         continue;
       }
       if (severity.isEmpty) {
-        failures.add('$label: coveredThresholds entry "$entry" has an '
-            'empty severity suffix after "."');
+        failures.add(
+          '$label: coveredThresholds entry "$entry" has an '
+          'empty severity suffix after "."',
+        );
         continue;
       }
       if (!knownSeverityTags.contains(severity)) {
-        failures.add('$label: coveredThresholds entry "$entry" uses '
-            'unrecognised severity "$severity" (must be one of '
-            '$knownSeverityTags) — typo or non-canonical tag');
+        failures.add(
+          '$label: coveredThresholds entry "$entry" uses '
+          'unrecognised severity "$severity" (must be one of '
+          '$knownSeverityTags) — typo or non-canonical tag',
+        );
         continue;
       }
       if ((coveredStableIds != null || parametricFamilies != null) &&
-          !_stableIdCovers(coveredStableIds ?? const {}, stableId,
-              parametricFamilies: parametricFamilies)) {
-        failures.add('$label: coveredThresholds entry "$entry" references '
-            'stableId "$stableId" not declared in coveredStableIds '
-            '($coveredStableIds) or parametricFamilies '
-            '($parametricFamilies) — cross-scope drift');
+          !_stableIdCovers(
+            coveredStableIds ?? const {},
+            stableId,
+            parametricFamilies: parametricFamilies,
+          )) {
+        failures.add(
+          '$label: coveredThresholds entry "$entry" references '
+          'stableId "$stableId" not declared in coveredStableIds '
+          '($coveredStableIds) or parametricFamilies '
+          '($parametricFamilies) — cross-scope drift',
+        );
         continue;
       }
       continue;
     }
     // Non-dotted entry.
     if ((coveredStableIds != null || parametricFamilies != null) &&
-        !_stableIdCovers(coveredStableIds ?? const {}, entry,
-            parametricFamilies: parametricFamilies)) {
-      failures.add('$label: coveredThresholds entry "$entry" is non-dotted '
-          'but does not match any coveredStableIds '
-          '($coveredStableIds) or parametricFamilies '
-          '($parametricFamilies) entry');
+        !_stableIdCovers(
+          coveredStableIds ?? const {},
+          entry,
+          parametricFamilies: parametricFamilies,
+        )) {
+      failures.add(
+        '$label: coveredThresholds entry "$entry" is non-dotted '
+        'but does not match any coveredStableIds '
+        '($coveredStableIds) or parametricFamilies '
+        '($parametricFamilies) entry',
+      );
       continue;
     }
     if (bracketThreshold != null) {
-      failures.add('$label: coveredThresholds entry "$entry" is non-dotted '
-          'but bracketThreshold is set ($bracketThreshold) — a numeric '
-          'threshold claim is inherently severity-scoped, so the entry '
-          'must be "$entry.<severity>" to prevent ambient bracketing '
-          'of an adjacent tier');
+      failures.add(
+        '$label: coveredThresholds entry "$entry" is non-dotted '
+        'but bracketThreshold is set ($bracketThreshold) — a numeric '
+        'threshold claim is inherently severity-scoped, so the entry '
+        'must be "$entry.<severity>" to prevent ambient bracketing '
+        'of an adjacent tier',
+      );
       continue;
     }
   }
@@ -1354,8 +1397,9 @@ List<String> checkSeverityScopedCeiling({
     return const [];
   }
   if (coveredThresholds == null) return const [];
-  final scopedEntries =
-      coveredThresholds.where((e) => e.contains('.')).toList();
+  final scopedEntries = coveredThresholds
+      .where((e) => e.contains('.'))
+      .toList();
   if (scopedEntries.isEmpty) return const [];
   if (aboveCeilingMultiplier == null) {
     return [
@@ -1408,26 +1452,32 @@ List<String> checkPerStableIdTier({
   final failures = <String>[];
   for (final entry in perStableIdTier.entries) {
     if (coveredStableIds == null || !coveredStableIds.contains(entry.key)) {
-      failures.add('$label: perStableIdTier key "${entry.key}" is not '
-          'in coveredStableIds. Per-family raises target a specific '
-          'stableId; declare the family in coveredStableIds first.');
+      failures.add(
+        '$label: perStableIdTier key "${entry.key}" is not '
+        'in coveredStableIds. Per-family raises target a specific '
+        'stableId; declare the family in coveredStableIds first.',
+      );
     }
     if (entry.value.index < tier.index) {
-      failures.add('$label: perStableIdTier["${entry.key}"] = '
-          '${entry.value.name} is BELOW base tier ${tier.name}. '
-          'Overrides raise only — base tier is the per-family minimum. '
-          'Lower the base tier instead of downgrading a single family.');
+      failures.add(
+        '$label: perStableIdTier["${entry.key}"] = '
+        '${entry.value.name} is BELOW base tier ${tier.name}. '
+        'Overrides raise only — base tier is the per-family minimum. '
+        'Lower the base tier instead of downgrading a single family.',
+      );
     }
   }
   if (bracketStableId != null) {
     final bracketEffective = perStableIdTier[bracketStableId] ?? tier;
     if (bracketEffective.index < EvidenceTier.runtimeVerified.index) {
-      failures.add('$label: bracketStableId "$bracketStableId" has '
-          'effective tier ${bracketEffective.name} but bracket fields '
-          '(profileCapturePaths/bracketThreshold) require the targeted '
-          'family to be runtimeVerified or stronger. Either drop the '
-          'bracket fields or add a perStableIdTier entry raising the '
-          'family.');
+      failures.add(
+        '$label: bracketStableId "$bracketStableId" has '
+        'effective tier ${bracketEffective.name} but bracket fields '
+        '(profileCapturePaths/bracketThreshold) require the targeted '
+        'family to be runtimeVerified or stronger. Either drop the '
+        'bracket fields or add a perStableIdTier entry raising the '
+        'family.',
+      );
     }
   }
   // Every runtimeVerified-or-stronger family in perStableIdTier must
@@ -1447,24 +1497,29 @@ List<String> checkPerStableIdTier({
   for (final entry in perStableIdTier.entries) {
     if (entry.value.index < EvidenceTier.runtimeVerified.index) continue;
     final familyId = entry.key;
-    final canonicalCovers = topLevelCoveredThresholds != null &&
+    final canonicalCovers =
+        topLevelCoveredThresholds != null &&
         coveredViaThresholds(topLevelCoveredThresholds, familyId);
-    final specCovers = additionalBrackets
-            ?.any((s) => coveredViaThresholds(s.coveredThresholds, familyId)) ??
+    final specCovers =
+        additionalBrackets?.any(
+          (s) => coveredViaThresholds(s.coveredThresholds, familyId),
+        ) ??
         false;
     if (!canonicalCovers && !specCovers) {
       final canonicalThresholds =
           topLevelCoveredThresholds?.toList() ?? const [];
       final specStableIds =
           additionalBrackets?.map((s) => s.stableId).toList() ?? const [];
-      failures.add('$label: perStableIdTier["$familyId"] = '
-          '${entry.value.name} but no coveredThresholds entry of the form '
-          '"$familyId.<severity>" exists in canonical bracket '
-          '(coveredThresholds=$canonicalThresholds) or any additionalBrackets '
-          'spec (stableIds=$specStableIds). A runtimeVerified raise must be '
-          'backed by an explicit severity-scoped covered-threshold entry — '
-          'declare "$familyId.<severity>" in the canonical coveredThresholds '
-          'or in a BracketSpec.coveredThresholds for this family.');
+      failures.add(
+        '$label: perStableIdTier["$familyId"] = '
+        '${entry.value.name} but no coveredThresholds entry of the form '
+        '"$familyId.<severity>" exists in canonical bracket '
+        '(coveredThresholds=$canonicalThresholds) or any additionalBrackets '
+        'spec (stableIds=$specStableIds). A runtimeVerified raise must be '
+        'backed by an explicit severity-scoped covered-threshold entry — '
+        'declare "$familyId.<severity>" in the canonical coveredThresholds '
+        'or in a BracketSpec.coveredThresholds for this family.',
+      );
     }
   }
   return failures;
@@ -1516,33 +1571,41 @@ List<String> checkCanonicalCoveredThresholdBacking({
     final familyId = parts[0];
     final severity = parts[1];
     if (familyId.isEmpty || severity.isEmpty) continue;
-    final canonicalCovers = canonicalStable != null &&
+    final canonicalCovers =
+        canonicalStable != null &&
         canonicalStable.isNotEmpty &&
         canonicalStable == familyId &&
         canonicalSev != null &&
         canonicalSev.isNotEmpty &&
         canonicalSev == severity;
-    final specCovers = additionalBrackets?.any((s) =>
-            s.stableId.trim() == familyId &&
-            s.severityLabel.trim() == severity) ??
+    final specCovers =
+        additionalBrackets?.any(
+          (s) =>
+              s.stableId.trim() == familyId &&
+              s.severityLabel.trim() == severity,
+        ) ??
         false;
     if (!canonicalCovers && !specCovers) {
-      final canonicalShape = (canonicalStable == null ||
-              canonicalStable.isEmpty)
+      final canonicalShape =
+          (canonicalStable == null || canonicalStable.isEmpty)
           ? 'null'
           : '(stableId="$canonicalStable", severityLabel='
-              '${canonicalSev == null || canonicalSev.isEmpty ? 'null' : '"$canonicalSev"'})';
+                '${canonicalSev == null || canonicalSev.isEmpty ? 'null' : '"$canonicalSev"'})';
       final specShapes = additionalBrackets == null
           ? 'null'
           : additionalBrackets
-              .map((s) =>
-                  '(stableId="${s.stableId}", severityLabel="${s.severityLabel}")')
-              .join(', ');
-      failures.add('$label: coveredThresholds entry "$entry" has no backing '
-          'bracket spec — canonical $canonicalShape and additionalBrackets '
-          '[$specShapes] do not declare (stableId="$familyId", '
-          'severityLabel="$severity"). A tier-stack raise must back every '
-          'severity-scoped entry with a matching BracketSpec.');
+                .map(
+                  (s) =>
+                      '(stableId="${s.stableId}", severityLabel="${s.severityLabel}")',
+                )
+                .join(', ');
+      failures.add(
+        '$label: coveredThresholds entry "$entry" has no backing '
+        'bracket spec — canonical $canonicalShape and additionalBrackets '
+        '[$specShapes] do not declare (stableId="$familyId", '
+        'severityLabel="$severity"). A tier-stack raise must back every '
+        'severity-scoped entry with a matching BracketSpec.',
+      );
     }
   }
   return failures;
@@ -1600,43 +1663,53 @@ List<String> checkBracketBoundsSanity({
     int? minInBandSamples,
   }) {
     if (minInBandSamples != null && minInBandSamples < 1) {
-      failures.add('$ctx: minInBandSamples=$minInBandSamples must be >= 1 '
-          'when non-null. Zero or negative values are nonsensical: a '
-          'spec opted into this field is asserting redundancy, which '
-          'requires at least one in-band sample (and typically two for '
-          'meaningful single-spike-loss protection). Drop the opt-in '
-          '(set to null) instead of zero.');
+      failures.add(
+        '$ctx: minInBandSamples=$minInBandSamples must be >= 1 '
+        'when non-null. Zero or negative values are nonsensical: a '
+        'spec opted into this field is asserting redundancy, which '
+        'requires at least one in-band sample (and typically two for '
+        'meaningful single-spike-loss protection). Drop the opt-in '
+        '(set to null) instead of zero.',
+      );
     }
     if (observedAxisTolerance <= 0.0 || observedAxisTolerance > 0.25) {
-      failures.add('$ctx: observedAxisTolerance=$observedAxisTolerance is '
-          'outside the sanity bound (0, 0.25]. The schema default and '
-          'production max sit at 0.25; capture-screen post-processing '
-          'now rewrites `expectedMagnitude.observed` to the detector-'
-          'stamped axis value so the cross-check has near-zero divergence '
-          'by construction. Widening past 0.25 should be an explicit, '
-          'reviewed change tied to a specific drift the post-process '
-          'cannot eliminate.');
+      failures.add(
+        '$ctx: observedAxisTolerance=$observedAxisTolerance is '
+        'outside the sanity bound (0, 0.25]. The schema default and '
+        'production max sit at 0.25; capture-screen post-processing '
+        'now rewrites `expectedMagnitude.observed` to the detector-'
+        'stamped axis value so the cross-check has near-zero divergence '
+        'by construction. Widening past 0.25 should be an explicit, '
+        'reviewed change tied to a specific drift the post-process '
+        'cannot eliminate.',
+      );
     }
     if (atTolerance != null) {
       if (atTolerance < 0.0 || atTolerance > 0.65) {
-        failures.add('$ctx: atTolerance=$atTolerance is outside the sanity '
-            'bound [0, 0.65]. Current production max sits at 0.60 '
-            '(heavy_compute critical); widening past 0.65 should be an '
-            'explicit, reviewed change rather than silent drift.');
+        failures.add(
+          '$ctx: atTolerance=$atTolerance is outside the sanity '
+          'bound [0, 0.65]. Current production max sits at 0.60 '
+          '(heavy_compute critical); widening past 0.65 should be an '
+          'explicit, reviewed change rather than silent drift.',
+        );
       }
     }
     if (aboveCeilingMultiplier != null) {
       if (aboveCeilingMultiplier <= 1.0 || aboveCeilingMultiplier > 3.0) {
-        failures.add('$ctx: aboveCeilingMultiplier=$aboveCeilingMultiplier is '
-            'outside the sanity bound (1.0, 3.0]. ≤ 1 inverts the rule '
-            '(above-leg must exceed threshold); > 3 admits magnitudes that '
-            'ambient-bracket adjacent severity tiers on most metrics. '
-            'Current production max sits at 2.7 (RebuildDetector).');
+        failures.add(
+          '$ctx: aboveCeilingMultiplier=$aboveCeilingMultiplier is '
+          'outside the sanity bound (1.0, 3.0]. ≤ 1 inverts the rule '
+          '(above-leg must exceed threshold); > 3 admits magnitudes that '
+          'ambient-bracket adjacent severity tiers on most metrics. '
+          'Current production max sits at 2.7 (RebuildDetector).',
+        );
       }
     }
     if (!allowedAxisReductions.contains(observedAxisReduction)) {
-      failures.add('$ctx: observedAxisReduction="$observedAxisReduction" is '
-          'not in the approved set $allowedAxisReductions.');
+      failures.add(
+        '$ctx: observedAxisReduction="$observedAxisReduction" is '
+        'not in the approved set $allowedAxisReductions.',
+      );
     }
   }
 
@@ -1686,25 +1759,29 @@ List<String> checkRuntimeVerifiedRequiresObservedAxisArgKey({
   }
   final failures = <String>[];
   if (topLevelStableId != null && topLevelObservedAxisArgKey == null) {
-    failures.add('$label: canonical bracket on stableId='
-        '"$topLevelStableId" is tier=$tier but observedAxisArgKey is null. '
-        'The schema\'s detector-observed-axis cross-check is gated on a '
-        'non-null argKey; without one the bracket only proves event '
-        'presence, not magnitude. Either set observedAxisArgKey to a '
-        'stamped trace-record arg, OR demote the tier (perStableIdTier or '
-        'detector base) to reproducerOnly.');
+    failures.add(
+      '$label: canonical bracket on stableId='
+      '"$topLevelStableId" is tier=$tier but observedAxisArgKey is null. '
+      'The schema\'s detector-observed-axis cross-check is gated on a '
+      'non-null argKey; without one the bracket only proves event '
+      'presence, not magnitude. Either set observedAxisArgKey to a '
+      'stamped trace-record arg, OR demote the tier (perStableIdTier or '
+      'detector base) to reproducerOnly.',
+    );
   }
   if (additionalBrackets != null) {
     for (var i = 0; i < additionalBrackets.length; i++) {
       final spec = additionalBrackets[i];
       if (spec.observedAxisArgKey == null) {
-        failures.add('$label: additionalBrackets[$i] on stableId='
-            '"${spec.stableId}" severityLabel="${spec.severityLabel}" is '
-            'tier=$tier but observedAxisArgKey is null. Same reasoning as '
-            'canonical: presence-only evidence does not earn '
-            'runtimeVerified. Either declare observedAxisArgKey, OR '
-            'remove this bracket and leave the (stableId, severity) at '
-            'reproducerOnly.');
+        failures.add(
+          '$label: additionalBrackets[$i] on stableId='
+          '"${spec.stableId}" severityLabel="${spec.severityLabel}" is '
+          'tier=$tier but observedAxisArgKey is null. Same reasoning as '
+          'canonical: presence-only evidence does not earn '
+          'runtimeVerified. Either declare observedAxisArgKey, OR '
+          'remove this bracket and leave the (stableId, severity) at '
+          'reproducerOnly.',
+        );
       }
     }
   }
@@ -1770,14 +1847,12 @@ List<String> checkCapturesCarryObservedAxisArg({
     // is sub-threshold by design (no in-span issue events expected),
     // so cross-check fidelity only applies to at + above.
     final expectedEventName = 'sleuth.issue.$stableId.$severityLabel';
-    for (final entry in [
-      ('at', capturePaths[1]),
-      ('above', capturePaths[2]),
-    ]) {
+    for (final entry in [('at', capturePaths[1]), ('above', capturePaths[2])]) {
       final role = entry.$1;
       final relPath = entry.$2;
-      final file =
-          File(p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath));
+      final file = File(
+        p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath),
+      );
       if (!file.existsSync()) continue;
       final raw = file.readAsBytesSync();
       final root = json.decode(utf8.decode(raw)) as Map<String, Object?>;
@@ -1824,21 +1899,23 @@ List<String> checkCapturesCarryObservedAxisArg({
       }
       if (matched > 0 && carrying < matched) {
         final unstamped = matched - carrying;
-        failures.add('$label: $specLabel on stableId="$stableId" '
-            'severityLabel="$severityLabel" declares '
-            'observedAxisArgKey="$argKey" but the $role capture '
-            '($relPath) contains $matched in-span '
-            '"$expectedEventName" event(s) and only $carrying carry a '
-            'parseable value for "$argKey" ($unstamped unstamped). '
-            'Full coverage is required: the schema\'s per-record '
-            'cross-check and `checkDetectorAxisInRoleBand` reduce over '
-            'the parseable subset, so a producer regression on one '
-            'emission path leaves the unstamped events unaudited. '
-            'Either re-record the captures under a producer binary '
-            'that stamps the arg on every emission path, OR add '
-            '"$label:$stableId:$severityLabel" to '
-            '`legacyObservedAxisAllowlist` with a `consumeBy` '
-            'deadline (see LegacyObservedAxisEntry).');
+        failures.add(
+          '$label: $specLabel on stableId="$stableId" '
+          'severityLabel="$severityLabel" declares '
+          'observedAxisArgKey="$argKey" but the $role capture '
+          '($relPath) contains $matched in-span '
+          '"$expectedEventName" event(s) and only $carrying carry a '
+          'parseable value for "$argKey" ($unstamped unstamped). '
+          'Full coverage is required: the schema\'s per-record '
+          'cross-check and `checkDetectorAxisInRoleBand` reduce over '
+          'the parseable subset, so a producer regression on one '
+          'emission path leaves the unstamped events unaudited. '
+          'Either re-record the captures under a producer binary '
+          'that stamps the arg on every emission path, OR add '
+          '"$label:$stableId:$severityLabel" to '
+          '`legacyObservedAxisAllowlist` with a `consumeBy` '
+          'deadline (see LegacyObservedAxisEntry).',
+        );
       }
     }
   }
@@ -1992,23 +2069,23 @@ List<String> checkDetectorAxisInRoleBand({
     // Convention: profileCapturePaths order is below, at, above. Below
     // is sub-threshold (detector silent); no in-span issue events
     // expected, so the role-band check applies to at + above only.
-    for (final entry in [
-      ('at', capturePaths[1]),
-      ('above', capturePaths[2]),
-    ]) {
+    for (final entry in [('at', capturePaths[1]), ('above', capturePaths[2])]) {
       final role = entry.$1;
       final relPath = entry.$2;
-      final file =
-          File(p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath));
+      final file = File(
+        p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath),
+      );
       if (!file.existsSync()) continue;
       final raw = file.readAsBytesSync();
       final root = json.decode(utf8.decode(raw)) as Map<String, Object?>;
       final events = root['traceEvents'];
       if (events is! List) {
-        failures.add('$label: $specLabel on stableId="$stableId" '
-            'severityLabel="$severityLabel" $role capture ($relPath) '
-            'is missing the `traceEvents` array. Re-record under a '
-            'producer that emits the v1 wrapped capture shape.');
+        failures.add(
+          '$label: $specLabel on stableId="$stableId" '
+          'severityLabel="$severityLabel" $role capture ($relPath) '
+          'is missing the `traceEvents` array. Re-record under a '
+          'producer that emits the v1 wrapped capture shape.',
+        );
         continue;
       }
       // Reuse the schema's strict scenario-span finder so this audit
@@ -2020,12 +2097,16 @@ List<String> checkDetectorAxisInRoleBand({
       int beginTs;
       int endTs;
       try {
-        (beginTs, endTs) =
-            ProfileCaptureSchema.findScenarioSpan(events, relPath);
+        (beginTs, endTs) = ProfileCaptureSchema.findScenarioSpan(
+          events,
+          relPath,
+        );
       } on FormatException catch (e) {
-        failures.add('$label: $specLabel on stableId="$stableId" '
-            'severityLabel="$severityLabel" $role capture ($relPath) '
-            'rejected by scenario-span check: ${e.message}');
+        failures.add(
+          '$label: $specLabel on stableId="$stableId" '
+          'severityLabel="$severityLabel" $role capture ($relPath) '
+          'rejected by scenario-span check: ${e.message}',
+        );
         continue;
       }
       // `order` pins tied-ts behavior under `'last'` reduction so the
@@ -2075,16 +2156,18 @@ List<String> checkDetectorAxisInRoleBand({
       // in-band reduction.
       if (samples.length < matchCount) {
         final unstamped = matchCount - samples.length;
-        failures.add('$label: $specLabel on stableId="$stableId" '
-            'severityLabel="$severityLabel" $role capture ($relPath) '
-            'contains $matchCount in-span "$expectedEventName" event(s) '
-            'but only ${samples.length} carry a parseable value for '
-            '"$argKey" ($unstamped unstamped). Role-band reduction '
-            'over a parseable subset would silently certify a value '
-            'computed from a cherry-picked subset of emissions, while '
-            'the unstamped siblings stay unaudited. Re-record the '
-            'capture under a producer binary that stamps the arg on '
-            'every emission path.');
+        failures.add(
+          '$label: $specLabel on stableId="$stableId" '
+          'severityLabel="$severityLabel" $role capture ($relPath) '
+          'contains $matchCount in-span "$expectedEventName" event(s) '
+          'but only ${samples.length} carry a parseable value for '
+          '"$argKey" ($unstamped unstamped). Role-band reduction '
+          'over a parseable subset would silently certify a value '
+          'computed from a cherry-picked subset of emissions, while '
+          'the unstamped siblings stay unaudited. Re-record the '
+          'capture under a producer binary that stamps the arg on '
+          'every emission path.',
+        );
         continue;
       }
       late num reduced;
@@ -2111,15 +2194,17 @@ List<String> checkDetectorAxisInRoleBand({
         aboveCeilingMultiplier: aboveCeilingMultiplier,
       );
       if (violation != null) {
-        failures.add('$label: $specLabel on stableId="$stableId" '
-            'severityLabel="$severityLabel" $role capture ($relPath) '
-            '$violation. The schema\'s bracket-band check uses the '
-            'operator-claimed `expectedMagnitude.observed` and may pass '
-            'while the detector-stamped value falls in a different role\'s '
-            'band — that mislabels the role even though every individual '
-            'schema check holds. A `runtimeVerified` capture must reproduce '
-            'the role-tier magnitude AT THE DETECTOR, not just at the '
-            'operator measurement.');
+        failures.add(
+          '$label: $specLabel on stableId="$stableId" '
+          'severityLabel="$severityLabel" $role capture ($relPath) '
+          '$violation. The schema\'s bracket-band check uses the '
+          'operator-claimed `expectedMagnitude.observed` and may pass '
+          'while the detector-stamped value falls in a different role\'s '
+          'band — that mislabels the role even though every individual '
+          'schema check holds. A `runtimeVerified` capture must reproduce '
+          'the role-tier magnitude AT THE DETECTOR, not just at the '
+          'operator measurement.',
+        );
       }
     }
   }
@@ -2160,7 +2245,8 @@ List<String> checkDetectorAxisInRoleBand({
         // schema's bracket-band check uses.
         atTolerance:
             spec.atTolerance ?? ProfileCaptureSchema.defaultAtTolerance,
-        aboveCeilingMultiplier: spec.aboveCeilingMultiplier ??
+        aboveCeilingMultiplier:
+            spec.aboveCeilingMultiplier ??
             ProfileCaptureSchema.defaultAboveCeilingMultiplier,
         observedAxisReduction: spec.observedAxisReduction,
         specLabel: 'additionalBrackets[$i]',
@@ -2252,20 +2338,19 @@ List<String> checkMinInBandSamplesPerSpec({
     if (capturePaths.length != 3) continue;
     final atTolerance =
         spec.atTolerance ?? ProfileCaptureSchema.defaultAtTolerance;
-    final aboveCeilingMultiplier = spec.aboveCeilingMultiplier ??
+    final aboveCeilingMultiplier =
+        spec.aboveCeilingMultiplier ??
         ProfileCaptureSchema.defaultAboveCeilingMultiplier;
     final expectedEventName =
         'sleuth.issue.${spec.stableId}.${spec.severityLabel}';
     // Convention mirrors checkDetectorAxisInRoleBand: paths order is
     // below, at, above. Below-leg silent — skip.
-    for (final entry in [
-      ('at', capturePaths[1]),
-      ('above', capturePaths[2]),
-    ]) {
+    for (final entry in [('at', capturePaths[1]), ('above', capturePaths[2])]) {
       final role = entry.$1;
       final relPath = entry.$2;
-      final file =
-          File(p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath));
+      final file = File(
+        p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath),
+      );
       if (!file.existsSync()) continue;
       final List events;
       try {
@@ -2286,8 +2371,10 @@ List<String> checkMinInBandSamplesPerSpec({
       int beginTs;
       int endTs;
       try {
-        (beginTs, endTs) =
-            ProfileCaptureSchema.findScenarioSpan(events, relPath);
+        (beginTs, endTs) = ProfileCaptureSchema.findScenarioSpan(
+          events,
+          relPath,
+        );
       } on FormatException {
         continue;
       }
@@ -2394,12 +2481,16 @@ List<String> checkAdditionalBrackets({
     final specStableTrim = spec.stableId.trim();
     final specSevTrim = spec.severityLabel.trim();
     if (specStableTrim.isEmpty) {
-      failures.add('$ctx: stableId is empty — every spec must name the '
-          'family it brackets');
+      failures.add(
+        '$ctx: stableId is empty — every spec must name the '
+        'family it brackets',
+      );
     }
     if (specSevTrim.isEmpty) {
-      failures.add('$ctx: severityLabel is empty — must be "warning" or '
-          '"critical" matching the threshold the bracket validates');
+      failures.add(
+        '$ctx: severityLabel is empty — must be "warning" or '
+        '"critical" matching the threshold the bracket validates',
+      );
     }
     // `minInBandSamples >= 1` validity check lives in
     // `checkBracketBoundsSanity` (canonical home for numeric-field
@@ -2410,8 +2501,10 @@ List<String> checkAdditionalBrackets({
       failures.add('$ctx: unit is empty — required alongside threshold');
     }
     if (spec.coveredThresholds.isEmpty) {
-      failures.add('$ctx: coveredThresholds is empty — declare the scoped '
-          'thresholds this spec covers (e.g. {"<id>.warning"})');
+      failures.add(
+        '$ctx: coveredThresholds is empty — declare the scoped '
+        'thresholds this spec covers (e.g. {"<id>.warning"})',
+      );
     }
     // Per-spec coveredThresholds content validation. Each entry must be
     // `<stableId>.<severity>` with a known severity tag, AND its
@@ -2422,67 +2515,86 @@ List<String> checkAdditionalBrackets({
     for (final raw in spec.coveredThresholds) {
       final entry = raw.trim();
       if (entry.isEmpty) {
-        failures.add('$ctx: coveredThresholds contains an empty/whitespace '
-            'entry');
+        failures.add(
+          '$ctx: coveredThresholds contains an empty/whitespace '
+          'entry',
+        );
         continue;
       }
       final parts = entry.split('.');
       if (parts.length != 2) {
-        failures.add('$ctx: coveredThresholds entry "$entry" must be '
-            '"<stableId>.<severity>" with exactly one separator (got '
-            '${parts.length - 1} dots)');
+        failures.add(
+          '$ctx: coveredThresholds entry "$entry" must be '
+          '"<stableId>.<severity>" with exactly one separator (got '
+          '${parts.length - 1} dots)',
+        );
         continue;
       }
       final eStableId = parts[0];
       final eSeverity = parts[1];
       if (eStableId.isEmpty) {
-        failures.add('$ctx: coveredThresholds entry "$entry" has an empty '
-            'stableId prefix before "."');
+        failures.add(
+          '$ctx: coveredThresholds entry "$entry" has an empty '
+          'stableId prefix before "."',
+        );
         continue;
       }
       if (eSeverity.isEmpty) {
-        failures.add('$ctx: coveredThresholds entry "$entry" has an empty '
-            'severity suffix after "."');
+        failures.add(
+          '$ctx: coveredThresholds entry "$entry" has an empty '
+          'severity suffix after "."',
+        );
         continue;
       }
       if (!knownSeverityTags.contains(eSeverity)) {
-        failures.add('$ctx: coveredThresholds entry "$entry" uses '
-            'unrecognised severity "$eSeverity" (must be one of '
-            '$knownSeverityTags) — typo or non-canonical tag');
+        failures.add(
+          '$ctx: coveredThresholds entry "$entry" uses '
+          'unrecognised severity "$eSeverity" (must be one of '
+          '$knownSeverityTags) — typo or non-canonical tag',
+        );
         continue;
       }
       if (specStableTrim.isNotEmpty && eStableId != specStableTrim) {
-        failures.add('$ctx: coveredThresholds entry "$entry" stableId '
-            '"$eStableId" does not match spec.stableId "$specStableTrim". '
-            'A BracketSpec is single-family — declare coverage for the '
-            'same family the spec brackets.');
+        failures.add(
+          '$ctx: coveredThresholds entry "$entry" stableId '
+          '"$eStableId" does not match spec.stableId "$specStableTrim". '
+          'A BracketSpec is single-family — declare coverage for the '
+          'same family the spec brackets.',
+        );
         continue;
       }
       if (specSevTrim.isNotEmpty && eSeverity != specSevTrim) {
-        failures.add('$ctx: coveredThresholds entry "$entry" severity '
-            '"$eSeverity" does not match spec.severityLabel "$specSevTrim". '
-            'A BracketSpec is single-severity — declare coverage for the '
-            'same severity the spec brackets.');
+        failures.add(
+          '$ctx: coveredThresholds entry "$entry" severity '
+          '"$eSeverity" does not match spec.severityLabel "$specSevTrim". '
+          'A BracketSpec is single-severity — declare coverage for the '
+          'same severity the spec brackets.',
+        );
         continue;
       }
     }
     if (spec.profileCapturePaths.length != 3) {
-      failures.add('$ctx: profileCapturePaths must contain exactly 3 entries '
-          '(below / at / above), got ${spec.profileCapturePaths.length}: '
-          '${spec.profileCapturePaths}');
+      failures.add(
+        '$ctx: profileCapturePaths must contain exactly 3 entries '
+        '(below / at / above), got ${spec.profileCapturePaths.length}: '
+        '${spec.profileCapturePaths}',
+      );
     }
     // Severity-scoped ceiling guard. When the spec covers a severity-
     // scoped (dotted) threshold, aboveCeilingMultiplier must be set
     // explicitly — inheriting the schema default 2.0 may ambient-bracket
     // the adjacent severity tier on families with sub-2× spacing.
-    final hasDottedThreshold =
-        spec.coveredThresholds.any((e) => e.contains('.'));
+    final hasDottedThreshold = spec.coveredThresholds.any(
+      (e) => e.contains('.'),
+    );
     if (hasDottedThreshold && spec.aboveCeilingMultiplier == null) {
-      failures.add('$ctx: severity-scoped coveredThresholds requires an '
-          'explicit aboveCeilingMultiplier — the schema default (2.0) may '
-          'ambient-bracket the adjacent severity tier on families spaced '
-          'closer than 2×. Pick a multiplier that keeps the above-leg '
-          'strictly under the next tier\'s threshold.');
+      failures.add(
+        '$ctx: severity-scoped coveredThresholds requires an '
+        'explicit aboveCeilingMultiplier — the schema default (2.0) may '
+        'ambient-bracket the adjacent severity tier on families spaced '
+        'closer than 2×. Pick a multiplier that keeps the above-leg '
+        'strictly under the next tier\'s threshold.',
+      );
     }
   }
 
@@ -2525,17 +2637,19 @@ List<String> checkAdditionalBrackets({
       final sevDisplay = specSev == null ? 'null' : '"$specSev"';
       final reason = specArg == null
           ? 'redundant — both specs validate the same '
-              '`sleuth.issue.$specStable.$specSev` trace event without '
-              'an observed-axis cross-check to distinguish them. Pick '
-              'distinct stableIds, distinct severityLabels, OR set '
-              'observedAxisArgKey on at least one spec to disambiguate'
+                '`sleuth.issue.$specStable.$specSev` trace event without '
+                'an observed-axis cross-check to distinguish them. Pick '
+                'distinct stableIds, distinct severityLabels, OR set '
+                'observedAxisArgKey on at least one spec to disambiguate'
           : 'would double-count the same trace event with the same '
-              'observed-axis arg. Use distinct observedAxisArgKeys '
-              '(or null on one) when bracketing multiple axes on the '
-              'same (stableId, severityLabel)';
-      failures.add('$label: cross-spec collision on (stableId="$specStable", '
-          'severityLabel=$sevDisplay, observedAxisArgKey=$argKeyDisplay) '
-          '— $priorLabel and $currLabel $reason.');
+                'observed-axis arg. Use distinct observedAxisArgKeys '
+                '(or null on one) when bracketing multiple axes on the '
+                'same (stableId, severityLabel)';
+      failures.add(
+        '$label: cross-spec collision on (stableId="$specStable", '
+        'severityLabel=$sevDisplay, observedAxisArgKey=$argKeyDisplay) '
+        '— $priorLabel and $currLabel $reason.',
+      );
     } else {
       seen[key] = currLabel;
     }
@@ -2552,9 +2666,11 @@ List<String> checkAdditionalBrackets({
     final canonicalPath = p.canonicalize(raw);
     final priorOwner = pathOwners[canonicalPath];
     if (priorOwner != null && priorOwner != owner) {
-      failures.add('$label: capture path "$raw" is shared between '
-          '$priorOwner and $owner. Each axis must have its own triad '
-          '— path overlap defeats the independence claim.');
+      failures.add(
+        '$label: capture path "$raw" is shared between '
+        '$priorOwner and $owner. Each axis must have its own triad '
+        '— path overlap defeats the independence claim.',
+      );
     } else {
       pathOwners[canonicalPath] = owner;
     }
@@ -2601,12 +2717,14 @@ List<String> checkAdditionalCapturePaths({
     for (final capture in spec.profileCapturePaths) {
       if (capture.trim().isEmpty) continue;
       if (!isPathInsideRepo(capture, repoRoot: rootDirPath)) {
-        failures
-            .add('$ctx: profileCapturePath escapes the repo root: $capture');
+        failures.add(
+          '$ctx: profileCapturePath escapes the repo root: $capture',
+        );
         continue;
       }
-      final file =
-          File(p.isAbsolute(capture) ? capture : p.join(rootDirPath, capture));
+      final file = File(
+        p.isAbsolute(capture) ? capture : p.join(rootDirPath, capture),
+      );
       if (!file.existsSync()) {
         failures.add('$ctx: profileCapturePath does not exist: $capture');
         continue;
@@ -2663,8 +2781,10 @@ List<String> checkAdditionalBracketValidation({
         aboveFile: resolve(spec.profileCapturePaths[2]),
       );
     } on FormatException catch (e) {
-      failures.add('$label.additionalBrackets[$i] (spec #${i + 1}): bracket '
-          'validation failed — ${e.message}');
+      failures.add(
+        '$label.additionalBrackets[$i] (spec #${i + 1}): bracket '
+        'validation failed — ${e.message}',
+      );
     }
   }
   return failures;
@@ -2703,14 +2823,18 @@ List<String> checkBracketValidation({
   }
   final failures = <String>[];
   if (bracketThreshold == null) {
-    failures.add('$label: missing bracketThreshold — runtimeVerified/'
-        'externallyCited tiers require a numeric threshold so the audit '
-        'can call ProfileCaptureSchema.validateBracket and confirm the '
-        'three captures actually bracket it');
+    failures.add(
+      '$label: missing bracketThreshold — runtimeVerified/'
+      'externallyCited tiers require a numeric threshold so the audit '
+      'can call ProfileCaptureSchema.validateBracket and confirm the '
+      'three captures actually bracket it',
+    );
   }
   if (bracketUnit == null || bracketUnit.trim().isEmpty) {
-    failures.add('$label: missing bracketUnit (e.g. "ms", "bytes", "frames") '
-        '— required alongside bracketThreshold');
+    failures.add(
+      '$label: missing bracketUnit (e.g. "ms", "bytes", "frames") '
+      '— required alongside bracketThreshold',
+    );
   }
   // runtimeVerified detector tier raises must prove the detector
   // actually fired AT THE CLAIMED SEVERITY. Without bracketStableId +
@@ -2719,20 +2843,24 @@ List<String> checkBracketValidation({
   // issue records, so they pass requireTraceRecord: false.
   if (requireTraceRecord) {
     if (bracketStableId == null || bracketStableId.trim().isEmpty) {
-      failures.add('$label: missing bracketStableId — runtimeVerified/'
-          'externallyCited detector tiers require the detector\'s '
-          'stableId so the audit can require a '
-          '`sleuth.issue.<id>.<severity>` trace record inside the '
-          'at+above captures (proof the detector actually fired during '
-          'the captured scenario)');
+      failures.add(
+        '$label: missing bracketStableId — runtimeVerified/'
+        'externallyCited detector tiers require the detector\'s '
+        'stableId so the audit can require a '
+        '`sleuth.issue.<id>.<severity>` trace record inside the '
+        'at+above captures (proof the detector actually fired during '
+        'the captured scenario)',
+      );
     }
     if (bracketSeverityLabel == null || bracketSeverityLabel.trim().isEmpty) {
-      failures.add('$label: missing bracketSeverityLabel — '
-          'runtimeVerified/externallyCited detector tiers require '
-          'either "warning" or "critical" so the trace-record check '
-          'matches the SAME severity the bracket validates (e.g. an '
-          '8 ms bracket pairs with severityLabel="warning"; a '
-          '`.critical` event must not satisfy a warning audit)');
+      failures.add(
+        '$label: missing bracketSeverityLabel — '
+        'runtimeVerified/externallyCited detector tiers require '
+        'either "warning" or "critical" so the trace-record check '
+        'matches the SAME severity the bracket validates (e.g. an '
+        '8 ms bracket pairs with severityLabel="warning"; a '
+        '`.critical` event must not satisfy a warning audit)',
+      );
     }
   }
   if (failures.isNotEmpty) return failures;
@@ -2756,7 +2884,8 @@ List<String> checkBracketValidation({
       unit: bracketUnit!,
       atTolerance:
           bracketAtTolerance ?? ProfileCaptureSchema.defaultAtTolerance,
-      aboveCeilingMultiplier: aboveCeilingMultiplier ??
+      aboveCeilingMultiplier:
+          aboveCeilingMultiplier ??
           ProfileCaptureSchema.defaultAboveCeilingMultiplier,
       requireDetectorTraceRecord: requireTraceRecord,
       requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
@@ -2795,108 +2924,132 @@ List<String> runRuntimeTierAudit({
   Set<String> legacyObservedAxisAllowlist = const {},
 }) {
   final failures = <String>[];
-  failures.addAll(checkCoveredThresholds(
-    label: label,
-    tier: meta.effectiveMaxTier,
-    coveredThresholds: meta.coveredThresholds,
-    coveredStableIds: meta.coveredStableIds,
-    parametricFamilies: meta.parametricFamilies,
-    bracketThreshold: meta.bracketThreshold,
-  ));
-  failures.addAll(checkSeverityScopedCeiling(
-    label: label,
-    tier: meta.effectiveMaxTier,
-    coveredThresholds: meta.coveredThresholds,
-    aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
-  ));
-  failures.addAll(checkBracketCount(
-    label: label,
-    tier: meta.effectiveMaxTier,
-    capturePaths: meta.profileCapturePaths,
-  ));
-  failures.addAll(checkBracketValidation(
-    label: label,
-    tier: meta.effectiveMaxTier,
-    capturePaths: meta.profileCapturePaths,
-    bracketThreshold: meta.bracketThreshold,
-    bracketUnit: meta.bracketUnit,
-    aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
-    bracketAtTolerance: meta.bracketAtTolerance,
-    bracketStableId: meta.bracketStableId,
-    bracketSeverityLabel: meta.bracketSeverityLabel,
-    requireTraceRecord: true,
-    requireUniqueDetectedAtMicros: meta.bracketRequireUniqueDetectedAtMicros,
-    observedAxisArgKey: meta.observedAxisArgKey,
-    observedAxisTolerance: meta.observedAxisTolerance,
-    repoRoot: repoRoot,
-  ));
-  failures.addAll(checkAdditionalBrackets(
-    label: label,
-    additionalBrackets: meta.additionalBrackets,
-    topLevelStableId: meta.bracketStableId,
-    topLevelSeverityLabel: meta.bracketSeverityLabel,
-    topLevelObservedAxisArgKey: meta.observedAxisArgKey,
-    topLevelCapturePaths: meta.profileCapturePaths,
-  ));
-  failures.addAll(checkAdditionalCapturePaths(
-    label: label,
-    additionalBrackets: meta.additionalBrackets,
-    repoRoot: repoRoot,
-  ));
-  failures.addAll(checkAdditionalBracketValidation(
-    label: label,
-    effectiveMaxTier: meta.effectiveMaxTier,
-    additionalBrackets: meta.additionalBrackets,
-    repoRoot: repoRoot,
-  ));
-  failures.addAll(checkBracketBoundsSanity(
-    label: label,
-    tier: meta.effectiveMaxTier,
-    canonicalAtTolerance: meta.bracketAtTolerance,
-    canonicalAboveCeilingMultiplier: meta.aboveCeilingMultiplier,
-    canonicalObservedAxisTolerance: meta.observedAxisTolerance,
-    canonicalObservedAxisReduction: meta.observedAxisReduction,
-    additionalBrackets: meta.additionalBrackets,
-  ));
-  failures.addAll(checkRuntimeVerifiedRequiresObservedAxisArgKey(
-    label: label,
-    tier: meta.effectiveMaxTier,
-    topLevelStableId: meta.bracketStableId,
-    topLevelObservedAxisArgKey: meta.observedAxisArgKey,
-    additionalBrackets: meta.additionalBrackets,
-  ));
-  failures.addAll(checkCapturesCarryObservedAxisArg(
-    label: label,
-    tier: meta.effectiveMaxTier,
-    topLevelStableId: meta.bracketStableId,
-    topLevelSeverityLabel: meta.bracketSeverityLabel,
-    topLevelObservedAxisArgKey: meta.observedAxisArgKey,
-    topLevelCapturePaths: meta.profileCapturePaths,
-    additionalBrackets: meta.additionalBrackets,
-    legacyObservedAxisAllowlist: legacyObservedAxisAllowlist,
-    repoRoot: repoRoot,
-  ));
-  failures.addAll(checkDetectorAxisInRoleBand(
-    label: label,
-    tier: meta.effectiveMaxTier,
-    topLevelStableId: meta.bracketStableId,
-    topLevelSeverityLabel: meta.bracketSeverityLabel,
-    topLevelObservedAxisArgKey: meta.observedAxisArgKey,
-    topLevelCapturePaths: meta.profileCapturePaths,
-    topLevelBracketThreshold: meta.bracketThreshold,
-    topLevelAtTolerance: meta.bracketAtTolerance,
-    topLevelAboveCeilingMultiplier: meta.aboveCeilingMultiplier,
-    topLevelObservedAxisReduction: meta.observedAxisReduction,
-    additionalBrackets: meta.additionalBrackets,
-    legacyObservedAxisAllowlist: legacyObservedAxisAllowlist,
-    repoRoot: repoRoot,
-  ));
-  failures.addAll(checkMinInBandSamplesPerSpec(
-    label: label,
-    tier: meta.effectiveMaxTier,
-    additionalBrackets: meta.additionalBrackets,
-    repoRoot: repoRoot,
-  ));
+  failures.addAll(
+    checkCoveredThresholds(
+      label: label,
+      tier: meta.effectiveMaxTier,
+      coveredThresholds: meta.coveredThresholds,
+      coveredStableIds: meta.coveredStableIds,
+      parametricFamilies: meta.parametricFamilies,
+      bracketThreshold: meta.bracketThreshold,
+    ),
+  );
+  failures.addAll(
+    checkSeverityScopedCeiling(
+      label: label,
+      tier: meta.effectiveMaxTier,
+      coveredThresholds: meta.coveredThresholds,
+      aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+    ),
+  );
+  failures.addAll(
+    checkBracketCount(
+      label: label,
+      tier: meta.effectiveMaxTier,
+      capturePaths: meta.profileCapturePaths,
+    ),
+  );
+  failures.addAll(
+    checkBracketValidation(
+      label: label,
+      tier: meta.effectiveMaxTier,
+      capturePaths: meta.profileCapturePaths,
+      bracketThreshold: meta.bracketThreshold,
+      bracketUnit: meta.bracketUnit,
+      aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+      bracketAtTolerance: meta.bracketAtTolerance,
+      bracketStableId: meta.bracketStableId,
+      bracketSeverityLabel: meta.bracketSeverityLabel,
+      requireTraceRecord: true,
+      requireUniqueDetectedAtMicros: meta.bracketRequireUniqueDetectedAtMicros,
+      observedAxisArgKey: meta.observedAxisArgKey,
+      observedAxisTolerance: meta.observedAxisTolerance,
+      repoRoot: repoRoot,
+    ),
+  );
+  failures.addAll(
+    checkAdditionalBrackets(
+      label: label,
+      additionalBrackets: meta.additionalBrackets,
+      topLevelStableId: meta.bracketStableId,
+      topLevelSeverityLabel: meta.bracketSeverityLabel,
+      topLevelObservedAxisArgKey: meta.observedAxisArgKey,
+      topLevelCapturePaths: meta.profileCapturePaths,
+    ),
+  );
+  failures.addAll(
+    checkAdditionalCapturePaths(
+      label: label,
+      additionalBrackets: meta.additionalBrackets,
+      repoRoot: repoRoot,
+    ),
+  );
+  failures.addAll(
+    checkAdditionalBracketValidation(
+      label: label,
+      effectiveMaxTier: meta.effectiveMaxTier,
+      additionalBrackets: meta.additionalBrackets,
+      repoRoot: repoRoot,
+    ),
+  );
+  failures.addAll(
+    checkBracketBoundsSanity(
+      label: label,
+      tier: meta.effectiveMaxTier,
+      canonicalAtTolerance: meta.bracketAtTolerance,
+      canonicalAboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+      canonicalObservedAxisTolerance: meta.observedAxisTolerance,
+      canonicalObservedAxisReduction: meta.observedAxisReduction,
+      additionalBrackets: meta.additionalBrackets,
+    ),
+  );
+  failures.addAll(
+    checkRuntimeVerifiedRequiresObservedAxisArgKey(
+      label: label,
+      tier: meta.effectiveMaxTier,
+      topLevelStableId: meta.bracketStableId,
+      topLevelObservedAxisArgKey: meta.observedAxisArgKey,
+      additionalBrackets: meta.additionalBrackets,
+    ),
+  );
+  failures.addAll(
+    checkCapturesCarryObservedAxisArg(
+      label: label,
+      tier: meta.effectiveMaxTier,
+      topLevelStableId: meta.bracketStableId,
+      topLevelSeverityLabel: meta.bracketSeverityLabel,
+      topLevelObservedAxisArgKey: meta.observedAxisArgKey,
+      topLevelCapturePaths: meta.profileCapturePaths,
+      additionalBrackets: meta.additionalBrackets,
+      legacyObservedAxisAllowlist: legacyObservedAxisAllowlist,
+      repoRoot: repoRoot,
+    ),
+  );
+  failures.addAll(
+    checkDetectorAxisInRoleBand(
+      label: label,
+      tier: meta.effectiveMaxTier,
+      topLevelStableId: meta.bracketStableId,
+      topLevelSeverityLabel: meta.bracketSeverityLabel,
+      topLevelObservedAxisArgKey: meta.observedAxisArgKey,
+      topLevelCapturePaths: meta.profileCapturePaths,
+      topLevelBracketThreshold: meta.bracketThreshold,
+      topLevelAtTolerance: meta.bracketAtTolerance,
+      topLevelAboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+      topLevelObservedAxisReduction: meta.observedAxisReduction,
+      additionalBrackets: meta.additionalBrackets,
+      legacyObservedAxisAllowlist: legacyObservedAxisAllowlist,
+      repoRoot: repoRoot,
+    ),
+  );
+  failures.addAll(
+    checkMinInBandSamplesPerSpec(
+      label: label,
+      tier: meta.effectiveMaxTier,
+      additionalBrackets: meta.additionalBrackets,
+      repoRoot: repoRoot,
+    ),
+  );
   return failures;
 }
 
@@ -3084,8 +3237,9 @@ List<String> checkRetainedOrphanManifest({
   final failures = <String>[];
   manifest.forEach((relPath, entry) {
     final perEntry = <String>[];
-    final file =
-        File(p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath));
+    final file = File(
+      p.isAbsolute(relPath) ? relPath : p.join(rootDirPath, relPath),
+    );
     if (!file.existsSync()) {
       perEntry.add('file does not exist on disk');
     } else {
@@ -3098,39 +3252,51 @@ List<String> checkRetainedOrphanManifest({
       if (metadata != null) {
         final device = metadata['device'];
         if (device != entry.device) {
-          perEntry.add('device mismatch — manifest declares '
-              '"${entry.device}" but capture says "$device"');
+          perEntry.add(
+            'device mismatch — manifest declares '
+            '"${entry.device}" but capture says "$device"',
+          );
         }
         final osVersion = metadata['deviceOsVersion'];
         if (osVersion != entry.deviceOsVersion) {
-          perEntry.add('deviceOsVersion mismatch — manifest declares '
-              '"${entry.deviceOsVersion}" but capture says "$osVersion"');
+          perEntry.add(
+            'deviceOsVersion mismatch — manifest declares '
+            '"${entry.deviceOsVersion}" but capture says "$osVersion"',
+          );
         }
         final flutterVersion = metadata['flutterVersion'];
         if (flutterVersion is! String ||
             !flutterVersion.startsWith('${entry.flutterMajorMinor}.')) {
-          perEntry.add('flutterVersion mismatch — manifest declares '
-              'major.minor "${entry.flutterMajorMinor}" but capture says '
-              '"$flutterVersion"');
+          perEntry.add(
+            'flutterVersion mismatch — manifest declares '
+            'major.minor "${entry.flutterMajorMinor}" but capture says '
+            '"$flutterVersion"',
+          );
         }
         final magnitude = metadata['expectedMagnitude'];
         if (magnitude is Map<String, Object?>) {
           final unit = magnitude['unit'];
           if (unit != entry.unit) {
-            perEntry.add('expectedMagnitude.unit mismatch — manifest '
-                'declares "${entry.unit}" but capture says "$unit"');
+            perEntry.add(
+              'expectedMagnitude.unit mismatch — manifest '
+              'declares "${entry.unit}" but capture says "$unit"',
+            );
           }
           final observed = magnitude['observed'];
           if (observed is num) {
             if (observed < entry.observedMin || observed > entry.observedMax) {
-              perEntry.add('expectedMagnitude.observed $observed outside '
-                  'manifest band [${entry.observedMin}, '
-                  '${entry.observedMax}] — recording drift or wrong manifest '
-                  'entry');
+              perEntry.add(
+                'expectedMagnitude.observed $observed outside '
+                'manifest band [${entry.observedMin}, '
+                '${entry.observedMax}] — recording drift or wrong manifest '
+                'entry',
+              );
             }
           } else {
-            perEntry.add('expectedMagnitude.observed is not a number '
-                '(got $observed)');
+            perEntry.add(
+              'expectedMagnitude.observed is not a number '
+              '(got $observed)',
+            );
           }
         } else {
           perEntry.add('expectedMagnitude is not a Map (got $magnitude)');
@@ -3139,15 +3305,19 @@ List<String> checkRetainedOrphanManifest({
     }
     final cmp = _compareSemver(currentReleaseVersion, entry.consumeBy);
     if (cmp >= 0) {
-      perEntry.add('consumeBy "${entry.consumeBy}" has been reached by '
-          'current release "$currentReleaseVersion" — entry is expired. '
-          'Either consume the capture in the owning claim '
-          '("${entry.owningClaim}") or delete the file and remove this '
-          'manifest entry');
+      perEntry.add(
+        'consumeBy "${entry.consumeBy}" has been reached by '
+        'current release "$currentReleaseVersion" — entry is expired. '
+        'Either consume the capture in the owning claim '
+        '("${entry.owningClaim}") or delete the file and remove this '
+        'manifest entry',
+      );
     }
     if (perEntry.isNotEmpty) {
-      failures.add('retained orphan "$relPath" (role=${entry.role}, '
-          'owningClaim=${entry.owningClaim}): ${perEntry.join('; ')}');
+      failures.add(
+        'retained orphan "$relPath" (role=${entry.role}, '
+        'owningClaim=${entry.owningClaim}): ${perEntry.join('; ')}',
+      );
     }
   });
   return failures;
@@ -3202,13 +3372,15 @@ List<String> checkLegacyObservedAxisManifest({
   manifest.forEach((key, entry) {
     final cmp = _compareSemver(currentReleaseVersion, entry.consumeBy);
     if (cmp >= 0) {
-      failures.add('legacyObservedAxisAllowlist entry "$key" '
-          '(owningClaim="${entry.owningClaim}"): consumeBy '
-          '"${entry.consumeBy}" has been reached by current release '
-          '"$currentReleaseVersion" — entry is expired. Either '
-          're-record the captures under a producer binary that '
-          'stamps the declared observedAxisArgKey, OR explicitly '
-          'extend the consumeBy with a documented reason.');
+      failures.add(
+        'legacyObservedAxisAllowlist entry "$key" '
+        '(owningClaim="${entry.owningClaim}"): consumeBy '
+        '"${entry.consumeBy}" has been reached by current release '
+        '"$currentReleaseVersion" — entry is expired. Either '
+        're-record the captures under a producer binary that '
+        'stamps the declared observedAxisArgKey, OR explicitly '
+        'extend the consumeBy with a documented reason.',
+      );
     }
   });
   return failures;
@@ -3286,15 +3458,17 @@ List<String> checkCapturePathPerDirectoryNamingUniformity({
         // uniformity check while parseFile's per-file check skipped the
         // same file due to scenario shape — leaving stale evidence on
         // disk that no audit rejects.
-        failures.add('captures/$dirName: capture "${p.basename(file.path)}" '
-            'has scenario "$scenario" which is neither basename-exact '
-            '("$basename") nor suffix-of-basename '
-            '("...${basename.isEmpty ? '<empty>' : '_$basename'}"). '
-            'Every committed capture must encode a relationship between '
-            'scenario and basename so the audit can detect stale or '
-            'mis-copied evidence. Move the file under `_fixtures/` if '
-            'it is a negative-test fixture with an intentionally '
-            'unrelated scenario.');
+        failures.add(
+          'captures/$dirName: capture "${p.basename(file.path)}" '
+          'has scenario "$scenario" which is neither basename-exact '
+          '("$basename") nor suffix-of-basename '
+          '("...${basename.isEmpty ? '<empty>' : '_$basename'}"). '
+          'Every committed capture must encode a relationship between '
+          'scenario and basename so the audit can detect stale or '
+          'mis-copied evidence. Move the file under `_fixtures/` if '
+          'it is a negative-test fixture with an intentionally '
+          'unrelated scenario.',
+        );
         continue;
       }
       if (agreedShape == null) {
@@ -3304,12 +3478,14 @@ List<String> checkCapturePathPerDirectoryNamingUniformity({
         continue;
       }
       if (shape != agreedShape) {
-        failures.add('captures/$dirName: capture-name shape drift — '
-            '"${p.basename(firstFile!.path)}" uses "$agreedShape" but '
-            '"${p.basename(file.path)}" uses "$shape". Every file in a '
-            'directory must use one shape (either basename-exact or a '
-            'common scenario-prefix). Mixed shapes are unmaintainable '
-            'and confuse operator workflow.');
+        failures.add(
+          'captures/$dirName: capture-name shape drift — '
+          '"${p.basename(firstFile!.path)}" uses "$agreedShape" but '
+          '"${p.basename(file.path)}" uses "$shape". Every file in a '
+          'directory must use one shape (either basename-exact or a '
+          'common scenario-prefix). Mixed shapes are unmaintainable '
+          'and confuse operator workflow.',
+        );
         continue;
       }
       // Same shape across files — for suffix shape, ALL files must share
@@ -3319,13 +3495,15 @@ List<String> checkCapturePathPerDirectoryNamingUniformity({
       // scenario from an unrelated detector would silently certify the
       // wrong evidence.
       if (shape == 'suffix' && prefix != agreedPrefix) {
-        failures.add('captures/$dirName: scenario-prefix drift — '
-            '"${p.basename(firstFile!.path)}" prefixes scenario with '
-            '"${agreedPrefix}_" but "${p.basename(file.path)}" uses '
-            '"${prefix}_". Every suffix-shape file in a directory must '
-            'share the same scenario prefix; a mismatched prefix '
-            'suggests a copy-paste error from an unrelated detector\'s '
-            'scenario name.');
+        failures.add(
+          'captures/$dirName: scenario-prefix drift — '
+          '"${p.basename(firstFile!.path)}" prefixes scenario with '
+          '"${agreedPrefix}_" but "${p.basename(file.path)}" uses '
+          '"${prefix}_". Every suffix-shape file in a directory must '
+          'share the same scenario prefix; a mismatched prefix '
+          'suggests a copy-paste error from an unrelated detector\'s '
+          'scenario name.',
+        );
       }
     }
   });

@@ -8,12 +8,12 @@ import 'package:sleuth/src/models/widget_highlight.dart';
 /// Bare-minimum custom detector — no heuristics, just tracks enable state.
 class _KeyedDetector extends BaseDetector {
   _KeyedDetector({required super.key})
-      : super(
-          type: DetectorType.custom,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'Keyed Test Detector',
-          description: 'Key gating test fixture',
-        );
+    : super(
+        type: DetectorType.custom,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Keyed Test Detector',
+        description: 'Key gating test fixture',
+      );
 
   final List<PerformanceIssue> _issues = [];
   bool _enabled = true;

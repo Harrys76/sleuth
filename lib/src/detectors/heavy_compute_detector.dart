@@ -37,14 +37,14 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     this.emissionPersistence = const Duration(seconds: 10),
     String? Function()? sourceRouteProvider,
     @visibleForTesting Stopwatch? testStopwatch,
-  })  : _sourceRouteProvider = sourceRouteProvider ?? (() => null),
-        _emissionStopwatch = testStopwatch ?? Stopwatch(),
-        super(
-          type: DetectorType.heavyCompute,
-          lifecycle: DetectorLifecycle.vmOnly,
-          name: 'Heavy Compute',
-          description: 'Detects UI thread blocking (>8ms gaps)',
-        );
+  }) : _sourceRouteProvider = sourceRouteProvider ?? (() => null),
+       _emissionStopwatch = testStopwatch ?? Stopwatch(),
+       super(
+         type: DetectorType.heavyCompute,
+         lifecycle: DetectorLifecycle.vmOnly,
+         name: 'Heavy Compute',
+         description: 'Detects UI thread blocking (>8ms gaps)',
+       );
 
   final int lagThresholdMs;
 
@@ -98,8 +98,9 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
     if (!_isEnabled) return;
 
     final fresh = <PerformanceIssue>[];
-    final buildPhaseEvents =
-        data.phaseEvents.where((e) => e.phase == TimelinePhase.build).toList();
+    final buildPhaseEvents = data.phaseEvents
+        .where((e) => e.phase == TimelinePhase.build)
+        .toList();
 
     if (buildPhaseEvents.isNotEmpty) {
       for (final event in buildPhaseEvents) {
@@ -158,7 +159,7 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       confidence: IssueConfidence.confirmed,
       title: enriched
           ? 'Heavy Build: ${ms.toStringAsFixed(1)}ms '
-              '(${_summarizeWidgets(dirtyWidgets)})'
+                '(${_summarizeWidgets(dirtyWidgets)})'
           : 'Heavy Computation: ${ms.toStringAsFixed(1)}ms',
       detail: _buildDetail(ms, event),
       fixHint: hint,
@@ -198,7 +199,8 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
       category: IssueCategory.build,
       confidence: IssueConfidence.confirmed,
       title: 'Heavy Computation: ${ms.toStringAsFixed(1)}ms',
-      detail: 'Long-running operation detected on UI thread '
+      detail:
+          'Long-running operation detected on UI thread '
           '(${ms.toStringAsFixed(1)}ms). This blocks frame rendering.',
       fixHint: hint,
       fixEffort: effort,
@@ -246,103 +248,101 @@ class HeavyComputeDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.runtimeVerified,
-        rationale: 'VM-only detector. Frame-blocking compute-gap threshold '
-            '(8 ms strict warning, 16 ms strict critical = 2×) pinned '
-            'by hermetic reproducer (`BUILD` events through '
-            '`TimelineParser.parse()` exercising all three emission '
-            'paths: enriched `_createIssue` with dirtyList, unenriched '
-            '`_createIssue` with `ts`, fallback `_createGenericIssue` '
-            'on raw `buildScopeDurations`). The runtimeVerified tier '
-            'is backed by SIX on-device captures (iPhone 12 / iOS '
-            '17.5 / Flutter 3.41.x): three bracketing the 8 ms warning '
-            'threshold (canonical bracket) and three bracketing the '
-            '16 ms critical threshold (additionalBrackets[0], v0.19.13 '
-            'tier-stack raise). All six captures use '
-            '`Sleuth.markScenarioBegin/End` + `flushTimelineNow` to '
-            'drive synchronous detector emission inside the scenario '
-            'span. Captures recorded under v0.18.2+ producer-side dedup '
-            '(stable per-BUILD `detectedAt` derived from '
-            '`event.timestampUs`) so the strong uniqueness invariant '
-            '(`requireUniqueDetectedAtMicros: true`) protects against '
-            'capture replay forgery on both brackets. Issue lifetime: '
-            'heavy_compute is one-shot per BUILD scope. Emitted issues '
-            'persist for `emissionPersistence` wall-clock duration '
-            '(default 10s, monotonic Stopwatch) so a one-shot compute '
-            'event stays observable past the tap-to-open delay on the '
-            'FloatingIssuesCard. Wall-clock semantics are independent '
-            'of VM poll cadence — iOS profile-mode batches arrive '
-            'multiple times per second. Fresh emissions reset the '
-            'persistence window and replace the stale issue '
-            'immediately. Persisted issues stamp `sourceRoute` at '
-            'emission so post-emission navigation does not reattribute '
-            'the issue via the controller aggregate stamp.',
-        reproducerPath: 'test/validation/heavy_compute_reproducer_test.dart',
+    tier: EvidenceTier.runtimeVerified,
+    rationale:
+        'VM-only detector. Frame-blocking compute-gap threshold '
+        '(8 ms strict warning, 16 ms strict critical = 2×) pinned '
+        'by hermetic reproducer (`BUILD` events through '
+        '`TimelineParser.parse()` exercising all three emission '
+        'paths: enriched `_createIssue` with dirtyList, unenriched '
+        '`_createIssue` with `ts`, fallback `_createGenericIssue` '
+        'on raw `buildScopeDurations`). The runtimeVerified tier '
+        'is backed by SIX on-device captures (iPhone 12 / iOS '
+        '17.5 / Flutter 3.41.x): three bracketing the 8 ms warning '
+        'threshold (canonical bracket) and three bracketing the '
+        '16 ms critical threshold (additionalBrackets[0], v0.19.13 '
+        'tier-stack raise). All six captures use '
+        '`Sleuth.markScenarioBegin/End` + `flushTimelineNow` to '
+        'drive synchronous detector emission inside the scenario '
+        'span. Captures recorded under v0.18.2+ producer-side dedup '
+        '(stable per-BUILD `detectedAt` derived from '
+        '`event.timestampUs`) so the strong uniqueness invariant '
+        '(`requireUniqueDetectedAtMicros: true`) protects against '
+        'capture replay forgery on both brackets. Issue lifetime: '
+        'heavy_compute is one-shot per BUILD scope. Emitted issues '
+        'persist for `emissionPersistence` wall-clock duration '
+        '(default 10s, monotonic Stopwatch) so a one-shot compute '
+        'event stays observable past the tap-to-open delay on the '
+        'FloatingIssuesCard. Wall-clock semantics are independent '
+        'of VM poll cadence — iOS profile-mode batches arrive '
+        'multiple times per second. Fresh emissions reset the '
+        'persistence window and replace the stale issue '
+        'immediately. Persisted issues stamp `sourceRoute` at '
+        'emission so post-emission navigation does not reattribute '
+        'the issue via the controller aggregate stamp.',
+    reproducerPath: 'test/validation/heavy_compute_reproducer_test.dart',
+    profileCapturePaths: [
+      'test/validation/captures/heavy_compute/heavy_compute_below.json',
+      'test/validation/captures/heavy_compute/heavy_compute_at.json',
+      'test/validation/captures/heavy_compute/heavy_compute_above.json',
+    ],
+    bracketThreshold: 8,
+    bracketUnit: 'ms',
+    bracketStableId: 'heavy_compute',
+    bracketSeverityLabel: 'warning',
+    // Default 1.1 atTolerance gives [8, 8.8] band — too tight for
+    // iPhone CPU/thermal variance (±15-20% post-warmup). Widened
+    // to 0.50 → at-band [8, 12]. Above-ceiling 1.875 → 15 ms
+    // (clear of 16 ms critical so above-leg cannot ambiently
+    // bracket the critical tier).
+    bracketAtTolerance: 0.50,
+    aboveCeilingMultiplier: 1.875,
+    coveredStableIds: {'heavy_compute'},
+    coveredThresholds: {'heavy_compute.warning', 'heavy_compute.critical'},
+    // Captures recorded under v0.18.2+ producer-side dedup with
+    // stable per-BUILD `detectedAt`. Opt into the strong
+    // uniqueness invariant so the audit gate rejects any future
+    // capture whose in-span trace records share a
+    // `detectedAtMicros` (forgery / replay protection).
+    bracketRequireUniqueDetectedAtMicros: true,
+    // Detector stamps BUILD ms into `extraTraceArgs` (key
+    // `observedDurationMs`) so the audit gate cross-checks the
+    // operator-Stopwatch `expectedMagnitude.observed` against the
+    // detector-side measurement. Closes the certify-wrong-magnitude
+    // gap a magnitudeSourceEventName='' bypass would otherwise
+    // leave open. Backward-compatible: pre-arg captures lack the
+    // key and the cross-check is skipped per-record.
+    observedAxisArgKey: 'observedDurationMs',
+    // Critical-tier bracket. atTolerance 0.60 (vs warning's 0.50) is
+    // forward-compat re-record headroom, not retroactive band-fit:
+    // the committed at observation (23.703 ms) fits the 0.50 band
+    // [16, 24] too. The wider band gives the next operator a 1-2
+    // tap convergence window instead of 4-5 retries against a near-
+    // edge target. aboveCeilingMultiplier stays 1.875 → ceiling 30
+    // ms; above-band (25.7, 30] keeps positive width since at-upper
+    // 25.6 < ceiling 30.
+    additionalBrackets: [
+      BracketSpec(
+        stableId: 'heavy_compute',
+        severityLabel: 'critical',
+        threshold: 16,
+        unit: 'ms',
+        coveredThresholds: {'heavy_compute.critical'},
         profileCapturePaths: [
-          'test/validation/captures/heavy_compute/heavy_compute_below.json',
-          'test/validation/captures/heavy_compute/heavy_compute_at.json',
-          'test/validation/captures/heavy_compute/heavy_compute_above.json',
+          'test/validation/captures/heavy_compute/heavy_compute_critical_below.json',
+          'test/validation/captures/heavy_compute/heavy_compute_critical_at.json',
+          'test/validation/captures/heavy_compute/heavy_compute_critical_above.json',
         ],
-        bracketThreshold: 8,
-        bracketUnit: 'ms',
-        bracketStableId: 'heavy_compute',
-        bracketSeverityLabel: 'warning',
-        // Default 1.1 atTolerance gives [8, 8.8] band — too tight for
-        // iPhone CPU/thermal variance (±15-20% post-warmup). Widened
-        // to 0.50 → at-band [8, 12]. Above-ceiling 1.875 → 15 ms
-        // (clear of 16 ms critical so above-leg cannot ambiently
-        // bracket the critical tier).
-        bracketAtTolerance: 0.50,
+        atTolerance: 0.60,
         aboveCeilingMultiplier: 1.875,
-        coveredStableIds: {'heavy_compute'},
-        coveredThresholds: {
-          'heavy_compute.warning',
-          'heavy_compute.critical',
-        },
-        // Captures recorded under v0.18.2+ producer-side dedup with
-        // stable per-BUILD `detectedAt`. Opt into the strong
-        // uniqueness invariant so the audit gate rejects any future
-        // capture whose in-span trace records share a
-        // `detectedAtMicros` (forgery / replay protection).
-        bracketRequireUniqueDetectedAtMicros: true,
-        // Detector stamps BUILD ms into `extraTraceArgs` (key
-        // `observedDurationMs`) so the audit gate cross-checks the
-        // operator-Stopwatch `expectedMagnitude.observed` against the
-        // detector-side measurement. Closes the certify-wrong-magnitude
-        // gap a magnitudeSourceEventName='' bypass would otherwise
-        // leave open. Backward-compatible: pre-arg captures lack the
-        // key and the cross-check is skipped per-record.
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
+        // Same observed-axis key as the canonical warning bracket.
+        // Cross-spec uniqueness tuple is (stableId, severityLabel,
+        // argKey) so this collides with neither: warning + critical
+        // share argKey but differ on severityLabel.
         observedAxisArgKey: 'observedDurationMs',
-        // Critical-tier bracket. atTolerance 0.60 (vs warning's 0.50) is
-        // forward-compat re-record headroom, not retroactive band-fit:
-        // the committed at observation (23.703 ms) fits the 0.50 band
-        // [16, 24] too. The wider band gives the next operator a 1-2
-        // tap convergence window instead of 4-5 retries against a near-
-        // edge target. aboveCeilingMultiplier stays 1.875 → ceiling 30
-        // ms; above-band (25.7, 30] keeps positive width since at-upper
-        // 25.6 < ceiling 30.
-        additionalBrackets: [
-          BracketSpec(
-            stableId: 'heavy_compute',
-            severityLabel: 'critical',
-            threshold: 16,
-            unit: 'ms',
-            coveredThresholds: {'heavy_compute.critical'},
-            profileCapturePaths: [
-              'test/validation/captures/heavy_compute/heavy_compute_critical_below.json',
-              'test/validation/captures/heavy_compute/heavy_compute_critical_at.json',
-              'test/validation/captures/heavy_compute/heavy_compute_critical_above.json',
-            ],
-            atTolerance: 0.60,
-            aboveCeilingMultiplier: 1.875,
-            requireUniqueDetectedAtMicros: true,
-            requireDetectorTraceRecord: true,
-            // Same observed-axis key as the canonical warning bracket.
-            // Cross-spec uniqueness tuple is (stableId, severityLabel,
-            // argKey) so this collides with neither: warning + critical
-            // share argKey but differ on severityLabel.
-            observedAxisArgKey: 'observedDurationMs',
-          ),
-        ],
-      );
+      ),
+    ],
+  );
 }

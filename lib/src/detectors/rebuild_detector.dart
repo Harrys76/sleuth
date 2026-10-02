@@ -53,15 +53,15 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     this.startupPhaseWindowSeconds = 5,
     DateTime Function()? clock,
     int? Function()? appStartMonotonicUsForTest,
-  })  : _clock = clock ?? DateTime.now,
-        _windowStart = (clock ?? DateTime.now)(),
-        _appStartForTest = appStartMonotonicUsForTest,
-        super(
-          type: DetectorType.rebuild,
-          lifecycle: DetectorLifecycle.hybrid,
-          name: 'Rebuild',
-          description: 'Detects excessive widget rebuilds (>10/sec)',
-        );
+  }) : _clock = clock ?? DateTime.now,
+       _windowStart = (clock ?? DateTime.now)(),
+       _appStartForTest = appStartMonotonicUsForTest,
+       super(
+         type: DetectorType.rebuild,
+         lifecycle: DetectorLifecycle.hybrid,
+         name: 'Rebuild',
+         description: 'Detects excessive widget rebuilds (>10/sec)',
+       );
 
   final int rebuildsPerSecThreshold;
 
@@ -352,17 +352,19 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
           if (rect != null) {
             final effectiveThreshold =
                 _builderWidgetTypes.contains(baseTypeName(name))
-                    ? rebuildsPerSecThreshold * _builderThresholdMultiplier
-                    : rebuildsPerSecThreshold;
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: name,
-              severity: rate > effectiveThreshold * 3
-                  ? IssueSeverity.critical
-                  : IssueSeverity.warning,
-              detectorName: 'Rebuild',
-              detail: '${rate.round()} rebuilds/sec',
-            ));
+                ? rebuildsPerSecThreshold * _builderThresholdMultiplier
+                : rebuildsPerSecThreshold;
+            _highlights.add(
+              WidgetHighlight(
+                rect: rect,
+                widgetName: name,
+                severity: rate > effectiveThreshold * 3
+                    ? IssueSeverity.critical
+                    : IssueSeverity.warning,
+                detectorName: 'Rebuild',
+                detail: '${rate.round()} rebuilds/sec',
+              ),
+            );
             _hotCounts[name] = count + 1;
           }
         }
@@ -539,29 +541,32 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
 
       final builderNote = isBuilder ? ' (builder widget)' : '';
 
-      _issues.add(PerformanceIssue(
-        stableId: 'rebuild_debug_$typeName',
-        severity: rate > effectiveThreshold * 3
-            ? IssueSeverity.critical
-            : IssueSeverity.warning,
-        category: IssueCategory.build,
-        confidence: IssueConfidence.confirmed,
-        title: 'Excessive Rebuilds: $typeName (${rate.round()}/sec)',
-        detail: '$typeName: $count rebuilds in '
-            '${elapsedSec.toStringAsFixed(1)}s '
-            '(${rate.round()}/sec).$builderNote',
-        fixHint: hint,
-        fixEffort: effort,
-        widgetName: typeName,
-        ancestorChain: snapshot.ancestorChains[typeName],
-        observationSource: ObservationSource.debugCallback,
-        detectedAt: DateTime.now(),
-        extraTraceArgs: {
-          if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
-        },
-        confidenceReason:
-            'Measured directly from debug callback rebuild counter',
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'rebuild_debug_$typeName',
+          severity: rate > effectiveThreshold * 3
+              ? IssueSeverity.critical
+              : IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+          title: 'Excessive Rebuilds: $typeName (${rate.round()}/sec)',
+          detail:
+              '$typeName: $count rebuilds in '
+              '${elapsedSec.toStringAsFixed(1)}s '
+              '(${rate.round()}/sec).$builderNote',
+          fixHint: hint,
+          fixEffort: effort,
+          widgetName: typeName,
+          ancestorChain: snapshot.ancestorChains[typeName],
+          observationSource: ObservationSource.debugCallback,
+          detectedAt: DateTime.now(),
+          extraTraceArgs: {
+            if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+          },
+          confidenceReason:
+              'Measured directly from debug callback rebuild counter',
+        ),
+      );
     }
   }
 
@@ -601,7 +606,8 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
       }
       final sorted = counts.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
-      detailSuffix = '\nTop dirty widgets (timeline enrichment): '
+      detailSuffix =
+          '\nTop dirty widgets (timeline enrichment): '
           '${sorted.take(3).map((e) => '${e.key} (${e.value}x)').join(', ')}';
     } else {
       // Structural fallback
@@ -609,8 +615,8 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
         ..sort((a, b) => b.value.compareTo(a.value));
       detailSuffix = topRebuilders.isNotEmpty
           ? '\nMost common StatefulWidget on screen: ${topRebuilders.first.key} '
-              '(${topRebuilders.first.value} instances — screen context, '
-              'not proven rebuild source).'
+                '(${topRebuilders.first.value} instances — screen context, '
+                'not proven rebuild source).'
           : '';
     }
 
@@ -626,26 +632,28 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
 
     final detectedAt = DateTime.now();
     final lifecyclePhase = _classifyLifecyclePhase();
-    _issues.add(PerformanceIssue(
-      stableId: 'rebuild_activity',
-      severity: adjusted > rebuildsPerSecThreshold * 3
-          ? IssueSeverity.critical
-          : IssueSeverity.warning,
-      category: IssueCategory.build,
-      confidence: IssueConfidence.confirmed,
-      title: 'High Rebuild Activity: $adjusted builds/sec',
-      detail: '$adjusted widget rebuilds in the last second.$detailSuffix',
-      fixHint: hint,
-      fixEffort: effort,
-      observationSource: ObservationSource.vmTimeline,
-      detectedAt: detectedAt,
-      dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
-      extraTraceArgs: {
-        'observedRebuildRate': adjusted.toString(),
-        if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
-      },
-      confidenceReason: 'Measured directly from VM timeline build count',
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'rebuild_activity',
+        severity: adjusted > rebuildsPerSecThreshold * 3
+            ? IssueSeverity.critical
+            : IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.confirmed,
+        title: 'High Rebuild Activity: $adjusted builds/sec',
+        detail: '$adjusted widget rebuilds in the last second.$detailSuffix',
+        fixHint: hint,
+        fixEffort: effort,
+        observationSource: ObservationSource.vmTimeline,
+        detectedAt: detectedAt,
+        dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
+        extraTraceArgs: {
+          'observedRebuildRate': adjusted.toString(),
+          if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+        },
+        confidenceReason: 'Measured directly from VM timeline build count',
+      ),
+    );
   }
 
   /// Structural-only fallback when VM data is unavailable.
@@ -657,34 +665,38 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     final topRebuilders = _widgetRebuildCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
-    final topWidget =
-        topRebuilders.isNotEmpty ? topRebuilders.first.key : 'Unknown';
+    final topWidget = topRebuilders.isNotEmpty
+        ? topRebuilders.first.key
+        : 'Unknown';
 
     final (hint, effort) = FixHintBuilder.statefulDensity(
       topWidget: topRebuilders.isNotEmpty ? topWidget : null,
     );
 
     final lifecyclePhase = _classifyLifecyclePhase();
-    _issues.add(PerformanceIssue(
-      stableId: 'stateful_density',
-      severity: IssueSeverity.warning,
-      category: IssueCategory.build,
-      confidence: IssueConfidence.possible,
-      title: 'High StatefulWidget Density: $totalStateful instances',
-      detail: '$totalStateful StatefulWidget instances on screen '
-          '(VM unavailable — rebuild rate unknown).'
-          '${topRebuilders.isNotEmpty ? '\nMost common: $topWidget '
-              '(${topRebuilders.first.value} instances).' : ''}',
-      fixHint: hint,
-      fixEffort: effort,
-      observationSource: ObservationSource.structural,
-      detectedAt: DateTime.now(),
-      extraTraceArgs: {
-        if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
-      },
-      confidenceReason:
-          'Structural scan only — connect VM for higher confidence',
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'stateful_density',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'High StatefulWidget Density: $totalStateful instances',
+        detail:
+            '$totalStateful StatefulWidget instances on screen '
+            '(VM unavailable — rebuild rate unknown).'
+            '${topRebuilders.isNotEmpty ? '\nMost common: $topWidget '
+                      '(${topRebuilders.first.value} instances).' : ''}',
+        fixHint: hint,
+        fixEffort: effort,
+        observationSource: ObservationSource.structural,
+        detectedAt: DateTime.now(),
+        extraTraceArgs: {
+          if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+        },
+        confidenceReason:
+            'Structural scan only — connect VM for higher confidence',
+      ),
+    );
   }
 
   /// Framework StatefulWidget types that inflate the structural density count
@@ -749,97 +761,96 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        perStableIdTier: {
-          'rebuild_activity': EvidenceTier.runtimeVerified,
-        },
-        additionalBrackets: [
-          BracketSpec(
-            stableId: 'rebuild_activity',
-            severityLabel: 'critical',
-            threshold: 31,
-            unit: 'rebuilds',
-            coveredThresholds: {'rebuild_activity.critical'},
-            profileCapturePaths: [
-              'test/validation/captures/rebuild_detector/critical_below.json',
-              'test/validation/captures/rebuild_detector/critical_at.json',
-              'test/validation/captures/rebuild_detector/critical_above.json',
-            ],
-            atTolerance: 0.65,
-            aboveCeilingMultiplier: 2.7,
-            requireUniqueDetectedAtMicros: true,
-            requireDetectorTraceRecord: true,
-            observedAxisArgKey: 'observedRebuildRate',
-            observedAxisReduction: 'max',
-            // Each leg's capture must contain >=2 in-band detector
-            // samples in its role band so a single in-band peak
-            // surrounded by sub-band emissions cannot certify the
-            // bracket. iPhone thermal throttling on a 6 s sustained
-            // leg routinely produces a mix of in-band + sub-band
-            // emissions; requiring redundancy makes the audit gate
-            // robust against a future event drop (VM-poll dedup
-            // tightening, ring-buffer roll, reduction-strategy
-            // change) that would otherwise leave the leg with only
-            // sub-band evidence.
-            minInBandSamples: 2,
-          ),
+    tier: EvidenceTier.reproducerOnly,
+    perStableIdTier: {'rebuild_activity': EvidenceTier.runtimeVerified},
+    additionalBrackets: [
+      BracketSpec(
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        threshold: 31,
+        unit: 'rebuilds',
+        coveredThresholds: {'rebuild_activity.critical'},
+        profileCapturePaths: [
+          'test/validation/captures/rebuild_detector/critical_below.json',
+          'test/validation/captures/rebuild_detector/critical_at.json',
+          'test/validation/captures/rebuild_detector/critical_above.json',
         ],
-        rationale: 'Hybrid detector. Three families: `stateful_density` '
-            '(public-named StatefulWidget density; framework/private '
-            'filtered), `rebuild_activity` (VM-timeline rebuild-rate — '
-            'warning at `> rebuildsPerSecThreshold` default 10/sec, '
-            'critical at `> 3×` = 30/sec; reproducer pins 11 → warning, '
-            '31 → critical), and parametric `rebuild_debug_<typeName>` '
-            '(declared via `parametricFamilies` — concrete '
-            '`rebuild_debug_MyWidget` credits via `_` separator '
-            'matcher). `rebuild_activity.warning` runtimeVerified via '
-            'three on-device captures bracketing 11 BUILDs/sec '
-            '(below 8 / at 18 / above 26) on iPhone 12 + iOS 17.5 + '
-            'Flutter 3.41.x. Capture-mode operator measures ambient '
-            'baseline inline before each leg and calls '
-            '`setBaseline(int)` so framework-driven BUILDs (Material '
-            'animations, theme inheritance, navigator transitions) are '
-            'subtracted from the threshold gate. Without subtraction '
-            'iOS profile-mode emits ~10–15 BUILDs/sec from ambient '
-            'state alone, which exceeds the default threshold and '
-            'breaks below-leg honesty. Live monitoring is unaffected '
-            '(default baseline=0 → no-op subtraction). VM → '
-            'TimelineParser → detector boundary exercised via '
-            'cross-harness reproducer (raw `List<TimelineEvent>` '
-            'through `parseAndAssertShape` + real `pumpWidget` for '
-            'the structural-fallback leg). Builder-widget 3× threshold '
-            'multiplier proven with paired non-builder/builder fixture '
-            'at identical rate=25. Source-mode '
-            '`RebuildCountSource.flutterTimeline` per-type suppression '
-            'pinned. Detector exports `observedRebuildRate` to '
-            '`extraTraceArgs` and stamps `dedupIdentityMicros` on '
-            'every emission; `peakObservedRebuildRate` and '
-            '`lastObservedRebuildRate` getters expose adjusted rates '
-            'unconditionally (sub-threshold buffers update both '
-            'before the emission gate). `RebuildActivityCaptureScreen` '
-            'drives Stopwatch-throttled `_Pulse` setState (1 BUILD '
-            'per tick via const-child diff short-circuit) at '
-            'refresh-rate-independent rates.',
-        reproducerPath: 'test/validation/rebuild_reproducer_test.dart',
-        coveredStableIds: {'stateful_density', 'rebuild_activity'},
-        coveredThresholds: {
-          'rebuild_activity.warning',
-          'rebuild_activity.critical',
-        },
-        parametricFamilies: {'rebuild_debug'},
-        bracketStableId: 'rebuild_activity',
-        bracketSeverityLabel: 'warning',
-        bracketThreshold: 11,
-        bracketUnit: 'rebuilds',
-        bracketAtTolerance: 0.65,
+        atTolerance: 0.65,
         aboveCeilingMultiplier: 2.7,
+        requireUniqueDetectedAtMicros: true,
+        requireDetectorTraceRecord: true,
         observedAxisArgKey: 'observedRebuildRate',
         observedAxisReduction: 'max',
-        bracketRequireUniqueDetectedAtMicros: true,
-        profileCapturePaths: [
-          'test/validation/captures/rebuild_detector/below.json',
-          'test/validation/captures/rebuild_detector/at.json',
-          'test/validation/captures/rebuild_detector/above.json',
-        ],
-      );
+        // Each leg's capture must contain >=2 in-band detector
+        // samples in its role band so a single in-band peak
+        // surrounded by sub-band emissions cannot certify the
+        // bracket. iPhone thermal throttling on a 6 s sustained
+        // leg routinely produces a mix of in-band + sub-band
+        // emissions; requiring redundancy makes the audit gate
+        // robust against a future event drop (VM-poll dedup
+        // tightening, ring-buffer roll, reduction-strategy
+        // change) that would otherwise leave the leg with only
+        // sub-band evidence.
+        minInBandSamples: 2,
+      ),
+    ],
+    rationale:
+        'Hybrid detector. Three families: `stateful_density` '
+        '(public-named StatefulWidget density; framework/private '
+        'filtered), `rebuild_activity` (VM-timeline rebuild-rate — '
+        'warning at `> rebuildsPerSecThreshold` default 10/sec, '
+        'critical at `> 3×` = 30/sec; reproducer pins 11 → warning, '
+        '31 → critical), and parametric `rebuild_debug_<typeName>` '
+        '(declared via `parametricFamilies` — concrete '
+        '`rebuild_debug_MyWidget` credits via `_` separator '
+        'matcher). `rebuild_activity.warning` runtimeVerified via '
+        'three on-device captures bracketing 11 BUILDs/sec '
+        '(below 8 / at 18 / above 26) on iPhone 12 + iOS 17.5 + '
+        'Flutter 3.41.x. Capture-mode operator measures ambient '
+        'baseline inline before each leg and calls '
+        '`setBaseline(int)` so framework-driven BUILDs (Material '
+        'animations, theme inheritance, navigator transitions) are '
+        'subtracted from the threshold gate. Without subtraction '
+        'iOS profile-mode emits ~10–15 BUILDs/sec from ambient '
+        'state alone, which exceeds the default threshold and '
+        'breaks below-leg honesty. Live monitoring is unaffected '
+        '(default baseline=0 → no-op subtraction). VM → '
+        'TimelineParser → detector boundary exercised via '
+        'cross-harness reproducer (raw `List<TimelineEvent>` '
+        'through `parseAndAssertShape` + real `pumpWidget` for '
+        'the structural-fallback leg). Builder-widget 3× threshold '
+        'multiplier proven with paired non-builder/builder fixture '
+        'at identical rate=25. Source-mode '
+        '`RebuildCountSource.flutterTimeline` per-type suppression '
+        'pinned. Detector exports `observedRebuildRate` to '
+        '`extraTraceArgs` and stamps `dedupIdentityMicros` on '
+        'every emission; `peakObservedRebuildRate` and '
+        '`lastObservedRebuildRate` getters expose adjusted rates '
+        'unconditionally (sub-threshold buffers update both '
+        'before the emission gate). `RebuildActivityCaptureScreen` '
+        'drives Stopwatch-throttled `_Pulse` setState (1 BUILD '
+        'per tick via const-child diff short-circuit) at '
+        'refresh-rate-independent rates.',
+    reproducerPath: 'test/validation/rebuild_reproducer_test.dart',
+    coveredStableIds: {'stateful_density', 'rebuild_activity'},
+    coveredThresholds: {
+      'rebuild_activity.warning',
+      'rebuild_activity.critical',
+    },
+    parametricFamilies: {'rebuild_debug'},
+    bracketStableId: 'rebuild_activity',
+    bracketSeverityLabel: 'warning',
+    bracketThreshold: 11,
+    bracketUnit: 'rebuilds',
+    bracketAtTolerance: 0.65,
+    aboveCeilingMultiplier: 2.7,
+    observedAxisArgKey: 'observedRebuildRate',
+    observedAxisReduction: 'max',
+    bracketRequireUniqueDetectedAtMicros: true,
+    profileCapturePaths: [
+      'test/validation/captures/rebuild_detector/below.json',
+      'test/validation/captures/rebuild_detector/at.json',
+      'test/validation/captures/rebuild_detector/above.json',
+    ],
+  );
 }

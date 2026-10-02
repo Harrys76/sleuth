@@ -53,11 +53,7 @@ void main() {
 
     test('includes vsync wait when overhead is material', () {
       final verdict = analyzer.analyzeBasicMode(
-        frameStats: makeFrame(
-          uiMs: 30,
-          rasterMs: 10,
-          vsyncOverheadUs: 1500,
-        ),
+        frameStats: makeFrame(uiMs: 30, rasterMs: 10, vsyncOverheadUs: 1500),
       );
 
       expect(verdict.reason, contains('Vsync wait: 1.5ms'));
@@ -93,11 +89,7 @@ void main() {
 
     test('detects pipeline stall when gap exceeds 25% of budget', () {
       final verdict = analyzer.analyzeBasicMode(
-        frameStats: makeFrame(
-          uiMs: 10,
-          rasterMs: 8,
-          buildToRasterGapUs: 5000,
-        ),
+        frameStats: makeFrame(uiMs: 10, rasterMs: 8, buildToRasterGapUs: 5000),
       );
 
       expect(verdict.suspectedPhase, PipelinePhase.pipelineStall);
@@ -218,34 +210,36 @@ void main() {
       expect(verdict.reason, contains('total span'));
     });
 
-    test('falls back to pipelineStall with moderate VM phases under budget',
-        () {
-      // Realistic scenario: all VM phases moderate (not tiny 1ms stubs)
-      // but still under budget, while gap pushes totalSpan over budget.
-      final frame = makeFrame(
-        uiMs: 12,
-        rasterMs: 10,
-        buildToRasterGapUs: 8000,
-        totalSpan: const Duration(milliseconds: 30),
-      );
+    test(
+      'falls back to pipelineStall with moderate VM phases under budget',
+      () {
+        // Realistic scenario: all VM phases moderate (not tiny 1ms stubs)
+        // but still under budget, while gap pushes totalSpan over budget.
+        final frame = makeFrame(
+          uiMs: 12,
+          rasterMs: 10,
+          buildToRasterGapUs: 8000,
+          totalSpan: const Duration(milliseconds: 30),
+        );
 
-      final timelineData = ParsedTimelineData(
-        buildScopeDurations: [5000], // 5ms
-        flushLayoutDurations: [4000], // 4ms
-        flushPaintDurations: [3000], // 3ms
-        rasterDurations: [10000], // 10ms — under 16ms budget
-      );
+        final timelineData = ParsedTimelineData(
+          buildScopeDurations: [5000], // 5ms
+          flushLayoutDurations: [4000], // 4ms
+          flushPaintDurations: [3000], // 3ms
+          rasterDurations: [10000], // 10ms — under 16ms budget
+        );
 
-      final verdict = analyzer.analyzeFullMode(
-        frameStats: frame,
-        timelineData: timelineData,
-      );
+        final verdict = analyzer.analyzeFullMode(
+          frameStats: frame,
+          timelineData: timelineData,
+        );
 
-      expect(verdict.suspectedPhase, PipelinePhase.pipelineStall);
-      expect(verdict.reason, contains('PIPELINE STALL'));
-      expect(verdict.reason, contains('total span: 30.0ms'));
-      expect(verdict.reason, contains('pipeline gap: 8.0ms'));
-    });
+        expect(verdict.suspectedPhase, PipelinePhase.pipelineStall);
+        expect(verdict.reason, contains('PIPELINE STALL'));
+        expect(verdict.reason, contains('total span: 30.0ms'));
+        expect(verdict.reason, contains('pipeline gap: 8.0ms'));
+      },
+    );
   });
 
   group('RenderPipelineAnalyzer buildToRasterGapTime nullability', () {

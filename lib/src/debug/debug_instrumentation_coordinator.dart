@@ -44,10 +44,10 @@ class DebugInstrumentationCoordinator {
     DateTime Function()? clock,
     bool installRebuild = true,
     bool installPaint = true,
-  })  : _maxTrackedTypes = maxTrackedTypes,
-        _clock = clock ?? DateTime.now,
-        _installRebuild = installRebuild,
-        _installPaint = installPaint {
+  }) : _maxTrackedTypes = maxTrackedTypes,
+       _clock = clock ?? DateTime.now,
+       _installRebuild = installRebuild,
+       _installPaint = installPaint {
     // Create bound method references once so == checks work on uninstall.
     _onRebuildDirtyWidget = _handleRebuildDirtyWidget;
     _onProfilePaint = _handleProfilePaint;
@@ -138,8 +138,10 @@ class DebugInstrumentationCoordinator {
     assert(() {
       if (_installRebuild && !_rebuildInstalled) {
         if (debugOnRebuildDirtyWidget != null) {
-          debugPrint('Sleuth: debugOnRebuildDirtyWidget already set '
-              '(likely DevTools). Skipping rebuild callback.');
+          debugPrint(
+            'Sleuth: debugOnRebuildDirtyWidget already set '
+            '(likely DevTools). Skipping rebuild callback.',
+          );
         } else {
           debugOnRebuildDirtyWidget = _onRebuildDirtyWidget;
           _rebuildInstalled = true;
@@ -147,8 +149,10 @@ class DebugInstrumentationCoordinator {
       }
       if (_installPaint && !_paintInstalled) {
         if (debugOnProfilePaint != null) {
-          debugPrint('Sleuth: debugOnProfilePaint already set. '
-              'Skipping paint callback.');
+          debugPrint(
+            'Sleuth: debugOnProfilePaint already set. '
+            'Skipping paint callback.',
+          );
         } else {
           debugOnProfilePaint = _onProfilePaint;
           _paintInstalled = true;
@@ -308,8 +312,9 @@ class DebugInstrumentationCoordinator {
       totalPaintCount: _paintCount,
       elapsed: elapsed,
       ancestorChains: Map<String, String>.of(_ancestorChains),
-      animationOwnedPaintCounts:
-          Map<String, int>.of(_animationOwnedPaintCounts),
+      animationOwnedPaintCounts: Map<String, int>.of(
+        _animationOwnedPaintCounts,
+      ),
       totalAnimationOwnedPaintCount: _totalAnimationOwnedPaintCount,
       source: _installedMode == _InstalledMode.debug
           ? RebuildCountSource.debugCallback
@@ -429,8 +434,9 @@ class DebugInstrumentationCoordinator {
     if (_denyList.contains(raw)) return null;
     if (_isRenderObjectName(raw)) return null;
     if (!_identifierRegex.hasMatch(raw)) return null;
-    final canonical =
-        raw.contains('<') ? raw.replaceAll(_genericRegex, '') : raw;
+    final canonical = raw.contains('<')
+        ? raw.replaceAll(_genericRegex, '')
+        : raw;
     if (_frameworkWidgetDenyList.contains(canonical)) return null;
     return canonical;
   }
@@ -442,14 +448,15 @@ class DebugInstrumentationCoordinator {
   static bool _isRenderObjectName(String raw) {
     if (raw.isEmpty) return false;
     var i = 0;
-    if (raw.codeUnitAt(0) == 0x5F /* '_' */) i = 1;
+    if (raw.codeUnitAt(0) == 0x5F /* '_' */ ) i = 1;
     // Need at least 'Render' (6 chars) after the optional underscore.
     if (raw.length - i < 6) return false;
     return raw.startsWith('Render', i);
   }
 
-  static final RegExp _identifierRegex =
-      RegExp(r'^_?[A-Z][A-Za-z0-9_]*(<.*>)?$');
+  static final RegExp _identifierRegex = RegExp(
+    r'^_?[A-Z][A-Za-z0-9_]*(<.*>)?$',
+  );
   static final RegExp _genericRegex = RegExp(r'<.*>');
   // Framework frame-phase scopes emitted by `FlutterTimeline.startSync(...)`
   // from inside the Flutter SDK. These are NOT widget rebuilds — they fire

@@ -200,11 +200,8 @@ class TimelineParser {
     required Map<String, dynamic> json,
     required String ph,
     required Map<int, List<Map<String, dynamic>>> pending,
-    required void Function(
-      Map<String, dynamic> beginJson,
-      int beginTs,
-      int dur,
-    ) onOutermost,
+    required void Function(Map<String, dynamic> beginJson, int beginTs, int dur)
+    onOutermost,
   }) {
     final ts = json['ts'] as int?;
     final tid = json['tid'] as int? ?? 0;
@@ -337,54 +334,64 @@ class TimelineParser {
           buildCount++;
           if (ts != null) {
             // Build scope uses prefixed keys: "build scope dirty count" etc.
-            phaseEvents.add(PhaseEvent(
-              phase: TimelinePhase.build,
-              timestampUs: ts,
-              durationUs: dur,
-              dirtyCount: _parseIntArg(args?['build scope dirty count']),
-              dirtyList: _parseDirtyList(args?['build scope dirty list']),
-              scopeContext: args?['scope context']?.toString(),
-            ));
+            phaseEvents.add(
+              PhaseEvent(
+                phase: TimelinePhase.build,
+                timestampUs: ts,
+                durationUs: dur,
+                dirtyCount: _parseIntArg(args?['build scope dirty count']),
+                dirtyList: _parseDirtyList(args?['build scope dirty list']),
+                scopeContext: args?['scope context']?.toString(),
+              ),
+            );
           }
         } else if (_isLayout(name)) {
           layouts.add(dur);
           if (ts != null) {
-            phaseEvents.add(PhaseEvent(
-              phase: TimelinePhase.layout,
-              timestampUs: ts,
-              durationUs: dur,
-              dirtyCount: _parseIntArg(args?['dirty count']),
-              dirtyList: _parseDirtyList(args?['dirty list']),
-            ));
+            phaseEvents.add(
+              PhaseEvent(
+                phase: TimelinePhase.layout,
+                timestampUs: ts,
+                durationUs: dur,
+                dirtyCount: _parseIntArg(args?['dirty count']),
+                dirtyList: _parseDirtyList(args?['dirty list']),
+              ),
+            );
           }
         } else if (_isPaint(name)) {
           paints.add(dur);
           if (ts != null) {
-            phaseEvents.add(PhaseEvent(
-              phase: TimelinePhase.paint,
-              timestampUs: ts,
-              durationUs: dur,
-              dirtyCount: _parseIntArg(args?['dirty count']),
-              dirtyList: _parseDirtyList(args?['dirty list']),
-            ));
+            phaseEvents.add(
+              PhaseEvent(
+                phase: TimelinePhase.paint,
+                timestampUs: ts,
+                durationUs: dur,
+                dirtyCount: _parseIntArg(args?['dirty count']),
+                dirtyList: _parseDirtyList(args?['dirty list']),
+              ),
+            );
           }
         } else if (_rasterNames.contains(name)) {
           rasters.add(dur);
           if (ts != null) {
-            phaseEvents.add(PhaseEvent(
-              phase: TimelinePhase.raster,
-              timestampUs: ts,
-              durationUs: dur,
-            ));
+            phaseEvents.add(
+              PhaseEvent(
+                phase: TimelinePhase.raster,
+                timestampUs: ts,
+                durationUs: dur,
+              ),
+            );
           }
         } else if (_shaderNames.contains(name)) {
           shaders.add(dur);
           if (ts != null) {
-            phaseEvents.add(PhaseEvent(
-              phase: TimelinePhase.shader,
-              timestampUs: ts,
-              durationUs: dur,
-            ));
+            phaseEvents.add(
+              PhaseEvent(
+                phase: TimelinePhase.shader,
+                timestampUs: ts,
+                durationUs: dur,
+              ),
+            );
           }
         } else if (_channelNames.contains(name) || _isChannelEvent(name)) {
           channels.add(event);
@@ -434,14 +441,16 @@ class TimelineParser {
                 final dur = ts - beginTs;
                 buildScopes.add(dur);
                 final args = beginJson['args'] as Map<String, dynamic>?;
-                phaseEvents.add(PhaseEvent(
-                  phase: TimelinePhase.build,
-                  timestampUs: beginTs,
-                  durationUs: dur,
-                  dirtyCount: _parseIntArg(args?['build scope dirty count']),
-                  dirtyList: _parseDirtyList(args?['build scope dirty list']),
-                  scopeContext: args?['scope context']?.toString(),
-                ));
+                phaseEvents.add(
+                  PhaseEvent(
+                    phase: TimelinePhase.build,
+                    timestampUs: beginTs,
+                    durationUs: dur,
+                    dirtyCount: _parseIntArg(args?['build scope dirty count']),
+                    dirtyList: _parseDirtyList(args?['build scope dirty list']),
+                    scopeContext: args?['scope context']?.toString(),
+                  ),
+                );
               }
             }
           }
@@ -453,13 +462,15 @@ class TimelineParser {
             onOutermost: (beginJson, beginTs, dur) {
               layouts.add(dur);
               final args = beginJson['args'] as Map<String, dynamic>?;
-              phaseEvents.add(PhaseEvent(
-                phase: TimelinePhase.layout,
-                timestampUs: beginTs,
-                durationUs: dur,
-                dirtyCount: _parseIntArg(args?['dirty count']),
-                dirtyList: _parseDirtyList(args?['dirty list']),
-              ));
+              phaseEvents.add(
+                PhaseEvent(
+                  phase: TimelinePhase.layout,
+                  timestampUs: beginTs,
+                  durationUs: dur,
+                  dirtyCount: _parseIntArg(args?['dirty count']),
+                  dirtyList: _parseDirtyList(args?['dirty list']),
+                ),
+              );
             },
           );
         } else if (_isPaint(name)) {
@@ -470,13 +481,15 @@ class TimelineParser {
             onOutermost: (beginJson, beginTs, dur) {
               paints.add(dur);
               final args = beginJson['args'] as Map<String, dynamic>?;
-              phaseEvents.add(PhaseEvent(
-                phase: TimelinePhase.paint,
-                timestampUs: beginTs,
-                durationUs: dur,
-                dirtyCount: _parseIntArg(args?['dirty count']),
-                dirtyList: _parseDirtyList(args?['dirty list']),
-              ));
+              phaseEvents.add(
+                PhaseEvent(
+                  phase: TimelinePhase.paint,
+                  timestampUs: beginTs,
+                  durationUs: dur,
+                  dirtyCount: _parseIntArg(args?['dirty count']),
+                  dirtyList: _parseDirtyList(args?['dirty list']),
+                ),
+              );
             },
           );
         } else if (_rasterNames.contains(name)) {
@@ -486,11 +499,13 @@ class TimelineParser {
             pending: pendingRasters,
             onOutermost: (beginJson, beginTs, dur) {
               rasters.add(dur);
-              phaseEvents.add(PhaseEvent(
-                phase: TimelinePhase.raster,
-                timestampUs: beginTs,
-                durationUs: dur,
-              ));
+              phaseEvents.add(
+                PhaseEvent(
+                  phase: TimelinePhase.raster,
+                  timestampUs: beginTs,
+                  durationUs: dur,
+                ),
+              );
             },
           );
         }

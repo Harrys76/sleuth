@@ -65,8 +65,10 @@ void main() {
 
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.title, contains('4 families'));
-      expect(detector.issues.first.observationSource,
-          ObservationSource.structural);
+      expect(
+        detector.issues.first.observationSource,
+        ObservationSource.structural,
+      );
     });
 
     testWidgets('system fonts are not counted', (tester) async {
@@ -233,8 +235,9 @@ void main() {
     // -----------------------------------------------------------------
 
     group('runtime font loading detection', () {
-      testWidgets('flags font with fontFamilyFallback as runtime-loaded',
-          (tester) async {
+      testWidgets('flags font with fontFamilyFallback as runtime-loaded', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           const Directionality(
             textDirection: TextDirection.ltr,
@@ -256,15 +259,13 @@ void main() {
         expect(detector.issues.first.confidence, IssueConfidence.possible);
       });
 
-      testWidgets('no issue for font without fontFamilyFallback',
-          (tester) async {
+      testWidgets('no issue for font without fontFamilyFallback', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           const Directionality(
             textDirection: TextDirection.ltr,
-            child: Text(
-              'Hello',
-              style: TextStyle(fontFamily: 'Lato'),
-            ),
+            child: Text('Hello', style: TextStyle(fontFamily: 'Lato')),
           ),
         );
         detector.scanTree(tester.element(find.byType(Directionality)));
@@ -273,8 +274,9 @@ void main() {
         expect(detector.issues, isEmpty);
       });
 
-      testWidgets('no issue for system font with fontFamilyFallback',
-          (tester) async {
+      testWidgets('no issue for system font with fontFamilyFallback', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           const Directionality(
             textDirection: TextDirection.ltr,
@@ -289,8 +291,11 @@ void main() {
         );
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues, isEmpty,
-            reason: 'System fonts should not trigger runtime loading warning');
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'System fonts should not trigger runtime loading warning',
+        );
       });
 
       testWidgets('counts multiple runtime-loaded families', (tester) async {
@@ -326,14 +331,16 @@ void main() {
         );
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        final runtimeIssue = detector.issues
-            .firstWhere((i) => i.stableId == 'runtime_font_loading');
+        final runtimeIssue = detector.issues.firstWhere(
+          (i) => i.stableId == 'runtime_font_loading',
+        );
         expect(runtimeIssue.title, contains('3 families'));
         expect(runtimeIssue.severity, IssueSeverity.critical);
       });
 
-      testWidgets('warning severity when <= 2 runtime families',
-          (tester) async {
+      testWidgets('warning severity when <= 2 runtime families', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           const Directionality(
             textDirection: TextDirection.ltr,
@@ -359,8 +366,9 @@ void main() {
         );
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        final runtimeIssue = detector.issues
-            .firstWhere((i) => i.stableId == 'runtime_font_loading');
+        final runtimeIssue = detector.issues.firstWhere(
+          (i) => i.stableId == 'runtime_font_loading',
+        );
         expect(runtimeIssue.severity, IssueSeverity.warning);
       });
 
@@ -400,8 +408,10 @@ void main() {
         );
         detector.scanTree(tester.element(find.byType(Directionality)));
 
-        expect(detector.issues.first.detail,
-            contains('fontFamilyFallback detected'));
+        expect(
+          detector.issues.first.detail,
+          contains('fontFamilyFallback detected'),
+        );
       });
 
       testWidgets('dispose clears runtime loaded families', (tester) async {
@@ -424,41 +434,51 @@ void main() {
         expect(detector.issues, isEmpty);
       });
 
-      testWidgets('runtime_font_loading and multiple_custom_fonts can coexist',
-          (tester) async {
-        // 1 runtime-loaded + 3 non-runtime custom = 4 total custom fonts
-        // Expect: runtime_font_loading (1 family) + multiple_custom_fonts (4)
-        await tester.pumpWidget(
-          const Directionality(
-            textDirection: TextDirection.ltr,
-            child: Column(
-              children: [
-                Text(
-                  'A',
-                  style: TextStyle(
-                    fontFamily: 'Lato',
-                    fontFamilyFallback: ['Lato'],
+      testWidgets(
+        'runtime_font_loading and multiple_custom_fonts can coexist',
+        (tester) async {
+          // 1 runtime-loaded + 3 non-runtime custom = 4 total custom fonts
+          // Expect: runtime_font_loading (1 family) + multiple_custom_fonts (4)
+          await tester.pumpWidget(
+            const Directionality(
+              textDirection: TextDirection.ltr,
+              child: Column(
+                children: [
+                  Text(
+                    'A',
+                    style: TextStyle(
+                      fontFamily: 'Lato',
+                      fontFamilyFallback: ['Lato'],
+                    ),
                   ),
-                ),
-                Text('B', style: TextStyle(fontFamily: 'FontB')),
-                Text('C', style: TextStyle(fontFamily: 'FontC')),
-                Text('D', style: TextStyle(fontFamily: 'FontD')),
-              ],
+                  Text('B', style: TextStyle(fontFamily: 'FontB')),
+                  Text('C', style: TextStyle(fontFamily: 'FontC')),
+                  Text('D', style: TextStyle(fontFamily: 'FontD')),
+                ],
+              ),
             ),
-          ),
-        );
-        detector.scanTree(tester.element(find.byType(Directionality)));
+          );
+          detector.scanTree(tester.element(find.byType(Directionality)));
 
-        final runtimeIssues =
-            detector.issues.where((i) => i.stableId == 'runtime_font_loading');
-        final multipleIssues =
-            detector.issues.where((i) => i.stableId == 'multiple_custom_fonts');
+          final runtimeIssues = detector.issues.where(
+            (i) => i.stableId == 'runtime_font_loading',
+          );
+          final multipleIssues = detector.issues.where(
+            (i) => i.stableId == 'multiple_custom_fonts',
+          );
 
-        expect(runtimeIssues, hasLength(1),
-            reason: 'Should emit runtime_font_loading for Lato');
-        expect(multipleIssues, hasLength(1),
-            reason: 'Should emit multiple_custom_fonts for all 4 fonts');
-      });
+          expect(
+            runtimeIssues,
+            hasLength(1),
+            reason: 'Should emit runtime_font_loading for Lato',
+          );
+          expect(
+            multipleIssues,
+            hasLength(1),
+            reason: 'Should emit multiple_custom_fonts for all 4 fonts',
+          );
+        },
+      );
     });
   });
 }

@@ -10,17 +10,33 @@ import 'package:sleuth_mcp/sleuth_mcp.dart';
 /// server — designed for use in CI shell scripts.
 Future<void> main(List<String> argv) async {
   final parser = ArgParser()
-    ..addOption('uri',
-        help: 'WebSocket URI of the target app VM service.', mandatory: true)
-    ..addOption('min-fps',
-        help: 'Minimum acceptable averageFps.', defaultsTo: '55')
-    ..addOption('max-issues',
-        help: 'Maximum acceptable total issue count.', defaultsTo: '999999')
-    ..addOption('max-critical-issues',
-        help: 'Maximum acceptable critical issue count.', defaultsTo: '0')
+    ..addOption(
+      'uri',
+      help: 'WebSocket URI of the target app VM service.',
+      mandatory: true,
+    )
+    ..addOption(
+      'min-fps',
+      help: 'Minimum acceptable averageFps.',
+      defaultsTo: '55',
+    )
+    ..addOption(
+      'max-issues',
+      help: 'Maximum acceptable total issue count.',
+      defaultsTo: '999999',
+    )
+    ..addOption(
+      'max-critical-issues',
+      help: 'Maximum acceptable critical issue count.',
+      defaultsTo: '0',
+    )
     ..addFlag('json', negatable: false, help: 'Emit report as JSON to stdout.')
-    ..addFlag('help',
-        abbr: 'h', negatable: false, help: 'Print usage and exit.');
+    ..addFlag(
+      'help',
+      abbr: 'h',
+      negatable: false,
+      help: 'Print usage and exit.',
+    );
 
   ArgResults parsed;
   try {
@@ -33,7 +49,8 @@ Future<void> main(List<String> argv) async {
   }
   if (parsed['help'] as bool) {
     stdout.writeln(
-        'sleuth_check — one-shot CI gate for sleuth performance budgets.\n');
+      'sleuth_check — one-shot CI gate for sleuth performance budgets.\n',
+    );
     stdout.writeln(parser.usage);
     return;
   }
@@ -49,8 +66,9 @@ Future<void> main(List<String> argv) async {
   // packageVersion fail-closed) before the first snapshot fetch — the
   // budget evaluator must never see an envelope from an out-of-lineage
   // or unverifiable app.
-  final bridge =
-      RealVmBridge(versionSkewValidator: defaultVersionSkewValidator);
+  final bridge = RealVmBridge(
+    versionSkewValidator: defaultVersionSkewValidator,
+  );
   try {
     await bridge.connect(Uri.parse(uri));
   } on VmBridgeException catch (e) {
@@ -103,7 +121,8 @@ Future<void> main(List<String> argv) async {
       final observed = report['observed'];
       if (observed is Map<String, Object?>) {
         stdout.writeln(
-            '  fps=${observed['fps']} issues=${observed['issueCount']} critical=${observed['criticalCount']}');
+          '  fps=${observed['fps']} issues=${observed['issueCount']} critical=${observed['criticalCount']}',
+        );
       }
       final violations = report['violations'];
       if (violations is List && violations.isNotEmpty) {

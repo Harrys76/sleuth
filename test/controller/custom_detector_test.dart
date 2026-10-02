@@ -13,12 +13,12 @@ import 'package:sleuth/src/vm/timeline_parser.dart';
 /// Minimal structural custom detector for testing.
 class _TestStructuralDetector extends BaseDetector {
   _TestStructuralDetector()
-      : super(
-          type: DetectorType.custom,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'Test Structural',
-          description: 'Test detector for v4.2',
-        );
+    : super(
+        type: DetectorType.custom,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Test Structural',
+        description: 'Test detector for v4.2',
+      );
 
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
@@ -40,23 +40,27 @@ class _TestStructuralDetector extends BaseDetector {
     if (!_isEnabled) return;
     scanCount++;
     _issues.clear();
-    _issues.add(PerformanceIssue(
-      stableId: 'test_custom_issue',
-      severity: IssueSeverity.warning,
-      category: IssueCategory.build,
-      confidence: IssueConfidence.possible,
-      title: 'Test Custom Issue',
-      detail: 'Scan #$scanCount',
-      fixHint: 'Test fix',
-      observationSource: ObservationSource.structural,
-      detectedAt: DateTime.now(),
-    ));
-    _highlights.add(const WidgetHighlight(
-      rect: Rect.fromLTWH(0, 0, 100, 100),
-      widgetName: 'TestWidget',
-      severity: IssueSeverity.warning,
-      detectorName: 'Test Structural',
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'test_custom_issue',
+        severity: IssueSeverity.warning,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        title: 'Test Custom Issue',
+        detail: 'Scan #$scanCount',
+        fixHint: 'Test fix',
+        observationSource: ObservationSource.structural,
+        detectedAt: DateTime.now(),
+      ),
+    );
+    _highlights.add(
+      const WidgetHighlight(
+        rect: Rect.fromLTWH(0, 0, 100, 100),
+        widgetName: 'TestWidget',
+        severity: IssueSeverity.warning,
+        detectorName: 'Test Structural',
+      ),
+    );
   }
 
   @override
@@ -69,12 +73,12 @@ class _TestStructuralDetector extends BaseDetector {
 /// Minimal hybrid custom detector for timeline tests.
 class _TestHybridDetector extends BaseDetector {
   _TestHybridDetector()
-      : super(
-          type: DetectorType.custom,
-          lifecycle: DetectorLifecycle.hybrid,
-          name: 'Test Hybrid',
-          description: 'Test hybrid detector for v4.2',
-        );
+    : super(
+        type: DetectorType.custom,
+        lifecycle: DetectorLifecycle.hybrid,
+        name: 'Test Hybrid',
+        description: 'Test hybrid detector for v4.2',
+      );
 
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
@@ -100,17 +104,19 @@ class _TestHybridDetector extends BaseDetector {
     evaluateNowCount++;
     if (timelineCallCount > 0) {
       _issues.clear();
-      _issues.add(PerformanceIssue(
-        stableId: 'test_hybrid_issue',
-        severity: IssueSeverity.warning,
-        category: IssueCategory.build,
-        confidence: IssueConfidence.likely,
-        title: 'Test Hybrid Issue',
-        detail: 'Timeline calls: $timelineCallCount',
-        fixHint: 'Test fix',
-        observationSource: ObservationSource.vmTimeline,
-        detectedAt: DateTime.now(),
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'test_hybrid_issue',
+          severity: IssueSeverity.warning,
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+          title: 'Test Hybrid Issue',
+          detail: 'Timeline calls: $timelineCallCount',
+          fixHint: 'Test fix',
+          observationSource: ObservationSource.vmTimeline,
+          detectedAt: DateTime.now(),
+        ),
+      );
     }
   }
 
@@ -129,12 +135,12 @@ class _TestHybridDetector extends BaseDetector {
 /// Minimal vmOnly custom detector for timeline tests.
 class _TestVmOnlyDetector extends BaseDetector {
   _TestVmOnlyDetector()
-      : super(
-          type: DetectorType.custom,
-          lifecycle: DetectorLifecycle.vmOnly,
-          name: 'Test VmOnly',
-          description: 'Test vmOnly detector for v4.2',
-        );
+    : super(
+        type: DetectorType.custom,
+        lifecycle: DetectorLifecycle.vmOnly,
+        name: 'Test VmOnly',
+        description: 'Test vmOnly detector for v4.2',
+      );
 
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
@@ -152,17 +158,19 @@ class _TestVmOnlyDetector extends BaseDetector {
   void processTimelineData(ParsedTimelineData data) {
     timelineCallCount++;
     _issues.clear();
-    _issues.add(PerformanceIssue(
-      stableId: 'test_vmonly_issue',
-      severity: IssueSeverity.critical,
-      category: IssueCategory.raster,
-      confidence: IssueConfidence.confirmed,
-      title: 'Test VmOnly Issue',
-      detail: 'Timeline calls: $timelineCallCount',
-      fixHint: 'Test fix',
-      observationSource: ObservationSource.vmTimeline,
-      detectedAt: DateTime.now(),
-    ));
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'test_vmonly_issue',
+        severity: IssueSeverity.critical,
+        category: IssueCategory.raster,
+        confidence: IssueConfidence.confirmed,
+        title: 'Test VmOnly Issue',
+        detail: 'Timeline calls: $timelineCallCount',
+        fixHint: 'Test fix',
+        observationSource: ObservationSource.vmTimeline,
+        detectedAt: DateTime.now(),
+      ),
+    );
   }
 
   @override
@@ -302,8 +310,9 @@ void main() {
         expect(detector.disposed, isTrue);
       });
 
-      testWidgets('disabled custom detector skipped in scanTree',
-          (tester) async {
+      testWidgets('disabled custom detector skipped in scanTree', (
+        tester,
+      ) async {
         final detector = _TestStructuralDetector();
         final controller = SleuthController(
           config: SleuthConfig(customDetectors: [detector]),
@@ -320,8 +329,9 @@ void main() {
 
         expect(detector.scanCount, 0);
         expect(
-          controller.issuesNotifier.value
-              .any((i) => i.stableId == 'test_custom_issue'),
+          controller.issuesNotifier.value.any(
+            (i) => i.stableId == 'test_custom_issue',
+          ),
           isFalse,
         );
 
@@ -339,8 +349,9 @@ void main() {
         controller.dispose();
       });
 
-      testWidgets('custom detector issues affected by suppression',
-          (tester) async {
+      testWidgets('custom detector issues affected by suppression', (
+        tester,
+      ) async {
         final detector = _TestStructuralDetector();
         final controller = SleuthController(
           config: SleuthConfig(
@@ -357,8 +368,9 @@ void main() {
 
         // Issue suppressed by wildcard
         expect(
-          controller.issuesNotifier.value
-              .any((i) => i.stableId == 'test_custom_issue'),
+          controller.issuesNotifier.value.any(
+            (i) => i.stableId == 'test_custom_issue',
+          ),
           isFalse,
         );
         expect(controller.suppressedCountForTest, 1);

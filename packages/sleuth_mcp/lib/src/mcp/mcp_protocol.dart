@@ -38,13 +38,10 @@ class McpProtocolCodec {
           continue;
         }
         final rawParams = decoded['params'];
-        final params =
-            rawParams is Map<String, Object?> ? rawParams : <String, Object?>{};
-        yield JsonRpcMessage(
-          method: method,
-          params: params,
-          id: decoded['id'],
-        );
+        final params = rawParams is Map<String, Object?>
+            ? rawParams
+            : <String, Object?>{};
+        yield JsonRpcMessage(method: method, params: params, id: decoded['id']);
       } catch (_) {
         // Malformed JSON. Without a parseable id we can't address the
         // response, so surface a parse error with id=null. Spec says
@@ -67,11 +64,7 @@ class McpProtocolCodec {
 }
 
 class _DecodeError {
-  _DecodeError({
-    required this.id,
-    required this.code,
-    required this.message,
-  });
+  _DecodeError({required this.id, required this.code, required this.message});
   final Object? id;
   final int code;
   final String message;

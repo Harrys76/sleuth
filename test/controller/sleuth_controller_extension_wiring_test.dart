@@ -13,15 +13,21 @@ const _config = SleuthConfig(
 
 class _CapturingRegisterFn {
   final Map<
-      String,
-      Future<developer.ServiceExtensionResponse> Function(
-          String method, Map<String, String> args)> bindings = {};
+    String,
+    Future<developer.ServiceExtensionResponse> Function(
+      String method,
+      Map<String, String> args,
+    )
+  >
+  bindings = {};
 
   void call(
     String name,
     Future<developer.ServiceExtensionResponse> Function(
-            String method, Map<String, String> args)
-        handler,
+      String method,
+      Map<String, String> args,
+    )
+    handler,
   ) {
     bindings[name] = handler;
   }
@@ -42,19 +48,19 @@ void main() {
     ServiceExtensionRegistry.resetForTest();
   });
 
-  test(
-      'initialize() constructs the registry and registers all seven '
+  test('initialize() constructs the registry and registers all seven '
       'extension names', () async {
     final c = SleuthController(config: _config);
     addTearDown(c.dispose);
     await c.initialize();
     expect(c.initializedAt, isNotNull);
-    expect(fake.bindings.keys.toSet(),
-        ServiceExtensionRegistry.registeredNames.toSet());
+    expect(
+      fake.bindings.keys.toSet(),
+      ServiceExtensionRegistry.registeredNames.toSet(),
+    );
   });
 
-  test(
-      'dispose() calls markDisposed — dispatch returns disconnected '
+  test('dispose() calls markDisposed — dispatch returns disconnected '
       'envelope after teardown', () async {
     final c = SleuthController(config: _config);
     await c.initialize();
@@ -66,8 +72,7 @@ void main() {
     expect(payload['connectionMode'], 'disconnected');
   });
 
-  test(
-      'serial controller setup — second initialize() does not throw on '
+  test('serial controller setup — second initialize() does not throw on '
       'duplicate registration', () async {
     final a = SleuthController(config: _config);
     await a.initialize();

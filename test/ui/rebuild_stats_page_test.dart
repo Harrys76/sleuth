@@ -33,13 +33,15 @@ Widget _pump(RebuildStatsPage page) {
 void main() {
   group('RebuildStatsPage (spec v15 M12)', () {
     testWidgets('empty counts map renders empty-state message', (tester) async {
-      await tester.pumpWidget(_pump(
-        RebuildStatsPage(
-          routeDisplayName: '/home',
-          countsByType: const {},
-          onClose: () {},
+      await tester.pumpWidget(
+        _pump(
+          RebuildStatsPage(
+            routeDisplayName: '/home',
+            countsByType: const {},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(
@@ -51,19 +53,18 @@ void main() {
       expect(find.text('Types'), findsNothing);
     });
 
-    testWidgets('populated counts render header and summary chips',
-        (tester) async {
-      await tester.pumpWidget(_pump(
-        RebuildStatsPage(
-          routeDisplayName: '/home',
-          countsByType: const {
-            'ProductCard': 5,
-            'Header': 2,
-            'Footer': 1,
-          },
-          onClose: () {},
+    testWidgets('populated counts render header and summary chips', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _pump(
+          RebuildStatsPage(
+            routeDisplayName: '/home',
+            countsByType: const {'ProductCard': 5, 'Header': 2, 'Footer': 1},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Header pieces: title, subtitle (route), total chip, types chip.
@@ -78,17 +79,15 @@ void main() {
     testWidgets('rows are sorted descending by count', (tester) async {
       // Insertion order intentionally randomized: Footer first, biggest
       // last — if the page weren't sorting, rank 1 would be Footer.
-      await tester.pumpWidget(_pump(
-        RebuildStatsPage(
-          routeDisplayName: '/home',
-          countsByType: const {
-            'Footer': 1,
-            'ProductCard': 7,
-            'Header': 3,
-          },
-          onClose: () {},
+      await tester.pumpWidget(
+        _pump(
+          RebuildStatsPage(
+            routeDisplayName: '/home',
+            countsByType: const {'Footer': 1, 'ProductCard': 7, 'Header': 3},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Walk the rendered row widgets in document order and pull their
@@ -124,13 +123,15 @@ void main() {
 
     testWidgets('tapping back arrow fires onClose', (tester) async {
       var closeCount = 0;
-      await tester.pumpWidget(_pump(
-        RebuildStatsPage(
-          routeDisplayName: '/home',
-          countsByType: const {'ProductCard': 3},
-          onClose: () => closeCount++,
+      await tester.pumpWidget(
+        _pump(
+          RebuildStatsPage(
+            routeDisplayName: '/home',
+            countsByType: const {'ProductCard': 3},
+            onClose: () => closeCount++,
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Tap the Semantics-wrapped back button (label 'Back') rather than
@@ -148,13 +149,15 @@ void main() {
     testWidgets('inflation disclaimer text is always visible', (tester) async {
       // Disclaimer mirrors the KDD-5 caveat on the rollup issue so a user
       // who drills in doesn't miss it. Present on empty AND populated.
-      await tester.pumpWidget(_pump(
-        RebuildStatsPage(
-          routeDisplayName: '/home',
-          countsByType: const {'ProductCard': 3},
-          onClose: () {},
+      await tester.pumpWidget(
+        _pump(
+          RebuildStatsPage(
+            routeDisplayName: '/home',
+            countsByType: const {'ProductCard': 3},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(
@@ -164,59 +167,62 @@ void main() {
     });
 
     testWidgets(
-        'snapshot-at-open: mutating caller map after construction does NOT '
-        'reorder rows', (tester) async {
-      // Build a mutable map, hand it to the page, then mutate it. The
-      // rendered rows must reflect the counts as they were at construction
-      // time — defensive-copy semantics per spec M10.
-      final liveCounts = <String, int>{
-        'ProductCard': 5,
-        'Header': 2,
-      };
+      'snapshot-at-open: mutating caller map after construction does NOT '
+      'reorder rows',
+      (tester) async {
+        // Build a mutable map, hand it to the page, then mutate it. The
+        // rendered rows must reflect the counts as they were at construction
+        // time — defensive-copy semantics per spec M10.
+        final liveCounts = <String, int>{'ProductCard': 5, 'Header': 2};
 
-      await tester.pumpWidget(_pump(
-        RebuildStatsPage(
-          routeDisplayName: '/home',
-          countsByType: liveCounts,
-          onClose: () {},
-        ),
-      ));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _pump(
+            RebuildStatsPage(
+              routeDisplayName: '/home',
+              countsByType: liveCounts,
+              onClose: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Before mutation: total 7, types 2, ProductCard ranks above Header.
-      expect(find.text('7'), findsOneWidget);
-      expect(find.text('2'), findsOneWidget);
+        // Before mutation: total 7, types 2, ProductCard ranks above Header.
+        expect(find.text('7'), findsOneWidget);
+        expect(find.text('2'), findsOneWidget);
 
-      // Mutate the underlying map: bump Header past ProductCard, add a
-      // brand-new type. A page that read `countsByType` live would show
-      // Header at rank 1 and a third row after a rebuild.
-      liveCounts['Header'] = 99;
-      liveCounts['NewType'] = 42;
+        // Mutate the underlying map: bump Header past ProductCard, add a
+        // brand-new type. A page that read `countsByType` live would show
+        // Header at rank 1 and a third row after a rebuild.
+        liveCounts['Header'] = 99;
+        liveCounts['NewType'] = 42;
 
-      // Force a rebuild of the page's context.
-      await tester.pump();
+        // Force a rebuild of the page's context.
+        await tester.pump();
 
-      // Totals unchanged (snapshot semantics).
-      expect(find.text('7'), findsOneWidget);
-      expect(find.text('2'), findsOneWidget);
-      // NewType did NOT appear.
-      expect(find.text('NewType'), findsNothing);
-      // Original ordering preserved — ProductCard count still ×5, Header still ×2.
-      expect(find.text('×5'), findsOneWidget);
-      expect(find.text('×2'), findsOneWidget);
-      // Mutation values must NOT be rendered.
-      expect(find.text('×99'), findsNothing);
-      expect(find.text('×42'), findsNothing);
-    });
+        // Totals unchanged (snapshot semantics).
+        expect(find.text('7'), findsOneWidget);
+        expect(find.text('2'), findsOneWidget);
+        // NewType did NOT appear.
+        expect(find.text('NewType'), findsNothing);
+        // Original ordering preserved — ProductCard count still ×5, Header still ×2.
+        expect(find.text('×5'), findsOneWidget);
+        expect(find.text('×2'), findsOneWidget);
+        // Mutation values must NOT be rendered.
+        expect(find.text('×99'), findsNothing);
+        expect(find.text('×42'), findsNothing);
+      },
+    );
 
     testWidgets('null routeDisplayName hides subtitle', (tester) async {
-      await tester.pumpWidget(_pump(
-        RebuildStatsPage(
-          routeDisplayName: null,
-          countsByType: const {'ProductCard': 1},
-          onClose: () {},
+      await tester.pumpWidget(
+        _pump(
+          RebuildStatsPage(
+            routeDisplayName: null,
+            countsByType: const {'ProductCard': 1},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // Title still renders.
@@ -225,19 +231,22 @@ void main() {
       expect(find.text('/home'), findsNothing);
     });
 
-    testWidgets('single-entry list renders rank 1 with full bar',
-        (tester) async {
+    testWidgets('single-entry list renders rank 1 with full bar', (
+      tester,
+    ) async {
       // The top row's bar fraction is `count / topCount == 1.0`. We can't
       // inspect the private LinearProgressIndicator's value directly, but
       // we can at least verify a single-entry list renders without error
       // and shows the expected row data.
-      await tester.pumpWidget(_pump(
-        RebuildStatsPage(
-          routeDisplayName: '/settings',
-          countsByType: const {'SoloWidget': 42},
-          onClose: () {},
+      await tester.pumpWidget(
+        _pump(
+          RebuildStatsPage(
+            routeDisplayName: '/settings',
+            countsByType: const {'SoloWidget': 42},
+            onClose: () {},
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('1.'), findsOneWidget);

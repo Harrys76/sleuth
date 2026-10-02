@@ -50,9 +50,7 @@ import 'sleuth_theme.dart';
 /// so only the first card would build lazily otherwise.
 @visibleForTesting
 List<PerformanceIssue> computeVisibleIssues(List<PerformanceIssue> issues) {
-  final allIds = <String>{
-    for (final i in issues) i.stableId ?? i.title,
-  };
+  final allIds = <String>{for (final i in issues) i.stableId ?? i.title};
   return issues.where((i) {
     final parents = i.rootCauseIds;
     if (parents == null || parents.isEmpty) return true;
@@ -501,7 +499,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   }
 
   void _onHighlightChanged(
-      bool checked, String issueKey, PerformanceIssue issue) {
+    bool checked,
+    String issueKey,
+    PerformanceIssue issue,
+  ) {
     if (checked) {
       setState(() => _selectedIssueId = issueKey);
       widget.controller.highlightEnabledNotifier.value = true;
@@ -550,8 +551,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       _cardHeight = screenSize.height - topPadding - 32 - keyboardHeight;
     }
 
-    final cardHeight = (_cardHeight ?? screenSize.height * 0.55)
-        .clamp(isMinimized ? 54.0 : _minCardHeight, maxAllowedHeight);
+    final cardHeight = (_cardHeight ?? screenSize.height * 0.55).clamp(
+      isMinimized ? 54.0 : _minCardHeight,
+      maxAllowedHeight,
+    );
     final effectiveWidth = _cardWidth.clamp(_minCardWidth, screenSize.width);
     _cachedTopPadding = topPadding;
     _cachedEffectiveWidth = effectiveWidth;
@@ -563,8 +566,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       screenSize.height * 0.30,
     );
 
-    final clamped =
-        _clampOffset(screenSize, topPadding, effectiveWidth, keyboardHeight);
+    final clamped = _clampOffset(
+      screenSize,
+      topPadding,
+      effectiveWidth,
+      keyboardHeight,
+    );
 
     return Stack(
       children: [
@@ -582,15 +589,18 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                 _buildCardBody(effectiveWidth, cardHeight, theme, screenSize),
                 if (!isMinimized)
                   _buildResizeHandle(
-                      screenSize, clamped, cardHeight, maxAllowedHeight, theme),
+                    screenSize,
+                    clamped,
+                    cardHeight,
+                    maxAllowedHeight,
+                    theme,
+                  ),
               ],
             ),
           ),
         if (_showGuide)
           Positioned.fill(
-            child: GuidePage(
-              onClose: () => setState(() => _showGuide = false),
-            ),
+            child: GuidePage(onClose: () => setState(() => _showGuide = false)),
           ),
         if (_showDetail)
           Positioned.fill(
@@ -757,19 +767,31 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
 
   // ─── Build helpers ──────────────────────────────────────────────────
 
-  Offset _clampOffset(Size screenSize, double topPadding, double effectiveWidth,
-      [double keyboardHeight = 0]) {
-    final rightReserve =
-        (screenSize.width - effectiveWidth - 5).clamp(0.0, screenSize.width);
+  Offset _clampOffset(
+    Size screenSize,
+    double topPadding,
+    double effectiveWidth, [
+    double keyboardHeight = 0,
+  ]) {
+    final rightReserve = (screenSize.width - effectiveWidth - 5).clamp(
+      0.0,
+      screenSize.width,
+    );
     return Offset(
       _cardOffset!.dx.clamp(0.0, rightReserve),
-      _cardOffset!.dy
-          .clamp(topPadding, screenSize.height - 100 - keyboardHeight),
+      _cardOffset!.dy.clamp(
+        topPadding,
+        screenSize.height - 100 - keyboardHeight,
+      ),
     );
   }
 
-  Widget _buildCardBody(double effectiveWidth, double cardHeight,
-      SleuthThemeData theme, Size screenSize) {
+  Widget _buildCardBody(
+    double effectiveWidth,
+    double cardHeight,
+    SleuthThemeData theme,
+    Size screenSize,
+  ) {
     final isMinimized = _windowState == _CardWindowState.minimized;
     return ConstrainedBox(
       constraints: BoxConstraints(
@@ -835,8 +857,13 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
     );
   }
 
-  Widget _buildResizeHandle(Size screenSize, Offset clamped, double cardHeight,
-      double maxAllowedHeight, SleuthThemeData theme) {
+  Widget _buildResizeHandle(
+    Size screenSize,
+    Offset clamped,
+    double cardHeight,
+    double maxAllowedHeight,
+    SleuthThemeData theme,
+  ) {
     return Positioned(
       right: 0,
       bottom: 0,
@@ -848,10 +875,14 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
           behavior: HitTestBehavior.opaque,
           onPanUpdate: (details) {
             setState(() {
-              _cardWidth = (_cardWidth + details.delta.dx)
-                  .clamp(_minCardWidth, screenSize.width - clamped.dx);
-              _cardHeight = (cardHeight + details.delta.dy)
-                  .clamp(_minCardHeight, maxAllowedHeight);
+              _cardWidth = (_cardWidth + details.delta.dx).clamp(
+                _minCardWidth,
+                screenSize.width - clamped.dx,
+              );
+              _cardHeight = (cardHeight + details.delta.dy).clamp(
+                _minCardHeight,
+                maxAllowedHeight,
+              );
             });
           },
           child: CustomPaint(
@@ -865,7 +896,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   // ─── Header ──────────────────────────────────────────────────────────
 
   Widget _buildHeader(
-      Size screenSize, double effectiveWidth, SleuthThemeData theme) {
+    Size screenSize,
+    double effectiveWidth,
+    SleuthThemeData theme,
+  ) {
     final isMinimized = _windowState == _CardWindowState.minimized;
     final isNormal = _windowState == _CardWindowState.normal;
     // Only show window controls when the card is wide enough to avoid overflow.
@@ -874,14 +908,22 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       onPanUpdate: (details) {
         setState(() {
           _cardOffset = (_cardOffset ?? Offset.zero) + details.delta;
-          _cardOffset = _clampOffset(screenSize, _cachedTopPadding,
-              _cachedEffectiveWidth, _cachedKeyboardHeight);
+          _cardOffset = _clampOffset(
+            screenSize,
+            _cachedTopPadding,
+            _cachedEffectiveWidth,
+            _cachedKeyboardHeight,
+          );
         });
       },
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-            10, theme.spacingSm, theme.spacingXs, theme.spacingXs),
+          10,
+          theme.spacingSm,
+          theme.spacingXs,
+          theme.spacingXs,
+        ),
         child: Row(
           children: [
             Icon(Icons.pets, size: 14, color: theme.textPrimary),
@@ -910,7 +952,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                         ),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 1),
+                            horizontal: 6,
+                            vertical: 1,
+                          ),
                           child: Text(
                             '${issues.length}',
                             style: TextStyle(
@@ -927,8 +971,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
               ValueListenableBuilder<bool>(
                 valueListenable: widget.controller.vmConnectedNotifier,
                 builder: (_, connected, __) => Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: connected ? theme.badgeVmBg : theme.badgeFrameBg,
                     borderRadius: BorderRadius.circular(theme.radiusLg),
@@ -936,8 +982,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                   child: Text(
                     connected ? 'VM+' : 'FRAME',
                     style: TextStyle(
-                      color:
-                          connected ? theme.badgeVmText : theme.badgeFrameText,
+                      color: connected
+                          ? theme.badgeVmText
+                          : theme.badgeFrameText,
                       fontSize: theme.fontXxs,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1181,7 +1228,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                     final issue = orderedIssues[index];
                     final locatable = _isLocatableIssue(issue);
                     final issueKey = issue.stableId ?? issue.title;
-                    final isHighlighted = selectedHighlight != null &&
+                    final isHighlighted =
+                        selectedHighlight != null &&
                         locatable &&
                         _selectedIssueId == issueKey;
 
@@ -1242,7 +1290,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                     return IssueCard(
                       key: ValueKey(issueKey),
                       issue: issue,
-                      recurrenceTrend: widget.controller
+                      recurrenceTrend: widget
+                          .controller
                           .recurrenceTrends[issue.stableId ?? issue.title],
                       deepInstrumentationActive:
                           widget.controller.isDeepInstrumentationActive,
@@ -1256,7 +1305,8 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                             // empty) holds at every observable state.
                             if (_expandedIndices.isEmpty) {
                               _orderSnapshot = List<PerformanceIssue>.of(
-                                  capturedVisibleIssues);
+                                capturedVisibleIssues,
+                              );
                             }
                             _expandedIndices[issueKey] = capturedIndex;
                           } else {
@@ -1274,7 +1324,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                       highlighted: isHighlighted,
                       onHighlightChanged: locatable
                           ? (checked) =>
-                              _onHighlightChanged(checked, issueKey, issue)
+                                _onHighlightChanged(checked, issueKey, issue)
                           : null,
                       jankCorrelated: _cachedJankKeys.contains(issueKey),
                       jankFlash: false,
@@ -1283,19 +1333,19 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
                       suppressedParentCount: suppressedParentCount,
                       onLearnMore:
                           IssueExplanationBuilder.explain(issue.stableId) !=
-                                  null
-                              ? () => setState(() {
-                                    _detailStableId = issue.stableId;
-                                    _detailContextIssue = issue;
-                                    _showDetail = true;
-                                  })
-                              : null,
+                              null
+                          ? () => setState(() {
+                              _detailStableId = issue.stableId;
+                              _detailContextIssue = issue;
+                              _showDetail = true;
+                            })
+                          : null,
                       onAskAi: widget.controller.config.aiChat != null
                           ? () => setState(() {
-                                _chatIssueStableId =
-                                    issue.stableId ?? issue.title;
-                                _showAiChat = true;
-                              })
+                              _chatIssueStableId =
+                                  issue.stableId ?? issue.title;
+                              _showAiChat = true;
+                            })
                           : null,
                     );
                   },
@@ -1342,7 +1392,9 @@ class _StatusRowState extends State<_StatusRow> {
       children: [
         Padding(
           padding: EdgeInsets.symmetric(
-              horizontal: theme.spacingLg, vertical: theme.spacingXs),
+            horizontal: theme.spacingLg,
+            vertical: theme.spacingXs,
+          ),
           child: Row(
             children: [
               // Primary numeral shows throughputFps (latency-derived) so
@@ -1355,8 +1407,10 @@ class _StatusRowState extends State<_StatusRow> {
                 builder: (_, buffer, __) {
                   final target = controller.config.fpsTarget;
                   final isWarming = buffer.length < _warmupFrameCount;
-                  final fps =
-                      buffer.throughputFps.clamp(0.0, target.toDouble());
+                  final fps = buffer.throughputFps.clamp(
+                    0.0,
+                    target.toDouble(),
+                  );
                   return Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1374,7 +1428,9 @@ class _StatusRowState extends State<_StatusRow> {
                       Text(
                         'FPS',
                         style: TextStyle(
-                            color: theme.textTertiary, fontSize: theme.fontSm),
+                          color: theme.textTertiary,
+                          fontSize: theme.fontSm,
+                        ),
                       ),
                       SizedBox(width: theme.spacingXxs),
                       // 28dp tap target — documented compromise for the
@@ -1419,19 +1475,25 @@ class _StatusRowState extends State<_StatusRow> {
                     return Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.check_circle,
-                            color: theme.severityOk, size: 14),
+                        Icon(
+                          Icons.check_circle,
+                          color: theme.severityOk,
+                          size: 14,
+                        ),
                         SizedBox(width: theme.spacingXs),
                         Text(
                           '0 issues',
                           style: TextStyle(
-                              color: theme.severityOk, fontSize: theme.fontMd),
+                            color: theme.severityOk,
+                            fontSize: theme.fontMd,
+                          ),
                         ),
                       ],
                     );
                   }
-                  final hasCritical =
-                      issues.any((i) => i.severity == IssueSeverity.critical);
+                  final hasCritical = issues.any(
+                    (i) => i.severity == IssueSeverity.critical,
+                  );
                   final severityColor = hasCritical
                       ? theme.severityCritical
                       : theme.severityWarning;
@@ -1450,7 +1512,9 @@ class _StatusRowState extends State<_StatusRow> {
                       Text(
                         '${issues.length} issue${issues.length == 1 ? '' : 's'}',
                         style: TextStyle(
-                            color: severityColor, fontSize: theme.fontMd),
+                          color: severityColor,
+                          fontSize: theme.fontMd,
+                        ),
                       ),
                     ],
                   );
@@ -1462,14 +1526,19 @@ class _StatusRowState extends State<_StatusRow> {
         if (_infoExpanded) ...[
           Padding(
             padding: EdgeInsets.fromLTRB(
-                theme.spacingLg, 0, theme.spacingLg, theme.spacingXs),
+              theme.spacingLg,
+              0,
+              theme.spacingLg,
+              theme.spacingXs,
+            ),
             child: Text(
               'TPUT (primary): latency-derived capacity estimate.\n'
               'ACTUAL: presented frames/sec (count — low when idle).',
               style: TextStyle(
-                  color: theme.textTertiary,
-                  fontSize: theme.fontXs,
-                  height: 1.4),
+                color: theme.textTertiary,
+                fontSize: theme.fontXs,
+                height: 1.4,
+              ),
             ),
           ),
           _ThroughputDetailRow(controller: controller),
@@ -1490,7 +1559,11 @@ class _ThroughputDetailRow extends StatelessWidget {
     final theme = SleuthTheme.of(context);
     return Padding(
       padding: EdgeInsets.fromLTRB(
-          theme.spacingLg, 0, theme.spacingLg, theme.spacingXs),
+        theme.spacingLg,
+        0,
+        theme.spacingLg,
+        theme.spacingXs,
+      ),
       child: ValueListenableBuilder<FrameStatsBuffer>(
         valueListenable: controller.frameStatsNotifier,
         builder: (_, buffer, __) {
@@ -1560,9 +1633,7 @@ class _DebugModeBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.bannerWarningBg,
-      ),
+      decoration: BoxDecoration(color: theme.bannerWarningBg),
       child: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: theme.spacingSm,
@@ -1631,8 +1702,10 @@ class _WarningBanners extends StatelessWidget {
         if (kDebugMode)
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            padding:
-                EdgeInsets.symmetric(horizontal: 10, vertical: theme.spacingSm),
+            padding: EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: theme.spacingSm,
+            ),
             decoration: BoxDecoration(
               color: theme.bannerDebugBg,
               borderRadius: BorderRadius.circular(theme.radiusLg),
@@ -1645,7 +1718,9 @@ class _WarningBanners extends StatelessWidget {
                   child: Text(
                     'Debug mode — data inaccurate.\nRun: flutter run --profile',
                     style: TextStyle(
-                        color: theme.bannerDebugText, fontSize: theme.fontSm),
+                      color: theme.bannerDebugText,
+                      fontSize: theme.fontSm,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1656,8 +1731,10 @@ class _WarningBanners extends StatelessWidget {
         if (kDebugMode && isDeepInstrumentationActive)
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            padding:
-                EdgeInsets.symmetric(horizontal: 10, vertical: theme.spacingSm),
+            padding: EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: theme.spacingSm,
+            ),
             decoration: BoxDecoration(
               color: theme.bannerInstrumentationBg,
               borderRadius: BorderRadius.circular(theme.radiusLg),
@@ -1671,8 +1748,9 @@ class _WarningBanners extends StatelessWidget {
                     'Instrumentation active — rebuild/paint counts useful for '
                     'attribution. Timings not representative of real performance.',
                     style: TextStyle(
-                        color: theme.bannerInstrumentationText,
-                        fontSize: theme.fontSm),
+                      color: theme.bannerInstrumentationText,
+                      fontSize: theme.fontSm,
+                    ),
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1690,14 +1768,19 @@ class _WarningBanners extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(Icons.check_circle,
-                    color: theme.bannerSuccessText, size: 12),
+                Icon(
+                  Icons.check_circle,
+                  color: theme.bannerSuccessText,
+                  size: 12,
+                ),
                 SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
                     'Snapshot copied to clipboard',
                     style: TextStyle(
-                        color: theme.bannerSuccessText, fontSize: theme.fontSm),
+                      color: theme.bannerSuccessText,
+                      fontSize: theme.fontSm,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1715,14 +1798,19 @@ class _WarningBanners extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(Icons.visibility_off,
-                    color: theme.bannerWarningText, size: 12),
+                Icon(
+                  Icons.visibility_off,
+                  color: theme.bannerWarningText,
+                  size: 12,
+                ),
                 SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
                     'Widget not currently visible. Navigate to the screen where this issue occurs.',
                     style: TextStyle(
-                        color: theme.bannerWarningText, fontSize: theme.fontSm),
+                      color: theme.bannerWarningText,
+                      fontSize: theme.fontSm,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1755,11 +1843,11 @@ class _CardFooter extends StatelessWidget {
     final theme = SleuthTheme.of(context);
     return Container(
       padding: EdgeInsets.symmetric(
-          horizontal: theme.spacingMd, vertical: theme.spacingXs),
+        horizontal: theme.spacingMd,
+        vertical: theme.spacingXs,
+      ),
       decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: theme.border, width: 1),
-        ),
+        border: Border(top: BorderSide(color: theme.border, width: 1)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1774,8 +1862,11 @@ class _CardFooter extends StatelessWidget {
                 width: 32,
                 height: 32,
                 child: Center(
-                  child: Icon(Icons.menu_book_outlined,
-                      color: theme.textTertiary, size: 16),
+                  child: Icon(
+                    Icons.menu_book_outlined,
+                    color: theme.textTertiary,
+                    size: 16,
+                  ),
                 ),
               ),
             ),
@@ -1791,8 +1882,11 @@ class _CardFooter extends StatelessWidget {
                 width: 32,
                 height: 32,
                 child: Center(
-                  child: Icon(Icons.ios_share,
-                      color: theme.textTertiary, size: 16),
+                  child: Icon(
+                    Icons.ios_share,
+                    color: theme.textTertiary,
+                    size: 16,
+                  ),
                 ),
               ),
             ),
@@ -1808,8 +1902,11 @@ class _CardFooter extends StatelessWidget {
                 width: 32,
                 height: 32,
                 child: Center(
-                  child: Icon(Icons.help_outline,
-                      color: theme.textTertiary, size: 16),
+                  child: Icon(
+                    Icons.help_outline,
+                    color: theme.textTertiary,
+                    size: 16,
+                  ),
                 ),
               ),
             ),
@@ -1872,9 +1969,7 @@ class _IssuesSummaryBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: theme.border, width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: theme.border, width: 1)),
       ),
       child: Row(
         children: [
@@ -2165,8 +2260,9 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
 
   @override
   void dispose() {
-    widget.controller.routeHistoryNotifier
-        .removeListener(_onRouteSessionChanged);
+    widget.controller.routeHistoryNotifier.removeListener(
+      _onRouteSessionChanged,
+    );
     super.dispose();
   }
 
@@ -2219,8 +2315,9 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
         if (session == null) return const SizedBox.shrink();
         final liveCounts = session.rebuildCountsByType;
         // Source-of-truth selection — frozen wins over live when paused.
-        final counts =
-            _paused && _frozenCounts != null ? _frozenCounts! : liveCounts;
+        final counts = _paused && _frozenCounts != null
+            ? _frozenCounts!
+            : liveCounts;
         if (counts.isEmpty) return const SizedBox.shrink();
         final total = counts.values.fold<int>(0, (a, b) => a + b);
         if (total <= 0) return const SizedBox.shrink();
@@ -2528,9 +2625,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
                 },
                 behavior: HitTestBehavior.opaque,
                 child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: theme.spacingXs,
-                  ),
+                  padding: EdgeInsets.symmetric(horizontal: theme.spacingXs),
                   child: Center(
                     widthFactor: 1,
                     child: Text(

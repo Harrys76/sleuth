@@ -81,8 +81,9 @@ String extractGoogleToken(String jsonData) {
     final map = jsonDecode(jsonData) as Map<String, dynamic>;
     final candidates = map['candidates'] as List<dynamic>?;
     if (candidates == null || candidates.isEmpty) return '';
-    final content = (candidates[0] as Map<String, dynamic>)['content']
-        as Map<String, dynamic>?;
+    final content =
+        (candidates[0] as Map<String, dynamic>)['content']
+            as Map<String, dynamic>?;
     final parts = content?['parts'] as List<dynamic>?;
     if (parts == null || parts.isEmpty) return '';
     return ((parts[0] as Map<String, dynamic>)['text'] as String?) ?? '';
@@ -245,7 +246,7 @@ Stream<String> Function(AiChatRequest) createGoogleStream({
       return {
         'role': m.role == AiChatRole.user ? 'user' : 'model',
         'parts': [
-          {'text': m.text}
+          {'text': m.text},
         ],
       };
     }).toList();
@@ -254,14 +255,11 @@ Stream<String> Function(AiChatRequest) createGoogleStream({
       uri: Uri.parse(
         'https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse',
       ),
-      headers: {
-        'x-goog-api-key': apiKey,
-        'content-type': 'application/json',
-      },
+      headers: {'x-goog-api-key': apiKey, 'content-type': 'application/json'},
       body: jsonEncode({
         'system_instruction': {
           'parts': [
-            {'text': request.systemPrompt}
+            {'text': request.systemPrompt},
           ],
         },
         'contents': contents,

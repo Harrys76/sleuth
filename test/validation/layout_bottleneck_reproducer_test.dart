@@ -49,8 +49,9 @@ void main() {
       expect(issues, hasStableId('layout_bottleneck'));
     });
 
-    testWidgets('layout_bottleneck: no intrinsics stays silent',
-        (tester) async {
+    testWidgets('layout_bottleneck: no intrinsics stays silent', (
+      tester,
+    ) async {
       final detector = LayoutBottleneckDetector();
       final issues = await scanAndIssues(
         tester,
@@ -60,8 +61,9 @@ void main() {
       expect(issues, lacksStableId('layout_bottleneck'));
     });
 
-    testWidgets('layout_bottleneck: nested intrinsic escalates to critical',
-        (tester) async {
+    testWidgets('layout_bottleneck: nested intrinsic escalates to critical', (
+      tester,
+    ) async {
       final detector = LayoutBottleneckDetector();
       final issues = await scanAndIssues(
         tester,
@@ -71,28 +73,27 @@ void main() {
         ),
       );
       final issue = issues.firstWhere((i) => i.stableId == 'layout_bottleneck');
-      expect(issue.severity.name, 'critical',
-          reason: 'Nested intrinsic must escalate — exponential layout cost.');
+      expect(
+        issue.severity.name,
+        'critical',
+        reason: 'Nested intrinsic must escalate — exponential layout cost.',
+      );
     });
 
     // --- wrap_layout_bottleneck ----------------------------------------
 
-    testWidgets(
-        'wrap_layout_bottleneck: Wrap with 31 children fires '
+    testWidgets('wrap_layout_bottleneck: Wrap with 31 children fires '
         '(> 30-child threshold)', (tester) async {
       final detector = LayoutBottleneckDetector();
       final issues = await scanAndIssues(
         tester,
         detector,
-        Wrap(
-          children: List.generate(31, (i) => SizedBox(key: ValueKey(i))),
-        ),
+        Wrap(children: List.generate(31, (i) => SizedBox(key: ValueKey(i)))),
       );
       expect(issues, hasStableId('wrap_layout_bottleneck'));
     });
 
-    testWidgets(
-        'wrap_layout_bottleneck: Wrap with 30 children silent '
+    testWidgets('wrap_layout_bottleneck: Wrap with 30 children silent '
         '(at-threshold lower-boundary — `>` not `>=`)', (tester) async {
       // Detector uses `childCount > _wrapChildThreshold` so exactly 30
       // children does NOT fire. Pins the strict-greater contract.
@@ -100,22 +101,19 @@ void main() {
       final issues = await scanAndIssues(
         tester,
         detector,
-        Wrap(
-          children: List.generate(30, (i) => SizedBox(key: ValueKey(i))),
-        ),
+        Wrap(children: List.generate(30, (i) => SizedBox(key: ValueKey(i)))),
       );
       expect(issues, lacksStableId('wrap_layout_bottleneck'));
     });
 
-    testWidgets('wrap_layout_bottleneck: small Wrap stays silent',
-        (tester) async {
+    testWidgets('wrap_layout_bottleneck: small Wrap stays silent', (
+      tester,
+    ) async {
       final detector = LayoutBottleneckDetector();
       final issues = await scanAndIssues(
         tester,
         detector,
-        Wrap(
-          children: List.generate(5, (i) => SizedBox(key: ValueKey(i))),
-        ),
+        Wrap(children: List.generate(5, (i) => SizedBox(key: ValueKey(i)))),
       );
       expect(issues, lacksStableId('wrap_layout_bottleneck'));
     });

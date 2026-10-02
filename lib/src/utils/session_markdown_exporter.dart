@@ -43,9 +43,11 @@ class SessionMarkdownExporter {
     buf.writeln('- Actual FPS: **${stats.actualFps.round()}**');
     buf.writeln('- Throughput FPS: **${stats.throughputFps.round()}**');
     buf.writeln(
-        '- Worst frame: **${(stats.worstFrameTimeUs / 1000).round()} ms**');
+      '- Worst frame: **${(stats.worstFrameTimeUs / 1000).round()} ms**',
+    );
     buf.writeln(
-        '- Jank frames: **${stats.jankFrames} / ${stats.totalFrames}**');
+      '- Jank frames: **${stats.jankFrames} / ${stats.totalFrames}**',
+    );
     buf.writeln();
 
     // Startup metrics
@@ -59,20 +61,28 @@ class SessionMarkdownExporter {
         buf.writeln('- Time to interactive: **${startup.ttiMs!.round()} ms**');
       }
       if (startup.dominantPhase != 'unknown') {
-        buf.writeln('- Dominant phase: **${startup.dominantPhase}** '
-            '(${startup.dominantPhasePercent.round()}%)');
+        buf.writeln(
+          '- Dominant phase: **${startup.dominantPhase}** '
+          '(${startup.dominantPhasePercent.round()}%)',
+        );
       }
       if (startup.frameworkInitMs != null) {
-        buf.writeln('- Framework init: '
-            '**${startup.frameworkInitMs!.toStringAsFixed(1)} ms**');
+        buf.writeln(
+          '- Framework init: '
+          '**${startup.frameworkInitMs!.toStringAsFixed(1)} ms**',
+        );
       }
       if (startup.preDartOverheadMs != null) {
-        buf.writeln('- Pre-Dart overhead: '
-            '**${startup.preDartOverheadMs!.toStringAsFixed(1)} ms**');
+        buf.writeln(
+          '- Pre-Dart overhead: '
+          '**${startup.preDartOverheadMs!.toStringAsFixed(1)} ms**',
+        );
       }
       if (startup.engineTtffMs != null) {
-        buf.writeln('- Engine TTFF: '
-            '**${startup.engineTtffMs!.toStringAsFixed(1)} ms**');
+        buf.writeln(
+          '- Engine TTFF: '
+          '**${startup.engineTtffMs!.toStringAsFixed(1)} ms**',
+        );
       }
       buf.writeln();
     }
@@ -96,15 +106,16 @@ class SessionMarkdownExporter {
         final dot = score >= 80
             ? '\u{1F7E2}'
             : score >= 50
-                ? '\u{1F7E1}'
-                : '\u{1F534}';
+            ? '\u{1F7E1}'
+            : '\u{1F534}';
         final fps = r['frameStats'] is Map
             ? (r['frameStats'] as Map)['averageFps'] ?? '-'
             : '-';
         final issueCount = r['issueCount'] as int? ?? 0;
         final criticalCount = r['criticalCount'] as int? ?? 0;
-        final issues =
-            criticalCount > 0 ? '$issueCount ($criticalCount!)' : '$issueCount';
+        final issues = criticalCount > 0
+            ? '$issueCount ($criticalCount!)'
+            : '$issueCount';
         final durationSec = r['durationSeconds'] as int? ?? 0;
         final time = _formatDuration(durationSec);
         buf.writeln('| $name | $score $dot | $fps | $issues | $time |');
@@ -117,8 +128,10 @@ class SessionMarkdownExporter {
     if (top.isNotEmpty) {
       buf.writeln('## Top Issues (${top.length})');
       for (final (i, issue) in top.indexed) {
-        buf.writeln('${i + 1}. **${_escape(issue.title)}** — '
-            '`${issue.stableId ?? issue.category.name}`');
+        buf.writeln(
+          '${i + 1}. **${_escape(issue.title)}** — '
+          '`${issue.stableId ?? issue.category.name}`',
+        );
         if (issue.confidenceReason != null) {
           buf.writeln('   > ${_escape(issue.confidenceReason!)}');
         }

@@ -42,8 +42,10 @@ void main() {
       );
       expect(detector.issues, hasLength(1));
       expect(detector.issues.first.severity, IssueSeverity.warning);
-      expect(detector.issues.first.observationSource,
-          ObservationSource.vmTimeline);
+      expect(
+        detector.issues.first.observationSource,
+        ObservationSource.vmTimeline,
+      );
     });
 
     test('critical when shader duration >= 200ms', () {

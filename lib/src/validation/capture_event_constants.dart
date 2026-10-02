@@ -30,7 +30,7 @@ const List<String> instantPhaseAlternates = ['I', 'n'];
 /// All accepted instant-phase codes for matching trace records.
 const List<String> instantPhases = [
   instantPhaseChrome,
-  ...instantPhaseAlternates
+  ...instantPhaseAlternates,
 ];
 
 /// Schema version pinned in `sleuthMetadata.schemaVersion` for

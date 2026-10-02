@@ -8,16 +8,16 @@ import 'package:sleuth/src/models/session_snapshot.dart';
 /// Tree that triggers `non_lazy_list` (SingleChildScrollView + Column with
 /// >50 children).
 Widget _listTree() => Directionality(
-      textDirection: TextDirection.ltr,
-      child: SingleChildScrollView(
-        child: Column(
-          children: List.generate(
-            55,
-            (i) => SizedBox(key: ValueKey(i), height: 10),
-          ),
-        ),
+  textDirection: TextDirection.ltr,
+  child: SingleChildScrollView(
+    child: Column(
+      children: List.generate(
+        55,
+        (i) => SizedBox(key: ValueKey(i), height: 10),
       ),
-    );
+    ),
+  ),
+);
 
 void main() {
   group('Issue Suppression (v4.1)', () {
@@ -31,8 +31,9 @@ void main() {
 
       tearDown(() => controller.dispose());
 
-      testWidgets('empty suppressedIssues passes all issues through',
-          (tester) async {
+      testWidgets('empty suppressedIssues passes all issues through', (
+        tester,
+      ) async {
         await tester.pumpWidget(_listTree());
         controller.runTreeScanForTest(
           tester.element(find.byType(Directionality)),
@@ -64,9 +65,7 @@ void main() {
 
       setUp(() {
         controller = SleuthController(
-          config: const SleuthConfig(
-            suppressedIssues: {'non_lazy_list'},
-          ),
+          config: const SleuthConfig(suppressedIssues: {'non_lazy_list'}),
         );
         controller.initializeDetectorsForTest();
       });
@@ -83,8 +82,9 @@ void main() {
         expect(issues.any((i) => i.stableId == 'non_lazy_list'), isFalse);
       });
 
-      testWidgets('suppressedCountNotifier reflects correct count',
-          (tester) async {
+      testWidgets('suppressedCountNotifier reflects correct count', (
+        tester,
+      ) async {
         await tester.pumpWidget(_listTree());
         controller.runTreeScanForTest(
           tester.element(find.byType(Directionality)),
@@ -96,19 +96,17 @@ void main() {
       testWidgets('non-matching patterns pass issues through', (tester) async {
         // Suppress 'shader_compilation' which won't appear in this tree.
         final c = SleuthController(
-          config: const SleuthConfig(
-            suppressedIssues: {'shader_compilation'},
-          ),
+          config: const SleuthConfig(suppressedIssues: {'shader_compilation'}),
         );
         c.initializeDetectorsForTest();
 
         await tester.pumpWidget(_listTree());
-        c.runTreeScanForTest(
-          tester.element(find.byType(Directionality)),
-        );
+        c.runTreeScanForTest(tester.element(find.byType(Directionality)));
 
-        expect(c.issuesNotifier.value.any((i) => i.stableId == 'non_lazy_list'),
-            isTrue);
+        expect(
+          c.issuesNotifier.value.any((i) => i.stableId == 'non_lazy_list'),
+          isTrue,
+        );
         expect(c.suppressedCountForTest, 0);
 
         c.dispose();
@@ -120,9 +118,7 @@ void main() {
 
       setUp(() {
         controller = SleuthController(
-          config: const SleuthConfig(
-            suppressedIssues: {'non_lazy_*'},
-          ),
+          config: const SleuthConfig(suppressedIssues: {'non_lazy_*'}),
         );
         controller.initializeDetectorsForTest();
       });
@@ -137,10 +133,11 @@ void main() {
 
         // non_lazy_list starts with 'non_lazy_' so it matches 'non_lazy_*'
         expect(
-            controller.issuesNotifier.value.any(
-              (i) => i.stableId == 'non_lazy_list',
-            ),
-            isFalse);
+          controller.issuesNotifier.value.any(
+            (i) => i.stableId == 'non_lazy_list',
+          ),
+          isFalse,
+        );
         expect(controller.suppressedCountForTest, greaterThanOrEqualTo(1));
       });
     });
@@ -150,9 +147,7 @@ void main() {
         // 'NonMatching*' prefix matches neither stableId nor title of
         // non_lazy_list. Issue passes through unsuppressed.
         final controller = SleuthController(
-          config: const SleuthConfig(
-            suppressedIssues: {'NonMatching*'},
-          ),
+          config: const SleuthConfig(suppressedIssues: {'NonMatching*'}),
         );
         controller.initializeDetectorsForTest();
 
@@ -178,9 +173,7 @@ void main() {
 
       setUp(() {
         controller = SleuthController(
-          config: const SleuthConfig(
-            suppressedIssues: {'non_lazy_list'},
-          ),
+          config: const SleuthConfig(suppressedIssues: {'non_lazy_list'}),
         );
         controller.initializeDetectorsForTest();
       });

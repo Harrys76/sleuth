@@ -259,12 +259,8 @@ class Sleuth {
         if (timings.isEmpty) return;
         final first = timings.first;
 
-        final vsyncStart = first.timestampInMicroseconds(
-          FramePhase.vsyncStart,
-        );
-        final buildStart = first.timestampInMicroseconds(
-          FramePhase.buildStart,
-        );
+        final vsyncStart = first.timestampInMicroseconds(FramePhase.vsyncStart);
+        final buildStart = first.timestampInMicroseconds(FramePhase.buildStart);
         final buildFinish = first.timestampInMicroseconds(
           FramePhase.buildFinish,
         );
@@ -286,7 +282,8 @@ class Sleuth {
         // DateTime.fromMicrosecondsSinceEpoch(rasterFinish) would produce
         // garbage when diffed against _dartEntryTimestamp (wall clock).
         final firstFrameCompleteTime = DateTime.now();
-        final ttff = firstFrameCompleteTime
+        final ttff =
+            firstFrameCompleteTime
                 .difference(_dartEntryTimestamp!)
                 .inMicroseconds /
             1000.0;
@@ -296,9 +293,9 @@ class Sleuth {
           ttffMs: ttff > 0 ? ttff : null,
           ttiMs: _interactiveTimestamp != null
               ? _interactiveTimestamp!
-                      .difference(_dartEntryTimestamp!)
-                      .inMicroseconds /
-                  1000.0
+                        .difference(_dartEntryTimestamp!)
+                        .inMicroseconds /
+                    1000.0
               : null,
           firstFrameVsyncOverheadMs: vsyncOverhead,
           firstFrameBuildMs: buildMs,
@@ -352,7 +349,8 @@ class Sleuth {
     // Update metrics if already captured by the first-frame callback.
     if (_startupMetrics != null) {
       _startupMetrics = _startupMetrics!.copyWith(
-        ttiMs: _interactiveTimestamp!
+        ttiMs:
+            _interactiveTimestamp!
                 .difference(_dartEntryTimestamp!)
                 .inMicroseconds /
             1000.0,
@@ -675,8 +673,10 @@ class Sleuth {
       if (kDebugMode && !_preInitWarned) {
         _preInitWarned = true;
         // ignore: avoid_print
-        print('[Sleuth] setResourceThreshold called before Sleuth.init(); '
-            'override(s) dropped. (This warning prints once per session.)');
+        print(
+          '[Sleuth] setResourceThreshold called before Sleuth.init(); '
+          'override(s) dropped. (This warning prints once per session.)',
+        );
       }
       return;
     }
@@ -701,7 +701,7 @@ class Sleuth {
   /// not been initialised, or when the detector is off. See
   /// [StreamResourceDetector.pollAllocationProfileNow].
   static Future<StreamResourcePollResult>
-      pollStreamResourceAllocationProfileNow() async {
+  pollStreamResourceAllocationProfileNow() async {
     if (kReleaseMode) {
       return const StreamResourcePollResult(
         succeeded: false,
@@ -750,7 +750,7 @@ class Sleuth {
   ///   so `exportCaptureJson` returns null with "VM service client
   ///   disconnected".
   static ({bool initialized, bool captureMode, bool vmConnected})
-      diagnoseCaptureState() {
+  diagnoseCaptureState() {
     final c = _controller;
     if (c == null) {
       return (initialized: false, captureMode: false, vmConnected: false);

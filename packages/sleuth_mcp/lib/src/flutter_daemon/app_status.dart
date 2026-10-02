@@ -1,12 +1,5 @@
 /// State machine for a [DaemonSession]'s lifecycle.
-enum AppSessionState {
-  idle,
-  attaching,
-  ready,
-  restarting,
-  detaching,
-  error,
-}
+enum AppSessionState { idle, attaching, ready, restarting, detaching, error }
 
 /// MCP `app_status` tool response shape.
 class AppStatusPayload {

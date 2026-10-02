@@ -7,7 +7,9 @@ void main() {
     const off = SleuthConfig(showOverlay: false);
     expect(off.showOverlay, isFalse);
     expect(off.copyWith().showOverlay, isFalse); // preserved
-    expect(const SleuthConfig().copyWith(showOverlay: false).showOverlay,
-        isFalse); // flipped
+    expect(
+      const SleuthConfig().copyWith(showOverlay: false).showOverlay,
+      isFalse,
+    ); // flipped
   });
 }

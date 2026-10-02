@@ -43,12 +43,14 @@ void main() {
 
       // Inject severe jank frames to produce a critical FrameTiming issue
       for (var i = 0; i < 5; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i + 1,
-          uiDuration: const Duration(milliseconds: 50),
-          rasterDuration: const Duration(milliseconds: 10),
-          timestamp: DateTime.now(),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i + 1,
+            uiDuration: const Duration(milliseconds: 50),
+            rasterDuration: const Duration(milliseconds: 10),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       controller.runTreeScanForTest(
@@ -66,13 +68,15 @@ void main() {
         }
         if (issue.severity == IssueSeverity.critical && seenWarning) {
           fail(
-              'Critical issue found after warning issue — severity order violated');
+            'Critical issue found after warning issue — severity order violated',
+          );
         }
       }
     });
 
-    testWidgets('recurrence counts increment across scan cycles',
-        (tester) async {
+    testWidgets('recurrence counts increment across scan cycles', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -142,8 +146,9 @@ void main() {
       );
     });
 
-    testWidgets('frame impact boosts build issues during UI thread jank',
-        (tester) async {
+    testWidgets('frame impact boosts build issues during UI thread jank', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -160,12 +165,14 @@ void main() {
 
       // Inject jank frames with UI > raster (build bottleneck)
       for (var i = 0; i < 5; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i + 1,
-          uiDuration: const Duration(milliseconds: 50),
-          rasterDuration: const Duration(milliseconds: 5),
-          timestamp: DateTime.now(),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i + 1,
+            uiDuration: const Duration(milliseconds: 50),
+            rasterDuration: const Duration(milliseconds: 5),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
 
       controller.runTreeScanForTest(
@@ -183,8 +190,9 @@ void main() {
       expect(issues.first.severity, IssueSeverity.critical);
     });
 
-    testWidgets('frame impact clears when jank stops (no stale phase boost)',
-        (tester) async {
+    testWidgets('frame impact clears when jank stops (no stale phase boost)', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
@@ -203,12 +211,14 @@ void main() {
 
       // First: inject jank
       for (var i = 0; i < 5; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i + 1,
-          uiDuration: const Duration(milliseconds: 50),
-          rasterDuration: const Duration(milliseconds: 5),
-          timestamp: DateTime.now(),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i + 1,
+            uiDuration: const Duration(milliseconds: 50),
+            rasterDuration: const Duration(milliseconds: 5),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
       controller.runTreeScanForTest(ctx);
       final withJank = controller.issuesNotifier.value;
@@ -219,12 +229,14 @@ void main() {
       // fpsTarget so actualFpsRaw is a faithful device rate). Fill must be
       // at least 240 smooth frames to evict the 5 original jank frames.
       for (var i = 0; i < 245; i++) {
-        controller.addFrameForTest(FrameStats(
-          frameNumber: i + 100,
-          uiDuration: const Duration(milliseconds: 5),
-          rasterDuration: const Duration(milliseconds: 3),
-          timestamp: DateTime.now(),
-        ));
+        controller.addFrameForTest(
+          FrameStats(
+            frameNumber: i + 100,
+            uiDuration: const Duration(milliseconds: 5),
+            rasterDuration: const Duration(milliseconds: 3),
+            timestamp: DateTime.now(),
+          ),
+        );
       }
       controller.runTreeScanForTest(ctx);
       final afterJank = controller.issuesNotifier.value;
@@ -240,38 +252,39 @@ void main() {
     });
 
     testWidgets(
-        'timeline path (aggregateIssuesForTest) does not increment recurrence',
-        (tester) async {
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: SingleChildScrollView(
-            child: Column(
-              children: List.generate(
-                55,
-                (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+      'timeline path (aggregateIssuesForTest) does not increment recurrence',
+      (tester) async {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  55,
+                  (i) => SizedBox(key: ValueKey(i), width: 10, height: 10),
+                ),
               ),
             ),
           ),
-        ),
-      );
+        );
 
-      final ctx = tester.element(find.byType(Directionality));
+        final ctx = tester.element(find.byType(Directionality));
 
-      // Scan path: sets recurrence to 1
-      controller.runTreeScanForTest(ctx);
-      expect(controller.issuesNotifier.value, isNotEmpty);
-      final afterScan = Map.of(controller.recurrenceCountsForTest);
-      expect(afterScan.values, everyElement(1));
+        // Scan path: sets recurrence to 1
+        controller.runTreeScanForTest(ctx);
+        expect(controller.issuesNotifier.value, isNotEmpty);
+        final afterScan = Map.of(controller.recurrenceCountsForTest);
+        expect(afterScan.values, everyElement(1));
 
-      // Simulate timeline path: re-aggregates but must NOT increment recurrence
-      controller.aggregateIssuesForTest();
-      controller.aggregateIssuesForTest();
-      controller.aggregateIssuesForTest();
+        // Simulate timeline path: re-aggregates but must NOT increment recurrence
+        controller.aggregateIssuesForTest();
+        controller.aggregateIssuesForTest();
+        controller.aggregateIssuesForTest();
 
-      // Recurrence should still be 1 — timeline path doesn't call _updateRecurrence
-      expect(controller.recurrenceCountsForTest, afterScan);
-    });
+        // Recurrence should still be 1 — timeline path doesn't call _updateRecurrence
+        expect(controller.recurrenceCountsForTest, afterScan);
+      },
+    );
 
     test('recurrence cleared on dispose', () {
       // We can't use testWidgets easily here so just verify the map is empty

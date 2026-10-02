@@ -15,16 +15,15 @@ void main() {
     IssueConfidence confidence = IssueConfidence.possible,
     IssueSeverity severity = IssueSeverity.warning,
     String title = 'test issue',
-  }) =>
-      PerformanceIssue(
-        severity: severity,
-        category: category,
-        confidence: confidence,
-        title: title,
-        detail: 'test detail',
-        fixHint: '',
-        stableId: stableId,
-      );
+  }) => PerformanceIssue(
+    severity: severity,
+    category: category,
+    confidence: confidence,
+    title: title,
+    detail: 'test detail',
+    fixHint: '',
+    stableId: stableId,
+  );
 
   // ---------------------------------------------------------------------------
   // Passthrough / edge cases
@@ -109,10 +108,7 @@ void main() {
           stableId: 'always_repaint_painter',
           category: IssueCategory.paint,
         ),
-        makeIssue(
-          stableId: 'raster_dominance',
-          category: IssueCategory.raster,
-        ),
+        makeIssue(stableId: 'raster_dominance', category: IssueCategory.raster),
       ];
       final result = rule.apply(issues);
       expect(result[0].downstreamIds, ['raster_dominance']);
@@ -121,10 +117,7 @@ void main() {
 
     test('non_lazy_list does NOT collapse layout_bottleneck', () {
       final issues = [
-        makeIssue(
-          stableId: 'non_lazy_list',
-          category: IssueCategory.build,
-        ),
+        makeIssue(stableId: 'non_lazy_list', category: IssueCategory.build),
         makeIssue(
           stableId: 'layout_bottleneck',
           category: IssueCategory.layout,
@@ -144,10 +137,7 @@ void main() {
   group('multi-hop chains', () {
     test('non_lazy_list → rebuild_activity → heavy_compute', () {
       final issues = [
-        makeIssue(
-          stableId: 'non_lazy_list',
-          severity: IssueSeverity.warning,
-        ),
+        makeIssue(stableId: 'non_lazy_list', severity: IssueSeverity.warning),
         makeIssue(stableId: 'rebuild_activity'),
         makeIssue(stableId: 'heavy_compute'),
       ];
@@ -156,33 +146,39 @@ void main() {
       // non_lazy_list is root with both downstream
       expect(result[0].rootCauseIds, isNull);
       expect(result[0].downstreamIds, isNotNull);
-      expect(result[0].downstreamIds,
-          containsAll(['rebuild_activity', 'heavy_compute']));
+      expect(
+        result[0].downstreamIds,
+        containsAll(['rebuild_activity', 'heavy_compute']),
+      );
 
       // Both are downstream of non_lazy_list
       expect(result[1].rootCauseIds, ['non_lazy_list']);
       expect(result[2].rootCauseIds, ['non_lazy_list']);
     });
 
-    test('animated_builder_no_child → rebuild_debug_MyWidget → heavy_compute',
-        () {
-      final issues = [
-        makeIssue(
-          stableId: 'animated_builder_no_child',
-          severity: IssueSeverity.warning,
-        ),
-        makeIssue(stableId: 'rebuild_debug_MyWidget'),
-        makeIssue(stableId: 'heavy_compute'),
-      ];
-      final result = rule.apply(issues);
+    test(
+      'animated_builder_no_child → rebuild_debug_MyWidget → heavy_compute',
+      () {
+        final issues = [
+          makeIssue(
+            stableId: 'animated_builder_no_child',
+            severity: IssueSeverity.warning,
+          ),
+          makeIssue(stableId: 'rebuild_debug_MyWidget'),
+          makeIssue(stableId: 'heavy_compute'),
+        ];
+        final result = rule.apply(issues);
 
-      // animated_builder_no_child is root
-      expect(result[0].downstreamIds, isNotNull);
-      expect(result[0].downstreamIds,
-          containsAll(['rebuild_debug_MyWidget', 'heavy_compute']));
-      expect(result[1].rootCauseIds, ['animated_builder_no_child']);
-      expect(result[2].rootCauseIds, ['animated_builder_no_child']);
-    });
+        // animated_builder_no_child is root
+        expect(result[0].downstreamIds, isNotNull);
+        expect(
+          result[0].downstreamIds,
+          containsAll(['rebuild_debug_MyWidget', 'heavy_compute']),
+        );
+        expect(result[1].rootCauseIds, ['animated_builder_no_child']);
+        expect(result[2].rootCauseIds, ['animated_builder_no_child']);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -218,8 +214,9 @@ void main() {
 
       // Both rebuild_debug_* issues are roots (both have outgoing to heavy_compute)
       // heavy_compute is claimed by the first (higher index or severity tiebreak)
-      final heavyCompute =
-          result.firstWhere((i) => i.stableId == 'heavy_compute');
+      final heavyCompute = result.firstWhere(
+        (i) => i.stableId == 'heavy_compute',
+      );
       expect(heavyCompute.rootCauseIds, isNotNull);
     });
   });
@@ -323,14 +320,8 @@ void main() {
       final issues = [
         makeIssue(stableId: 'setstate_scope'),
         makeIssue(stableId: 'heavy_compute'),
-        makeIssue(
-          stableId: 'uncached_images',
-          category: IssueCategory.memory,
-        ),
-        makeIssue(
-          stableId: 'heap_growing',
-          category: IssueCategory.memory,
-        ),
+        makeIssue(stableId: 'uncached_images', category: IssueCategory.memory),
+        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
       ];
       final result = rule.apply(issues);
 
@@ -350,37 +341,40 @@ void main() {
 
   group('multiple roots same downstream', () {
     test(
-        'every co-firing root claims downstream (multi-parent, severity-sorted)',
-        () {
-      // Both setstate_scope (direct rule) and non_lazy_list (multi-hop via
-      // rebuild_activity) reach heavy_compute. Multi-parent annotation
-      // (v0.24.2+) lists every reaching root in rootCauseIds; sort key is
-      // severity desc then stableId asc, so the critical root precedes
-      // the warning root.
-      final issues = [
-        makeIssue(
-          stableId: 'setstate_scope',
-          severity: IssueSeverity.critical,
-        ),
-        makeIssue(
-          stableId: 'non_lazy_list',
-          severity: IssueSeverity.warning,
-        ),
-        makeIssue(stableId: 'heavy_compute'),
-      ];
-      final result = rule.apply(issues);
+      'every co-firing root claims downstream (multi-parent, severity-sorted)',
+      () {
+        // Both setstate_scope (direct rule) and non_lazy_list (multi-hop via
+        // rebuild_activity) reach heavy_compute. Multi-parent annotation
+        // (v0.24.2+) lists every reaching root in rootCauseIds; sort key is
+        // severity desc then stableId asc, so the critical root precedes
+        // the warning root.
+        final issues = [
+          makeIssue(
+            stableId: 'setstate_scope',
+            severity: IssueSeverity.critical,
+          ),
+          makeIssue(stableId: 'non_lazy_list', severity: IssueSeverity.warning),
+          makeIssue(stableId: 'heavy_compute'),
+        ];
+        final result = rule.apply(issues);
 
-      final heavyCompute =
-          result.firstWhere((i) => i.stableId == 'heavy_compute');
-      expect(heavyCompute.rootCauseIds, ['setstate_scope', 'non_lazy_list'],
-          reason: 'critical-severity root sorts before warning-severity root');
+        final heavyCompute = result.firstWhere(
+          (i) => i.stableId == 'heavy_compute',
+        );
+        expect(heavyCompute.rootCauseIds, [
+          'setstate_scope',
+          'non_lazy_list',
+        ], reason: 'critical-severity root sorts before warning-severity root');
 
-      // Both roots have heavy_compute as downstream.
-      final setState = result.firstWhere((i) => i.stableId == 'setstate_scope');
-      expect(setState.downstreamIds, contains('heavy_compute'));
-      final nonLazy = result.firstWhere((i) => i.stableId == 'non_lazy_list');
-      expect(nonLazy.downstreamIds, contains('heavy_compute'));
-    });
+        // Both roots have heavy_compute as downstream.
+        final setState = result.firstWhere(
+          (i) => i.stableId == 'setstate_scope',
+        );
+        expect(setState.downstreamIds, contains('heavy_compute'));
+        final nonLazy = result.firstWhere((i) => i.stableId == 'non_lazy_list');
+        expect(nonLazy.downstreamIds, contains('heavy_compute'));
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -477,7 +471,8 @@ void main() {
       // rebuild evidence. The causal graph should still chain to heavy_compute.
       final issues = [
         makeIssue(stableId: 'setstate_scope').copyWith(
-          detail: 'Wide setState scope\n\n'
+          detail:
+              'Wide setState scope\n\n'
               '[Correlated] Rebuild evidence: 45 rebuilds/s',
           confidence: IssueConfidence.likely,
         ),
@@ -1029,10 +1024,7 @@ void main() {
           stableId: 'platform_channel_traffic',
           category: IssueCategory.channel,
         ),
-        makeIssue(
-          stableId: 'gc_pressure',
-          category: IssueCategory.memory,
-        ),
+        makeIssue(stableId: 'gc_pressure', category: IssueCategory.memory),
       ];
       final result = rule.apply(issues);
 
@@ -1070,12 +1062,14 @@ void main() {
 
       // Two independent chains should coexist
       expect(result, hasLength(4));
-      final uncached =
-          result.firstWhere((i) => i.stableId == 'uncached_images');
+      final uncached = result.firstWhere(
+        (i) => i.stableId == 'uncached_images',
+      );
       expect(uncached.downstreamIds, contains('gc_pressure'));
 
-      final layout =
-          result.firstWhere((i) => i.stableId == 'layout_bottleneck');
+      final layout = result.firstWhere(
+        (i) => i.stableId == 'layout_bottleneck',
+      );
       expect(layout.downstreamIds, contains('sustained_jank'));
     });
   });
@@ -1093,19 +1087,23 @@ void main() {
   // apply() now fully mirrors activeEdges()'s 9-edge enumeration on the
   // UI annotation path.
   group('memory fan-in multi-parent annotation', () {
-    test(
-        '3 causes × 3 effects: every effect carries all 3 parents; every '
+    test('3 causes × 3 effects: every effect carries all 3 parents; every '
         'cause lists all 3 downstreams', () {
       final issues = [
         makeIssue(
-            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+          stableId: 'stream_resource_growth',
+          category: IssueCategory.memory,
+        ),
         makeIssue(stableId: 'uncached_images', category: IssueCategory.memory),
         makeIssue(
-            stableId: 'excessive_keep_alive:foo',
-            category: IssueCategory.memory),
+          stableId: 'excessive_keep_alive:foo',
+          category: IssueCategory.memory,
+        ),
         makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
         makeIssue(
-            stableId: 'heap_near_capacity', category: IssueCategory.memory),
+          stableId: 'heap_near_capacity',
+          category: IssueCategory.memory,
+        ),
         makeIssue(stableId: 'gc_pressure', category: IssueCategory.memory),
       ];
       final result = rule.apply(issues);
@@ -1125,18 +1123,27 @@ void main() {
       // Every effect carries all 3 causes in rootCauseIds (alphabetical).
       for (final effectId in effects) {
         final effect = findById(effectId);
-        expect(effect.rootCauseIds, causes,
-            reason:
-                '$effectId must list every co-firing cause, sorted by stableId');
-        expect(effect.downstreamIds, isNull,
-            reason: '$effectId is a leaf — no further downstream');
+        expect(
+          effect.rootCauseIds,
+          causes,
+          reason:
+              '$effectId must list every co-firing cause, sorted by stableId',
+        );
+        expect(
+          effect.downstreamIds,
+          isNull,
+          reason: '$effectId is a leaf — no further downstream',
+        );
       }
 
       // Every cause lists all 3 effects in downstreamIds.
       for (final causeId in causes) {
         final cause = findById(causeId);
-        expect(cause.rootCauseIds, isNull,
-            reason: '$causeId is a root — no incoming edges');
+        expect(
+          cause.rootCauseIds,
+          isNull,
+          reason: '$causeId is a root — no incoming edges',
+        );
         expect(
           cause.downstreamIds,
           containsAll(effects),
@@ -1146,8 +1153,7 @@ void main() {
       }
     });
 
-    test(
-        'multi-parent rule-ordering invariant: shuffling input issue order '
+    test('multi-parent rule-ordering invariant: shuffling input issue order '
         'does not change rootCauseIds membership', () {
       // Pre-v0.24.2 single-owner annotation depended on input order via
       // the severity-then-index tie break, so shuffling caused the
@@ -1163,9 +1169,9 @@ void main() {
         'gc_pressure',
       ];
       List<PerformanceIssue> build(List<String> order) => [
-            for (final id in order)
-              makeIssue(stableId: id, category: IssueCategory.memory),
-          ];
+        for (final id in order)
+          makeIssue(stableId: id, category: IssueCategory.memory),
+      ];
 
       final ascending = rule.apply(build(ids));
       final reversed = rule.apply(build(ids.reversed.toList()));
@@ -1178,14 +1184,16 @@ void main() {
         'heap_near_capacity',
         'gc_pressure',
       ]) {
-        expect(parentsOf(ascending, effect), parentsOf(reversed, effect),
-            reason:
-                'rootCauseIds membership for $effect must be input-order independent');
+        expect(
+          parentsOf(ascending, effect),
+          parentsOf(reversed, effect),
+          reason:
+              'rootCauseIds membership for $effect must be input-order independent',
+        );
       }
     });
 
-    test(
-        'multi-parent confidence suppression: possible downstream with '
+    test('multi-parent confidence suppression: possible downstream with '
         'any-stronger parent is dropped from downstreamIds but retains '
         'rootCauseIds', () {
       // 3 causes, 1 possible-confidence downstream. Two causes are likely
@@ -1195,21 +1203,25 @@ void main() {
       // (because ANY stronger parent triggers global suppression).
       final issues = [
         makeIssue(
-            stableId: 'stream_resource_growth',
-            category: IssueCategory.memory,
-            confidence: IssueConfidence.likely),
+          stableId: 'stream_resource_growth',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
         makeIssue(
-            stableId: 'uncached_images',
-            category: IssueCategory.memory,
-            confidence: IssueConfidence.likely),
+          stableId: 'uncached_images',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
         makeIssue(
-            stableId: 'excessive_keep_alive:foo',
-            category: IssueCategory.memory,
-            confidence: IssueConfidence.possible),
+          stableId: 'excessive_keep_alive:foo',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.possible,
+        ),
         makeIssue(
-            stableId: 'heap_growing',
-            category: IssueCategory.memory,
-            confidence: IssueConfidence.possible),
+          stableId: 'heap_growing',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.possible,
+        ),
       ];
       final result = rule.apply(issues);
 
@@ -1234,9 +1246,12 @@ void main() {
         'uncached_images',
         'excessive_keep_alive:foo',
       ]) {
-        expect(findById(parentId).downstreamIds, isNull,
-            reason:
-                '$parentId must not list possible-downstream when any-stronger parent suppresses');
+        expect(
+          findById(parentId).downstreamIds,
+          isNull,
+          reason:
+              '$parentId must not list possible-downstream when any-stronger parent suppresses',
+        );
       }
     });
   });
@@ -1250,8 +1265,7 @@ void main() {
       List<Map<String, String>> edges,
       String cause,
       String effect,
-    ) =>
-        edges.any((e) => e['cause'] == cause && e['effect'] == effect);
+    ) => edges.any((e) => e['cause'] == cause && e['effect'] == effect);
 
     test('returns edges for co-occurring issues with a causal rule', () {
       final issues = [
@@ -1277,10 +1291,7 @@ void main() {
           stableId: 'shader_compilation',
           category: IssueCategory.raster,
         ),
-        makeIssue(
-          stableId: 'gc_pressure',
-          category: IssueCategory.memory,
-        ),
+        makeIssue(stableId: 'gc_pressure', category: IssueCategory.memory),
       ];
       final edges = CausalGraphRule.activeEdges(issues);
 
@@ -1303,8 +1314,11 @@ void main() {
         (e) =>
             e['cause'] == 'non_lazy_list' && e['effect'] == 'rebuild_activity',
       );
-      expect(rebuildEdges, hasLength(1),
-          reason: 'Same cause→effect pair should appear exactly once');
+      expect(
+        rebuildEdges,
+        hasLength(1),
+        reason: 'Same cause→effect pair should appear exactly once',
+      );
 
       // Count edges from non_lazy_list → heavy_compute
       final computeEdges = edges.where(
@@ -1321,10 +1335,7 @@ void main() {
       final edges = CausalGraphRule.activeEdges(issues);
 
       expect(edges, isNotEmpty);
-      expect(
-        hasEdge(edges, 'rebuild_debug_MyWidget', 'heavy_compute'),
-        isTrue,
-      );
+      expect(hasEdge(edges, 'rebuild_debug_MyWidget', 'heavy_compute'), isTrue);
     });
 
     test('returns empty for empty issue list', () {
@@ -1342,36 +1353,50 @@ void main() {
 
       expect(hasEdge(edges, 'setstate_scope', 'heavy_compute'), isTrue);
       expect(
-          hasEdge(edges, 'setstate_scope', 'rebuild_debug_MyWidget'), isTrue);
+        hasEdge(edges, 'setstate_scope', 'rebuild_debug_MyWidget'),
+        isTrue,
+      );
     });
 
     test('stream_resource_growth → heap_growing edge surfaces on co-fire', () {
       final issues = [
         makeIssue(
-            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+          stableId: 'stream_resource_growth',
+          category: IssueCategory.memory,
+        ),
         makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
       ];
       final edges = CausalGraphRule.activeEdges(issues);
       expect(hasEdge(edges, 'stream_resource_growth', 'heap_growing'), isTrue);
     });
 
-    test('stream_resource_growth → heap_near_capacity edge surfaces on co-fire',
-        () {
-      final issues = [
-        makeIssue(
-            stableId: 'stream_resource_growth', category: IssueCategory.memory),
-        makeIssue(
-            stableId: 'heap_near_capacity', category: IssueCategory.memory),
-      ];
-      final edges = CausalGraphRule.activeEdges(issues);
-      expect(hasEdge(edges, 'stream_resource_growth', 'heap_near_capacity'),
-          isTrue);
-    });
+    test(
+      'stream_resource_growth → heap_near_capacity edge surfaces on co-fire',
+      () {
+        final issues = [
+          makeIssue(
+            stableId: 'stream_resource_growth',
+            category: IssueCategory.memory,
+          ),
+          makeIssue(
+            stableId: 'heap_near_capacity',
+            category: IssueCategory.memory,
+          ),
+        ];
+        final edges = CausalGraphRule.activeEdges(issues);
+        expect(
+          hasEdge(edges, 'stream_resource_growth', 'heap_near_capacity'),
+          isTrue,
+        );
+      },
+    );
 
     test('stream_resource_growth → gc_pressure edge surfaces on co-fire', () {
       final issues = [
         makeIssue(
-            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+          stableId: 'stream_resource_growth',
+          category: IssueCategory.memory,
+        ),
         makeIssue(stableId: 'gc_pressure', category: IssueCategory.memory),
       ];
       final edges = CausalGraphRule.activeEdges(issues);
@@ -1379,95 +1404,126 @@ void main() {
     });
 
     test(
-        'stream_resource_growth alone surfaces no causal edges (negative control)',
-        () {
-      final issues = [
-        makeIssue(
-            stableId: 'stream_resource_growth', category: IssueCategory.memory),
-      ];
-      final edges = CausalGraphRule.activeEdges(issues);
-      expect(edges, isEmpty);
-    });
-
-    test('tracked_resource_concurrent → heap_growing edge surfaces on co-fire',
-        () {
-      final issues = [
-        makeIssue(
-            stableId: 'tracked_resource_concurrent:chat_socket',
-            category: IssueCategory.memory),
-        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
-      ];
-      final edges = CausalGraphRule.activeEdges(issues);
-      expect(
-          hasEdge(
-              edges, 'tracked_resource_concurrent:chat_socket', 'heap_growing'),
-          isTrue);
-    });
-
-    test('tracked_resource_long_lived → heap_growing edge surfaces on co-fire',
-        () {
-      final issues = [
-        makeIssue(
-            stableId: 'tracked_resource_long_lived:chat_socket',
-            category: IssueCategory.memory),
-        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
-      ];
-      final edges = CausalGraphRule.activeEdges(issues);
-      expect(
-          hasEdge(
-              edges, 'tracked_resource_long_lived:chat_socket', 'heap_growing'),
-          isTrue);
-    });
-
-    test('tracked_resource alone surfaces no causal edges (negative control)',
-        () {
-      final issues = [
-        makeIssue(
-            stableId: 'tracked_resource_concurrent:chat_socket',
-            category: IssueCategory.memory),
-        makeIssue(
-            stableId: 'tracked_resource_long_lived:chat_socket',
-            category: IssueCategory.memory),
-      ];
-      final edges = CausalGraphRule.activeEdges(issues);
-      expect(edges, isEmpty);
-    });
+      'stream_resource_growth alone surfaces no causal edges (negative control)',
+      () {
+        final issues = [
+          makeIssue(
+            stableId: 'stream_resource_growth',
+            category: IssueCategory.memory,
+          ),
+        ];
+        final edges = CausalGraphRule.activeEdges(issues);
+        expect(edges, isEmpty);
+      },
+    );
 
     test(
-        'tracked_resource_concurrent + stream_resource_growth co-firing on '
+      'tracked_resource_concurrent → heap_growing edge surfaces on co-fire',
+      () {
+        final issues = [
+          makeIssue(
+            stableId: 'tracked_resource_concurrent:chat_socket',
+            category: IssueCategory.memory,
+          ),
+          makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
+        ];
+        final edges = CausalGraphRule.activeEdges(issues);
+        expect(
+          hasEdge(
+            edges,
+            'tracked_resource_concurrent:chat_socket',
+            'heap_growing',
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'tracked_resource_long_lived → heap_growing edge surfaces on co-fire',
+      () {
+        final issues = [
+          makeIssue(
+            stableId: 'tracked_resource_long_lived:chat_socket',
+            category: IssueCategory.memory,
+          ),
+          makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
+        ];
+        final edges = CausalGraphRule.activeEdges(issues);
+        expect(
+          hasEdge(
+            edges,
+            'tracked_resource_long_lived:chat_socket',
+            'heap_growing',
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'tracked_resource alone surfaces no causal edges (negative control)',
+      () {
+        final issues = [
+          makeIssue(
+            stableId: 'tracked_resource_concurrent:chat_socket',
+            category: IssueCategory.memory,
+          ),
+          makeIssue(
+            stableId: 'tracked_resource_long_lived:chat_socket',
+            category: IssueCategory.memory,
+          ),
+        ];
+        final edges = CausalGraphRule.activeEdges(issues);
+        expect(edges, isEmpty);
+      },
+    );
+
+    test('tracked_resource_concurrent + stream_resource_growth co-firing on '
         'heap_growing both surface as parents', () {
       final issues = [
         makeIssue(
-            stableId: 'tracked_resource_concurrent:chat_socket',
-            category: IssueCategory.memory),
+          stableId: 'tracked_resource_concurrent:chat_socket',
+          category: IssueCategory.memory,
+        ),
         makeIssue(
-            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+          stableId: 'stream_resource_growth',
+          category: IssueCategory.memory,
+        ),
         makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
       ];
       final edges = CausalGraphRule.activeEdges(issues);
       expect(
-          hasEdge(
-              edges, 'tracked_resource_concurrent:chat_socket', 'heap_growing'),
-          isTrue);
+        hasEdge(
+          edges,
+          'tracked_resource_concurrent:chat_socket',
+          'heap_growing',
+        ),
+        isTrue,
+      );
       expect(hasEdge(edges, 'stream_resource_growth', 'heap_growing'), isTrue);
     });
 
-    test(
-        'multi-cause + multi-effect memory co-fire surfaces every parallel '
+    test('multi-cause + multi-effect memory co-fire surfaces every parallel '
         'edge', () {
       // 3 causes × 3 effects. Each cause→effect pair must surface as a
       // distinct edge so the UI's "Caused by" section can list all
       // three causes for any one of the three effects.
       final issues = [
         makeIssue(
-            stableId: 'stream_resource_growth', category: IssueCategory.memory),
+          stableId: 'stream_resource_growth',
+          category: IssueCategory.memory,
+        ),
         makeIssue(stableId: 'uncached_images', category: IssueCategory.memory),
         makeIssue(
-            stableId: 'excessive_keep_alive:foo',
-            category: IssueCategory.memory),
+          stableId: 'excessive_keep_alive:foo',
+          category: IssueCategory.memory,
+        ),
         makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
         makeIssue(
-            stableId: 'heap_near_capacity', category: IssueCategory.memory),
+          stableId: 'heap_near_capacity',
+          category: IssueCategory.memory,
+        ),
         makeIssue(stableId: 'gc_pressure', category: IssueCategory.memory),
       ];
       final edges = CausalGraphRule.activeEdges(issues);
@@ -1479,8 +1535,11 @@ void main() {
       const effects = ['heap_growing', 'heap_near_capacity', 'gc_pressure'];
       for (final cause in causes) {
         for (final effect in effects) {
-          expect(hasEdge(edges, cause, effect), isTrue,
-              reason: 'Expected $cause → $effect edge to surface on co-fire.');
+          expect(
+            hasEdge(edges, cause, effect),
+            isTrue,
+            reason: 'Expected $cause → $effect edge to surface on co-fire.',
+          );
         }
       }
     });

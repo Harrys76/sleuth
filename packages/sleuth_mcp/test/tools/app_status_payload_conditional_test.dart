@@ -16,10 +16,16 @@ void main() {
       );
       final json = payload.toJson();
       expect(json['launchMode'], 'ios-direct');
-      expect(json['transportMode'], 'wired',
-          reason: 'iOS-direct sessions must surface transportMode');
-      expect(json['wsUri'], isA<String>(),
-          reason: 'iOS-direct sessions must surface wsUri');
+      expect(
+        json['transportMode'],
+        'wired',
+        reason: 'iOS-direct sessions must surface transportMode',
+      );
+      expect(
+        json['wsUri'],
+        isA<String>(),
+        reason: 'iOS-direct sessions must surface wsUri',
+      );
     });
 
     test('daemon attach omits transportMode + wsUri', () {
@@ -32,10 +38,16 @@ void main() {
         mode: 'debug',
       );
       final json = payload.toJson();
-      expect(json.containsKey('transportMode'), isFalse,
-          reason: 'daemon-attach sessions must not leak transportMode');
-      expect(json.containsKey('wsUri'), isFalse,
-          reason: 'daemon-attach sessions must not leak wsUri');
+      expect(
+        json.containsKey('transportMode'),
+        isFalse,
+        reason: 'daemon-attach sessions must not leak transportMode',
+      );
+      expect(
+        json.containsKey('wsUri'),
+        isFalse,
+        reason: 'daemon-attach sessions must not leak wsUri',
+      );
     });
 
     test('idle state omits all session-scoped fields', () {
@@ -57,8 +69,7 @@ void main() {
       expect(json['wsUri'], startsWith('ws://Pengen.local:'));
     });
 
-    test(
-        'transportMode + wsUri suppressed when launchMode != ios-direct '
+    test('transportMode + wsUri suppressed when launchMode != ios-direct '
         '(even if fields populated)', () {
       // Negative invariant: a partially-cleaned-up session struct or
       // accidental construction with ios-direct fields on a daemon
@@ -72,12 +83,20 @@ void main() {
         wsUri: 'ws://127.0.0.1:9999/foo=/ws', // populated by accident
       );
       final json = accidentallyPopulated.toJson();
-      expect(json.containsKey('transportMode'), isFalse,
-          reason: 'transportMode must be suppressed on non-ios-direct '
-              'launch modes regardless of constructor input');
-      expect(json.containsKey('wsUri'), isFalse,
-          reason: 'wsUri must be suppressed on non-ios-direct launch '
-              'modes regardless of constructor input');
+      expect(
+        json.containsKey('transportMode'),
+        isFalse,
+        reason:
+            'transportMode must be suppressed on non-ios-direct '
+            'launch modes regardless of constructor input',
+      );
+      expect(
+        json.containsKey('wsUri'),
+        isFalse,
+        reason:
+            'wsUri must be suppressed on non-ios-direct launch '
+            'modes regardless of constructor input',
+      );
     });
 
     test('null launchMode also suppresses ios-direct fields', () {

@@ -36,11 +36,11 @@ class HeapSample {
       rssBytes != null ? (rssBytes! - heapUsage).clamp(0, rssBytes!) : null;
 
   Map<String, dynamic> toJson() => {
-        'heapUsage': heapUsage,
-        'heapCapacity': heapCapacity,
-        'externalUsage': externalUsage,
-        'timestamp': timestamp.toIso8601String(),
-        if (rssBytes != null) 'rssBytes': rssBytes,
-        if (nativeBytes != null) 'nativeBytes': nativeBytes,
-      };
+    'heapUsage': heapUsage,
+    'heapCapacity': heapCapacity,
+    'externalUsage': externalUsage,
+    'timestamp': timestamp.toIso8601String(),
+    if (rssBytes != null) 'rssBytes': rssBytes,
+    if (nativeBytes != null) 'nativeBytes': nativeBytes,
+  };
 }

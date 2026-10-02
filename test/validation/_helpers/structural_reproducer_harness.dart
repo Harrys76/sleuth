@@ -46,19 +46,19 @@ Future<List<PerformanceIssue>> scanAndIssues(
 
 /// Convenience assertion: issue with matching stableId is present.
 Matcher hasStableId(String stableId) => predicate<List<PerformanceIssue>>(
-      (issues) => issues.any((i) => i.stableId == stableId),
-      'contains stableId "$stableId"',
-    );
+  (issues) => issues.any((i) => i.stableId == stableId),
+  'contains stableId "$stableId"',
+);
 
 /// Convenience assertion: NO issue with matching stableId is present.
 Matcher lacksStableId(String stableId) => predicate<List<PerformanceIssue>>(
-      (issues) => !issues.any((i) => i.stableId == stableId),
-      'does not contain stableId "$stableId"',
-    );
+  (issues) => !issues.any((i) => i.stableId == stableId),
+  'does not contain stableId "$stableId"',
+);
 
 /// Convenience: issue with stableId starting with [prefix]. Used for
 /// parameterised families like `excessive_keep_alive:<i>`.
 Matcher hasStableIdPrefix(String prefix) => predicate<List<PerformanceIssue>>(
-      (issues) => issues.any((i) => (i.stableId ?? '').startsWith(prefix)),
-      'contains stableId starting with "$prefix"',
-    );
+  (issues) => issues.any((i) => (i.stableId ?? '').startsWith(prefix)),
+  'contains stableId starting with "$prefix"',
+);

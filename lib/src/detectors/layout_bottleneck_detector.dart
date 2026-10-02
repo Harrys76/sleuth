@@ -16,12 +16,12 @@ import '../utils/widget_location.dart';
 class LayoutBottleneckDetector extends BaseDetector
     with DetectorMetadataProvider {
   LayoutBottleneckDetector()
-      : super(
-          type: DetectorType.layoutBottleneck,
-          lifecycle: DetectorLifecycle.structural,
-          name: 'Layout Bottleneck',
-          description: 'Detects RenderIntrinsicHeight/Width nodes',
-        );
+    : super(
+        type: DetectorType.layoutBottleneck,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Layout Bottleneck',
+        description: 'Detects RenderIntrinsicHeight/Width nodes',
+      );
 
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
@@ -78,8 +78,9 @@ class LayoutBottleneckDetector extends BaseDetector
       depth++;
       final name = typeNameCache.lookup(ancestor.widget);
       // Handle generic types like DropdownButton<String>
-      final baseName =
-          name.contains('<') ? name.substring(0, name.indexOf('<')) : name;
+      final baseName = name.contains('<')
+          ? name.substring(0, name.indexOf('<'))
+          : name;
       if (_frameworkIntrinsicParents.contains(baseName)) {
         found = true;
         return false;
@@ -99,21 +100,26 @@ class LayoutBottleneckDetector extends BaseDetector
       int childCount = 0;
       element.visitChildren((_) => childCount++);
       if (childCount > _wrapChildThreshold) {
-        _wrapFindings.add(
-            (childCount: childCount, location: buildAncestorChain(element)));
+        _wrapFindings.add((
+          childCount: childCount,
+          location: buildAncestorChain(element),
+        ));
         final ro = element.renderObject;
         if (ro != null) {
           final rect = getGlobalRect(ro);
           if (rect != null) {
-            _highlights.add(WidgetHighlight(
-              rect: rect,
-              widgetName: 'Wrap',
-              severity: childCount > _wrapChildThreshold * 2
-                  ? IssueSeverity.critical
-                  : IssueSeverity.warning,
-              detectorName: 'Layout',
-              detail: 'Wrap with $childCount children — non-virtualized layout',
-            ));
+            _highlights.add(
+              WidgetHighlight(
+                rect: rect,
+                widgetName: 'Wrap',
+                severity: childCount > _wrapChildThreshold * 2
+                    ? IssueSeverity.critical
+                    : IssueSeverity.warning,
+                detectorName: 'Layout',
+                detail:
+                    'Wrap with $childCount children — non-virtualized layout',
+              ),
+            );
           }
         }
       }
@@ -126,22 +132,27 @@ class LayoutBottleneckDetector extends BaseDetector
       // Suppress intrinsics that are internal to framework widgets.
       if (_isInsideFrameworkWidget(element)) return;
 
-      final widgetName =
-          widget is IntrinsicHeight ? 'IntrinsicHeight' : 'IntrinsicWidth';
+      final widgetName = widget is IntrinsicHeight
+          ? 'IntrinsicHeight'
+          : 'IntrinsicWidth';
       _found.add((name: widgetName, nested: isNested));
       final ro = element.renderObject;
       if (ro != null) {
         final rect = getGlobalRect(ro);
         if (rect != null) {
-          _highlights.add(WidgetHighlight(
-            rect: rect,
-            widgetName: widgetName,
-            severity: isNested ? IssueSeverity.critical : IssueSeverity.warning,
-            detectorName: 'Layout',
-            detail: isNested
-                ? 'Nested intrinsic — O(N²+) layout'
-                : 'Causes O(N^2) layout passes',
-          ));
+          _highlights.add(
+            WidgetHighlight(
+              rect: rect,
+              widgetName: widgetName,
+              severity: isNested
+                  ? IssueSeverity.critical
+                  : IssueSeverity.warning,
+              detectorName: 'Layout',
+              detail: isNested
+                  ? 'Nested intrinsic — O(N²+) layout'
+                  : 'Causes O(N^2) layout passes',
+            ),
+          );
         }
       }
     }
@@ -159,35 +170,40 @@ class LayoutBottleneckDetector extends BaseDetector
   void finalizeScan() {
     if (_found.isNotEmpty) {
       final hasNested = _found.any((f) => f.nested);
-      final locations = _found.take(5).map((f) {
-        final prefix = f.nested ? '⚠ ' : '';
-        return '  • $prefix${f.name}${f.nested ? ' (nested)' : ''}';
-      }).join('\n');
+      final locations = _found
+          .take(5)
+          .map((f) {
+            final prefix = f.nested ? '⚠ ' : '';
+            return '  • $prefix${f.name}${f.nested ? ' (nested)' : ''}';
+          })
+          .join('\n');
       final (hint, effort) = FixHintBuilder.layoutBottleneck();
 
-      _issues.add(PerformanceIssue(
-        stableId: 'layout_bottleneck',
-        severity: hasNested ? IssueSeverity.critical : IssueSeverity.warning,
-        category: IssueCategory.layout,
-        // confirmed: IntrinsicHeight/Width always triggers two-pass layout
-        // (framework guarantee — not a heuristic)
-        confidence: IssueConfidence.confirmed,
-        title: hasNested
-            ? 'Nested Layout Bottleneck: ${_found.length} intrinsic nodes'
-            : 'Layout Bottleneck: ${_found.length} intrinsic nodes',
-        detail: hasNested
-            ? 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth widgets '
-                'including nested intrinsics. Nesting multiplies layout '
-                'passes exponentially.\n\n$locations'
-            : 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth '
-                'widgets. These cause O(N²) layout passes.\n\n$locations',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.structural,
-        confidenceReason:
-            'Confirmed — IntrinsicHeight/Width always triggers two-pass layout',
-        detectedAt: DateTime.now(),
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'layout_bottleneck',
+          severity: hasNested ? IssueSeverity.critical : IssueSeverity.warning,
+          category: IssueCategory.layout,
+          // confirmed: IntrinsicHeight/Width always triggers two-pass layout
+          // (framework guarantee — not a heuristic)
+          confidence: IssueConfidence.confirmed,
+          title: hasNested
+              ? 'Nested Layout Bottleneck: ${_found.length} intrinsic nodes'
+              : 'Layout Bottleneck: ${_found.length} intrinsic nodes',
+          detail: hasNested
+              ? 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth widgets '
+                    'including nested intrinsics. Nesting multiplies layout '
+                    'passes exponentially.\n\n$locations'
+              : 'Found ${_found.length} IntrinsicHeight/IntrinsicWidth '
+                    'widgets. These cause O(N²) layout passes.\n\n$locations',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.structural,
+          confidenceReason:
+              'Confirmed — IntrinsicHeight/Width always triggers two-pass layout',
+          detectedAt: DateTime.now(),
+        ),
+      );
     }
 
     // Emit Wrap bottleneck issues
@@ -196,24 +212,27 @@ class LayoutBottleneckDetector extends BaseDetector
         childCount: wrap.childCount,
         ancestorChain: wrap.location,
       );
-      _issues.add(PerformanceIssue(
-        stableId: 'wrap_layout_bottleneck',
-        severity: wrap.childCount > _wrapChildThreshold * 2
-            ? IssueSeverity.critical
-            : IssueSeverity.warning,
-        category: IssueCategory.layout,
-        confidence: IssueConfidence.possible,
-        title: 'Wrap Layout Bottleneck: ${wrap.childCount} children',
-        detail: 'Wrap with ${wrap.childCount} children is non-virtualized '
-            '— all children are laid out every frame regardless of '
-            'visibility.\n\n  • ${wrap.location}',
-        fixHint: hint,
-        fixEffort: effort,
-        observationSource: ObservationSource.structural,
-        confidenceReason:
-            'Structural scan only — Wrap child count exceeds threshold',
-        detectedAt: DateTime.now(),
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'wrap_layout_bottleneck',
+          severity: wrap.childCount > _wrapChildThreshold * 2
+              ? IssueSeverity.critical
+              : IssueSeverity.warning,
+          category: IssueCategory.layout,
+          confidence: IssueConfidence.possible,
+          title: 'Wrap Layout Bottleneck: ${wrap.childCount} children',
+          detail:
+              'Wrap with ${wrap.childCount} children is non-virtualized '
+              '— all children are laid out every frame regardless of '
+              'visibility.\n\n  • ${wrap.location}',
+          fixHint: hint,
+          fixEffort: effort,
+          observationSource: ObservationSource.structural,
+          confidenceReason:
+              'Structural scan only — Wrap child count exceeds threshold',
+          detectedAt: DateTime.now(),
+        ),
+      );
     }
   }
 
@@ -228,16 +247,16 @@ class LayoutBottleneckDetector extends BaseDetector
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        rationale: 'Hermetic reproducer pins `layout_bottleneck` '
-            '(IntrinsicHeight/IntrinsicWidth structural trigger) and '
-            '`wrap_layout_bottleneck` (Wrap with > `wrapChildThreshold` '
-            'children, strict-greater). Detector is a pure structural scan '
-            'over widget shape — no layout-phase timing dependency — so the '
-            'reproducer covers the full runtime trigger path. Not yet '
-            'runtime-verified on a profile-mode capture.',
-        reproducerPath:
-            'test/validation/layout_bottleneck_reproducer_test.dart',
-        coveredStableIds: {'layout_bottleneck', 'wrap_layout_bottleneck'},
-      );
+    tier: EvidenceTier.reproducerOnly,
+    rationale:
+        'Hermetic reproducer pins `layout_bottleneck` '
+        '(IntrinsicHeight/IntrinsicWidth structural trigger) and '
+        '`wrap_layout_bottleneck` (Wrap with > `wrapChildThreshold` '
+        'children, strict-greater). Detector is a pure structural scan '
+        'over widget shape — no layout-phase timing dependency — so the '
+        'reproducer covers the full runtime trigger path. Not yet '
+        'runtime-verified on a profile-mode capture.',
+    reproducerPath: 'test/validation/layout_bottleneck_reproducer_test.dart',
+    coveredStableIds: {'layout_bottleneck', 'wrap_layout_bottleneck'},
+  );
 }

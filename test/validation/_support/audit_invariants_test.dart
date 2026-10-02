@@ -86,23 +86,30 @@ void main() {}
       expect(result, isNot(contains('inner line comment')));
     });
 
-    test('AB-10: preserves `//`-looking content inside single-quoted strings',
-        () {
-      const source = r'''
+    test(
+      'AB-10: preserves `//`-looking content inside single-quoted strings',
+      () {
+        const source = r'''
 void main() {
   final s = '// not actually a comment, just string content';
   print(s);
 }
 ''';
-      final result = stripDartComments(source);
-      expect(result, contains('not actually a comment, just string content'),
-          reason: 'Line-comment stripper must not touch content inside string '
-              'literals.');
-    });
+        final result = stripDartComments(source);
+        expect(
+          result,
+          contains('not actually a comment, just string content'),
+          reason:
+              'Line-comment stripper must not touch content inside string '
+              'literals.',
+        );
+      },
+    );
 
-    test('AB-10: preserves comment-like content inside triple-quoted strings',
-        () {
-      const source = """
+    test(
+      'AB-10: preserves comment-like content inside triple-quoted strings',
+      () {
+        const source = """
 void main() {
   final doc = '''
     // docstring-style body
@@ -112,37 +119,43 @@ void main() {
   print(doc);
 }
 """;
-      final result = stripDartComments(source);
-      expect(result, contains('docstring-style body'));
-      expect(result, contains('looks like a block comment'));
-      expect(result, contains("test('fake inside string'"),
-          reason: 'Triple-quoted string contents must pass through untouched.');
-    });
+        final result = stripDartComments(source);
+        expect(result, contains('docstring-style body'));
+        expect(result, contains('looks like a block comment'));
+        expect(
+          result,
+          contains("test('fake inside string'"),
+          reason: 'Triple-quoted string contents must pass through untouched.',
+        );
+      },
+    );
 
     test(
-        'AB-10: raw strings do not interpret backslash — delimiter still closes',
-        () {
-      // In a raw string, a `\'` does NOT escape the closing quote. The
-      // walker must not treat the escape sequence as preserving the quote.
-      const source = r"""
+      'AB-10: raw strings do not interpret backslash — delimiter still closes',
+      () {
+        // In a raw string, a `\'` does NOT escape the closing quote. The
+        // walker must not treat the escape sequence as preserving the quote.
+        const source = r"""
 void main() {
   final a = r'\' + 'after';
   final b = r'next raw';
   print(a + b);
 }
 """;
-      final result = stripDartComments(source);
-      // We only care that the post-lexer source still compiles-equivalent —
-      // the code that follows each raw string must remain intact.
-      expect(result, contains("'after'"));
-      expect(result, contains("r'next raw'"));
-    });
+        final result = stripDartComments(source);
+        // We only care that the post-lexer source still compiles-equivalent —
+        // the code that follows each raw string must remain intact.
+        expect(result, contains("'after'"));
+        expect(result, contains("r'next raw'"));
+      },
+    );
 
-    test('AB-10: string containing `/*` does not swallow code that follows',
-        () {
-      // Before AB-10, a greedy `/*` regex could chew from a string opener
-      // forward if a later `*/` closed inside another string.
-      const source = r'''
+    test(
+      'AB-10: string containing `/*` does not swallow code that follows',
+      () {
+        // Before AB-10, a greedy `/*` regex could chew from a string opener
+        // forward if a later `*/` closed inside another string.
+        const source = r'''
 void main() {
   final a = '/* pretend block opener';
   final b = 'still code after';
@@ -150,10 +163,11 @@ void main() {
   test('post-string test', () {});
 }
 ''';
-      final result = stripDartComments(source);
-      expect(result, contains('still code after'));
-      expect(result, contains("test('post-string test'"));
-    });
+        final result = stripDartComments(source);
+        expect(result, contains('still code after'));
+        expect(result, contains("test('post-string test'"));
+      },
+    );
   });
 
   group('isPathInsideRepo (CODEX-R6-1)', () {
@@ -171,7 +185,9 @@ void main() {
 
     test('accepts a simple repo-relative path', () {
       expect(
-          isPathInsideRepo('test/foo.dart', repoRoot: repoRoot.path), isTrue);
+        isPathInsideRepo('test/foo.dart', repoRoot: repoRoot.path),
+        isTrue,
+      );
     });
 
     test('accepts the repo root itself', () {
@@ -180,16 +196,21 @@ void main() {
 
     test('rejects an absolute path outside the repo', () {
       expect(
-          isPathInsideRepo('/tmp/definitely_not_in_repo.dart',
-              repoRoot: repoRoot.path),
-          isFalse);
+        isPathInsideRepo(
+          '/tmp/definitely_not_in_repo.dart',
+          repoRoot: repoRoot.path,
+        ),
+        isFalse,
+      );
     });
 
     test('rejects a ../../ traversal that escapes the repo', () {
       // Descend into a nested subdirectory and try to escape upward
       // beyond the repo root.
-      expect(isPathInsideRepo('../../etc/passwd', repoRoot: repoRoot.path),
-          isFalse);
+      expect(
+        isPathInsideRepo('../../etc/passwd', repoRoot: repoRoot.path),
+        isFalse,
+      );
     });
 
     test('rejects empty path', () {
@@ -211,16 +232,17 @@ void main() {
       if (root.existsSync()) await root.delete(recursive: true);
     });
 
-    test('accepts a file with a real test() call that references the token',
-        () async {
-      // Bundle I (R3-NEW-2): the token must appear as a real identifier
-      // in the AST — not just inside a string literal. Before Bundle I,
-      // `contains('MyThing')` matched the token inside `'exercises
-      // MyThing'`, so a reproducer could satisfy AB3 without ever
-      // touching the thing under claim. Now the fixture uses MyThing
-      // as a real variable reference.
-      final file = File('${root.path}/good_test.dart');
-      await file.writeAsString('''
+    test(
+      'accepts a file with a real test() call that references the token',
+      () async {
+        // Bundle I (R3-NEW-2): the token must appear as a real identifier
+        // in the AST — not just inside a string literal. Before Bundle I,
+        // `contains('MyThing')` matched the token inside `'exercises
+        // MyThing'`, so a reproducer could satisfy AB3 without ever
+        // touching the thing under claim. Now the fixture uses MyThing
+        // as a real variable reference.
+        final file = File('${root.path}/good_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class MyThing {}
@@ -232,20 +254,20 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'MyThing',
-        reproducerPath: 'good_test.dart',
-        requiredTokens: ['MyThing'],
-        repoRoot: root.path,
-      );
-      expect(failures, isEmpty);
-    });
+        final failures = checkReproducerFile(
+          label: 'MyThing',
+          reproducerPath: 'good_test.dart',
+          requiredTokens: ['MyThing'],
+          repoRoot: root.path,
+        );
+        expect(failures, isEmpty);
+      },
+    );
 
     // R3-NEW-2 (Bundle I): a reproducer that only names the token
     // inside a string literal must be rejected — the point of the AB3
     // parity check is to enforce real code exercising the claim.
-    test(
-        'rejects a file whose only token reference is inside a string literal '
+    test('rejects a file whose only token reference is inside a string literal '
         '(R3-NEW-2)', () async {
       final file = File('${root.path}/string_only_test.dart');
       await file.writeAsString('''
@@ -273,8 +295,7 @@ void main() {
     // comment embedded in interpolation SHOULD still be rejected.
     // Exercising this through AST keeps both behaviours correct without
     // the mini-lexer needing to enter interpolation as code mode.
-    test(
-        'accepts a real `test(` inside a \${...} interpolation expression '
+    test('accepts a real `test(` inside a \${...} interpolation expression '
         '(AGR-3)', () async {
       final file = File('${root.path}/interp_test.dart');
       await file.writeAsString(r'''
@@ -299,8 +320,7 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test(
-        'rejects a file whose only test() calls are inside a /* */ block '
+    test('rejects a file whose only test() calls are inside a /* */ block '
         'comment (CLAUDE-R4-1)', () async {
       final file = File('${root.path}/block_comment_only_test.dart');
       await file.writeAsString('''
@@ -319,29 +339,36 @@ void main() {
         requiredTokens: ['MyThing'],
         repoRoot: root.path,
       );
-      expect(failures, isNotEmpty,
-          reason: 'Block-commented test() calls must not satisfy the gate.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason: 'Block-commented test() calls must not satisfy the gate.',
+      );
       expect(failures.first, contains('no test()/testWidgets() calls'));
     });
 
-    test('rejects absolute reproducerPath outside the repo (CODEX-R6-1)',
-        () async {
-      final outside = await Directory.systemTemp.createTemp('sleuth_outside_');
-      try {
-        final file = File('${outside.path}/escaped_test.dart');
-        await file.writeAsString('void main() { test((){}); }');
-        final failures = checkReproducerFile(
-          label: 'MyThing',
-          reproducerPath: file.path, // absolute, not inside `root`
-          requiredTokens: ['MyThing'],
-          repoRoot: root.path,
+    test(
+      'rejects absolute reproducerPath outside the repo (CODEX-R6-1)',
+      () async {
+        final outside = await Directory.systemTemp.createTemp(
+          'sleuth_outside_',
         );
-        expect(failures, isNotEmpty);
-        expect(failures.first, contains('escapes the repo root'));
-      } finally {
-        if (outside.existsSync()) await outside.delete(recursive: true);
-      }
-    });
+        try {
+          final file = File('${outside.path}/escaped_test.dart');
+          await file.writeAsString('void main() { test((){}); }');
+          final failures = checkReproducerFile(
+            label: 'MyThing',
+            reproducerPath: file.path, // absolute, not inside `root`
+            requiredTokens: ['MyThing'],
+            repoRoot: root.path,
+          );
+          expect(failures, isNotEmpty);
+          expect(failures.first, contains('escapes the repo root'));
+        } finally {
+          if (outside.existsSync()) await outside.delete(recursive: true);
+        }
+      },
+    );
 
     test('rejects ../../ traversal escaping the repo (CODEX-R6-1)', () {
       final failures = checkReproducerFile(
@@ -354,23 +381,25 @@ void main() {
       expect(failures.first, contains('escapes the repo root'));
     });
 
-    test('rejects reproducer file that does not reference the token (AB3)',
-        () async {
-      final file = File('${root.path}/unrelated_test.dart');
-      await file.writeAsString('''
+    test(
+      'rejects reproducer file that does not reference the token (AB3)',
+      () async {
+        final file = File('${root.path}/unrelated_test.dart');
+        await file.writeAsString('''
 void main() {
   test('some real test', () {});
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'MyThing',
-        reproducerPath: 'unrelated_test.dart',
-        requiredTokens: ['MyThing'],
-        repoRoot: root.path,
-      );
-      expect(failures, isNotEmpty);
-      expect(failures.first, contains('does not reference "MyThing"'));
-    });
+        final failures = checkReproducerFile(
+          label: 'MyThing',
+          reproducerPath: 'unrelated_test.dart',
+          requiredTokens: ['MyThing'],
+          repoRoot: root.path,
+        );
+        expect(failures, isNotEmpty);
+        expect(failures.first, contains('does not reference "MyThing"'));
+      },
+    );
 
     // B4 Bundle K (v0.16.3 blocker): the reproducer gate must prove the
     // detector is actually constructed inside a test scope — not just
@@ -379,10 +408,11 @@ void main() {
     // negative tests close that loophole while keeping the 4 v0.16.3
     // reproducers (which instantiate in setUp at group scope) passing
     // because setUp is tracked as a wrapper.
-    test('B4: rejects a file with token only in a top-level type annotation',
-        () async {
-      final file = File('${root.path}/top_level_only_test.dart');
-      await file.writeAsString('''
+    test(
+      'B4: rejects a file with token only in a top-level type annotation',
+      () async {
+        final file = File('${root.path}/top_level_only_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {}
@@ -397,21 +427,25 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'top_level_only_test.dart',
-        requiredTokens: ['XyzDetector'],
-        repoRoot: root.path,
-      );
-      expect(failures, isNotEmpty);
-      expect(failures.first,
-          contains('does not reference "XyzDetector" by name inside a test'));
-    });
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'top_level_only_test.dart',
+          requiredTokens: ['XyzDetector'],
+          repoRoot: root.path,
+        );
+        expect(failures, isNotEmpty);
+        expect(
+          failures.first,
+          contains('does not reference "XyzDetector" by name inside a test'),
+        );
+      },
+    );
 
-    test('B4: rejects a file with token referenced but never instantiated',
-        () async {
-      final file = File('${root.path}/no_instantiation_test.dart');
-      await file.writeAsString('''
+    test(
+      'B4: rejects a file with token referenced but never instantiated',
+      () async {
+        final file = File('${root.path}/no_instantiation_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {}
@@ -428,18 +462,18 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'no_instantiation_test.dart',
-        requiredTokens: ['XyzDetector'],
-        repoRoot: root.path,
-      );
-      expect(failures, isNotEmpty);
-      expect(failures.first, contains('never instantiates "XyzDetector"'));
-    });
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'no_instantiation_test.dart',
+          requiredTokens: ['XyzDetector'],
+          repoRoot: root.path,
+        );
+        expect(failures, isNotEmpty);
+        expect(failures.first, contains('never instantiates "XyzDetector"'));
+      },
+    );
 
-    test(
-        'B4: accepts instantiation in setUp at group scope (v0.16.3 '
+    test('B4: accepts instantiation in setUp at group scope (v0.16.3 '
         'reproducer pattern)', () async {
       final file = File('${root.path}/group_setup_test.dart');
       await file.writeAsString('''
@@ -465,13 +499,16 @@ void main() {
         requiredTokens: ['XyzDetector'],
         repoRoot: root.path,
       );
-      expect(failures, isEmpty,
-          reason: 'setUp at group scope must credit instantiation — '
-              'this is the v0.16.3 reproducer pattern.');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'setUp at group scope must credit instantiation — '
+            'this is the v0.16.3 reproducer pattern.',
+      );
     });
 
-    test(
-        'B4: rejects when coveredStableIds is declared but no stable-id '
+    test('B4: rejects when coveredStableIds is declared but no stable-id '
         'literal appears in a test scope', () async {
       final file = File('${root.path}/missing_covered_id_test.dart');
       await file.writeAsString('''
@@ -498,8 +535,7 @@ void main() {
       expect(failures.first, contains('my_family'));
     });
 
-    test(
-        'B4: accepts coveredStableIds prefix match (family:suffix covers '
+    test('B4: accepts coveredStableIds prefix match (family:suffix covers '
         'the canonical family id)', () async {
       final file = File('${root.path}/prefix_covered_test.dart');
       await file.writeAsString('''
@@ -523,18 +559,23 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isEmpty,
-          reason: 'A string literal matching "my_family:<suffix>" must '
-              'satisfy the coveredStableIds prefix convention.');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'A string literal matching "my_family:<suffix>" must '
+            'satisfy the coveredStableIds prefix convention.',
+      );
     });
 
-    test('rejects stable-id literal inside expect() `reason:` named arg',
-        () async {
-      // Literal sits in a NamedExpression (`reason:`) inside expect() —
-      // reason strings are prose, not assertions. Parent-chain walk
-      // must reject at the NamedExpression.
-      final file = File('${root.path}/reason_bypass_test.dart');
-      await file.writeAsString('''
+    test(
+      'rejects stable-id literal inside expect() `reason:` named arg',
+      () async {
+        // Literal sits in a NamedExpression (`reason:`) inside expect() —
+        // reason strings are prose, not assertions. Parent-chain walk
+        // must reject at the NamedExpression.
+        final file = File('${root.path}/reason_bypass_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {}
@@ -547,22 +588,26 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'reason_bypass_test.dart',
-        requiredTokens: ['XyzDetector'],
-        coveredStableIds: const {'my_family'},
-        repoRoot: root.path,
-      );
-      expect(failures, isNotEmpty,
-          reason: 'A literal in a `reason:` named arg must NOT satisfy the '
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'reason_bypass_test.dart',
+          requiredTokens: ['XyzDetector'],
+          coveredStableIds: const {'my_family'},
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isNotEmpty,
+          reason:
+              'A literal in a `reason:` named arg must NOT satisfy the '
               'coveredStableIds gate — reason strings are prose, not '
-              'assertions against detector output.');
-      expect(failures.first, contains('my_family'));
-    });
+              'assertions against detector output.',
+        );
+        expect(failures.first, contains('my_family'));
+      },
+    );
 
-    test(
-        'rejects stable-id literal inside instance-method call '
+    test('rejects stable-id literal inside instance-method call '
         '(String.contains collision)', () async {
       // `contains` is in the matcher allowlist but `target != null`
       // distinguishes the String extension method from the test-package
@@ -589,18 +634,23 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isNotEmpty,
-          reason: 'A literal in `str.contains("my_family")` must NOT credit '
-              'the gate — String extension method is not a matcher factory.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason:
+            'A literal in `str.contains("my_family")` must NOT credit '
+            'the gate — String extension method is not a matcher factory.',
+      );
       expect(failures.first, contains('my_family'));
     });
 
-    test('multi-family gate requires EVERY declared family to be asserted',
-        () async {
-      // `coveredStableIds: {'a', 'b'}` with only family `a` asserted —
-      // set-tracking must reject because {a, b}.difference({a}) == {b}.
-      final file = File('${root.path}/multi_family_partial_test.dart');
-      await file.writeAsString('''
+    test(
+      'multi-family gate requires EVERY declared family to be asserted',
+      () async {
+        // `coveredStableIds: {'a', 'b'}` with only family `a` asserted —
+        // set-tracking must reject because {a, b}.difference({a}) == {b}.
+        final file = File('${root.path}/multi_family_partial_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {}
@@ -614,25 +664,34 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'multi_family_partial_test.dart',
-        requiredTokens: ['XyzDetector'],
-        coveredStableIds: const {'family_a', 'family_b'},
-        repoRoot: root.path,
-      );
-      expect(failures, isNotEmpty,
-          reason: 'Declared families {family_a, family_b} but only family_a '
-              'asserted — gate must surface family_b as missing.');
-      expect(failures.first, contains('family_b'));
-      expect(failures.first, isNot(contains('family_a: ')),
-          reason: 'family_a was asserted; it should not appear as missing.');
-    });
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'multi_family_partial_test.dart',
+          requiredTokens: ['XyzDetector'],
+          coveredStableIds: const {'family_a', 'family_b'},
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isNotEmpty,
+          reason:
+              'Declared families {family_a, family_b} but only family_a '
+              'asserted — gate must surface family_b as missing.',
+        );
+        expect(failures.first, contains('family_b'));
+        expect(
+          failures.first,
+          isNot(contains('family_a: ')),
+          reason: 'family_a was asserted; it should not appear as missing.',
+        );
+      },
+    );
 
-    test('parametricFamilies: underscore family matches non-empty suffix',
-        () async {
-      final file = File('${root.path}/parametric_match_test.dart');
-      await file.writeAsString('''
+    test(
+      'parametricFamilies: underscore family matches non-empty suffix',
+      () async {
+        final file = File('${root.path}/parametric_match_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {}
@@ -646,21 +705,26 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'parametric_match_test.dart',
-        requiredTokens: ['XyzDetector'],
-        parametricFamilies: const {'foo_bar'},
-        repoRoot: root.path,
-      );
-      expect(failures, isEmpty,
-          reason: "'foo_bar_Baz' must credit parametric family 'foo_bar'.");
-    });
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'parametric_match_test.dart',
+          requiredTokens: ['XyzDetector'],
+          parametricFamilies: const {'foo_bar'},
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isEmpty,
+          reason: "'foo_bar_Baz' must credit parametric family 'foo_bar'.",
+        );
+      },
+    );
 
-    test('parametricFamilies: empty suffix rejected (foo_ does not match foo)',
-        () async {
-      final file = File('${root.path}/parametric_empty_suffix_test.dart');
-      await file.writeAsString('''
+    test(
+      'parametricFamilies: empty suffix rejected (foo_ does not match foo)',
+      () async {
+        final file = File('${root.path}/parametric_empty_suffix_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {}
@@ -674,24 +738,27 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'parametric_empty_suffix_test.dart',
-        requiredTokens: ['XyzDetector'],
-        parametricFamilies: const {'foo'},
-        repoRoot: root.path,
-      );
-      expect(failures, isNotEmpty,
-          reason:
-              "'foo_' has empty suffix → must NOT credit parametric 'foo'.");
-      expect(failures.first, contains('foo'));
-    });
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'parametric_empty_suffix_test.dart',
+          requiredTokens: ['XyzDetector'],
+          parametricFamilies: const {'foo'},
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isNotEmpty,
+          reason: "'foo_' has empty suffix → must NOT credit parametric 'foo'.",
+        );
+        expect(failures.first, contains('foo'));
+      },
+    );
 
     test(
-        'parametricFamilies: bare family does NOT match (coveredStableIds scope)',
-        () async {
-      final file = File('${root.path}/parametric_no_bare_match_test.dart');
-      await file.writeAsString('''
+      'parametricFamilies: bare family does NOT match (coveredStableIds scope)',
+      () async {
+        final file = File('${root.path}/parametric_no_bare_match_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {}
@@ -705,22 +772,28 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'parametric_no_bare_match_test.dart',
-        requiredTokens: ['XyzDetector'],
-        parametricFamilies: const {'foo'},
-        repoRoot: root.path,
-      );
-      expect(failures, isNotEmpty,
-          reason: "'foo' bare literal must NOT match parametric 'foo' — "
-              'parametric requires `_<suffix>`.');
-    });
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'parametric_no_bare_match_test.dart',
+          requiredTokens: ['XyzDetector'],
+          parametricFamilies: const {'foo'},
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isNotEmpty,
+          reason:
+              "'foo' bare literal must NOT match parametric 'foo' — "
+              'parametric requires `_<suffix>`.',
+        );
+      },
+    );
 
-    test('parametricFamilies: false-positive guard (food_bar vs foo_)',
-        () async {
-      final file = File('${root.path}/parametric_false_positive_test.dart');
-      await file.writeAsString('''
+    test(
+      'parametricFamilies: false-positive guard (food_bar vs foo_)',
+      () async {
+        final file = File('${root.path}/parametric_false_positive_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {}
@@ -734,26 +807,32 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'parametric_false_positive_test.dart',
-        requiredTokens: ['XyzDetector'],
-        parametricFamilies: const {'foo'},
-        repoRoot: root.path,
-      );
-      expect(failures, isNotEmpty,
-          reason: "'food_bar' must NOT match parametric 'foo' — prefix check "
-              'requires exact `foo_`, not `food`.');
-    });
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'parametric_false_positive_test.dart',
+          requiredTokens: ['XyzDetector'],
+          parametricFamilies: const {'foo'},
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isNotEmpty,
+          reason:
+              "'food_bar' must NOT match parametric 'foo' — prefix check "
+              'requires exact `foo_`, not `food`.',
+        );
+      },
+    );
 
     test(
-        'parametricFamilies: real detector literal (repaint_debug_CustomPaint) '
-        'credits family `repaint_debug`', () async {
-      // Anti-tautology anchor — literal is the exact string emitted by
-      // RepaintDetector at runtime (stableId: `repaint_debug_$typeName`).
-      // If the detector renames the parametric prefix, this test breaks.
-      final file = File('${root.path}/parametric_real_literal_test.dart');
-      await file.writeAsString('''
+      'parametricFamilies: real detector literal (repaint_debug_CustomPaint) '
+      'credits family `repaint_debug`',
+      () async {
+        // Anti-tautology anchor — literal is the exact string emitted by
+        // RepaintDetector at runtime (stableId: `repaint_debug_$typeName`).
+        // If the detector renames the parametric prefix, this test breaks.
+        final file = File('${root.path}/parametric_real_literal_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {}
@@ -767,22 +846,28 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'parametric_real_literal_test.dart',
-        requiredTokens: ['XyzDetector'],
-        parametricFamilies: const {'repaint_debug'},
-        repoRoot: root.path,
-      );
-      expect(failures, isEmpty,
-          reason: 'Real detector emission literal must credit parametric '
-              'family declared in metadata.');
-    });
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'parametric_real_literal_test.dart',
+          requiredTokens: ['XyzDetector'],
+          parametricFamilies: const {'repaint_debug'},
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isEmpty,
+          reason:
+              'Real detector emission literal must credit parametric '
+              'family declared in metadata.',
+        );
+      },
+    );
 
-    test('parametricFamilies + coveredStableIds: BOTH must be matched',
-        () async {
-      final file = File('${root.path}/parametric_mixed_test.dart');
-      await file.writeAsString('''
+    test(
+      'parametricFamilies + coveredStableIds: BOTH must be matched',
+      () async {
+        final file = File('${root.path}/parametric_mixed_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {}
@@ -796,22 +881,26 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'parametric_mixed_test.dart',
-        requiredTokens: ['XyzDetector'],
-        coveredStableIds: const {'foo'},
-        parametricFamilies: const {'bar_baz'},
-        repoRoot: root.path,
-      );
-      expect(failures, isNotEmpty,
-          reason: 'Bare `foo` satisfied but parametric `bar_baz` has no '
-              'credited literal — must fail.');
-      expect(failures.first, contains('bar_baz'));
-    });
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'parametric_mixed_test.dart',
+          requiredTokens: ['XyzDetector'],
+          coveredStableIds: const {'foo'},
+          parametricFamilies: const {'bar_baz'},
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isNotEmpty,
+          reason:
+              'Bare `foo` satisfied but parametric `bar_baz` has no '
+              'credited literal — must fail.',
+        );
+        expect(failures.first, contains('bar_baz'));
+      },
+    );
 
-    test(
-        'parametricFamilies-only declaration: no coveredStableIds, parametric '
+    test('parametricFamilies-only declaration: no coveredStableIds, parametric '
         'family matched', () async {
       // Edge case — detector declares ONLY parametricFamilies (null / empty
       // coveredStableIds). Audit gate must still require the declared
@@ -838,18 +927,23 @@ void main() {
         parametricFamilies: const {'foo'},
         repoRoot: root.path,
       );
-      expect(failures, isEmpty,
-          reason: 'Parametric-only declaration must pass when the family '
-              'prefix is exercised.');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'Parametric-only declaration must pass when the family '
+            'prefix is exercised.',
+      );
     });
 
-    test('parametricFamilies: empty Set treated as none-declared (not failure)',
-        () async {
-      // Edge case — detector explicitly passes `const <String>{}` instead
-      // of null. Audit must treat empty as "nothing declared" and not
-      // synthesise a false-missing entry.
-      final file = File('${root.path}/parametric_empty_set_test.dart');
-      await file.writeAsString('''
+    test(
+      'parametricFamilies: empty Set treated as none-declared (not failure)',
+      () async {
+        // Edge case — detector explicitly passes `const <String>{}` instead
+        // of null. Audit must treat empty as "nothing declared" and not
+        // synthesise a false-missing entry.
+        final file = File('${root.path}/parametric_empty_set_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {}
@@ -863,18 +957,23 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'parametric_empty_set_test.dart',
-        requiredTokens: ['XyzDetector'],
-        coveredStableIds: const {'foo'},
-        parametricFamilies: const <String>{},
-        repoRoot: root.path,
-      );
-      expect(failures, isEmpty,
-          reason: 'Empty parametricFamilies set contributes zero declared '
-              'families; bare `foo` satisfies the only declared family.');
-    });
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'parametric_empty_set_test.dart',
+          requiredTokens: ['XyzDetector'],
+          coveredStableIds: const {'foo'},
+          parametricFamilies: const <String>{},
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isEmpty,
+          reason:
+              'Empty parametricFamilies set contributes zero declared '
+              'families; bare `foo` satisfies the only declared family.',
+        );
+      },
+    );
 
     test('skips gracefully when CWD is not a package root', () {
       // No pubspec.yaml at this override — helper must return [] rather
@@ -913,20 +1012,25 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isEmpty,
-          reason: 'Literal as direct arg to `hasStableId(...)` must credit '
-              'family `my_family` (Rule 1).');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'Literal as direct arg to `hasStableId(...)` must credit '
+            'family `my_family` (Rule 1).',
+      );
     });
 
     test(
-        'Rule-2 credit: `.where((i) => i.stableId == "LIT")` closure-parameter '
-        'shape', () async {
-      // Positive fixture for the matcher's second accepted shape — an
-      // inline predicate where the literal is compared against
-      // `<param>.stableId` inside a closure whose outer receiver is
-      // detector-derived.
-      final file = File('${root.path}/rule2_binary_stableId_test.dart');
-      await file.writeAsString('''
+      'Rule-2 credit: `.where((i) => i.stableId == "LIT")` closure-parameter '
+      'shape',
+      () async {
+        // Positive fixture for the matcher's second accepted shape — an
+        // inline predicate where the literal is compared against
+        // `<param>.stableId` inside a closure whose outer receiver is
+        // detector-derived.
+        final file = File('${root.path}/rule2_binary_stableId_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {
@@ -940,21 +1044,25 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'rule2_binary_stableId_test.dart',
-        requiredTokens: ['XyzDetector'],
-        coveredStableIds: const {'my_family'},
-        repoRoot: root.path,
-      );
-      expect(failures, isEmpty,
-          reason: 'Literal as right operand of `i.stableId == "..."` inside a '
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'rule2_binary_stableId_test.dart',
+          requiredTokens: ['XyzDetector'],
+          coveredStableIds: const {'my_family'},
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isEmpty,
+          reason:
+              'Literal as right operand of `i.stableId == "..."` inside a '
               '`.where` closure on a detector-derived receiver must credit '
-              '(Rule 2).');
-    });
+              '(Rule 2).',
+        );
+      },
+    );
 
-    test(
-        'Rule-3 credit: `<x>.stableId.startsWith("LIT_")` method-on-stableId '
+    test('Rule-3 credit: `<x>.stableId.startsWith("LIT_")` method-on-stableId '
         'shape', () async {
       // Positive fixture for the matcher's third accepted shape — the
       // literal is the argument to `startsWith`/`contains`/`endsWith`
@@ -980,14 +1088,16 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isEmpty,
-          reason:
-              'Literal as arg to `<x>.stableId.startsWith(...)` must credit '
-              'family via the `<family>:` prefix convention (Rule 3).');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'Literal as arg to `<x>.stableId.startsWith(...)` must credit '
+            'family via the `<family>:` prefix convention (Rule 3).',
+      );
     });
 
-    test(
-        'negative anchor: `expect("foo", equals("foo"))` tautology MUST NOT '
+    test('negative anchor: `expect("foo", equals("foo"))` tautology MUST NOT '
         'credit', () async {
       // The literal's AST position must prove detector-derived
       // provenance. A pure self-assertion never does — reject.
@@ -1012,9 +1122,13 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isNotEmpty,
-          reason: 'Self-assertion tautology `expect("foo", equals("foo"))` '
-              'must not credit family coverage.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason:
+            'Self-assertion tautology `expect("foo", equals("foo"))` '
+            'must not credit family coverage.',
+      );
       expect(failures.first, contains('does not assert against every family'));
       expect(failures.first, contains('my_family'));
     });
@@ -1050,15 +1164,18 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isNotEmpty,
-          reason: 'A synthetic class with a `stableId` getter must NOT credit '
-              'family coverage — receiver root `fake` is not detector-bound '
-              'so the literal fails provenance.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason:
+            'A synthetic class with a `stableId` getter must NOT credit '
+            'family coverage — receiver root `fake` is not detector-bound '
+            'so the literal fails provenance.',
+      );
       expect(failures.first, contains('my_family'));
     });
 
-    test(
-        'reassignment-kill: `final issue = FakeIssue(...)` after prior '
+    test('reassignment-kill: `final issue = FakeIssue(...)` after prior '
         'detector-bound `issue` MUST NOT credit', () async {
       // Non-derived re-declaration removes the prior binding.
       final file = File('${root.path}/reassignment_kill_test.dart');
@@ -1092,14 +1209,17 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isNotEmpty,
-          reason: 'Second declaration `issue2 = fake` is non-derived so the '
-              'name is not bound; `issue2.stableId` must fail provenance.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason:
+            'Second declaration `issue2 = fake` is non-derived so the '
+            'name is not bound; `issue2.stableId` must fail provenance.',
+      );
       expect(failures.first, contains('my_family'));
     });
 
-    test(
-        'list-literal smuggling: detector-bound name inside a list '
+    test('list-literal smuggling: detector-bound name inside a list '
         'MUST NOT taint the whole expression', () async {
       // Structural walker returns false for list literals regardless of
       // contents.
@@ -1129,18 +1249,23 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isNotEmpty,
-          reason: 'List literal is not an aliasing shape; `mixed` must NOT '
-              'be detector-bound even though the literal contains `d`.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason:
+            'List literal is not an aliasing shape; `mixed` must NOT '
+            'be detector-bound even though the literal contains `d`.',
+      );
       expect(failures.first, contains('my_family'));
     });
 
-    test('fold accumulator: `fold((acc, item) => ...)` MUST NOT bind `acc`',
-        () async {
-      // `_closureParamPositions['fold'] = 1` so only `item` is bound;
-      // the caller-controlled accumulator stays free.
-      final file = File('${root.path}/fold_accumulator_kill_test.dart');
-      await file.writeAsString('''
+    test(
+      'fold accumulator: `fold((acc, item) => ...)` MUST NOT bind `acc`',
+      () async {
+        // `_closureParamPositions['fold'] = 1` so only `item` is bound;
+        // the caller-controlled accumulator stays free.
+        final file = File('${root.path}/fold_accumulator_kill_test.dart');
+        await file.writeAsString('''
 import 'package:flutter_test/flutter_test.dart';
 
 class XyzDetector {
@@ -1162,22 +1287,26 @@ void main() {
   });
 }
 ''');
-      final failures = checkReproducerFile(
-        label: 'XyzDetector',
-        reproducerPath: 'fold_accumulator_kill_test.dart',
-        requiredTokens: ['XyzDetector'],
-        coveredStableIds: const {'my_family'},
-        repoRoot: root.path,
-      );
-      expect(failures, isNotEmpty,
-          reason: '`acc` is the accumulator (position 0 of fold), not an '
+        final failures = checkReproducerFile(
+          label: 'XyzDetector',
+          reproducerPath: 'fold_accumulator_kill_test.dart',
+          requiredTokens: ['XyzDetector'],
+          coveredStableIds: const {'my_family'},
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isNotEmpty,
+          reason:
+              '`acc` is the accumulator (position 0 of fold), not an '
               'element iteration variable. It must NOT be bound, and '
-              '`acc.stableId == "my_family"` must fail to credit.');
-      expect(failures.first, contains('my_family'));
-    });
+              '`acc.stableId == "my_family"` must fail to credit.',
+        );
+        expect(failures.first, contains('my_family'));
+      },
+    );
 
-    test(
-        'for-in loop shadow: rebinding `issue` to fake iterable MUST clear '
+    test('for-in loop shadow: rebinding `issue` to fake iterable MUST clear '
         'prior detector binding inside the loop body', () async {
       // Iterable is a list literal (not derived), so the loop binder
       // is cleared for the loop body.
@@ -1211,15 +1340,18 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isNotEmpty,
-          reason: 'Iterable is a list literal (not derived). Loop binder '
-              '`issue` must NOT be bound inside the loop body; Rule-4 must '
-              'reject the literal.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason:
+            'Iterable is a list literal (not derived). Loop binder '
+            '`issue` must NOT be bound inside the loop body; Rule-4 must '
+            'reject the literal.',
+      );
       expect(failures.first, contains('my_family'));
     });
 
-    test(
-        'for-in loop positive: `for (final issue in detector.scanTree(...))` '
+    test('for-in loop positive: `for (final issue in detector.scanTree(...))` '
         'keeps `issue` detector-bound in loop body', () async {
       // Iterable `d.scanTree(null)` is derived via producer-method
       // whitelist. Loop binder is bound inside the loop body.
@@ -1247,14 +1379,17 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isEmpty,
-          reason: 'Iterable `d.scanTree(null)` is detector-derived via '
-              'producer-method whitelist. Loop binder `issue` must be '
-              'detector-bound in the loop body; Rule-4 credits.');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'Iterable `d.scanTree(null)` is detector-derived via '
+            'producer-method whitelist. Loop binder `issue` must be '
+            'detector-bound in the loop body; Rule-4 credits.',
+      );
     });
 
-    test(
-        'pattern-destructure kill: `(issue, _) = ...` overwrite MUST clear '
+    test('pattern-destructure kill: `(issue, _) = ...` overwrite MUST clear '
         'prior detector binding', () async {
       // Dart 3 destructuring overwrites — per-slot derivation cannot be
       // proven, so every name in the pattern is conservatively cleared.
@@ -1288,15 +1423,18 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isNotEmpty,
-          reason: 'Pattern-assignment conservatively removes `issue` from '
-              'bound set (cannot prove per-slot derivation). Rule-4 must '
-              'reject.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason:
+            'Pattern-assignment conservatively removes `issue` from '
+            'bound set (cannot prove per-slot derivation). Rule-4 must '
+            'reject.',
+      );
       expect(failures.first, contains('my_family'));
     });
 
-    test(
-        'shadow detection: local `Matcher hasStableId(...)` function '
+    test('shadow detection: local `Matcher hasStableId(...)` function '
         'declaration rejects Rule-1 credit', () async {
       // A local shadow could be a stub that always returns true. Until
       // it is removed (or the reproducer switches to Rule-2/3/4),
@@ -1323,10 +1461,14 @@ void main() {
         coveredStableIds: const {'my_family'},
         repoRoot: root.path,
       );
-      expect(failures, isNotEmpty,
-          reason: 'Local `Matcher hasStableId(...)` function declaration '
-              'triggers shadow detection; Rule-1 must reject to avoid '
-              'credit via a potentially-stub helper.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason:
+            'Local `Matcher hasStableId(...)` function declaration '
+            'triggers shadow detection; Rule-1 must reject to avoid '
+            'credit via a potentially-stub helper.',
+      );
       expect(failures.first, contains('my_family'));
     });
   });
@@ -1334,13 +1476,16 @@ void main() {
   group('checkCitationUrl (CLAUDE-R1-2)', () {
     test('accepts a valid https URL', () {
       expect(
-          checkCitationUrl('x', 'https://api.flutter.dev/foo', required: true),
-          isEmpty);
+        checkCitationUrl('x', 'https://api.flutter.dev/foo', required: true),
+        isEmpty,
+      );
     });
 
     test('accepts a valid http URL', () {
-      expect(checkCitationUrl('x', 'http://example.com/spec', required: true),
-          isEmpty);
+      expect(
+        checkCitationUrl('x', 'http://example.com/spec', required: true),
+        isEmpty,
+      );
     });
 
     test('rejects non-URI free-form text', () {
@@ -1349,8 +1494,11 @@ void main() {
     });
 
     test('rejects ftp scheme', () {
-      final failures =
-          checkCitationUrl('x', 'ftp://example.com/spec', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'ftp://example.com/spec',
+        required: true,
+      );
       expect(failures, isNotEmpty);
       expect(failures.first, contains('http or https'));
     });
@@ -1376,132 +1524,175 @@ void main() {
     });
 
     test('AB-11: rejects single-label host (intranet)', () {
-      final failures =
-          checkCitationUrl('x', 'http://intranet/spec', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'http://intranet/spec',
+        required: true,
+      );
       expect(failures, isNotEmpty);
       expect(failures.first, contains('single-label'));
     });
 
     test('AB-11: rejects localhost', () {
-      final failures =
-          checkCitationUrl('x', 'http://localhost:8080/path', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'http://localhost:8080/path',
+        required: true,
+      );
       expect(failures, isNotEmpty);
       expect(failures.first, contains('loopback'));
     });
 
     test('AB-11: rejects 127.0.0.1 loopback', () {
-      final failures =
-          checkCitationUrl('x', 'http://127.0.0.1/spec', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'http://127.0.0.1/spec',
+        required: true,
+      );
       expect(failures, isNotEmpty);
       expect(failures.first, contains('loopback'));
     });
 
     test('AB-11: rejects IPv6 loopback [::1]', () {
-      final failures =
-          checkCitationUrl('x', 'http://[::1]/spec', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'http://[::1]/spec',
+        required: true,
+      );
       expect(failures, isNotEmpty);
       expect(failures.first, contains('loopback'));
     });
 
     test('AB-11: accepts dotted external host', () {
-      expect(checkCitationUrl('x', 'https://api.flutter.dev/x', required: true),
-          isEmpty);
+      expect(
+        checkCitationUrl('x', 'https://api.flutter.dev/x', required: true),
+        isEmpty,
+      );
     });
 
     test('AB-11: accepts IPv4 with dots (non-loopback)', () {
-      expect(checkCitationUrl('x', 'http://93.184.216.34/', required: true),
-          isEmpty);
+      expect(
+        checkCitationUrl('x', 'http://93.184.216.34/', required: true),
+        isEmpty,
+      );
     });
 
     // NEW-CODEX-2 (Bundle H): externally cited claims must resolve
     // off-network, so RFC1918 private-range and link-local literals
     // are rejected alongside loopback.
     test('Bundle H: rejects RFC1918 10.0.0.0/8', () {
-      final failures =
-          checkCitationUrl('x', 'http://10.0.0.1/', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'http://10.0.0.1/',
+        required: true,
+      );
       expect(failures, hasLength(1));
       expect(failures.single, contains('RFC1918'));
     });
 
     test('Bundle H: rejects RFC1918 172.16.0.0/12 (at lower bound)', () {
-      final failures =
-          checkCitationUrl('x', 'http://172.16.1.1/', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'http://172.16.1.1/',
+        required: true,
+      );
       expect(failures, hasLength(1));
       expect(failures.single, contains('RFC1918'));
     });
 
     test('Bundle H: rejects RFC1918 172.16.0.0/12 (at upper bound)', () {
-      final failures =
-          checkCitationUrl('x', 'http://172.31.255.254/', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'http://172.31.255.254/',
+        required: true,
+      );
       expect(failures, hasLength(1));
       expect(failures.single, contains('RFC1918'));
     });
 
     test('Bundle H: accepts 172.15.x.x (outside RFC1918 172.16/12)', () {
       expect(
-          checkCitationUrl('x', 'http://172.15.0.1/', required: true), isEmpty);
+        checkCitationUrl('x', 'http://172.15.0.1/', required: true),
+        isEmpty,
+      );
     });
 
     test('Bundle H: accepts 172.32.x.x (above RFC1918 172.16/12)', () {
       expect(
-          checkCitationUrl('x', 'http://172.32.0.1/', required: true), isEmpty);
+        checkCitationUrl('x', 'http://172.32.0.1/', required: true),
+        isEmpty,
+      );
     });
 
     test('Bundle H: rejects RFC1918 192.168.0.0/16', () {
-      final failures =
-          checkCitationUrl('x', 'http://192.168.1.1/', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'http://192.168.1.1/',
+        required: true,
+      );
       expect(failures, hasLength(1));
       expect(failures.single, contains('RFC1918'));
     });
 
     test('Bundle H: rejects IPv4 link-local 169.254.0.0/16', () {
-      final failures =
-          checkCitationUrl('x', 'http://169.254.1.1/', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'http://169.254.1.1/',
+        required: true,
+      );
       expect(failures, hasLength(1));
       expect(failures.single, contains('link-local'));
     });
 
     test('Bundle H: rejects IPv6 link-local fe80::/10', () {
-      final failures =
-          checkCitationUrl('x', 'http://[fe80::1]/', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'http://[fe80::1]/',
+        required: true,
+      );
       expect(failures, hasLength(1));
       expect(failures.single, contains('link-local IPv6'));
     });
 
     test('Bundle H: rejects IPv6 unique-local fc00::/7', () {
-      final failures =
-          checkCitationUrl('x', 'http://[fc00::beef]/', required: true);
+      final failures = checkCitationUrl(
+        'x',
+        'http://[fc00::beef]/',
+        required: true,
+      );
       expect(failures, hasLength(1));
       expect(failures.single, contains('unique-local IPv6'));
     });
 
     test('Bundle H: accepts external IPv6 (Google DNS)', () {
       expect(
-          checkCitationUrl('x', 'http://[2001:4860:4860::8888]/',
-              required: true),
-          isEmpty);
+        checkCitationUrl('x', 'http://[2001:4860:4860::8888]/', required: true),
+        isEmpty,
+      );
     });
   });
 
   group('checkBracketCount', () {
     test('unvalidated tier is unaffected', () {
       expect(
-          checkBracketCount(
-            label: 'x',
-            tier: EvidenceTier.unvalidated,
-            capturePaths: null,
-          ),
-          isEmpty);
+        checkBracketCount(
+          label: 'x',
+          tier: EvidenceTier.unvalidated,
+          capturePaths: null,
+        ),
+        isEmpty,
+      );
     });
 
     test('reproducerOnly tier is unaffected', () {
       expect(
-          checkBracketCount(
-            label: 'x',
-            tier: EvidenceTier.reproducerOnly,
-            capturePaths: const ['one.json'],
-          ),
-          isEmpty);
+        checkBracketCount(
+          label: 'x',
+          tier: EvidenceTier.reproducerOnly,
+          capturePaths: const ['one.json'],
+        ),
+        isEmpty,
+      );
     });
 
     test('runtimeVerified with null captures fails', () {
@@ -1526,12 +1717,13 @@ void main() {
 
     test('runtimeVerified with 3 captures passes', () {
       expect(
-          checkBracketCount(
-            label: 'x',
-            tier: EvidenceTier.runtimeVerified,
-            capturePaths: const ['a.json', 'b.json', 'c.json'],
-          ),
-          isEmpty);
+        checkBracketCount(
+          label: 'x',
+          tier: EvidenceTier.runtimeVerified,
+          capturePaths: const ['a.json', 'b.json', 'c.json'],
+        ),
+        isEmpty,
+      );
     });
 
     test('externallyCited with 4 captures fails', () {
@@ -1548,22 +1740,24 @@ void main() {
   group('checkCoveredThresholds', () {
     test('unvalidated tier is unaffected', () {
       expect(
-          checkCoveredThresholds(
-            label: 'x',
-            tier: EvidenceTier.unvalidated,
-            coveredThresholds: null,
-          ),
-          isEmpty);
+        checkCoveredThresholds(
+          label: 'x',
+          tier: EvidenceTier.unvalidated,
+          coveredThresholds: null,
+        ),
+        isEmpty,
+      );
     });
 
     test('reproducerOnly tier is unaffected', () {
       expect(
-          checkCoveredThresholds(
-            label: 'x',
-            tier: EvidenceTier.reproducerOnly,
-            coveredThresholds: null,
-          ),
-          isEmpty);
+        checkCoveredThresholds(
+          label: 'x',
+          tier: EvidenceTier.reproducerOnly,
+          coveredThresholds: null,
+        ),
+        isEmpty,
+      );
     });
 
     test('runtimeVerified with null coveredThresholds fails', () {
@@ -1598,22 +1792,24 @@ void main() {
 
     test('dotted severity-scoped entry passes', () {
       expect(
-          checkCoveredThresholds(
-            label: 'x',
-            tier: EvidenceTier.externallyCited,
-            coveredThresholds: const {'slow_request.warning'},
-          ),
-          isEmpty);
+        checkCoveredThresholds(
+          label: 'x',
+          tier: EvidenceTier.externallyCited,
+          coveredThresholds: const {'slow_request.warning'},
+        ),
+        isEmpty,
+      );
     });
 
     test('non-dotted entry passes (single-severity detector)', () {
       expect(
-          checkCoveredThresholds(
-            label: 'x',
-            tier: EvidenceTier.runtimeVerified,
-            coveredThresholds: const {'slow_request'},
-          ),
-          isEmpty);
+        checkCoveredThresholds(
+          label: 'x',
+          tier: EvidenceTier.runtimeVerified,
+          coveredThresholds: const {'slow_request'},
+        ),
+        isEmpty,
+      );
     });
 
     // Malformed-entry negatives.
@@ -1672,13 +1868,14 @@ void main() {
 
     test('dotted entry with matching coveredStableIds passes', () {
       expect(
-          checkCoveredThresholds(
-            label: 'x',
-            tier: EvidenceTier.externallyCited,
-            coveredThresholds: const {'slow_request.warning'},
-            coveredStableIds: const {'slow_request'},
-          ),
-          isEmpty);
+        checkCoveredThresholds(
+          label: 'x',
+          tier: EvidenceTier.externallyCited,
+          coveredThresholds: const {'slow_request.warning'},
+          coveredStableIds: const {'slow_request'},
+        ),
+        isEmpty,
+      );
     });
 
     test('non-dotted entry with bracketThreshold is rejected', () {
@@ -1696,13 +1893,14 @@ void main() {
 
     test('non-dotted entry without bracketThreshold still passes', () {
       expect(
-          checkCoveredThresholds(
-            label: 'x',
-            tier: EvidenceTier.externallyCited,
-            coveredThresholds: const {'slow_request'},
-            coveredStableIds: const {'slow_request'},
-          ),
-          isEmpty);
+        checkCoveredThresholds(
+          label: 'x',
+          tier: EvidenceTier.externallyCited,
+          coveredThresholds: const {'slow_request'},
+          coveredStableIds: const {'slow_request'},
+        ),
+        isEmpty,
+      );
     });
 
     test('multiple entries surface multiple failures', () {
@@ -1722,48 +1920,53 @@ void main() {
   group('checkSeverityScopedCeiling', () {
     test('unvalidated tier is unaffected', () {
       expect(
-          checkSeverityScopedCeiling(
-            label: 'x',
-            tier: EvidenceTier.unvalidated,
-            coveredThresholds: const {'slow_request.warning'},
-            aboveCeilingMultiplier: null,
-          ),
-          isEmpty);
+        checkSeverityScopedCeiling(
+          label: 'x',
+          tier: EvidenceTier.unvalidated,
+          coveredThresholds: const {'slow_request.warning'},
+          aboveCeilingMultiplier: null,
+        ),
+        isEmpty,
+      );
     });
 
     test('reproducerOnly tier is unaffected', () {
       expect(
-          checkSeverityScopedCeiling(
-            label: 'x',
-            tier: EvidenceTier.reproducerOnly,
-            coveredThresholds: const {'slow_request.warning'},
-            aboveCeilingMultiplier: null,
-          ),
-          isEmpty);
+        checkSeverityScopedCeiling(
+          label: 'x',
+          tier: EvidenceTier.reproducerOnly,
+          coveredThresholds: const {'slow_request.warning'},
+          aboveCeilingMultiplier: null,
+        ),
+        isEmpty,
+      );
     });
 
     test(
-        'null coveredThresholds is unaffected (checkCoveredThresholds already failed it)',
-        () {
-      expect(
+      'null coveredThresholds is unaffected (checkCoveredThresholds already failed it)',
+      () {
+        expect(
           checkSeverityScopedCeiling(
             label: 'x',
             tier: EvidenceTier.runtimeVerified,
             coveredThresholds: null,
             aboveCeilingMultiplier: null,
           ),
-          isEmpty);
-    });
+          isEmpty,
+        );
+      },
+    );
 
     test('non-dotted scope does not require explicit multiplier', () {
       expect(
-          checkSeverityScopedCeiling(
-            label: 'x',
-            tier: EvidenceTier.runtimeVerified,
-            coveredThresholds: const {'slow_request'},
-            aboveCeilingMultiplier: null,
-          ),
-          isEmpty);
+        checkSeverityScopedCeiling(
+          label: 'x',
+          tier: EvidenceTier.runtimeVerified,
+          coveredThresholds: const {'slow_request'},
+          aboveCeilingMultiplier: null,
+        ),
+        isEmpty,
+      );
     });
 
     test('dotted scope without multiplier fails', () {
@@ -1780,13 +1983,14 @@ void main() {
 
     test('dotted scope with explicit multiplier passes', () {
       expect(
-          checkSeverityScopedCeiling(
-            label: 'x',
-            tier: EvidenceTier.externallyCited,
-            coveredThresholds: const {'slow_request.warning'},
-            aboveCeilingMultiplier: 1.5,
-          ),
-          isEmpty);
+        checkSeverityScopedCeiling(
+          label: 'x',
+          tier: EvidenceTier.externallyCited,
+          coveredThresholds: const {'slow_request.warning'},
+          aboveCeilingMultiplier: 1.5,
+        ),
+        isEmpty,
+      );
     });
 
     test('mixed dotted + non-dotted entries require multiplier', () {
@@ -1805,14 +2009,15 @@ void main() {
     test('null perStableIdTier is a no-op regardless of base tier', () {
       for (final t in EvidenceTier.values) {
         expect(
-            checkPerStableIdTier(
-              label: 'x',
-              tier: t,
-              perStableIdTier: null,
-              coveredStableIds: null,
-              bracketStableId: null,
-            ),
-            isEmpty);
+          checkPerStableIdTier(
+            label: 'x',
+            tier: t,
+            perStableIdTier: null,
+            coveredStableIds: null,
+            bracketStableId: null,
+          ),
+          isEmpty,
+        );
       }
     });
 
@@ -1855,8 +2060,7 @@ void main() {
       expect(failures.first, contains('BELOW base tier'));
     });
 
-    test(
-        'bracketStableId without runtimeVerified+ effective tier is '
+    test('bracketStableId without runtimeVerified+ effective tier is '
         'rejected (regression guard for v0.18.3 audit-bypass)', () {
       // Reproduces the C1 audit-bypass: a hypothetical detector at base
       // unvalidated with a perStableIdTier raise targeting an unrelated
@@ -1871,45 +2075,46 @@ void main() {
       );
       expect(failures, isNotEmpty);
       expect(
-          failures.any((f) => f.contains('effective tier unvalidated')), isTrue,
-          reason: 'bracketStableId effective tier must be runtimeVerified+ '
-              'or the bracket evidence is unmoored from any raised family.');
+        failures.any((f) => f.contains('effective tier unvalidated')),
+        isTrue,
+        reason:
+            'bracketStableId effective tier must be runtimeVerified+ '
+            'or the bracket evidence is unmoored from any raised family.',
+      );
     });
 
     test('valid raise (NetworkMonitor pattern) passes', () {
       expect(
-          checkPerStableIdTier(
-            label: 'x',
-            tier: EvidenceTier.reproducerOnly,
-            perStableIdTier: const {
-              'slow_request': EvidenceTier.runtimeVerified
-            },
-            coveredStableIds: const {
-              'slow_request',
-              'large_response',
-              'request_frequency',
-              'http_error_spike',
-              'high_frequency_same_path',
-            },
-            bracketStableId: 'slow_request',
-            topLevelCoveredThresholds: const {'slow_request.warning'},
-          ),
-          isEmpty);
+        checkPerStableIdTier(
+          label: 'x',
+          tier: EvidenceTier.reproducerOnly,
+          perStableIdTier: const {'slow_request': EvidenceTier.runtimeVerified},
+          coveredStableIds: const {
+            'slow_request',
+            'large_response',
+            'request_frequency',
+            'http_error_spike',
+            'high_frequency_same_path',
+          },
+          bracketStableId: 'slow_request',
+          topLevelCoveredThresholds: const {'slow_request.warning'},
+        ),
+        isEmpty,
+      );
     });
 
     test('externallyCited per-family raise passes when key declared', () {
       expect(
-          checkPerStableIdTier(
-            label: 'x',
-            tier: EvidenceTier.reproducerOnly,
-            perStableIdTier: const {
-              'slow_request': EvidenceTier.externallyCited
-            },
-            coveredStableIds: const {'slow_request'},
-            bracketStableId: 'slow_request',
-            topLevelCoveredThresholds: const {'slow_request.warning'},
-          ),
-          isEmpty);
+        checkPerStableIdTier(
+          label: 'x',
+          tier: EvidenceTier.reproducerOnly,
+          perStableIdTier: const {'slow_request': EvidenceTier.externallyCited},
+          coveredStableIds: const {'slow_request'},
+          bracketStableId: 'slow_request',
+          topLevelCoveredThresholds: const {'slow_request.warning'},
+        ),
+        isEmpty,
+      );
     });
 
     test('multiple invalid entries surface multiple failures', () {
@@ -1925,7 +2130,9 @@ void main() {
       );
       expect(failures.length, greaterThanOrEqualTo(2));
       expect(
-          failures.any((f) => f.contains('not in coveredStableIds')), isTrue);
+        failures.any((f) => f.contains('not in coveredStableIds')),
+        isTrue,
+      );
       expect(failures.any((f) => f.contains('BELOW base tier')), isTrue);
     });
   });
@@ -1942,14 +2149,16 @@ void main() {
 
     test('rejects no-period', () {
       expect(
-          checkRationale('x', 'A very long sentence without terminator here'),
-          isNotEmpty);
+        checkRationale('x', 'A very long sentence without terminator here'),
+        isNotEmpty,
+      );
     });
 
     test('accepts well-formed', () {
       expect(
-          checkRationale('x', 'This rationale has enough length and a period.'),
-          isEmpty);
+        checkRationale('x', 'This rationale has enough length and a period.'),
+        isEmpty,
+      );
     });
   });
 
@@ -2031,14 +2240,19 @@ void main() {
         allowlist: const {},
         repoRoot: tempRepo.path,
       );
-      expect(failures, isEmpty,
-          reason: '_fixtures/ carries negative-case data audited '
-              'elsewhere; the orphan walk must skip it.');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            '_fixtures/ carries negative-case data audited '
+            'elsewhere; the orphan walk must skip it.',
+      );
     });
 
     test('ignores non-JSON files (README.md, etc.)', () {
-      File(p.join(capturesRoot.path, 'README.md'))
-          .writeAsStringSync('docs only');
+      File(
+        p.join(capturesRoot.path, 'README.md'),
+      ).writeAsStringSync('docs only');
       final failures = checkCaptureOrphans(
         capturesRoot: capturesRoot,
         referencedPaths: const {},
@@ -2063,8 +2277,7 @@ void main() {
       expect(failures.any((f) => f.contains('orphan_two.json')), isTrue);
     });
 
-    test(
-        'canonicalizes paths so trailing-slash / separator drift '
+    test('canonicalizes paths so trailing-slash / separator drift '
         'cannot mask a referenced file', () {
       writeCapture('network_monitor/live.json');
       final failures = checkCaptureOrphans(
@@ -2100,116 +2313,115 @@ void main() {
       num min = 900,
       num observed = 1000,
       num max = 1100,
-    }) =>
-        <String, Object?>{
-          'device': device,
-          'deviceOsVersion': deviceOsVersion,
-          'flutterVersion': flutterVersion,
-          'captureCommand': 'fvm flutter run --profile',
-          'scenario': 'synthetic programmatic test body',
-          'expectedMagnitude': {
-            'min': min,
-            'observed': observed,
-            'max': max,
-            'unit': unit,
-          },
-          'captureDate': '2026-04-18T16:00:00Z',
-          'role': 'at',
-        };
+    }) => <String, Object?>{
+      'device': device,
+      'deviceOsVersion': deviceOsVersion,
+      'flutterVersion': flutterVersion,
+      'captureCommand': 'fvm flutter run --profile',
+      'scenario': 'synthetic programmatic test body',
+      'expectedMagnitude': {
+        'min': min,
+        'observed': observed,
+        'max': max,
+        'unit': unit,
+      },
+      'captureDate': '2026-04-18T16:00:00Z',
+      'role': 'at',
+    };
 
     List<Map<String, Object?>> validTraceEvents() => [
-          {
-            'ph': 'M',
-            'name': 'process_name',
-            'pid': 1,
-            'tid': 0,
-            'args': {'name': 't'}
-          },
-          {
-            'ph': 'M',
-            'name': 'thread_name',
-            'pid': 1,
-            'tid': 39,
-            'args': {'name': '1.ui'}
-          },
-          {
-            'ph': 'M',
-            'name': 'thread_name',
-            'pid': 1,
-            'tid': 40,
-            'args': {'name': '1.raster'}
-          },
-          {
-            'ph': 'i',
-            'cat': 'Sleuth',
-            'name': 'sleuth.scenario.begin',
-            'pid': 1,
-            'tid': 39,
-            'ts': 100,
-            's': 'p'
-          },
-          {
-            'ph': 'i',
-            'cat': 'Sleuth',
-            'name': 'sleuth.scenario.end',
-            'pid': 1,
-            'tid': 39,
-            'ts': 1000100,
-            's': 'p'
-          },
-          {
-            'ph': 'X',
-            'cat': 'Dart',
-            'name': 'BUILD',
-            'pid': 1,
-            'tid': 39,
-            'ts': 100,
-            'dur': 50
-          },
-          {
-            'ph': 'X',
-            'cat': 'Dart',
-            'name': 'LAYOUT',
-            'pid': 1,
-            'tid': 39,
-            'ts': 150,
-            'dur': 30
-          },
-          {
-            'ph': 'X',
-            'cat': 'Dart',
-            'name': 'PAINT',
-            'pid': 1,
-            'tid': 39,
-            'ts': 180,
-            'dur': 20
-          },
-          {
-            'ph': 'B',
-            'cat': 'Dart',
-            'name': 'frame',
-            'pid': 1,
-            'tid': 39,
-            'ts': 200
-          },
-          {
-            'ph': 'E',
-            'cat': 'Dart',
-            'name': 'frame',
-            'pid': 1,
-            'tid': 39,
-            'ts': 300
-          },
-          {
-            'ph': 'i',
-            'cat': 'Embedder',
-            'name': 'ShaderCompile',
-            'pid': 1,
-            'tid': 40,
-            'ts': 320,
-            's': 't'
-          },
-        ];
+      {
+        'ph': 'M',
+        'name': 'process_name',
+        'pid': 1,
+        'tid': 0,
+        'args': {'name': 't'},
+      },
+      {
+        'ph': 'M',
+        'name': 'thread_name',
+        'pid': 1,
+        'tid': 39,
+        'args': {'name': '1.ui'},
+      },
+      {
+        'ph': 'M',
+        'name': 'thread_name',
+        'pid': 1,
+        'tid': 40,
+        'args': {'name': '1.raster'},
+      },
+      {
+        'ph': 'i',
+        'cat': 'Sleuth',
+        'name': 'sleuth.scenario.begin',
+        'pid': 1,
+        'tid': 39,
+        'ts': 100,
+        's': 'p',
+      },
+      {
+        'ph': 'i',
+        'cat': 'Sleuth',
+        'name': 'sleuth.scenario.end',
+        'pid': 1,
+        'tid': 39,
+        'ts': 1000100,
+        's': 'p',
+      },
+      {
+        'ph': 'X',
+        'cat': 'Dart',
+        'name': 'BUILD',
+        'pid': 1,
+        'tid': 39,
+        'ts': 100,
+        'dur': 50,
+      },
+      {
+        'ph': 'X',
+        'cat': 'Dart',
+        'name': 'LAYOUT',
+        'pid': 1,
+        'tid': 39,
+        'ts': 150,
+        'dur': 30,
+      },
+      {
+        'ph': 'X',
+        'cat': 'Dart',
+        'name': 'PAINT',
+        'pid': 1,
+        'tid': 39,
+        'ts': 180,
+        'dur': 20,
+      },
+      {
+        'ph': 'B',
+        'cat': 'Dart',
+        'name': 'frame',
+        'pid': 1,
+        'tid': 39,
+        'ts': 200,
+      },
+      {
+        'ph': 'E',
+        'cat': 'Dart',
+        'name': 'frame',
+        'pid': 1,
+        'tid': 39,
+        'ts': 300,
+      },
+      {
+        'ph': 'i',
+        'cat': 'Embedder',
+        'name': 'ShaderCompile',
+        'pid': 1,
+        'tid': 40,
+        'ts': 320,
+        's': 't',
+      },
+    ];
 
     File writeCaptureFile(String relPath, Map<String, Object?> metadata) {
       final f = File(p.join(tempRepo.path, relPath));
@@ -2220,10 +2432,12 @@ void main() {
       final basenameNoExt = p.basenameWithoutExtension(relPath);
       final patched = Map<String, Object?>.from(metadata)
         ..['scenario'] = 'synthetic_$basenameNoExt';
-      f.writeAsStringSync(jsonEncode({
-        'traceEvents': validTraceEvents(),
-        'sleuthMetadata': patched,
-      }));
+      f.writeAsStringSync(
+        jsonEncode({
+          'traceEvents': validTraceEvents(),
+          'sleuthMetadata': patched,
+        }),
+      );
       return f;
     }
 
@@ -2238,19 +2452,18 @@ void main() {
       String consumeBy = '0.16.5',
       String owningClaim = 'NetworkMonitorDetector.slow_request.warning',
       String rationale = 'v0.16.5 re-raise reuse.',
-    }) =>
-        RetainedOrphanEntry(
-          role: role,
-          device: device,
-          deviceOsVersion: deviceOsVersion,
-          flutterMajorMinor: flutterMajorMinor,
-          unit: unit,
-          observedMin: observedMin,
-          observedMax: observedMax,
-          consumeBy: consumeBy,
-          owningClaim: owningClaim,
-          rationale: rationale,
-        );
+    }) => RetainedOrphanEntry(
+      role: role,
+      device: device,
+      deviceOsVersion: deviceOsVersion,
+      flutterMajorMinor: flutterMajorMinor,
+      unit: unit,
+      observedMin: observedMin,
+      observedMax: observedMax,
+      consumeBy: consumeBy,
+      owningClaim: owningClaim,
+      rationale: rationale,
+    );
 
     test('no-op on empty manifest', () {
       final failures = checkRetainedOrphanManifest(
@@ -2308,28 +2521,33 @@ void main() {
       expect(failures.single, contains('parseFile failed'));
     });
 
-    test('fails when capture device disagrees with manifest', () {
-      writeCaptureFile('captures/slow.json',
-          validMetadata(device: 'Pixel 7', deviceOsVersion: 'Android 14'));
-      final failures = checkRetainedOrphanManifest(
-        manifest: {'captures/slow.json': entry()},
-        currentReleaseVersion: '0.16.4',
-        repoRoot: tempRepo.path,
-      );
-      expect(failures, hasLength(1));
-      expect(failures.single, contains('device mismatch'));
-    },
-        skip:
-            'Requires a second approved device pair; matrix is iPhone-12-only '
-            'as of v0.23.0. Re-enable when Android reference device lands.');
+    test(
+      'fails when capture device disagrees with manifest',
+      () {
+        writeCaptureFile(
+          'captures/slow.json',
+          validMetadata(device: 'Pixel 7', deviceOsVersion: 'Android 14'),
+        );
+        final failures = checkRetainedOrphanManifest(
+          manifest: {'captures/slow.json': entry()},
+          currentReleaseVersion: '0.16.4',
+          repoRoot: tempRepo.path,
+        );
+        expect(failures, hasLength(1));
+        expect(failures.single, contains('device mismatch'));
+      },
+      skip:
+          'Requires a second approved device pair; matrix is iPhone-12-only '
+          'as of v0.23.0. Re-enable when Android reference device lands.',
+    );
 
     test('fails when flutterVersion major.minor disagrees with manifest', () {
       writeCaptureFile(
-          'captures/slow.json', validMetadata(flutterVersion: '3.41.4'));
+        'captures/slow.json',
+        validMetadata(flutterVersion: '3.41.4'),
+      );
       final failures = checkRetainedOrphanManifest(
-        manifest: {
-          'captures/slow.json': entry(flutterMajorMinor: '3.32'),
-        },
+        manifest: {'captures/slow.json': entry(flutterMajorMinor: '3.32')},
         currentReleaseVersion: '0.16.4',
         repoRoot: tempRepo.path,
       );
@@ -2342,8 +2560,10 @@ void main() {
       // but the observed magnitude falls outside the manifest's
       // narrower tolerance band — the drift the manifest cross-check
       // is designed to catch.
-      writeCaptureFile('captures/slow.json',
-          validMetadata(min: 500, observed: 600, max: 700));
+      writeCaptureFile(
+        'captures/slow.json',
+        validMetadata(min: 500, observed: 600, max: 700),
+      );
       final failures = checkRetainedOrphanManifest(
         manifest: {
           'captures/slow.json': entry(observedMin: 900, observedMax: 1100),
@@ -2356,8 +2576,10 @@ void main() {
     });
 
     test('fails when observed sits above manifest band', () {
-      writeCaptureFile('captures/slow.json',
-          validMetadata(min: 1400, observed: 1500, max: 1600));
+      writeCaptureFile(
+        'captures/slow.json',
+        validMetadata(min: 1400, observed: 1500, max: 1600),
+      );
       final failures = checkRetainedOrphanManifest(
         manifest: {
           'captures/slow.json': entry(observedMin: 900, observedMax: 1100),
@@ -2382,9 +2604,7 @@ void main() {
     test('fails when consumeBy release has been reached', () {
       writeCaptureFile('captures/slow.json', validMetadata());
       final failures = checkRetainedOrphanManifest(
-        manifest: {
-          'captures/slow.json': entry(consumeBy: '0.16.5'),
-        },
+        manifest: {'captures/slow.json': entry(consumeBy: '0.16.5')},
         currentReleaseVersion: '0.16.5',
         repoRoot: tempRepo.path,
       );
@@ -2395,9 +2615,7 @@ void main() {
     test('fails when consumeBy release has been passed', () {
       writeCaptureFile('captures/slow.json', validMetadata());
       final failures = checkRetainedOrphanManifest(
-        manifest: {
-          'captures/slow.json': entry(consumeBy: '0.16.5'),
-        },
+        manifest: {'captures/slow.json': entry(consumeBy: '0.16.5')},
         currentReleaseVersion: '0.16.6',
         repoRoot: tempRepo.path,
       );
@@ -2405,47 +2623,57 @@ void main() {
       expect(failures.single, contains('has been reached'));
     });
 
-    test('surfaces multiple independent failures for one entry in one run', () {
-      // Device + unit both wrong AND consumeBy reached — all three
-      // should be reported in a single failure string.
-      writeCaptureFile(
+    test(
+      'surfaces multiple independent failures for one entry in one run',
+      () {
+        // Device + unit both wrong AND consumeBy reached — all three
+        // should be reported in a single failure string.
+        writeCaptureFile(
           'captures/slow.json',
           validMetadata(
-              device: 'Pixel 7', deviceOsVersion: 'Android 14', unit: 'bytes'));
-      final failures = checkRetainedOrphanManifest(
-        manifest: {
-          'captures/slow.json': entry(consumeBy: '0.16.4'),
-        },
-        currentReleaseVersion: '0.16.4',
-        repoRoot: tempRepo.path,
-      );
-      expect(failures, hasLength(1));
-      expect(failures.single, contains('device mismatch'));
-      expect(failures.single, contains('unit mismatch'));
-      expect(failures.single, contains('has been reached'));
-    },
-        skip:
-            'Requires a second approved device pair; matrix is iPhone-12-only '
-            'as of v0.23.0. Re-enable when Android reference device lands.');
+            device: 'Pixel 7',
+            deviceOsVersion: 'Android 14',
+            unit: 'bytes',
+          ),
+        );
+        final failures = checkRetainedOrphanManifest(
+          manifest: {'captures/slow.json': entry(consumeBy: '0.16.4')},
+          currentReleaseVersion: '0.16.4',
+          repoRoot: tempRepo.path,
+        );
+        expect(failures, hasLength(1));
+        expect(failures.single, contains('device mismatch'));
+        expect(failures.single, contains('unit mismatch'));
+        expect(failures.single, contains('has been reached'));
+      },
+      skip:
+          'Requires a second approved device pair; matrix is iPhone-12-only '
+          'as of v0.23.0. Re-enable when Android reference device lands.',
+    );
 
-    test('surfaces failures across multiple entries in one run', () {
-      writeCaptureFile('captures/a.json',
-          validMetadata(device: 'Pixel 7', deviceOsVersion: 'Android 14'));
-      final failures = checkRetainedOrphanManifest(
-        manifest: {
-          'captures/a.json': entry(),
-          'captures/missing.json': entry(),
-        },
-        currentReleaseVersion: '0.16.4',
-        repoRoot: tempRepo.path,
-      );
-      expect(failures, hasLength(2));
-      expect(failures.any((f) => f.contains('a.json')), isTrue);
-      expect(failures.any((f) => f.contains('missing.json')), isTrue);
-    },
-        skip:
-            'Requires a second approved device pair; matrix is iPhone-12-only '
-            'as of v0.23.0. Re-enable when Android reference device lands.');
+    test(
+      'surfaces failures across multiple entries in one run',
+      () {
+        writeCaptureFile(
+          'captures/a.json',
+          validMetadata(device: 'Pixel 7', deviceOsVersion: 'Android 14'),
+        );
+        final failures = checkRetainedOrphanManifest(
+          manifest: {
+            'captures/a.json': entry(),
+            'captures/missing.json': entry(),
+          },
+          currentReleaseVersion: '0.16.4',
+          repoRoot: tempRepo.path,
+        );
+        expect(failures, hasLength(2));
+        expect(failures.any((f) => f.contains('a.json')), isTrue);
+        expect(failures.any((f) => f.contains('missing.json')), isTrue);
+      },
+      skip:
+          'Requires a second approved device pair; matrix is iPhone-12-only '
+          'as of v0.23.0. Re-enable when Android reference device lands.',
+    );
   });
 
   group('checkAdditionalBrackets (v0.19.8 schema extension)', () {
@@ -2459,22 +2687,22 @@ void main() {
       String? observedAxisArgKey,
       double? aboveCeilingMultiplier = 1.5,
       String pathTag = 'x',
-    }) =>
-        BracketSpec(
-          stableId: stableId,
-          severityLabel: severityLabel,
-          threshold: threshold,
-          unit: unit,
-          coveredThresholds: coveredThresholds ?? {'$stableId.$severityLabel'},
-          profileCapturePaths: profileCapturePaths ??
-              [
-                'test/validation/captures/$pathTag/below.json',
-                'test/validation/captures/$pathTag/at.json',
-                'test/validation/captures/$pathTag/above.json',
-              ],
-          observedAxisArgKey: observedAxisArgKey,
-          aboveCeilingMultiplier: aboveCeilingMultiplier,
-        );
+    }) => BracketSpec(
+      stableId: stableId,
+      severityLabel: severityLabel,
+      threshold: threshold,
+      unit: unit,
+      coveredThresholds: coveredThresholds ?? {'$stableId.$severityLabel'},
+      profileCapturePaths:
+          profileCapturePaths ??
+          [
+            'test/validation/captures/$pathTag/below.json',
+            'test/validation/captures/$pathTag/at.json',
+            'test/validation/captures/$pathTag/above.json',
+          ],
+      observedAxisArgKey: observedAxisArgKey,
+      aboveCeilingMultiplier: aboveCeilingMultiplier,
+    );
 
     test('null is a no-op', () {
       final failures = checkAdditionalBrackets(
@@ -2509,11 +2737,14 @@ void main() {
       expect(failures.any((f) => f.contains('stableId is empty')), isTrue);
       expect(failures.any((f) => f.contains('severityLabel is empty')), isTrue);
       expect(failures.any((f) => f.contains('unit is empty')), isTrue);
-      expect(failures.any((f) => f.contains('coveredThresholds is empty')),
-          isTrue);
       expect(
-          failures.any((f) => f.contains('profileCapturePaths must contain')),
-          isTrue);
+        failures.any((f) => f.contains('coveredThresholds is empty')),
+        isTrue,
+      );
+      expect(
+        failures.any((f) => f.contains('profileCapturePaths must contain')),
+        isTrue,
+      );
     });
 
     test('cross-spec collision rejected on identical (stableId, argKey)', () {
@@ -2539,37 +2770,42 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test('mixed-mode: top-level (spec #0) and additionalBrackets[0] collide',
-        () {
-      final extra = mkSpec(observedAxisArgKey: 'a');
-      final failures = checkAdditionalBrackets(
-        label: 'X',
-        additionalBrackets: [extra],
-        topLevelStableId: 'platform_channel_traffic',
-        topLevelSeverityLabel: 'warning',
-        topLevelObservedAxisArgKey: 'a',
-      );
-      expect(
+    test(
+      'mixed-mode: top-level (spec #0) and additionalBrackets[0] collide',
+      () {
+        final extra = mkSpec(observedAxisArgKey: 'a');
+        final failures = checkAdditionalBrackets(
+          label: 'X',
+          additionalBrackets: [extra],
+          topLevelStableId: 'platform_channel_traffic',
+          topLevelSeverityLabel: 'warning',
+          topLevelObservedAxisArgKey: 'a',
+        );
+        expect(
           failures.any(
-              (f) => f.contains('top-level (spec #0)') && f.contains('#1')),
-          isTrue);
-    });
-
-    test('mixed-mode: top-level + additionalBrackets distinct argKeys accept',
-        () {
-      final extra = mkSpec(observedAxisArgKey: 'b');
-      final failures = checkAdditionalBrackets(
-        label: 'X',
-        additionalBrackets: [extra],
-        topLevelStableId: 'platform_channel_traffic',
-        topLevelSeverityLabel: 'warning',
-        topLevelObservedAxisArgKey: 'a',
-      );
-      expect(failures, isEmpty);
-    });
+            (f) => f.contains('top-level (spec #0)') && f.contains('#1'),
+          ),
+          isTrue,
+        );
+      },
+    );
 
     test(
-        'mixed-mode: top-level warning + additionalBrackets critical with '
+      'mixed-mode: top-level + additionalBrackets distinct argKeys accept',
+      () {
+        final extra = mkSpec(observedAxisArgKey: 'b');
+        final failures = checkAdditionalBrackets(
+          label: 'X',
+          additionalBrackets: [extra],
+          topLevelStableId: 'platform_channel_traffic',
+          topLevelSeverityLabel: 'warning',
+          topLevelObservedAxisArgKey: 'a',
+        );
+        expect(failures, isEmpty);
+      },
+    );
+
+    test('mixed-mode: top-level warning + additionalBrackets critical with '
         'identical (stableId, argKey=null) accepted (tier-stack raise)', () {
       // Canonical shape for a detector that brackets BOTH the warning
       // and critical thresholds of a single family without exporting an
@@ -2590,8 +2826,7 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test(
-        'two additionalBrackets specs on same stableId+argKey but different '
+    test('two additionalBrackets specs on same stableId+argKey but different '
         'severities accepted (audit gap fix)', () {
       // Regression guard for the v0.19.13 audit-invariant patch: pre-fix
       // the seen tuple was (stableId, argKey) and this case threw a
@@ -2626,18 +2861,20 @@ void main() {
   });
 
   group('checkPerStableIdTier additionalBrackets coverage (v0.19.8)', () {
-    test('runtimeVerified raise covered by canonical coveredThresholds passes',
-        () {
-      final failures = checkPerStableIdTier(
-        label: 'X',
-        tier: EvidenceTier.reproducerOnly,
-        perStableIdTier: const {'foo': EvidenceTier.runtimeVerified},
-        coveredStableIds: const {'foo'},
-        bracketStableId: 'foo',
-        topLevelCoveredThresholds: const {'foo.warning'},
-      );
-      expect(failures, isEmpty);
-    });
+    test(
+      'runtimeVerified raise covered by canonical coveredThresholds passes',
+      () {
+        final failures = checkPerStableIdTier(
+          label: 'X',
+          tier: EvidenceTier.reproducerOnly,
+          perStableIdTier: const {'foo': EvidenceTier.runtimeVerified},
+          coveredStableIds: const {'foo'},
+          bracketStableId: 'foo',
+          topLevelCoveredThresholds: const {'foo.warning'},
+        );
+        expect(failures, isEmpty);
+      },
+    );
 
     test('runtimeVerified raise covered by additionalBrackets passes', () {
       final spec = BracketSpec(
@@ -2667,29 +2904,35 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test('runtimeVerified raise without coveredThresholds entry is rejected',
-        () {
-      final failures = checkPerStableIdTier(
-        label: 'X',
-        tier: EvidenceTier.reproducerOnly,
-        perStableIdTier: const {
-          'foo': EvidenceTier.runtimeVerified,
-          'unmoored': EvidenceTier.runtimeVerified,
-        },
-        coveredStableIds: const {'foo', 'unmoored'},
-        bracketStableId: 'foo',
-        additionalBrackets: null,
-        topLevelCoveredThresholds: const {'foo.warning'},
-      );
-      expect(failures.any((f) => f.contains('"unmoored"')), isTrue);
-      expect(
-          failures.any((f) => f.contains('no coveredThresholds entry of the '
-              'form "unmoored.<severity>"')),
-          isTrue);
-    });
-
     test(
-        'spec with mismatched stableId vs coveredThresholds does not cover '
+      'runtimeVerified raise without coveredThresholds entry is rejected',
+      () {
+        final failures = checkPerStableIdTier(
+          label: 'X',
+          tier: EvidenceTier.reproducerOnly,
+          perStableIdTier: const {
+            'foo': EvidenceTier.runtimeVerified,
+            'unmoored': EvidenceTier.runtimeVerified,
+          },
+          coveredStableIds: const {'foo', 'unmoored'},
+          bracketStableId: 'foo',
+          additionalBrackets: null,
+          topLevelCoveredThresholds: const {'foo.warning'},
+        );
+        expect(failures.any((f) => f.contains('"unmoored"')), isTrue);
+        expect(
+          failures.any(
+            (f) => f.contains(
+              'no coveredThresholds entry of the '
+              'form "unmoored.<severity>"',
+            ),
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test('spec with mismatched stableId vs coveredThresholds does not cover '
         'perStableIdTier raise (drift guard)', () {
       // Spec declares stableId='X' but coveredThresholds={'Y.warning'} —
       // it does NOT cover a perStableIdTier raise on 'X' anymore (the
@@ -2700,11 +2943,7 @@ void main() {
         threshold: 8,
         unit: 'ms',
         coveredThresholds: const {'Y.warning'},
-        profileCapturePaths: const [
-          'a.json',
-          'b.json',
-          'c.json',
-        ],
+        profileCapturePaths: const ['a.json', 'b.json', 'c.json'],
       );
       final failures = checkPerStableIdTier(
         label: 'L',
@@ -2717,9 +2956,14 @@ void main() {
       );
       expect(failures.any((f) => f.contains('"X"')), isTrue);
       expect(
-          failures.any((f) => f.contains('no coveredThresholds entry of the '
-              'form "X.<severity>"')),
-          isTrue);
+        failures.any(
+          (f) => f.contains(
+            'no coveredThresholds entry of the '
+            'form "X.<severity>"',
+          ),
+        ),
+        isTrue,
+      );
     });
   });
 
@@ -2736,27 +2980,29 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test('tier-stack backed by canonical + additionalBrackets[critical] passes',
-        () {
-      final critical = BracketSpec(
-        stableId: 'X',
-        severityLabel: 'critical',
-        threshold: 16,
-        unit: 'ms',
-        coveredThresholds: const {'X.critical'},
-        profileCapturePaths: const ['a.json', 'b.json', 'c.json'],
-        aboveCeilingMultiplier: 1.5,
-      );
-      final failures = checkCanonicalCoveredThresholdBacking(
-        label: 'L',
-        tier: EvidenceTier.runtimeVerified,
-        topLevelStableId: 'X',
-        topLevelSeverityLabel: 'warning',
-        topLevelCoveredThresholds: const {'X.warning', 'X.critical'},
-        additionalBrackets: [critical],
-      );
-      expect(failures, isEmpty);
-    });
+    test(
+      'tier-stack backed by canonical + additionalBrackets[critical] passes',
+      () {
+        final critical = BracketSpec(
+          stableId: 'X',
+          severityLabel: 'critical',
+          threshold: 16,
+          unit: 'ms',
+          coveredThresholds: const {'X.critical'},
+          profileCapturePaths: const ['a.json', 'b.json', 'c.json'],
+          aboveCeilingMultiplier: 1.5,
+        );
+        final failures = checkCanonicalCoveredThresholdBacking(
+          label: 'L',
+          tier: EvidenceTier.runtimeVerified,
+          topLevelStableId: 'X',
+          topLevelSeverityLabel: 'warning',
+          topLevelCoveredThresholds: const {'X.warning', 'X.critical'},
+          additionalBrackets: [critical],
+        );
+        expect(failures, isEmpty);
+      },
+    );
 
     test('canonical declares X.critical without backing fails', () {
       final failures = checkCanonicalCoveredThresholdBacking(
@@ -2770,7 +3016,9 @@ void main() {
       expect(failures, hasLength(1));
       expect(failures.single, contains('"X.critical" has no backing'));
       expect(
-          failures.single, contains('(stableId="X", severityLabel="warning")'));
+        failures.single,
+        contains('(stableId="X", severityLabel="warning")'),
+      );
     });
 
     test('cross-family entry without backing fails', () {
@@ -2809,22 +3057,28 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test('production NetworkMonitor metadata passes (anti-confirmation-bias)',
-        () {
-      final detector = NetworkMonitorDetector();
-      final meta = detector.validationMetadata;
-      final failures = checkCanonicalCoveredThresholdBacking(
-        label: 'NetworkMonitorDetector',
-        tier: meta.effectiveMaxTier,
-        topLevelStableId: meta.bracketStableId,
-        topLevelSeverityLabel: meta.bracketSeverityLabel,
-        topLevelCoveredThresholds: meta.coveredThresholds,
-        additionalBrackets: meta.additionalBrackets,
-      );
-      expect(failures, isEmpty,
-          reason: 'Production NetworkMonitor metadata should be backed by '
-              'matching specs across canonical + additionalBrackets: $failures');
-    });
+    test(
+      'production NetworkMonitor metadata passes (anti-confirmation-bias)',
+      () {
+        final detector = NetworkMonitorDetector();
+        final meta = detector.validationMetadata;
+        final failures = checkCanonicalCoveredThresholdBacking(
+          label: 'NetworkMonitorDetector',
+          tier: meta.effectiveMaxTier,
+          topLevelStableId: meta.bracketStableId,
+          topLevelSeverityLabel: meta.bracketSeverityLabel,
+          topLevelCoveredThresholds: meta.coveredThresholds,
+          additionalBrackets: meta.additionalBrackets,
+        );
+        expect(
+          failures,
+          isEmpty,
+          reason:
+              'Production NetworkMonitor metadata should be backed by '
+              'matching specs across canonical + additionalBrackets: $failures',
+        );
+      },
+    );
 
     test('production HeavyCompute metadata passes (tier-stack family)', () {
       final detector = HeavyComputeDetector();
@@ -2837,27 +3091,37 @@ void main() {
         topLevelCoveredThresholds: meta.coveredThresholds,
         additionalBrackets: meta.additionalBrackets,
       );
-      expect(failures, isEmpty,
-          reason: 'Production HeavyCompute metadata should be backed across '
-              'canonical + additionalBrackets: $failures');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'Production HeavyCompute metadata should be backed across '
+            'canonical + additionalBrackets: $failures',
+      );
     });
 
-    test('production RebuildDetector metadata passes (perStableIdTier raise)',
-        () {
-      final detector = RebuildDetector();
-      final meta = detector.validationMetadata;
-      final failures = checkCanonicalCoveredThresholdBacking(
-        label: 'RebuildDetector',
-        tier: meta.effectiveMaxTier,
-        topLevelStableId: meta.bracketStableId,
-        topLevelSeverityLabel: meta.bracketSeverityLabel,
-        topLevelCoveredThresholds: meta.coveredThresholds,
-        additionalBrackets: meta.additionalBrackets,
-      );
-      expect(failures, isEmpty,
-          reason: 'Production RebuildDetector metadata should be backed: '
-              '$failures');
-    });
+    test(
+      'production RebuildDetector metadata passes (perStableIdTier raise)',
+      () {
+        final detector = RebuildDetector();
+        final meta = detector.validationMetadata;
+        final failures = checkCanonicalCoveredThresholdBacking(
+          label: 'RebuildDetector',
+          tier: meta.effectiveMaxTier,
+          topLevelStableId: meta.bracketStableId,
+          topLevelSeverityLabel: meta.bracketSeverityLabel,
+          topLevelCoveredThresholds: meta.coveredThresholds,
+          additionalBrackets: meta.additionalBrackets,
+        );
+        expect(
+          failures,
+          isEmpty,
+          reason:
+              'Production RebuildDetector metadata should be backed: '
+              '$failures',
+        );
+      },
+    );
   });
 
   group('checkBracketBoundsSanity (v0.19.15)', () {
@@ -2974,8 +3238,10 @@ void main() {
         additionalBrackets: [spec],
       );
       expect(failures.any((f) => f.contains('additionalBrackets[0]')), isTrue);
-      expect(failures.any((f) => f.contains('aboveCeilingMultiplier=4.0')),
-          isTrue);
+      expect(
+        failures.any((f) => f.contains('aboveCeilingMultiplier=4.0')),
+        isTrue,
+      );
     });
   });
 
@@ -2993,11 +3259,14 @@ void main() {
       f.parent.createSync(recursive: true);
       // Minimal capture skeleton sufficient for parseFile success — uses
       // the anchor-fixture template as substrate.
-      final base = File('test/validation/captures/_fixtures/'
-              'anchor_devtools_export.json')
-          .readAsStringSync();
+      final base = File(
+        'test/validation/captures/_fixtures/'
+        'anchor_devtools_export.json',
+      ).readAsStringSync();
       final mutated = base.replaceFirst(
-          RegExp(r'"scenario"\s*:\s*"[^"]*"'), '"scenario": "$scenario"');
+        RegExp(r'"scenario"\s*:\s*"[^"]*"'),
+        '"scenario": "$scenario"',
+      );
       f.writeAsStringSync(mutated);
       return f;
     }
@@ -3162,8 +3431,7 @@ void main() {
       expect(failures.single, contains('canonical bracket'));
     });
 
-    test(
-        'runtimeVerified canonical OK + null argKey on additionalBrackets[0] '
+    test('runtimeVerified canonical OK + null argKey on additionalBrackets[0] '
         'fails on the bracket only', () {
       final failures = checkRuntimeVerifiedRequiresObservedAxisArgKey(
         label: 'TestDetector',
@@ -3198,8 +3466,7 @@ void main() {
       return f;
     }
 
-    test(
-        'positive: NetworkMonitor slow_request captures carry the arg → '
+    test('positive: NetworkMonitor slow_request captures carry the arg → '
         'passes', () {
       ensurePubspec(Directory(repoRoot));
       final failures = checkCapturesCarryObservedAxisArg(
@@ -3215,21 +3482,26 @@ void main() {
         ],
         repoRoot: repoRoot,
       );
-      expect(failures, isEmpty,
-          reason: 'NetworkMonitor slow_request captures DO carry '
-              'observedDurationMs in every in-span warning event; the '
-              'invariant must accept them. Failures: $failures');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'NetworkMonitor slow_request captures DO carry '
+            'observedDurationMs in every in-span warning event; the '
+            'invariant must accept them. Failures: $failures',
+      );
     });
 
-    test(
-        'negative: stripped fixtures lack the arg → fails with actionable '
+    test('negative: stripped fixtures lack the arg → fails with actionable '
         'message naming the bracket', () {
       ensurePubspec(Directory(repoRoot));
-      final stripped = File(p.join(
-        repoRoot,
-        'test/validation/captures/_fixtures/'
-        'slow_request_at_no_observed_axis.json',
-      ));
+      final stripped = File(
+        p.join(
+          repoRoot,
+          'test/validation/captures/_fixtures/'
+          'slow_request_at_no_observed_axis.json',
+        ),
+      );
       if (!stripped.existsSync()) {
         markTestSkipped(
           'Stripped fixture not present; run profile_capture_schema_test.dart '
@@ -3253,9 +3525,13 @@ void main() {
         ],
         repoRoot: repoRoot,
       );
-      expect(failures, isNotEmpty,
-          reason: 'Stripped fixtures lack observedDurationMs; invariant '
-              'must surface the dormant cross-check.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason:
+            'Stripped fixtures lack observedDurationMs; invariant '
+            'must surface the dormant cross-check.',
+      );
       expect(failures.first, contains('TestDetector'));
       expect(failures.first, contains('"slow_request"'));
       expect(failures.first, contains('"warning"'));
@@ -3263,8 +3539,7 @@ void main() {
       expect(failures.first, contains('legacyObservedAxisAllowlist'));
     });
 
-    test(
-        'allowlisted: bracket key in allowlist → no-op even with stripped '
+    test('allowlisted: bracket key in allowlist → no-op even with stripped '
         'captures', () {
       ensurePubspec(Directory(repoRoot));
       final failures = checkCapturesCarryObservedAxisArg(
@@ -3286,13 +3561,16 @@ void main() {
         },
         repoRoot: repoRoot,
       );
-      expect(failures, isEmpty,
-          reason: 'Allowlist entry for the bracket key must skip the '
-              'capture-fidelity check entirely.');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'Allowlist entry for the bracket key must skip the '
+            'capture-fidelity check entirely.',
+      );
     });
 
-    test(
-        'tier gate: reproducerOnly bracket → no-op regardless of capture '
+    test('tier gate: reproducerOnly bracket → no-op regardless of capture '
         'state', () {
       final failures = checkCapturesCarryObservedAxisArg(
         label: 'TestDetector (tier=reproducerOnly)',
@@ -3310,8 +3588,11 @@ void main() {
         ],
         repoRoot: repoRoot,
       );
-      expect(failures, isEmpty,
-          reason: 'reproducerOnly tier must not exercise the invariant.');
+      expect(
+        failures,
+        isEmpty,
+        reason: 'reproducerOnly tier must not exercise the invariant.',
+      );
     });
   });
 
@@ -3375,8 +3656,9 @@ void main() {
 
     Directory makeTempRoot() {
       final dir = Directory.systemTemp.createTempSync('detector_role_band_');
-      File(p.join(dir.path, 'pubspec.yaml'))
-          .writeAsStringSync('name: stub\nversion: 0.0.1\n');
+      File(
+        p.join(dir.path, 'pubspec.yaml'),
+      ).writeAsStringSync('name: stub\nversion: 0.0.1\n');
       return dir;
     }
 
@@ -3423,12 +3705,14 @@ void main() {
         topLevelObservedAxisReduction: 'max',
         repoRoot: root.path,
       );
-      expect(failures, isEmpty,
-          reason: 'detector values in role bands must pass: $failures');
+      expect(
+        failures,
+        isEmpty,
+        reason: 'detector values in role bands must pass: $failures',
+      );
     });
 
-    test(
-        'detector value above at-band when role=at → fails (memory at-leg '
+    test('detector value above at-band when role=at → fails (memory at-leg '
         'regression)', () {
       final root = makeTempRoot();
       addTearDown(() => root.deleteSync(recursive: true));
@@ -3477,8 +3761,7 @@ void main() {
       expect(failures.first, contains('outside at-band'));
     });
 
-    test(
-        'detector value inside at-band when role=above → fails (platform '
+    test('detector value inside at-band when role=above → fails (platform '
         'above-leg regression)', () {
       final root = makeTempRoot();
       addTearDown(() => root.deleteSync(recursive: true));
@@ -3573,83 +3856,92 @@ void main() {
     });
 
     test(
-        'missing axis arg on every in-span event → role-band invariant '
-        'rejects (defense-in-depth alongside checkCapturesCarryObservedAxisArg)',
-        () {
-      final root = makeTempRoot();
-      addTearDown(() => root.deleteSync(recursive: true));
-      // Capture file with no axis arg in the issue event. The role-
-      // band invariant rejects defensively: matchCount > 0 but
-      // samples.length == 0 means a producer regression on every
-      // emission path. checkCapturesCarryObservedAxisArg also catches
-      // this; both invariants reject so the failure surfaces even if
-      // one of them is bypassed via allowlist drift or refactor.
-      final scenarioName = 'heap_growing_role_band_test';
-      const eventName = 'sleuth.issue.heap_growing.warning';
-      final wrapped = <String, Object?>{
-        'sleuthMetadata': const <String, Object?>{
-          'scenario': 'heap_growing_role_band_test',
-          'role': 'at',
-        },
-        'traceEvents': <Map<String, Object?>>[
-          {
-            'name': 'sleuth.scenario.begin',
-            'ph': 'i',
-            'ts': 1000,
-            'pid': 1,
-            'tid': 1,
-            'args': {'name': scenarioName},
+      'missing axis arg on every in-span event → role-band invariant '
+      'rejects (defense-in-depth alongside checkCapturesCarryObservedAxisArg)',
+      () {
+        final root = makeTempRoot();
+        addTearDown(() => root.deleteSync(recursive: true));
+        // Capture file with no axis arg in the issue event. The role-
+        // band invariant rejects defensively: matchCount > 0 but
+        // samples.length == 0 means a producer regression on every
+        // emission path. checkCapturesCarryObservedAxisArg also catches
+        // this; both invariants reject so the failure surfaces even if
+        // one of them is bypassed via allowlist drift or refactor.
+        final scenarioName = 'heap_growing_role_band_test';
+        const eventName = 'sleuth.issue.heap_growing.warning';
+        final wrapped = <String, Object?>{
+          'sleuthMetadata': const <String, Object?>{
+            'scenario': 'heap_growing_role_band_test',
+            'role': 'at',
           },
-          {
-            'name': eventName,
-            'ph': 'i',
-            'ts': 2000,
-            'pid': 1,
-            'tid': 1,
-            'args': {'detectedAtMicros': '2000'},
-          },
-          {
-            'name': 'sleuth.scenario.end',
-            'ph': 'i',
-            'ts': 3000,
-            'pid': 1,
-            'tid': 1,
-            'args': {'name': scenarioName},
-          },
-        ],
-      };
-      File(p.join(root.path, 'at.json')).writeAsStringSync(jsonEncode(wrapped));
-      File(p.join(root.path, 'below.json'))
-          .writeAsStringSync(jsonEncode(wrapped));
-      File(p.join(root.path, 'above.json'))
-          .writeAsStringSync(jsonEncode(wrapped));
-      final failures = checkDetectorAxisInRoleBand(
-        label: 'MemoryPressureDetector (tier=runtimeVerified)',
-        tier: EvidenceTier.runtimeVerified,
-        topLevelStableId: 'heap_growing',
-        topLevelSeverityLabel: 'warning',
-        topLevelObservedAxisArgKey: 'observedSlopeBytesPerSec',
-        topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
-        topLevelBracketThreshold: 512000,
-        topLevelAtTolerance: 0.50,
-        topLevelAboveCeilingMultiplier: 2.0,
-        topLevelObservedAxisReduction: 'max',
-        repoRoot: root.path,
-      );
-      expect(failures, isNotEmpty,
-          reason: 'role-band invariant must reject when matchCount > 0 '
-              'but every event lacks the axis arg (defense-in-depth).');
-      expect(failures.first, contains('only 0 carry'));
-      expect(failures.first, contains('1 unstamped'));
-    });
+          'traceEvents': <Map<String, Object?>>[
+            {
+              'name': 'sleuth.scenario.begin',
+              'ph': 'i',
+              'ts': 1000,
+              'pid': 1,
+              'tid': 1,
+              'args': {'name': scenarioName},
+            },
+            {
+              'name': eventName,
+              'ph': 'i',
+              'ts': 2000,
+              'pid': 1,
+              'tid': 1,
+              'args': {'detectedAtMicros': '2000'},
+            },
+            {
+              'name': 'sleuth.scenario.end',
+              'ph': 'i',
+              'ts': 3000,
+              'pid': 1,
+              'tid': 1,
+              'args': {'name': scenarioName},
+            },
+          ],
+        };
+        File(
+          p.join(root.path, 'at.json'),
+        ).writeAsStringSync(jsonEncode(wrapped));
+        File(
+          p.join(root.path, 'below.json'),
+        ).writeAsStringSync(jsonEncode(wrapped));
+        File(
+          p.join(root.path, 'above.json'),
+        ).writeAsStringSync(jsonEncode(wrapped));
+        final failures = checkDetectorAxisInRoleBand(
+          label: 'MemoryPressureDetector (tier=runtimeVerified)',
+          tier: EvidenceTier.runtimeVerified,
+          topLevelStableId: 'heap_growing',
+          topLevelSeverityLabel: 'warning',
+          topLevelObservedAxisArgKey: 'observedSlopeBytesPerSec',
+          topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
+          topLevelBracketThreshold: 512000,
+          topLevelAtTolerance: 0.50,
+          topLevelAboveCeilingMultiplier: 2.0,
+          topLevelObservedAxisReduction: 'max',
+          repoRoot: root.path,
+        );
+        expect(
+          failures,
+          isNotEmpty,
+          reason:
+              'role-band invariant must reject when matchCount > 0 '
+              'but every event lacks the axis arg (defense-in-depth).',
+        );
+        expect(failures.first, contains('only 0 carry'));
+        expect(failures.first, contains('1 unstamped'));
+      },
+    );
 
-    test(
-        "observedAxisReduction='last' picks the chronologically-last sample, "
+    test("observedAxisReduction='last' picks the chronologically-last sample, "
         'not the numerical max', () {
       final root = Directory.systemTemp.createTempSync('detector_role_band_');
       addTearDown(() => root.deleteSync(recursive: true));
-      File(p.join(root.path, 'pubspec.yaml'))
-          .writeAsStringSync('name: stub\nversion: 0.0.1\n');
+      File(
+        p.join(root.path, 'pubspec.yaml'),
+      ).writeAsStringSync('name: stub\nversion: 0.0.1\n');
       // Multi-event in-span capture: ts ascending, value non-monotone.
       // For 'last' reduction the invariant must take ts=300 → value 25
       // (in at-band [20, 30]). For 'max' it would take 50 (out-of-band).
@@ -3708,8 +4000,9 @@ void main() {
         },
         'traceEvents': const <Map<String, Object?>>[],
       };
-      File(p.join(root.path, 'below.json'))
-          .writeAsStringSync(jsonEncode(emptyBelow));
+      File(
+        p.join(root.path, 'below.json'),
+      ).writeAsStringSync(jsonEncode(emptyBelow));
       final aboveFixture = <String, Object?>{
         'sleuthMetadata': const <String, Object?>{
           'scenario': 'jank_detected_above',
@@ -3742,8 +4035,9 @@ void main() {
           },
         ],
       };
-      File(p.join(root.path, 'above.json'))
-          .writeAsStringSync(jsonEncode(aboveFixture));
+      File(
+        p.join(root.path, 'above.json'),
+      ).writeAsStringSync(jsonEncode(aboveFixture));
       final lastFailures = checkDetectorAxisInRoleBand(
         label: 'FrameTimingDetector (tier=runtimeVerified)',
         tier: EvidenceTier.runtimeVerified,
@@ -3757,9 +4051,13 @@ void main() {
         topLevelObservedAxisReduction: 'last',
         repoRoot: root.path,
       );
-      expect(lastFailures, isEmpty,
-          reason: "'last' reduction must pick chronologically-last sample "
-              'on at-leg (ts=300 → 25, in at-band); failures: $lastFailures');
+      expect(
+        lastFailures,
+        isEmpty,
+        reason:
+            "'last' reduction must pick chronologically-last sample "
+            'on at-leg (ts=300 → 25, in at-band); failures: $lastFailures',
+      );
       final maxFailures = checkDetectorAxisInRoleBand(
         label: 'FrameTimingDetector (tier=runtimeVerified)',
         tier: EvidenceTier.runtimeVerified,
@@ -3773,17 +4071,22 @@ void main() {
         topLevelObservedAxisReduction: 'max',
         repoRoot: root.path,
       );
-      expect(maxFailures, isNotEmpty,
-          reason: "'max' reduction picks 50 (out of at-band [20, 30]) on the "
-              'same at-leg fixture; sanity check that the reduction '
-              'strategy meaningfully changes the verdict.');
+      expect(
+        maxFailures,
+        isNotEmpty,
+        reason:
+            "'max' reduction picks 50 (out of at-band [20, 30]) on the "
+            'same at-leg fixture; sanity check that the reduction '
+            'strategy meaningfully changes the verdict.',
+      );
     });
 
     test('additionalBrackets entry exercises invariant via spec.threshold', () {
       final root = Directory.systemTemp.createTempSync('detector_role_band_');
       addTearDown(() => root.deleteSync(recursive: true));
-      File(p.join(root.path, 'pubspec.yaml'))
-          .writeAsStringSync('name: stub\nversion: 0.0.1\n');
+      File(
+        p.join(root.path, 'pubspec.yaml'),
+      ).writeAsStringSync('name: stub\nversion: 0.0.1\n');
       // Construct an additionalBrackets entry mirroring the
       // HeavyComputeDetector critical-tier shape (threshold 16,
       // atTolerance 0.60 → at-band [16, 25.6], above-ceiling 1.875 →
@@ -3828,12 +4131,15 @@ void main() {
               },
             ],
           };
-      File(p.join(root.path, 'crit_below.json'))
-          .writeAsStringSync(jsonEncode(wrappedFor(8, 'below')));
-      File(p.join(root.path, 'crit_at.json'))
-          .writeAsStringSync(jsonEncode(wrappedFor(19, 'at')));
-      File(p.join(root.path, 'crit_above.json'))
-          .writeAsStringSync(jsonEncode(wrappedFor(18, 'above')));
+      File(
+        p.join(root.path, 'crit_below.json'),
+      ).writeAsStringSync(jsonEncode(wrappedFor(8, 'below')));
+      File(
+        p.join(root.path, 'crit_at.json'),
+      ).writeAsStringSync(jsonEncode(wrappedFor(19, 'at')));
+      File(
+        p.join(root.path, 'crit_above.json'),
+      ).writeAsStringSync(jsonEncode(wrappedFor(18, 'above')));
       final spec = BracketSpec(
         stableId: 'heavy_compute',
         severityLabel: 'critical',
@@ -3863,21 +4169,25 @@ void main() {
         additionalBrackets: [spec],
         repoRoot: root.path,
       );
-      expect(failures, isNotEmpty,
-          reason: 'above-leg detector value 18 is ≤ at-band upper 25.6; '
-              'invariant must surface via additionalBrackets[0] path.');
+      expect(
+        failures,
+        isNotEmpty,
+        reason:
+            'above-leg detector value 18 is ≤ at-band upper 25.6; '
+            'invariant must surface via additionalBrackets[0] path.',
+      );
       expect(failures.first, contains('additionalBrackets[0]'));
       expect(failures.first, contains('above capture'));
       expect(failures.first, contains('18'));
     });
 
-    test(
-        'partial axis stamping (carrying < matched) fails with both '
+    test('partial axis stamping (carrying < matched) fails with both '
         'invariants', () {
       final root = Directory.systemTemp.createTempSync('detector_role_band_');
       addTearDown(() => root.deleteSync(recursive: true));
-      File(p.join(root.path, 'pubspec.yaml'))
-          .writeAsStringSync('name: stub\nversion: 0.0.1\n');
+      File(
+        p.join(root.path, 'pubspec.yaml'),
+      ).writeAsStringSync('name: stub\nversion: 0.0.1\n');
       // 2 in-span heap_growing.warning events; first carries the axis
       // arg, second omits it. checkCapturesCarryObservedAxisArg used to
       // pass here (carrying=1 > 0); checkDetectorAxisInRoleBand used to
@@ -3944,10 +4254,12 @@ void main() {
         'traceEvents': const <Map<String, Object?>>[],
       };
       File(p.join(root.path, 'at.json')).writeAsStringSync(jsonEncode(wrapped));
-      File(p.join(root.path, 'above.json'))
-          .writeAsStringSync(jsonEncode(emptyAbove));
-      File(p.join(root.path, 'below.json'))
-          .writeAsStringSync(jsonEncode(emptyBelow));
+      File(
+        p.join(root.path, 'above.json'),
+      ).writeAsStringSync(jsonEncode(emptyAbove));
+      File(
+        p.join(root.path, 'below.json'),
+      ).writeAsStringSync(jsonEncode(emptyBelow));
 
       final fidelityFailures = checkCapturesCarryObservedAxisArg(
         label: 'MemoryPressureDetector (tier=runtimeVerified)',
@@ -3958,9 +4270,13 @@ void main() {
         topLevelCapturePaths: const ['below.json', 'at.json', 'above.json'],
         repoRoot: root.path,
       );
-      expect(fidelityFailures, isNotEmpty,
-          reason: 'carrying=1 < matched=2 must surface; subset proof '
-              'rejected.');
+      expect(
+        fidelityFailures,
+        isNotEmpty,
+        reason:
+            'carrying=1 < matched=2 must surface; subset proof '
+            'rejected.',
+      );
       expect(fidelityFailures.first, contains('only 1 carry'));
       expect(fidelityFailures.first, contains('1 unstamped'));
       expect(fidelityFailures.first, contains('Full coverage is required'));
@@ -3978,21 +4294,25 @@ void main() {
         topLevelObservedAxisReduction: 'max',
         repoRoot: root.path,
       );
-      expect(roleBandFailures, isNotEmpty,
-          reason: 'Defense-in-depth: role-band invariant must also '
-              'reject the partial-coverage capture even though the '
-              'parseable single sample (600000) lands in band.');
+      expect(
+        roleBandFailures,
+        isNotEmpty,
+        reason:
+            'Defense-in-depth: role-band invariant must also '
+            'reject the partial-coverage capture even though the '
+            'parseable single sample (600000) lands in band.',
+      );
       expect(roleBandFailures.first, contains('only 1 carry'));
       expect(roleBandFailures.first, contains('1 unstamped'));
     });
 
-    test(
-        "tied-ts samples under 'last' reduction resolve by insertion "
+    test("tied-ts samples under 'last' reduction resolve by insertion "
         'order (deterministic)', () {
       final root = Directory.systemTemp.createTempSync('detector_role_band_');
       addTearDown(() => root.deleteSync(recursive: true));
-      File(p.join(root.path, 'pubspec.yaml'))
-          .writeAsStringSync('name: stub\nversion: 0.0.1\n');
+      File(
+        p.join(root.path, 'pubspec.yaml'),
+      ).writeAsStringSync('name: stub\nversion: 0.0.1\n');
       // Two in-span events at the SAME ts. The second-written event
       // wins under 'last' because insertion order is the deterministic
       // tiebreaker. First event stamps a value (50) that would fall
@@ -4081,12 +4401,15 @@ void main() {
         },
         'traceEvents': const <Map<String, Object?>>[],
       };
-      File(p.join(root.path, 'at.json'))
-          .writeAsStringSync(jsonEncode(atFixture));
-      File(p.join(root.path, 'above.json'))
-          .writeAsStringSync(jsonEncode(aboveFixture));
-      File(p.join(root.path, 'below.json'))
-          .writeAsStringSync(jsonEncode(emptyBelow));
+      File(
+        p.join(root.path, 'at.json'),
+      ).writeAsStringSync(jsonEncode(atFixture));
+      File(
+        p.join(root.path, 'above.json'),
+      ).writeAsStringSync(jsonEncode(aboveFixture));
+      File(
+        p.join(root.path, 'below.json'),
+      ).writeAsStringSync(jsonEncode(emptyBelow));
 
       final failures = checkDetectorAxisInRoleBand(
         label: 'FrameTimingDetector (tier=runtimeVerified)',
@@ -4101,11 +4424,15 @@ void main() {
         topLevelObservedAxisReduction: 'last',
         repoRoot: root.path,
       );
-      expect(failures, isEmpty,
-          reason: "tied-ts 'last' reduction must pick second-inserted "
-              'sample (value 25, in at-band [20, 30]); insertion-order '
-              'tiebreaker pins the choice deterministically. failures: '
-              '$failures');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            "tied-ts 'last' reduction must pick second-inserted "
+            'sample (value 25, in at-band [20, 30]); insertion-order '
+            'tiebreaker pins the choice deterministically. failures: '
+            '$failures',
+      );
     });
 
     test('reproducerOnly tier → no-op regardless of capture state', () {
@@ -4149,8 +4476,11 @@ void main() {
         topLevelObservedAxisReduction: 'max',
         repoRoot: root.path,
       );
-      expect(failures, isEmpty,
-          reason: 'reproducerOnly tier must not exercise the invariant.');
+      expect(
+        failures,
+        isEmpty,
+        reason: 'reproducerOnly tier must not exercise the invariant.',
+      );
     });
   });
 
@@ -4282,11 +4612,7 @@ void main() {
         label: 'X',
         tier: EvidenceTier.runtimeVerified,
         additionalBrackets: [
-          spec(capturePaths: [
-            'below.json',
-            'at.json',
-            'above.json',
-          ]),
+          spec(capturePaths: ['below.json', 'at.json', 'above.json']),
         ],
         repoRoot: root.path,
       );
@@ -4326,9 +4652,13 @@ void main() {
       // Both legs fail (per-leg semantics).
       expect(failures.length, equals(2));
       expect(
-          failures.any((f) => f.contains('at-leg') && f.contains('1')), isTrue);
-      expect(failures.any((f) => f.contains('above-leg') && f.contains('1')),
-          isTrue);
+        failures.any((f) => f.contains('at-leg') && f.contains('1')),
+        isTrue,
+      );
+      expect(
+        failures.any((f) => f.contains('above-leg') && f.contains('1')),
+        isTrue,
+      );
     });
 
     test('passes at boundary count == minInBandSamples', () {
@@ -4493,39 +4823,41 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test('at-band inclusive upper boundary (51 in at-band, 52 in above-band)',
-        () {
-      final root = makeRepoRoot();
-      addTearDown(() => root.deleteSync(recursive: true));
-      // at-band upper for threshold 31, atTolerance 0.65 = 51.15.
-      // 51 ∈ at-band; 52 ∈ above-band.
-      writeSyntheticCapture(
-        filePath: p.join(root.path, 'at.json'),
-        stableId: 'rebuild_activity',
-        severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
-        rates: [51, 51], // both at upper boundary, in at-band
-      );
-      writeSyntheticCapture(
-        filePath: p.join(root.path, 'above.json'),
-        stableId: 'rebuild_activity',
-        severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
-        rates: [52, 52], // both at first integer past upper, in above-band
-      );
-      final failures = checkMinInBandSamplesPerSpec(
-        label: 'X',
-        tier: EvidenceTier.runtimeVerified,
-        additionalBrackets: [
-          spec(
-            capturePaths: ['below.json', 'at.json', 'above.json'],
-            minInBandSamples: 2,
-          ),
-        ],
-        repoRoot: root.path,
-      );
-      expect(failures, isEmpty);
-    });
+    test(
+      'at-band inclusive upper boundary (51 in at-band, 52 in above-band)',
+      () {
+        final root = makeRepoRoot();
+        addTearDown(() => root.deleteSync(recursive: true));
+        // at-band upper for threshold 31, atTolerance 0.65 = 51.15.
+        // 51 ∈ at-band; 52 ∈ above-band.
+        writeSyntheticCapture(
+          filePath: p.join(root.path, 'at.json'),
+          stableId: 'rebuild_activity',
+          severityLabel: 'critical',
+          argKey: 'observedRebuildRate',
+          rates: [51, 51], // both at upper boundary, in at-band
+        );
+        writeSyntheticCapture(
+          filePath: p.join(root.path, 'above.json'),
+          stableId: 'rebuild_activity',
+          severityLabel: 'critical',
+          argKey: 'observedRebuildRate',
+          rates: [52, 52], // both at first integer past upper, in above-band
+        );
+        final failures = checkMinInBandSamplesPerSpec(
+          label: 'X',
+          tier: EvidenceTier.runtimeVerified,
+          additionalBrackets: [
+            spec(
+              capturePaths: ['below.json', 'at.json', 'above.json'],
+              minInBandSamples: 2,
+            ),
+          ],
+          repoRoot: root.path,
+        );
+        expect(failures, isEmpty);
+      },
+    );
 
     test('above-band inclusive ceiling boundary (83 in, 84 over)', () {
       final root = makeRepoRoot();
@@ -4596,11 +4928,15 @@ void main() {
         // No repoRoot override — uses Directory.current which the test
         // runner sets to the package root.
       );
-      expect(failures, isEmpty,
-          reason: 'committed critical_above.json must satisfy '
-              'minInBandSamples=2; if this fails, either the capture '
-              'regressed below 2 in-band emissions or the invariant '
-              'misclassifies real captures.');
+      expect(
+        failures,
+        isEmpty,
+        reason:
+            'committed critical_above.json must satisfy '
+            'minInBandSamples=2; if this fails, either the capture '
+            'regressed below 2 in-band emissions or the invariant '
+            'misclassifies real captures.',
+      );
     });
 
     test('skips when capture file missing (delegated to other invariants)', () {
@@ -4622,68 +4958,71 @@ void main() {
       expect(failures, isEmpty);
     });
 
-    test('runRuntimeTierAudit wires checkMinInBandSamplesPerSpec end-to-end',
-        () {
-      // Behavioral wire test: build a synthetic DetectorMetadata whose
-      // additionalBrackets[0] carries minInBandSamples=2, write captures
-      // with only 1 in-band sample per leg, route through
-      // runRuntimeTierAudit, and assert the failure list contains the
-      // minInBandSamples-specific message. Indirection-proof: a refactor
-      // that extracts the call into a helper, gates it conditionally,
-      // or removes it entirely all break this test, while the 12 unit
-      // tests above (which invoke checkMinInBandSamplesPerSpec directly)
-      // continue to pass.
-      final root = makeRepoRoot();
-      addTearDown(() => root.deleteSync(recursive: true));
-      writeSyntheticCapture(
-        filePath: p.join(root.path, 'below.json'),
-        stableId: 'rebuild_activity',
-        severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
-        rates: [20], // below-leg silent by convention.
-      );
-      writeSyntheticCapture(
-        filePath: p.join(root.path, 'at.json'),
-        stableId: 'rebuild_activity',
-        severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
-        rates: [40, 20, 25], // 1 in-band (40 ∈ [31, 51]), needs 2.
-      );
-      writeSyntheticCapture(
-        filePath: p.join(root.path, 'above.json'),
-        stableId: 'rebuild_activity',
-        severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
-        rates: [70, 30, 25], // 1 in-band (70 ∈ (51, 83]), needs 2.
-      );
-      final meta = DetectorMetadata(
-        tier: EvidenceTier.runtimeVerified,
-        rationale: 'Synthetic metadata for behavioral wire verification.',
-        reproducerPath: 'test/validation/_support/audit_invariants_test.dart',
-        coveredStableIds: const {'rebuild_activity'},
-        coveredThresholds: const {'rebuild_activity.critical'},
-        additionalBrackets: [
-          spec(
-            capturePaths: ['below.json', 'at.json', 'above.json'],
-            minInBandSamples: 2,
-          ),
-        ],
-      );
-      final failures = runRuntimeTierAudit(
-        label: 'WireTest',
-        meta: meta,
-        repoRoot: root.path,
-      );
-      expect(
-        failures.any((f) => f.contains('minInBandSamples=2')),
-        isTrue,
-        reason: 'runRuntimeTierAudit must invoke '
-            'checkMinInBandSamplesPerSpec so the contract reaches the '
-            'top-level audit gate. Removing, commenting out, or '
-            'conditionally gating the wire turns every opt-in spec into '
-            'a silent no-op.',
-      );
-    });
+    test(
+      'runRuntimeTierAudit wires checkMinInBandSamplesPerSpec end-to-end',
+      () {
+        // Behavioral wire test: build a synthetic DetectorMetadata whose
+        // additionalBrackets[0] carries minInBandSamples=2, write captures
+        // with only 1 in-band sample per leg, route through
+        // runRuntimeTierAudit, and assert the failure list contains the
+        // minInBandSamples-specific message. Indirection-proof: a refactor
+        // that extracts the call into a helper, gates it conditionally,
+        // or removes it entirely all break this test, while the 12 unit
+        // tests above (which invoke checkMinInBandSamplesPerSpec directly)
+        // continue to pass.
+        final root = makeRepoRoot();
+        addTearDown(() => root.deleteSync(recursive: true));
+        writeSyntheticCapture(
+          filePath: p.join(root.path, 'below.json'),
+          stableId: 'rebuild_activity',
+          severityLabel: 'critical',
+          argKey: 'observedRebuildRate',
+          rates: [20], // below-leg silent by convention.
+        );
+        writeSyntheticCapture(
+          filePath: p.join(root.path, 'at.json'),
+          stableId: 'rebuild_activity',
+          severityLabel: 'critical',
+          argKey: 'observedRebuildRate',
+          rates: [40, 20, 25], // 1 in-band (40 ∈ [31, 51]), needs 2.
+        );
+        writeSyntheticCapture(
+          filePath: p.join(root.path, 'above.json'),
+          stableId: 'rebuild_activity',
+          severityLabel: 'critical',
+          argKey: 'observedRebuildRate',
+          rates: [70, 30, 25], // 1 in-band (70 ∈ (51, 83]), needs 2.
+        );
+        final meta = DetectorMetadata(
+          tier: EvidenceTier.runtimeVerified,
+          rationale: 'Synthetic metadata for behavioral wire verification.',
+          reproducerPath: 'test/validation/_support/audit_invariants_test.dart',
+          coveredStableIds: const {'rebuild_activity'},
+          coveredThresholds: const {'rebuild_activity.critical'},
+          additionalBrackets: [
+            spec(
+              capturePaths: ['below.json', 'at.json', 'above.json'],
+              minInBandSamples: 2,
+            ),
+          ],
+        );
+        final failures = runRuntimeTierAudit(
+          label: 'WireTest',
+          meta: meta,
+          repoRoot: root.path,
+        );
+        expect(
+          failures.any((f) => f.contains('minInBandSamples=2')),
+          isTrue,
+          reason:
+              'runRuntimeTierAudit must invoke '
+              'checkMinInBandSamplesPerSpec so the contract reaches the '
+              'top-level audit gate. Removing, commenting out, or '
+              'conditionally gating the wire turns every opt-in spec into '
+              'a silent no-op.',
+        );
+      },
+    );
 
     test('reproducerOnly tier skips the check', () {
       final root = makeRepoRoot();

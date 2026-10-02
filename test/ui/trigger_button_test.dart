@@ -18,15 +18,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       expect(findLogo(), findsOneWidget);
 
@@ -41,15 +43,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () => tapped = true,
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () => tapped = true,
+          ),
         ),
-      ));
+      );
 
       await tester.tap(findLogo());
       expect(tapped, isTrue);
@@ -92,15 +96,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       expect(find.text('3'), findsOneWidget);
 
@@ -114,15 +120,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       // Badge count '3' from the previous test case should not appear.
       // '0' does appear as the FPS text, but that's not a badge.
@@ -139,15 +147,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: true,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: true,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       expect(find.text('\u26A0\uFE0F'), findsOneWidget);
 
@@ -161,15 +171,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       // v0.17.0: empty buffer → warm-up placeholder while windowSampleCount
       // is below the 3-frame threshold. The trigger shows '—' instead of
@@ -186,28 +198,34 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       // In test viewport (800x600), the button should be near the right edge.
       final logoPos = tester.getTopLeft(findLogo());
-      expect(logoPos.dx, greaterThan(100),
-          reason: 'Should be right-aligned, not at x=16');
+      expect(
+        logoPos.dx,
+        greaterThan(100),
+        reason: 'Should be right-aligned, not at x=16',
+      );
 
       issues.dispose();
       vm.dispose();
       fps.dispose();
     });
 
-    testWidgets('topRight alignment with default offset matches old position',
-        (tester) async {
+    testWidgets('topRight alignment with default offset matches old position', (
+      tester,
+    ) async {
       final issues = ValueNotifier<List<PerformanceIssue>>([]);
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
@@ -247,23 +265,26 @@ void main() {
       fps.dispose();
     });
 
-    testWidgets('bottomLeft alignment places button at bottom-left',
-        (tester) async {
+    testWidgets('bottomLeft alignment places button at bottom-left', (
+      tester,
+    ) async {
       final issues = ValueNotifier<List<PerformanceIssue>>([]);
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
-          initialAlignment: Alignment.bottomLeft,
-          initialOffset: const Offset(16, 64),
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+            initialAlignment: Alignment.bottomLeft,
+            initialOffset: const Offset(16, 64),
+          ),
         ),
-      ));
+      );
 
       final logoPos = tester.getTopLeft(findLogo());
       // Left side: anchorX = offset.dx = 16
@@ -276,23 +297,26 @@ void main() {
       fps.dispose();
     });
 
-    testWidgets('topLeft with zero offset places button at origin',
-        (tester) async {
+    testWidgets('topLeft with zero offset places button at origin', (
+      tester,
+    ) async {
       final issues = ValueNotifier<List<PerformanceIssue>>([]);
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
-          initialAlignment: Alignment.topLeft,
-          initialOffset: Offset.zero,
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+            initialAlignment: Alignment.topLeft,
+            initialOffset: Offset.zero,
+          ),
         ),
-      ));
+      );
 
       final logoPos = tester.getTopLeft(findLogo());
       // Should be at (0, 0) — top-left corner
@@ -309,15 +333,17 @@ void main() {
       final vm = ValueNotifier<bool>(false);
       final fps = ValueNotifier<FrameStatsBuffer>(FrameStatsBuffer());
 
-      await tester.pumpWidget(wrap(
-        TriggerButton(
-          issuesNotifier: issues,
-          vmConnectedNotifier: vm,
-          frameStatsNotifier: fps,
-          isDebugMode: false,
-          onTap: () {},
+      await tester.pumpWidget(
+        wrap(
+          TriggerButton(
+            issuesNotifier: issues,
+            vmConnectedNotifier: vm,
+            frameStatsNotifier: fps,
+            isDebugMode: false,
+            onTap: () {},
+          ),
         ),
-      ));
+      );
 
       await tester.drag(findLogo(), const Offset(50, 50));
       await tester.pump();

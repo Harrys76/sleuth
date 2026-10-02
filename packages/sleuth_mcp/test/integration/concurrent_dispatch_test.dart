@@ -68,38 +68,50 @@ void main() {
       final servePromise = server.serve(input: input.stream, output: output);
 
       // Initialize first so the _initialized gate is open.
-      input.add(utf8.encode(_frame({
-        'jsonrpc': '2.0',
-        'method': 'initialize',
-        'params': {'protocolVersion': '2024-11-05'},
-        'id': 1,
-      })));
+      input.add(
+        utf8.encode(
+          _frame({
+            'jsonrpc': '2.0',
+            'method': 'initialize',
+            'params': {'protocolVersion': '2024-11-05'},
+            'id': 1,
+          }),
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
 
       // Blast frames without waiting between them.
-      input.add(utf8.encode(_frame({
-        'jsonrpc': '2.0',
-        'method': 'tools/list',
-        'id': 2,
-      })));
-      input.add(utf8.encode(_frame({
-        'jsonrpc': '2.0',
-        'method': 'tools/call',
-        'params': {
-          'name': 'diagnose',
-          'arguments': const <String, Object?>{},
-        },
-        'id': 3,
-      })));
-      input.add(utf8.encode(_frame({
-        'jsonrpc': '2.0',
-        'method': 'tools/call',
-        'params': {
-          'name': 'get_snapshot',
-          'arguments': const <String, Object?>{},
-        },
-        'id': 4,
-      })));
+      input.add(
+        utf8.encode(
+          _frame({'jsonrpc': '2.0', 'method': 'tools/list', 'id': 2}),
+        ),
+      );
+      input.add(
+        utf8.encode(
+          _frame({
+            'jsonrpc': '2.0',
+            'method': 'tools/call',
+            'params': {
+              'name': 'diagnose',
+              'arguments': const <String, Object?>{},
+            },
+            'id': 3,
+          }),
+        ),
+      );
+      input.add(
+        utf8.encode(
+          _frame({
+            'jsonrpc': '2.0',
+            'method': 'tools/call',
+            'params': {
+              'name': 'get_snapshot',
+              'arguments': const <String, Object?>{},
+            },
+            'id': 4,
+          }),
+        ),
+      );
 
       await input.close();
       await servePromise;
@@ -121,47 +133,57 @@ void main() {
     timeout: const Timeout(Duration(seconds: 30)),
   );
 
-  test('shutdown() waits for the in-flight dispatch to write its response',
-      () async {
-    final gate = Completer<void>();
-    final bridge = _SlowBridge(gate);
-    final input = StreamController<List<int>>();
-    final output = _CapturingSink();
-    final server = McpServer(bridge: bridge)..registerDefaults();
-    final servePromise = server.serve(input: input.stream, output: output);
+  test(
+    'shutdown() waits for the in-flight dispatch to write its response',
+    () async {
+      final gate = Completer<void>();
+      final bridge = _SlowBridge(gate);
+      final input = StreamController<List<int>>();
+      final output = _CapturingSink();
+      final server = McpServer(bridge: bridge)..registerDefaults();
+      final servePromise = server.serve(input: input.stream, output: output);
 
-    input.add(utf8.encode(_frame({
-      'jsonrpc': '2.0',
-      'method': 'initialize',
-      'params': {'protocolVersion': '2024-11-05'},
-      'id': 1,
-    })));
-    while (output.lines.isEmpty) {
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
+      input.add(
+        utf8.encode(
+          _frame({
+            'jsonrpc': '2.0',
+            'method': 'initialize',
+            'params': {'protocolVersion': '2024-11-05'},
+            'id': 1,
+          }),
+        ),
+      );
+      while (output.lines.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
 
-    // Fire a slow tool — dispatcher parks on the gate.
-    input.add(utf8.encode(_frame({
-      'jsonrpc': '2.0',
-      'method': 'tools/call',
-      'params': {
-        'name': 'diagnose',
-        'arguments': const <String, Object?>{},
-      },
-      'id': 2,
-    })));
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+      // Fire a slow tool — dispatcher parks on the gate.
+      input.add(
+        utf8.encode(
+          _frame({
+            'jsonrpc': '2.0',
+            'method': 'tools/call',
+            'params': {
+              'name': 'diagnose',
+              'arguments': const <String, Object?>{},
+            },
+            'id': 2,
+          }),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
 
-    server.shutdown();
-    Timer(const Duration(milliseconds: 50), () => gate.complete());
+      server.shutdown();
+      Timer(const Duration(milliseconds: 50), () => gate.complete());
 
-    await servePromise.timeout(const Duration(seconds: 5));
-    await input.close();
+      await servePromise.timeout(const Duration(seconds: 5));
+      await input.close();
 
-    expect(output.lines, hasLength(2));
-    final ids = output.lines.map((l) => (jsonDecode(l) as Map)['id']).toSet();
-    expect(ids, {1, 2});
-  });
+      expect(output.lines, hasLength(2));
+      final ids = output.lines.map((l) => (jsonDecode(l) as Map)['id']).toSet();
+      expect(ids, {1, 2});
+    },
+  );
 }
 
 class _SlowBridge implements VmBridge {
@@ -174,11 +196,11 @@ class _SlowBridge implements VmBridge {
 
   @override
   Map<String, Object?>? get lastDiagnoseEnvelope => const {
-        'connectionMode': 'basic',
-        'schemaVersion': 1,
-        'sessionUuid': 'baseline',
-        'data': <String, Object?>{'packageVersion': '0.33.0'},
-      };
+    'connectionMode': 'basic',
+    'schemaVersion': 1,
+    'sessionUuid': 'baseline',
+    'data': <String, Object?>{'packageVersion': '0.33.0'},
+  };
 
   @override
   bool get isConnected => true;

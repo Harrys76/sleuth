@@ -21,9 +21,7 @@ void main() {
     });
 
     testWidgets('returns non-null after wrap()', (tester) async {
-      final widget = Sleuth.track(
-        child: const MaterialApp(home: Scaffold()),
-      );
+      final widget = Sleuth.track(child: const MaterialApp(home: Scaffold()));
       await tester.pumpWidget(widget);
 
       expect(Sleuth.exportSnapshot(), isNotNull);
@@ -39,9 +37,7 @@ void main() {
       await tester.pumpWidget(
         KeyedSubtree(
           key: key,
-          child: Sleuth.track(
-            child: const MaterialApp(home: Scaffold()),
-          ),
+          child: Sleuth.track(child: const MaterialApp(home: Scaffold())),
         ),
       );
       expect(Sleuth.exportSnapshot(), isNotNull);

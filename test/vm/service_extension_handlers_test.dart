@@ -23,24 +23,19 @@ PerformanceIssue _issue({
   String? routeName,
   String? sourceRoute,
   IssueSeverity severity = IssueSeverity.warning,
-}) =>
-    PerformanceIssue(
-      severity: severity,
-      category: IssueCategory.build,
-      confidence: IssueConfidence.likely,
-      title: 'Test issue',
-      detail: 'detail',
-      fixHint: 'fix',
-      stableId: stableId,
-      routeName: routeName,
-      sourceRoute: sourceRoute,
-    );
+}) => PerformanceIssue(
+  severity: severity,
+  category: IssueCategory.build,
+  confidence: IssueConfidence.likely,
+  title: 'Test issue',
+  detail: 'detail',
+  fixHint: 'fix',
+  stableId: stableId,
+  routeName: routeName,
+  sourceRoute: sourceRoute,
+);
 
-const _envelopeKeys = {
-  'connectionMode',
-  'schemaVersion',
-  'sessionUuid',
-};
+const _envelopeKeys = {'connectionMode', 'schemaVersion', 'sessionUuid'};
 
 void main() {
   group('envelope shape', () {
@@ -73,10 +68,7 @@ void main() {
       expect(sanitizeForJson('s'), 's');
       expect(sanitizeForJson(true), true);
       expect(sanitizeForJson([1, 'a', null]), [1, 'a', null]);
-      expect(
-        sanitizeForJson({'k': 'v', 'n': 2}),
-        {'k': 'v', 'n': 2},
-      );
+      expect(sanitizeForJson({'k': 'v', 'n': 2}), {'k': 'v', 'n': 2});
     });
 
     test('coerces non-string map keys to strings', () {
@@ -152,8 +144,7 @@ void main() {
       expect(list, [1, 2, 3]);
     });
 
-    test(
-        'Identity-based cycle detection — equal-but-distinct maps do '
+    test('Identity-based cycle detection — equal-but-distinct maps do '
         'not falsely cycle', () {
       // Two distinct map instances with identical contents. Default
       // Set<Object> would see them as equal; the sanitiser must use
@@ -168,8 +159,7 @@ void main() {
       expect((out['b'] as Map).containsKey('__cycle'), isFalse);
     });
 
-    test(
-        'Non-string Map keys colliding after stringify emit '
+    test('Non-string Map keys colliding after stringify emit '
         '__keyCollision envelope', () {
       final out =
           sanitizeForJson({1: 'first', '1': 'second'}) as Map<String, Object?>;
@@ -216,13 +206,15 @@ void main() {
       expect(data['route'], '/a');
     });
 
-    test('routeHealth without arg returns empty list when no history',
-        () async {
-      final c = _newController();
-      final env = await extRouteHealthHandler(c, const {});
-      final data = env['data'] as Map<String, Object?>;
-      expect(data['routes'], isEmpty);
-    });
+    test(
+      'routeHealth without arg returns empty list when no history',
+      () async {
+        final c = _newController();
+        final env = await extRouteHealthHandler(c, const {});
+        final data = env['data'] as Map<String, Object?>;
+        expect(data['routes'], isEmpty);
+      },
+    );
 
     test('routeHealth with unknown route returns error envelope', () async {
       final c = _newController();
@@ -299,10 +291,8 @@ void main() {
         () async => await extSnapshotHandler(c, const {}),
         () async => await extIssuesHandler(c, const {}),
         () async => await extRouteHealthHandler(c, const {}),
-        () async => await extExplainHandler(
-              c,
-              const {'stableId': 'jank_detected'},
-            ),
+        () async =>
+            await extExplainHandler(c, const {'stableId': 'jank_detected'}),
         () async => await extEncyclopediaHandler(c, const {}),
         () async => await extCausalGraphHandler(c, const {}),
         () async => await extDiagnoseHandler(c, const {}),

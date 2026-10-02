@@ -64,31 +64,32 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     this.startupPhaseWindowSeconds = 5,
     this.onFrameStats,
     int? Function()? appStartMonotonicUsForTest,
-  })  : warningThresholdMs = warningThresholdMs ??
-            _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 1),
-        criticalThresholdMs = criticalThresholdMs ??
-            _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 2),
-        _appStartForTest = appStartMonotonicUsForTest,
-        super(
-          type: DetectorType.frameTiming,
-          lifecycle: DetectorLifecycle.runtime,
-          name: 'Frame Timing',
-          description: 'Detects jank frames via frame budget '
-              '(${warningThresholdMs ?? _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 1)}ms)',
-        );
+  }) : warningThresholdMs =
+           warningThresholdMs ??
+           _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 1),
+       criticalThresholdMs =
+           criticalThresholdMs ??
+           _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 2),
+       _appStartForTest = appStartMonotonicUsForTest,
+       super(
+         type: DetectorType.frameTiming,
+         lifecycle: DetectorLifecycle.runtime,
+         name: 'Frame Timing',
+         description:
+             'Detects jank frames via frame budget '
+             '(${warningThresholdMs ?? _thresholdFromFpsTarget(fpsTarget, criticalMultiplier: 1)}ms)',
+       );
 
   /// Validates `fpsTarget` before integer-dividing by it. The
   /// `SleuthConfig` assert guard is stripped in profile/release, so without
   /// this check `fpsTarget: 0` would surface as
   /// `UnsupportedError: Result of truncating division is Infinity`.
-  static int _thresholdFromFpsTarget(int fpsTarget,
-      {required int criticalMultiplier}) {
+  static int _thresholdFromFpsTarget(
+    int fpsTarget, {
+    required int criticalMultiplier,
+  }) {
     if (fpsTarget < 1 || fpsTarget > 240) {
-      throw ArgumentError.value(
-        fpsTarget,
-        'fpsTarget',
-        'must be in [1, 240]',
-      );
+      throw ArgumentError.value(fpsTarget, 'fpsTarget', 'must be in [1, 240]');
     }
     return (1000 ~/ fpsTarget) * criticalMultiplier;
   }
@@ -159,8 +160,9 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   // [fpsTarget]. A target-derived capacity would cap the count below the
   // device refresh (e.g. 60 at fpsTarget=30 on a 120 Hz panel).
   static const int _bufferCapacity = 240;
-  late final FrameStatsBuffer _buffer =
-      FrameStatsBuffer(capacity: _bufferCapacity);
+  late final FrameStatsBuffer _buffer = FrameStatsBuffer(
+    capacity: _bufferCapacity,
+  );
   final List<PerformanceIssue> _issues = [];
   bool _isEnabled = true;
   int _frameNumber = 0;
@@ -332,17 +334,22 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
       _firstFrameTimestamp ??= DateTime.now();
 
       // Extract all 5 phase timestamps for frame-event correlation.
-      final vsyncStartUs =
-          timing.timestampInMicroseconds(FramePhase.vsyncStart);
+      final vsyncStartUs = timing.timestampInMicroseconds(
+        FramePhase.vsyncStart,
+      );
       _firstFrameVsyncUs ??= vsyncStartUs;
-      final buildStartUs =
-          timing.timestampInMicroseconds(FramePhase.buildStart);
-      final buildFinishUs =
-          timing.timestampInMicroseconds(FramePhase.buildFinish);
-      final rasterStartUs =
-          timing.timestampInMicroseconds(FramePhase.rasterStart);
-      final rasterFinishRaw =
-          timing.timestampInMicroseconds(FramePhase.rasterFinish);
+      final buildStartUs = timing.timestampInMicroseconds(
+        FramePhase.buildStart,
+      );
+      final buildFinishUs = timing.timestampInMicroseconds(
+        FramePhase.buildFinish,
+      );
+      final rasterStartUs = timing.timestampInMicroseconds(
+        FramePhase.rasterStart,
+      );
+      final rasterFinishRaw = timing.timestampInMicroseconds(
+        FramePhase.rasterFinish,
+      );
       // Treat 0 as absent — some engine/platform combos omit rasterFinish
       // when the frame never reached GPU submission. actualFps requires a
       // real rasterFinishUs timestamp, so nullify here rather than poison
@@ -406,7 +413,8 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
   /// critical above warning regardless).
   void _evaluateJank() {
     _issues.removeWhere(
-        (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected');
+      (i) => i.stableId == 'sustained_jank' || i.stableId == 'jank_detected',
+    );
 
     // Suppress jank evaluation during warmup period (shader compilation,
     // route init, Dart VM warmup produce non-actionable jank).
@@ -512,7 +520,8 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     final previous = frames[frames.length - 2];
 
     // --- Impeller detection: all four metrics zero ---
-    final allZero = latest.layerCacheCount == 0 &&
+    final allZero =
+        latest.layerCacheCount == 0 &&
         latest.layerCacheBytes == 0 &&
         latest.pictureCacheCount == 0 &&
         latest.pictureCacheBytes == 0;
@@ -531,16 +540,18 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     if (_impellerDetected) {
       _consecutiveThrashingFrames = 0;
       _consecutiveGrowthFrames = 0;
-      _issues.removeWhere((i) =>
-          i.stableId == 'raster_cache_thrashing' ||
-          i.stableId == 'raster_cache_growing');
+      _issues.removeWhere(
+        (i) =>
+            i.stableId == 'raster_cache_thrashing' ||
+            i.stableId == 'raster_cache_growing',
+      );
       return;
     }
 
     // --- Cache thrashing: pictureCacheCount fluctuates > 20% ---
     if (previous.pictureCacheCount > 5) {
-      final delta =
-          (latest.pictureCacheCount - previous.pictureCacheCount).abs();
+      final delta = (latest.pictureCacheCount - previous.pictureCacheCount)
+          .abs();
       final variation = delta / previous.pictureCacheCount;
       if (variation > _thrashingVariationPercent) {
         _consecutiveThrashingFrames++;
@@ -561,59 +572,69 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     }
 
     // --- Emit issues ---
-    _issues.removeWhere((i) =>
-        i.stableId == 'raster_cache_thrashing' ||
-        i.stableId == 'raster_cache_growing');
+    _issues.removeWhere(
+      (i) =>
+          i.stableId == 'raster_cache_thrashing' ||
+          i.stableId == 'raster_cache_growing',
+    );
 
     final lifecyclePhase = _classifyLifecyclePhase();
     if (_consecutiveThrashingFrames >= _thrashingWindowFrames) {
       final (hint, effort) = FixHintBuilder.rasterCacheThrashing();
-      _issues.add(PerformanceIssue(
-        stableId: 'raster_cache_thrashing',
-        severity: IssueSeverity.warning,
-        category: IssueCategory.raster,
-        confidence: IssueConfidence.confirmed,
-        title: 'Raster Cache Thrashing: '
-            '$_consecutiveThrashingFrames consecutive frames',
-        detail: 'Picture cache count is fluctuating by >20% between '
-            'consecutive frames for $_consecutiveThrashingFrames frames. '
-            'Current count: ${latest.pictureCacheCount}, '
-            'previous: ${previous.pictureCacheCount}. '
-            'The cache is too small or content is not reusable.',
-        fixHint: hint,
-        fixEffort: effort,
-        detectedAt: DateTime.now(),
-        extraTraceArgs: {
-          if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
-        },
-        confidenceReason: 'Measured directly from FrameTiming API',
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'raster_cache_thrashing',
+          severity: IssueSeverity.warning,
+          category: IssueCategory.raster,
+          confidence: IssueConfidence.confirmed,
+          title:
+              'Raster Cache Thrashing: '
+              '$_consecutiveThrashingFrames consecutive frames',
+          detail:
+              'Picture cache count is fluctuating by >20% between '
+              'consecutive frames for $_consecutiveThrashingFrames frames. '
+              'Current count: ${latest.pictureCacheCount}, '
+              'previous: ${previous.pictureCacheCount}. '
+              'The cache is too small or content is not reusable.',
+          fixHint: hint,
+          fixEffort: effort,
+          detectedAt: DateTime.now(),
+          extraTraceArgs: {
+            if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+          },
+          confidenceReason: 'Measured directly from FrameTiming API',
+        ),
+      );
     }
 
     if (_consecutiveGrowthFrames >= _growthWindowFrames) {
       final totalKb = latest.totalCacheBytes / 1024;
       final (hint, effort) = FixHintBuilder.rasterCacheGrowing();
-      _issues.add(PerformanceIssue(
-        stableId: 'raster_cache_growing',
-        severity: IssueSeverity.warning,
-        category: IssueCategory.raster,
-        confidence: IssueConfidence.confirmed,
-        title: 'Raster Cache Growing: '
-            '${totalKb.toStringAsFixed(0)} KB over '
-            '$_consecutiveGrowthFrames frames',
-        detail: 'Total raster cache bytes have been growing monotonically '
-            'for $_consecutiveGrowthFrames consecutive frames. '
-            'Picture cache: ${(latest.pictureCacheBytes / 1024).toStringAsFixed(0)} KB, '
-            'Layer cache: ${(latest.layerCacheBytes / 1024).toStringAsFixed(0)} KB. '
-            'This may indicate unbounded cache accumulation.',
-        fixHint: hint,
-        fixEffort: effort,
-        detectedAt: DateTime.now(),
-        extraTraceArgs: {
-          if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
-        },
-        confidenceReason: 'Measured directly from FrameTiming API',
-      ));
+      _issues.add(
+        PerformanceIssue(
+          stableId: 'raster_cache_growing',
+          severity: IssueSeverity.warning,
+          category: IssueCategory.raster,
+          confidence: IssueConfidence.confirmed,
+          title:
+              'Raster Cache Growing: '
+              '${totalKb.toStringAsFixed(0)} KB over '
+              '$_consecutiveGrowthFrames frames',
+          detail:
+              'Total raster cache bytes have been growing monotonically '
+              'for $_consecutiveGrowthFrames consecutive frames. '
+              'Picture cache: ${(latest.pictureCacheBytes / 1024).toStringAsFixed(0)} KB, '
+              'Layer cache: ${(latest.layerCacheBytes / 1024).toStringAsFixed(0)} KB. '
+              'This may indicate unbounded cache accumulation.',
+          fixHint: hint,
+          fixEffort: effort,
+          detectedAt: DateTime.now(),
+          extraTraceArgs: {
+            if (lifecyclePhase != null) 'lifecyclePhase': lifecyclePhase,
+          },
+          confidenceReason: 'Measured directly from FrameTiming API',
+        ),
+      );
     }
   }
 
@@ -641,7 +662,8 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     if (pipelineStall > uiBound && pipelineStall > rasterBound) {
       return _JankBottleneck(
         label: ' (pipeline stall)',
-        summary: 'Thread attribution: $uiBound UI-bound, '
+        summary:
+            'Thread attribution: $uiBound UI-bound, '
             '$rasterBound raster-bound, $pipelineStall pipeline stall '
             '— raster thread backed up from previous frames.',
       );
@@ -649,7 +671,8 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     if (uiBound > rasterBound) {
       return _JankBottleneck(
         label: ' (UI-bound)',
-        summary: 'Thread attribution: $uiBound UI-bound, '
+        summary:
+            'Thread attribution: $uiBound UI-bound, '
             '$rasterBound raster-bound, $pipelineStall pipeline stall '
             '— focus on reducing build/layout/paint work.',
       );
@@ -657,14 +680,16 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     if (rasterBound > uiBound) {
       return _JankBottleneck(
         label: ' (raster-bound)',
-        summary: 'Thread attribution: $uiBound UI-bound, '
+        summary:
+            'Thread attribution: $uiBound UI-bound, '
             '$rasterBound raster-bound, $pipelineStall pipeline stall '
             '— focus on reducing GPU compositing work.',
       );
     }
     return _JankBottleneck(
       label: ' (mixed)',
-      summary: 'Thread attribution: $uiBound UI-bound, '
+      summary:
+          'Thread attribution: $uiBound UI-bound, '
           '$rasterBound raster-bound, $pipelineStall pipeline stall.',
     );
   }
@@ -771,93 +796,88 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
 
   @override
   DetectorMetadata get validationMetadata => const DetectorMetadata(
-        tier: EvidenceTier.reproducerOnly,
-        reproducerPath: 'test/validation/frame_timing_reproducer_test.dart',
-        coveredStableIds: {
-          'sustained_jank',
-          'jank_detected',
-          'raster_cache_thrashing',
-          'raster_cache_growing',
-        },
-        // Only `jank_detected` is raised to runtimeVerified via
-        // `perStableIdTier`; `sustained_jank` + cache families stay
-        // implicit reproducerOnly. `sustained_jank`'s bracket axis
-        // (sliding 240-frame-window severeCount) cannot composably
-        // bracket against operator-claimed K because ambient severe
-        // frames accumulate in the same window. A future raise needs
-        // detector-level baseline subtraction (see
-        // `RebuildDetector.setBaseline(int)`).
-        perStableIdTier: {
-          'jank_detected': EvidenceTier.runtimeVerified,
-        },
-        profileCapturePaths: [
-          'test/validation/captures/frame_timing/jank_detected_below.json',
-          'test/validation/captures/frame_timing/jank_detected_at.json',
-          'test/validation/captures/frame_timing/jank_detected_above.json',
-        ],
-        bracketStableId: 'jank_detected',
-        bracketSeverityLabel: 'warning',
-        bracketThreshold: 16,
-        bracketUnit: 'percent',
-        bracketAtTolerance: 0.50,
-        aboveCeilingMultiplier: 1.85,
-        coveredThresholds: {
-          'jank_detected.warning',
-        },
-        observedAxisArgKey: 'observedJankPercent',
-        observedAxisTolerance: 0.25,
-        observedAxisReduction: 'last',
-        bracketRequireUniqueDetectedAtMicros: true,
-        rationale: 'Four stableIds pinned by hermetic reproducer: '
-            '`sustained_jank` (≥3 severe frames in a 60-frame window), '
-            '`jank_detected` (>15% jank frames, ≥5-frame sample), '
-            '`raster_cache_thrashing` (≥15 consecutive frames of '
-            '≥20% picture-cache-count fluctuation, seeded by '
-            '`previous.pictureCacheCount > 5`), and `raster_cache_growing` '
-            '(≥30 consecutive frames of monotonic picture-cache-count '
-            'growth). Reproducer bypasses warmup via '
-            '`warmupDuration: Duration.zero`; every stableId has a synthetic '
-            '`FrameStats` path plus a real `FrameTiming` integration leg via '
-            '`handleTimingsForTest` so hand-written synthetic fixtures cannot '
-            'encode the detector\'s own expected shape (anti-tautology, '
-            'Tactic 9). Impeller-zero suppression (all four cache metrics '
-            'zero for ≥30 frames) pinned by a dedicated `pictureCacheBytes: 1` '
-            'belt-and-suspender test so cache-family issues are not '
-            'silently suppressed. Not yet cited to Flutter engine sources or '
-            'verified via a profile-mode capture on a reference device; '
-            'v0.16.N re-raise to `externallyCited` requires either a Flutter '
-            'docs citation matching the 16.67 ms budget semantics or a '
-            'runtime-verified capture triad with a detector-emitted '
-            'trace record inside the scenario window. '
-            'v0.17.0 extends FPS semantics: `actualFps` (rolling count in '
-            '1-s window anchored on latest `rasterFinishUs`) and '
-            '`throughputFps` (latency-derived capacity) are exposed as '
-            'distinct metrics. StableId coverage unchanged — FPS semantics '
-            'are orthogonal to jank classification. '
-            'v0.19.6 lands the capture-mode plumbing for a future '
-            '`jank_detected.warning` `runtimeVerified` raise: '
-            '`SleuthConfig(captureMode: true)` short-circuits the 3 s '
-            'warmup gate; emission carries an instance-monotonic '
-            '`dedupIdentityMicros` (wall-clock micros + `_emissionSeq` '
-            'tie-breaker, preserved across `reset()` so multi-leg capture '
-            'flows cannot collide identities); detector-observed axis '
-            'values (`observedJankCount`, `observedJankPercent`, '
-            '`observedWorstFrameMs`, `bufferSize`) are exported into '
-            'trace event args so a future audit-gate cross-check can '
-            'validate operator claim against detector observation. The '
-            'tier raise itself is deferred until three on-device captures '
-            '(iPhone 12 / iOS 17.5 / Flutter 3.41.x, 60 Hz) land at '
-            '`test/validation/captures/frame_timing/jank_detected_'
-            '{below,at,above}.json` bracketing 36 jank-frames in a '
-            'steady-state 240-frame buffer.',
-      );
+    tier: EvidenceTier.reproducerOnly,
+    reproducerPath: 'test/validation/frame_timing_reproducer_test.dart',
+    coveredStableIds: {
+      'sustained_jank',
+      'jank_detected',
+      'raster_cache_thrashing',
+      'raster_cache_growing',
+    },
+    // Only `jank_detected` is raised to runtimeVerified via
+    // `perStableIdTier`; `sustained_jank` + cache families stay
+    // implicit reproducerOnly. `sustained_jank`'s bracket axis
+    // (sliding 240-frame-window severeCount) cannot composably
+    // bracket against operator-claimed K because ambient severe
+    // frames accumulate in the same window. A future raise needs
+    // detector-level baseline subtraction (see
+    // `RebuildDetector.setBaseline(int)`).
+    perStableIdTier: {'jank_detected': EvidenceTier.runtimeVerified},
+    profileCapturePaths: [
+      'test/validation/captures/frame_timing/jank_detected_below.json',
+      'test/validation/captures/frame_timing/jank_detected_at.json',
+      'test/validation/captures/frame_timing/jank_detected_above.json',
+    ],
+    bracketStableId: 'jank_detected',
+    bracketSeverityLabel: 'warning',
+    bracketThreshold: 16,
+    bracketUnit: 'percent',
+    bracketAtTolerance: 0.50,
+    aboveCeilingMultiplier: 1.85,
+    coveredThresholds: {'jank_detected.warning'},
+    observedAxisArgKey: 'observedJankPercent',
+    observedAxisTolerance: 0.25,
+    observedAxisReduction: 'last',
+    bracketRequireUniqueDetectedAtMicros: true,
+    rationale:
+        'Four stableIds pinned by hermetic reproducer: '
+        '`sustained_jank` (≥3 severe frames in a 60-frame window), '
+        '`jank_detected` (>15% jank frames, ≥5-frame sample), '
+        '`raster_cache_thrashing` (≥15 consecutive frames of '
+        '≥20% picture-cache-count fluctuation, seeded by '
+        '`previous.pictureCacheCount > 5`), and `raster_cache_growing` '
+        '(≥30 consecutive frames of monotonic picture-cache-count '
+        'growth). Reproducer bypasses warmup via '
+        '`warmupDuration: Duration.zero`; every stableId has a synthetic '
+        '`FrameStats` path plus a real `FrameTiming` integration leg via '
+        '`handleTimingsForTest` so hand-written synthetic fixtures cannot '
+        'encode the detector\'s own expected shape (anti-tautology, '
+        'Tactic 9). Impeller-zero suppression (all four cache metrics '
+        'zero for ≥30 frames) pinned by a dedicated `pictureCacheBytes: 1` '
+        'belt-and-suspender test so cache-family issues are not '
+        'silently suppressed. Not yet cited to Flutter engine sources or '
+        'verified via a profile-mode capture on a reference device; '
+        'v0.16.N re-raise to `externallyCited` requires either a Flutter '
+        'docs citation matching the 16.67 ms budget semantics or a '
+        'runtime-verified capture triad with a detector-emitted '
+        'trace record inside the scenario window. '
+        'v0.17.0 extends FPS semantics: `actualFps` (rolling count in '
+        '1-s window anchored on latest `rasterFinishUs`) and '
+        '`throughputFps` (latency-derived capacity) are exposed as '
+        'distinct metrics. StableId coverage unchanged — FPS semantics '
+        'are orthogonal to jank classification. '
+        'v0.19.6 lands the capture-mode plumbing for a future '
+        '`jank_detected.warning` `runtimeVerified` raise: '
+        '`SleuthConfig(captureMode: true)` short-circuits the 3 s '
+        'warmup gate; emission carries an instance-monotonic '
+        '`dedupIdentityMicros` (wall-clock micros + `_emissionSeq` '
+        'tie-breaker, preserved across `reset()` so multi-leg capture '
+        'flows cannot collide identities); detector-observed axis '
+        'values (`observedJankCount`, `observedJankPercent`, '
+        '`observedWorstFrameMs`, `bufferSize`) are exported into '
+        'trace event args so a future audit-gate cross-check can '
+        'validate operator claim against detector observation. The '
+        'tier raise itself is deferred until three on-device captures '
+        '(iPhone 12 / iOS 17.5 / Flutter 3.41.x, 60 Hz) land at '
+        '`test/validation/captures/frame_timing/jank_detected_'
+        '{below,at,above}.json` bracketing 36 jank-frames in a '
+        'steady-state 240-frame buffer.',
+  );
 }
 
 class _JankBottleneck {
   const _JankBottleneck({required this.label, required this.summary});
-  const _JankBottleneck.none()
-      : label = '',
-        summary = '';
+  const _JankBottleneck.none() : label = '', summary = '';
   final String label;
   final String summary;
 }

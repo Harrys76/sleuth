@@ -24,12 +24,11 @@ class RebuildStatsPage extends StatefulWidget {
     required this.routeDisplayName,
     required Map<String, int> countsByType,
     required this.onClose,
-  })  :
-        // Defensive copy + stable sort at construction time. Callers pass a
-        // live reference into [RouteSession.rebuildCountsByType]; mutating the
-        // session after open must not reorder rows or change totals.
-        _sortedEntries = _sortDescending(countsByType),
-        _totalRebuilds = countsByType.values.fold<int>(0, (sum, v) => sum + v);
+  }) : // Defensive copy + stable sort at construction time. Callers pass a
+       // live reference into [RouteSession.rebuildCountsByType]; mutating the
+       // session after open must not reorder rows or change totals.
+       _sortedEntries = _sortDescending(countsByType),
+       _totalRebuilds = countsByType.values.fold<int>(0, (sum, v) => sum + v);
 
   /// Human-facing route label shown in the header subtitle. May be null when
   /// the rollup fired for a route without a display name — rare but possible
@@ -105,14 +104,20 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
                             width: 48,
                             height: 48,
                             child: Center(
-                              child: Icon(Icons.arrow_back,
-                                  color: theme.textPrimary, size: 22),
+                              child: Icon(
+                                Icons.arrow_back,
+                                color: theme.textPrimary,
+                                size: 22,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                      Icon(Icons.loop_outlined,
-                          color: theme.categoryBuild, size: 18),
+                      Icon(
+                        Icons.loop_outlined,
+                        color: theme.categoryBuild,
+                        size: 18,
+                      ),
                       SizedBox(width: theme.spacingXs),
                       Expanded(
                         child: Column(
@@ -236,8 +241,9 @@ class _RebuildStatsPageState extends State<RebuildStatsPage>
                         itemCount: entries.length,
                         itemBuilder: (context, i) {
                           final entry = entries[i];
-                          final fraction =
-                              topCount == 0 ? 0.0 : entry.value / topCount;
+                          final fraction = topCount == 0
+                              ? 0.0
+                              : entry.value / topCount;
                           return _RebuildRow(
                             theme: theme,
                             rank: i + 1,
@@ -268,10 +274,7 @@ class _EmptyState extends StatelessWidget {
       child: Center(
         child: Text(
           'No rebuilds recorded for this session.',
-          style: TextStyle(
-            color: theme.textTertiary,
-            fontSize: theme.fontBase,
-          ),
+          style: TextStyle(color: theme.textTertiary, fontSize: theme.fontBase),
           textAlign: TextAlign.center,
         ),
       ),
@@ -397,8 +400,9 @@ class _RebuildRow extends StatelessWidget {
                 child: LinearProgressIndicator(
                   value: barFraction.clamp(0.0, 1.0),
                   backgroundColor: theme.categoryBuild.withValues(alpha: 0.12),
-                  valueColor:
-                      AlwaysStoppedAnimation<Color>(theme.categoryBuild),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    theme.categoryBuild,
+                  ),
                 ),
               ),
             ),
