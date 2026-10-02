@@ -47,6 +47,24 @@ void main() {
       expect(find.text('Jank flash'), findsOneWidget);
     });
 
+    testWidgets('describes current overlay behavior', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: GuidePage(onClose: () {})),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final pageText = tester
+          .widgetList<RichText>(find.byType(RichText))
+          .map((w) => w.text.toPlainText())
+          .join('\n');
+
+      expect(pageText, isNot(contains('Double-tap')));
+      expect(pageText, isNot(contains('blue border')));
+      expect(pageText, contains('83'));
+    });
+
     testWidgets('back button calls onClose', (tester) async {
       var closed = false;
       await tester.pumpWidget(

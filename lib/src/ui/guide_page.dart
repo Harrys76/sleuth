@@ -299,7 +299,9 @@ class _GuidePageState extends State<GuidePage>
         _GuideStep(
           step: '3',
           title: 'Watch the FPS Number',
-          detail: 'Green \u2265 50, amber \u2265 30, red < 30 FPS.',
+          detail:
+              'Green at or above about 83% of your target frame rate, '
+              'amber at or above 50%, red below that.',
         ),
         _GuideStep(
           step: '4',
@@ -327,8 +329,9 @@ class _GuidePageState extends State<GuidePage>
           theme,
           '\u{1F4CA}',
           'FPS Display',
-          'The number on the trigger button and card header. Color-coded: '
-              'green (\u2265 50), amber (\u2265 30), red (< 30).',
+          'The number on the trigger button and card header. Color-coded '
+              'against your target frame rate: green at or above about 83%, '
+              'amber at or above 50%, red below that.',
         ),
         _infoTile(
           theme,
@@ -349,7 +352,7 @@ class _GuidePageState extends State<GuidePage>
           '\u{1F50D}',
           'Highlight Toggle',
           'Check the box on a locatable issue to highlight the widget '
-              'on screen with a blue border.',
+              'on screen with a border coloured by the issue\'s severity.',
         ),
         _infoTile(
           theme,
@@ -366,8 +369,7 @@ class _GuidePageState extends State<GuidePage>
           theme,
           '\u{2194}\u{FE0F}',
           'Resize',
-          'Drag the bottom-right corner to resize width and height. '
-              'Double-tap the header to toggle between compact and full-width.',
+          'Drag the bottom-right corner to resize width and height.',
         ),
         _infoTile(
           theme,
