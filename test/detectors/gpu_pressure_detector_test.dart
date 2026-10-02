@@ -549,6 +549,35 @@ void main() {
         expect(raster(await scan(tester)), isNotNull);
       });
 
+      testWidgets('VM timeline polls inside the startup window are ignored', (
+        tester,
+      ) async {
+        detector.vmConnected = true;
+        ageUs = 1000000;
+        detector.processTimelineData(
+          rasterDominantData(
+            rasterUs: 25000,
+            buildUs: 5000,
+            layoutUs: 3000,
+            paintUs: 2000,
+          ),
+        );
+        expect(raster(await scan(tester)), isNull);
+
+        ageUs = 10000000;
+        detector.processTimelineData(
+          rasterDominantData(
+            rasterUs: 25000,
+            buildUs: 5000,
+            layoutUs: 3000,
+            paintUs: 2000,
+          ),
+        );
+        final issue = raster(await scan(tester));
+        expect(issue, isNotNull);
+        expect(issue!.observationSource, ObservationSource.vmTimeline);
+      });
+
       testWidgets('startupPhaseWindowSeconds sets the window', (tester) async {
         ageUs = 3000000;
         detector = GpuPressureDetector(

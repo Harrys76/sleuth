@@ -194,7 +194,8 @@
   time exceeds the per-frame floor and `gpuPressureRatio` × UI time raise it
   as `likely` (new `ObservationSource.frameTiming`), critical when those
   frames also exceeded the frame budget. Frames in the startup window
-  (`startupPhaseWindowSeconds`) are ignored. The VM leg is unchanged and
+  (`startupPhaseWindowSeconds`) are ignored on both legs: cold-start
+  pipeline compilation no longer raises a VM-timeline `raster_dominance`. The VM leg is unchanged and
   still emits `confirmed`; a scan emits at most one `raster_dominance`. A VM
   disconnect keeps frame-sourced issues. Needs Frame Timing enabled.
 - `expensive_gpu_nodes` is `likely` when raster-dominant frames were seen

@@ -28,7 +28,8 @@ import '../vm/timeline_parser.dart';
 ///   one-second span since the last scan. Frames that arrive within
 ///   [startupPhaseWindowSeconds] of Dart entry are ignored (cold-start
 ///   pipeline compilation belongs to `shader_compilation`).
-/// * **VM leg.** Raster and UI timeline events from the VM. When it fires
+/// * **VM leg.** Raster and UI timeline events from the VM, ignored inside
+///   the same startup window. When it fires
 ///   it wins: `raster_dominance` is `confirmed` and carries the VM numbers.
 /// * **Structural leg.** Opacity, ClipPath, BackdropFilter, ShaderMask and
 ///   ColorFiltered over deep subtrees (`expensive_gpu_nodes`).
@@ -212,6 +213,9 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
+    // Cold-start polls carry pipeline-compilation raster frames against
+    // almost no UI work; the frame leg ignores them and so does this leg.
+    if (_insideStartupWindow()) return;
     if (data.rasterDurations.isNotEmpty) {
       _lastRasterUs = data.rasterDurations.fold(0, (s, d) => s + d);
       _lastMaxFrameRasterUs = data.rasterDurations.reduce(
@@ -593,7 +597,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         'scan, over a 64-entry ring that drops the oldest; critical when 3 '
         'frames in that span also exceeded their frame budget. Frames inside '
         'the startup window (`startupPhaseWindowSeconds` after Dart entry) '
-        'do not count. VM leg: ratio = worst single-frame raster scope / '
+        'do not count, on either leg. VM leg: ratio = worst single-frame raster scope / '
         'UI thread total (`TimelineParser.parse()` output), strict `> 2.0`, '
         'critical at `> 4.0`, same per-frame floor, requires '
         '`vmConnected && _lastUiUs > 0 && _lastRasterUs > 0`. When both legs '
