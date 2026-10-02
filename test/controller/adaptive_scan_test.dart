@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/models/base_detector.dart';
@@ -232,6 +232,158 @@ void main() {
       expect(controller.consecutiveCleanScansForTest, 2);
 
       controller.dispose();
+    });
+  });
+  group('Cost stretch', () {
+    SleuthController make(SleuthConfig config) {
+      final c = SleuthController(config: config);
+      c.initializeDetectorsForTest();
+      addTearDown(c.dispose);
+      return c;
+    }
+
+    test('costs at or under 4 ms leave the interval alone', () {
+      final c = make(_cleanConfig);
+      c.scanDurationOverrideForTest = 4000;
+      expect(c.currentScanIntervalMsForTest, 1000);
+    });
+
+    test('20 ms tick stretches a 1 s base to the 5 s cap', () {
+      final c = make(_cleanConfig);
+      c.scanDurationOverrideForTest = 20000;
+      expect(c.currentScanIntervalMsForTest, 5000);
+      c.scanDurationOverrideForTest = 400000;
+      expect(c.currentScanIntervalMsForTest, 5000);
+    });
+
+    test('6 ms tick stretches a 1 s base to 2 s', () {
+      final c = make(_cleanConfig);
+      c.scanDurationOverrideForTest = 6000;
+      expect(c.currentScanIntervalMsForTest, 2000);
+    });
+
+    test('capture mode never stretches', () {
+      final c = make(
+        const SleuthConfig(
+          enabledDetectors: {DetectorType.frameTiming},
+          captureMode: true,
+        ),
+      );
+      c.scanDurationOverrideForTest = 20000;
+      expect(c.currentScanIntervalMsForTest, 1000);
+    });
+
+    test('a stretch never shortens the back-off interval', () {
+      final c = make(
+        const SleuthConfig(
+          treeScanInterval: Duration(milliseconds: 3000),
+          enabledDetectors: {DetectorType.frameTiming},
+        ),
+      );
+      c.scanDurationOverrideForTest = 5000;
+      expect(c.currentScanIntervalMsForTest, 5000);
+    });
+
+    testWidgets('back-off never drops below a 3 s base', (tester) async {
+      await tester.pumpWidget(buildMixedTree(50));
+      final context = tester.element(find.byType(Directionality));
+      final c = make(
+        const SleuthConfig(
+          treeScanInterval: Duration(milliseconds: 3000),
+          enabledDetectors: {DetectorType.frameTiming},
+        ),
+      );
+      for (int i = 0; i < 3; i++) {
+        c.runTreeScanForTest(context);
+      }
+      expect(c.consecutiveCleanScansForTest, 3);
+      expect(c.currentScanIntervalMsForTest, 3000);
+    });
+
+    testWidgets('a real tick records its cost and element count', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: buildMixedTree(300))),
+      );
+      final c = make(_cleanConfig);
+      c.scanTreeFullPathForTest(tester.element(find.byType(MaterialApp)));
+      expect(c.lastScanElementCount, greaterThan(300));
+      expect(c.lastScanDurationUs, greaterThan(0));
+    });
+  });
+
+  group('Element cap', () {
+    testWidgets('an oversized walk skips one tick, then scans again', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: buildMixedTree(600))),
+      );
+      final c = SleuthController(
+        config: const SleuthConfig(
+          enabledDetectors: {DetectorType.frameTiming},
+          adaptiveScanEnabled: false,
+          maxElementsPerScan: 500,
+        ),
+      );
+      c.initializeDetectorsForTest();
+      c.markInitializedForTest();
+      var scans = 0;
+      c.scanTickNotifier.addListener(() => scans++);
+
+      // Scheduled ticks run in a post-frame callback; force a frame.
+      Future<void> elapse(int ms) async {
+        await tester.pump(Duration(milliseconds: ms));
+        tester.binding.scheduleFrame();
+        await tester.pump();
+      }
+
+      c.startTreeScanning(tester.element(find.byType(MaterialApp)));
+      await elapse(1000);
+      expect(scans, 1);
+      final walked = c.lastScanElementCount;
+      expect(walked, greaterThan(500));
+      final issuesBefore = c.issuesNotifier.value;
+
+      // Second tick: skipped; the next one is scheduled at 2x.
+      await elapse(1000);
+      expect(scans, 1);
+      expect(c.issuesNotifier.value, same(issuesBefore));
+      expect(c.lastScanElementCount, walked);
+      await elapse(1000);
+      expect(scans, 1);
+
+      // Third tick (2 s after the skip) runs.
+      await elapse(1000);
+      expect(scans, 2);
+      c.dispose();
+    });
+
+    testWidgets('walks under the cap never skip', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: buildMixedTree(100))),
+      );
+      final c = SleuthController(
+        config: const SleuthConfig(
+          enabledDetectors: {DetectorType.frameTiming},
+          adaptiveScanEnabled: false,
+          maxElementsPerScan: 500,
+        ),
+      );
+      c.initializeDetectorsForTest();
+      c.markInitializedForTest();
+      var scans = 0;
+      c.scanTickNotifier.addListener(() => scans++);
+
+      c.startTreeScanning(tester.element(find.byType(MaterialApp)));
+      for (var i = 1; i <= 3; i++) {
+        await tester.pump(const Duration(milliseconds: 1000));
+        tester.binding.scheduleFrame();
+        await tester.pump();
+        expect(scans, i);
+      }
+      c.dispose();
     });
   });
 }

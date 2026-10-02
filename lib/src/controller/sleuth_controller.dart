@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart';
@@ -312,8 +313,18 @@ class SleuthController {
   /// Maximum back-off interval in ms regardless of [SleuthConfig.treeScanInterval].
   static const _maxBackOffMs = 2000;
 
+  /// Per-tick cost above which the next interval stretches.
+  static const _scanCostBudgetUs = 4000;
+
+  /// Upper bound for a cost-stretched interval.
+  static const _scanIntervalCapMs = 5000;
+
   /// Wall time of the last scan tick's structural walk plus aggregation.
   int _lastScanDurationUs = 0;
+
+  /// Set when a tick was skipped for exceeding
+  /// [SleuthConfig.maxElementsPerScan]; the next tick always scans.
+  bool _capSkipConsumed = false;
 
   /// Elements visited by the last unified structural walk.
   int _lastScanElementCount = 0;
@@ -1231,15 +1242,26 @@ class SleuthController {
     return List.unmodifiable(_detectors.where((d) => !customs.contains(d)));
   }
 
-  /// Computed scan interval: backs off when the app is healthy.
+  /// Computed scan interval. Backs off (never below the base interval)
+  /// when the app is healthy, and stretches to a multiple of the base
+  /// interval when the last tick cost more than [_scanCostBudgetUs].
   int get _currentScanIntervalMs {
     final baseMs = config.treeScanInterval.inMilliseconds;
-    if (!config.adaptiveScanEnabled ||
-        _consecutiveCleanScans < _cleanScanThreshold) {
-      return baseMs;
-    }
-    return (baseMs * 2).clamp(0, _maxBackOffMs);
+    final backoffMs =
+        config.adaptiveScanEnabled &&
+            _consecutiveCleanScans >= _cleanScanThreshold
+        ? math.max(baseMs, math.min(baseMs * 2, _maxBackOffMs))
+        : baseMs;
+    final costUs = scanDurationOverrideForTest ?? _lastScanDurationUs;
+    if (config.captureMode || costUs <= _scanCostBudgetUs) return backoffMs;
+    final multiple = (costUs + _scanCostBudgetUs - 1) ~/ _scanCostBudgetUs;
+    return math.max(backoffMs, math.min(_scanIntervalCapMs, baseMs * multiple));
   }
+
+  /// Replaces the measured scan cost in the interval computation when set
+  /// (for testing).
+  @visibleForTesting
+  int? scanDurationOverrideForTest;
 
   @visibleForTesting
   void runTreeScanForTest(BuildContext context) {
@@ -2298,10 +2320,11 @@ class SleuthController {
   ///    (widget remount / hot reload), the old post-frame callback could still
   ///    fire after a new chain starts. [_scanTimerGeneration] ensures only the
   ///    latest chain reschedules.
-  void _scheduleNextScan() {
+  void _scheduleNextScan({int? delayMs}) {
     if (_disposed) return;
     final generation = _scanTimerGeneration;
-    _treeScanTimer = Timer(Duration(milliseconds: _currentScanIntervalMs), () {
+    final delay = delayMs ?? _currentScanIntervalMs;
+    _treeScanTimer = Timer(Duration(milliseconds: delay), () {
       if (_disposed || generation != _scanTimerGeneration) return;
       final ctx = _overlayContext;
       if (ctx != null) {
@@ -2309,6 +2332,15 @@ class SleuthController {
         if (element.mounted) {
           SchedulerBinding.instance.addPostFrameCallback((_) {
             if (_disposed || generation != _scanTimerGeneration) return;
+            // Element cap: skip one tick after an oversized walk. The walk
+            // itself is never cut short; the last scan's issues remain.
+            final cap = config.maxElementsPerScan;
+            if (cap > 0 && _lastScanElementCount > cap && !_capSkipConsumed) {
+              _capSkipConsumed = true;
+              _scheduleNextScan(delayMs: _currentScanIntervalMs * 2);
+              return;
+            }
+            _capSkipConsumed = false;
             try {
               if (element.mounted) _scanTree(ctx);
             } catch (e, st) {
@@ -4657,6 +4689,7 @@ class SleuthConfig {
     this.captureMode = false,
     this.autoFrameBudget = true,
     this.profilePlatformChannels = false,
+    this.maxElementsPerScan = 0,
   }) : assert(
          fpsTarget >= 1 && fpsTarget <= 120,
          'fpsTarget must be between 1 and 120. '
@@ -4725,6 +4758,10 @@ class SleuthConfig {
        assert(
          routeHistoryCapacity >= 1,
          'routeHistoryCapacity must be at least 1.',
+       ),
+       assert(
+         maxElementsPerScan >= 0,
+         'maxElementsPerScan must be >= 0 (0 = unlimited).',
        );
 
   /// Minimal configuration for first-time integration.
@@ -4905,7 +4942,26 @@ class SleuthConfig {
   ///
   /// **Disable** only when you're measuring detector overhead itself and
   /// need a constant scan cadence.
+  ///
+  /// Independently of this flag, a scan tick whose walk plus aggregation
+  /// took longer than 4 ms stretches the next interval to
+  /// `treeScanInterval × ceil(cost / 4 ms)`, capped at 5 s (never below
+  /// the back-off interval). [captureMode] disables the stretch.
   final bool adaptiveScanEnabled;
+
+  /// Element count above which the next periodic scan tick is skipped.
+  ///
+  /// **Default:** 0 (unlimited). When the last walk visited more than this
+  /// many elements, the following tick is skipped once and the one after
+  /// it is scheduled at twice the current interval; the tick after the
+  /// skip always runs. A walk is never cut short and issues from the last
+  /// scan stay visible while a tick is skipped.
+  ///
+  /// **Set this** (e.g. `5000`) on very large trees where even a stretched
+  /// cadence costs too much frame time.
+  ///
+  /// Valid range: >= 0 (enforced via debug-mode assert).
+  final int maxElementsPerScan;
 
   /// Which detectors are active. Defaults to all [DetectorType] values.
   ///
@@ -5314,6 +5370,7 @@ class SleuthConfig {
     bool? captureMode,
     bool? autoFrameBudget,
     bool? profilePlatformChannels,
+    int? maxElementsPerScan,
   }) {
     return SleuthConfig(
       theme: identical(theme, _sentinel)
@@ -5378,6 +5435,7 @@ class SleuthConfig {
       autoFrameBudget: autoFrameBudget ?? this.autoFrameBudget,
       profilePlatformChannels:
           profilePlatformChannels ?? this.profilePlatformChannels,
+      maxElementsPerScan: maxElementsPerScan ?? this.maxElementsPerScan,
     );
   }
 }

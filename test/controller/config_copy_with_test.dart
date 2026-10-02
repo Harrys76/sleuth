@@ -60,6 +60,20 @@ void main() {
       expect(copy.routeHistoryCapacity, original.routeHistoryCapacity);
       expect(copy.autoFrameBudget, original.autoFrameBudget);
       expect(copy.profilePlatformChannels, original.profilePlatformChannels);
+      expect(copy.maxElementsPerScan, original.maxElementsPerScan);
+    });
+
+    test('overrides maxElementsPerScan and rejects negatives', () {
+      const original = SleuthConfig();
+      expect(original.maxElementsPerScan, 0);
+      expect(
+        original.copyWith(maxElementsPerScan: 5000).maxElementsPerScan,
+        5000,
+      );
+      expect(
+        () => original.copyWith(maxElementsPerScan: -1),
+        throwsA(isA<AssertionError>()),
+      );
     });
 
     test('overrides non-nullable int fields', () {
