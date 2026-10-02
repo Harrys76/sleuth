@@ -72,6 +72,43 @@
   `navigating` afterwards. Ranking weights recurrence for `navigating` issues
   at 0.7, like scrolling and app-lifecycle. Nothing is suppressed while
   navigating.
+- `layout_bottleneck`: intrinsics built by ToggleButtons, MenuBar, linear
+  landscape BottomNavigationBar labels, AlertDialog, SimpleDialog, popup
+  menus, CupertinoContextMenu, and Scaffold footer buttons are suppressed
+  (matched by owner type within a measured ancestor-hop budget) and do not
+  count toward nesting. A single intrinsic is warning/`possible`; nesting
+  is critical/`likely`.
+- Font detectors ignore Material's platform families (`CupertinoSystemText`,
+  `CupertinoSystemDisplay`, `.AppleSystemUIFont`, `Segoe UI`) and the SDK
+  icon fonts. A `packages/<pkg>/` family and its bare name, or google_fonts
+  `<Family>_<variant>` names, count as one family. `runtime_font_loading` is
+  always warning.
+- `setstate_scope` requires observed rebuilds: child-identity churn across
+  scans, or a debug-callback snapshot naming the owner (timeline-sourced
+  counts do not count). A wide but static page no longer emits. Critical
+  means the ratio exceeds 1.5× `dirtyRatioThreshold`. Builder-style owners
+  (FutureBuilder, StreamBuilder, ValueListenableBuilder, Form, Focus, ...)
+  never emit.
+- `excessive_keep_alive:<i>`: a keep-alive counts toward the innermost
+  PageView/TabBarView only. ListView, GridView, CustomScrollView,
+  NestedScrollView, and SingleChildScrollView act as barriers and take no
+  index, so a TabBarView emits once (previously twice, with its internal
+  PageView) and kept-alive list items inside a page are not counted. Indices
+  can shift for trees that contained a TabBarView.
+- `stateful_density` has its own threshold, `RebuildDetector.statefulDensityThreshold`
+  (default 10), instead of following the rebuild-rate threshold.
+- List detectors: issue text says list-style children allocate every child
+  widget on each parent rebuild instead of claiming every item is built at
+  once; highlights go critical at the same > 3× threshold as the issue;
+  `sliver_to_box_adapter_shrinkwrap` fires only when the child count is
+  unbounded or above 20.
+- `CustomPainterDetector` and `RepaintBoundaryDetector` skip framework toggle
+  and scrollbar painters (`ToggleablePainter`, `ScrollbarPainter`: Checkbox,
+  Switch, Radio, CupertinoSwitch, Scrollbar).
+- `missing_repaint_boundary` caps at `likely`: per-type paint rates cannot
+  attribute to the specific unprotected widget.
+- `frequent_repaint_painter` and the `always_repaint_painter` upgrade use the
+  CustomPaint paint rate minus animation-owned paints.
 
 `kSleuthPackageVersion` → 0.37.0. Sidecar sleuth_mcp 0.8.0 pins 0.37.0.
 

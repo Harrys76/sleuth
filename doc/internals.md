@@ -61,13 +61,13 @@ The effective rate is the measured cadence clamped to `[fpsTarget, display rate]
 
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
-| setState Scope | Element tree | StatefulWidget owns large subtree | Possible–Likely | Needs rebuild evidence to confirm. Const subtree discounting when rebuild evidence present |
+| setState Scope | Element tree | StatefulWidget owns large subtree and is observed rebuilding | Possible–Confirmed | Emits only with child-identity churn or debug-callback rebuild counts; a static wide page never emits. Builder-style owners (FutureBuilder, StreamBuilder, Form, Focus, ...) skipped. Const subtree discounting when churn evidence present |
 | Layout Bottleneck | Render tree | IntrinsicHeight/Width present, Wrap with excessive children | Possible–Likely | Present does not mean slow: a single intrinsic is Possible, nesting is Likely. Intrinsics built by ToggleButtons, MenuBar, linear landscape BottomNavigationBar labels, AlertDialog/SimpleDialog, popup menus, CupertinoContextMenu, and Scaffold footer buttons are suppressed |
 | ListView | Element tree | Non-lazy list with many children | Possible | May be intentional for small lists. Catches ListView/GridView/SliverList non-builder constructors |
 | Image Memory | Element tree | Image without cacheWidth/Height | Possible | Images ≤50px suppressed — negligible memory savings |
-| CustomPainter | Element tree | shouldRepaint always true | Possible | May be needed for animated painters |
-| Keep Alive | Element tree | Many keep-alive pages | Possible | Trade-off between memory and rebuild cost |
-| Font Loading | Element tree | Non-system font in use, runtime-loaded fonts (fontFamilyFallback heuristic) | Possible | Font may already be loaded. Runtime detection is heuristic — intentional fallback chains may trigger |
+| CustomPainter | Element tree | shouldRepaint always true | Possible–Likely | May be needed for animated painters. Framework toggle/scrollbar painters skipped; paint rate excludes animation-owned paints |
+| Keep Alive | Element tree | Many keep-alive pages | Possible | Trade-off between memory and rebuild cost. Counts toward the innermost PageView/TabBarView only; list keep-alives ignored |
+| Font Loading | Element tree | Non-system font in use, runtime-loaded fonts (fontFamilyFallback heuristic) | Possible | Font may already be loaded. Runtime detection is heuristic — intentional fallback chains may trigger. Platform system and icon fonts ignored; google_fonts variants count once |
 | RepaintBoundary | Element + render tree | Expensive GPU widget without RepaintBoundary ancestor, excessive boundaries in scrollables | Possible–Likely | Escalates to Likely with debug paint rate evidence; never Confirmed because paint rates are per type, not per instance. ColorFiltered detected via widget type. Framework toggle/scrollbar painters skipped |
 | Startup | `Sleuth.init()` + FrameTiming | TTFF exceeded budget, dominant phase attribution | Confirmed | One-shot; requires `Sleuth.init()` before `runApp()`. Wall-clock measurement has ~5-50ms inherent skew |
 
