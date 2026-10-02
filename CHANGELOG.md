@@ -1,4 +1,4 @@
-## 0.36.1
+## 0.37.0
 
 - Scan-root detection works on Flutter 3.47: `IndexedStack` no longer wraps
   inactive children in `Visibility`, so the visible-page walk now descends only
@@ -23,7 +23,36 @@
   substituted in the AI prompt and in `ext.sleuth.explain` /
   `ext.sleuth.encyclopedia` payloads.
 
-`kSleuthPackageVersion` → 0.36.1. Sidecar `sleuth_mcp` 0.7.3 pins 0.36.1.
+### Behavior changes
+
+- Ranking uses an evidence tier (severity × confidence): confirmed critical >
+  likely critical > confirmed warning > possible critical > likely warning >
+  possible warning > ok. A structural-only guess ranks below a warning observed
+  at runtime. Frame impact and recurrence order issues within a tier.
+  `rankingBreakdown` keeps its four keys; `confidence` now carries the tier
+  offset from the severity base and can be negative.
+- Duration escalation removed: a warning no longer turns critical after 30 scan
+  cycles. Severity is the detector's. Persistence shows in the `Seen N` badge
+  and trend.
+- Causal guard: a `possible` root claims only `possible` effects; it no longer
+  claims `likely` or `confirmed` ones.
+- A single-parent effect collapses under its parent only when the parent is at
+  least as severe. Multi-parent effects stay visible as before.
+- Removed edges: `uncached_images` → `heap_growing` / `heap_near_capacity` /
+  `gc_pressure`; `excessive_keep_alive:*` → `gc_pressure`; `slow_request` →
+  `heavy_compute`; `request_frequency` and `high_frequency_same_path:*` →
+  `rebuild_activity` / `rebuild_debug_*`; `multiple_custom_fonts` →
+  `sustained_jank` / `jank_detected`; `missing_repaint_boundary` →
+  `raster_dominance`.
+- Added edges: `uncached_images` → `native_memory_growing` (decoded bitmaps
+  live in native memory); `large_response` → `heavy_compute`;
+  `excessive_repaint` → `raster_dominance`. 40 causal rules.
+- `uncached_images` is upgraded to `likely` when `heap_growing` or
+  `native_memory_growing` is present.
+- `compare_snapshots` between a 0.36 and a 0.37 snapshot can show severity
+  differences caused by the escalation removal, not by app changes.
+
+`kSleuthPackageVersion` → 0.37.0. Sidecar sleuth_mcp 0.8.0 pins 0.37.0.
 
 ## 0.36.0
 

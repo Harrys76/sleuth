@@ -9,7 +9,7 @@ import '../helpers/fake_vm_bridge.dart';
 
 FakeVmBridge _bridgeWithMode(
   String connectionMode, {
-  String packageVersion = '0.36.1',
+  String packageVersion = '0.37.0',
   bool vmConnected = false,
 }) {
   return FakeVmBridge(fakeSessionUuid: 'uuid')
@@ -96,7 +96,7 @@ void main() {
       () async {
         final bridge = _bridgeWithMode(
           'basic',
-          packageVersion: '0.36.99',
+          packageVersion: '0.37.99',
           vmConnected: false,
         );
         final handler = builtInTools['connect']!.handler;
@@ -143,7 +143,7 @@ void main() {
             'connectionMode': 'basic',
             'schemaVersion': 1,
             'sessionUuid': 'fake-uuid',
-            'data': {'packageVersion': '0.36.1', 'vmConnected': false},
+            'data': {'packageVersion': '0.37.0', 'vmConnected': false},
           });
         final server = McpServer(bridge: bridge)..registerDefaults();
         await server.handleForTest(

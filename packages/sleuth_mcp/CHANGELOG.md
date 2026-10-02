@@ -1,3 +1,10 @@
+## 0.8.0
+
+Pins sleuth 0.37.0; accepts the 0.36 lineage as the prior fallback.
+`compare_snapshots` between a 0.36 and a 0.37 snapshot can report severity
+differences caused by sleuth 0.37 removing duration escalation, not by app
+changes.
+
 ## 0.7.3
 
 Pins sleuth 0.36.1. SDK floor raised to Dart `^3.8.0`; `vm_service` constraint

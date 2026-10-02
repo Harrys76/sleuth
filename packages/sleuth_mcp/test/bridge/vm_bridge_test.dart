@@ -154,7 +154,7 @@ void main() {
         // `acceptedPriorLineages` contains the previous lineage — transition window.
         final refusal = await defaultVersionSkewValidator({
           'sessionUuid': 'uuid',
-          'data': {'packageVersion': '0.35.5'},
+          'data': {'packageVersion': '0.36.5'},
         });
         expect(
           refusal,

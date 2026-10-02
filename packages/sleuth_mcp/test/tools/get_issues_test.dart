@@ -137,7 +137,7 @@ void main() {
         'connectionMode': 'basic',
         'schemaVersion': 1,
         'sessionUuid': 'u',
-        'data': {'packageVersion': '0.36.1'},
+        'data': {'packageVersion': '0.37.0'},
       })
       ..setEnvelope('ext.sleuth.issues', {
         'connectionMode': 'basic',

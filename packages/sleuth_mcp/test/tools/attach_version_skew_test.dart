@@ -96,7 +96,7 @@ void main() {
             'connectionMode': 'basic',
             'schemaVersion': 1,
             'sessionUuid': 'fake-uuid',
-            'data': {'packageVersion': '0.35.99'},
+            'data': {'packageVersion': '0.37.99'},
           });
         final server = McpServer(bridge: bridge)..registerDefaults();
         await server.handleForTest(
@@ -306,7 +306,7 @@ void main() {
           'connectionMode': 'basic',
           'schemaVersion': 1,
           'sessionUuid': 'fake-uuid',
-          'data': {'packageVersion': '0.35.0'},
+          'data': {'packageVersion': '0.36.0'},
         });
       final server = McpServer(bridge: bridge)..registerDefaults();
       await server.handleForTest(
