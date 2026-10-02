@@ -8,6 +8,7 @@ import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/framework_painters.dart';
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
@@ -105,6 +106,8 @@ class RepaintBoundaryDetector extends BaseDetector
           (widget.opacity >= 1.0 || widget.opacity <= 0.0)) {
         return;
       }
+      // Framework toggle and scrollbar painters are not user CustomPaint.
+      if (widget is CustomPaint && isFrameworkPainterPaint(widget)) return;
       final ro = element.renderObject;
       if (ro != null && !_hasRepaintBoundaryAncestor(ro)) {
         _found.add(buildAncestorChain(element));
@@ -309,7 +312,9 @@ class RepaintBoundaryDetector extends BaseDetector
         'counter observes, so exactly-20 tests cross unpredictably '
         'across Flutter SDK versions. Opacity 0.0/1.0 passthrough '
         'suppression and framework-managed ListView auto-boundary '
-        'skip (-1 sentinel) are pinned as negative controls. '
+        'skip (-1 sentinel) are pinned as negative controls. Framework '
+        'toggle and scrollbar painters (ToggleablePainter, '
+        'ScrollbarPainter) are not treated as user CustomPaint. '
         'Fixtures use Opacity, not CustomPaint, to keep the '
         'missing-branch test cross-detector clean.',
     reproducerPath: 'test/validation/repaint_boundary_reproducer_test.dart',

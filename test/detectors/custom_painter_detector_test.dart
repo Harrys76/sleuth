@@ -1,8 +1,10 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/custom_painter_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+
+import '../helpers/framework_painter_fixture.dart';
 
 void main() {
   group('CustomPainterDetector', () {
@@ -365,6 +367,69 @@ void main() {
 
         expect(detector.issues, isEmpty);
         expect(detector.highlights, isEmpty);
+      });
+    });
+
+    group('framework toggle and scrollbar painters', () {
+      const hotSnapshot = DebugSnapshot(
+        rebuildCounts: {},
+        totalPaintCount: 40,
+        paintCounts: {'CustomPaint': 40},
+        elapsed: Duration(seconds: 1),
+      );
+
+      testWidgets('Checkbox, Switch, Radio, CupertinoSwitch, Scrollbar emit '
+          'no painter issue even at a high CustomPaint rate', (tester) async {
+        detector.updateDebugSnapshot(hotSnapshot);
+        await tester.pumpWidget(frameworkPainterPage());
+
+        final painters = countFrameworkPainters();
+        expect(painters.toggleable, greaterThanOrEqualTo(4));
+        expect(painters.scrollbar, greaterThanOrEqualTo(1));
+
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        final ids = detector.issues.map((i) => i.stableId);
+        expect(ids, isNot(contains('always_repaint_painter')));
+        expect(ids, isNot(contains('frequent_repaint_painter')));
+      });
+
+      testWidgets('user always-repaint painter beside them still fires', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          frameworkPainterPage(
+            extra: CustomPaint(
+              painter: _AlwaysRepaintPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'always_repaint_painter',
+        );
+        expect(issue.title, contains('1 found'));
+      });
+
+      testWidgets('user painter beside them gets the frequent-repaint '
+          'heuristic', (tester) async {
+        detector.updateDebugSnapshot(hotSnapshot);
+        await tester.pumpWidget(
+          frameworkPainterPage(
+            extra: CustomPaint(
+              painter: _NeverRepaintPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        expect(
+          detector.issues.map((i) => i.stableId),
+          contains('frequent_repaint_painter'),
+        );
       });
     });
   });

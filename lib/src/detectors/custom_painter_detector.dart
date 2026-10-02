@@ -7,6 +7,7 @@ import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/framework_painters.dart';
 import '../utils/widget_location.dart';
 
 /// Detects CustomPainter where shouldRepaint always returns true.
@@ -24,6 +25,10 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   final List<String> _found = [];
+
+  /// User (non-framework) CustomPaint widgets seen this scan. The
+  /// type-aggregated paint-rate heuristic needs at least one.
+  int _userPaintCount = 0;
   bool _isEnabled = true;
   DebugSnapshot? _lastDebugSnapshot;
 
@@ -49,13 +54,16 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
     _issues.clear();
     _highlights.clear();
     _found.clear();
+    _userPaintCount = 0;
   }
 
   @override
   void checkElement(Element element) {
     final widget = element.widget;
 
-    if (widget is CustomPaint) {
+    // Framework toggle and scrollbar painters are not user code.
+    if (widget is CustomPaint && !isFrameworkPainterPaint(widget)) {
+      _userPaintCount++;
       if (widget.painter != null) {
         _checkPainter(element, widget.painter!);
       }
@@ -139,7 +147,7 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
     // Secondary heuristic: painters that passed self-comparison but have
     // high paint rates may have problematic shouldRepaint logic that
     // only manifests with different old/new instances.
-    if (_found.isEmpty) {
+    if (_found.isEmpty && _userPaintCount > 0) {
       final ds = _lastDebugSnapshot;
       if (ds != null && ds.paintCounts.isNotEmpty) {
         final cpRate = ds.paintsPerSecondForType('CustomPaint');
@@ -174,6 +182,7 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
     _issues.clear();
     _highlights.clear();
     _found.clear();
+    _userPaintCount = 0;
     _lastDebugSnapshot = null;
   }
 
@@ -188,7 +197,10 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
         'via injected `DebugSnapshot`, silent at threshold — '
         'strict-greater). The "always-repaint suppresses frequent" '
         'ordering contract is pinned as a negative control so both '
-        'branches cannot fire simultaneously. Not yet runtime-verified '
+        'branches cannot fire simultaneously. Framework toggle and '
+        'scrollbar painters (ToggleablePainter, ScrollbarPainter) are '
+        'skipped, and the paint-rate branch needs at least one user '
+        'CustomPaint in the scan. Not yet runtime-verified '
         'against a real paint-counter stream.',
     reproducerPath: 'test/validation/custom_painter_reproducer_test.dart',
     coveredStableIds: {'always_repaint_painter', 'frequent_repaint_painter'},

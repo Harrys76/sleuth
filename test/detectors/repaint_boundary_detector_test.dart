@@ -1,8 +1,10 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/repaint_boundary_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+
+import '../helpers/framework_painter_fixture.dart';
 
 void main() {
   group('RepaintBoundaryDetector', () {
@@ -492,6 +494,43 @@ void main() {
 
         expect(detector.issues, hasLength(1));
         expect(detector.issues.first.stableId, 'missing_repaint_boundary');
+      });
+    });
+
+    group('framework toggle and scrollbar painters', () {
+      testWidgets('Checkbox, Switch, Radio, CupertinoSwitch, Scrollbar are '
+          'not missing_repaint_boundary', (tester) async {
+        await tester.pumpWidget(frameworkPainterPage());
+
+        final painters = countFrameworkPainters();
+        expect(painters.toggleable, greaterThanOrEqualTo(4));
+        expect(painters.scrollbar, greaterThanOrEqualTo(1));
+
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        expect(
+          detector.issues.map((i) => i.stableId),
+          isNot(contains('missing_repaint_boundary')),
+        );
+      });
+
+      testWidgets('user CustomPaint beside them is still flagged', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          frameworkPainterPage(
+            extra: CustomPaint(
+              painter: _StubPainter(),
+              child: const SizedBox(width: 10, height: 10),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(MaterialApp)));
+
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'missing_repaint_boundary',
+        );
+        expect(issue.title, contains('1 expensive widget'));
       });
     });
   });
