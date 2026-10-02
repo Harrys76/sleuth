@@ -75,9 +75,9 @@ class CausalGraphRule extends CorrelationRule {
 
     // Rules below cover stableIds whose source detectors were removed in
     // v0.20.0 (animated_builder, opacity, shallow_rebuild_risk,
-    // nested_scroll, global_key). They remain so causal correlation
-    // applied to v0.19 saved snapshots still produces full chains. Do
-    // not delete without bumping snapshot schemaVersion.
+    // nested_scroll, global_key). Imported snapshots are not
+    // re-correlated; these edges stay so the labelled legacy encyclopedia
+    // entries and old snapshots remain self-consistent.
 
     // AnimatedBuilder → rebuild chains (only fires if not suppressed)
     CausalRule('animated_builder_no_child', 'rebuild_activity'),

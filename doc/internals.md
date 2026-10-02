@@ -88,6 +88,22 @@ Two vocabulary notes:
 
 Persistence is shown by the `Seen N` badge and trend; severity always comes from the detector. See [`RecurrenceTrend`](../lib/src/models/recurrence_trend.dart) for the underlying thresholds.
 
+## Ranking and Causal Graph
+
+[`IssueRanker`](../lib/src/ranking/issue_ranker.dart) scores each issue as `tier × 100 + frameImpact × 8 + recurrence × 2`. The tier combines severity and confidence:
+
+| Severity | Confirmed | Likely | Possible |
+|----------|-----------|--------|----------|
+| critical | 6 | 5 | 3 |
+| warning | 4 | 2 | 1 |
+| ok | 0 | 0 | 0 |
+
+Order: confirmed critical > likely critical > confirmed warning > possible critical > likely warning > possible warning > ok. The largest bonus (frameImpact 3, recurrence 5) adds 34, below the 100-point tier gap, so bonuses never move an issue across tiers.
+
+[`CausalGraphRule`](../lib/src/analyzer/causal_graph.dart) drops any edge whose cause is `possible` and whose effect is `likely` or `confirmed` before it looks for roots, so a structural guess never claims an observed effect. `activeEdges` in the export applies the same filter.
+
+In the overlay, an effect with exactly one cause collapses under that cause only when the cause is present and at least as severe as the effect. An effect with two or more causes always stays in the main list with a "Caused by" section.
+
 ## Startup Tracing
 
 Sleuth measures cold-start performance via `Sleuth.init()` + `Sleuth.markInteractive()`. Call `Sleuth.init()` as the first line of `main()`:

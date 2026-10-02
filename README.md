@@ -396,6 +396,10 @@ Issues include a confidence level reflecting evidence quality:
 | **Likely** | Runtime signal + structural evidence | Raster-dominant frame + deep opacity subtree |
 | **Possible** | Structural heuristic only | Non-lazy list with 50 children found |
 
+Issues are ranked by evidence tier: confirmed critical > likely critical > confirmed warning > possible critical > likely warning > possible warning > ok. A structural guess ranks below a warning observed at runtime; frame impact and recurrence only order issues within a tier.
+
+The causal graph follows the same evidence rule: a `possible` issue is never shown as the cause of a `likely` or `confirmed` one. An effect with one cause collapses under it only when the cause is at least as severe; an effect with two or more causes always stays in the main list.
+
 ## Recurrence Badge
 
 Each issue card shows a `Seen X/Y · {label}` badge once Sleuth has observed the issue across at least two scan cycles. It tells you how sticky the issue is and whether it is getting better or worse.
