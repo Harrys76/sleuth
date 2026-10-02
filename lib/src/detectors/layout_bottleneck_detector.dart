@@ -87,24 +87,33 @@ class LayoutBottleneckDetector extends BaseDetector
   static const _persistentFooterSlotId = '_ScaffoldSlot.persistentFooter';
   static const _persistentFooterMaxHops = 8;
 
+  /// The bottom-navigation label intrinsic is always the direct child of a
+  /// `Flexible` (`Flexible(child: IntrinsicWidth(child: label))`). A user
+  /// intrinsic placed inside the item's icon shares the same tile ancestor
+  /// but not that parent, so the owner match requires it.
+  static const _flexibleParentOwner = '_BottomNavigationTile';
+
   bool _isFrameworkIntrinsic(Element element) {
     int hops = 0;
     bool found = false;
+    bool parentIsFlexible = false;
     element.visitAncestorElements((ancestor) {
       hops++;
       if (hops > _maxOwnerHops) return false;
       final ancestorWidget = ancestor.widget;
+      if (hops == 1) parentIsFlexible = ancestorWidget is Flexible;
       if (hops <= _persistentFooterMaxHops &&
           ancestorWidget is LayoutId &&
           ancestorWidget.id.toString() == _persistentFooterSlotId) {
         found = true;
         return false;
       }
-      final budget =
-          _frameworkIntrinsicOwners[baseTypeName(
-            typeNameCache.lookup(ancestorWidget),
-          )];
+      final ownerName = baseTypeName(typeNameCache.lookup(ancestorWidget));
+      final budget = _frameworkIntrinsicOwners[ownerName];
       if (budget != null && hops <= budget) {
+        if (ownerName == _flexibleParentOwner && !parentIsFlexible) {
+          return true;
+        }
         found = true;
         return false;
       }
