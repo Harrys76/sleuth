@@ -337,10 +337,38 @@ class SleuthController {
   /// reflects the most recent scan's quarantine decisions.
   final Set<BaseDetector> _lastScanFailedDetectors = <BaseDetector>{};
 
-  /// Notifies listeners when issues change.
+  /// Notifies listeners when the ranked issue list changes in a way a
+  /// reader can see (ids, order, severity, confidence, text, attribution,
+  /// causal links). Ticks that reproduce the same list do not notify; read
+  /// [latestIssues] for the freshest aggregation.
   final ValueNotifier<List<PerformanceIssue>> issuesNotifier = ValueNotifier(
     [],
   );
+
+  /// Incremented once at the end of every scan tick, after recurrence and
+  /// highlights update. Live panels that re-read controller state each tick
+  /// (rebuild counts, recurrence badges) listen to this.
+  final ValueNotifier<int> scanTickNotifier = ValueNotifier<int>(0);
+
+  /// Most recent aggregation result, assigned on every aggregation whether
+  /// or not [issuesNotifier] fired.
+  List<PerformanceIssue> _latestIssues = const [];
+
+  /// Fingerprint of the list last published through [issuesNotifier].
+  String? _lastIssuesFingerprint;
+
+  /// Most recent ranked issues, refreshed on every aggregation. Export and
+  /// service-extension paths read this rather than [issuesNotifier].
+  List<PerformanceIssue> get latestIssues => _latestIssues;
+
+  /// Seeds the aggregated issue list without running detectors: sets
+  /// [latestIssues] and publishes through [issuesNotifier].
+  @visibleForTesting
+  void seedIssuesForTest(List<PerformanceIssue> issues) {
+    _latestIssues = issues;
+    _lastIssuesFingerprint = _issuesFingerprint(issues);
+    issuesNotifier.value = issues;
+  }
 
   /// Notifies listeners when frame stats update.
   final ValueNotifier<FrameStatsBuffer> frameStatsNotifier = ValueNotifier(
@@ -1166,7 +1194,7 @@ class SleuthController {
   /// Unmodifiable view of the current recurrence trend map, keyed by
   /// issue `stableId`. Intended for the floating card to render "Seen X/Y"
   /// badges. Trends update on every scan cycle; listeners should use
-  /// [issuesNotifier] as the rebuild trigger.
+  /// [scanTickNotifier] as the rebuild trigger.
   Map<String, RecurrenceTrend> get recurrenceTrends =>
       Map.unmodifiable(_recurrenceTrends);
 
@@ -1218,12 +1246,12 @@ class SleuthController {
     _runStructuralScans(context);
     _collectHighlights();
     _aggregateIssues();
-    if (issuesNotifier.value.isEmpty) {
+    if (_latestIssues.isEmpty) {
       _consecutiveCleanScans++;
     } else {
       _consecutiveCleanScans = 0;
     }
-    _updateRecurrence(issuesNotifier.value);
+    _updateRecurrence(_latestIssues);
   }
 
   /// Feeds timeline data through the same path as production VM polling.
@@ -1488,7 +1516,7 @@ class SleuthController {
         ? _buildRankingContext()
         : const IssueRankingContext();
     final rankedWithScores = _ranker.rankWithScores(
-      issuesNotifier.value,
+      _latestIssues,
       rankingContext,
     );
 
@@ -2153,7 +2181,7 @@ class SleuthController {
   /// After making a code change and hot-reloading, call [compareToBaseline]
   /// to see which issues were resolved, improved, or worsened.
   void captureBaseline() {
-    _fixBaseline = captureFixBaseline(issuesNotifier.value);
+    _fixBaseline = captureFixBaseline(_latestIssues);
   }
 
   /// Compare current issues against the captured baseline.
@@ -2164,10 +2192,7 @@ class SleuthController {
   FixVerificationResult? compareToBaseline() {
     final baseline = _fixBaseline;
     if (baseline == null) return null;
-    return baseline.compare(
-      issuesNotifier.value,
-      cooldownCycles: _fixCooldownCycles,
-    );
+    return baseline.compare(_latestIssues, cooldownCycles: _fixCooldownCycles);
   }
 
   /// Whether a fix baseline has been captured.
@@ -2312,6 +2337,7 @@ class SleuthController {
     _scanInProgress = true;
     try {
       _scanTreeInner(context);
+      scanTickNotifier.value++;
     } finally {
       _scanInProgress = false;
     }
@@ -2506,7 +2532,7 @@ class SleuthController {
       // Run all tree-scanning detectors
       _runStructuralScans(scanContext);
 
-      // Aggregate and rank all issues (fires issuesNotifier listeners).
+      // Aggregate and rank all issues (notifies issuesNotifier on change).
       _aggregateIssues();
       _lastScanDurationUs = scanWatch.elapsedMicroseconds;
     } finally {
@@ -2515,7 +2541,7 @@ class SleuthController {
     }
 
     // Track consecutive clean scans for adaptive interval back-off.
-    if (issuesNotifier.value.isEmpty) {
+    if (_latestIssues.isEmpty) {
       _consecutiveCleanScans++;
     } else {
       _consecutiveCleanScans = 0;
@@ -2523,7 +2549,7 @@ class SleuthController {
 
     // Update recurrence from scan path only (not timeline path) so all
     // detectors increment at the same rate regardless of lifecycle.
-    _updateRecurrence(issuesNotifier.value);
+    _updateRecurrence(_latestIssues);
 
     // Collect widget highlights if overlay is active
     if (highlightEnabledNotifier.value) {
@@ -3342,7 +3368,7 @@ class SleuthController {
         CaptureEntry(
           frameStats: captureFrame,
           verdict: captureVerdict,
-          relatedIssues: List.of(issuesNotifier.value),
+          relatedIssues: List.of(_latestIssues),
           capturedAt: DateTime.now(),
         ),
       );
@@ -3479,7 +3505,7 @@ class SleuthController {
           CaptureEntry(
             frameStats: latest,
             verdict: verdictNotifier.value!,
-            relatedIssues: List.of(issuesNotifier.value),
+            relatedIssues: List.of(_latestIssues),
             capturedAt: DateTime.now(),
           ),
         );
@@ -3938,10 +3964,63 @@ class SleuthController {
     // frame impact and recurrence. See IssueRanker for the tier table.
     final ranked = _ranker.rank(visible, _buildRankingContext());
 
-    // IssueCard is a StatefulWidget with ValueKey(stableId), so expansion
-    // state survives list rebuilds. Safe to always update the notifier —
-    // titles with live counters (e.g. "45 GC/min") will reflect fresh data.
-    issuesNotifier.value = ranked;
+    // Export and service-extension readers always see the freshest list.
+    // The notifier fires only when something a reader can see changed —
+    // live counters in titles/details (e.g. "45 GC/min") change the
+    // fingerprint. Per-tick panels listen to [scanTickNotifier] instead.
+    _latestIssues = ranked;
+    final fingerprint = _issuesFingerprint(ranked);
+    if (fingerprint != _lastIssuesFingerprint) {
+      _lastIssuesFingerprint = fingerprint;
+      issuesNotifier.value = ranked;
+    }
+  }
+
+  /// Joins every field the overlay renders, in rank order. Excludes
+  /// timestamps, ranking scores and trace arguments, which change every tick
+  /// without changing what a reader sees.
+  static String _issuesFingerprint(List<PerformanceIssue> issues) {
+    final b = StringBuffer();
+    for (final i in issues) {
+      b
+        ..write(i.stableId)
+        ..write('|')
+        ..write(i.severity.name)
+        ..write('|')
+        ..write(i.confidence.name)
+        ..write('|')
+        ..write(i.category.name)
+        ..write('|')
+        ..write(i.title)
+        ..write('|')
+        ..write(i.detail)
+        ..write('|')
+        ..write(i.fixHint)
+        ..write('|')
+        ..write(i.widgetName)
+        ..write('|')
+        ..write(i.ancestorChain)
+        ..write('|')
+        ..write(i.routeName)
+        ..write('|')
+        ..write(i.tabVisitIndex)
+        ..write('|')
+        ..write(i.observationSource?.name)
+        ..write('|')
+        ..write(i.interactionContext?.name)
+        ..write('|')
+        ..write(i.debugModeDisclaimer)
+        ..write('|')
+        ..write(i.fixEffort?.name)
+        ..write('|')
+        ..write(i.confidenceReason)
+        ..write('|')
+        ..write(i.rootCauseIds?.join(','))
+        ..write('|')
+        ..write(i.downstreamIds?.join(','))
+        ..write('\n');
+    }
+    return b.toString();
   }
 
   @visibleForTesting
@@ -4451,6 +4530,7 @@ class SleuthController {
       }
     }
     issuesNotifier.dispose();
+    scanTickNotifier.dispose();
     frameStatsNotifier.dispose();
     verdictNotifier.dispose();
     vmConnectedNotifier.dispose();

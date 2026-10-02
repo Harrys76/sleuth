@@ -514,7 +514,7 @@ void main() {
     test('detectorHitRates counts issues by detector correctly', () {
       // Inject issues directly into the controller's notifier so
       // exportSnapshot() sees them during ranking.
-      controller.issuesNotifier.value = [
+      controller.seedIssuesForTest([
         const PerformanceIssue(
           severity: IssueSeverity.warning,
           category: IssueCategory.build,
@@ -551,7 +551,7 @@ void main() {
           fixHint: 'test',
           stableId: 'slow_startup_ttff',
         ),
-      ];
+      ]);
 
       final snapshot = controller.exportSnapshot();
       expect(snapshot.sessionSummary, isNotNull);
@@ -569,18 +569,22 @@ void main() {
     test('topIssues returns at most 5, ordered by rankingScore', () {
       // Inject 7 issues with varying severity so ranking produces
       // a deterministic order.
-      controller.issuesNotifier.value = List.generate(7, (i) {
-        final severity = i < 3 ? IssueSeverity.critical : IssueSeverity.warning;
-        return PerformanceIssue(
-          severity: severity,
-          category: IssueCategory.build,
-          confidence: IssueConfidence.possible,
-          title: 'Issue $i',
-          detail: 'detail',
-          fixHint: 'fix',
-          stableId: 'test_issue_$i',
-        );
-      });
+      controller.seedIssuesForTest(
+        List.generate(7, (i) {
+          final severity = i < 3
+              ? IssueSeverity.critical
+              : IssueSeverity.warning;
+          return PerformanceIssue(
+            severity: severity,
+            category: IssueCategory.build,
+            confidence: IssueConfidence.possible,
+            title: 'Issue $i',
+            detail: 'detail',
+            fixHint: 'fix',
+            stableId: 'test_issue_$i',
+          );
+        }),
+      );
 
       final snapshot = controller.exportSnapshot();
       expect(snapshot.sessionSummary, isNotNull);
@@ -611,7 +615,7 @@ void main() {
     });
 
     test('sessionSummary includes causalEdges for related issues', () {
-      controller.issuesNotifier.value = const [
+      controller.seedIssuesForTest(const [
         PerformanceIssue(
           severity: IssueSeverity.warning,
           category: IssueCategory.build,
@@ -630,7 +634,7 @@ void main() {
           fixHint: 'test',
           stableId: 'heavy_compute',
         ),
-      ];
+      ]);
 
       final snapshot = controller.exportSnapshot();
       expect(snapshot.sessionSummary, isNotNull);

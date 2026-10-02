@@ -302,9 +302,17 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   double _cachedEffectiveWidth = 0;
   double _cachedKeyboardHeight = 0;
 
+  /// Rebuild trigger for the issues list: a changed issue set, or a scan
+  /// tick (recurrence badges re-read `recurrenceTrends` every tick).
+  late Listenable _issuesListListenable;
+
+  Listenable _issuesListListenableFor(SleuthController c) =>
+      Listenable.merge([c.issuesNotifier, c.scanTickNotifier]);
+
   @override
   void initState() {
     super.initState();
+    _issuesListListenable = _issuesListListenableFor(widget.controller);
     widget.controller.verdictNotifier.addListener(_onVerdictChanged);
     widget.controller.issuesNotifier.addListener(_onIssuesChanged);
     _onVerdictChanged();
@@ -324,6 +332,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
       oldWidget.controller.issuesNotifier.removeListener(_onIssuesChanged);
       widget.controller.verdictNotifier.addListener(_onVerdictChanged);
       widget.controller.issuesNotifier.addListener(_onIssuesChanged);
+      _issuesListListenable = _issuesListListenableFor(widget.controller);
       _expandedIndices.clear();
       _orderSnapshot = null;
       _selectedIssueId = null;
@@ -1150,9 +1159,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
   // ─── Issues List ─────────────────────────────────────────────────────
 
   Widget _buildIssuesList() {
-    return ValueListenableBuilder<List<PerformanceIssue>>(
-      valueListenable: widget.controller.issuesNotifier,
-      builder: (context, issues, _) {
+    return ListenableBuilder(
+      listenable: _issuesListListenable,
+      builder: (context, _) {
+        final issues = widget.controller.issuesNotifier.value;
         final theme = SleuthTheme.of(context);
         if (issues.isEmpty) {
           return Center(
@@ -2178,13 +2188,12 @@ class _StartupMetricsBanner extends StatelessWidget {
 ///   `See all M →` link pushes the full [RebuildStatsPage] drilldown via
 ///   the same snapshot-and-push handler the rollup card used to use.
 ///
-/// **Reactivity:** rebuilds whenever the scan loop produces fresh issues
-/// (`issuesNotifier`, which fires after every `_scanTreeInner` — the
-/// natural pulse for rebuild-attribution updates) or when the active
-/// route session itself changes (`routeHistoryNotifier`, which fires on
-/// route push/pop and tab switches). The panel reads
-/// `controller.activeRouteSession` at build time, so the union of these
-/// two notifiers is sufficient — no extra per-frame work.
+/// **Reactivity:** rebuilds on every scan tick (`scanTickNotifier`, the
+/// pulse for rebuild-attribution updates) or when the active route session
+/// itself changes (`routeHistoryNotifier`, which fires on route push/pop
+/// and tab switches). The panel reads `controller.activeRouteSession` at
+/// build time, so the union of these two notifiers is sufficient — no
+/// extra per-frame work.
 ///
 /// **Pause semantics:** when the user taps Pause, the panel snapshots
 /// `RouteSession.rebuildCountsByType` into [_frozenCounts] and renders
@@ -2254,7 +2263,7 @@ class _RebuildStatsBannerState extends State<_RebuildStatsBanner> {
   void initState() {
     super.initState();
     _mergedListenable = Listenable.merge([
-      widget.controller.issuesNotifier,
+      widget.controller.scanTickNotifier,
       widget.controller.routeHistoryNotifier,
     ]);
     // Auto-resume on route change: a frozen view of route A's counts is

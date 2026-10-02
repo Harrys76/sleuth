@@ -264,7 +264,7 @@ FutureOr<Map<String, Object?>> extIssuesHandler(
   Map<String, String> args,
 ) {
   final route = _nullIfEmpty(args['route']);
-  final all = controller.issuesNotifier.value;
+  final all = controller.latestIssues;
   final filtered = route == null
       ? all
       : all
@@ -343,7 +343,7 @@ FutureOr<Map<String, Object?>> extExplainHandler(
       extra: <String, Object?>{'stableId': stableId, 'canonical': canonical},
     );
   }
-  final live = controller.issuesNotifier.value;
+  final live = controller.latestIssues;
   PerformanceIssue? match;
   for (final issue in live) {
     if (issue.stableId == stableId) {

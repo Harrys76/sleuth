@@ -5,6 +5,7 @@ import 'package:sleuth/src/debug/debug_instrumentation_coordinator.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/models/base_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/models/widget_highlight.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/rebuild_stats_page.dart';
 
@@ -50,6 +51,39 @@ class _FakeCoordinator extends DebugInstrumentationCoordinator {
     );
     return result;
   }
+}
+
+/// Emits the same issue every scan.
+class _SteadyDetector extends BaseDetector {
+  _SteadyDetector()
+    : super(
+        type: DetectorType.custom,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Steady',
+        description: 'Same issue every scan.',
+      );
+
+  final List<PerformanceIssue> _issues = [];
+  bool _isEnabled = true;
+
+  @override
+  List<PerformanceIssue> get issues => _issues;
+  @override
+  List<WidgetHighlight> get highlights => const [];
+  @override
+  bool get isEnabled => _isEnabled;
+  @override
+  set isEnabled(bool v) => _isEnabled = v;
+
+  @override
+  void scanTree(BuildContext context) {
+    _issues
+      ..clear()
+      ..add(_pinIssue(id: 'steady_issue'));
+  }
+
+  @override
+  void dispose() => _issues.clear();
 }
 
 void main() {
@@ -1211,5 +1245,86 @@ void main() {
       await tester.pump();
       expect(find.text('NEW'), findsOneWidget);
     });
+  });
+  group('Live panels follow the scan pulse', () {
+    Widget host(SleuthController c) => MaterialApp(
+      home: Scaffold(
+        body: FloatingIssuesCard(
+          controller: c,
+          onClose: () {},
+          isDebugMode: false,
+        ),
+      ),
+    );
+
+    testWidgets('rebuild banner updates on ticks that leave issues unchanged', (
+      tester,
+    ) async {
+      controller.dispose();
+      controller = SleuthController(
+        config: const SleuthConfig(
+          enabledDetectors: {DetectorType.frameTiming},
+        ),
+      );
+      controller.initializeDetectorsForTest();
+      final fake = _FakeCoordinator();
+      controller.debugCoordinatorForTest = fake;
+      var notifications = 0;
+      controller.issuesNotifier.addListener(() => notifications++);
+
+      await tester.pumpWidget(host(controller));
+      final root = tester.element(find.byType(MaterialApp));
+      controller.scanTreeFullPathForTest(root);
+      fake.nextSnapshot = const DebugSnapshot(
+        rebuildCounts: {'ProductCard': 3},
+        totalPaintCount: 0,
+        elapsed: Duration(milliseconds: 500),
+        source: RebuildCountSource.flutterTimeline,
+      );
+      controller.scanTreeFullPathForTest(root);
+      await tester.pump();
+      expect(find.text('Rebuilds: 3 across 1 widget'), findsOneWidget);
+      final notificationsBefore = notifications;
+
+      fake.nextSnapshot = const DebugSnapshot(
+        rebuildCounts: {'ProductCard': 4},
+        totalPaintCount: 0,
+        elapsed: Duration(milliseconds: 500),
+        source: RebuildCountSource.flutterTimeline,
+      );
+      controller.scanTreeFullPathForTest(root);
+      await tester.pump();
+
+      expect(notifications, notificationsBefore);
+      expect(find.text('Rebuilds: 7 across 1 widget'), findsOneWidget);
+    });
+
+    testWidgets(
+      'recurrence badge updates on ticks that leave issues unchanged',
+      (tester) async {
+        controller.dispose();
+        controller = SleuthController(
+          config: SleuthConfig(
+            enabledDetectors: const {DetectorType.frameTiming},
+            customDetectors: [_SteadyDetector()],
+          ),
+        );
+        controller.initializeDetectorsForTest();
+        var notifications = 0;
+        controller.issuesNotifier.addListener(() => notifications++);
+
+        await tester.pumpWidget(host(controller));
+        final root = tester.element(find.byType(MaterialApp));
+        controller.scanTreeFullPathForTest(root);
+        controller.scanTreeFullPathForTest(root);
+        await tester.pump();
+        expect(find.textContaining('Seen 2/2'), findsOneWidget);
+
+        controller.scanTreeFullPathForTest(root);
+        await tester.pump();
+        expect(find.textContaining('Seen 3/3'), findsOneWidget);
+        expect(notifications, 1);
+      },
+    );
   });
 }

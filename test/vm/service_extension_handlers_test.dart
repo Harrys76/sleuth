@@ -189,10 +189,10 @@ void main() {
 
     test('issues without route returns full list', () async {
       final c = _newController();
-      c.issuesNotifier.value = [
+      c.seedIssuesForTest([
         _issue(stableId: 'jank_detected', routeName: '/a'),
         _issue(stableId: 'heap_growing', routeName: '/b'),
-      ];
+      ]);
       final env = await extIssuesHandler(c, const {});
       final data = env['data'] as Map<String, Object?>;
       final issues = data['issues'] as List;
@@ -202,11 +202,11 @@ void main() {
 
     test('issues with route filters by routeName + sourceRoute', () async {
       final c = _newController();
-      c.issuesNotifier.value = [
+      c.seedIssuesForTest([
         _issue(stableId: 'jank_detected', routeName: '/a'),
         _issue(stableId: 'heap_growing', routeName: '/b'),
         _issue(stableId: 'gc_pressure', sourceRoute: '/a'),
-      ];
+      ]);
       final env = await extIssuesHandler(c, const {'route': '/a'});
       final data = env['data'] as Map<String, Object?>;
       final issues = data['issues'] as List;
@@ -283,12 +283,12 @@ void main() {
 
     test('explain fills placeholders from the matching live issue', () async {
       final c = _newController();
-      c.issuesNotifier.value = [
+      c.seedIssuesForTest([
         _issue(
           stableId: 'non_lazy_listview',
           title: 'ListView with 120 children',
         ),
-      ];
+      ]);
       final env = await extExplainHandler(c, const {
         'stableId': 'non_lazy_listview',
       });
@@ -341,7 +341,7 @@ void main() {
   group('handlers — JSON round-trip', () {
     test('every handler envelope is jsonEncode-able', () async {
       final c = _newController();
-      c.issuesNotifier.value = [_issue()];
+      c.seedIssuesForTest([_issue()]);
       final handlers = <Future<Map<String, Object?>> Function()>[
         () async => await extSnapshotHandler(c, const {}),
         () async => await extIssuesHandler(c, const {}),
