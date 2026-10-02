@@ -125,17 +125,28 @@ class IssueExplanationBuilder {
     ];
   }
 
-  /// Strip dynamic suffixes: `foo:3` → `foo`, `rebuild_debug_MyWidget` →
-  /// `rebuild_debug`, `repaint_debug_MyWidget` → `repaint_debug`.
   /// Normalises a [PerformanceIssue.stableId] to the encyclopedia key —
   /// strips parametric colon-suffix (`tracked_resource_concurrent:foo` →
   /// `tracked_resource_concurrent`) and dynamic widget-type suffix
-  /// (`repaint_debug_MyWidget` → `repaint_debug`). Use this before
-  /// looking up keys in [allExplanations] or before passing a stableId
-  /// to [IssueEncyclopediaPage.scrollToStableId].
+  /// (`repaint_debug_MyWidget` → `repaint_debug`), and maps the non-lazy
+  /// family (`non_lazy_listview`, `non_lazy_gridview`,
+  /// `non_lazy_sliver_list`, `non_lazy_sliver_grid`) to `non_lazy_list`.
+  /// Use this before looking up keys in [allExplanations] or before
+  /// passing a stableId to [IssueEncyclopediaPage.scrollToStableId].
   static String canonicalId(String id) => _baseId(id);
 
+  /// Emitted stableIds that share one encyclopedia entry. Exact match only.
+  static const _aliases = <String, String>{
+    'non_lazy_listview': 'non_lazy_list',
+    'non_lazy_gridview': 'non_lazy_list',
+    'non_lazy_sliver_list': 'non_lazy_list',
+    'non_lazy_sliver_grid': 'non_lazy_list',
+  };
+
   static String _baseId(String id) {
+    final alias = _aliases[id];
+    if (alias != null) return alias;
+
     // Colon-suffixed IDs (excessive_keep_alive:3, excessive_global_keys:0)
     final colonIdx = id.indexOf(':');
     if (colonIdx > 0) return id.substring(0, colonIdx);

@@ -607,5 +607,43 @@ void main() {
         );
       });
     });
+
+    group('canonicalId non-lazy family', () {
+      test('each emitted non_lazy_* id maps to non_lazy_list', () {
+        for (final id in const [
+          'non_lazy_listview',
+          'non_lazy_gridview',
+          'non_lazy_sliver_list',
+          'non_lazy_sliver_grid',
+        ]) {
+          expect(
+            IssueExplanationBuilder.canonicalId(id),
+            'non_lazy_list',
+            reason: id,
+          );
+        }
+      });
+
+      test('explain resolves non_lazy_sliver_grid', () {
+        expect(
+          IssueExplanationBuilder.explain('non_lazy_sliver_grid'),
+          isNotNull,
+        );
+      });
+
+      test('non_lazy_list is unchanged', () {
+        expect(
+          IssueExplanationBuilder.canonicalId('non_lazy_list'),
+          'non_lazy_list',
+        );
+      });
+
+      test('unknown non_lazy_ id is not prefix-mapped', () {
+        expect(
+          IssueExplanationBuilder.canonicalId('non_lazy_other'),
+          'non_lazy_other',
+        );
+      });
+    });
   });
 }
