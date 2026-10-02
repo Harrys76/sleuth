@@ -38,3 +38,6 @@ migrate_working_dir/
 .local-tools/
 # Local agent scheduling state
 .claude/scheduled_tasks.lock
+
+# Local VM-service helper script, not part of the package
+/tool/device_pass.dart
