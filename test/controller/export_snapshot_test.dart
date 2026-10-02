@@ -566,6 +566,34 @@ void main() {
       expect(hitRates['startup'], 1);
     });
 
+    test('detectorHitRates maps every non_lazy_* id to listview', () {
+      const ids = [
+        'non_lazy_list',
+        'non_lazy_listview',
+        'non_lazy_gridview',
+        'non_lazy_sliver_list',
+        'non_lazy_sliver_grid',
+        'non_lazy_shrinkwrap',
+      ];
+      controller.seedIssuesForTest([
+        for (final id in ids)
+          PerformanceIssue(
+            severity: IssueSeverity.warning,
+            category: IssueCategory.build,
+            confidence: IssueConfidence.possible,
+            title: id,
+            detail: 'test',
+            fixHint: 'test',
+            stableId: id,
+          ),
+      ]);
+
+      final hitRates =
+          controller.exportSnapshot().sessionSummary!['detectorHitRates']
+              as Map<String, dynamic>;
+      expect(hitRates, {'listview': ids.length});
+    });
+
     test('topIssues returns at most 5, ordered by rankingScore', () {
       // Inject 7 issues with varying severity so ranking produces
       // a deterministic order.

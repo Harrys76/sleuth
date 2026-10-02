@@ -315,8 +315,9 @@ class EscalateKeepAliveMemoryRule extends CorrelationRule {
 /// layout/list issues, escalates from `possible` to `likely`.
 ///
 /// Covers structural detectors that lack their own escalation rule:
-/// non_lazy_list, non_lazy_listview, non_lazy_gridview, layout_bottleneck,
-/// nested_scroll, nested_scroll_same_axis.
+/// the non_lazy_* family (including non_lazy_shrinkwrap), the sliver
+/// families, layout_bottleneck, wrap_layout_bottleneck, nested_scroll,
+/// nested_scroll_same_axis.
 ///
 /// A single (non-nested) `layout_bottleneck` emits as `possible`, so jank on
 /// the same screen lifts it to `likely` by design; nested emits as `likely`
@@ -333,6 +334,7 @@ class EscalateStructuralWithJankRule extends CorrelationRule {
     'non_lazy_gridview',
     'non_lazy_sliver_list',
     'non_lazy_sliver_grid',
+    'non_lazy_shrinkwrap',
     'sliver_to_box_adapter_large',
     'sliver_fill_remaining_scrollable',
     'sliver_to_box_adapter_shrinkwrap',

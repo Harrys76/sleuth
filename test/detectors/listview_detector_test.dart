@@ -1121,6 +1121,188 @@ void main() {
       });
     });
 
+    group('non_lazy_shrinkwrap — shrinkWrap list inside a Flex', () {
+      List<String?> ids() => detector.issues.map((i) => i.stableId).toList();
+
+      Future<void> scan(WidgetTester tester, Widget body) async {
+        await tester.pumpWidget(
+          Directionality(textDirection: TextDirection.ltr, child: body),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+      }
+
+      List<Widget> rows(int n) =>
+          List.generate(n, (i) => SizedBox(key: ValueKey(i), height: 2));
+
+      testWidgets('Column > ListView(shrinkWrap, 25 children) is a warning '
+          'and not non_lazy_listview', (tester) async {
+        await scan(
+          tester,
+          Column(
+            children: [
+              const SizedBox(height: 10),
+              ListView(shrinkWrap: true, children: rows(25)),
+            ],
+          ),
+        );
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'non_lazy_shrinkwrap',
+        );
+        expect(issue.severity, IssueSeverity.warning);
+        expect(issue.confidence, IssueConfidence.possible);
+        expect(issue.observationSource, ObservationSource.structural);
+        expect(
+          issue.title,
+          'ListView(shrinkWrap: true) inside Column: 25 children built '
+          'eagerly',
+        );
+        expect(issue.fixHint, contains('CustomScrollView'));
+        expect(ids(), isNot(contains('non_lazy_listview')));
+      });
+
+      testWidgets('takes precedence over non_lazy_listview above the '
+          'non-lazy threshold', (tester) async {
+        await scan(
+          tester,
+          Column(children: [ListView(shrinkWrap: true, children: rows(60))]),
+        );
+        expect(ids(), ['non_lazy_shrinkwrap']);
+        expect(detector.issues.single.title, contains('60 children'));
+      });
+
+      testWidgets('20 children (at the gate) is silent', (tester) async {
+        await scan(
+          tester,
+          Column(children: [ListView(shrinkWrap: true, children: rows(20))]),
+        );
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets('builder with itemCount 150 is critical', (tester) async {
+        await scan(
+          tester,
+          Column(
+            children: [
+              ListView.builder(
+                shrinkWrap: true,
+                itemCount: 150,
+                itemBuilder: (_, i) => const SizedBox(height: 2),
+              ),
+            ],
+          ),
+        );
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'non_lazy_shrinkwrap',
+        );
+        expect(issue.severity, IssueSeverity.critical);
+      });
+
+      testWidgets('builder with no itemCount is a warning', (tester) async {
+        await scan(
+          tester,
+          Column(
+            children: [
+              ListView.builder(
+                shrinkWrap: true,
+                itemBuilder: (_, i) =>
+                    i < 30 ? const SizedBox(height: 2) : null,
+              ),
+            ],
+          ),
+        );
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'non_lazy_shrinkwrap',
+        );
+        expect(issue.severity, IssueSeverity.warning);
+        expect(issue.title, contains('all children built eagerly'));
+      });
+
+      testWidgets('inside a SliverToBoxAdapter only the Check C id fires', (
+        tester,
+      ) async {
+        await scan(
+          tester,
+          CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Column(
+                  children: [ListView(shrinkWrap: true, children: rows(25))],
+                ),
+              ),
+            ],
+          ),
+        );
+        expect(ids(), ['sliver_to_box_adapter_shrinkwrap']);
+      });
+
+      testWidgets('Row > horizontal GridView(shrinkWrap) fires and names the '
+          'Row', (tester) async {
+        await scan(
+          tester,
+          Row(
+            children: [
+              SizedBox(
+                height: 40,
+                child: GridView.count(
+                  scrollDirection: Axis.horizontal,
+                  shrinkWrap: true,
+                  crossAxisCount: 2,
+                  children: List.generate(
+                    25,
+                    (i) => SizedBox(key: ValueKey(i)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+        final issue = detector.issues.singleWhere(
+          (i) => i.stableId == 'non_lazy_shrinkwrap',
+        );
+        expect(
+          issue.title,
+          startsWith('GridView(shrinkWrap: true) inside Row'),
+        );
+      });
+
+      testWidgets('shrinkWrap with no Flex ancestor is silent', (tester) async {
+        await scan(
+          tester,
+          SizedBox(
+            height: 300,
+            child: ListView(shrinkWrap: true, children: rows(25)),
+          ),
+        );
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets('a Flex that has been left no longer counts', (tester) async {
+        await scan(
+          tester,
+          Stack(
+            children: [
+              const Column(children: [SizedBox(height: 10)]),
+              SizedBox(
+                height: 300,
+                child: ListView(shrinkWrap: true, children: rows(25)),
+              ),
+            ],
+          ),
+        );
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets('shrinkWrap: false in a Column is silent', (tester) async {
+        await scan(
+          tester,
+          Column(
+            children: [Expanded(child: ListView(children: rows(25)))],
+          ),
+        );
+        expect(detector.issues, isEmpty);
+      });
+    });
+
     group('dispose clears sliver state', () {
       testWidgets('dispose clears sliver findings', (tester) async {
         await tester.pumpWidget(

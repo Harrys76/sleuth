@@ -4,6 +4,7 @@ import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
 import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
 import 'package:sleuth/src/detectors/image_memory_detector.dart';
+import 'package:sleuth/src/detectors/listview_detector.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
 import 'package:sleuth/src/utils/issue_explanation_builder.dart';
@@ -135,6 +136,21 @@ void main() {
       'raster_dominance',
       _Field.readingTheData,
       '${gpu.maxFrameRasterFloorUs ~/ 1000} ms at 60 Hz',
+    ),
+    (
+      'non_lazy_shrinkwrap',
+      _Field.readingTheData,
+      '>${ListviewDetector.shrinkWrapMinChildCount} items',
+    ),
+    (
+      'non_lazy_shrinkwrap',
+      _Field.readingTheData,
+      'critical above ${ListviewDetector.shrinkWrapCriticalChildCount}',
+    ),
+    (
+      'sliver_to_box_adapter_shrinkwrap',
+      _Field.readingTheData,
+      '>${ListviewDetector.shrinkWrapMinChildCount} items',
     ),
     (
       'uncached_images',

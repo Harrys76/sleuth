@@ -104,6 +104,7 @@ void main() {
         'sliver_to_box_adapter_large',
         'sliver_fill_remaining_scrollable',
         'sliver_to_box_adapter_shrinkwrap',
+        'non_lazy_shrinkwrap',
         'global_key_recreation',
         'excessive_repaint_boundary',
         'runtime_font_loading',
@@ -165,8 +166,8 @@ void main() {
       }
     });
 
-    test('allExplanations returns all 50 entries', () {
-      expect(IssueExplanationBuilder.allExplanations.length, 50);
+    test('allExplanations returns all 51 entries', () {
+      expect(IssueExplanationBuilder.allExplanations.length, 51);
     });
 
     test('groupedEntries returns 9 groups', () {
@@ -191,7 +192,7 @@ void main() {
         0,
         (sum, g) => sum + g.entries.length,
       );
-      expect(totalEntries, 50);
+      expect(totalEntries, 51);
     });
 
     test('readingTheData is non-null for runtime detector entries', () {
@@ -580,6 +581,7 @@ void main() {
           'sliver_to_box_adapter_large',
           'sliver_fill_remaining_scrollable',
           'sliver_to_box_adapter_shrinkwrap',
+          'non_lazy_shrinkwrap',
           'global_key_recreation',
           'excessive_repaint_boundary',
           'runtime_font_loading',
@@ -597,7 +599,7 @@ void main() {
       test('no duplicate entries (each stableId appears once)', () {
         final all = IssueExplanationBuilder.allExplanations;
         // The map itself enforces uniqueness, but verify the count
-        expect(all.length, 50);
+        expect(all.length, 51);
         // Verify no two entries share the same displayName
         final names = all.values.map((e) => e.displayName).toList();
         expect(
@@ -628,6 +630,17 @@ void main() {
         expect(
           IssueExplanationBuilder.explain('non_lazy_sliver_grid'),
           isNotNull,
+        );
+      });
+
+      test('non_lazy_shrinkwrap keeps its own entry', () {
+        expect(
+          IssueExplanationBuilder.canonicalId('non_lazy_shrinkwrap'),
+          'non_lazy_shrinkwrap',
+        );
+        expect(
+          IssueExplanationBuilder.explain('non_lazy_shrinkwrap')?.displayName,
+          'ShrinkWrap List in Column',
         );
       });
 

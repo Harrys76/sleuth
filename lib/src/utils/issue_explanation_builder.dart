@@ -288,6 +288,7 @@ class IssueExplanationBuilder {
       relatedIssues: [
         'layout_bottleneck',
         'multiple_custom_fonts',
+        'non_lazy_shrinkwrap',
         'runtime_font_loading',
         'shader_compilation',
         'slow_startup_ttff',
@@ -1294,8 +1295,52 @@ class IssueExplanationBuilder {
       relatedIssues: [
         'heavy_compute',
         'layout_bottleneck',
+        'non_lazy_shrinkwrap',
         'rebuild_activity',
         'sliver_to_box_adapter_large',
+        'sliver_to_box_adapter_shrinkwrap',
+      ],
+    ),
+
+    'non_lazy_shrinkwrap': (
+      displayName: 'ShrinkWrap List in Column',
+      category: IssueCategory.build,
+      whatItIs:
+          'A ListView or GridView with shrinkWrap: true was found inside a '
+          'Column or Row. ShrinkWrap sizes the list to its content, so '
+          'every child is built and laid out up front, even far off-screen '
+          'and even when the list uses a builder.',
+      readingTheData:
+          'Like unpacking every box in a moving truck just to measure how '
+          'much floor space they need.\n\n'
+          '• Child count — Items in the shrinkWrapped list. Alert: >20 '
+          'items, or a builder with no itemCount; critical above 100.\n\n'
+          '• Widget type — ListView or GridView, and whether the enclosing '
+          'Flex is a Column or a Row.\n\n'
+          '• Source: Structural tree walk.',
+      whyItMatters:
+          'The usual reason for this pattern is a header above a list in a '
+          'scrolling Column. It works, but a 500-item list builds all 500 '
+          'items on first layout and on every relayout, which shows up as '
+          'slow screen entry and dropped frames while scrolling.',
+      howToFix:
+          'Make the Column a sliver list. Use a CustomScrollView with the '
+          'header in a SliverToBoxAdapter and the items in a '
+          'SliverList.builder:\n'
+          '  CustomScrollView(slivers: [\n'
+          '    SliverToBoxAdapter(child: Header()),\n'
+          '    SliverList.builder(itemCount: items.length, '
+          'itemBuilder: (_, i) => ItemTile(items[i])),\n'
+          '  ])\n\n'
+          'Or put the header as item 0 of one ListView.builder and drop '
+          'shrinkWrap.',
+      whenToIgnore:
+          'Short lists (20 items or fewer) cost little to build eagerly. '
+          'A shrinkWrap list given a bounded height (inside Expanded or a '
+          'sized box) only builds what fits.',
+      relatedIssues: [
+        'jank_detected',
+        'non_lazy_list',
         'sliver_to_box_adapter_shrinkwrap',
       ],
     ),
@@ -2195,7 +2240,7 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'Very small lists (< 10 items) with fixed-height items have '
           'negligible shrinkWrap cost.',
-      relatedIssues: ['non_lazy_list'],
+      relatedIssues: ['non_lazy_list', 'non_lazy_shrinkwrap'],
     ),
 
     'global_key_recreation': (

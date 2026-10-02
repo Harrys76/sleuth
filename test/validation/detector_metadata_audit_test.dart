@@ -76,6 +76,7 @@ const _v0163Expectations = <DetectorType, (String, Set<String>)>{
       'non_lazy_sliver_list',
       'non_lazy_sliver_grid',
       'non_lazy_list',
+      'non_lazy_shrinkwrap',
       'sliver_to_box_adapter_large',
       'sliver_to_box_adapter_shrinkwrap',
       'sliver_fill_remaining_scrollable',

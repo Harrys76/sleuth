@@ -1073,6 +1073,24 @@ void main() {
       expect(result[1].rootCauseIds, ['layout_bottleneck']);
     });
 
+    test('non_lazy_shrinkwrap → jank_detected', () {
+      final issues = [
+        makeIssue(
+          stableId: 'non_lazy_shrinkwrap',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'jank_detected',
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, ['jank_detected']);
+      expect(result[1].rootCauseIds, ['non_lazy_shrinkwrap']);
+    });
+
     test('layout_bottleneck → jank_detected', () {
       final issues = [
         makeIssue(
@@ -1643,11 +1661,12 @@ void main() {
       ]) {
         expect(pairs, isNot(contains(p)));
       }
-      expect(CausalGraphRule.rulesJson, hasLength(40));
+      expect(CausalGraphRule.rulesJson, hasLength(41));
     });
 
     test('no rule has jank_detected or sustained_jank as effect except the '
-        'layout_bottleneck and runtime_font_loading edges', () {
+        'layout_bottleneck, runtime_font_loading, and non_lazy_shrinkwrap '
+        'edges', () {
       final jankEdges = {
         for (final r in CausalGraphRule.rulesJson)
           if (r['effect'] == 'jank_detected' || r['effect'] == 'sustained_jank')
@@ -1658,6 +1677,7 @@ void main() {
         'layout_bottleneck→jank_detected',
         'runtime_font_loading→sustained_jank',
         'runtime_font_loading→jank_detected',
+        'non_lazy_shrinkwrap→jank_detected',
       });
     });
   });

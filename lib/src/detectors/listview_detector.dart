@@ -9,12 +9,13 @@ import '../utils/fix_hint_builder.dart';
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 
-/// Detects non-lazy ListView/GridView with many children and sliver
-/// anti-patterns (SliverToBoxAdapter large subtrees, SliverFillRemaining
-/// misuse, shrinkWrap inside slivers).
+/// Detects non-lazy ListView/GridView with many children, shrinkWrap lists
+/// inside a Column/Row, and sliver anti-patterns (SliverToBoxAdapter large
+/// subtrees, SliverFillRemaining misuse, shrinkWrap inside slivers).
 ///
-/// **Structural Detector** — checks for SliverChildListDelegate with >50 items
-/// and three sliver anti-patterns that defeat lazy loading.
+/// **Structural Detector** — checks for SliverChildListDelegate with >50
+/// items, `shrinkWrap: true` lists under a Flex, and three sliver
+/// anti-patterns that defeat lazy loading.
 class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
   ListviewDetector({this.childThreshold = 50})
     : super(
@@ -26,9 +27,12 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
 
   final int childThreshold;
 
-  /// `sliver_to_box_adapter_shrinkwrap` fires only above this many
-  /// children (or when the count is unbounded).
-  static const _shrinkWrapMinChildCount = 20;
+  /// `sliver_to_box_adapter_shrinkwrap` and `non_lazy_shrinkwrap` fire
+  /// only above this many children (or when the count is unbounded).
+  static const shrinkWrapMinChildCount = 20;
+
+  /// `non_lazy_shrinkwrap` is critical above this many children.
+  static const shrinkWrapCriticalChildCount = 100;
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
   bool _isEnabled = true;
@@ -39,6 +43,10 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
 
   /// Depth counter tracking when we are inside a SliverToBoxAdapter subtree.
   int _insideSliverToBoxAdapter = 0;
+
+  /// Type names of the enclosing [Flex] widgets (Column, Row), innermost
+  /// last. Pushed in [checkElement], popped in [afterElement].
+  final List<String> _flexStack = [];
 
   /// Depth counter tracking when we are inside a
   /// SliverFillRemaining(hasScrollBody: false) subtree.
@@ -67,12 +75,24 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
     _insideBoxScrollView = 0;
     _insideSliverToBoxAdapter = 0;
     _insideSliverFillNoScroll = 0;
+    _flexStack.clear();
     _sliverFillFindings.clear();
   }
 
   @override
   void checkElement(Element element) {
     final widget = element.widget;
+
+    if (widget is Flex) {
+      _flexStack.add(
+        widget is Column
+            ? 'Column'
+            : widget is Row
+            ? 'Row'
+            : 'Flex',
+      );
+      return;
+    }
 
     // Detect SingleChildScrollView + Column/Row pattern (non-lazy list)
     if (widget is SingleChildScrollView) {
@@ -108,25 +128,44 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
       final delegate = widget is ListView
           ? widget.childrenDelegate
           : (widget as GridView).childrenDelegate;
+      final shrinkWrap = (widget as BoxScrollView).shrinkWrap;
+      final delegateCount = switch (delegate) {
+        final SliverChildListDelegate d => d.children.length,
+        final SliverChildBuilderDelegate d => d.childCount,
+        _ => null,
+      };
+      final manyChildren =
+          delegateCount == null || delegateCount > shrinkWrapMinChildCount;
       final isNonLazy =
           delegate is SliverChildListDelegate &&
           delegate.children.length > childThreshold;
-      if (isNonLazy) {
+
+      // shrinkWrap inside a Column/Row builds every child whether or not
+      // the list uses a builder, so it takes precedence over the non-lazy
+      // id. Inside a SliverToBoxAdapter, Check C owns the finding.
+      final shrinkWrapInFlex =
+          shrinkWrap &&
+          _flexStack.isNotEmpty &&
+          _insideSliverToBoxAdapter == 0 &&
+          manyChildren;
+      if (shrinkWrapInFlex) {
+        _emitShrinkWrapInFlexIssue(
+          element,
+          widget is ListView ? 'ListView' : 'GridView',
+          _flexStack.last,
+          delegateCount,
+        );
+      } else if (isNonLazy) {
         _emitNonLazyScrollViewIssue(element, widget, delegate.children.length);
       }
 
       // --- Check C: shrinkWrap scrollable inside SliverToBoxAdapter ---
       // Only when the child count is unbounded or large enough for eager
       // measurement to matter.
-      final delegateCount = switch (delegate) {
-        final SliverChildListDelegate d => d.children.length,
-        final SliverChildBuilderDelegate d => d.childCount,
-        _ => null,
-      };
       if (_insideSliverToBoxAdapter > 0 &&
-          (widget as BoxScrollView).shrinkWrap &&
+          shrinkWrap &&
           !isNonLazy &&
-          (delegateCount == null || delegateCount > _shrinkWrapMinChildCount)) {
+          manyChildren) {
         _emitSliverToBoxAdapterShrinkWrapIssue(
           element,
           widget is ListView ? 'ListView' : 'GridView',
@@ -172,7 +211,9 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   void afterElement(Element element) {
     final widget = element.widget;
-    if (widget is ListView || widget is GridView) {
+    if (widget is Flex) {
+      _flexStack.removeLast();
+    } else if (widget is ListView || widget is GridView) {
       _insideBoxScrollView--;
     } else if (widget is SliverToBoxAdapter) {
       _insideSliverToBoxAdapter--;
@@ -295,6 +336,65 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
             '$childCount child widgets on each parent rebuild, bypassing '
             'lazy construction. Use $widgetName.builder so only visible '
             'children are created.\n\n  • $location',
+        fixHint: hint,
+        fixEffort: effort,
+        widgetName: widgetName,
+        ancestorChain: location,
+        observationSource: ObservationSource.structural,
+        detectedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  void _emitShrinkWrapInFlexIssue(
+    Element scrollElement,
+    String widgetName,
+    String flexName,
+    int? childCount,
+  ) {
+    final location = buildAncestorChain(scrollElement);
+    final severity =
+        childCount != null && childCount > shrinkWrapCriticalChildCount
+        ? IssueSeverity.critical
+        : IssueSeverity.warning;
+    final built = childCount == null ? 'all' : '$childCount';
+
+    final ro = scrollElement.renderObject;
+    if (ro != null) {
+      final rect = getGlobalRect(ro);
+      if (rect != null) {
+        _highlights.add(
+          WidgetHighlight(
+            rect: rect,
+            renderObject: ro,
+            widgetName: widgetName,
+            severity: severity,
+            detectorName: 'Non-lazy',
+            detail: '$widgetName(shrinkWrap: true) inside $flexName',
+          ),
+        );
+      }
+    }
+    final (hint, effort) = FixHintBuilder.nonLazyShrinkWrap(
+      scrollableType: widgetName,
+      flexType: flexName,
+      ancestorChain: location,
+    );
+    _issues.add(
+      PerformanceIssue(
+        stableId: 'non_lazy_shrinkwrap',
+        severity: severity,
+        category: IssueCategory.build,
+        confidence: IssueConfidence.possible,
+        confidenceReason: 'Structural scan only — shrinkWrap list in a Flex',
+        title:
+            '$widgetName(shrinkWrap: true) inside $flexName: '
+            '$built children built eagerly',
+        detail:
+            '$widgetName(shrinkWrap: true) inside a $flexName sizes itself '
+            'to its content, so every child is built and laid out up front '
+            'even when off-screen, whether or not it uses a builder.'
+            '\n\n  • $location',
         fixHint: hint,
         fixEffort: effort,
         widgetName: widgetName,
@@ -579,6 +679,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
   void dispose() {
     _issues.clear();
     _highlights.clear();
+    _flexStack.clear();
     _sliverFillFindings.clear();
   }
 
@@ -586,7 +687,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
   DetectorMetadata get validationMetadata => const DetectorMetadata(
     tier: EvidenceTier.reproducerOnly,
     rationale:
-        'Hermetic reproducer pins all 8 stable-id families. '
+        'Hermetic reproducer pins all 9 stable-id families. '
         'Non-lazy construction families — non_lazy_listview '
         '(ListView(children:) above childThreshold, with .builder lazy-'
         'path bypass as negative control); non_lazy_gridview '
@@ -596,7 +697,13 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         'non_lazy_sliver_grid (SliverGrid(SliverChildListDelegate) above '
         'threshold, builder negative); and non_lazy_list '
         '(SingleChildScrollView + Column/Row above threshold, at-'
-        'threshold negative). Sliver boundary families — '
+        'threshold negative). non_lazy_shrinkwrap (ListView/GridView '
+        'with shrinkWrap:true under a Column/Row, tracked by a Flex depth '
+        'stack, fires when the delegate child count is null or > 20, '
+        'critical above 100; 20-child negative; no-Flex negative; the '
+        'same list in a SliverToBoxAdapter routes to Check C; it '
+        'replaces non_lazy_listview for the same element). Sliver '
+        'boundary families — '
         'sliver_to_box_adapter_large (Column subtree above threshold), '
         'sliver_to_box_adapter_shrinkwrap (inner ListView with '
         'shrinkWrap:true inside SliverToBoxAdapter fires when '
@@ -624,6 +731,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
       'non_lazy_sliver_list',
       'non_lazy_sliver_grid',
       'non_lazy_list',
+      'non_lazy_shrinkwrap',
       'sliver_to_box_adapter_large',
       'sliver_to_box_adapter_shrinkwrap',
       'sliver_fill_remaining_scrollable',

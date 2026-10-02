@@ -1027,11 +1027,35 @@ void main() {
       expect(layout.detail, contains('[Correlated]'));
     });
 
+    test('escalates non_lazy_shrinkwrap with jank_detected', () {
+      final issues = [
+        makeIssue(
+          stableId: 'jank_detected',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'non_lazy_shrinkwrap',
+          category: IssueCategory.build,
+          confidence: IssueConfidence.possible,
+          detail: 'shrinkWrap list in a Column.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final shrinkWrap = result.firstWhere(
+        (i) => i.stableId == 'non_lazy_shrinkwrap',
+      );
+      expect(shrinkWrap.confidence, IssueConfidence.likely);
+      expect(shrinkWrap.detail, contains('[Correlated]'));
+    });
+
     test('escalates sliver stableIds with sustained_jank', () {
       // Verify all new sliver IDs are covered by the rule.
       const sliverIds = [
         'non_lazy_sliver_list',
         'non_lazy_sliver_grid',
+        'non_lazy_shrinkwrap',
         'sliver_to_box_adapter_large',
         'sliver_fill_remaining_scrollable',
         'sliver_to_box_adapter_shrinkwrap',

@@ -381,6 +381,22 @@ class FixHintBuilder {
     );
   }
 
+  static (String, FixEffort) nonLazyShrinkWrap({
+    required String scrollableType,
+    required String flexType,
+    String? ancestorChain,
+  }) {
+    final location = _locationSuffix(null, ancestorChain);
+    return (
+      '$scrollableType(shrinkWrap: true) inside a $flexType builds every '
+          'child up front$location. Make the $flexType a sliver list: a '
+          'CustomScrollView with a SliverToBoxAdapter header and a '
+          'SliverList.builder, or put the header as item 0 of one '
+          '$scrollableType.builder.',
+      FixEffort.medium,
+    );
+  }
+
   static (String, FixEffort) nonLazySliver({
     required int childCount,
     required String widgetName,

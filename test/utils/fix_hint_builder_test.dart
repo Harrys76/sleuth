@@ -278,6 +278,22 @@ void main() {
   // -------------------------------------------------------------------------
   // MemoryPressureDetector
   // -------------------------------------------------------------------------
+  group('nonLazyShrinkWrap', () {
+    test('names the list and Flex and points to slivers', () {
+      final (hint, effort) = FixHintBuilder.nonLazyShrinkWrap(
+        scrollableType: 'ListView',
+        flexType: 'Column',
+        ancestorChain: 'Page > Column > ListView',
+      );
+      expect(effort, FixEffort.medium);
+      expect(hint, contains('ListView(shrinkWrap: true) inside a Column'));
+      expect(hint, contains('CustomScrollView'));
+      expect(hint, contains('SliverToBoxAdapter'));
+      expect(hint, contains('item 0'));
+      expect(hint, contains('Page > Column > ListView'));
+    });
+  });
+
   group('gcPressure', () {
     test('returns medium effort', () {
       final (_, effort) = FixHintBuilder.gcPressure();

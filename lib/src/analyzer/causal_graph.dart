@@ -51,7 +51,7 @@ class CausalGraphRule extends CorrelationRule {
   @override
   String get name => 'CausalGraph';
 
-  // 40 causal rules. Order doesn't matter — all are evaluated, and the
+  // 41 causal rules. Order doesn't matter — all are evaluated, and the
   // graph is built from the full edge set.
   static const _causalRules = <CausalRule>[
     // setState-triggered chains (rebuild intermediate absorbed by Rule 2)
@@ -95,6 +95,9 @@ class CausalGraphRule extends CorrelationRule {
     CausalRule('non_lazy_gridview', 'rebuild_activity'),
     CausalRule('non_lazy_gridview', 'rebuild_debug_*'),
     CausalRule('non_lazy_gridview', 'heavy_compute'),
+
+    // shrinkWrap list in a Column/Row builds every child on layout
+    CausalRule('non_lazy_shrinkwrap', 'jank_detected'),
 
     // Rebuild cascade chains (fire when rebuild NOT merged into setstate_scope)
     CausalRule('rebuild_activity', 'heavy_compute'),
