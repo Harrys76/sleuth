@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/detector_thresholds.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
+import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
 import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
 import 'package:sleuth/src/utils/issue_explanation_builder.dart';
@@ -28,6 +29,7 @@ void main() {
   const thresholds = DetectorThresholds();
   final frameTiming = FrameTimingDetector();
   final setStateScope = SetStateScopeDetector();
+  final gpu = GpuPressureDetector();
 
   final rows = <(String stableId, _Field field, String expected)>[
     (
@@ -105,6 +107,32 @@ void main() {
       _Field.readingTheData,
       '>${thresholds.heavyComputeGapMs ?? DetectorThresholds.defaultHeavyComputeGapMs}ms '
           '(warning)',
+    ),
+    (
+      'raster_dominance',
+      _Field.readingTheData,
+      'above ${thresholds.gpuPressureRatio}×',
+    ),
+    (
+      'raster_dominance',
+      _Field.readingTheData,
+      '>${thresholds.gpuPressureRatio}× (warning)',
+    ),
+    (
+      'raster_dominance',
+      _Field.readingTheData,
+      '>${thresholds.gpuPressureRatio * 2}× (critical)',
+    ),
+    (
+      'raster_dominance',
+      _Field.readingTheData,
+      '${gpu.minRasterDominantFrames} raster-dominant frames within one '
+          'second',
+    ),
+    (
+      'raster_dominance',
+      _Field.readingTheData,
+      '${gpu.maxFrameRasterFloorUs ~/ 1000} ms at 60 Hz',
     ),
   ];
 

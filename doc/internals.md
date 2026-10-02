@@ -58,7 +58,7 @@ The effective rate is the measured cadence clamped to `[fpsTarget, display rate]
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
 | Rebuild | VM build count + tree | High rebuild activity | Confirmed for count, Possible for widget attribution | Degrades to structural density report without VM |
-| GPU Pressure | VM raster timing + render tree | Raster thread dominance | Confirmed for ratio, Likely when nodes coexist | Degrades to structural node detection without VM. Sigma-aware severity for BackdropFilter; ColorFiltered detection via widget type |
+| GPU Pressure | FrameTiming raster vs UI per frame + VM raster timing + render tree | Raster thread dominance | Likely from frames (3 raster-dominant frames in 1 s, every tier); Confirmed when the VM ratio also fires; nodes Likely when either coexists | Frame leg needs Frame Timing enabled and ignores the startup window. Impeller raster durations can include present back-pressure, so frame evidence stays Likely. Sigma-aware severity for BackdropFilter; ColorFiltered detection via widget type |
 | Repaint | VM paint events + per-widget attribution | High paint frequency, animation-owned suppression | Confirmed for rate, Possible for widget attribution | Degrades to structural-only without VM |
 
 ### Structural Detectors (tree scan only)

@@ -46,7 +46,7 @@
 >
 > ---
 >
-> ### vmOnly detectors (HeavyCompute, ShaderJank, MemoryPressure, GpuPressure, PlatformChannel)
+> ### vmOnly detectors (HeavyCompute, ShaderJank, MemoryPressure, GpuPressure VM leg, PlatformChannel)
 >
 > v0.18.1 ships `Sleuth.flushTimelineNow()` — the synchronous VM-poll
 > + emission flush that NetworkMonitor sidestepped via runtime
@@ -864,9 +864,8 @@ the clipboard.
 ## GpuPressure raster_dominance — runtimeVerified blocked
 
 A `runtimeVerified` raise of `GpuPressureDetector.raster_dominance` is
-not viable on the current detector implementation. Three structural
-blockers, any of which alone is sufficient to disqualify the ratio
-bracket:
+not viable on the VM leg. Three structural blockers, any of which alone
+is sufficient to disqualify the ratio bracket:
 
 1. **Ratio axis unforceable on iOS profile mode.** Steady-state UI cost
    ~3-5 ms/frame vs single-filter raster ~2 ms/frame produces ratio
@@ -885,7 +884,10 @@ bracket:
 
 Future raster-related raises should target an absolute-duration axis
 (engages AB-1 cross-check) and require detector logic that evaluates
-on a single-poll snapshot rather than last-seen fields.
+on a single-poll snapshot rather than last-seen fields. The frame leg
+(per-frame `FrameTiming` raster vs UI, `likely`) evaluates each frame
+on its own and stamps `worstFrameRasterUs`, but carries no bracket and
+no capture screen; it stays `reproducerOnly`.
 
 ## Cheat sheet — required sleuthMetadata fields (v0.18.0)
 

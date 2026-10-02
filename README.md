@@ -441,7 +441,7 @@ In-app Startup Metrics page has full methodology + per-phase breakdown.
 
 - **Runtime** (always available) — Frame Timing, Network Monitor, Tracked Resource.
 - **VM-only** (need a VM connection) — Shader Jank, Heavy Compute, Platform Channel, Memory Pressure, Stream Resource.
-- **Hybrid** (VM + tree scan, degrade gracefully) — Rebuild, GPU Pressure, Repaint.
+- **Hybrid** (VM + tree scan, degrade gracefully) — Rebuild, GPU Pressure, Repaint. GPU Pressure also reads per-frame `FrameTiming` raster vs UI time, so `raster_dominance` fires as `likely` without a VM and as `confirmed` with one.
 - **Structural** (tree scan only) — setState Scope, Layout Bottleneck, ListView, Image Memory, CustomPainter, Keep Alive, Font Loading, RepaintBoundary, Startup.
 
 Full matrix — signal source, what each can prove, confidence, and known limitations — in [Internals](https://github.com/Harrys76/sleuth/blob/main/doc/internals.md#detector-matrix).

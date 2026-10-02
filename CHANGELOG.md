@@ -154,6 +154,19 @@
   session, and recurrence trends go stale 120 cycles after their last
   presence even when it has left the 60-entry window. The type-name cache
   persists across scans and clears on hot reload.
+- `raster_dominance` fires without a VM. Each frame's `FrameTiming` raster
+  time is compared with its UI time: 3 frames within one second whose raster
+  time exceeds the per-frame floor and `gpuPressureRatio` × UI time raise it
+  as `likely` (new `ObservationSource.frameTiming`), critical when those
+  frames also exceeded the frame budget. Frames in the startup window
+  (`startupPhaseWindowSeconds`) are ignored. The VM leg is unchanged and
+  still emits `confirmed`; a scan emits at most one `raster_dominance`. A VM
+  disconnect keeps frame-sourced issues. Needs Frame Timing enabled.
+- `expensive_gpu_nodes` is `likely` when raster-dominant frames were seen
+  from either source; its text no longer asks for a VM connection.
+- `BaseDetector.processFrame(FrameStats)` (default no-op) receives every
+  presented frame on every tier. A detector that throws there is reported
+  once and skipped until the next scan.
 
 ### Testing
 

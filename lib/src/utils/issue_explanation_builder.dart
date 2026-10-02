@@ -1072,12 +1072,22 @@ class IssueExplanationBuilder {
           'Like a restaurant where the chef finishes dishes quickly but '
           'the waiter takes forever to serve them — the bottleneck is '
           'delivery, not preparation.\n\n'
-          '• Raster/UI ratio — Raster thread time divided by UI thread time '
-          '(e.g. "2.3×"). Normal: <1.5×. Alert: >2.0× (warning), >4.0× '
-          '(critical) (default, configurable).\n\n'
+          '• Raster/UI ratio — A frame\'s raster time divided by its UI '
+          'time (build + layout + paint), e.g. "2.3×". Normal: <1.5×. A '
+          'frame is raster-dominant above 2.0× when its raster time also '
+          'exceeds half the frame budget (8 ms at 60 Hz) (default, '
+          'configurable).\n\n'
+          '• Sustained rule — 3 raster-dominant frames within one second '
+          'since the last scan raise the issue as likely; critical when '
+          'those frames also exceeded the frame budget. Frames in the first '
+          'seconds after launch are ignored.\n\n'
+          '• VM timeline — When connected, the worst raster frame against '
+          'the UI thread total confirms it: >2.0× (warning), >4.0× '
+          '(critical).\n\n'
           '• Raster ms / UI ms — Absolute times for each thread. Both must '
-          'stay under 16.7ms to avoid jank.\n\n'
-          '• Source: VM Timeline thread durations.',
+          'stay under the frame budget (16.7ms at 60 Hz) to avoid jank.\n\n'
+          '• Source: Per-frame FrameTiming raster vs UI durations; VM '
+          'timeline corroborates.',
       whyItMatters:
           'Raster-thread bottlenecks cannot be solved by optimizing '
           'build() methods — the GPU is the constraint. Users see jank '
@@ -1117,7 +1127,8 @@ class IssueExplanationBuilder {
           'frame on mid-range devices.\n\n'
           '• Descendant count — Subtree size under each expensive node. '
           'Alert: >5 descendants under specific node types.\n\n'
-          '• Source: Structural render tree walk + VM raster timing.',
+          '• Source: Structural render tree walk, corroborated by '
+          'raster-dominant frames (FrameTiming or VM timeline).',
       whyItMatters:
           'Each saveLayer allocates an offscreen GPU buffer and requires '
           'an extra compositing pass. Stacking these (e.g., Opacity inside '

@@ -6,7 +6,8 @@ import '../demo_scaffold.dart';
 
 // ─────────────────────────────────────────
 // Demo 22: GPU Pressure
-// Triggers: GpuPressure detector (hybrid: structural + VM raster timing)
+// Triggers: GpuPressure detector (structural nodes + per-frame raster
+// timing; the VM timeline confirms when connected)
 // ─────────────────────────────────────────
 
 /// Demonstrates GPU pressure from stacking expensive rendering operations

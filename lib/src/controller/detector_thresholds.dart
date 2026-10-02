@@ -198,12 +198,17 @@ class DetectorThresholds {
   /// and the frame budget has not moved off `fpsTarget`.
   static const int defaultHeavyComputeGapMs = 8;
 
-  /// Raster-to-UI time ratio above which `GpuPressureDetector` flags a
-  /// frame as GPU-bound. Critical severity at 2× this value.
+  /// Raster-to-UI time ratio above which `GpuPressureDetector` counts a
+  /// frame as raster-dominant.
   ///
   /// **Default:** 2.0. Raster time is normally a small fraction of UI
   /// time; a ratio above 2 means the GPU is the bottleneck (excess
-  /// layers, saveLayer calls, or expensive shaders).
+  /// layers, saveLayer calls, or expensive shaders). Per frame
+  /// (`FrameTiming`, every tier): 3 raster-dominant frames inside one
+  /// second raise `raster_dominance` as likely, critical when those
+  /// frames also exceeded the frame budget. VM timeline: the worst raster
+  /// frame against the UI thread total confirms it, critical at 2× this
+  /// value.
   ///
   /// **Raise this** (e.g. 3.0) for games or intentionally GPU-heavy
   /// scenes. **Lower this** (e.g. 1.5) to catch GPU pressure earlier.

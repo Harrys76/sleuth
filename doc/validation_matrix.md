@@ -191,7 +191,7 @@ Navigate to each demo screen and verify the expected detector fires in the Issue
 | ShaderJank | (natural, first run) | Shader compilation detected (VM+ only) | |
 | MemoryPressure | (natural, under GC pressure) | GC pressure detected (VM+ only) | |
 | PlatformChannel | (not demoed) | Platform channel spikes (VM+ only) | |
-| GpuPressure | CustomPainter (partial) | Raster dominance detected (VM+ only) | |
+| GpuPressure | CustomPainter (partial) | Raster dominance detected (Basic+ (likely) / VM+ (confirmed)) | |
 | FrameTiming | Heavy Compute | Frame exceeded budget | |
 
 ---
