@@ -31,10 +31,12 @@ import 'sleuth_theme.dart';
 ///     at a glance from the top-level list — without it, multi-cause
 ///     issues are only visible by expanding one of their parent cards.
 ///  2. Single-parent downstream collapses under its parent when that
-///     parent is visible (legacy v0.24.x behaviour) — the parent's
-///     expanded "Related effects" sub-list shows it. If the parent is
-///     suppressed (not in the visible set), the downstream re-surfaces
-///     standalone so an orphan effect is not silently lost.
+///     parent is present AND the parent's severity is at least the
+///     child's — the parent's expanded "Related effects" sub-list shows
+///     it. A child more severe than its only parent stays standalone so
+///     a critical effect is never hidden under a warning card. If the
+///     parent is suppressed (not in the visible set), the downstream
+///     re-surfaces standalone so an orphan effect is not silently lost.
 ///  3. 0-parent issues (roots, standalone) always surface.
 ///
 /// Extracted in v0.15.5 so [_pruneStaleState] and [_buildIssuesList] agree
@@ -50,7 +52,19 @@ import 'sleuth_theme.dart';
 /// so only the first card would build lazily otherwise.
 @visibleForTesting
 List<PerformanceIssue> computeVisibleIssues(List<PerformanceIssue> issues) {
-  final allIds = <String>{for (final i in issues) i.stableId ?? i.title};
+  int rank(IssueSeverity s) => switch (s) {
+    IssueSeverity.critical => 2,
+    IssueSeverity.warning => 1,
+    IssueSeverity.ok => 0,
+  };
+  // id → highest severity rank among issues carrying that id.
+  final severityById = <String, int>{};
+  for (final i in issues) {
+    final id = i.stableId ?? i.title;
+    final r = rank(i.severity);
+    final prev = severityById[id];
+    if (prev == null || r > prev) severityById[id] = r;
+  }
   return issues.where((i) {
     final parents = i.rootCauseIds;
     if (parents == null || parents.isEmpty) return true;
@@ -60,9 +74,11 @@ List<PerformanceIssue> computeVisibleIssues(List<PerformanceIssue> issues) {
     // visible parent's "Related effects" list — bidirectional info,
     // accepted redundancy.
     if (parents.length >= 2) return true;
-    // Single-parent: collapse under visible parent (legacy); surface as
-    // orphan when parent suppressed.
-    return !allIds.contains(parents.first);
+    // Single-parent: collapse under a present parent that is at least as
+    // severe; surface when the parent is suppressed or less severe.
+    final parentRank = severityById[parents.first];
+    if (parentRank == null) return true;
+    return parentRank < rank(i.severity);
   }).toList();
 }
 
@@ -1147,12 +1163,9 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard> {
           );
         }
 
-        // Filter: show only root + standalone issues. Downstream issues
-        // (non-empty rootCauseIds) are collapsed under any visible root
-        // card. Exception: if every parent was suppressed (none in list),
-        // the downstream re-surfaces as standalone so an orphan effect
-        // is not lost. Centralized in v0.15.5; multi-parent semantics
-        // extended in v0.24.2.
+        // Filter: show roots, standalone issues, multi-parent effects, and
+        // single-parent effects whose parent is absent or less severe.
+        // See [computeVisibleIssues].
         final visibleIssues = computeVisibleIssues(issues);
 
         // Apply the freeze zone AFTER the summary bar reads the flow

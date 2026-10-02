@@ -765,6 +765,70 @@ void main() {
       expect(visible.map((i) => i.stableId).toList(), ['A', 'B', 'C']);
     });
 
+    // Single-parent collapse requires parent severity ≥ child severity so
+    // a critical effect is never hidden under a warning parent.
+    test('single parent: critical child of a warning parent stays visible', () {
+      final issues = [
+        _pinIssue(id: 'parent', severity: IssueSeverity.warning),
+        _pinIssue(
+          id: 'child',
+          severity: IssueSeverity.critical,
+          rootCauseIds: ['parent'],
+        ),
+      ];
+      final visible = computeVisibleIssues(issues);
+      expect(visible.map((i) => i.stableId).toList(), ['parent', 'child']);
+    });
+
+    test('single parent: warning child of a warning parent is hidden', () {
+      final issues = [
+        _pinIssue(id: 'parent', severity: IssueSeverity.warning),
+        _pinIssue(
+          id: 'child',
+          severity: IssueSeverity.warning,
+          rootCauseIds: ['parent'],
+        ),
+      ];
+      final visible = computeVisibleIssues(issues);
+      expect(visible.map((i) => i.stableId).toList(), ['parent']);
+    });
+
+    test('single parent: warning child of a critical parent is hidden', () {
+      final issues = [
+        _pinIssue(id: 'parent', severity: IssueSeverity.critical),
+        _pinIssue(
+          id: 'child',
+          severity: IssueSeverity.warning,
+          rootCauseIds: ['parent'],
+        ),
+      ];
+      final visible = computeVisibleIssues(issues);
+      expect(visible.map((i) => i.stableId).toList(), ['parent']);
+    });
+
+    test('two parents: child visible for every parent/child severity mix', () {
+      for (final childSeverity in IssueSeverity.values) {
+        for (final aSeverity in IssueSeverity.values) {
+          for (final bSeverity in IssueSeverity.values) {
+            final issues = [
+              _pinIssue(id: 'A', severity: aSeverity),
+              _pinIssue(id: 'B', severity: bSeverity),
+              _pinIssue(
+                id: 'child',
+                severity: childSeverity,
+                rootCauseIds: ['A', 'B'],
+              ),
+            ];
+            expect(
+              computeVisibleIssues(issues).map((i) => i.stableId),
+              contains('child'),
+              reason: 'child=$childSeverity A=$aSeverity B=$bSeverity',
+            );
+          }
+        }
+      }
+    });
+
     // v0.25.0 multi-parent visibility: ≥2 parents ALWAYS surfaces
     // standalone with the "Caused by" badge, regardless of how many of
     // those parents are individually visible. The bidirectional surface
