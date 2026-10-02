@@ -39,7 +39,7 @@ The effective rate is the measured cadence clamped to `[fpsTarget, display rate]
 
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
-| Frame Timing | FrameTiming API | Frame exceeded budget, thread attribution (UI-bound/raster-bound/pipeline stall) | Confirmed | Cannot attribute to specific widget |
+| Frame Timing | FrameTiming API | Frame exceeded budget, thread attribution (UI-bound/raster-bound/pipeline stall), judged on the frames since the current route was first scanned | Confirmed | Cannot attribute to specific widget; frames up to one scan tick after navigation count toward the previous route |
 | Network Monitor | HttpOverrides | Slow, excessive, oversized, error-spiking, or high-frequency same-path HTTP requests | Confirmed | Only `dart:io` `HttpClient` traffic is observed (including `package:http`'s default `IOClient` and Dio's default adapter); `cronet_http`, `cupertino_http`, and platform-SDK networking are invisible. `large_response` skips `image/`, `video/`, `audio/`, and `font/` responses |
 | Tracked Resource | `Sleuth.trackResource(name, ref)` + `WeakReference` + Finalizer | Concurrent retention (`> 5` live instances same name) and long-lived retention (single instance alive `> 300 s`) | Confirmed | Opt-in: user code must call `Sleuth.trackResource`. Cross-isolate registration is a no-op |
 
@@ -49,8 +49,8 @@ The effective rate is the measured cadence clamped to `[fpsTarget, display rate]
 |----------|-------------|-----------|------------|-------------------|
 | Shader Jank | VM Timeline begin/end pairs | Impeller Vulkan pipeline build or Skia shader compile ≥ 100 ms | Likely | Requires VM connection. Silent on Impeller Metal (pipelines precompiled) |
 | Heavy Compute | VM Timeline | Long UI-thread event | Confirmed | Requires VM connection |
-| Platform Channel | VM Timeline | High call frequency (count-only trigger; per-call max/p95 duration observed) | Confirmed | Requires VM connection and `debugProfilePlatformChannels` (opt in with `SleuthConfig(profilePlatformChannels: true)`, set after the VM connects; the framework then prints a stats table every second) |
-| Memory Pressure | VM GC events + heap polling | GC frequency elevated, heap growing steadily (linear regression), heap near capacity (>80%) | Likely / Confirmed | Requires VM connection |
+| Platform Channel | VM Timeline | High call frequency (count-only trigger; per-call max/p95 duration observed); the card stays 10 s after a burst | Confirmed | Requires VM connection and `debugProfilePlatformChannels` (opt in with `SleuthConfig(profilePlatformChannels: true)`, set after the VM connects; the framework then prints a stats table every second) |
+| Memory Pressure | VM GC events + heap polling + process RSS | GC frequency elevated (>180/min, scavenge / old-gen split stamped), heap growing steadily (linear regression), RSS at ≥80% of an opt-in `memoryBudgetBytes` while the heap grows | Likely | Requires VM connection; the budget rule is off unless `DetectorThresholds.memoryBudgetBytes` is set and needs RSS (unavailable on web) |
 | Stream Resource | `getAllocationProfile` class-instance diff (K=4 window) | Retained async resources (dart:async / dart:io / web_socket_channel / rxdart subjects) when `heap_growing` co-fires | Likely | Requires VM connection. Gated on `MemoryPressureDetector.isHeapGrowingActive` |
 
 ### Hybrid Detectors (VM + tree scan, degrade without VM)

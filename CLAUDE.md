@@ -6,7 +6,7 @@ Runtime performance diagnostics package for Flutter mobile apps. 20 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test --exclude-tags benchmark          # Default run (~3,376 tests; wall-clock benchmarks excluded)
+fvm flutter test --exclude-tags benchmark          # Default run (~3,549 tests; wall-clock benchmarks excluded)
 fvm flutter test --tags benchmark --concurrency=1  # Wall-clock benchmarks, serial (34 tests)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
@@ -15,7 +15,7 @@ fvm flutter pub publish --dry-run   # Verify publish readiness
 # Example app
 cd example && fvm flutter run --profile   # Profile mode (recommended)
 cd example && fvm flutter run             # Debug mode
-cd example && fvm flutter test            # Cookbook smoke tests (8 tests)
+cd example && fvm flutter test            # Cookbook smoke + demo widget tests (11 tests)
 
 # MCP sidecar (packages/sleuth_mcp/)
 cd packages/sleuth_mcp && dart test       # Sidecar tests (43 tests)
@@ -63,6 +63,8 @@ test/
 - Package is completely disabled in release mode (`kReleaseMode` guard).
 
 ## Current state
+
+**v0.37.0 memory / jank / channel** — `gc_pressure` default 180/min (idle apps with Sleuth's polling run 66–138) with `scavengeCount` / `oldGenCount` stamped from the raw `event.json?['gcType']` (`recordGcCycle({gcType})`; `MarkSweep`/`MarkCompact`/`StartConcurrentMark` old-gen, anything else scavenge). `heap_near_capacity` = RSS ≥ `memoryCapacityPercent` × opt-in `DetectorThresholds.memoryBudgetBytes` (null = off) in 4 of the last 5 samples while `heap_growing` is in `_issues` the same tick (trend evaluated first), critical/`likely`, identity = first crossing (`_budgetCrossingStart`); the Dart heap-ratio rule and `_capacityWindow` are gone. `FrameTimingDetector.markRouteEpoch()` (controller `routeChanged` branch, before structural scans and aggregation) drops jank issues and limits `_evaluateJank` to frames since the epoch (`_routeEpochFrameNumber` against `_totalFramesSeen`; `reset()`/`dispose()` clear it); jank carries `sourceRoute`. `PlatformChannelDetector.emissionPersistence` (10 s, injected clock) keeps the issue after the 3-window cooldown without re-emitting. Example: animated blur painter in the GPU demo; Tabbed Shell (`IndexedStack`) demo.
 
 **v0.37.0 frame budget** — `resolveFrameBudget` (`models/frame_budget.dart`) sets the jank budget from the measured vsync cadence (p10 of recent deltas in `FrameTimingDetector`) clamped to `[fpsTarget, display refresh rate]`; `SleuthController` pushes it via `updateFrameBudget` to FrameTiming / GpuPressure / HeavyCompute (constructor defaults unchanged; capture mode and `autoFrameBudget: false` stay fixed), `FrameStats.frameBudgetUs` classifies jank in µs, and heavy_compute / platform_channel stamp `interactionContext` at emission.
 

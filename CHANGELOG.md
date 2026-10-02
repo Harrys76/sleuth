@@ -220,6 +220,31 @@
 - `BaseDetector.processFrame(FrameStats)` (default no-op) receives every
   presented frame on every tier. A detector that throws there is reported
   once and skipped until the next scan.
+- `gc_pressure` defaults to more than 180 GC/min (`SleuthConfig.gcRateThresholdPerMin`,
+  previously 60): an idle app with Sleuth attached runs 60–140 scavenges per
+  minute from its own VM-service polling. Emissions stamp `scavengeCount` and
+  `oldGenCount`, read from each GC event's raw `gcType`.
+- `heap_near_capacity` measures process RSS against the new opt-in
+  `DetectorThresholds.memoryBudgetBytes` (default null: the issue is off). It
+  fires when RSS is at or above `memoryCapacityPercent` (default 0.80, now a
+  fraction of the budget) of the budget for 4 of the last 5 memory polls while
+  `heap_growing` is emitted; critical, `likely`, one identity per episode. The
+  Dart heap usage/capacity rule is removed: Dart grows capacity with usage, so
+  the ratio sat at 85–97 % on idle screens. Older capture files still carry
+  `heap_near_capacity` / `gc_pressure` records from the previous rules; no
+  audit reads them.
+- Jank is judged per route. `FrameTimingDetector.markRouteEpoch()`, called
+  when the scan loop sees a new route, drops `sustained_jank` /
+  `jank_detected` at once; later evaluations read only frames since then, and
+  emissions carry `sourceRoute`. Frames up to one scan tick after navigation
+  still count toward the previous route, and frames before the first scan
+  (startup) no longer count. The frame buffer, FPS and verdicts are unchanged.
+- `platform_channel_traffic` stays visible for 10 s after it fires
+  (`PlatformChannelDetector.emissionPersistence`). After the 3-window cooldown
+  the issue is kept unchanged, so a burst still records one trace event.
+- Example: the GPU Pressure demo animates six blurred circles (pause switch)
+  to raise `raster_dominance`; new Tabbed Shell demo (`IndexedStack`, one
+  structural pattern per tab).
 
 ### Testing
 

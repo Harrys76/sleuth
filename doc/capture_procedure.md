@@ -709,6 +709,12 @@ aboveCeilingMultiplier=1.95):**
   second 1 s evaluation cycle and the cooldown counter did not
   suppress. Retry the leg.
 
+After the 3-window cooldown the detector keeps the emitted issue for
+`emissionPersistence` (10 s from the emission) without re-emitting it:
+the retained issue carries the same `dedupIdentityMicros`, so it adds
+no trace record. Only a new overload after the cooldown emits a second
+record, which the count check above rejects.
+
 **Channel reuse.** The capture screen invokes
 `MethodChannel('sleuth_demo_channel').invokeMethod('ping')`. The
 channel and handler are registered at app launch in
