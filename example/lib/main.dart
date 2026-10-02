@@ -1,3 +1,5 @@
+import 'dart:convert' show jsonEncode;
+import 'dart:developer' as developer;
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -42,6 +44,7 @@ import 'demos/uncached_image_demo.dart';
 
 void main() {
   Sleuth.init();
+  _registerDemoExtensions();
   // Capture mode gated behind a dart-define so ordinary profile-mode runs
   // see no extra Timeline.instantSync traffic. Flip on for the
   // runtimeVerified capture procedure:
@@ -110,6 +113,7 @@ class SleuthDemoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'Sleuth Demo',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -153,327 +157,20 @@ class _DemoHomeState extends State<DemoHome> {
     _startDemoHandled = true;
     final request = _startDemoRequest();
     if (request == null) return;
-    final wanted = _demoSlug(request);
-    _DemoRoute? match;
-    for (final category in categories) {
-      for (final demo in category.demos) {
-        if (_demoSlug(demo.title) == wanted) match = demo;
-      }
-    }
-    if (match == null) {
+    final demo = _demoForSlug(request);
+    if (demo == null) {
       debugPrint('Sleuth demo: no demo matches SLEUTH_START_DEMO=$request');
       return;
     }
-    final demo = match;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          settings: RouteSettings(name: '/demo/${demo.title}'),
-          builder: demo.builder,
-        ),
-      );
+      _pushDemo(Navigator.of(context), demo);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final categories = <_DemoCategory>[
-      // ── Build ──
-      _DemoCategory(
-        title: 'Build',
-        icon: Icons.construction,
-        demos: [
-          _DemoRoute(
-            icon: Icons.refresh,
-            title: 'High-Level setState',
-            subtitle: 'Rebuild • SetStateScope detectors',
-            color: Colors.red,
-            builder: (_) => const HighLevelSetStateDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.insights,
-            title: 'Rebuild Hotspot (Dashboard)',
-            subtitle: 'Rebuild Stats rollup + drilldown (profile)',
-            color: Colors.pink,
-            builder: (_) => const RebuildHotspotDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.list,
-            title: 'Non-Lazy ListView',
-            subtitle: 'ListView detector',
-            color: Colors.orange,
-            builder: (_) => const NonLazyListDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.upload_file,
-            title: 'CSV Import',
-            subtitle: 'HeavyCompute warning + critical',
-            color: Colors.purple,
-            builder: (_) => const HeavyComputeDemo(),
-          ),
-        ],
-      ),
-
-      // ── Paint ──
-      _DemoCategory(
-        title: 'Paint',
-        icon: Icons.format_paint,
-        demos: [
-          _DemoRoute(
-            icon: Icons.graphic_eq,
-            title: 'Live Waveform',
-            subtitle: 'Repaint: aggregate + per-widget',
-            color: Colors.blueGrey,
-            builder: (_) => const RepaintStressDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.brush,
-            title: 'Always-Repaint CustomPainter',
-            subtitle: 'CustomPainter detector',
-            color: Colors.green,
-            builder: (_) => const CustomPainterDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.border_outer,
-            title: 'Missing RepaintBoundary',
-            subtitle: 'RepaintBoundary detector (structural)',
-            color: Colors.deepPurple,
-            builder: (_) => const RepaintBoundaryDemo(),
-          ),
-        ],
-      ),
-
-      // ── GPU & Rendering ──
-      _DemoCategory(
-        title: 'GPU & Rendering',
-        icon: Icons.layers,
-        demos: [
-          _DemoRoute(
-            icon: Icons.memory_outlined,
-            title: 'GPU Pressure',
-            subtitle: 'GpuPressure detector (hybrid)',
-            color: Colors.deepOrange,
-            builder: (_) => const GpuPressureDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.blur_on,
-            title: 'Shader Jank',
-            subtitle: 'Pipeline builds (Vulkan, Skia)',
-            color: Colors.indigo,
-            builder: (_) => const ShaderJankDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.local_fire_department,
-            title: 'FPS Stress Test (~20 FPS)',
-            subtitle: 'Heavy compute + GPU blur every frame',
-            color: Colors.red,
-            builder: (_) => const FpsStressTestDemo(),
-          ),
-        ],
-      ),
-
-      // ── Layout ──
-      _DemoCategory(
-        title: 'Layout',
-        icon: Icons.grid_on,
-        demos: [
-          _DemoRoute(
-            icon: Icons.height,
-            title: 'IntrinsicHeight Abuse',
-            subtitle: 'LayoutBottleneck detector',
-            color: Colors.amber,
-            builder: (_) => const IntrinsicHeightDemo(),
-          ),
-        ],
-      ),
-
-      // ── Memory ──
-      _DemoCategory(
-        title: 'Memory',
-        icon: Icons.memory,
-        demos: [
-          _DemoRoute(
-            icon: Icons.image,
-            title: 'Uncached Images',
-            subtitle: 'ImageMemory detector',
-            color: Colors.teal,
-            builder: (_) => const UncachedImageDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.data_array,
-            title: 'Memory Pressure',
-            subtitle: 'MemoryPressure detector (VM-only)',
-            color: Colors.purple,
-            builder: (_) => const MemoryPressureDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.all_inclusive,
-            title: 'KeepAlive Overuse',
-            subtitle: 'KeepAlive detector (>5 alive)',
-            color: Colors.pink,
-            builder: (_) => const KeepAliveDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.stream,
-            title: 'Stream Resource Leaks',
-            subtitle: 'StreamResource detector (Timer + Controller leaks)',
-            color: Colors.deepPurple,
-            builder: (_) => const StreamResourceDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.bookmark_added,
-            title: 'Tracked Resource Leaks',
-            subtitle: 'Sleuth.trackResource opt-in retention tracking',
-            color: Colors.indigo,
-            builder: (_) => const TrackedResourceDemo(),
-          ),
-        ],
-      ),
-
-      // ── Network & I/O ──
-      _DemoCategory(
-        title: 'Network & I/O',
-        icon: Icons.cloud,
-        demos: [
-          _DemoRoute(
-            icon: Icons.search,
-            title: 'Search + Gallery',
-            subtitle: 'NetworkMonitor: slow / frequency / large',
-            color: Colors.orange,
-            builder: (_) => const NetworkStressDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.settings_input_hdmi,
-            title: 'Platform Channel Traffic',
-            subtitle: 'PlatformChannel detector (>20/sec)',
-            color: Colors.blueGrey,
-            builder: (_) => const PlatformChannelDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.font_download,
-            title: 'Font Loading Stress',
-            subtitle: 'FontLoading detector (>3 custom fonts)',
-            color: Colors.deepOrange,
-            builder: (_) => const FontLoadingDemo(),
-          ),
-        ],
-      ),
-
-      // ── Custom Detectors ──
-      _DemoCategory(
-        title: 'Custom Detectors',
-        icon: Icons.extension,
-        demos: [
-          _DemoRoute(
-            icon: Icons.extension_outlined,
-            title: 'Custom Detector Cookbook',
-            subtitle: 'Tooltip • Slow frame • Raster hot spot (cookbook)',
-            color: Colors.deepPurple,
-            builder: (_) => const CustomDetectorCookbookDemo(),
-          ),
-        ],
-      ),
-
-      // ── Combined ──
-      _DemoCategory(
-        title: 'Combined',
-        icon: Icons.dashboard,
-        demos: [
-          _DemoRoute(
-            icon: Icons.dynamic_feed,
-            title: 'Combined: Social Feed',
-            subtitle: 'Image • Layout • setState • Correlator',
-            color: Colors.deepPurple,
-            builder: (_) => const CombinedSocialFeedDemo(),
-          ),
-          _DemoRoute(
-            icon: Icons.chat,
-            title: 'Combined: Chat App',
-            subtitle: 'Rebuild + KeepAlive + Channel + SetState',
-            color: Colors.blue,
-            builder: (_) => const CombinedChatDemo(),
-          ),
-        ],
-      ),
-
-      // ── Capture Helpers ──
-      // Operator-only tooling for the runtimeVerified bracket-recording
-      // procedure (see doc/capture_procedure.md). Each helper drives
-      // Sleuth.markScenarioBegin/End around a workload at known magnitude
-      // (below / at / above the bracket band) so detectors emit captured
-      // trace records on real devices.
-      _DemoCategory(
-        title: 'Capture Helpers',
-        icon: Icons.videocam,
-        demos: [
-          _DemoRoute(
-            icon: Icons.speed,
-            title: 'HeavyCompute',
-            subtitle: 'heavy_compute warning + critical brackets',
-            color: Colors.purple,
-            builder: (_) => const HeavyComputeCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.refresh,
-            title: 'RebuildActivity',
-            subtitle: 'rebuild_activity warning + critical brackets',
-            color: Colors.teal,
-            builder: (_) => const RebuildActivityCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.timeline,
-            title: 'FrameTiming (jank_detected)',
-            subtitle: 'jank_detected warning bracket (60Hz)',
-            color: Colors.indigo,
-            builder: (_) => const FrameTimingCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.data_array,
-            title: 'MemoryPressure',
-            subtitle: 'heap_growing warning bracket',
-            color: Colors.purple,
-            builder: (_) => const MemoryPressureCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.cloud_download,
-            title: 'NetworkMonitor',
-            subtitle: 'slow_request warning + critical brackets',
-            color: Colors.orange,
-            builder: (_) => const NetworkMonitorCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.settings_input_hdmi,
-            title: 'PlatformChannel',
-            subtitle: 'platform_channel_traffic warning bracket',
-            color: Colors.blueGrey,
-            builder: (_) => const PlatformChannelCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.brush,
-            title: 'Repaint',
-            subtitle: 'excessive_repaint warning bracket',
-            color: Colors.pink,
-            builder: (_) => const RepaintCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.stream,
-            title: 'StreamResource',
-            subtitle: 'stream_resource_growth warning bracket',
-            color: Colors.deepPurple,
-            builder: (_) => const StreamResourceCaptureScreen(),
-          ),
-          _DemoRoute(
-            icon: Icons.track_changes,
-            title: 'TrackedResource',
-            subtitle: 'tracked_resource_concurrent warning bracket',
-            color: Colors.teal,
-            builder: (_) => const TrackedResourceCaptureScreen(),
-          ),
-        ],
-      ),
-    ];
+    final categories = _demoCategories();
     _openStartDemo(categories);
 
     return Scaffold(
@@ -546,6 +243,357 @@ class _CategoryHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Every demo, grouped as the home screen shows them. Shared by the home
+/// list, the launch hook, and the `ext.sleuthDemo.*` service extensions.
+List<_DemoCategory> _demoCategories() => <_DemoCategory>[
+  // ── Build ──
+  _DemoCategory(
+    title: 'Build',
+    icon: Icons.construction,
+    demos: [
+      _DemoRoute(
+        icon: Icons.refresh,
+        title: 'High-Level setState',
+        subtitle: 'Rebuild • SetStateScope detectors',
+        color: Colors.red,
+        builder: (_) => const HighLevelSetStateDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.insights,
+        title: 'Rebuild Hotspot (Dashboard)',
+        subtitle: 'Rebuild Stats rollup + drilldown (profile)',
+        color: Colors.pink,
+        builder: (_) => const RebuildHotspotDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.list,
+        title: 'Non-Lazy ListView',
+        subtitle: 'ListView detector',
+        color: Colors.orange,
+        builder: (_) => const NonLazyListDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.upload_file,
+        title: 'CSV Import',
+        subtitle: 'HeavyCompute warning + critical',
+        color: Colors.purple,
+        builder: (_) => const HeavyComputeDemo(),
+      ),
+    ],
+  ),
+
+  // ── Paint ──
+  _DemoCategory(
+    title: 'Paint',
+    icon: Icons.format_paint,
+    demos: [
+      _DemoRoute(
+        icon: Icons.graphic_eq,
+        title: 'Live Waveform',
+        subtitle: 'Repaint: aggregate + per-widget',
+        color: Colors.blueGrey,
+        builder: (_) => const RepaintStressDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.brush,
+        title: 'Always-Repaint CustomPainter',
+        subtitle: 'CustomPainter detector',
+        color: Colors.green,
+        builder: (_) => const CustomPainterDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.border_outer,
+        title: 'Missing RepaintBoundary',
+        subtitle: 'RepaintBoundary detector (structural)',
+        color: Colors.deepPurple,
+        builder: (_) => const RepaintBoundaryDemo(),
+      ),
+    ],
+  ),
+
+  // ── GPU & Rendering ──
+  _DemoCategory(
+    title: 'GPU & Rendering',
+    icon: Icons.layers,
+    demos: [
+      _DemoRoute(
+        icon: Icons.memory_outlined,
+        title: 'GPU Pressure',
+        subtitle: 'GpuPressure detector (hybrid)',
+        color: Colors.deepOrange,
+        builder: (_) => const GpuPressureDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.blur_on,
+        title: 'Shader Jank',
+        subtitle: 'Pipeline builds (Vulkan, Skia)',
+        color: Colors.indigo,
+        builder: (_) => const ShaderJankDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.local_fire_department,
+        title: 'FPS Stress Test (~20 FPS)',
+        subtitle: 'Heavy compute + GPU blur every frame',
+        color: Colors.red,
+        builder: (_) => const FpsStressTestDemo(),
+      ),
+    ],
+  ),
+
+  // ── Layout ──
+  _DemoCategory(
+    title: 'Layout',
+    icon: Icons.grid_on,
+    demos: [
+      _DemoRoute(
+        icon: Icons.height,
+        title: 'IntrinsicHeight Abuse',
+        subtitle: 'LayoutBottleneck detector',
+        color: Colors.amber,
+        builder: (_) => const IntrinsicHeightDemo(),
+      ),
+    ],
+  ),
+
+  // ── Memory ──
+  _DemoCategory(
+    title: 'Memory',
+    icon: Icons.memory,
+    demos: [
+      _DemoRoute(
+        icon: Icons.image,
+        title: 'Uncached Images',
+        subtitle: 'ImageMemory detector',
+        color: Colors.teal,
+        builder: (_) => const UncachedImageDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.data_array,
+        title: 'Memory Pressure',
+        subtitle: 'MemoryPressure detector (VM-only)',
+        color: Colors.purple,
+        builder: (_) => const MemoryPressureDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.all_inclusive,
+        title: 'KeepAlive Overuse',
+        subtitle: 'KeepAlive detector (>5 alive)',
+        color: Colors.pink,
+        builder: (_) => const KeepAliveDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.stream,
+        title: 'Stream Resource Leaks',
+        subtitle: 'StreamResource detector (Timer + Controller leaks)',
+        color: Colors.deepPurple,
+        builder: (_) => const StreamResourceDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.bookmark_added,
+        title: 'Tracked Resource Leaks',
+        subtitle: 'Sleuth.trackResource opt-in retention tracking',
+        color: Colors.indigo,
+        builder: (_) => const TrackedResourceDemo(),
+      ),
+    ],
+  ),
+
+  // ── Network & I/O ──
+  _DemoCategory(
+    title: 'Network & I/O',
+    icon: Icons.cloud,
+    demos: [
+      _DemoRoute(
+        icon: Icons.search,
+        title: 'Search + Gallery',
+        subtitle: 'NetworkMonitor: slow / frequency / large',
+        color: Colors.orange,
+        builder: (_) => const NetworkStressDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.settings_input_hdmi,
+        title: 'Platform Channel Traffic',
+        subtitle: 'PlatformChannel detector (>20/sec)',
+        color: Colors.blueGrey,
+        builder: (_) => const PlatformChannelDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.font_download,
+        title: 'Font Loading Stress',
+        subtitle: 'FontLoading detector (>3 custom fonts)',
+        color: Colors.deepOrange,
+        builder: (_) => const FontLoadingDemo(),
+      ),
+    ],
+  ),
+
+  // ── Custom Detectors ──
+  _DemoCategory(
+    title: 'Custom Detectors',
+    icon: Icons.extension,
+    demos: [
+      _DemoRoute(
+        icon: Icons.extension_outlined,
+        title: 'Custom Detector Cookbook',
+        subtitle: 'Tooltip • Slow frame • Raster hot spot (cookbook)',
+        color: Colors.deepPurple,
+        builder: (_) => const CustomDetectorCookbookDemo(),
+      ),
+    ],
+  ),
+
+  // ── Combined ──
+  _DemoCategory(
+    title: 'Combined',
+    icon: Icons.dashboard,
+    demos: [
+      _DemoRoute(
+        icon: Icons.dynamic_feed,
+        title: 'Combined: Social Feed',
+        subtitle: 'Image • Layout • setState • Correlator',
+        color: Colors.deepPurple,
+        builder: (_) => const CombinedSocialFeedDemo(),
+      ),
+      _DemoRoute(
+        icon: Icons.chat,
+        title: 'Combined: Chat App',
+        subtitle: 'Rebuild + KeepAlive + Channel + SetState',
+        color: Colors.blue,
+        builder: (_) => const CombinedChatDemo(),
+      ),
+    ],
+  ),
+
+  // ── Capture Helpers ──
+  // Operator-only tooling for the runtimeVerified bracket-recording
+  // procedure (see doc/capture_procedure.md). Each helper drives
+  // Sleuth.markScenarioBegin/End around a workload at known magnitude
+  // (below / at / above the bracket band) so detectors emit captured
+  // trace records on real devices.
+  _DemoCategory(
+    title: 'Capture Helpers',
+    icon: Icons.videocam,
+    demos: [
+      _DemoRoute(
+        icon: Icons.speed,
+        title: 'HeavyCompute',
+        subtitle: 'heavy_compute warning + critical brackets',
+        color: Colors.purple,
+        builder: (_) => const HeavyComputeCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.refresh,
+        title: 'RebuildActivity',
+        subtitle: 'rebuild_activity warning + critical brackets',
+        color: Colors.teal,
+        builder: (_) => const RebuildActivityCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.timeline,
+        title: 'FrameTiming (jank_detected)',
+        subtitle: 'jank_detected warning bracket (60Hz)',
+        color: Colors.indigo,
+        builder: (_) => const FrameTimingCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.data_array,
+        title: 'MemoryPressure',
+        subtitle: 'heap_growing warning bracket',
+        color: Colors.purple,
+        builder: (_) => const MemoryPressureCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.cloud_download,
+        title: 'NetworkMonitor',
+        subtitle: 'slow_request warning + critical brackets',
+        color: Colors.orange,
+        builder: (_) => const NetworkMonitorCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.settings_input_hdmi,
+        title: 'PlatformChannel',
+        subtitle: 'platform_channel_traffic warning bracket',
+        color: Colors.blueGrey,
+        builder: (_) => const PlatformChannelCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.brush,
+        title: 'Repaint',
+        subtitle: 'excessive_repaint warning bracket',
+        color: Colors.pink,
+        builder: (_) => const RepaintCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.stream,
+        title: 'StreamResource',
+        subtitle: 'stream_resource_growth warning bracket',
+        color: Colors.deepPurple,
+        builder: (_) => const StreamResourceCaptureScreen(),
+      ),
+      _DemoRoute(
+        icon: Icons.track_changes,
+        title: 'TrackedResource',
+        subtitle: 'tracked_resource_concurrent warning bracket',
+        color: Colors.teal,
+        builder: (_) => const TrackedResourceCaptureScreen(),
+      ),
+    ],
+  ),
+];
+
+final _navigatorKey = GlobalKey<NavigatorState>();
+
+_DemoRoute? _demoForSlug(String request) {
+  final wanted = _demoSlug(request);
+  for (final category in _demoCategories()) {
+    for (final demo in category.demos) {
+      if (_demoSlug(demo.title) == wanted) return demo;
+    }
+  }
+  return null;
+}
+
+void _pushDemo(NavigatorState navigator, _DemoRoute demo) {
+  navigator.push(
+    MaterialPageRoute<void>(
+      settings: RouteSettings(name: '/demo/${demo.title}'),
+      builder: demo.builder,
+    ),
+  );
+}
+
+/// `ext.sleuthDemo.open` (`demo: <slug>`) pushes a demo and
+/// `ext.sleuthDemo.pop` returns to the home screen, so a profile build can
+/// be walked from a VM service client without touching the screen.
+void _registerDemoExtensions() {
+  developer.registerExtension('ext.sleuthDemo.open', (method, params) async {
+    final request = params['demo'] ?? '';
+    final demo = _demoForSlug(request);
+    final navigator = _navigatorKey.currentState;
+    if (demo == null || navigator == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.extensionError,
+        jsonEncode({
+          'error': demo == null ? 'unknown_demo' : 'no_navigator',
+          'demo': request,
+        }),
+      );
+    }
+    _pushDemo(navigator, demo);
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({'opened': demo.title, 'route': '/demo/${demo.title}'}),
+    );
+  });
+  developer.registerExtension('ext.sleuthDemo.pop', (method, params) async {
+    final navigator = _navigatorKey.currentState;
+    final popped = navigator != null && navigator.canPop();
+    if (popped) navigator.pop();
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({'popped': popped}),
+    );
+  });
 }
 
 // ── Demo tile ──
