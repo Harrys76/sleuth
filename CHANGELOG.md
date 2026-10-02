@@ -12,6 +12,16 @@
   first platform view.
 - Profile-capture recordings remain pinned to Flutter 3.41
   (`approvedFlutterMajorMinor`); unchanged in this release.
+- Encyclopedia, fix-hint, detector-description, guide, and README text now
+  match detector behavior (thresholds, Impeller-era shader and repaint
+  guidance, profile-mode axis wording, mode table).
+- Encyclopedia entries for detectors removed in 0.20.0 are labelled legacy.
+- `non_lazy_listview` / `non_lazy_gridview` / `non_lazy_sliver_list` /
+  `non_lazy_sliver_grid` resolve to the `non_lazy_list` encyclopedia entry
+  (Learn more, AI context, `ext.sleuth.explain`).
+- Explanation placeholders (`{routeName}`, `{count}`, `{widgetName}`) are
+  substituted in the AI prompt and in `ext.sleuth.explain` /
+  `ext.sleuth.encyclopedia` payloads.
 
 `kSleuthPackageVersion` → 0.36.1. Sidecar `sleuth_mcp` 0.7.3 pins 0.36.1.
 
