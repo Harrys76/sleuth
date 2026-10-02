@@ -79,7 +79,10 @@ class AiContextBuilder {
     buf.writeln();
 
     // 3. Encyclopedia knowledge
-    final explanation = IssueExplanationBuilder.explain(issue.stableId);
+    final rawExplanation = IssueExplanationBuilder.explain(issue.stableId);
+    final explanation = rawExplanation == null
+        ? null
+        : IssueExplanationBuilder.substitute(rawExplanation, issue);
     if (explanation != null) {
       buf.writeln('## Encyclopedia Knowledge');
       buf.writeln('What it is: ${explanation.whatItIs}');

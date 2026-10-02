@@ -20,6 +20,7 @@ SleuthController _newController() {
 
 PerformanceIssue _issue({
   String stableId = 'jank_detected',
+  String title = 'Test issue',
   String? routeName,
   String? sourceRoute,
   IssueSeverity severity = IssueSeverity.warning,
@@ -27,7 +28,7 @@ PerformanceIssue _issue({
   severity: severity,
   category: IssueCategory.build,
   confidence: IssueConfidence.likely,
-  title: 'Test issue',
+  title: title,
   detail: 'detail',
   fixHint: 'fix',
   stableId: stableId,
@@ -36,6 +37,13 @@ PerformanceIssue _issue({
 );
 
 const _envelopeKeys = {'connectionMode', 'schemaVersion', 'sessionUuid'};
+
+// Matches an unsubstituted `{placeholder}` token. Bare braces in code
+// examples (e.g. `Widget build(context) {`) are legitimate text.
+final _placeholder = RegExp(r'\{[a-zA-Z]+\}');
+
+Iterable<String> _stringValues(Map<String, Object?> explanation) =>
+    explanation.values.whereType<String>();
 
 void main() {
   group('envelope shape', () {
@@ -258,6 +266,53 @@ void main() {
       final data = env['data'] as Map<String, Object?>;
       expect(data['count'], IssueExplanationBuilder.allExplanations.length);
       expect(data['entries'], isA<Map<String, Object?>>());
+    });
+
+    test('explain without a live issue uses neutral placeholders', () async {
+      final c = _newController();
+      final env = await extExplainHandler(c, const {
+        'stableId': 'rebuild_activity',
+      });
+      final data = env['data'] as Map<String, Object?>;
+      final explanation = data['explanation'] as Map<String, Object?>;
+      expect(explanation['whatItIs'], contains('N build passes'));
+      for (final value in _stringValues(explanation)) {
+        expect(value, isNot(contains('{')));
+      }
+    });
+
+    test('explain fills placeholders from the matching live issue', () async {
+      final c = _newController();
+      c.issuesNotifier.value = [
+        _issue(
+          stableId: 'non_lazy_listview',
+          title: 'ListView with 120 children',
+        ),
+      ];
+      final env = await extExplainHandler(c, const {
+        'stableId': 'non_lazy_listview',
+      });
+      final data = env['data'] as Map<String, Object?>;
+      expect(data['canonical'], 'non_lazy_list');
+      final explanation = data['explanation'] as Map<String, Object?>;
+      expect(explanation['whatItIs'], contains('120'));
+    });
+
+    test('encyclopedia entries carry no unsubstituted placeholders', () async {
+      final c = _newController();
+      final env = await extEncyclopediaHandler(c, const {});
+      final data = env['data'] as Map<String, Object?>;
+      final entries = data['entries'] as Map<String, Object?>;
+      for (final entry in entries.entries) {
+        final explanation = entry.value as Map<String, Object?>;
+        for (final value in _stringValues(explanation)) {
+          expect(
+            _placeholder.hasMatch(value),
+            isFalse,
+            reason: '${entry.key}: $value',
+          );
+        }
+      }
     });
 
     test('causalGraph returns pre-serialised rules', () async {

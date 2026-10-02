@@ -159,6 +159,8 @@ Underlying shape: `RouteSession.toJson()` in `lib/src/models/route_session.dart`
 
 Encyclopedia entry for a stableId. Args: `stableId` (String, **required**, `minLength: 1`).
 
+Placeholder text (route, widget, count) reflects the matching live issue when one exists, otherwise neutral wording; `encyclopedia` entries always use neutral wording.
+
 | `data` key | Type | Required | Notes |
 |---|---|---|---|
 | `stableId` | String | yes | as-passed |

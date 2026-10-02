@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 
 import '../analyzer/causal_graph.dart';
 import '../controller/sleuth_controller.dart';
+import '../models/performance_issue.dart';
 import '../models/route_session.dart';
 import '../models/snapshot_sections.dart';
 import '../utils/issue_explanation_builder.dart';
@@ -318,6 +319,9 @@ FutureOr<Map<String, Object?>> extRouteHealthHandler(
 
 /// `ext.sleuth.explain` — encyclopedia entry for a `stableId`. Parametric /
 /// dynamic suffixes resolve through `IssueExplanationBuilder.canonicalId`.
+/// Placeholders are filled from the first live issue matching the exact
+/// `stableId` (else the first matching the canonical id); with no live
+/// match they get neutral wording.
 FutureOr<Map<String, Object?>> extExplainHandler(
   SleuthController controller,
   Map<String, String> args,
@@ -339,12 +343,32 @@ FutureOr<Map<String, Object?>> extExplainHandler(
       extra: <String, Object?>{'stableId': stableId, 'canonical': canonical},
     );
   }
+  final live = controller.issuesNotifier.value;
+  PerformanceIssue? match;
+  for (final issue in live) {
+    if (issue.stableId == stableId) {
+      match = issue;
+      break;
+    }
+  }
+  if (match == null) {
+    for (final issue in live) {
+      final id = issue.stableId;
+      if (id != null && IssueExplanationBuilder.canonicalId(id) == canonical) {
+        match = issue;
+        break;
+      }
+    }
+  }
+  final explanation = match == null
+      ? IssueExplanationBuilder.substituteNeutral(entry)
+      : IssueExplanationBuilder.substitute(entry, match);
   return envelopeOk(
     controller: controller,
     data: <String, Object?>{
       'stableId': stableId,
       'canonical': canonical,
-      'explanation': _explanationToMap(entry),
+      'explanation': _explanationToMap(explanation),
     },
   );
 }
@@ -361,7 +385,9 @@ FutureOr<Map<String, Object?>> extEncyclopediaHandler(
       'count': entries.length,
       'entries': <String, Object?>{
         for (final entry in entries.entries)
-          entry.key: _explanationToMap(entry.value),
+          entry.key: _explanationToMap(
+            IssueExplanationBuilder.substituteNeutral(entry.value),
+          ),
       },
     },
   );

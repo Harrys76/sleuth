@@ -51,7 +51,65 @@ class IssueExplanationBuilder {
     IssueExplanation template,
     PerformanceIssue issue,
   ) {
-    String apply(String text) => _substitutePlaceholders(text, issue);
+    final countMatch = _countExtractor.firstMatch(issue.title);
+    return _applyReplacements(template, {
+      '{widgetName}': issue.widgetName ?? 'the widget',
+      '{routeName}': issue.routeDisplayName ?? 'the current route',
+      '{severity}': issue.severity == IssueSeverity.critical
+          ? 'critical'
+          : 'warning',
+      '{count}': countMatch?.group(1) ?? 'several',
+      '{title}': issue.title,
+      '{stableId}': issue.stableId ?? '',
+    });
+  }
+
+  /// Substitute placeholders with neutral wording when no concrete issue is
+  /// available (encyclopedia-wide payloads, explanations requested by id):
+  ///
+  /// - `{widgetName}` → `'the widget'`
+  /// - `{routeName}`  → `'the current route'`
+  /// - `{count}`      → `'N'`
+  /// - `{severity}`   → `'this'`
+  /// - `{title}`      → the entry's `displayName`
+  /// - `{stableId}`   → the entry's canonical key, or `''` if the template
+  ///                    is not a registered entry
+  static IssueExplanation substituteNeutral(IssueExplanation template) {
+    var key = '';
+    for (final entry in _explanations.entries) {
+      if (identical(entry.value, template) || entry.value == template) {
+        key = entry.key;
+        break;
+      }
+    }
+    return _applyReplacements(template, {
+      '{widgetName}': 'the widget',
+      '{routeName}': 'the current route',
+      '{count}': 'N',
+      '{severity}': 'this',
+      '{title}': template.displayName,
+      '{stableId}': key,
+    });
+  }
+
+  // IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
+  // (fires only on subclassing). Remove when analyzer-server recognizes the
+  // implement-only kind.
+  // ignore: deprecated_member_use
+  static final RegExp _countExtractor = RegExp(r'(\d+)');
+
+  static IssueExplanation _applyReplacements(
+    IssueExplanation template,
+    Map<String, String> replacements,
+  ) {
+    String apply(String text) {
+      var out = text;
+      for (final r in replacements.entries) {
+        out = out.replaceAll(r.key, r.value);
+      }
+      return out;
+    }
+
     return (
       displayName: template.displayName,
       category: template.category,
@@ -66,29 +124,6 @@ class IssueExplanationBuilder {
           : apply(template.whenToIgnore!),
       relatedIssues: template.relatedIssues,
     );
-  }
-
-  // IDE analyzer false-positive: dart:core RegExp uses @Deprecated.implement
-  // (fires only on subclassing). Remove when analyzer-server recognizes the
-  // implement-only kind.
-  // ignore: deprecated_member_use
-  static final RegExp _countExtractor = RegExp(r'(\d+)');
-
-  static String _substitutePlaceholders(String text, PerformanceIssue issue) {
-    final widgetName = issue.widgetName ?? 'the widget';
-    final routeName = issue.routeDisplayName ?? 'the current route';
-    final severity = issue.severity == IssueSeverity.critical
-        ? 'critical'
-        : 'warning';
-    final countMatch = _countExtractor.firstMatch(issue.title);
-    final count = countMatch?.group(1) ?? 'several';
-    return text
-        .replaceAll('{widgetName}', widgetName)
-        .replaceAll('{routeName}', routeName)
-        .replaceAll('{severity}', severity)
-        .replaceAll('{count}', count)
-        .replaceAll('{title}', issue.title)
-        .replaceAll('{stableId}', issue.stableId ?? '');
   }
 
   /// All explanations for the encyclopedia page.

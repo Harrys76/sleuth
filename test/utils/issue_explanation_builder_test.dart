@@ -645,5 +645,27 @@ void main() {
         );
       });
     });
+
+    test('substituteNeutral leaves no placeholder in any entry', () {
+      // Bare braces in code examples are legitimate; only `{word}` tokens
+      // are placeholders.
+      final placeholder = RegExp(r'\{[a-zA-Z]+\}');
+      for (final entry in IssueExplanationBuilder.allExplanations.entries) {
+        final e = IssueExplanationBuilder.substituteNeutral(entry.value);
+        for (final text in [
+          e.whatItIs,
+          e.readingTheData,
+          e.whyItMatters,
+          e.howToFix,
+          e.whenToIgnore,
+        ].whereType<String>()) {
+          expect(
+            placeholder.hasMatch(text),
+            isFalse,
+            reason: '${entry.key}: $text',
+          );
+        }
+      }
+    });
   });
 }

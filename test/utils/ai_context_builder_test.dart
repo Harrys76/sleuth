@@ -266,4 +266,21 @@ void main() {
       expect(questions.any((q) => q.contains('this widget')), isTrue);
     });
   });
+
+  group('AiContextBuilder encyclopedia placeholders', () {
+    test('substitutes route into heavy_compute explanation', () {
+      final prompt = AiContextBuilder.buildSystemPrompt(
+        issue: makeIssue(
+          stableId: 'heavy_compute',
+          category: IssueCategory.build,
+          routeName: '/home',
+        ),
+      );
+      final encyclopedia = prompt.substring(
+        prompt.indexOf('## Encyclopedia Knowledge'),
+      );
+      expect(encyclopedia, contains('/home'));
+      expect(prompt, isNot(contains('{routeName}')));
+    });
+  });
 }
