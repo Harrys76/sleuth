@@ -12,6 +12,7 @@ import '../validation/evidence_tier.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/framework_painters.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
@@ -355,8 +356,12 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
       _subtreeSizeStack.last += subtreeSize + 1;
     }
 
+    // Only the element that owns a render object judges it. Wrapper
+    // elements (a Material, a Builder) resolve `renderObject` to the same
+    // descendant render object and would report it once more each, with
+    // a subtree one larger per hop.
+    if (element is! RenderObjectElement) return;
     final ro = element.renderObject;
-    if (ro == null) return;
 
     // Direct type checks — no runtimeType.toString() allocation.
     // Excludes RenderPhysicalModel/Shape (Card, Material) — these are
@@ -371,6 +376,9 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
       if (val >= 1.0 || val <= 0.0) return; // no-op or short-circuit
       typeName = 'RenderOpacity';
     } else if (ro is RenderClipPath) {
+      // The clip a transparency Material builds for its own shape is
+      // framework-owned (buttons, chips); only user ClipPaths count.
+      if (isMaterialOwnClip(element)) return;
       typeName = 'RenderClipPath';
     } else if (ro is RenderBackdropFilter) {
       if (element.widget is BackdropFilter) {
@@ -610,7 +618,8 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         '`likely`. `expensive_gpu_nodes` (structural): subtree-size strict '
         '`> 5` gate over 4 RenderObject checks (`RenderOpacity` with '
         'opacity-value short-circuit at 0.0 / 1.0 pinned by 4-axis '
-        'matrix; `RenderClipPath`; `RenderBackdropFilter` with sigma '
+        'matrix; `RenderClipPath` except the clip a transparency `Material` '
+        'builds for its own shape; `RenderBackdropFilter` with sigma '
         '3-band — ≤ 2.0 suppressed, (2.0, 10.0] warning highlight, '
         '> 10.0 critical highlight; `RenderShaderMask`) plus 1 '
         'widget-level check (`element.widget is ColorFiltered`; '

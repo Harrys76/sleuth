@@ -25,6 +25,17 @@
 
 ### Behavior changes
 
+- Timeline begin/end reconstruction discards a pair longer than 2 s and
+  evicts a pending begin older than that when the next begin arrives. Under
+  heavy jank the VM drops events; a lost begin let a later end pair with a
+  stale one and report the gap between two frames as a multi-second
+  `heavy_compute` or raster scope.
+- `expensive_gpu_nodes` no longer counts the `ClipPath` a transparency
+  `Material` builds for its own shape (buttons, chips); user `ClipPath`s
+  still count. One render object is now reported once: wrapper elements
+  above it (a `Material`, a `Builder`) used to add a finding each, so a
+  single clip showed as three nodes with subtrees one apart.
+
 - The VM connection tries loopback before the address the service reports.
   A wirelessly launched iOS app binds its service to the wildcard address and
   reports the Wi-Fi address; connecting to that from inside the app was

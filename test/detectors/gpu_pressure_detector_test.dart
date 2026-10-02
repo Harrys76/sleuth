@@ -1,6 +1,7 @@
 import 'dart:developer' show Timeline;
 import 'dart:ui' as ui;
 
+import 'package:flutter/material.dart' show Material, MaterialType;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/detectors/gpu_pressure_detector.dart';
@@ -157,6 +158,72 @@ void main() {
         expect(detector.issues.first.confidence, IssueConfidence.possible);
         expect(detector.issues.first.category, IssueCategory.raster);
         expect(detector.issues.first.title, contains('Expensive Render Nodes'));
+      });
+
+      testWidgets('skips the clip a transparency Material builds for '
+          'itself, keeps a user ClipPath', (tester) async {
+        detector.vmConnected = false;
+
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Material(
+              type: MaterialType.transparency,
+              shape: const StadiumBorder(),
+              child: Column(
+                children: List.generate(8, (_) => const SizedBox(height: 2)),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(
+          detector.issues,
+          isEmpty,
+          reason: 'Material builds its own ClipPath for the shape',
+        );
+
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: ClipPath(
+              clipper: const ShapeBorderClipper(shape: StadiumBorder()),
+              child: Column(
+                children: List.generate(8, (_) => const SizedBox(height: 2)),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        expect(detector.issues.single.stableId, 'expensive_gpu_nodes');
+        expect(detector.issues.single.detail, contains('RenderClipPath'));
+      });
+
+      testWidgets('one render object is reported once however many wrapper '
+          'elements resolve to it', (tester) async {
+        detector.vmConnected = false;
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Builder(
+              builder: (_) => Builder(
+                builder: (_) => ClipPath(
+                  clipper: const ShapeBorderClipper(shape: StadiumBorder()),
+                  child: Column(
+                    children: List.generate(
+                      8,
+                      (_) => const SizedBox(height: 2),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        detector.scanTree(tester.element(find.byType(Directionality)));
+        final issue = detector.issues.single;
+        expect(issue.title, 'Expensive Render Nodes: 1 found');
+        expect('RenderClipPath'.allMatches(issue.detail).length, 1);
       });
 
       testWidgets('skips RenderOpacity when opacity is 1.0', (tester) async {
