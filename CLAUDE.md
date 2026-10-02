@@ -14,7 +14,7 @@ fvm flutter pub publish --dry-run   # Verify publish readiness
 # Example app
 cd example && fvm flutter run --profile   # Profile mode (recommended)
 cd example && fvm flutter run             # Debug mode
-cd example && fvm flutter test            # Cookbook smoke tests (9 tests)
+cd example && fvm flutter test            # Cookbook smoke tests (8 tests)
 
 # MCP sidecar (packages/sleuth_mcp/)
 cd packages/sleuth_mcp && dart test       # Sidecar tests (43 tests)

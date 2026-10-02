@@ -52,8 +52,8 @@ jobs:
         if: matrix.flutter-version == '3.47.6'
         run: >-
           dart format --output=none --set-exit-if-changed
-          lib test example/lib
-          packages/sleuth_mcp/lib packages/sleuth_mcp/test tool
+          lib test tool example/lib example/test
+          packages/sleuth_mcp/lib packages/sleuth_mcp/test packages/sleuth_mcp/bin
 
       - name: Analyze package (floor)
         if: matrix.flutter-version != '3.47.6'
