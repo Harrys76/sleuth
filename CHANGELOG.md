@@ -25,6 +25,11 @@
 
 ### Behavior changes
 
+- The VM connection tries loopback before the address the service reports.
+  A wirelessly launched iOS app binds its service to the wildcard address and
+  reports the Wi-Fi address; connecting to that from inside the app was
+  blocked by local-network privacy, so Sleuth stayed in Basic mode.
+
 - Ranking uses an evidence tier (severity × confidence): confirmed critical >
   likely critical > confirmed warning > possible critical > likely warning >
   possible warning > ok. A structural-only guess ranks below a warning observed

@@ -219,18 +219,26 @@ class VmServiceClient {
         // to our hand-rolled helper only if the getter returns null.
         var wsUri = info.serverWebSocketUri ?? _toWebSocketUri(uri);
 
-        // controlWebServer reports 127.0.0.1 (IPv4-only literal). Using
-        // 'localhost' enables Dart's Happy Eyeballs dual-stack resolver so
-        // WebSocket.connect tries both IPv4 and IPv6 automatically.
-        if (wsUri.host == '127.0.0.1') {
-          wsUri = wsUri.replace(host: 'localhost');
+        // Loopback first, reported host second (see
+        // [candidateWebSocketUris]). Each attempt has its own timeout so an
+        // unreachable address (host-forwarded on Android, a LAN address on
+        // a wirelessly launched iOS app) fails fast.
+        VmService? connected;
+        Object? lastError;
+        for (final candidate in candidateWebSocketUris(wsUri)) {
+          try {
+            connected = await vmServiceConnectUri(
+              candidate.toString(),
+            ).timeout(const Duration(seconds: 3));
+            break;
+          } catch (e) {
+            lastError = e;
+          }
         }
-
-        // Use a timeout to avoid hanging on unreachable addresses
-        // (common on Android where the URI is host-forwarded).
-        _service = await vmServiceConnectUri(
-          wsUri.toString(),
-        ).timeout(const Duration(seconds: 3));
+        if (connected == null) {
+          throw lastError ?? StateError('no VM service address connected');
+        }
+        _service = connected;
         if (_disposed) {
           _cleanup();
           return false;
@@ -705,6 +713,29 @@ class VmServiceClient {
       return main.id;
     } catch (_) {
       return null;
+    }
+  }
+
+  /// WebSocket addresses to try for this process's own VM service, in
+  /// order.
+  ///
+  /// `controlWebServer` reports `127.0.0.1` for a loopback bind; `localhost`
+  /// lets Dart's dual-stack resolver try IPv4 and IPv6. A service bound to
+  /// the wildcard address reports an interface address instead (the Wi-Fi
+  /// address of a wirelessly launched iOS app). Connecting to that from
+  /// inside the app leaves through the LAN interface, which iOS
+  /// local-network privacy blocks without a prompt in profile mode. A
+  /// wildcard bind always serves loopback, so loopback goes first; the
+  /// reported address stays as the fallback for a service bound to one
+  /// specific interface.
+  @visibleForTesting
+  static List<Uri> candidateWebSocketUris(Uri wsUri) {
+    final loopback = wsUri.replace(host: 'localhost');
+    switch (wsUri.host) {
+      case 'localhost' || '127.0.0.1' || '::1' || '[::1]':
+        return [loopback];
+      default:
+        return [loopback, wsUri];
     }
   }
 

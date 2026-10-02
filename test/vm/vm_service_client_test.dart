@@ -7,6 +7,41 @@ import 'package:sleuth/src/vm/timeline_parser.dart';
 import 'package:sleuth/src/vm/vm_service_client.dart';
 
 void main() {
+  group('candidateWebSocketUris', () {
+    test('loopback literal becomes localhost only', () {
+      final uris = VmServiceClient.candidateWebSocketUris(
+        Uri.parse('ws://127.0.0.1:51475/abc=/ws'),
+      );
+      expect(uris.map((u) => u.toString()), ['ws://localhost:51475/abc=/ws']);
+    });
+
+    test('localhost stays a single candidate', () {
+      final uris = VmServiceClient.candidateWebSocketUris(
+        Uri.parse('ws://localhost:1234/ws'),
+      );
+      expect(uris, hasLength(1));
+      expect(uris.single.host, 'localhost');
+    });
+
+    test('an interface address tries loopback first, then itself', () {
+      final uris = VmServiceClient.candidateWebSocketUris(
+        Uri.parse('ws://192.168.1.5:51475/Oflj8eqwiDI=/ws'),
+      );
+      expect(uris.map((u) => u.toString()), [
+        'ws://localhost:51475/Oflj8eqwiDI=/ws',
+        'ws://192.168.1.5:51475/Oflj8eqwiDI=/ws',
+      ]);
+    });
+
+    test('port and auth path survive the host swap', () {
+      final uri = VmServiceClient.candidateWebSocketUris(
+        Uri.parse('ws://10.0.2.2:9999/tok=/ws'),
+      ).first;
+      expect(uri.port, 9999);
+      expect(uri.path, '/tok=/ws');
+    });
+  });
+
   // =========================================================================
   // 1. Constructor & default state
   // =========================================================================
