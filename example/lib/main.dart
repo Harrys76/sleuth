@@ -617,6 +617,24 @@ void _registerDemoExtensions() {
       jsonEncode({'tapped': text, 'x': center.dx, 'y': center.dy}),
     );
   });
+  developer.registerExtension('ext.sleuthDemo.type', (method, params) async {
+    final text = params['text'] ?? '';
+    final element = _findElement((e) => e.widget is EditableText);
+    if (element == null) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.extensionError,
+        jsonEncode({'error': 'no_text_field'}),
+      );
+    }
+    final field = element.widget as EditableText;
+    field.controller.text = text;
+    field.onChanged?.call(text);
+    if (params['submit'] == 'true') field.onSubmitted?.call(text);
+    await WidgetsBinding.instance.endOfFrame;
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({'typed': text, 'submitted': params['submit'] == 'true'}),
+    );
+  });
   developer.registerExtension('ext.sleuthDemo.scroll', (method, params) async {
     final pixels = double.tryParse(params['pixels'] ?? '') ?? 600;
     final ms = int.tryParse(params['ms'] ?? '') ?? 600;

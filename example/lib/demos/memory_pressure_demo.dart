@@ -313,7 +313,10 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
 
   Widget _buildControls({required bool isFixed}) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
+    // Scrollable so every control stays reachable on a 4.7–6.1" phone
+    // (the fixed-height visualization would otherwise push the last
+    // buttons below the fold).
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
@@ -420,7 +423,8 @@ class _MemoryPressureDemoState extends State<MemoryPressureDemo> {
           const SizedBox(height: 24),
 
           // ── Visual representation ──
-          Expanded(
+          SizedBox(
+            height: 160,
             child: _MemoryVisualization(dartMB: _dartMB, nativeMB: _nativeMB),
           ),
         ],
