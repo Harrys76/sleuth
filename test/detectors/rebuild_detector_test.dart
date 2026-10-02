@@ -546,6 +546,68 @@ void main() {
       });
     });
 
+    group('stateful_density threshold is independent of rebuild rate', () {
+      Future<void> pumpStateful(WidgetTester tester, int count) =>
+          tester.pumpWidget(
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Column(
+                children: List.generate(
+                  count,
+                  (i) => TestStatefulWidget(key: ValueKey(i)),
+                ),
+              ),
+            ),
+          );
+
+      test('default statefulDensityThreshold is 10', () {
+        expect(RebuildDetector().statefulDensityThreshold, 10);
+      });
+
+      testWidgets('11 instances fire with rebuildsPerSecThreshold 50', (
+        tester,
+      ) async {
+        detector = RebuildDetector(
+          rebuildsPerSecThreshold: 50,
+          clock: () => fakeNow,
+        )..vmConnected = false;
+        await pumpStateful(tester, 11);
+
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues.single.stableId, 'stateful_density');
+        expect(detector.issues.single.title, contains('11 instances'));
+      });
+
+      testWidgets('9 instances stay silent with rebuildsPerSecThreshold 1', (
+        tester,
+      ) async {
+        detector = RebuildDetector(
+          rebuildsPerSecThreshold: 1,
+          clock: () => fakeNow,
+        )..vmConnected = false;
+        await pumpStateful(tester, 9);
+
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty);
+      });
+
+      testWidgets('9 instances stay silent with rebuildsPerSecThreshold 50', (
+        tester,
+      ) async {
+        detector = RebuildDetector(
+          rebuildsPerSecThreshold: 50,
+          clock: () => fakeNow,
+        )..vmConnected = false;
+        await pumpStateful(tester, 9);
+
+        detector.scanTree(tester.element(find.byType(Directionality)));
+
+        expect(detector.issues, isEmpty);
+      });
+    });
+
     group('vmConnected setter', () {
       test('VM staging cleared on disconnect', () {
         // Stage VM data

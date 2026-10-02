@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/detector_thresholds.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
+import 'package:sleuth/src/detectors/rebuild_detector.dart';
 import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
 import 'package:sleuth/src/utils/issue_explanation_builder.dart';
 
@@ -88,6 +89,11 @@ void main() {
       'multiple_custom_fonts',
       _Field.readingTheData,
       '>${thresholds.fontLoadingMaxFamilies} custom font families',
+    ),
+    (
+      'stateful_density',
+      _Field.readingTheData,
+      '≥${RebuildDetector().statefulDensityThreshold} public',
     ),
     (
       'rebuild_activity',

@@ -879,16 +879,18 @@ class IssueExplanationBuilder {
       category: IssueCategory.build,
       whatItIs:
           'At least 10 public StatefulWidget instances were found on screen '
-          'while no VM connection was available, so the real rebuild rate '
-          'could not be measured. Each StatefulWidget maintains its own '
+          'while no VM connection or debug callbacks were available, so the '
+          'real rebuild rate could not be measured. Each StatefulWidget maintains its own '
           'State object and lifecycle.',
       readingTheData:
           'Like an office where every employee has their own private '
           'assistant — each assistant tracks independent state, and '
           'coordinating them all adds overhead.\n\n'
           '• Stateful count — Public StatefulWidget instances on screen '
-          '(framework and private types excluded). Alert: ≥10 while no VM '
-          'connection exists (default, follows the rebuild threshold).\n\n'
+          '(framework and private types excluded). Alert: ≥10 public '
+          'StatefulWidget instances on screen while no VM connection or '
+          'debug callbacks are available (default, independent of the '
+          'rebuild rate threshold).\n\n'
           '• Most common — The StatefulWidget type with the most instances '
           'on screen. Start the audit there.\n\n'
           '• Source: Structural tree walk.',

@@ -50,6 +50,7 @@ import '../vm/timeline_parser.dart';
 class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   RebuildDetector({
     this.rebuildsPerSecThreshold = 10,
+    this.statefulDensityThreshold = 10,
     this.startupPhaseWindowSeconds = 5,
     DateTime Function()? clock,
     int? Function()? appStartMonotonicUsForTest,
@@ -64,6 +65,11 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
        );
 
   final int rebuildsPerSecThreshold;
+
+  /// Minimum number of public StatefulWidget instances on screen for the
+  /// structural-only `stateful_density` fallback to emit. Independent of
+  /// [rebuildsPerSecThreshold].
+  final int statefulDensityThreshold;
 
   /// Window in seconds after Dart entry within which emissions stamp
   /// `extraTraceArgs.lifecyclePhase: 'startup'`; outside the window
@@ -654,7 +660,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   /// Reports high StatefulWidget density as context, not proven rebuild rate.
   void _evaluateStructuralOnly() {
     final totalStateful = _widgetRebuildCounts.values.fold(0, (s, v) => s + v);
-    if (totalStateful < rebuildsPerSecThreshold) return;
+    if (totalStateful < statefulDensityThreshold) return;
 
     final topRebuilders = _widgetRebuildCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
@@ -788,8 +794,10 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
     ],
     rationale:
         'Hybrid detector. Three families: `stateful_density` '
-        '(public-named StatefulWidget density; framework/private '
-        'filtered), `rebuild_activity` (VM-timeline rebuild-rate — '
+        '(public-named StatefulWidget density at or above '
+        '`statefulDensityThreshold` instances, default 10, independent '
+        'of the rebuild rate; framework/private filtered), '
+        '`rebuild_activity` (VM-timeline rebuild-rate — '
         'warning at `> rebuildsPerSecThreshold` default 10/sec, '
         'critical at `> 3×` = 30/sec; reproducer pins 11 → warning, '
         '31 → critical), and parametric `rebuild_debug_<typeName>` '
