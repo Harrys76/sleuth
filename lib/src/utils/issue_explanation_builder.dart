@@ -497,7 +497,6 @@ class IssueExplanationBuilder {
           'are normal. Concern arises when GC stays elevated during steady-state '
           'interaction (scrolling, idle).',
       relatedIssues: [
-        'excessive_keep_alive',
         'heap_growing',
         'stream_resource_growth',
         'sustained_jank',
@@ -1636,7 +1635,7 @@ class IssueExplanationBuilder {
       whenToIgnore:
           'A small number of keep-alive tabs (2–3) is a reasonable trade-off '
           'between memory and user experience (instant tab switching).',
-      relatedIssues: ['gc_pressure', 'heap_growing', 'heap_near_capacity'],
+      relatedIssues: ['heap_growing', 'heap_near_capacity'],
     ),
 
     // ── Structural: AnimatedBuilder ───────────────────────────────────────

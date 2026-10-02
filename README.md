@@ -26,7 +26,7 @@ What it does better than DevTools:
 - **20 detectors**: structural anti-patterns DevTools does not flag (non-lazy lists, uncached images, missing RepaintBoundary, intrinsic-height layout cost, retained stream subscriptions)
 - **Inline Rebuild Stats**: live rebuild counter with top-3 widget breakdown and full-list drilldown when `enableDeepDebugInstrumentation: true`
 - **Confidence explanations**: every issue explains *why* its confidence is confirmed/likely/possible — what evidence was used, what would upgrade it
-- **Causal issue graph**: 48 rules link root causes to downstream effects — see why an issue matters, not just that it exists
+- **Causal issue graph**: 40 rules link root causes to downstream effects — see why an issue matters, not just that it exists
 - **Fix verification**: baseline → fix → compare. Cooldown-based resolution with hot-reload grace period
 - **Historical trending**: per-issue recurrence tracks worsening/improving/stable/intermittent patterns across scan cycles
 - **Per-route health scores**: passive route detection (no NavigatorObserver) with per-route FPS, jank ratio, issue aggregation, composite health score

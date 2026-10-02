@@ -211,8 +211,11 @@ class EscalateGpuCustomPainterRule extends CorrelationRule {
 // Rule 4: Escalate ImageMemory with Heap Growth (applied fourth)
 // ---------------------------------------------------------------------------
 
-/// When `heap_growing` and `uncached_images` co-occur, escalates
-/// ImageMemory confidence from `possible` to `likely`.
+/// When `uncached_images` co-occurs with `heap_growing` or
+/// `native_memory_growing`, escalates ImageMemory confidence from
+/// `possible` to `likely`. Decoded bitmaps live in native memory, so
+/// native growth is direct corroboration; Dart heap growth is kept as a
+/// trigger for the image objects and caches held on the Dart side.
 ///
 /// Does NOT escalate if already `likely` or `confirmed`.
 class EscalateMemoryImageRule extends CorrelationRule {
@@ -224,7 +227,10 @@ class EscalateMemoryImageRule extends CorrelationRule {
   @override
   List<PerformanceIssue> apply(List<PerformanceIssue> issues) {
     final hasHeapGrowing = issues.any((i) => i.stableId == 'heap_growing');
-    if (!hasHeapGrowing) return issues;
+    final hasNativeGrowing = issues.any(
+      (i) => i.stableId == 'native_memory_growing',
+    );
+    if (!hasHeapGrowing && !hasNativeGrowing) return issues;
 
     final imageIdx = issues.indexWhere((i) => i.stableId == 'uncached_images');
     if (imageIdx == -1) return issues;
@@ -232,13 +238,15 @@ class EscalateMemoryImageRule extends CorrelationRule {
     final image = issues[imageIdx];
     if (image.confidence != IssueConfidence.possible) return issues;
 
+    final growth = hasHeapGrowing ? 'Heap growth' : 'Native memory growth';
     final escalated = image.copyWith(
       confidence: IssueConfidence.likely,
       confidenceReason:
-          'Upgraded from possible: heap growth corroborates structural finding',
+          'Upgraded from possible: ${growth.toLowerCase()} corroborates '
+          'structural finding',
       detail:
           '${image.detail}\n\n'
-          '[Correlated] Heap growth detected — '
+          '[Correlated] $growth detected — '
           'uncached images are likely contributing to memory pressure.',
     );
 

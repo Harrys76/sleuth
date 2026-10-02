@@ -84,7 +84,8 @@ void main() {
       expect(result[1].downstreamIds, isNull);
     });
 
-    test('uncached_images → heap_growing', () {
+    test('likely uncached_images → likely native_memory_growing', () {
+      // Decoded bitmaps live in native memory.
       final issues = [
         makeIssue(
           stableId: 'uncached_images',
@@ -92,14 +93,33 @@ void main() {
           confidence: IssueConfidence.likely,
         ),
         makeIssue(
-          stableId: 'heap_growing',
+          stableId: 'native_memory_growing',
           category: IssueCategory.memory,
-          confidence: IssueConfidence.confirmed,
+          confidence: IssueConfidence.likely,
         ),
       ];
       final result = rule.apply(issues);
-      expect(result[0].downstreamIds, ['heap_growing']);
+      expect(result[0].downstreamIds, ['native_memory_growing']);
       expect(result[1].rootCauseIds, ['uncached_images']);
+    });
+
+    test('possible uncached_images does not claim likely '
+        'native_memory_growing', () {
+      final issues = [
+        makeIssue(
+          stableId: 'uncached_images',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.possible,
+        ),
+        makeIssue(
+          stableId: 'native_memory_growing',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+      ];
+      final result = rule.apply(issues);
+      expect(result[0].downstreamIds, isNull);
+      expect(result[1].rootCauseIds, isNull);
     });
 
     test('always_repaint_painter → raster_dominance', () {
@@ -321,7 +341,10 @@ void main() {
         makeIssue(stableId: 'setstate_scope'),
         makeIssue(stableId: 'heavy_compute'),
         makeIssue(stableId: 'uncached_images', category: IssueCategory.memory),
-        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
+        makeIssue(
+          stableId: 'native_memory_growing',
+          category: IssueCategory.memory,
+        ),
       ];
       final result = rule.apply(issues);
 
@@ -329,8 +352,8 @@ void main() {
       expect(result[0].downstreamIds, ['heavy_compute']);
       expect(result[1].rootCauseIds, ['setstate_scope']);
 
-      // Chain 2: uncached_images → heap_growing
-      expect(result[2].downstreamIds, ['heap_growing']);
+      // Chain 2: uncached_images → native_memory_growing
+      expect(result[2].downstreamIds, ['native_memory_growing']);
       expect(result[3].rootCauseIds, ['uncached_images']);
     });
   });
@@ -493,10 +516,11 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('network causal chains', () {
-    test('slow_request → heavy_compute causal chain', () {
+    test('large_response → heavy_compute causal chain', () {
+      // JSON decode of a large body runs on the main isolate.
       final issues = [
         makeIssue(
-          stableId: 'slow_request',
+          stableId: 'large_response',
           category: IssueCategory.network,
           confidence: IssueConfidence.confirmed,
         ),
@@ -510,26 +534,29 @@ void main() {
       expect(result[0].downstreamIds, isNull);
       expect(result[0].rootCauseIds, isNull);
       // heavy_compute is possible, root is confirmed → confidence suppression
-      // removes it from downstreamIds, but it still has rootCauseId
-      expect(result[1].rootCauseIds, ['slow_request']);
+      // removes it from downstreamIds, but it still has rootCauseIds
+      expect(result[1].rootCauseIds, ['large_response']);
     });
 
-    test('request_frequency → rebuild_activity causal chain', () {
+    test('large_response → confirmed heavy_compute lists the downstream', () {
       final issues = [
         makeIssue(
-          stableId: 'request_frequency',
+          stableId: 'large_response',
           category: IssueCategory.network,
           confidence: IssueConfidence.confirmed,
         ),
         makeIssue(
-          stableId: 'rebuild_activity',
-          confidence: IssueConfidence.likely,
+          stableId: 'heavy_compute',
+          confidence: IssueConfidence.confirmed,
         ),
       ];
       final result = rule.apply(issues);
 
-      expect(result[0].downstreamIds, ['rebuild_activity']);
-      expect(result[1].rootCauseIds, ['request_frequency']);
+      expect(result[0].downstreamIds, ['heavy_compute']);
+      expect(result[1].rootCauseIds, ['large_response']);
+      expect(CausalGraphRule.activeEdges(issues), [
+        {'cause': 'large_response', 'effect': 'heavy_compute'},
+      ]);
     });
   });
 
@@ -793,12 +820,12 @@ void main() {
       expect(result[1].rootCauseIds, ['missing_repaint_boundary']);
     });
 
-    test('missing_repaint_boundary → raster_dominance chain', () {
+    test('excessive_repaint → raster_dominance chain', () {
       final issues = [
         makeIssue(
-          stableId: 'missing_repaint_boundary',
+          stableId: 'excessive_repaint',
           category: IssueCategory.paint,
-          confidence: IssueConfidence.likely,
+          confidence: IssueConfidence.confirmed,
         ),
         makeIssue(
           stableId: 'raster_dominance',
@@ -809,7 +836,39 @@ void main() {
       final result = rule.apply(issues);
 
       expect(result[0].downstreamIds, ['raster_dominance']);
+      expect(result[1].rootCauseIds, ['excessive_repaint']);
+      expect(CausalGraphRule.activeEdges(issues), [
+        {'cause': 'excessive_repaint', 'effect': 'raster_dominance'},
+      ]);
+    });
+
+    test('likely missing_repaint_boundary reaches raster_dominance through '
+        'excessive_repaint', () {
+      final issues = [
+        makeIssue(
+          stableId: 'missing_repaint_boundary',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'excessive_repaint',
+          category: IssueCategory.paint,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'raster_dominance',
+          category: IssueCategory.raster,
+          confidence: IssueConfidence.confirmed,
+        ),
+      ];
+      final result = rule.apply(issues);
+
+      expect(result[0].downstreamIds, [
+        'excessive_repaint',
+        'raster_dominance',
+      ]);
       expect(result[1].rootCauseIds, ['missing_repaint_boundary']);
+      expect(result[2].rootCauseIds, ['missing_repaint_boundary']);
     });
   });
 
@@ -942,44 +1001,6 @@ void main() {
       expect(result[1].rootCauseIds, ['setstate_scope']);
     });
 
-    test('uncached_images → gc_pressure', () {
-      final issues = [
-        makeIssue(
-          stableId: 'uncached_images',
-          category: IssueCategory.memory,
-          confidence: IssueConfidence.likely,
-        ),
-        makeIssue(
-          stableId: 'gc_pressure',
-          category: IssueCategory.memory,
-          confidence: IssueConfidence.confirmed,
-        ),
-      ];
-      final result = rule.apply(issues);
-
-      expect(result[0].downstreamIds, ['gc_pressure']);
-      expect(result[1].rootCauseIds, ['uncached_images']);
-    });
-
-    test('excessive_keep_alive:* → gc_pressure', () {
-      final issues = [
-        makeIssue(
-          stableId: 'excessive_keep_alive:0',
-          category: IssueCategory.memory,
-          confidence: IssueConfidence.likely,
-        ),
-        makeIssue(
-          stableId: 'gc_pressure',
-          category: IssueCategory.memory,
-          confidence: IssueConfidence.confirmed,
-        ),
-      ];
-      final result = rule.apply(issues);
-
-      expect(result[0].downstreamIds, ['gc_pressure']);
-      expect(result[1].rootCauseIds, ['excessive_keep_alive:0']);
-    });
-
     test('animated_builder_no_child → excessive_repaint', () {
       final issues = [
         makeIssue(
@@ -1072,24 +1093,6 @@ void main() {
       expect(result[1].rootCauseIds, ['runtime_font_loading']);
     });
 
-    test('multiple_custom_fonts → jank_detected', () {
-      final issues = [
-        makeIssue(
-          stableId: 'multiple_custom_fonts',
-          category: IssueCategory.font,
-          confidence: IssueConfidence.likely,
-        ),
-        makeIssue(
-          stableId: 'jank_detected',
-          confidence: IssueConfidence.confirmed,
-        ),
-      ];
-      final result = rule.apply(issues);
-
-      expect(result[0].downstreamIds, ['jank_detected']);
-      expect(result[1].rootCauseIds, ['multiple_custom_fonts']);
-    });
-
     test('platform_channel_traffic → heavy_compute', () {
       final issues = [
         makeIssue(
@@ -1106,42 +1109,6 @@ void main() {
 
       expect(result[0].downstreamIds, ['heavy_compute']);
       expect(result[1].rootCauseIds, ['platform_channel_traffic']);
-    });
-
-    test('high_frequency_same_path:* → rebuild_activity', () {
-      final issues = [
-        makeIssue(
-          stableId: 'high_frequency_same_path:0',
-          category: IssueCategory.network,
-          confidence: IssueConfidence.confirmed,
-        ),
-        makeIssue(
-          stableId: 'rebuild_activity',
-          confidence: IssueConfidence.likely,
-        ),
-      ];
-      final result = rule.apply(issues);
-
-      expect(result[0].downstreamIds, ['rebuild_activity']);
-      expect(result[1].rootCauseIds, ['high_frequency_same_path:0']);
-    });
-
-    test('high_frequency_same_path:* → rebuild_debug_*', () {
-      final issues = [
-        makeIssue(
-          stableId: 'high_frequency_same_path:0',
-          category: IssueCategory.network,
-          confidence: IssueConfidence.confirmed,
-        ),
-        makeIssue(
-          stableId: 'rebuild_debug_MyWidget',
-          confidence: IssueConfidence.likely,
-        ),
-      ];
-      final result = rule.apply(issues);
-
-      expect(result[0].downstreamIds, ['rebuild_debug_MyWidget']);
-      expect(result[1].rootCauseIds, ['high_frequency_same_path:0']);
     });
 
     test('no false chain when only one side present', () {
@@ -1164,7 +1131,7 @@ void main() {
     test('multiple new rules fire simultaneously without cycles', () {
       final issues = [
         makeIssue(
-          stableId: 'uncached_images',
+          stableId: 'stream_resource_growth',
           category: IssueCategory.memory,
           severity: IssueSeverity.warning,
           confidence: IssueConfidence.likely,
@@ -1189,10 +1156,10 @@ void main() {
 
       // Two independent chains should coexist
       expect(result, hasLength(4));
-      final uncached = result.firstWhere(
-        (i) => i.stableId == 'uncached_images',
+      final stream = result.firstWhere(
+        (i) => i.stableId == 'stream_resource_growth',
       );
-      expect(uncached.downstreamIds, contains('gc_pressure'));
+      expect(stream.downstreamIds, contains('gc_pressure'));
 
       final layout = result.firstWhere(
         (i) => i.stableId == 'layout_bottleneck',
@@ -1205,33 +1172,25 @@ void main() {
   // Memory fan-in multi-parent annotation (v0.24.2+)
   // ---------------------------------------------------------------------------
 
-  // Pins the multi-parent annotation contract for the 3-cause × 3-effect
-  // memory fan-in: when stream_resource_growth, uncached_images, and
-  // excessive_keep_alive:foo all co-fire alongside heap_growing,
-  // heap_near_capacity, and gc_pressure, EVERY effect carries ALL three
-  // upstream causes in rootCauseIds, and EVERY cause lists ALL three
-  // effects in downstreamIds. Replaces the v0.24.1 single-owner pin —
-  // apply() now fully mirrors activeEdges()'s 9-edge enumeration on the
-  // UI annotation path.
+  // Pins the multi-parent annotation contract for a 3-cause memory fan-in:
+  // when excessive_keep_alive:foo, stream_resource_growth, and
+  // tracked_resource_concurrent:x co-fire alongside heap_growing, the
+  // effect carries ALL three upstream causes in rootCauseIds and every
+  // cause lists heap_growing in downstreamIds. apply() mirrors
+  // activeEdges()'s parallel-edge enumeration on the UI annotation path.
   group('memory fan-in multi-parent annotation', () {
-    test('3 causes × 3 effects: every effect carries all 3 parents; every '
-        'cause lists all 3 downstreams', () {
+    const causes = [
+      'excessive_keep_alive:foo',
+      'stream_resource_growth',
+      'tracked_resource_concurrent:x',
+    ];
+
+    test('3 causes → heap_growing: the effect carries all 3 parents; every '
+        'cause lists the downstream', () {
       final issues = [
-        makeIssue(
-          stableId: 'stream_resource_growth',
-          category: IssueCategory.memory,
-        ),
-        makeIssue(stableId: 'uncached_images', category: IssueCategory.memory),
-        makeIssue(
-          stableId: 'excessive_keep_alive:foo',
-          category: IssueCategory.memory,
-        ),
+        for (final id in causes)
+          makeIssue(stableId: id, category: IssueCategory.memory),
         makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
-        makeIssue(
-          stableId: 'heap_near_capacity',
-          category: IssueCategory.memory,
-        ),
-        makeIssue(stableId: 'gc_pressure', category: IssueCategory.memory),
       ];
       final result = rule.apply(issues);
 
@@ -1240,30 +1199,14 @@ void main() {
 
       // Severity is tied (all warning), so deterministic order is
       // stableId ascending.
-      const causes = [
-        'excessive_keep_alive:foo',
-        'stream_resource_growth',
-        'uncached_images',
-      ];
-      const effects = ['gc_pressure', 'heap_growing', 'heap_near_capacity'];
+      final effect = findById('heap_growing');
+      expect(
+        effect.rootCauseIds,
+        causes,
+        reason: 'heap_growing must list every co-firing cause, sorted',
+      );
+      expect(effect.downstreamIds, isNull);
 
-      // Every effect carries all 3 causes in rootCauseIds (alphabetical).
-      for (final effectId in effects) {
-        final effect = findById(effectId);
-        expect(
-          effect.rootCauseIds,
-          causes,
-          reason:
-              '$effectId must list every co-firing cause, sorted by stableId',
-        );
-        expect(
-          effect.downstreamIds,
-          isNull,
-          reason: '$effectId is a leaf — no further downstream',
-        );
-      }
-
-      // Every cause lists all 3 effects in downstreamIds.
       for (final causeId in causes) {
         final cause = findById(causeId);
         expect(
@@ -1271,30 +1214,16 @@ void main() {
           isNull,
           reason: '$causeId is a root — no incoming edges',
         );
-        expect(
-          cause.downstreamIds,
-          containsAll(effects),
-          reason: '$causeId reaches every memory effect via direct edge',
-        );
-        expect(cause.downstreamIds, hasLength(3));
+        expect(cause.downstreamIds, ['heap_growing']);
       }
     });
 
     test('multi-parent rule-ordering invariant: shuffling input issue order '
         'does not change rootCauseIds membership', () {
-      // Pre-v0.24.2 single-owner annotation depended on input order via
-      // the severity-then-index tie break, so shuffling caused the
-      // "owner" of each effect to change. Multi-parent annotation MUST
-      // be order-independent: every parent that reaches a downstream
-      // appears in rootCauseIds regardless of input order.
-      final ids = [
-        'stream_resource_growth',
-        'uncached_images',
-        'excessive_keep_alive:foo',
-        'heap_growing',
-        'heap_near_capacity',
-        'gc_pressure',
-      ];
+      // Multi-parent annotation MUST be order-independent: every parent
+      // that reaches a downstream appears in rootCauseIds regardless of
+      // input order.
+      final ids = [...causes, 'heap_growing', 'heap_near_capacity'];
       List<PerformanceIssue> build(List<String> order) => [
         for (final id in order)
           makeIssue(stableId: id, category: IssueCategory.memory),
@@ -1306,11 +1235,7 @@ void main() {
       Set<String> parentsOf(List<PerformanceIssue> result, String id) =>
           result.firstWhere((i) => i.stableId == id).rootCauseIds!.toSet();
 
-      for (final effect in [
-        'heap_growing',
-        'heap_near_capacity',
-        'gc_pressure',
-      ]) {
+      for (final effect in ['heap_growing', 'heap_near_capacity']) {
         expect(
           parentsOf(ascending, effect),
           parentsOf(reversed, effect),
@@ -1318,6 +1243,7 @@ void main() {
               'rootCauseIds membership for $effect must be input-order independent',
         );
       }
+      expect(parentsOf(ascending, 'heap_growing'), causes.toSet());
     });
 
     test('multi-parent confidence suppression: possible downstream with '
@@ -1335,7 +1261,7 @@ void main() {
           confidence: IssueConfidence.likely,
         ),
         makeIssue(
-          stableId: 'uncached_images',
+          stableId: 'tracked_resource_concurrent:x',
           category: IssueCategory.memory,
           confidence: IssueConfidence.likely,
         ),
@@ -1357,22 +1283,11 @@ void main() {
 
       // Downstream still carries rootCauseIds — UI annotation works.
       final downstream = findById('heap_growing');
-      expect(
-        downstream.rootCauseIds,
-        containsAll([
-          'stream_resource_growth',
-          'uncached_images',
-          'excessive_keep_alive:foo',
-        ]),
-      );
+      expect(downstream.rootCauseIds, containsAll(causes));
 
       // No parent lists this downstream in downstreamIds — suppressed
       // because at least one parent is likely-confidence.
-      for (final parentId in [
-        'stream_resource_growth',
-        'uncached_images',
-        'excessive_keep_alive:foo',
-      ]) {
+      for (final parentId in causes) {
         expect(
           findById(parentId).downstreamIds,
           isNull,
@@ -1631,44 +1546,103 @@ void main() {
       expect(hasEdge(edges, 'stream_resource_growth', 'heap_growing'), isTrue);
     });
 
-    test('multi-cause + multi-effect memory co-fire surfaces every parallel '
-        'edge', () {
-      // 3 causes × 3 effects. Each cause→effect pair must surface as a
-      // distinct edge so the UI's "Caused by" section can list all
-      // three causes for any one of the three effects.
-      final issues = [
-        makeIssue(
-          stableId: 'stream_resource_growth',
-          category: IssueCategory.memory,
-        ),
-        makeIssue(stableId: 'uncached_images', category: IssueCategory.memory),
-        makeIssue(
-          stableId: 'excessive_keep_alive:foo',
-          category: IssueCategory.memory,
-        ),
-        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
-        makeIssue(
-          stableId: 'heap_near_capacity',
-          category: IssueCategory.memory,
-        ),
-        makeIssue(stableId: 'gc_pressure', category: IssueCategory.memory),
-      ];
-      final edges = CausalGraphRule.activeEdges(issues);
+    test('multi-cause memory co-fire surfaces every parallel edge', () {
+      // 3 causes → heap_growing. Each cause→effect pair must surface as a
+      // distinct edge so the UI's "Caused by" section can list all three
+      // causes.
       const causes = [
         'stream_resource_growth',
-        'uncached_images',
+        'tracked_resource_concurrent:x',
         'excessive_keep_alive:foo',
       ];
-      const effects = ['heap_growing', 'heap_near_capacity', 'gc_pressure'];
+      final issues = [
+        for (final id in causes)
+          makeIssue(stableId: id, category: IssueCategory.memory),
+        makeIssue(stableId: 'heap_growing', category: IssueCategory.memory),
+      ];
+      final edges = CausalGraphRule.activeEdges(issues);
       for (final cause in causes) {
-        for (final effect in effects) {
-          expect(
-            hasEdge(edges, cause, effect),
-            isTrue,
-            reason: 'Expected $cause → $effect edge to surface on co-fire.',
-          );
-        }
+        expect(
+          hasEdge(edges, cause, 'heap_growing'),
+          isTrue,
+          reason: 'Expected $cause → heap_growing edge to surface on co-fire.',
+        );
       }
+      expect(edges, hasLength(3));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Removed edges: evidence direction and memory type
+  // ---------------------------------------------------------------------------
+
+  group('removed edges', () {
+    // Both ends likely/confirmed so the confidence guard is not what
+    // blocks the claim — only the missing rule is.
+    const removed = [
+      ('uncached_images', 'heap_growing'),
+      ('uncached_images', 'heap_near_capacity'),
+      ('uncached_images', 'gc_pressure'),
+      ('excessive_keep_alive:0', 'gc_pressure'),
+      ('slow_request', 'heavy_compute'),
+      ('request_frequency', 'rebuild_activity'),
+      ('high_frequency_same_path:0', 'rebuild_activity'),
+      ('high_frequency_same_path:0', 'rebuild_debug_MyWidget'),
+      ('multiple_custom_fonts', 'sustained_jank'),
+      ('multiple_custom_fonts', 'jank_detected'),
+      ('missing_repaint_boundary', 'raster_dominance'),
+    ];
+
+    for (final (cause, effect) in removed) {
+      test('$cause → $effect is not an edge', () {
+        final issues = [
+          makeIssue(stableId: cause, confidence: IssueConfidence.likely),
+          makeIssue(stableId: effect, confidence: IssueConfidence.confirmed),
+        ];
+        final result = rule.apply(issues);
+
+        expect(result[0].downstreamIds, isNull);
+        expect(result[1].rootCauseIds, isNull);
+        expect(CausalGraphRule.activeEdges(issues), isEmpty);
+      });
+    }
+
+    test('rulesJson carries none of the removed pairs', () {
+      final pairs = {
+        for (final r in CausalGraphRule.rulesJson)
+          '${r['trigger']}→${r['effect']}',
+      };
+      for (final p in const [
+        'uncached_images→heap_growing',
+        'uncached_images→heap_near_capacity',
+        'uncached_images→gc_pressure',
+        'excessive_keep_alive:*→gc_pressure',
+        'slow_request→heavy_compute',
+        'request_frequency→rebuild_activity',
+        'high_frequency_same_path:*→rebuild_activity',
+        'high_frequency_same_path:*→rebuild_debug_*',
+        'multiple_custom_fonts→sustained_jank',
+        'multiple_custom_fonts→jank_detected',
+        'missing_repaint_boundary→raster_dominance',
+      ]) {
+        expect(pairs, isNot(contains(p)));
+      }
+      expect(CausalGraphRule.rulesJson, hasLength(40));
+    });
+
+    test('no rule has jank_detected or sustained_jank as effect except the '
+        'layout_bottleneck and runtime_font_loading edges', () {
+      final jankEdges = {
+        for (final r in CausalGraphRule.rulesJson)
+          if (r['effect'] == 'jank_detected' || r['effect'] == 'sustained_jank')
+            '${r['trigger']}→${r['effect']}',
+      };
+      expect(jankEdges, {
+        'layout_bottleneck→sustained_jank',
+        'layout_bottleneck→jank_detected',
+        'runtime_font_loading→sustained_jank',
+        'runtime_font_loading→jank_detected',
+      });
     });
   });
 }

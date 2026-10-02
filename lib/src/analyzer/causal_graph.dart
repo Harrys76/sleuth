@@ -51,15 +51,15 @@ class CausalGraphRule extends CorrelationRule {
   @override
   String get name => 'CausalGraph';
 
-  // 48 causal rules. Order doesn't matter — all are evaluated, and the
+  // 40 causal rules. Order doesn't matter — all are evaluated, and the
   // graph is built from the full edge set.
   static const _causalRules = <CausalRule>[
     // setState-triggered chains (rebuild intermediate absorbed by Rule 2)
     CausalRule('setstate_scope', 'heavy_compute'),
 
-    // Image → memory chains
-    CausalRule('uncached_images', 'heap_growing'),
-    CausalRule('uncached_images', 'heap_near_capacity'),
+    // Image → memory chain. Decoded bitmaps live in native memory, not
+    // the Dart heap.
+    CausalRule('uncached_images', 'native_memory_growing'),
 
     // CustomPainter → paint/raster chains
     CausalRule('always_repaint_painter', 'raster_dominance'),
@@ -69,7 +69,9 @@ class CausalGraphRule extends CorrelationRule {
     // Missing RepaintBoundary → paint/raster chains
     CausalRule('missing_repaint_boundary', 'excessive_repaint'),
     CausalRule('missing_repaint_boundary', 'excessive_repaint_debug'),
-    CausalRule('missing_repaint_boundary', 'raster_dominance'),
+
+    // Excessive repaint → raster cost
+    CausalRule('excessive_repaint', 'raster_dominance'),
 
     // Rules below cover stableIds whose source detectors were removed in
     // v0.20.0 (animated_builder, opacity, shallow_rebuild_risk,
@@ -106,25 +108,18 @@ class CausalGraphRule extends CorrelationRule {
     CausalRule('nested_scroll', 'rebuild_activity'),
     CausalRule('nested_scroll_same_axis', 'rebuild_activity'),
 
-    // Network → downstream chains
-    CausalRule('slow_request', 'heavy_compute'),
-    CausalRule('request_frequency', 'rebuild_activity'),
+    // Network → downstream chains. A large body costs main-isolate time
+    // in JSON decode.
+    CausalRule('large_response', 'heavy_compute'),
     CausalRule('http_error_spike', 'request_frequency'),
 
-    // --- Pillar 3a: 8 new causal patterns (v0.10.7) ---
+    // --- Additional causal patterns (v0.10.7) ---
 
     // setState scope → excessive rebuilds (complements merge rule —
     // catches rebuild_debug_* variants NOT consumed by MergeRebuildSetStateRule)
     CausalRule('setstate_scope', 'rebuild_debug_*'),
 
-    // Uncached images → GC pressure (complements existing → heap_growing/heap_near_capacity)
-    CausalRule('uncached_images', 'gc_pressure'),
-
-    // Keep-alive → GC pressure (complements existing → heap_growing/heap_near_capacity)
-    CausalRule('excessive_keep_alive:*', 'gc_pressure'),
-
-    // Stream resource leaks → memory-pressure family. Same shape as the
-    // uncached_images / excessive_keep_alive rules above: a retention
+    // Stream resource leaks → memory-pressure family: a retention
     // anti-pattern propagates to all three memory effects. Emission is
     // already gated on co-firing `heap_growing`, so the heap_growing
     // edge surfaces immediately; the other two surface when the
@@ -154,15 +149,9 @@ class CausalGraphRule extends CorrelationRule {
     // Font loading → frame jank
     CausalRule('runtime_font_loading', 'sustained_jank'),
     CausalRule('runtime_font_loading', 'jank_detected'),
-    CausalRule('multiple_custom_fonts', 'sustained_jank'),
-    CausalRule('multiple_custom_fonts', 'jank_detected'),
 
     // Platform channel traffic → compute pressure
     CausalRule('platform_channel_traffic', 'heavy_compute'),
-
-    // High-frequency same-path traffic → rebuilds
-    CausalRule('high_frequency_same_path:*', 'rebuild_activity'),
-    CausalRule('high_frequency_same_path:*', 'rebuild_debug_*'),
   ];
 
   @override

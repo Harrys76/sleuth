@@ -295,6 +295,55 @@ void main() {
       expect(images.detail, contains('Heap growth'));
     });
 
+    test('escalates images from possible to likely with only '
+        'native_memory_growing', () {
+      final issues = [
+        makeIssue(
+          stableId: 'native_memory_growing',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.likely,
+        ),
+        makeIssue(
+          stableId: 'uncached_images',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.possible,
+          detail: '5 Image widgets without resizing.',
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final images = result.firstWhere((i) => i.stableId == 'uncached_images');
+      expect(images.confidence, IssueConfidence.likely);
+      expect(images.detail, contains('[Correlated]'));
+      expect(images.detail, contains('Native memory growth'));
+
+      // The upgraded image issue now claims the native growth effect.
+      final native = result.firstWhere(
+        (i) => i.stableId == 'native_memory_growing',
+      );
+      expect(native.rootCauseIds, ['uncached_images']);
+      expect(images.downstreamIds, ['native_memory_growing']);
+    });
+
+    test('does not escalate images without heap or native growth', () {
+      final issues = [
+        makeIssue(
+          stableId: 'gc_pressure',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.confirmed,
+        ),
+        makeIssue(
+          stableId: 'uncached_images',
+          category: IssueCategory.memory,
+          confidence: IssueConfidence.possible,
+        ),
+      ];
+
+      final result = correlator.correlate(issues);
+      final images = result.firstWhere((i) => i.stableId == 'uncached_images');
+      expect(images.confidence, IssueConfidence.possible);
+    });
+
     test('does NOT escalate already-confirmed uncached_images', () {
       final issues = [
         makeIssue(
@@ -595,7 +644,7 @@ void main() {
           confidence: IssueConfidence.likely,
         ),
         makeIssue(
-          stableId: 'uncached_images',
+          stableId: 'tracked_resource_concurrent:x',
           category: IssueCategory.memory,
           confidence: IssueConfidence.likely,
         ),
@@ -617,7 +666,7 @@ void main() {
         downstream.rootCauseIds,
         containsAll([
           'stream_resource_growth',
-          'uncached_images',
+          'tracked_resource_concurrent:x',
           'excessive_keep_alive:foo',
         ]),
         reason:
@@ -630,7 +679,7 @@ void main() {
       // expected escalation, not the other way around).
       for (final parentId in [
         'stream_resource_growth',
-        'uncached_images',
+        'tracked_resource_concurrent:x',
         'excessive_keep_alive:foo',
       ]) {
         final parent = result.firstWhere((i) => i.stableId == parentId);
