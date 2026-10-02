@@ -87,6 +87,7 @@ class CustomPainterDetector extends BaseDetector with DetectorMetadataProvider {
             _highlights.add(
               WidgetHighlight(
                 rect: rect,
+                renderObject: ro,
                 widgetName: 'CustomPaint',
                 severity: IssueSeverity.warning,
                 detectorName: 'Painter',

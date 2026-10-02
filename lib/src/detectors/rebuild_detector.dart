@@ -135,6 +135,10 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
   /// A snapshot with 0 counts means activity stopped (should clear issues).
   DebugSnapshot? _pendingDebugSnapshot;
 
+  /// Staged debug snapshot not yet consumed by a scan (for testing).
+  @visibleForTesting
+  DebugSnapshot? get pendingDebugSnapshotForTest => _pendingDebugSnapshot;
+
   /// Dirty widget names from enriched timeline args, accumulating across
   /// timeline ticks until the next 1s window completes.
   final List<String> _pendingEnrichedNames = [];
@@ -359,6 +363,7 @@ class RebuildDetector extends BaseDetector with DetectorMetadataProvider {
             _highlights.add(
               WidgetHighlight(
                 rect: rect,
+                renderObject: ro,
                 widgetName: name,
                 severity: rate > effectiveThreshold * 3
                     ? IssueSeverity.critical

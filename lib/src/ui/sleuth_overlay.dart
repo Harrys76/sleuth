@@ -114,7 +114,7 @@ class _SleuthOverlayState extends State<SleuthOverlay>
             // not dashboard/overlay scroll. Also updates interaction state.
             NotificationListener<ScrollNotification>(
               onNotification: (notification) {
-                widget.controller.refreshHighlights();
+                widget.controller.refreshHighlightRects();
                 widget.controller.onScrollActivity(notification);
                 return false;
               },

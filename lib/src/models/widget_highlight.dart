@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'package:flutter/rendering.dart';
 
 import 'performance_issue.dart';
 
@@ -13,6 +13,7 @@ class WidgetHighlight {
     required this.severity,
     required this.detectorName,
     this.detail,
+    this.renderObject,
   });
 
   /// The widget's bounding box in global (screen) coordinates.
@@ -29,4 +30,9 @@ class WidgetHighlight {
 
   /// Short description of the issue.
   final String? detail;
+
+  /// The render object [rect] was measured from. Lets the overlay re-measure
+  /// [rect] after a scroll without rescanning the tree. Null for highlights
+  /// built without one; those are dropped by a rect-only refresh.
+  final RenderObject? renderObject;
 }

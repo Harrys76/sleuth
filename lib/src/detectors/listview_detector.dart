@@ -207,6 +207,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         _highlights.add(
           WidgetHighlight(
             rect: rect,
+            renderObject: ro,
             widgetName: widgetName,
             severity: childCount > childThreshold * 3
                 ? IssueSeverity.critical
@@ -262,6 +263,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         _highlights.add(
           WidgetHighlight(
             rect: rect,
+            renderObject: ro,
             widgetName: widgetName,
             severity: childCount > childThreshold * 3
                 ? IssueSeverity.critical
@@ -347,6 +349,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         _highlights.add(
           WidgetHighlight(
             rect: rect,
+            renderObject: ro,
             widgetName: 'SliverToBoxAdapter',
             severity: childCount > childThreshold * 3
                 ? IssueSeverity.critical
@@ -406,6 +409,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         _highlights.add(
           WidgetHighlight(
             rect: rect,
+            renderObject: ro,
             widgetName: 'SliverFillRemaining',
             severity: IssueSeverity.warning,
             detectorName: 'Sliver Misuse',
@@ -460,6 +464,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
         _highlights.add(
           WidgetHighlight(
             rect: rect,
+            renderObject: ro,
             widgetName: 'SliverToBoxAdapter',
             severity: IssueSeverity.warning,
             detectorName: 'Eager Sliver',
@@ -519,6 +524,7 @@ class ListviewDetector extends BaseDetector with DetectorMetadataProvider {
               _highlights.add(
                 WidgetHighlight(
                   rect: rect,
+                  renderObject: ro,
                   widgetName: 'SingleChildScrollView',
                   severity: directChildCount > childThreshold * 3
                       ? IssueSeverity.critical

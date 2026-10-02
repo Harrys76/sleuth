@@ -126,6 +126,7 @@ class ImageMemoryDetector extends BaseDetector with DetectorMetadataProvider {
         _highlights.add(
           WidgetHighlight(
             rect: rect,
+            renderObject: ro,
             widgetName: widgetName,
             severity: IssueSeverity.warning,
             detectorName: 'Image',

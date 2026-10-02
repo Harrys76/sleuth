@@ -73,6 +73,7 @@ import '../utils/capture_helper.dart';
 import '../utils/session_markdown_exporter.dart';
 import '../utils/session_uuid.dart';
 import '../utils/type_name_cache.dart';
+import '../utils/widget_location.dart' show getGlobalRect;
 import '../vm/timeline_parser.dart';
 
 /// Central controller aggregating all detectors and the pipeline analyzer.
@@ -2890,19 +2891,115 @@ class SleuthController {
     return result;
   }
 
-  /// Re-collect highlights using fresh screen rects (e.g. after scroll).
-  ///
-  /// Re-runs structural detector scans to get fresh rects, then
-  /// aggregates highlights from all detectors.
+  /// Requests fresh highlights soon: restarts the 300 ms scroll-idle timer,
+  /// whose callback runs an early scan tick. Never walks the tree itself.
+  /// No-op until [startTreeScanning] has provided a scan root.
   void refreshHighlights() {
     if (!highlightEnabledNotifier.value) return;
     if (_interactionState == InteractionContext.navigating) return;
-    final scanContext = _lastScanContext;
-    if (scanContext == null) return;
-    final element = scanContext as Element;
-    if (!element.mounted) return;
-    _runStructuralScans(scanContext);
-    _collectHighlights();
+    if (_overlayContext == null) return;
+    _scheduleScrollIdle();
+  }
+
+  /// Set while a rect-only highlight refresh waits for its post-frame
+  /// callback, so a burst of scroll notifications costs one refresh.
+  bool _highlightRectRefreshScheduled = false;
+
+  /// Re-measures the current highlights' rects from their render objects
+  /// after the next frame (scroll moved them). Highlights whose render
+  /// object is gone, detached or unsized are dropped. Detector state is
+  /// untouched; the next scan tick rebuilds the list from scratch.
+  void refreshHighlightRects() {
+    if (_disposed || _highlightRectRefreshScheduled) return;
+    if (!highlightEnabledNotifier.value) return;
+    if (highlightsNotifier.value.items.isEmpty) return;
+    _highlightRectRefreshScheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _highlightRectRefreshScheduled = false;
+      if (_disposed || !highlightEnabledNotifier.value) return;
+      final current = highlightsNotifier.value.items;
+      if (current.isEmpty) return;
+      final items = <WidgetHighlight>[];
+      for (final h in current) {
+        final ro = h.renderObject;
+        if (ro == null || !ro.attached) continue;
+        if (ro is! RenderBox || !ro.hasSize) continue;
+        final rect = getGlobalRect(ro);
+        if (rect == null) continue;
+        items.add(
+          WidgetHighlight(
+            rect: rect,
+            widgetName: h.widgetName,
+            severity: h.severity,
+            detectorName: h.detectorName,
+            detail: h.detail,
+            renderObject: ro,
+          ),
+        );
+      }
+      _publishHighlights(items);
+    });
+    // Scrolling already has a frame pending; this only matters when the
+    // request arrives between frames.
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  /// Publishes [items] under a new generation and rebinds the selected
+  /// highlight by detectorName + widgetName (first match wins; cleared when
+  /// the widget is gone).
+  void _publishHighlights(List<WidgetHighlight> items) {
+    _highlightGeneration++;
+    highlightsNotifier.value = (generation: _highlightGeneration, items: items);
+    final selected = selectedHighlightNotifier.value;
+    if (selected != null) {
+      WidgetHighlight? refreshed;
+      for (final h in items) {
+        if (h.detectorName == selected.detectorName &&
+            h.widgetName == selected.widgetName) {
+          refreshed = h;
+          break;
+        }
+      }
+      selectedHighlightNotifier.value = refreshed;
+    }
+  }
+
+  /// (Re)starts the 300 ms scroll-idle timer. When it fires, a scrolling
+  /// state returns to idle and an early scan tick is requested.
+  void _scheduleScrollIdle() {
+    _scrollIdleTimer?.cancel();
+    _scrollIdleTimer = Timer(const Duration(milliseconds: 300), () {
+      if (_disposed) return;
+      if (_interactionState == InteractionContext.scrolling) {
+        _interactionState = InteractionContext.idle;
+        _aggregateIssues();
+      }
+      _requestEarlyScanTick();
+    });
+  }
+
+  /// Runs one scan tick after the next frame, outside the periodic chain.
+  /// Skipped when a scan is already running, the overlay is unmounted, or a
+  /// newer [startTreeScanning] chain replaced the one that asked.
+  void _requestEarlyScanTick() {
+    final ctx = _overlayContext;
+    if (_disposed || ctx == null) return;
+    final generation = _scanTimerGeneration;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || generation != _scanTimerGeneration) return;
+      if (_scanInProgress) return;
+      final element = ctx as Element;
+      if (!element.mounted) return;
+      try {
+        _scanTree(ctx);
+      } catch (e, st) {
+        assert(() {
+          debugPrint('Sleuth: scan error: $e\n$st');
+          return true;
+        }());
+      }
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
   }
 
   /// Update interaction state from app scroll notifications.
@@ -2921,11 +3018,7 @@ class SleuthController {
         _aggregateIssues();
       }
     } else if (notification is ScrollEndNotification) {
-      _scrollIdleTimer?.cancel();
-      _scrollIdleTimer = Timer(const Duration(milliseconds: 300), () {
-        _interactionState = InteractionContext.idle;
-        _aggregateIssues();
-      });
+      _scheduleScrollIdle();
     }
   }
 
@@ -3176,31 +3269,12 @@ class SleuthController {
       }
     }
 
-    _highlightGeneration++;
-    final items = [
+    // Publishing rebinds the selected highlight to the fresh object with
+    // its updated rect (v9.14), matched by detectorName + widgetName.
+    _publishHighlights([
       for (final d in _detectors)
         if (!failed.contains(d)) ...d.highlights,
-    ];
-    highlightsNotifier.value = (generation: _highlightGeneration, items: items);
-
-    // Rebind selected highlight to fresh object with updated rect (v9.14).
-    // After scroll/rescan, detectors produce new WidgetHighlight objects with
-    // fresh rects. Match by detectorName + widgetName to track the widget's
-    // current position. Clears selection if the widget is gone.
-    // Note: if two highlights share the same detectorName + widgetName, the
-    // first match wins — rare edge case with minimal visual impact.
-    final selected = selectedHighlightNotifier.value;
-    if (selected != null) {
-      WidgetHighlight? refreshed;
-      for (final h in items) {
-        if (h.detectorName == selected.detectorName &&
-            h.widgetName == selected.widgetName) {
-          refreshed = h;
-          break;
-        }
-      }
-      selectedHighlightNotifier.value = refreshed;
-    }
+    ]);
   }
 
   void _onStartupTimelineEvents(StartupTimelineEvents events) {

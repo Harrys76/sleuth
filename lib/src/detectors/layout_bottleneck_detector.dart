@@ -147,6 +147,7 @@ class LayoutBottleneckDetector extends BaseDetector
             _highlights.add(
               WidgetHighlight(
                 rect: rect,
+                renderObject: ro,
                 widgetName: 'Wrap',
                 severity: childCount > _wrapChildThreshold * 2
                     ? IssueSeverity.critical
@@ -183,6 +184,7 @@ class LayoutBottleneckDetector extends BaseDetector
           _highlights.add(
             WidgetHighlight(
               rect: rect,
+              renderObject: ro,
               widgetName: widgetName,
               severity: isNested
                   ? IssueSeverity.critical

@@ -86,7 +86,14 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
   set isEnabled(bool value) => _isEnabled = value;
 
   final List<
-    ({String chain, int count, int totalElements, Rect? rect, String typeName})
+    ({
+      String chain,
+      int count,
+      int totalElements,
+      Rect? rect,
+      RenderObject? renderObject,
+      String typeName,
+    })
   >
   _scrollableData = [];
   final List<_ScrollableAccumulator> _scrollableStack = [];
@@ -171,6 +178,7 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
           rect: report.renderObject != null
               ? getGlobalRect(report.renderObject!)
               : null,
+          renderObject: report.renderObject,
           typeName: typeNameCache.lookup(report.widget),
         ));
       }
@@ -190,6 +198,7 @@ class KeepAliveDetector extends BaseDetector with DetectorMetadataProvider {
           _highlights.add(
             WidgetHighlight(
               rect: data.rect!,
+              renderObject: data.renderObject,
               widgetName: data.typeName,
               severity: data.count > threshold * 2
                   ? IssueSeverity.critical

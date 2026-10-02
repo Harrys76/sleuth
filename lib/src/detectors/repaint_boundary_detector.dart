@@ -117,6 +117,7 @@ class RepaintBoundaryDetector extends BaseDetector
           _highlights.add(
             WidgetHighlight(
               rect: rect,
+              renderObject: ro,
               widgetName: typeNameCache.lookup(widget),
               severity: IssueSeverity.warning,
               detectorName: 'RepaintBoundary',
@@ -145,6 +146,7 @@ class RepaintBoundaryDetector extends BaseDetector
             _highlights.add(
               WidgetHighlight(
                 rect: rect,
+                renderObject: ro,
                 widgetName: typeNameCache.lookup(widget),
                 severity: IssueSeverity.warning,
                 detectorName: 'RepaintBoundary',

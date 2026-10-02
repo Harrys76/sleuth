@@ -206,6 +206,7 @@ class GpuPressureDetector extends BaseDetector with DetectorMetadataProvider {
         _highlights.add(
           WidgetHighlight(
             rect: rect,
+            renderObject: ro,
             widgetName: typeName, // known from type check — no toString()
             severity: highlightSeverity,
             detectorName: 'GPU',

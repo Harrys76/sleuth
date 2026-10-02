@@ -107,6 +107,10 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   /// null = no new snapshot delivered since last evaluate.
   DebugSnapshot? _pendingDebugSnapshot;
 
+  /// Staged debug snapshot not yet consumed by a scan (for testing).
+  @visibleForTesting
+  DebugSnapshot? get pendingDebugSnapshotForTest => _pendingDebugSnapshot;
+
   /// Dirty RenderObject count from enriched timeline args, accumulating
   /// across timeline ticks until the next 1s window completes.
   int _pendingEnrichedDirtyTotal = 0;
@@ -293,6 +297,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
             _highlights.add(
               WidgetHighlight(
                 rect: rect,
+                renderObject: ro,
                 widgetName: name,
                 severity: rate > paintFrequencyThreshold * 2
                     ? IssueSeverity.critical

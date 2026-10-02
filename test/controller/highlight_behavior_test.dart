@@ -1,8 +1,63 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/controller/sleuth_controller.dart';
+import 'package:sleuth/src/debug/debug_snapshot.dart';
+import 'package:sleuth/src/detectors/setstate_scope_detector.dart';
+import 'package:sleuth/src/models/base_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/widget_highlight.dart';
+import 'package:sleuth/src/ui/sleuth_overlay.dart';
+
+/// Highlights the element keyed `target`, measuring its render object.
+class _TargetHighlighter extends BaseDetector {
+  _TargetHighlighter()
+    : super(
+        type: DetectorType.custom,
+        lifecycle: DetectorLifecycle.structural,
+        name: 'Target',
+        description: 'Highlights the target widget.',
+      );
+
+  final List<WidgetHighlight> _highlights = [];
+  bool _isEnabled = true;
+
+  @override
+  List<PerformanceIssue> get issues => const [];
+  @override
+  List<WidgetHighlight> get highlights => _highlights;
+  @override
+  bool get isEnabled => _isEnabled;
+  @override
+  set isEnabled(bool v) => _isEnabled = v;
+
+  @override
+  void scanTree(BuildContext context) {
+    _highlights.clear();
+    void visit(Element e) {
+      if (e.widget.key == const ValueKey('target')) {
+        final ro = e.renderObject;
+        if (ro is RenderBox && ro.hasSize) {
+          _highlights.add(
+            WidgetHighlight(
+              rect: ro.localToGlobal(Offset.zero) & ro.size,
+              widgetName: 'Target',
+              severity: IssueSeverity.warning,
+              detectorName: 'Target',
+              renderObject: ro,
+            ),
+          );
+        }
+        return;
+      }
+      e.visitChildren(visit);
+    }
+
+    context.visitChildElements(visit);
+  }
+
+  @override
+  void dispose() => _highlights.clear();
+}
 
 void main() {
   group('highlight aggregation', () {
@@ -582,6 +637,189 @@ void main() {
         expect(issue.interactionContext, isNotNull);
         expect(issue.interactionContext, InteractionContext.idle);
       }
+    });
+  });
+  group('scroll refreshes highlight rects without rescanning', () {
+    late ScrollController scroll;
+    late ValueNotifier<bool> showTarget;
+
+    /// Pumps the real overlay around a scrollable app whose item keyed
+    /// `target` is highlighted, runs one scan and enables highlights.
+    Future<SleuthController> pumpOverlay(WidgetTester tester) async {
+      scroll = ScrollController();
+      showTarget = ValueNotifier(true);
+      addTearDown(scroll.dispose);
+      addTearDown(showTarget.dispose);
+      final controller = SleuthController(
+        config: SleuthConfig(
+          treeScanInterval: const Duration(seconds: 30),
+          customDetectors: [_TargetHighlighter()],
+        ),
+      );
+      controller.initializeDetectorsForTest();
+      controller.markInitializedForTest();
+      await tester.pumpWidget(
+        SleuthOverlay(
+          controller: controller,
+          child: MaterialApp(
+            home: Scaffold(
+              body: ValueListenableBuilder<bool>(
+                valueListenable: showTarget,
+                builder: (_, show, _) => ListView.builder(
+                  controller: scroll,
+                  itemExtent: 50,
+                  itemCount: 100,
+                  itemBuilder: (_, i) => i == 5 && show
+                      ? const SizedBox(key: ValueKey('target'), height: 50)
+                      : SizedBox(height: 50, child: Text('row $i')),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      controller.highlightEnabledNotifier.value = true;
+      controller.scanTreeFullPathForTest(
+        tester.element(find.byType(MaterialApp)),
+      );
+      return controller;
+    }
+
+    WidgetHighlight target(SleuthController c) => c
+        .highlightsNotifier
+        .value
+        .items
+        .firstWhere((h) => h.detectorName == 'Target');
+
+    void dispatchScrollUpdate(WidgetTester tester) {
+      final ctx = tester.element(find.byType(ListView));
+      ScrollUpdateNotification(
+        metrics: FixedScrollMetrics(
+          minScrollExtent: 0,
+          maxScrollExtent: 4400,
+          pixels: 0,
+          viewportDimension: 600,
+          axisDirection: AxisDirection.down,
+          devicePixelRatio: 1,
+        ),
+        context: ctx,
+        scrollDelta: 0,
+      ).dispatch(ctx);
+    }
+
+    testWidgets('scroll updates leave detector scan state untouched', (
+      tester,
+    ) async {
+      final c = await pumpOverlay(tester);
+      final setStateScope = c.detectorsForAudit
+          .whereType<SetStateScopeDetector>()
+          .single;
+      final snapshotsBefore = setStateScope.childSnapshotsForTest;
+      const staged = DebugSnapshot(
+        rebuildCounts: {'Row': 1},
+        totalPaintCount: 1,
+        elapsed: Duration(milliseconds: 500),
+      );
+      c.rebuildDetector.updateDebugSnapshot(staged);
+      c.repaintDetector!.updateDebugSnapshot(staged);
+      final generationBefore = c.highlightsNotifier.value.generation;
+
+      for (var i = 0; i < 10; i++) {
+        dispatchScrollUpdate(tester);
+        await tester.pump();
+      }
+
+      expect(
+        identical(setStateScope.childSnapshotsForTest, snapshotsBefore),
+        isTrue,
+      );
+      expect(c.rebuildDetector.pendingDebugSnapshotForTest, same(staged));
+      expect(c.repaintDetector!.pendingDebugSnapshotForTest, same(staged));
+      // Rect refreshes ran (one per frame) without a scan.
+      expect(
+        c.highlightsNotifier.value.generation,
+        greaterThan(generationBefore),
+      );
+    });
+
+    testWidgets('rects follow the scroll and selection survives', (
+      tester,
+    ) async {
+      final c = await pumpOverlay(tester);
+      final before = target(c);
+      c.selectedHighlightNotifier.value = before;
+      final generationBefore = c.highlightsNotifier.value.generation;
+
+      scroll.jumpTo(200);
+      await tester.pump();
+
+      final after = target(c);
+      expect(after.rect.top, before.rect.top - 200);
+      expect(after.rect.size, before.rect.size);
+      expect(
+        c.highlightsNotifier.value.generation,
+        greaterThan(generationBefore),
+      );
+      expect(c.selectedHighlightNotifier.value, same(after));
+    });
+
+    testWidgets('a highlight whose widget was removed is dropped', (
+      tester,
+    ) async {
+      final c = await pumpOverlay(tester);
+      expect(c.highlightsNotifier.value.items, isNotEmpty);
+
+      showTarget.value = false;
+      await tester.pump();
+      c.refreshHighlightRects();
+      await tester.pump();
+
+      expect(
+        c.highlightsNotifier.value.items.where(
+          (h) => h.detectorName == 'Target',
+        ),
+        isEmpty,
+      );
+    });
+
+    testWidgets('scroll end runs exactly one early scan tick', (tester) async {
+      final c = await pumpOverlay(tester);
+      var ticks = 0;
+      c.scanTickNotifier.addListener(() => ticks++);
+
+      scroll.jumpTo(200);
+      await tester.pump();
+      expect(ticks, 0);
+
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(ticks, 1);
+      expect(c.interactionStateForTest, InteractionContext.idle);
+
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(ticks, 1);
+    });
+
+    testWidgets('refreshHighlights requests an early tick instead of walking', (
+      tester,
+    ) async {
+      final c = await pumpOverlay(tester);
+      final setStateScope = c.detectorsForAudit
+          .whereType<SetStateScopeDetector>()
+          .single;
+      final snapshotsBefore = setStateScope.childSnapshotsForTest;
+      var ticks = 0;
+      c.scanTickNotifier.addListener(() => ticks++);
+
+      c.refreshHighlights();
+      expect(
+        identical(setStateScope.childSnapshotsForTest, snapshotsBefore),
+        isTrue,
+      );
+      expect(ticks, 0);
+
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(ticks, 1);
     });
   });
 }

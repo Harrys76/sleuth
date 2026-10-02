@@ -56,6 +56,11 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
   /// Used to detect when build() re-runs (child widget instance changes).
   Map<int, int> _childSnapshots = {};
 
+  /// The live child-snapshot map; a scan swaps in a new instance, so
+  /// identity changes exactly when a scan ran (for testing).
+  @visibleForTesting
+  Object get childSnapshotsForTest => _childSnapshots;
+
   /// Accumulated rebuild counts per widget name in the current window.
   final Map<String, int> _rebuildEvidence = {};
   DateTime _evidenceWindowStart = DateTime.now();
@@ -383,6 +388,7 @@ class SetStateScopeDetector extends BaseDetector with DetectorMetadataProvider {
     _highlights.add(
       WidgetHighlight(
         rect: rect,
+        renderObject: ro,
         widgetName: widgetName,
         severity: severity,
         detectorName: 'setState',
