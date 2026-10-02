@@ -36,7 +36,7 @@ The effective rate is the measured cadence clamped to `[fpsTarget, display rate]
 | Detector | Signal Source | Can Prove | Confidence | Known Limitations |
 |----------|-------------|-----------|------------|-------------------|
 | Frame Timing | FrameTiming API | Frame exceeded budget, thread attribution (UI-bound/raster-bound/pipeline stall) | Confirmed | Cannot attribute to specific widget |
-| Network Monitor | HttpOverrides | Slow, excessive, oversized, error-spiking, or high-frequency same-path HTTP requests | Confirmed | Only intercepts dart:io HttpClient (not package:http directly) |
+| Network Monitor | HttpOverrides | Slow, excessive, oversized, error-spiking, or high-frequency same-path HTTP requests | Confirmed | Only `dart:io` `HttpClient` traffic is observed (including `package:http`'s default `IOClient` and Dio's default adapter); `cronet_http`, `cupertino_http`, and platform-SDK networking are invisible. `large_response` skips `image/`, `video/`, `audio/`, and `font/` responses |
 | Tracked Resource | `Sleuth.trackResource(name, ref)` + `WeakReference` + Finalizer | Concurrent retention (`> 5` live instances same name) and long-lived retention (single instance alive `> 300 s`) | Confirmed | Opt-in: user code must call `Sleuth.trackResource`. Cross-isolate registration is a no-op |
 
 ### VM-Only Detectors (require VM connection)

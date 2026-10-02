@@ -281,9 +281,24 @@ class NetworkMonitorDetector extends BaseDetector
     );
   }
 
+  /// Media responses (images, video, audio, fonts) are large by nature;
+  /// `large_response` targets oversized data payloads.
+  static bool _isMediaContentType(String? contentType) {
+    if (contentType == null) return false;
+    final type = contentType.toLowerCase();
+    return type.startsWith('image/') ||
+        type.startsWith('video/') ||
+        type.startsWith('audio/') ||
+        type.startsWith('font/');
+  }
+
   void _evaluateLargeResponses() {
     final largeRecords = _records
-        .where((r) => r.responseBytes >= largeResponseBytes)
+        .where(
+          (r) =>
+              r.responseBytes >= largeResponseBytes &&
+              !_isMediaContentType(r.contentType),
+        )
         .toList();
     if (largeRecords.isEmpty) return;
 

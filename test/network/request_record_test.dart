@@ -46,6 +46,25 @@ void main() {
       expect(json['responseBytes'], 0);
     });
 
+    test('toJson omits contentType when null', () {
+      final json = makeRecord().toJson();
+      expect(json.containsKey('contentType'), isFalse);
+    });
+
+    test('toJson includes contentType when set', () {
+      final record = RequestRecord(
+        url: 'https://example.com/a.json',
+        method: 'GET',
+        statusCode: 200,
+        durationMs: 10,
+        responseBytes: 10,
+        startedAt: DateTime(2026, 1, 1),
+        contentType: 'application/json',
+      );
+      expect(record.toJson()['contentType'], 'application/json');
+      expect(record.toString(), contains('application/json'));
+    });
+
     test('toString contains method, url, duration, and status', () {
       final record = makeRecord();
       final str = record.toString();

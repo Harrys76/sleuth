@@ -1850,7 +1850,7 @@ class IssueExplanationBuilder {
           'Like ordering a single book and receiving the entire encyclopedia '
           '— you got what you needed, buried under data you\'ll never '
           'read.\n\n'
-          '• Response size — Content-Length or measured body bytes. '
+          '• Response size — Measured body bytes as received. '
           'Normal: <200KB for API responses. '
           'Alert: >1MB (default, configurable).\n\n'
           '• The title shows the count and largest. Detail lists each URL.\n\n'
@@ -1867,8 +1867,10 @@ class IssueExplanationBuilder {
           'or file downloads, stream to disk rather than buffering in '
           'memory.',
       whenToIgnore:
-          'File downloads and media streaming responses are expected to be '
-          'large. Focus on API/JSON responses that could be trimmed.',
+          'Image, video, audio, and font responses are skipped '
+          'automatically. Other file downloads (e.g. '
+          'application/octet-stream) are expected to be large. Focus on '
+          'API/JSON responses that could be trimmed.',
       relatedIssues: ['heavy_compute'],
     ),
 

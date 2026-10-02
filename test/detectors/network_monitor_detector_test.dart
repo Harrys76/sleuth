@@ -10,6 +10,7 @@ RequestRecord makeRecord({
   int durationMs = 150,
   int responseBytes = 4096,
   DateTime? startedAt,
+  String? contentType,
 }) {
   return RequestRecord(
     url: url,
@@ -18,6 +19,7 @@ RequestRecord makeRecord({
     durationMs: durationMs,
     responseBytes: responseBytes,
     startedAt: startedAt ?? DateTime(2026, 1, 1),
+    contentType: contentType,
   );
 }
 
@@ -102,6 +104,63 @@ void main() {
       );
       expect(largeIssues, hasLength(1));
       expect(largeIssues.first.severity, IssueSeverity.warning);
+    });
+
+    group('large response content types', () {
+      const twoMb = 2 * 1024 * 1024;
+      Iterable<PerformanceIssue> large() =>
+          detector.issues.where((i) => i.stableId == 'large_response');
+
+      for (final media in [
+        'image/png',
+        'video/mp4',
+        'audio/mpeg',
+        'font/woff2',
+        'IMAGE/JPEG',
+      ]) {
+        test('2 MB $media is skipped', () {
+          detector.processRecord(
+            makeRecord(responseBytes: twoMb, contentType: media),
+          );
+          expect(large(), isEmpty);
+        });
+      }
+
+      for (final type in [
+        'application/json',
+        null,
+        'application/octet-stream',
+      ]) {
+        test('2 MB ${type ?? 'without content type'} fires', () {
+          detector.processRecord(
+            makeRecord(responseBytes: twoMb, contentType: type),
+          );
+          expect(large(), hasLength(1));
+          expect(
+            large().single.extraTraceArgs!['observedResponseBytes'],
+            '$twoMb',
+          );
+        });
+      }
+
+      test('media record does not hide a large JSON record', () {
+        detector.processRecord(
+          makeRecord(
+            url: 'https://cdn.example.com/a.png',
+            responseBytes: 3 * twoMb,
+            contentType: 'image/png',
+          ),
+        );
+        detector.processRecord(
+          makeRecord(responseBytes: twoMb, contentType: 'application/json'),
+        );
+        expect(large(), hasLength(1));
+        expect(
+          large().single.extraTraceArgs!['observedResponseBytes'],
+          '$twoMb',
+        );
+        expect(large().single.detail, isNot(contains('a.png')));
+      });
     });
 
     test('large response detail contains URL and size', () {

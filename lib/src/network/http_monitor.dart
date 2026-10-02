@@ -460,6 +460,12 @@ class _MonitoringResponse extends Stream<List<int>>
     } catch (_) {
       // Non-fatal: monitoring must not alter app behavior.
     }
+    String? contentType;
+    try {
+      contentType = _inner.headers.contentType?.mimeType;
+    } catch (_) {
+      // Headers unreadable: record without a content type.
+    }
     try {
       _onRecord(
         RequestRecord(
@@ -470,6 +476,7 @@ class _MonitoringResponse extends Stream<List<int>>
           responseBytes: bytesReceived,
           startedAt: _startTime,
           cancelled: cancelled,
+          contentType: contentType,
         ),
       );
     } catch (_) {
