@@ -1,3 +1,5 @@
+import 'dart:developer' show Timeline;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/debug/debug_snapshot.dart';
@@ -8,6 +10,11 @@ import 'package:sleuth/src/vm/timeline_parser.dart';
 
 import '../helpers/rebuild_capture_helpers.dart';
 import '../helpers/timeline_test_helpers.dart';
+
+/// BUILD scope time equal to [percent] % of a 2 s window — the window
+/// length the VM-path tests below advance the fake clock by.
+ParsedTimelineData _windowShare(int percent) =>
+    buildLoadData(buildTimeUs: percent * 20000);
 
 void main() {
   group('RebuildDetector', () {
@@ -24,21 +31,21 @@ void main() {
       test('no issues when disabled', () {
         detector.isEnabled = false;
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 50));
+        detector.processTimelineData(_windowShare(50));
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });
 
-      test('no issues when build count below threshold', () {
+      test('no issues when build share below threshold', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 5));
+        detector.processTimelineData(_windowShare(5));
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });
 
-      test('warning when build count exceeds threshold', () {
+      test('warning when build share exceeds threshold', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
 
         expect(detector.issues, hasLength(1));
@@ -47,9 +54,9 @@ void main() {
         expect(detector.issues.first.title, contains('Rebuild Activity'));
       });
 
-      test('critical when build count exceeds 3x threshold', () {
+      test('critical when build share exceeds 3x threshold', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 35));
+        detector.processTimelineData(_windowShare(35));
         detector.evaluateNow();
 
         expect(detector.issues, hasLength(1));
@@ -59,7 +66,7 @@ void main() {
 
       test('issue confidence is confirmed (VM data)', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
 
         expect(detector.issues.first.confidence, IssueConfidence.confirmed);
@@ -67,7 +74,7 @@ void main() {
 
       test('observationSource is vmTimeline', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
 
         expect(
@@ -89,7 +96,7 @@ void main() {
 
         // Feed enough builds to trigger evaluation
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
 
         expect(detector.issues, isNotEmpty);
@@ -104,13 +111,13 @@ void main() {
       test('window resets after 1-second evaluation', () {
         // First window: high activity
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
 
         // Second window: low activity — issues should clear
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 3));
+        detector.processTimelineData(_windowShare(3));
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });
@@ -119,7 +126,7 @@ void main() {
     group('unified evaluation model', () {
       test('processTimelineData accumulates but does not write issues', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
         // Issues should NOT be populated until evaluateNow/scanTree
         expect(detector.issues, isEmpty);
       });
@@ -129,7 +136,7 @@ void main() {
       ) async {
         // Stage VM data first
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
 
         // scanTree triggers _evaluate
         await tester.pumpWidget(
@@ -145,7 +152,7 @@ void main() {
 
       test('evaluateNow triggers _evaluate without tree walk', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
 
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
@@ -154,7 +161,7 @@ void main() {
       test('debug snapshot takes priority over VM data', () {
         // Stage both VM and debug data
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
 
         detector.updateDebugSnapshot(
           const DebugSnapshot(
@@ -180,7 +187,7 @@ void main() {
       ) async {
         // Stage VM data
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
 
         // scanTree populates structural data AND triggers _evaluate
         await tester.pumpWidget(
@@ -234,7 +241,7 @@ void main() {
       test('no-op when no fresh data — keeps existing issues', () {
         // Generate issues
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
 
@@ -246,13 +253,13 @@ void main() {
       test('fresh VM window with 0 events clears stale issues', () {
         // Generate issues
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
 
         // Fresh window with 0 events
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 0));
+        detector.processTimelineData(_windowShare(0));
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });
@@ -260,7 +267,7 @@ void main() {
       test('fresh debug snapshot with 0 rebuilds clears stale issues', () {
         // Generate issues
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
 
@@ -279,7 +286,7 @@ void main() {
       test('zero debug snapshot falls back to VM data when both present', () {
         // Stage VM data
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
 
         // Stage debug snapshot with zero counts
         detector.updateDebugSnapshot(
@@ -304,7 +311,7 @@ void main() {
       test('zero debug snapshot with zero VM data produces no issues', () {
         // Stage zero VM data
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 0));
+        detector.processTimelineData(_windowShare(0));
 
         // Stage debug snapshot with zero counts
         detector.updateDebugSnapshot(
@@ -612,7 +619,7 @@ void main() {
       test('VM staging cleared on disconnect', () {
         // Stage VM data
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highBuildActivityData(buildCount: 15));
+        detector.processTimelineData(_windowShare(15));
 
         // Disconnect clears staging
         detector.vmConnected = false;
@@ -656,7 +663,7 @@ void main() {
         (tester) async {
           // Start connected with confirmed issues
           fakeNow = fakeNow.add(const Duration(seconds: 2));
-          detector.processTimelineData(highBuildActivityData(buildCount: 15));
+          detector.processTimelineData(_windowShare(15));
           detector.evaluateNow();
           expect(detector.issues, isNotEmpty);
 
@@ -715,7 +722,7 @@ void main() {
         () {
           // Connected, build up issues
           fakeNow = fakeNow.add(const Duration(seconds: 2));
-          detector.processTimelineData(highBuildActivityData(buildCount: 15));
+          detector.processTimelineData(_windowShare(15));
           detector.evaluateNow();
           expect(detector.issues, isNotEmpty);
 
@@ -727,7 +734,7 @@ void main() {
 
           // New timeline data triggers confirmed issues again
           fakeNow = fakeNow.add(const Duration(seconds: 2));
-          detector.processTimelineData(highBuildActivityData(buildCount: 20));
+          detector.processTimelineData(_windowShare(20));
           detector.evaluateNow();
           expect(detector.issues, isNotEmpty);
           expect(detector.issues.first.confidence, IssueConfidence.confirmed);
@@ -749,14 +756,12 @@ void main() {
     test('enriched dirty names appear in VM path issue detail', () {
       detector.processTimelineData(
         enrichedBuildActivityData(
-          buildCount: 50,
+          buildTimeUs: 1000000,
           dirtyList: ['MyWidget', 'MyWidget', 'OtherWidget'],
         ),
       );
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(
-        enrichedBuildActivityData(buildCount: 0, dirtyList: null),
-      );
+      detector.processTimelineData(enrichedBuildActivityData());
       detector.evaluateNow();
 
       expect(detector.issues, hasLength(1));
@@ -767,7 +772,7 @@ void main() {
 
     test('VM path without enrichment uses structural fallback', () {
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 50));
+      detector.processTimelineData(_windowShare(50));
       detector.evaluateNow();
 
       expect(detector.issues, hasLength(1));
@@ -778,17 +783,20 @@ void main() {
     test('enrichment cleared between evaluation cycles', () {
       // Cycle 1: enriched data
       detector.processTimelineData(
-        enrichedBuildActivityData(buildCount: 50, dirtyList: ['LeakyWidget']),
+        enrichedBuildActivityData(
+          buildTimeUs: 1000000,
+          dirtyList: ['LeakyWidget'],
+        ),
       );
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(enrichedBuildActivityData(buildCount: 0));
+      detector.processTimelineData(enrichedBuildActivityData());
       detector.evaluateNow();
       expect(detector.issues.first.detail, contains('LeakyWidget'));
 
       // Cycle 2: no enrichment
-      detector.processTimelineData(highBuildActivityData(buildCount: 50));
+      detector.processTimelineData(_windowShare(50));
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 0));
+      detector.processTimelineData(_windowShare(0));
       detector.evaluateNow();
       expect(detector.issues.first.detail, isNot(contains('LeakyWidget')));
     });
@@ -796,7 +804,7 @@ void main() {
     test('debug snapshot path ignores enrichment', () {
       detector.processTimelineData(
         enrichedBuildActivityData(
-          buildCount: 50,
+          buildTimeUs: 1000000,
           dirtyList: ['ShouldBeIgnored'],
         ),
       );
@@ -810,7 +818,7 @@ void main() {
       );
       detector.updateDebugSnapshot(snapshot);
 
-      detector.processTimelineData(enrichedBuildActivityData(buildCount: 0));
+      detector.processTimelineData(enrichedBuildActivityData());
       detector.evaluateNow();
 
       // Should use debug path, not enriched VM path
@@ -1102,6 +1110,7 @@ void main() {
       det.processTimelineData(
         ParsedTimelineData(
           buildEventCount: 50,
+          buildScopeDurations: const [1000000],
           phaseEvents: [
             PhaseEvent(
               phase: TimelinePhase.build,
@@ -1116,7 +1125,7 @@ void main() {
       det.processTimelineData(ParsedTimelineData(buildEventCount: 0));
       det.evaluateNow();
 
-      // The aggregate build count (50) exceeds threshold, so VM issue fires.
+      // The aggregate build share (50 %) exceeds threshold, so VM issue fires.
       // But StreamBuilder should NOT appear in highlights (below 3x threshold).
       await tester.pumpWidget(
         const Directionality(
@@ -1210,9 +1219,10 @@ void main() {
   });
 
   // -----------------------------------------------------------------
-  // lastObservedRebuildRate — capture-mode operator pathway
+  // rebuild_activity time-share axis — window arithmetic and the
+  // capture-mode observables
   // -----------------------------------------------------------------
-  group('lastObservedRebuildRate (v0.19.11)', () {
+  group('build-time share axis', () {
     late RebuildDetector detector;
     late DateTime fakeNow;
 
@@ -1222,306 +1232,192 @@ void main() {
       detector.vmConnected = true;
     });
 
-    test('field-write happens BEFORE threshold gate (sub-threshold)', () {
-      // 5/sec is below the default rebuildsPerSecThreshold=10 — no
-      // warning fires, but capture-mode operators still need the
-      // detector-measured rate so the bracket triad's below-leg
-      // exports detector evidence rather than the operator's plan.
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 5));
+    /// Feeds [buildTimeUs] of BUILD scope time, advances the clock by
+    /// [windowMs], and closes the window with an empty batch.
+    void closeWindow(int buildTimeUs, {int windowMs = 1000}) {
+      detector.processTimelineData(buildLoadData(buildTimeUs: buildTimeUs));
+      fakeNow = fakeNow.add(Duration(milliseconds: windowMs));
+      detector.processTimelineData(emptyTimelineData());
       detector.evaluateNow();
-      expect(
-        detector.issues,
-        isEmpty,
-        reason: '5 ≤ threshold (10) — no warning fires',
-      );
-      expect(
-        detector.lastObservedRebuildRate,
-        5,
-        reason:
-            'Field-write must precede the emission gate so '
-            'sub-threshold buffers expose the value to capture tooling.',
-      );
+    }
+
+    List<PerformanceIssue> activity() =>
+        detector.issues.where((i) => i.stableId == 'rebuild_activity').toList();
+
+    test('defaults: 10 % threshold, per-widget count knob unchanged', () {
+      expect(detector.buildTimePercentThreshold, 10);
+      expect(detector.rebuildsPerSecThreshold, 10);
     });
 
-    test('at-threshold writes peak + emission carries arg parity', () {
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 14));
-      detector.evaluateNow();
-      final issue = detector.issues.firstWhere(
-        (i) => i.stableId == 'rebuild_activity',
-      );
-      expect(issue.severity, IssueSeverity.warning);
-      expect(
-        issue.dedupIdentityMicros,
-        isNotNull,
-        reason: 'capture-mode requires producer-side stable identity',
-      );
-      expect(
-        issue.extraTraceArgs?['observedRebuildRate'],
-        '14',
-        reason:
-            'audit gate cross-checks expectedMagnitude.observed '
-            'against this trace-event arg via observedAxisArgKey',
-      );
-      expect(
-        detector.lastObservedRebuildRate,
-        14,
-        reason: 'getter and trace arg must agree (same source)',
-      );
+    test('9.0 % over 1 000 ms stays silent', () {
+      closeWindow(90000);
+      expect(activity(), isEmpty);
+      expect(detector.lastObservedBuildPercent, closeTo(9.0, 1e-9));
     });
 
-    test('resetCaptureState clears peak', () {
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 25));
-      detector.evaluateNow();
-      expect(detector.lastObservedRebuildRate, 25);
-      detector.resetCaptureState();
-      expect(
-        detector.lastObservedRebuildRate,
-        0,
-        reason:
-            'capture-mode session boundaries (markScenarioBegin '
-            'auto-reset) must clear stale peak so leg N+1 does not '
-            'inherit leg N evidence.',
-      );
+    test('11.0 % over 1 000 ms raises a warning stamped with the share', () {
+      closeWindow(110000);
+      final issues = activity();
+      expect(issues, hasLength(1));
+      expect(issues.single.severity, IssueSeverity.warning);
+      expect(issues.single.extraTraceArgs?['observedBuildPercent'], '11.0');
+      expect(issues.single.title, contains('11.0% of UI time'));
+      expect(issues.single.detail, contains('BUILD scopes'));
+      expect(issues.single.detail, contains('~1 s window'));
+      expect(issues.single.fixHint, contains('11.0% of UI-thread time'));
     });
 
-    test('resetCaptureState realigns window so first staged count after '
-        'scenario start contains only scenario events', () {
-      // Pre-scenario: 7 BUILD events accumulate into _buildEventCount
-      // mid-window (200 ms after construction; window has not closed).
-      fakeNow = fakeNow.add(const Duration(milliseconds: 200));
-      detector.processTimelineData(highBuildActivityData(buildCount: 7));
-      // No window has closed yet — _buildEventCount holds 7, no
-      // staged value to consume.
-      expect(detector.lastObservedRebuildRate, 0);
-
-      // markScenarioBegin fires (simulated): resetCaptureState
-      // re-anchors _windowStart and clears the contaminated
-      // accumulator.
-      detector.resetCaptureState();
-
-      // Scenario activity: 9 events 600 ms after scenario start; then
-      // advance 500 ms more to cross the 1 s window boundary so the
-      // next processTimelineData stages a count.
-      fakeNow = fakeNow.add(const Duration(milliseconds: 600));
-      detector.processTimelineData(highBuildActivityData(buildCount: 9));
-      fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-      // Tick past the 1 s window boundary; staging happens here.
-      detector.processTimelineData(highBuildActivityData(buildCount: 0));
-      detector.evaluateNow();
-
-      expect(
-        detector.lastObservedRebuildRate,
-        9,
-        reason:
-            'staged window must contain ONLY post-scenarioBegin '
-            'events (9), not the pre-scenario 7 accumulated before '
-            'resetCaptureState. If the field reads 16, the reset did '
-            'not clear _buildEventCount; if it reads 0, the window '
-            'never closed because _windowStart was not re-anchored '
-            'to scenario-begin time.',
-      );
+    test('31.0 % over 1 000 ms is critical', () {
+      closeWindow(310000);
+      final issues = activity();
+      expect(issues, hasLength(1));
+      expect(issues.single.severity, IssueSeverity.critical);
+      expect(issues.single.extraTraceArgs?['observedBuildPercent'], '31.0');
     });
-  });
 
-  // ----------------------------------------------------------------
-  // baselineRebuildRate — ambient-floor subtraction for capture mode
-  // ----------------------------------------------------------------
-  // The detector counts every BUILD timeline event regardless of source.
-  // On iOS profile mode, Material framework alone emits ~10–15 BUILDs/sec
-  // ambient (Scaffold animations, theme inheritance, navigator
-  // transitions). Without baseline subtraction, that ambient exceeds
-  // the default 10/sec threshold and below-leg silence is unachievable
-  // for the runtimeVerified bracket. Live-monitoring users do NOT set a
-  // baseline (default 0 → no-op subtraction); capture-mode operators
-  // measure baseline once and call setBaseline() before workload runs.
-  group('baselineRebuildRate (v0.19.12)', () {
-    late DateTime fakeNow;
-    late RebuildDetector detector;
+    test('exactly 3× the threshold stays warning (strict >)', () {
+      closeWindow(300000);
+      expect(activity().single.severity, IssueSeverity.warning);
+    });
 
-    setUp(() {
-      fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
+    test('a 1 400 ms window is normalised by its real length', () {
+      closeWindow(140000, windowMs: 1400);
+      expect(detector.lastObservedBuildPercent, closeTo(10.0, 1e-9));
+      expect(activity(), isEmpty, reason: '10.0 % is not above 10 %');
+
+      closeWindow(154000, windowMs: 1400);
+      expect(detector.lastObservedBuildPercent, closeTo(11.0, 1e-9));
+      expect(activity().single.extraTraceArgs?['observedBuildPercent'], '11.0');
+    });
+
+    test('custom threshold gates warning and 3× critical', () {
       detector = RebuildDetector(
-        rebuildsPerSecThreshold: 10,
+        buildTimePercentThreshold: 25,
         clock: () => fakeNow,
-      );
-      detector.vmConnected = true;
+      )..vmConnected = true;
+      closeWindow(200000);
+      expect(activity(), isEmpty);
+      closeWindow(300000);
+      expect(activity().single.severity, IssueSeverity.warning);
+      closeWindow(760000);
+      expect(activity().single.severity, IssueSeverity.critical);
     });
 
-    test('default baseline is 0 — preserves live-monitoring semantics', () {
-      expect(
-        detector.baselineRebuildRate,
-        0,
-        reason:
-            'Default must be 0. Any non-zero default would break '
-            'live monitoring by silently shifting the threshold.',
-      );
+    test('lastObservedBuildPercent tracks every closed window, '
+        'including 0 % idle windows', () {
+      closeWindow(50000);
+      expect(detector.lastObservedBuildPercent, closeTo(5.0, 1e-9));
+      closeWindow(0);
+      expect(detector.lastObservedBuildPercent, 0);
+    });
 
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 14));
+    test('no window closes before 1 000 ms', () {
+      detector.processTimelineData(buildLoadData(buildTimeUs: 500000));
+      fakeNow = fakeNow.add(const Duration(milliseconds: 999));
+      detector.processTimelineData(emptyTimelineData());
       detector.evaluateNow();
+      expect(activity(), isEmpty);
+      expect(detector.lastObservedBuildPercent, 0);
+    });
 
+    test('peak equals the largest stamped observedBuildPercent', () {
+      final stamped = <double>[];
+      for (final us in [120000, 182000, 140000, 60000]) {
+        closeWindow(us);
+        for (final issue in activity()) {
+          stamped.add(
+            double.parse(issue.extraTraceArgs!['observedBuildPercent']!),
+          );
+        }
+      }
+      expect(stamped, [12.0, 18.2, 14.0]);
+      expect(detector.peakObservedBuildPercent, closeTo(18.2, 1e-9));
       expect(
-        detector.lastObservedRebuildRate,
-        14,
-        reason:
-            'With baseline=0, observed rate must be raw count. '
-            'Subtraction must be a no-op.',
+        detector.peakObservedBuildPercent.toStringAsFixed(1),
+        stamped.reduce((a, b) => a > b ? a : b).toStringAsFixed(1),
       );
       expect(
-        detector.issues,
-        isNotEmpty,
-        reason:
-            'Raw 14 > threshold 10 → warning fires (default '
-            'live-monitoring behavior unchanged).',
+        detector.lastObservedBuildPercent,
+        closeTo(6.0, 1e-9),
+        reason: 'last tracks the latest window; peak tracks the max',
       );
     });
 
-    test('setBaseline subtracts ambient before threshold gate', () {
-      detector.setBaseline(10);
+    test('resetCaptureState zeroes last/peak and restarts the window '
+        'clock', () {
+      closeWindow(250000);
+      expect(detector.peakObservedBuildPercent, closeTo(25.0, 1e-9));
 
-      // Raw 14 - baseline 10 = 4 → below threshold → silent.
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 14));
-      detector.evaluateNow();
-      expect(
-        detector.lastObservedRebuildRate,
-        4,
-        reason: 'Field exposes adjusted (raw-baseline), not raw.',
-      );
-      expect(
-        detector.issues,
-        isEmpty,
-        reason: 'Adjusted 4 ≤ threshold 10 → no warning.',
-      );
-
-      // Raw 25 - baseline 10 = 15 → above threshold → fires warning.
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 25));
-      detector.evaluateNow();
-      expect(detector.lastObservedRebuildRate, 15);
-      final warning = detector.issues
-          .where((i) => i.stableId == 'rebuild_activity')
-          .toList();
-      expect(warning, hasLength(1));
-      expect(warning.first.severity, IssueSeverity.warning);
-      expect(
-        warning.first.extraTraceArgs?['observedRebuildRate'],
-        '15',
-        reason:
-            'extraTraceArgs must carry adjusted value so audit '
-            'gate cross-checks observed magnitude against the same '
-            'value the bracket-band schema validates.',
-      );
-    });
-
-    test('setBaseline negative input clamps to 0', () {
-      detector.setBaseline(-5);
-      expect(detector.baselineRebuildRate, 0);
-    });
-
-    test('critical-tier escalation also baseline-corrected', () {
-      detector.setBaseline(10);
-
-      // Raw 35 - baseline 10 = 25 → > 10 (warning) but ≤ 30 (not
-      // critical). Severity stays warning — not falsely escalated by
-      // raw count.
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 35));
-      detector.evaluateNow();
-      final issue = detector.issues.firstWhere(
-        (i) => i.stableId == 'rebuild_activity',
-      );
-      expect(
-        issue.severity,
-        IssueSeverity.warning,
-        reason:
-            'Critical tier (`> threshold * 3 = 30`) must compare '
-            'adjusted (25), not raw (35). Otherwise users with high '
-            'ambient would see critical fires from below-warning-tier '
-            'user signal.',
-      );
-    });
-
-    test('resetCaptureState does NOT clear baseline', () {
-      detector.setBaseline(10);
+      // Pre-reset load in an open window must not reach the next window.
+      fakeNow = fakeNow.add(const Duration(milliseconds: 700));
+      detector.processTimelineData(buildLoadData(buildTimeUs: 400000));
       detector.resetCaptureState();
-      expect(
-        detector.baselineRebuildRate,
-        10,
-        reason:
-            'Baseline reflects ambient framework noise — stable '
-            'across capture-mode legs in the same session. Clearing '
-            'it would force a re-measurement for every leg, which '
-            'doubles capture time without benefit.',
-      );
+      expect(detector.lastObservedBuildPercent, 0);
+      expect(detector.peakObservedBuildPercent, 0);
+
+      // 600 ms after the reset the window is still open (it would have
+      // closed had the clock not restarted at the reset).
+      fakeNow = fakeNow.add(const Duration(milliseconds: 600));
+      detector.processTimelineData(buildLoadData(buildTimeUs: 120000));
+      expect(detector.lastObservedBuildPercent, 0);
+
+      // 1 200 ms after the reset: 120 ms of BUILD over 1.2 s = 10.0 %.
+      fakeNow = fakeNow.add(const Duration(milliseconds: 600));
+      detector.processTimelineData(emptyTimelineData());
+      detector.evaluateNow();
+      expect(detector.lastObservedBuildPercent, closeTo(10.0, 1e-9));
+      expect(activity(), isEmpty);
     });
 
-    test('vmConnected=false clears baseline so capture-mode subtraction '
-        'cannot leak into post-reconnect live monitoring', () {
-      detector.setBaseline(15);
-      expect(detector.baselineRebuildRate, 15);
+    test('VM disconnect clears last/peak and the open window', () {
+      closeWindow(250000);
+      detector.processTimelineData(buildLoadData(buildTimeUs: 900000));
       detector.vmConnected = false;
-      expect(
-        detector.baselineRebuildRate,
-        0,
-        reason:
-            'VM disconnect is the implicit end of a capture '
-            'session. A baseline left set after disconnect would '
-            'silently suppress real rebuild storms in the '
-            '(threshold, threshold+baseline] band when VM '
-            'reconnects (DevTools attach/detach, app backgrounding, '
-            'debugger reattach).',
-      );
+      expect(detector.lastObservedBuildPercent, 0);
+      expect(detector.peakObservedBuildPercent, 0);
+
       detector.vmConnected = true;
+      closeWindow(50000);
       expect(
-        detector.baselineRebuildRate,
-        0,
-        reason: 'Reconnect must not restore stale baseline.',
+        detector.lastObservedBuildPercent,
+        closeTo(5.0, 1e-9),
+        reason: 'build time fed before the disconnect must not count',
       );
     });
 
-    test('peakObservedRebuildRate tracks max-adjusted across staged '
-        'windows; reset clears it', () {
-      // Three windows: adjusted = 12, 18, 14 (raw - baseline 0).
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 12));
-      detector.evaluateNow();
-      expect(detector.peakObservedRebuildRate, 12);
+    test('lifecyclePhase still stamped on emissions', () {
+      final appStart = Timeline.now;
+      detector = RebuildDetector(
+        clock: () => fakeNow,
+        appStartMonotonicUsForTest: () => appStart,
+      )..vmConnected = true;
+      closeWindow(110000);
+      expect(activity().single.extraTraceArgs?['lifecyclePhase'], 'startup');
+    });
 
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 18));
-      detector.evaluateNow();
-      expect(
-        detector.peakObservedRebuildRate,
-        18,
-        reason: 'Peak must update when a higher window arrives.',
-      );
+    test('dedupIdentityMicros is unique across two emissions', () async {
+      closeWindow(110000);
+      final first = activity().single.dedupIdentityMicros;
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      closeWindow(120000);
+      final second = activity().single.dedupIdentityMicros;
+      expect(first, isNotNull);
+      expect(second, isNotNull);
+      expect(second, isNot(first));
+    });
 
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highBuildActivityData(buildCount: 14));
+    test('debug per-type path still fires at rebuildThreshold counts with '
+        'the default percent knob', () {
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {'MyWidget': 11},
+          totalPaintCount: 0,
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
-      expect(
-        detector.peakObservedRebuildRate,
-        18,
-        reason: 'Peak must NOT regress when a lower window arrives.',
-      );
-      expect(
-        detector.lastObservedRebuildRate,
-        14,
-        reason: 'lastObservedRebuildRate tracks last; peak tracks max.',
-      );
-
-      detector.resetCaptureState();
-      expect(
-        detector.peakObservedRebuildRate,
-        0,
-        reason:
-            'Peak must clear with the rest of the per-session '
-            'state at scenario boundaries.',
-      );
+      expect(detector.issues.single.stableId, 'rebuild_debug_MyWidget');
+      expect(detector.issues.single.severity, IssueSeverity.warning);
     });
   });
 }

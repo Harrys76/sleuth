@@ -187,7 +187,7 @@ see step **0** below.
 Confirm the host environment matches the pinned matrix:
 
 ```
-fvm flutter --version    # major.minor must match approvedFlutterMajorMinor (3.41.x)
+fvm flutter --version    # major.minor must be in approvedFlutterMajorMinors (3.41.x or 3.47.x)
 ```
 
 If it doesn't, `fvm use <pinned-version>` before recording. Mismatches
@@ -349,7 +349,7 @@ fvm dart tool/wrap_capture.dart \
   --unit ms \
   --device "iPhone 12" \
   --device-os "iOS 17.5" \
-  --flutter-version 3.41.4
+  --flutter-version 3.47.6
 ```
 
 Repeat for `_at` and `_above`. Use the **measured** ms reported by
@@ -867,6 +867,89 @@ emissions drain into the VM trace buffer before the scenario closes
 emission is refused with a debugPrint diagnostic before JSON hits
 the clipboard.
 
+## RebuildActivity + Repaint time-share captures (hands-free)
+
+`rebuild_activity` (warning + critical) and `excessive_repaint` (warning)
+bracket the share of UI-thread time spent inside BUILD / PAINT scopes
+(`unit: 'percent'`, arg keys `observedBuildPercent` /
+`observedPaintPercent`). Their capture screens vary cost per frame, not
+event count, so the legs are driven by service extensions instead of
+taps. Record on the iPhone 12 / iOS 17.5 / Flutter 3.47.6.
+
+### Launch
+
+```bash
+cd example
+fvm flutter run --profile --no-dds -d <udid> \
+  --dart-define=SLEUTH_CAPTURE_MODE=true
+```
+
+`--no-dds` keeps the VM service shareable so Sleuth's own VM client stays
+connected (VM+ mode); with DDS the service is exclusive and Sleuth drops
+to Basic. Connect any `package:vm_service` client to the printed
+`ws://.../ws` URI. Leave the phone idle for two minutes before the first
+leg; build and paint durations drift with temperature.
+
+### Per leg
+
+1. `ext.sleuthDemo.captureLeg` with `detector=rebuild|repaint`,
+   `tier=warning|critical` (repaint: `warning` only),
+   `leg=below|at|above`. Opens the capture screen if needed and returns
+   `{started: true}` at once, or `{error: busy | not_capture_mode |
+   vm_disconnected | bad_args | screen_not_ready}`.
+2. Poll `ext.sleuthDemo.captureResult` every 2 s until `state` is `done`
+   or `failed` (a leg takes about 12 s for rebuild, 10 s for repaint,
+   up to five times that with retries). The payload carries `leg`,
+   `observed`, `attempts` (measured spans run, 1 to 5), `log`, and on
+   success the wrapped capture in `json`. Pass `consume=true` on the final read to
+   release the stash.
+3. Write `json` to the capture file (same names as before):
+   `rebuild_detector/{below,at,above}.json`,
+   `rebuild_detector/critical_{below,at,above}.json`,
+   `repaint/excessive_repaint_{below,at,above}.json`. The scenario is
+   `rebuild_activity_<basename>` / `excessive_repaint_<role>`.
+4. Wait 5 s before the next leg. Order: warning below → at → above,
+   then critical, then repaint.
+
+The workloads keep the added cost in the measured phase without growing
+the element tree. Rebuild: 64 leaves, each running a `work`-iteration
+integer loop inside build() and passing the result to a child that
+renders one const `SizedBox.shrink()`, so `work` adds BUILD time while
+the element count, layout, paint and Sleuth's own structural scan stay
+the same. Repaint: `ops` text layouts per frame spread across the 32
+tiles (tile `i` draws `ops ~/ 32`, plus one when `i < ops % 32`), each a
+fresh `TextPainter` (default font, size 12) whose text carries the
+current tick, so every layout is new PAINT work rather than raster work.
+
+Each leg runs a 3 s calibration pre-pass at a known knob (`work` 4000
+for rebuild, `ops` 32 for repaint), reads the detector's
+`lastObserved*Percent`, and scales the knob to the leg target (warning
+0.5 / 1.25 / 2.1 × the threshold; rebuild critical 0.8 / 1.23 / 2.0 ×
+3× the threshold). It then stops, flushes the timeline, resets the
+detector, idles 1.5 s so the idle heartbeat closes an empty window, and
+records the scenario (6 s rebuild, 4 s repaint). `observed` is the
+detector peak rounded to one decimal; `expectedMagnitude` bands are
+warning below [0.5, t], critical below [0.65 t, t], at [t, 1.5 t], above
+[1.5 t, 2.7 t]. When the peak lands outside its band the leg runs once
+more, with the same boundary and scenario name, at the knob scaled by
+target / observed and clamped to the workload range; the export reads
+the latest span. A leg fails (and exports nothing) when the pre-pass
+reads 0 %, the scaled knob falls outside the workload range, a peak
+reads 0 %, or every retry misses its band. Re-record a failed leg on its own; after three failed
+attempts stop and look at `log` instead of widening tolerances.
+
+`ext.sleuthDemo.vmAxes` (`reset=true|false`) returns `buildLast`,
+`buildPeak`, `paintLast`, `paintPeak` and `vmConnected` for calibration
+walks on other screens.
+
+### Validate
+
+```bash
+fvm flutter test test/validation/detector_metadata_audit_test.dart \
+  test/validation/profile_capture_schema_test.dart \
+  test/validation/rebuild_reproducer_test.dart
+```
+
 ## GpuPressure raster_dominance — runtimeVerified blocked
 
 A `runtimeVerified` raise of `GpuPressureDetector.raster_dominance` is
@@ -906,7 +989,7 @@ no capture screen; it stays `reproducerOnly`.
     "schemaVersion":   "v1",                        // NEW in v0.18.0
     "device":          "iPhone 12",                 // pinned
     "deviceOsVersion": "iOS 17.5",                  // pinned (pair-matched)
-    "flutterVersion":  "3.41.4",                    // pinned major.minor
+    "flutterVersion":  "3.47.6",                    // major.minor in the approved set
     "captureCommand":  "fvm flutter run --profile -d <device>",
     "scenario":        "human label",
     "expectedMagnitude": {

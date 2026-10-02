@@ -1,87 +1,69 @@
 // Capture screen for `RebuildDetector.rebuild_activity` runtime-verified
-// raises. Drives a controlled rebuilds-per-second rate via Stopwatch-
-// throttled Ticker setState on a plain StatefulWidget (NOT a builder
-// widget — RebuildDetector applies a 3× threshold multiplier to
-// StreamBuilder/AnimatedBuilder/FutureBuilder/TweenAnimationBuilder
-// which would push warning to >30/sec, colliding with critical).
+// brackets. The detector measures the share of UI-thread wall time spent
+// inside BUILD scopes per ~1 s window, so the workload varies build cost
+// per frame at a fixed element count: a Ticker rebuilds 64 leaves on
+// every frame the display delivers (the share is time-based, so the
+// display rate does not change what is measured), and each leaf's
+// `build()` runs a deterministic `work`-iteration integer loop whose
+// result goes into its child. The added cost is computation inside BUILD;
+// the tree, and with it LAYOUT, PAINT and Sleuth's own structural scan,
+// stays the same size at every `work`.
 //
-// Two tiers selectable via dropdown:
+// Each leg runs a 3 s calibration pre-pass at a known `work`, reads the
+// detector's measured share, and scales `work` to the leg's target, a
+// factor of the live tier threshold:
 //
-//   Warning (`> 10/sec` fires .warning). Schema at-band [11, 16.5].
-//   Above-band ceiling 27.5 < critical threshold 30.
-//     below  5/sec  — sub-threshold, no emission
-//     at    13/sec  — inside [11, 16.5]
-//     above 20/sec  — inside (16.5, 27.5], strict under critical
+//   warning  (threshold t = buildTimePercentThreshold, default 10 %)
+//     below 0.5 t · at 1.25 t · above 2.1 t
+//   critical (threshold 3 t, default 30 %)
+//     below 0.8 · at 1.23 · above 2.0 × 3 t
 //
-//   Critical (`> 30/sec` fires .critical). Schema at-band [31, 51.15].
-//   Above-band ceiling 83.7. Below leg may still emit warning (>10/sec)
-//   but must emit no critical events.
-//     below 25/sec  — under critical threshold 31; warning may fire
-//     at    40/sec  — inside [31, 51], comfortable margin
-//     above 70/sec  — inside (51.15, 83.7], headroom under ceiling
-//                     to absorb iOS thermal throttling on a 6 s
-//                     sustained leg without dropping below 52/sec
-//
-// Below-leg producer pattern: detector exposes lastObservedRebuildRate
-// unconditionally. Reading detector-measured rate at scenario.end keeps
-// below-leg evidence quality on par with at/above legs.
+// The leg then stops, drains the timeline, resets the detector, idles
+// 1.5 s, and records a 6 s scenario; a peak outside the band gets up to four
+// rescaled retries. Bands come from `timeShareBand`.
+// Legs are started from the buttons or from `ext.sleuthDemo.captureLeg`.
 
-import 'dart:developer' as developer;
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
 import 'package:sleuth/sleuth.dart';
 
-/// One bracket leg target. Below leg is sub-threshold (no emission);
-/// at + above legs both fire `rebuild_activity.warning` with rate in
-/// the bracket band.
+import 'capture_driver.dart';
+
+/// One bracket leg: role and target as a factor of the tier threshold.
 class _Leg {
-  const _Leg({
-    required this.label,
-    required this.targetRebuildRate,
-    required this.rateMin,
-    required this.rateMax,
-  });
+  const _Leg(this.label, this.factor);
 
   final String label;
-  final int targetRebuildRate;
-  final int rateMin;
-  final int rateMax;
+  final double factor;
 }
 
-/// Bracket tier the operator is targeting. Drives leg targets,
-/// scenario name, capture-file basename, and the
-/// `bracketSeverityLabel` parameter passed to
-/// `Sleuth.exportCaptureJson` so the wrapped JSON's
-/// `metadata.bracket.severityLabel` matches the bracket the audit gate
-/// will cross-check against.
-enum _Tier {
-  warning('warning'),
-  critical('critical');
-
-  const _Tier(this.label);
-  final String label;
-}
-
+/// Leg targets for the warning tier, as factors of the warning threshold.
 const _warningLegs = <_Leg>[
-  _Leg(label: 'below', targetRebuildRate: 5, rateMin: 1, rateMax: 10),
-  _Leg(label: 'at', targetRebuildRate: 13, rateMin: 11, rateMax: 19),
-  _Leg(label: 'above', targetRebuildRate: 20, rateMin: 19, rateMax: 27),
+  _Leg('below', 0.5),
+  _Leg('at', 1.25),
+  _Leg('above', 2.1),
 ];
 
+/// Leg targets for the critical tier, as factors of the critical
+/// threshold (3× the warning threshold).
 const _criticalLegs = <_Leg>[
-  _Leg(label: 'below', targetRebuildRate: 25, rateMin: 20, rateMax: 30),
-  _Leg(label: 'at', targetRebuildRate: 40, rateMin: 31, rateMax: 51),
-  _Leg(label: 'above', targetRebuildRate: 70, rateMin: 52, rateMax: 83),
+  _Leg('below', 0.8),
+  _Leg('at', 1.23),
+  _Leg('above', 2.0),
 ];
 
-List<_Leg> _legsForTier(_Tier tier) =>
-    tier == _Tier.warning ? _warningLegs : _criticalLegs;
+/// `work` the calibration pre-pass runs at.
+const int _calibrationWork = 4000;
 
-const _scenarioDurationSec = 6;
-const _postCompletionDwellMs = 500;
-const _postScenarioEndDwellMs = 800;
+/// `work` limits of the workload.
+const int _minWork = 1;
+const int _maxWork = 4000000;
+
+const Duration _workloadDuration = Duration(seconds: 6);
+
+/// Driver key for this screen.
+const String _detectorKey = 'rebuild';
 
 class RebuildActivityCaptureScreen extends StatefulWidget {
   const RebuildActivityCaptureScreen({super.key});
@@ -92,422 +74,109 @@ class RebuildActivityCaptureScreen extends StatefulWidget {
 }
 
 class _RebuildActivityCaptureScreenState
-    extends State<RebuildActivityCaptureScreen>
-    with TickerProviderStateMixin {
-  Ticker? _ticker;
-  String? _lastCompletedLeg;
-  String? _stashedCaptureJson;
-  // ignore: prefer_final_fields  (mutated from Ticker callback for diagnostics)
-  int _pulseCount = 0;
+    extends State<RebuildActivityCaptureScreen> {
+  /// Current `work`, or null while no workload runs.
+  final ValueNotifier<int?> _work = ValueNotifier<int?>(null);
+  String _tier = 'warning';
 
-  // All mutable UI state is driven through ValueNotifiers so per-leg state
-  // changes do not call setState on this State. A plain setState rebuilds
-  // the whole Scaffold subtree (~25 BUILD events). Each notifier is
-  // consumed by a ValueListenableBuilder that rebuilds only its leaf
-  // Text/Button. Per-tick rebuilds go through `_pulseKey` (see _Pulse)
-  // which produces exactly 1 BUILD event per Ticker fire — a
-  // ValueListenableBuilder consumer would emit 2 (the listener State plus
-  // its child Text), pushing below-leg over the 10/sec threshold.
-  final ValueNotifier<bool> _busy = ValueNotifier<bool>(false);
-  final ValueNotifier<int?> _lastObservedRate = ValueNotifier<int?>(null);
-  final ValueNotifier<int?> _baselineRate = ValueNotifier<int?>(null);
-  final ValueNotifier<_Tier> _tier = ValueNotifier<_Tier>(_Tier.warning);
-  final ValueNotifier<List<String>> _log = ValueNotifier<List<String>>(
-    const [],
-  );
-  final GlobalKey<_PulseState> _pulseKey = GlobalKey<_PulseState>();
-
-  void _appendLog(String line) {
-    _log.value = List<String>.unmodifiable([..._log.value, line]);
+  @override
+  void initState() {
+    super.initState();
+    CaptureDriver.instance.register(_detectorKey, _runLeg);
   }
 
   @override
   void dispose() {
-    _ticker?.stop();
-    _ticker?.dispose();
-    _ticker = null;
-    // Release any baseline this screen configured. Without this, the
-    // detector instance attached to the live SleuthController retains
-    // the capture-mode subtraction floor after the user navigates back
-    // to their app, silently suppressing real rebuild storms in the
-    // (threshold, threshold + baseline] band during normal monitoring.
-    Sleuth.rebuildDetector?.setBaseline(0);
-    _busy.dispose();
-    _lastObservedRate.dispose();
-    _baselineRate.dispose();
-    _tier.dispose();
-    _log.dispose();
+    CaptureDriver.instance.unregister(_detectorKey, _runLeg);
+    _work.dispose();
     super.dispose();
   }
 
-  Future<void> _runLeg(_Leg leg) async {
-    if (_busy.value) return;
-    final monitor = Sleuth.rebuildDetector;
-    if (monitor == null) {
-      _appendLog(
-        '[${leg.label}] FAILED: Sleuth.rebuildDetector is null. Verify '
-        'Sleuth.init() ran with captureMode=true and '
-        '--dart-define=SLEUTH_CAPTURE_MODE=true.',
+  Future<void> _runLeg(String tier, String role) async {
+    final driver = CaptureDriver.instance;
+    final detector = Sleuth.rebuildDetector;
+    final legs = tier == 'critical' ? _criticalLegs : _warningLegs;
+    final leg = legs.where((l) => l.label == role).firstOrNull;
+    if (detector == null || leg == null) {
+      driver.fail(
+        detector == null
+            ? 'Sleuth.rebuildDetector is null (Sleuth.init() with '
+                  'captureMode=true required)'
+            : 'unknown leg $tier/$role',
       );
       return;
     }
-    _busy.value = true;
-    _lastCompletedLeg = null;
-    _lastObservedRate.value = null;
-    _stashedCaptureJson = null;
-    final tier = _tier.value;
-    _appendLog(
-      '[${tier.label}/${leg.label}] scenario.begin — '
-      'target ~${leg.targetRebuildRate}/sec',
+    if (mounted && _tier != tier) setState(() => _tier = tier);
+    final warning = detector.buildTimePercentThreshold;
+    final tierThreshold = tier == 'critical' ? warning * 3 : warning;
+    final basename = tier == 'critical' ? 'critical_$role' : role;
+    await runTimeShareLeg(
+      leg: TimeShareLeg(
+        detector: _detectorKey,
+        stableId: 'rebuild_activity',
+        tier: tier,
+        role: role,
+        scenario: 'rebuild_activity_$basename',
+        tierThreshold: tierThreshold,
+        targetPercent: tierThreshold * leg.factor,
+        knobName: 'work',
+        calibrationKnob: _calibrationWork,
+        minKnob: _minWork,
+        maxKnob: _maxWork,
+        workloadDuration: _workloadDuration,
+      ),
+      startWorkload: (work) {
+        if (mounted) _work.value = work;
+      },
+      stopWorkload: () {
+        if (mounted) _work.value = null;
+      },
+      readPeak: () => detector.peakObservedBuildPercent,
+      resetDetector: detector.resetCaptureState,
+      isActive: () => mounted,
     );
-
-    // Suffix-shape capture file name (e.g. `critical_below.json`,
-    // basename `critical_below`); scenario string also follows the
-    // suffix-shape `rebuild_activity_<basename>` so
-    // checkCapturePathPerDirectoryNamingUniformity sees a single
-    // common prefix `rebuild_activity` across both tiers' captures
-    // even though they live in the same directory.
-    final basename = tier == _Tier.warning
-        ? leg.label
-        : 'critical_${leg.label}';
-    final scenarioName = 'rebuild_activity_$basename';
-    final messenger = ScaffoldMessenger.of(context);
-
-    // ValueNotifier writes above mark their consumers dirty but BUILD
-    // timeline events only emit when the next frame actually runs. A
-    // synchronous flushTimelineNow on this microtask would poll VM
-    // before that frame fires → cursor advances past nothing → pre-leg
-    // BUILDs land in the NEXT poll, which is the first poll after
-    // markScenarioBegin, contaminating window 1. The dwell is sized to
-    // span ≥3 vsync intervals on 60 Hz so the dirty subtrees flush.
-    await Future<void>.delayed(const Duration(milliseconds: 80));
-    if (!mounted) return;
-
-    // Narrow VM timeline streams to Dart only — long scenarios under
-    // default streams overflow the ring buffer and roll scenario.begin
-    // off before exportCaptureJson can read it.
-    await Sleuth.suspendNonEssentialTimelineStreams();
-    var streamsSuspended = true;
-    try {
-      // Inline baseline measurement.
-      //
-      // Ambient framework BUILDs/sec drifts with screen state — the
-      // Sleuth overlay (TriggerButton, FloatingIssuesCard) rebuilds
-      // when issues fire, so a baseline measured before any leg is
-      // numerically valid only at that moment. After a few legs run
-      // the overlay's badge count and issue list inflate the ambient
-      // floor. A stale baseline produces under-subtraction → adjusted
-      // count exceeds threshold → below-leg false-fires.
-      //
-      // Re-measuring inline (right before each pulse phase) keeps the
-      // subtraction current with whatever overlay state exists at run
-      // time. The baseline scenario stays inside the same suspend/
-      // resume window so VM streams are narrow throughout.
-      monitor.setBaseline(0);
-      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 1));
-      if (!mounted) return;
-      Sleuth.markScenarioBegin('${scenarioName}_baseline');
-      await Future<void>.delayed(const Duration(seconds: 3));
-      if (!mounted) return;
-      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
-      if (!mounted) return;
-      final ambient = monitor.peakObservedRebuildRate;
-      Sleuth.markScenarioEnd('${scenarioName}_baseline');
-      await Future<void>.delayed(
-        const Duration(milliseconds: _postScenarioEndDwellMs),
-      );
-      if (!mounted) return;
-      monitor.setBaseline(ambient);
-      _baselineRate.value = ambient;
-      _appendLog('[${leg.label}] baseline=$ambient/sec — running workload');
-
-      // Drain pre-leg BUILD events past the VM cursor before the
-      // detector window anchors. The cursor is owned by VmServiceClient
-      // (independent of resetCaptureState) so without this drain the
-      // events sit in the VM ring buffer and the next poll feeds them
-      // into window 1.
-      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 1));
-      if (!mounted) return;
-
-      // markScenarioBegin auto-resets the detector's per-session counters
-      // + last-observed rate via SleuthController.resetCaptureState.
-      // Baseline survives reset (ambient is stable across legs in the
-      // same screen state).
-      Sleuth.markScenarioBegin(scenarioName);
-
-      // Time-based throttling: gate setState on elapsed wall-clock
-      // ms since the last fire. Refresh-rate-independent — works on
-      // 60 Hz / 90 Hz / 120 Hz devices identically because the
-      // interval is in real time, not vsync frames. (A frame-modulus
-      // approach scales with vsync and produces 2× target rate on a
-      // 120 Hz device, pushing the above-leg into critical territory.)
-      final intervalMs = (1000 / leg.targetRebuildRate).round();
-      final stopwatch = Stopwatch()..start();
-      var lastFireMs = 0;
-      _ticker = createTicker((_) {
-        final now = stopwatch.elapsedMilliseconds;
-        if (now - lastFireMs < intervalMs) return;
-        lastFireMs = now;
-        if (!mounted) return;
-        _pulseCount++;
-        _pulseKey.currentState?.pulse();
-      })..start();
-
-      await Future<void>.delayed(const Duration(seconds: _scenarioDurationSec));
-      _ticker?.stop();
-      _ticker?.dispose();
-      _ticker = null;
-
-      await Future<void>.delayed(
-        const Duration(milliseconds: _postCompletionDwellMs),
-      );
-      if (!mounted) return;
-
-      // Drain detector emissions into the VM trace buffer before the
-      // scenario closes. flushTimelineNow drives the VM-poll →
-      // processTimelineData → _evaluateVmData chain that updates
-      // _lastObservedRebuildRate AND records issue trace events.
-      await Sleuth.flushTimelineNow(timeout: const Duration(seconds: 2));
-      if (!mounted) return;
-
-      // Peak (max across staged windows) rather than last-window so the
-      // capture's reported observed magnitude agrees with the schema's
-      // `observedAxisReduction: 'max'` reduction over in-span trace
-      // events. Reading last-window underreports when the workload
-      // tails off in the final window.
-      final observedRate = monitor.peakObservedRebuildRate;
-      Sleuth.markScenarioEnd(scenarioName);
-      await Future<void>.delayed(
-        const Duration(milliseconds: _postScenarioEndDwellMs),
-      );
-      if (!mounted) return;
-
-      await Sleuth.resumeAllTimelineStreams();
-      streamsSuspended = false;
-      if (!mounted) return;
-
-      // Detector-stamped value reaches the schema directly via the
-      // `magnitudeObserved` parameter — no `_replaceExpectedObserved`
-      // post-process step is needed (the wrapped JSON's
-      // `expectedMagnitude.observed` is set from this argument inside
-      // `Sleuth.exportCaptureJson`). Other capture screens that compute
-      // observed magnitude from raw VM data after the fact (memory,
-      // platform_channel) DO need the post-process; this one does not.
-      String? stashed;
-      try {
-        stashed = await Sleuth.exportCaptureJson(
-          scenario: scenarioName,
-          role: leg.label,
-          magnitudeMin: leg.rateMin,
-          magnitudeObserved: observedRate,
-          magnitudeMax: leg.rateMax,
-          unit: 'rebuilds',
-          device: 'iPhone 12',
-          deviceOsVersion: 'iOS 17.5',
-          flutterVersion: '3.41.4',
-          captureCommand:
-              'fvm flutter run --profile -d "iPhone 12" '
-              '--dart-define=SLEUTH_CAPTURE_MODE=true',
-          // Detector-measured magnitude — no BUILD-derivation.
-          magnitudeSourceEventName: '',
-          // Client-side mirror of the schema's per-leg trace-record
-          // contract: at/above must contain matching issue event in
-          // span; below must contain none. Operator sees refusal
-          // before JSON hits the clipboard.
-          bracketStableId: 'rebuild_activity',
-          bracketSeverityLabel: tier.label,
-        );
-      } catch (e, st) {
-        developer.log(
-          '[sleuth.capture] exportCaptureJson threw: $e',
-          name: 'sleuth.capture',
-          error: e,
-          stackTrace: st,
-        );
-        stashed = null;
-      }
-
-      if (!mounted) return;
-      _lastCompletedLeg = stashed != null ? leg.label : null;
-      _stashedCaptureJson = stashed;
-      _lastObservedRate.value = observedRate;
-      _appendLog(
-        '[${tier.label}/${leg.label}] scenario.end — observed=$observedRate/sec; '
-        'pulses=$_pulseCount; '
-        'export ${stashed != null ? "OK" : "FAILED"}',
-      );
-      _pulseCount = 0;
-      _busy.value = false;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            stashed != null
-                ? '${leg.label} OK (observed=$observedRate/sec). '
-                      'Tap Export now.'
-                : '${leg.label} FAILED — see log',
-          ),
-          duration: const Duration(seconds: 4),
-        ),
-      );
-    } catch (e, st) {
-      Sleuth.markScenarioEnd(scenarioName);
-      developer.log(
-        '[sleuth.capture] FAILED ${leg.label}: $e',
-        name: 'sleuth.capture',
-        error: e,
-        stackTrace: st,
-      );
-      if (!mounted) return;
-      _appendLog('[${leg.label}] FAILED: $e');
-      _busy.value = false;
-    } finally {
-      if (streamsSuspended) {
-        await Sleuth.resumeAllTimelineStreams();
-      }
-    }
   }
 
-  Future<void> _exportLastLeg() async {
-    final json = _stashedCaptureJson;
-    if (json == null) {
-      _appendLog('Export: no stashed capture. Run a leg first.');
-      return;
-    }
-    await Clipboard.setData(ClipboardData(text: json));
-    _appendLog(
-      'Export: ${json.length} bytes copied to clipboard '
-      '(leg=$_lastCompletedLeg).',
-    );
+  void _onRunLeg(String role) {
+    if (!CaptureDriver.instance.begin('$_detectorKey/$_tier/$role')) return;
+    _runLeg(_tier, role);
   }
 
   @override
   Widget build(BuildContext context) {
+    final capture = Sleuth.diagnoseCaptureState();
     return Scaffold(
       appBar: AppBar(title: const Text('RebuildActivity Capture')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (!capture.captureMode || !capture.vmConnected)
+              CapturePreflightBanner(
+                captureMode: capture.captureMode,
+                vmConnected: capture.vmConnected,
+              ),
             const Text(
-              'Drives Ticker-gated setState on a plain StatefulWidget at a '
-              'controlled rebuilds-per-second rate. Pick tier from dropdown; '
-              'three legs bracket the `rebuild_activity.<tier>` threshold '
-              '(warning >10/sec, critical >30/sec).',
+              'Rebuilds 64 leaf widgets every frame, each running a '
+              'variable amount of integer work inside build(), so BUILD '
+              'takes a chosen share of UI-thread time. Legs bracket '
+              'rebuild_activity: warning above 10 %, critical above 30 % '
+              '(defaults).',
               style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            _Pulse(key: _pulseKey),
-            const SizedBox(height: 16),
-            ValueListenableBuilder<_Tier>(
-              valueListenable: _tier,
-              builder: (_, tier, _) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    const Text('Tier: '),
-                    const SizedBox(width: 8),
-                    DropdownButton<_Tier>(
-                      value: tier,
-                      // Re-read `_busy.value` at fire time. The parent
-                      // ValueListenableBuilder listens to `_tier`, not
-                      // `_busy`, so a build-time read here would let the
-                      // operator switch tier mid-leg-run.
-                      onChanged: (next) {
-                        if (_busy.value) return;
-                        if (next == null || next == tier) return;
-                        final hadStash = _stashedCaptureJson != null;
-                        setState(() {
-                          _tier.value = next;
-                          _lastCompletedLeg = null;
-                          _stashedCaptureJson = null;
-                        });
-                        _appendLog(
-                          hadStash
-                              ? 'Switched to ${next.label} tier — '
-                                    'previous stashed capture cleared.'
-                              : 'Switched to ${next.label} tier.',
-                        );
-                      },
-                      items: const [
-                        DropdownMenuItem(
-                          value: _Tier.warning,
-                          child: Text('warning (>10/sec)'),
-                        ),
-                        DropdownMenuItem(
-                          value: _Tier.critical,
-                          child: Text('critical (>30/sec)'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            ValueListenableBuilder<bool>(
-              valueListenable: _busy,
-              builder: (_, busy, _) => ValueListenableBuilder<int?>(
-                valueListenable: _baselineRate,
-                builder: (_, baseline, _) => ValueListenableBuilder<_Tier>(
-                  valueListenable: _tier,
-                  builder: (_, tier, _) => Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (final leg in _legsForTier(tier))
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: ElevatedButton(
-                            onPressed: busy ? null : () => _runLeg(leg),
-                            child: Text(
-                              'Run ${tier.label}/${leg.label} '
-                              '(~${leg.targetRebuildRate}/sec)',
-                            ),
-                          ),
-                        ),
-                      const SizedBox(height: 8),
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.content_copy),
-                        label: const Text('Export last leg → clipboard'),
-                        onPressed: busy || _stashedCaptureJson == null
-                            ? null
-                            : _exportLastLeg,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
             ),
             const SizedBox(height: 8),
             ValueListenableBuilder<int?>(
-              valueListenable: _lastObservedRate,
-              builder: (_, rate, _) => Text(
-                rate == null
-                    ? 'Last observed (baseline-adjusted): —'
-                    : 'Last observed (baseline-adjusted): $rate/sec',
-                style: const TextStyle(fontFamily: 'monospace'),
-              ),
+              valueListenable: _work,
+              builder: (_, work, _) => work == null
+                  ? const SizedBox(height: 4)
+                  : CaptureBuildLoad(work: work),
             ),
-            const Divider(),
-            Expanded(
-              child: ValueListenableBuilder<List<String>>(
-                valueListenable: _log,
-                builder: (_, lines, _) => ListView.builder(
-                  itemCount: lines.length,
-                  itemBuilder: (_, i) {
-                    final line = lines[lines.length - 1 - i];
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Text(
-                        line,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
+            CaptureLegPanel(
+              tier: _tier,
+              tiers: const ['warning', 'critical'],
+              onTierChanged: (tier) => setState(() => _tier = tier),
+              onRunLeg: _onRunLeg,
             ),
           ],
         ),
@@ -516,26 +185,98 @@ class _RebuildActivityCaptureScreenState
   }
 }
 
-/// Per-tick rebuild pulse with a 1-BUILD footprint.
-///
-/// `setState(() {})` marks this Element dirty; the next frame rebuilds it
-/// and emits one BUILD timeline event. The build method returns a const
-/// `SizedBox.shrink()` so the child Element diff short-circuits — no
-/// extra BUILD event for the leaf. A ValueListenableBuilder consumer
-/// would emit two (the listener State plus its child Text).
-class _Pulse extends StatefulWidget {
-  const _Pulse({super.key});
+/// Leaves the build workload rebuilds every frame.
+const int _kLeafCount = 64;
+
+/// Build-cost workload: rebuilds [_kLeafCount] leaves every frame at
+/// 60 Hz; each leaf's `build()` runs [work] iterations of an integer loop.
+/// Every leaf ends in a zero-size box at the origin of a 4×4 box, so the
+/// element count and the layout/paint inputs never change with [work].
+@visibleForTesting
+class CaptureBuildLoad extends StatefulWidget {
+  const CaptureBuildLoad({super.key, required this.work});
+
+  /// Loop iterations each leaf runs per build.
+  final int work;
 
   @override
-  State<_Pulse> createState() => _PulseState();
+  State<CaptureBuildLoad> createState() => _CaptureBuildLoadState();
 }
 
-class _PulseState extends State<_Pulse> {
-  void pulse() {
+class _CaptureBuildLoadState extends State<CaptureBuildLoad>
+    with SingleTickerProviderStateMixin {
+  late final Ticker _ticker;
+  int _tick = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = createTicker(_onTick)..start();
+  }
+
+  void _onTick(Duration elapsed) {
     if (!mounted) return;
-    setState(() {});
+    setState(() => _tick++);
   }
 
   @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 4,
+      child: Stack(
+        children: [
+          for (var i = 0; i < _kLeafCount; i++)
+            _CostLeaf(index: i, tick: _tick, work: widget.work),
+        ],
+      ),
+    );
+  }
+}
+
+/// One leaf. The parent creates a new instance each tick (carrying
+/// [tick]), so the element diff never short-circuits; [build] runs a
+/// deterministic [work]-iteration loop seeded by [index] and [tick] and
+/// hands the result to [_CostResult] so the loop cannot be dropped.
+class _CostLeaf extends StatelessWidget {
+  const _CostLeaf({
+    required this.index,
+    required this.tick,
+    required this.work,
+  });
+
+  final int index;
+  final int tick;
+  final int work;
+
+  @override
+  Widget build(BuildContext context) {
+    var acc = index;
+    for (var k = 0; k < work; k++) {
+      acc = (acc * 1103515245 + k + tick) & 0x7fffffff;
+    }
+    return _CostResult(acc);
+  }
+}
+
+/// Carries a leaf's loop result; renders one const zero-size box whose
+/// render object is never dirtied.
+class _CostResult extends StatelessWidget {
+  const _CostResult(this.value);
+
+  final int value;
+
+  @override
   Widget build(BuildContext context) => const SizedBox.shrink();
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(IntProperty('value', value));
+  }
 }

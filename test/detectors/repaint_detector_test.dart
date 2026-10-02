@@ -4,8 +4,14 @@ import 'package:sleuth/src/debug/debug_snapshot.dart';
 import 'package:sleuth/src/detectors/repaint_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
+import 'package:sleuth/src/vm/timeline_parser.dart';
 
 import '../helpers/timeline_test_helpers.dart';
+
+/// PAINT scope time equal to [percent] % of a 2 s window — the window
+/// length the VM-path tests below advance the fake clock by.
+ParsedTimelineData _windowShare(int percent) =>
+    paintLoadData(paintTimeUs: percent * 20000);
 
 void main() {
   group('RepaintDetector', () {
@@ -22,21 +28,21 @@ void main() {
       test('no issues when disabled', () {
         detector.isEnabled = false;
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 50));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });
 
-      test('no issues when paint count below threshold', () {
+      test('no issues when paint share below threshold', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 10));
+        detector.processTimelineData(_windowShare(5));
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });
 
-      test('warning when paint count exceeds threshold', () {
+      test('warning when paint share exceeds threshold', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 35));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
 
         expect(detector.issues, hasLength(1));
@@ -44,9 +50,9 @@ void main() {
         expect(detector.issues.first.title, contains('Repainting'));
       });
 
-      test('critical when paint count exceeds 2x threshold', () {
+      test('critical when paint share exceeds 3x threshold', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 65));
+        detector.processTimelineData(_windowShare(35));
         detector.evaluateNow();
 
         expect(detector.issues, hasLength(1));
@@ -55,7 +61,7 @@ void main() {
 
       test('issue confidence is confirmed (VM data)', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 35));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
 
         expect(detector.issues.first.confidence, IssueConfidence.confirmed);
@@ -63,7 +69,7 @@ void main() {
 
       test('observationSource is vmTimeline', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 35));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
 
         expect(
@@ -75,13 +81,13 @@ void main() {
       test('window resets after 1-second evaluation', () {
         // First window: high activity
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 35));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
 
         // Second window: low activity
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 5));
+        detector.processTimelineData(_windowShare(3));
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });
@@ -90,7 +96,7 @@ void main() {
     group('unified evaluation model', () {
       test('processTimelineData accumulates but does not write issues', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 50));
+        detector.processTimelineData(_windowShare(15));
         expect(detector.issues, isEmpty);
       });
 
@@ -98,7 +104,7 @@ void main() {
         tester,
       ) async {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 50));
+        detector.processTimelineData(_windowShare(15));
 
         await tester.pumpWidget(
           const Directionality(
@@ -113,7 +119,7 @@ void main() {
 
       test('evaluateNow triggers _evaluate without tree walk', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 50));
+        detector.processTimelineData(_windowShare(15));
 
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
@@ -122,7 +128,7 @@ void main() {
       test('VM takes priority over debug when connected', () {
         // Stage both VM and debug data
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 50));
+        detector.processTimelineData(_windowShare(15));
 
         detector.updateDebugSnapshot(
           const DebugSnapshot(
@@ -143,7 +149,7 @@ void main() {
 
       test('no-op when no fresh data — keeps existing issues', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 50));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
 
@@ -153,12 +159,12 @@ void main() {
 
       test('fresh VM window with 0 events clears stale issues', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 50));
+        detector.processTimelineData(_windowShare(15));
         detector.evaluateNow();
         expect(detector.issues, isNotEmpty);
 
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 0));
+        detector.processTimelineData(_windowShare(0));
         detector.evaluateNow();
         expect(detector.issues, isEmpty);
       });
@@ -282,7 +288,7 @@ void main() {
     group('vmConnected setter', () {
       test('VM staging cleared on disconnect', () {
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 50));
+        detector.processTimelineData(_windowShare(15));
 
         detector.vmConnected = false;
         detector.evaluateNow();
@@ -346,7 +352,7 @@ void main() {
         detector.vmConnected = true;
 
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 50));
+        detector.processTimelineData(_windowShare(15));
 
         detector.updateDebugSnapshot(
           const DebugSnapshot(
@@ -403,7 +409,7 @@ void main() {
 
         // Stage VM data
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 50));
+        detector.processTimelineData(_windowShare(15));
 
         // Stage debug per-widget data
         detector.updateDebugSnapshot(
@@ -435,7 +441,7 @@ void main() {
 
         // Stage VM data with high aggregate count
         fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 50));
+        detector.processTimelineData(_windowShare(15));
 
         // Stage debug data: many types, none above threshold individually
         detector.updateDebugSnapshot(
@@ -485,7 +491,7 @@ void main() {
 
     test('enriched dirty count appears in VM path issue detail', () {
       detector.processTimelineData(
-        enrichedPaintData(paintCount: 50, dirtyCount: 8),
+        enrichedPaintData(paintCount: 50, paintDurationUs: 6000, dirtyCount: 8),
       );
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(enrichedPaintData(paintCount: 0));
@@ -499,7 +505,7 @@ void main() {
 
     test('VM path without enrichment has no dirty count', () {
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 50));
+      detector.processTimelineData(_windowShare(15));
       detector.evaluateNow();
 
       expect(detector.issues, hasLength(1));
@@ -510,7 +516,7 @@ void main() {
     test('enrichment cleared between evaluation cycles', () {
       // Cycle 1: enriched data
       detector.processTimelineData(
-        enrichedPaintData(paintCount: 50, dirtyCount: 5),
+        enrichedPaintData(paintCount: 50, paintDurationUs: 6000, dirtyCount: 5),
       );
       fakeNow = fakeNow.add(const Duration(seconds: 2));
       detector.processTimelineData(enrichedPaintData(paintCount: 0));
@@ -518,9 +524,9 @@ void main() {
       expect(detector.issues.first.detail, contains('dirty RenderObjects'));
 
       // Cycle 2: no enrichment
-      detector.processTimelineData(highPaintActivityData(paintCount: 50));
+      detector.processTimelineData(_windowShare(15));
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 0));
+      detector.processTimelineData(_windowShare(0));
       detector.evaluateNow();
       expect(
         detector.issues.first.detail,
@@ -828,15 +834,15 @@ void main() {
     // T6 — Gate B: VM aggregate fallback suppressed when *every*
     // per-widget paint is fully owned. The per-widget rate is
     // sub-threshold (skipping Gate A's residual check), but the VM
-    // window says >30/sec — without Gate B that VM gate would fire
+    // window says >10 % paint share — without Gate B that VM gate would fire
     // `excessive_repaint`.
     testWidgets('Gate B suppresses VM fallback when all per-widget owned', (
       tester,
     ) async {
       detector.vmConnected = true;
-      // VM window: 50 paints/sec, will close on next processTimelineData.
+      // VM window: 15 % paint share over 2 s.
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 50));
+      detector.processTimelineData(_windowShare(15));
       // Per-widget data: 10 paints/sec, fully owned (residual=0).
       detector.updateDebugSnapshot(
         const DebugSnapshot(
@@ -865,7 +871,7 @@ void main() {
     ) async {
       detector.vmConnected = true;
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 50));
+      detector.processTimelineData(_windowShare(15));
       detector.updateDebugSnapshot(
         const DebugSnapshot(
           rebuildCounts: {},
@@ -889,7 +895,7 @@ void main() {
     ) async {
       detector.vmConnected = true;
       fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 50));
+      detector.processTimelineData(_windowShare(15));
       detector.updateDebugSnapshot(
         const DebugSnapshot(
           rebuildCounts: {},
@@ -978,7 +984,7 @@ void main() {
     });
   });
 
-  group('excessive_repaint capture-mode plumbing', () {
+  group('excessive_repaint time-share axis', () {
     late RepaintDetector detector;
     late DateTime fakeNow;
 
@@ -988,135 +994,183 @@ void main() {
       detector.vmConnected = true;
     });
 
-    test('observedPaintCount stamped on emission equals paintCount', () {
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 35));
+    /// Feeds [paintTimeUs] of PAINT scope time, advances the clock by
+    /// [windowMs], and closes the window with an empty batch.
+    void closeWindow(int paintTimeUs, {int windowMs = 1000}) {
+      detector.processTimelineData(paintLoadData(paintTimeUs: paintTimeUs));
+      fakeNow = fakeNow.add(Duration(milliseconds: windowMs));
+      detector.processTimelineData(emptyTimelineData());
       detector.evaluateNow();
+    }
 
-      expect(detector.issues, hasLength(1));
-      final issue = detector.issues.first;
-      expect(issue.stableId, 'excessive_repaint');
-      expect(issue.extraTraceArgs?['observedPaintCount'], '35');
+    List<PerformanceIssue> repaint() => detector.issues
+        .where((i) => i.stableId == 'excessive_repaint')
+        .toList();
+
+    test('defaults: 10 % threshold, per-widget debug knob unchanged', () {
+      expect(detector.paintTimePercentThreshold, 10);
+      expect(detector.paintFrequencyThreshold, 30);
     });
 
-    test(
-      'window-completion stamps lastObservedPaintCount even sub-threshold',
-      () {
-        fakeNow = fakeNow.add(const Duration(seconds: 2));
-        detector.processTimelineData(highPaintActivityData(paintCount: 6));
-        // 6 paints/sec is below 30 threshold — no issue should fire,
-        // but the observable getter must still surface the measurement
-        // for capture-mode below-leg export.
-        detector.evaluateNow();
+    test('9.0 % over 1 000 ms stays silent but updates last and peak', () {
+      closeWindow(90000);
+      expect(repaint(), isEmpty);
+      expect(detector.lastObservedPaintPercent, closeTo(9.0, 1e-9));
+      expect(detector.peakObservedPaintPercent, closeTo(9.0, 1e-9));
+    });
 
-        expect(detector.issues, isEmpty);
-        expect(detector.lastObservedPaintCount, 6);
-      },
-    );
+    test('11.0 % over 1 000 ms raises a warning stamped with the share', () {
+      closeWindow(110000);
+      final issue = repaint().single;
+      expect(issue.severity, IssueSeverity.warning);
+      expect(issue.extraTraceArgs?['observedPaintPercent'], '11.0');
+      expect(issue.title, contains('11.0% of UI time'));
+      expect(issue.detail, contains('PAINT scopes'));
+      expect(issue.fixHint, contains('11.0% of UI-thread time'));
+      expect(issue.dedupIdentityMicros, isNotNull);
+    });
 
-    test(
-      'flushPaintEvaluation populates observable without emitting issues',
-      () {
-        detector.processTimelineData(highPaintActivityData(paintCount: 12));
-        // No window has elapsed (fakeNow not advanced) — _paintEventCount
-        // is staged but _pendingVmWindowCount is null.
-        expect(detector.lastObservedPaintCount, 0);
+    test('31.0 % is critical; exactly 3× stays warning', () {
+      closeWindow(300000);
+      expect(repaint().single.severity, IssueSeverity.warning);
+      closeWindow(310000);
+      expect(repaint().single.severity, IssueSeverity.critical);
+      expect(repaint().single.extraTraceArgs?['observedPaintPercent'], '31.0');
+    });
 
-        detector.flushPaintEvaluation();
-        expect(detector.lastObservedPaintCount, 12);
-        expect(
-          detector.issues,
-          isEmpty,
-          reason: 'flush is observable refresh only — never emits',
-        );
-      },
-    );
+    test('a 1 400 ms window is normalised by its real length', () {
+      closeWindow(140000, windowMs: 1400);
+      expect(detector.lastObservedPaintPercent, closeTo(10.0, 1e-9));
+      expect(repaint(), isEmpty);
+      closeWindow(154000, windowMs: 1400);
+      expect(repaint().single.extraTraceArgs?['observedPaintPercent'], '11.0');
+    });
 
-    test('flushPaintEvaluation does NOT update peakObservedPaintCount', () {
-      // Partial-window counts must not leak into peak — peak is the
-      // capture-mode magnitude export and must match an in-span
-      // emission's observedPaintCount arg under the audit gate's
-      // observedAxisReduction: 'max'. flushPaintEvaluation never
-      // triggers _evaluate, so the partial-window count never appears
-      // as a trace record; updating peak from it would produce an
-      // exported magnitude with no matching emission.
-      detector.processTimelineData(highPaintActivityData(paintCount: 50));
-      expect(detector.peakObservedPaintCount, 0);
+    test('custom threshold gates warning and 3× critical', () {
+      detector = RepaintDetector(
+        paintTimePercentThreshold: 20,
+        clock: () => fakeNow,
+      )..vmConnected = true;
+      closeWindow(150000);
+      expect(repaint(), isEmpty);
+      closeWindow(250000);
+      expect(repaint().single.severity, IssueSeverity.warning);
+      closeWindow(610000);
+      expect(repaint().single.severity, IssueSeverity.critical);
+    });
 
+    test('flushPaintEvaluation after 300 ms updates last only, without '
+        'emitting', () {
+      closeWindow(120000);
+      expect(detector.peakObservedPaintPercent, closeTo(12.0, 1e-9));
+
+      // A 300 ms tail at 50 % share must not become the peak.
+      detector.processTimelineData(paintLoadData(paintTimeUs: 150000));
+      fakeNow = fakeNow.add(const Duration(milliseconds: 300));
       detector.flushPaintEvaluation();
+      expect(detector.lastObservedPaintPercent, closeTo(50.0, 1e-9));
       expect(
-        detector.lastObservedPaintCount,
-        50,
-        reason: 'flush updates the last observable',
+        detector.peakObservedPaintPercent,
+        closeTo(12.0, 1e-9),
+        reason: 'peak stays bound to naturally closed windows',
       );
       expect(
-        detector.peakObservedPaintCount,
-        0,
-        reason: 'peak stays bound to naturally-closed windows only',
+        repaint().single.extraTraceArgs?['observedPaintPercent'],
+        '12.0',
+        reason: 'flush is an observable refresh only — never emits',
       );
     });
 
-    test('resetCaptureState clears all per-leg accumulator fields', () {
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 35));
-      detector.evaluateNow();
-      expect(detector.issues, isNotEmpty);
-      expect(detector.lastObservedPaintCount, 35);
-      expect(detector.peakObservedPaintCount, 35);
+    test('flushPaintEvaluation with no paint time is a no-op', () {
+      closeWindow(60000);
+      fakeNow = fakeNow.add(const Duration(milliseconds: 300));
+      detector.flushPaintEvaluation();
+      expect(detector.lastObservedPaintPercent, closeTo(6.0, 1e-9));
+    });
+
+    test('a natural window close at 1 100 ms raises the peak and stamps '
+        'the same value', () {
+      closeWindow(132000, windowMs: 1100);
+      expect(detector.peakObservedPaintPercent, closeTo(12.0, 1e-9));
+      expect(
+        repaint().single.extraTraceArgs?['observedPaintPercent'],
+        detector.peakObservedPaintPercent.toStringAsFixed(1),
+      );
+    });
+
+    test('peak tracks the max across windows; last tracks the latest', () {
+      closeWindow(60000);
+      closeWindow(225000);
+      closeWindow(80000);
+      expect(detector.peakObservedPaintPercent, closeTo(22.5, 1e-9));
+      expect(detector.lastObservedPaintPercent, closeTo(8.0, 1e-9));
+    });
+
+    test('resetCaptureState clears observables, issues and restarts the '
+        'window clock', () {
+      closeWindow(150000);
+      expect(repaint(), isNotEmpty);
+      fakeNow = fakeNow.add(const Duration(milliseconds: 700));
+      detector.processTimelineData(paintLoadData(paintTimeUs: 400000));
 
       detector.resetCaptureState();
-
-      expect(detector.lastObservedPaintCount, 0);
-      expect(detector.peakObservedPaintCount, 0);
+      expect(detector.lastObservedPaintPercent, 0);
+      expect(detector.peakObservedPaintPercent, 0);
       expect(detector.issues, isEmpty);
       expect(detector.highlights, isEmpty);
-      // Subsequent processTimelineData on a fresh window should accumulate
-      // from zero, not carry over.
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 6));
-      detector.evaluateNow();
-      expect(detector.lastObservedPaintCount, 6);
-      expect(detector.peakObservedPaintCount, 6);
+
+      // 600 ms after the reset the window is still open.
+      fakeNow = fakeNow.add(const Duration(milliseconds: 600));
+      detector.processTimelineData(paintLoadData(paintTimeUs: 60000));
+      expect(detector.lastObservedPaintPercent, 0);
+
+      fakeNow = fakeNow.add(const Duration(milliseconds: 400));
+      detector.processTimelineData(emptyTimelineData());
+      expect(detector.lastObservedPaintPercent, closeTo(6.0, 1e-9));
     });
 
-    test('peakObservedPaintCount tracks max across multiple windows', () {
-      // Window 1: 12 paints (sub-threshold)
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 12));
-      detector.evaluateNow();
-      expect(detector.lastObservedPaintCount, 12);
-      expect(detector.peakObservedPaintCount, 12);
+    test('VM disconnect clears last/peak and the open window', () {
+      closeWindow(150000);
+      detector.processTimelineData(paintLoadData(paintTimeUs: 900000));
+      detector.vmConnected = false;
+      expect(detector.lastObservedPaintPercent, 0);
+      expect(detector.peakObservedPaintPercent, 0);
+      detector.vmConnected = true;
+      closeWindow(50000);
+      expect(detector.lastObservedPaintPercent, closeTo(5.0, 1e-9));
+    });
 
-      // Window 2: 45 paints (above threshold — peak)
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 45));
-      detector.evaluateNow();
-      expect(detector.lastObservedPaintCount, 45);
-      expect(detector.peakObservedPaintCount, 45);
-
-      // Window 3: 8 paints (lower than peak — peak holds)
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 8));
-      detector.evaluateNow();
-      expect(detector.lastObservedPaintCount, 8);
-      expect(
-        detector.peakObservedPaintCount,
-        45,
-        reason: 'peak must hold max across all windows since reset',
+    test('Gate B still suppresses when every per-widget paint is '
+        'animation-owned', () {
+      detector.processTimelineData(paintLoadData(paintTimeUs: 400000));
+      fakeNow = fakeNow.add(const Duration(seconds: 1));
+      detector.processTimelineData(emptyTimelineData());
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 10,
+          paintCounts: {'CustomPaint': 10},
+          animationOwnedPaintCounts: {'CustomPaint': 10},
+          totalAnimationOwnedPaintCount: 10,
+          elapsed: Duration(seconds: 1),
+        ),
       );
+      detector.evaluateNow();
+      expect(detector.issues, isEmpty);
     });
 
-    test('dedupIdentityMicros stamped on emission', () {
-      fakeNow = fakeNow.add(const Duration(seconds: 2));
-      detector.processTimelineData(highPaintActivityData(paintCount: 35));
+    test('debug per-widget gate unchanged at paintFrequencyThreshold', () {
+      detector.updateDebugSnapshot(
+        const DebugSnapshot(
+          rebuildCounts: {},
+          totalPaintCount: 31,
+          paintCounts: {'MyChart': 31},
+          elapsed: Duration(seconds: 1),
+        ),
+      );
       detector.evaluateNow();
-
-      expect(detector.issues, hasLength(1));
-      // The detector reads DateTime.now() (not the injected clock) for
-      // the dedup stamp, mirroring NetworkMonitor's pattern. We only
-      // assert the field is populated; the value itself is wall-clock.
-      expect(detector.issues.first.dedupIdentityMicros, isNotNull);
-      expect(detector.issues.first.dedupIdentityMicros, greaterThan(0));
+      expect(detector.issues.single.stableId, 'repaint_debug_MyChart');
+      expect(detector.issues.single.severity, IssueSeverity.warning);
     });
   });
 }

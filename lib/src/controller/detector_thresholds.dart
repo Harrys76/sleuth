@@ -40,7 +40,17 @@ class DetectorThresholds {
     this.trackedResourceLongLivedSeconds = 300,
     this.trackedResourceMaxDistinctNames = 1000,
     this.trackedResourceSweepIntervalSeconds = 10,
+    this.buildTimePercentThreshold = 10,
+    this.paintTimePercentThreshold = 10,
   }) : assert(
+         buildTimePercentThreshold > 0 && buildTimePercentThreshold <= 100,
+         'buildTimePercentThreshold must be in the range (0, 100].',
+       ),
+       assert(
+         paintTimePercentThreshold > 0 && paintTimePercentThreshold <= 100,
+         'paintTimePercentThreshold must be in the range (0, 100].',
+       ),
+       assert(
          trackedResourceMaxConcurrent >= 1,
          'trackedResourceMaxConcurrent must be >= 1.',
        ),
@@ -183,6 +193,36 @@ class DetectorThresholds {
   /// screen, runtime font loading, large asset bundles). **Lower this**
   /// for stricter steady-state attribution on snappy startup paths.
   final int startupPhaseWindowSeconds;
+
+  /// Share of UI-thread wall time, in percent, spent inside BUILD scopes
+  /// over a ~1 s window above which `RebuildDetector` raises
+  /// `rebuild_activity`. Critical above 3× this value. Measured from the
+  /// VM timeline; per-widget debug counts use
+  /// `SleuthConfig.rebuildThreshold` instead.
+  ///
+  /// **Default:** 10 %. A single animated widget rebuilding every frame
+  /// costs well under 1 % of UI time; 10 % means rebuild work is a
+  /// visible slice of every frame.
+  ///
+  /// **Raise this** (e.g. 20) for screens that legitimately rebuild large
+  /// subtrees every frame (games, live dashboards). **Lower this**
+  /// (e.g. 5) for a stricter build-cost audit.
+  final double buildTimePercentThreshold;
+
+  /// Share of UI-thread wall time, in percent, spent inside PAINT scopes
+  /// over a ~1 s window above which `RepaintDetector` raises
+  /// `excessive_repaint`. Critical above 3× this value. Measured from the
+  /// VM timeline; per-widget debug paint rates use the detector's
+  /// `paintFrequencyThreshold` instead.
+  ///
+  /// **Default:** 10 %. Repainting a few small layers every frame costs
+  /// well under 1 % of UI time; 10 % means paint recording is a visible
+  /// slice of every frame.
+  ///
+  /// **Raise this** (e.g. 20) for canvas-heavy screens where paint cost
+  /// is expected. **Lower this** (e.g. 5) for a stricter paint-cost
+  /// audit.
+  final double paintTimePercentThreshold;
 
   /// BUILD-scope duration threshold in milliseconds for
   /// `HeavyComputeDetector`. A build pass above this value is a warning;

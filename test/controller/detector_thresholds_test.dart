@@ -114,4 +114,70 @@ void main() {
     expect(args['oldGenCount'], '4');
     expect(args['scavengeCount'], '6');
   });
+
+  group('time-share thresholds', () {
+    test('default 10 % for build and paint', () {
+      const t = DetectorThresholds();
+      expect(t.buildTimePercentThreshold, 10);
+      expect(t.paintTimePercentThreshold, 10);
+    });
+
+    test('reject 0 and values above 100', () {
+      expect(
+        () => DetectorThresholds(buildTimePercentThreshold: 0),
+        throwsA(isA<AssertionError>()),
+      );
+      expect(
+        () => DetectorThresholds(buildTimePercentThreshold: 101),
+        throwsA(isA<AssertionError>()),
+      );
+      expect(
+        () => DetectorThresholds(paintTimePercentThreshold: 0),
+        throwsA(isA<AssertionError>()),
+      );
+      expect(
+        () => DetectorThresholds(paintTimePercentThreshold: 101),
+        throwsA(isA<AssertionError>()),
+      );
+      expect(
+        () => DetectorThresholds(
+          buildTimePercentThreshold: 100,
+          paintTimePercentThreshold: 0.5,
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('SleuthConfig.copyWith keeps the thresholds object', () {
+      const config = SleuthConfig(
+        thresholds: DetectorThresholds(
+          buildTimePercentThreshold: 25,
+          paintTimePercentThreshold: 15,
+        ),
+      );
+      final copy = config.copyWith(rebuildThreshold: 20);
+      expect(copy.thresholds.buildTimePercentThreshold, 25);
+      expect(copy.thresholds.paintTimePercentThreshold, 15);
+      expect(copy.rebuildThreshold, 20);
+    });
+
+    test('the controller wires them into the detectors; the per-widget '
+        'count knobs stay separate', () {
+      final controller = SleuthController(
+        config: const SleuthConfig(
+          rebuildThreshold: 12,
+          thresholds: DetectorThresholds(
+            buildTimePercentThreshold: 25,
+            paintTimePercentThreshold: 15,
+          ),
+        ),
+      );
+      addTearDown(controller.dispose);
+      controller.initializeDetectorsForTest();
+      expect(controller.rebuildDetector.buildTimePercentThreshold, 25);
+      expect(controller.rebuildDetector.rebuildsPerSecThreshold, 12);
+      expect(controller.repaintDetector!.paintTimePercentThreshold, 15);
+      expect(controller.repaintDetector!.paintFrequencyThreshold, 30);
+    });
+  });
 }

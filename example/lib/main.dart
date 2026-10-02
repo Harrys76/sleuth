@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:convert' show jsonEncode;
 import 'dart:developer' as developer;
 import 'dart:io' show Platform;
@@ -11,6 +12,7 @@ import 'custom_detectors/01_simple_structural_detector.dart';
 import 'custom_detectors/02_runtime_callback_detector.dart';
 import 'custom_detectors/03_hybrid_vm_structural_detector.dart';
 import 'demos/combined_chat_demo.dart';
+import 'demos/capture_driver.dart';
 import 'demos/combined_social_feed_demo.dart';
 import 'demos/custom_detector_cookbook_demo.dart';
 import 'demos/custom_painter_demo.dart';
@@ -78,21 +80,23 @@ void main() {
         //     the always-on `_RebuildStatsBanner` panel on the floating
         //     issues card and the `RebuildStatsPage` drilldown (the
         //     v0.15.0 `rebuild_hotspot_summary` rollup IssueCard was
-        //     replaced by this inline panel in v0.15.2). The
-        //     VM-timeline `rebuild_activity` path also lights up with
-        //     per-widget build events.
+        //     replaced by this inline panel in v0.15.2). The per-widget
+        //     events are recorded inside the BUILD scopes, so the
+        //     VM-timeline `rebuild_activity` build-time share includes
+        //     that instrumentation cost.
         //
         // Without either flag the detector has no data to evaluate,
         // so no rebuild issue of any kind will ever surface — including
         // the Rebuild Hotspot (Dashboard) demo.
         //
         // Capture-mode caveat: deep debug instrumentation flips
-        // `debugProfileBuildsEnabledUserWidgets`, switching BUILD events
-        // from sync `X` (with `dur`) to async `b/e`. `TimelineParser._isBuild`
-        // only registers BUILD as `PhaseEvent` when `ph == 'X'`, so
-        // HeavyComputeDetector goes silent and capture trace records never
-        // emit. Disable deep instrumentation under captureMode so BUILD
-        // lands as `X`.
+        // `debugProfileBuildsEnabledUserWidgets`, which records a timeline
+        // event for every user-widget build. That instrumentation runs
+        // inside the BUILD scopes, so it inflates the build-time share
+        // `rebuild_activity` measures and the BUILD durations
+        // HeavyComputeDetector reads, and it multiplies the timeline
+        // volume a capture exports. Disable it under captureMode so
+        // captures measure the app's own build cost.
         enableDebugCallbacks: !captureMode,
         enableDeepDebugInstrumentation: !captureMode,
         // Cookbook custom detectors — see example/lib/custom_detectors/.
@@ -706,6 +710,108 @@ void _registerDemoExtensions() {
       jsonEncode({'popped': popped}),
     );
   });
+  // Hands-free capture legs for the time-share brackets
+  // (doc/capture_procedure.md). `captureLeg` starts a leg and returns at
+  // once; `captureResult` polls it.
+  developer.registerExtension('ext.sleuthDemo.captureLeg', (
+    method,
+    params,
+  ) async {
+    final response = await startCaptureLeg(
+      detector: params['detector'] ?? '',
+      tier: params['tier'] ?? 'warning',
+      role: params['leg'] ?? '',
+    );
+    return developer.ServiceExtensionResponse.result(jsonEncode(response));
+  });
+  developer.registerExtension('ext.sleuthDemo.captureResult', (
+    method,
+    params,
+  ) async {
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode(
+        CaptureDriver.instance.result(consume: params['consume'] == 'true'),
+      ),
+    );
+  });
+  developer.registerExtension('ext.sleuthDemo.vmAxes', (method, params) async {
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode(readVmAxes(reset: params['reset'] == 'true')),
+    );
+  });
+}
+
+/// Demo slug of the capture screen for each `captureLeg` detector.
+const Map<String, String> _captureScreenSlugs = {
+  'rebuild': 'rebuildactivity',
+  'repaint': 'repaint',
+};
+
+const Set<String> _captureTiers = {'warning', 'critical'};
+const Set<String> _captureRoles = {'below', 'at', 'above'};
+
+/// Starts a capture leg for `ext.sleuthDemo.captureLeg`: opens the
+/// detector's capture screen when it is not mounted, waits up to 3 s for
+/// it to register, and starts the same leg its buttons run. Returns
+/// `{started: true}` without waiting for the leg, or `{error: ...}`
+/// (`busy`, `not_capture_mode`, `vm_disconnected`, `bad_args`,
+/// `no_navigator`, `screen_not_ready`).
+@visibleForTesting
+Future<Map<String, Object?>> startCaptureLeg({
+  required String detector,
+  required String tier,
+  required String role,
+  Duration readyTimeout = const Duration(seconds: 3),
+}) async {
+  final slug = _captureScreenSlugs[detector];
+  if (slug == null ||
+      !_captureTiers.contains(tier) ||
+      !_captureRoles.contains(role) ||
+      (detector == 'repaint' && tier != 'warning')) {
+    return {'error': 'bad_args'};
+  }
+  final driver = CaptureDriver.instance;
+  if (driver.isBusy) return {'error': 'busy'};
+  final capture = Sleuth.diagnoseCaptureState();
+  if (!capture.captureMode) return {'error': 'not_capture_mode'};
+  if (!capture.vmConnected) return {'error': 'vm_disconnected'};
+
+  var runner = driver.runnerFor(detector);
+  if (runner == null) {
+    final navigator = _navigatorKey.currentState;
+    final demo = _demoForSlug(slug);
+    if (navigator == null || demo == null) return {'error': 'no_navigator'};
+    _pushDemo(navigator, demo);
+    final deadline = DateTime.now().add(readyTimeout);
+    while ((runner = driver.runnerFor(detector)) == null &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    if (runner == null) return {'error': 'screen_not_ready'};
+  }
+  if (!driver.begin('$detector/$tier/$role')) return {'error': 'busy'};
+  unawaited(runner(tier, role));
+  return {'started': true, 'leg': '$detector/$tier/$role'};
+}
+
+/// Detector last/peak time shares for `ext.sleuthDemo.vmAxes`. With
+/// [reset] both detectors' capture state is cleared after the read.
+@visibleForTesting
+Map<String, Object?> readVmAxes({bool reset = false}) {
+  final rebuild = Sleuth.rebuildDetector;
+  final repaint = Sleuth.repaintDetector;
+  final axes = <String, Object?>{
+    'buildLast': rebuild?.lastObservedBuildPercent ?? 0.0,
+    'buildPeak': rebuild?.peakObservedBuildPercent ?? 0.0,
+    'paintLast': repaint?.lastObservedPaintPercent ?? 0.0,
+    'paintPeak': repaint?.peakObservedPaintPercent ?? 0.0,
+    'vmConnected': Sleuth.diagnoseCaptureState().vmConnected,
+  };
+  if (reset) {
+    rebuild?.resetCaptureState();
+    repaint?.resetCaptureState();
+  }
+  return axes;
 }
 
 // ── Demo tile ──

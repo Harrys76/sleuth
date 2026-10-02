@@ -150,7 +150,7 @@ On a platform where VM+ connects:
 
 | # | Check | Result | Notes |
 |---|-------|--------|-------|
-| 1 | With VM+ active, issues tab shows VM-backed issues (e.g., rebuild count, repaint data) | | |
+| 1 | With VM+ active, issues tab shows VM-backed issues (e.g., build or paint share of UI time) | | |
 | 2 | Structural issues (ListView, RepaintBoundary, etc.) are always present regardless of VM | | |
 | 3 | Verdict includes phase breakdown (build/layout/paint/raster) in VM+ mode | | |
 | 4 | Mode badge shows "VM+" in green | | |
@@ -177,7 +177,7 @@ Navigate to each demo screen and verify the expected detector fires in the Issue
 
 | Detector | Demo Screen | Expected Issue | Verified |
 |----------|------------|----------------|----------|
-| Rebuild | High-Level setState | "High rebuild activity" or similar | |
+| Rebuild | High-Level setState | "Rebuild Activity: build phase N% of UI time" (VM+) or `rebuild_debug_*` (debug) | |
 | SetStateScope | High-Level setState | "Large setState scope" or similar | |
 | ListView | Non-Lazy ListView | "Non-lazy list" with child count | |
 | LayoutBottleneck | IntrinsicHeight Abuse | "IntrinsicHeight" or layout issue | |
@@ -187,7 +187,7 @@ Navigate to each demo screen and verify the expected detector fires in the Issue
 | KeepAlive | KeepAlive Overuse | "KeepAlive" overuse detected | |
 | FontLoading | Font Loading Stress | "Custom font families" count | |
 | RepaintBoundary | Missing RepaintBoundary | "Expensive widget without RepaintBoundary" | |
-| Repaint | Repaint Stress (VM+/debug) | "High repaint activity" | |
+| Repaint | Repaint Stress (VM+/debug) | `repaint_debug_*` / `excessive_repaint_debug` (debug); "Excessive Repainting: paint phase N% of UI time" only above 10 % (VM+) | |
 | ShaderJank | (natural, first run) | Shader compilation detected (VM+ only) | |
 | MemoryPressure | (natural, under GC pressure) | GC pressure detected (VM+ only) | |
 | PlatformChannel | (not demoed) | Platform channel spikes (VM+ only) | |

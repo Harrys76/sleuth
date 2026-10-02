@@ -74,9 +74,10 @@ critical tier.
 
 ## Recording a capture (pinned device)
 
-1. `fvm flutter --version` must print the pinned stable release
-   (`ProfileCaptureSchema.approvedFlutterMajorMinor`, currently `3.41.x`).
-   If it doesn't, switch with `fvm use <version>` before recording.
+1. `fvm flutter --version` must print a stable release whose `major.minor`
+   is in `ProfileCaptureSchema.approvedFlutterMajorMinors` (currently
+   `3.41` and `3.47`); all three legs of a triad must share one exact
+   version. If it doesn't, switch with `fvm use <version>` before recording.
 2. Plug in a device from `ProfileCaptureSchema.approvedDevicePairs`
    (iPhone 12 / iPhone 12 / iPhone 12 as of v0.16.4). Confirm the
    OS version matches the approved set for that device — pair-matched
@@ -103,7 +104,7 @@ critical tier.
   "sleuthMetadata": {
     "device":          "iPhone 12",                    // required — pinned
     "deviceOsVersion": "iOS 17.5",                        // required — pinned
-    "flutterVersion":  "3.41.4",                            // required — pinned major.minor
+    "flutterVersion":  "3.47.6",                            // required — major.minor in the approved set
     "captureCommand":  "fvm flutter run --profile",         // required — reproducer
     "scenario":        "NetworkMonitor slow_request at 3s", // required — human label
     "expectedMagnitude": {

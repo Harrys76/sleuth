@@ -271,11 +271,11 @@ void main() {
     test('explain without a live issue uses neutral placeholders', () async {
       final c = _newController();
       final env = await extExplainHandler(c, const {
-        'stableId': 'rebuild_activity',
+        'stableId': 'non_lazy_list',
       });
       final data = env['data'] as Map<String, Object?>;
       final explanation = data['explanation'] as Map<String, Object?>;
-      expect(explanation['whatItIs'], contains('N build passes'));
+      expect(explanation['whatItIs'], contains('N children'));
       for (final value in _stringValues(explanation)) {
         expect(value, isNot(contains('{')));
       }

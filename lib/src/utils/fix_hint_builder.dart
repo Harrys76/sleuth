@@ -665,7 +665,7 @@ class FixHintBuilder {
   }
 
   static (String, FixEffort) rebuildActivity({
-    required int buildCount,
+    required double buildPercent,
     List<String>? enrichedNames,
     InteractionContext? interactionContext,
   }) {
@@ -676,8 +676,9 @@ class FixHintBuilder {
         ? ' (${enrichedNames.take(3).join(", ")})'
         : '';
     return (
-      'High rebuild activity: $buildCount builds/sec$scroll$widgets. '
-          'Use const constructors for static widgets:\n'
+      'Rebuilding widgets took ${buildPercent.toStringAsFixed(1)}% of '
+          'UI-thread time$scroll$widgets. Shrink what rebuilds each frame: '
+          'use const constructors for static widgets:\n'
           'const MyWidget({super.key});\n'
           'Extract child widgets or scope rebuilds with '
           'Selector/Consumer instead of BlocBuilder/Provider.of.',
@@ -702,16 +703,20 @@ class FixHintBuilder {
   // ---------------------------------------------------------------------------
 
   static (String, FixEffort) excessiveRepaintVm({
+    required double paintPercent,
     InteractionContext? interactionContext,
   }) {
     final scroll = interactionContext == InteractionContext.scrolling
         ? ' This is happening during scrolling.'
         : '';
     return (
-      'Isolate frequently repainting subtrees:\n'
+      'Painting took ${paintPercent.toStringAsFixed(1)}% of UI-thread '
+          'time. Isolate frequently repainting subtrees so the rest of '
+          'the layer is not re-recorded:\n'
           'RepaintBoundary(child: AnimatedWidget(...))\n'
           'Check for animations that trigger unnecessary repaints '
-          'in parent widgets.$scroll',
+          'in parent widgets, and cache expensive drawing in a Picture '
+          'or image.$scroll',
       FixEffort.quick,
     );
   }

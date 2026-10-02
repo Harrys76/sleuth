@@ -8,9 +8,11 @@ import '../demo_scaffold.dart';
 // 256-sample sine + noise trace, while header labels (BPM, Peak)
 // rebuild every frame. Without a `RepaintBoundary` the painter's
 // repaints propagate up through the Column and drag the labels and
-// sibling chrome into the same repaint, tripping `excessive_repaint*`
-// and `repaint_debug_<TypeName>` families. Wrapping the painter in a
-// `RepaintBoundary` quiets all paths.
+// sibling chrome into the same repaint, tripping the debug paint-count
+// families (`excessive_repaint_debug`, `repaint_debug_<TypeName>`).
+// Profile-mode `excessive_repaint` measures paint time, not paint count,
+// and fires only if this paint work passes its share of UI-thread time.
+// Wrapping the painter in a `RepaintBoundary` quiets all paths.
 
 class RepaintStressDemo extends StatefulWidget {
   const RepaintStressDemo({super.key});
@@ -68,8 +70,10 @@ class _RepaintStressDemoState extends State<RepaintStressDemo>
           '❌ BAD: A 60 Hz CustomPaint scrolling oscilloscope plus per-frame '
           'header labels (BPM, Peak) — no RepaintBoundary. Every frame\'s '
           'repaint propagates through the Column and drags the labels into '
-          'the repaint. Repaint detector flags `excessive_repaint*` and '
-          'per-widget `repaint_debug_<TypeName>` families.\n'
+          'the repaint. In debug mode the paint counters flag '
+          '`excessive_repaint_debug` and per-widget '
+          '`repaint_debug_<TypeName>`; profile-mode `excessive_repaint` '
+          'fires only when paint takes over 10% of UI-thread time.\n'
           '✅ FIX: Wrap the painter in a RepaintBoundary so the repaint '
           'isolates to its own layer.\n\n'
           '▶ Open Bad path → wait 1–2 s for the issue cards. Toggle Fixed '

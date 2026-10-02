@@ -10,8 +10,10 @@
   3.32.x can resolve sleuth beside `flutter_test`.
 - Overlay keyboard-inset detection reads the hosting `View` instead of the
   first platform view.
-- Profile-capture recordings remain pinned to Flutter 3.41
-  (`approvedFlutterMajorMinor`); unchanged in this release.
+- Profile captures may be recorded on Flutter 3.41 or 3.47
+  (`ProfileCaptureSchema.approvedFlutterMajorMinors`); the three legs of a
+  bracket must still share one exact `flutterVersion`.
+  `approvedFlutterMajorMinor` stays `3.41` as the baseline member.
 - Encyclopedia, fix-hint, detector-description, guide, and README text now
   match detector behavior (thresholds, Impeller-era shader and repaint
   guidance, profile-mode axis wording, mode table).
@@ -253,6 +255,34 @@
 - Example: the GPU Pressure demo animates six blurred circles (pause switch)
   to raise `raster_dominance`; new Tabbed Shell demo (`IndexedStack`, one
   structural pattern per tab).
+- `rebuild_activity` and `excessive_repaint` measure cost, not count: the
+  share of UI-thread wall time spent inside BUILD / PAINT scopes per ~1 s VM
+  window, divided by the window's measured length. Warning above 10 %,
+  critical above 30 % for both (`excessive_repaint` critical moves from 2×
+  to 3× the warning threshold). A 60 fps animation of a small subtree no longer raises
+  `rebuild_activity`. Titles read `build phase 18.2% of UI time`; emissions
+  stamp `observedBuildPercent` / `observedPaintPercent` (one decimal)
+  instead of `observedRebuildRate` / `observedPaintCount`.
+- New `DetectorThresholds.buildTimePercentThreshold` and
+  `paintTimePercentThreshold` (default 10). `SleuthConfig.rebuildThreshold`
+  and `RepaintDetector.paintFrequencyThreshold` keep gating the per-widget
+  debug paths (`rebuild_debug_*`, `repaint_debug_*`,
+  `excessive_repaint_debug`) only.
+- Removed: `RebuildDetector.setBaseline`, `baselineRebuildRate`,
+  `lastObservedRebuildRate`, `peakObservedRebuildRate`;
+  `RepaintDetector.lastObservedPaintCount`, `peakObservedPaintCount`.
+  Replaced by `lastObservedBuildPercent` / `peakObservedBuildPercent` and
+  `lastObservedPaintPercent` / `peakObservedPaintPercent` (double).
+  `FixHintBuilder.rebuildActivity` takes `buildPercent` and
+  `excessiveRepaintVm` takes `paintPercent`.
+- The `rebuild_activity` (warning, critical) and `excessive_repaint`
+  (warning) capture triads are re-recorded on the iPhone 12 / iOS 17.5 /
+  Flutter 3.47.6 on the time-share axis (`percent`, atTolerance 0.5,
+  ceiling 2.7×, observed-axis tolerance 0.25; the critical bracket keeps
+  `minInBandSamples: 2`).
+- Example: the RebuildActivity and Repaint capture screens vary build or
+  paint cost per frame with a calibration pre-pass, and legs can be driven
+  through `ext.sleuthDemo.captureLeg` / `captureResult` / `vmAxes`.
 
 ### Testing
 

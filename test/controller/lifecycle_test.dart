@@ -84,10 +84,10 @@ void main() {
       controller.simulateVmStateChangeForTest(true);
 
       // Feed data that triggers aggregation with recurrence tracking.
-      controller.feedTimelineDataForTest(highBuildActivityData());
+      controller.feedTimelineDataForTest(buildLoadData(buildTimeUs: 250000));
       controller.aggregateIssuesForTest();
       // Feed again to build up recurrence.
-      controller.feedTimelineDataForTest(highBuildActivityData());
+      controller.feedTimelineDataForTest(buildLoadData(buildTimeUs: 250000));
       controller.aggregateIssuesForTest();
 
       controller.dispose();

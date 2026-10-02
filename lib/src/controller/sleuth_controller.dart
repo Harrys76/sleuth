@@ -857,6 +857,7 @@ class SleuthController {
 
     _rebuildDetector = RebuildDetector(
       rebuildsPerSecThreshold: config.rebuildThreshold,
+      buildTimePercentThreshold: config.thresholds.buildTimePercentThreshold,
       startupPhaseWindowSeconds: config.thresholds.startupPhaseWindowSeconds,
     )..isEnabled = enabled.contains(DetectorType.rebuild);
 
@@ -886,7 +887,9 @@ class SleuthController {
         sourceRouteProvider: _currentRouteName,
         interactionContextProvider: () => _interactionState,
       ),
-      DetectorType.repaint: RepaintDetector.new,
+      DetectorType.repaint: () => RepaintDetector(
+        paintTimePercentThreshold: config.thresholds.paintTimePercentThreshold,
+      ),
       DetectorType.setStateScope: () => SetStateScopeDetector(
         dirtyRatioThreshold: config.thresholds.setStateScopeOwnershipPercent,
       ),
@@ -1360,18 +1363,18 @@ class SleuthController {
   NetworkMonitorDetector get networkMonitor => _networkMonitor;
 
   /// Public accessor for capture-mode tooling — capture screens read
-  /// [RebuildDetector.lastObservedRebuildRate] after driving a Ticker
+  /// [RebuildDetector.peakObservedBuildPercent] after driving a Ticker
   /// scenario and an `await Sleuth.flushTimelineNow()` barrier so the
-  /// exported magnitude reflects the detector-measured rebuilds-per-
-  /// second rate rather than the operator's plan.
+  /// exported magnitude reflects the detector-measured build-time share
+  /// rather than the operator's plan.
   RebuildDetector get rebuildDetector => _rebuildDetector;
 
   /// Public accessor for capture-mode tooling — capture screens read
-  /// [RepaintDetector.lastObservedPaintCount] and call
-  /// [RepaintDetector.flushPaintEvaluation] before exporting
-  /// sub-threshold legs so the wrapped magnitude reflects the
-  /// detector-measured 1s-window paint count rather than the operator's
-  /// plan. Returns null if [DetectorType.repaint] was excluded from
+  /// [RepaintDetector.peakObservedPaintPercent] (and call
+  /// [RepaintDetector.flushPaintEvaluation] before reading
+  /// [RepaintDetector.lastObservedPaintPercent]) so the exported
+  /// magnitude reflects the detector-measured paint-time share rather
+  /// than the operator's plan. Returns null if [DetectorType.repaint] was excluded from
   /// [SleuthConfig.enabledDetectors] at init time.
   RepaintDetector? get repaintDetector {
     for (final d in _detectors) {
@@ -1762,8 +1765,8 @@ class SleuthController {
       } else if (detector is RepaintDetector) {
         // Clear paint accumulator + last/peak observables + pending
         // debug snapshot so a back-to-back leg cannot inherit the prior
-        // leg's `peakObservedPaintCount` via the `_paintEventCount >
-        // _peakObservedPaintCount` window-close comparison.
+        // leg's `peakObservedPaintPercent` via the window-close peak
+        // comparison.
         detector.resetCaptureState();
       }
     }
@@ -1775,9 +1778,9 @@ class SleuthController {
     // `_emissionSeq` is preserved by design (see FrameTimingDetector.reset
     // doc) so multi-leg flows cannot collide `dedupIdentityMicros`.
     _frameTiming.reset();
-    // Clear RebuildDetector's per-session counters + last-observed peak
-    // so the next scenario reads detector-measured rate from leg-N's
-    // workload only.
+    // Clear RebuildDetector's window accumulators + last/peak observables
+    // so the next scenario reads the detector-measured build-time share
+    // from leg-N's workload only.
     _rebuildDetector.resetCaptureState();
     // Clear StreamResourceDetector's per-class window + warmup so a
     // back-to-back leg's gating starts fresh on scenario allocation
@@ -4965,7 +4968,10 @@ class SleuthConfig {
   /// Valid range: 1–120 (enforced via debug-mode assert).
   final int fpsTarget;
 
-  /// Widget rebuilds per second above which [RebuildDetector] fires.
+  /// Per-widget rebuilds per second, observed by debug instrumentation,
+  /// above which [RebuildDetector] raises `rebuild_debug_<type>`. The VM
+  /// time-share axis (`rebuild_activity`) uses
+  /// [DetectorThresholds.buildTimePercentThreshold] instead.
   ///
   /// **Default:** 10 rebuilds/sec. A healthy reactive UI on a 60 FPS app
   /// does not rebuild a given widget more than once every ~6 frames —

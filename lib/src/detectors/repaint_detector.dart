@@ -8,16 +8,19 @@ import '../models/phase_event.dart';
 import '../models/performance_issue.dart';
 import '../models/widget_highlight.dart';
 import '../utils/fix_hint_builder.dart';
+import '../utils/monotonic_clock.dart';
 import '../utils/type_name_cache.dart';
 import '../utils/widget_location.dart';
 import '../vm/timeline_parser.dart';
 
-/// Detects excessive repainting using VM Timeline Paint events or debug
-/// callback aggregate paint counts.
+/// Detects expensive repainting using VM Timeline PAINT scopes or debug
+/// callback paint counts.
 ///
-/// **Hybrid Detector** — VM Timeline provides exact paint event data
-/// (confirmed confidence). Debug callbacks provide aggregate paint count
-/// fallback (likely confidence, no per-widget attribution).
+/// **Hybrid Detector** — the VM timeline measures the share of UI-thread
+/// wall time spent inside PAINT scopes over each ~1 s window
+/// (`excessive_repaint`, confirmed confidence). Debug callbacks provide
+/// per-widget paint rates (`repaint_debug_<type>`) and an aggregate paint
+/// rate fallback (`excessive_repaint_debug`, likely confidence).
 ///
 /// Data sources accumulate into staging fields; the single [_evaluate]
 /// method is the ONLY writer of [_issues]. Called from [scanTree] (scan
@@ -25,17 +28,34 @@ import '../vm/timeline_parser.dart';
 class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   RepaintDetector({
     this.paintFrequencyThreshold = 30,
+    this.paintTimePercentThreshold = 10,
     DateTime Function()? clock,
-  }) : _clock = clock ?? DateTime.now,
-       _windowStart = (clock ?? DateTime.now)(),
+  }) : assert(
+         paintTimePercentThreshold > 0 && paintTimePercentThreshold <= 100,
+         'paintTimePercentThreshold must be in the range (0, 100].',
+       ),
+       _clock = clock ?? monotonicClock(),
        super(
          type: DetectorType.repaint,
          lifecycle: DetectorLifecycle.hybrid,
          name: 'Repaint',
-         description: 'Detects excessive repainting (>30 paints/sec)',
-       );
+         description:
+             'Detects paint work above 10% of UI-thread time (VM) or '
+             'widgets repainting over 30 times/sec (debug)',
+       ) {
+    _windowStart = _clock();
+  }
 
+  /// Per-widget (and debug-aggregate) paints per second above which the
+  /// debug-callback paths fire; critical above 2×. Does not gate the VM
+  /// time-share axis.
   final int paintFrequencyThreshold;
+
+  /// Share of UI-thread wall time, in percent, spent inside PAINT scopes
+  /// over a ~1 s window above which `excessive_repaint` fires. Critical
+  /// above 3× this value. Default mirrors
+  /// `DetectorThresholds.paintTimePercentThreshold`.
+  final double paintTimePercentThreshold;
   final DateTime Function() _clock;
   final List<PerformanceIssue> _issues = [];
   final List<WidgetHighlight> _highlights = [];
@@ -69,40 +89,37 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     return true;
   }
 
-  int _paintEventCount = 0;
-  DateTime _windowStart;
+  /// PAINT scope time accumulated in the open window, in microseconds.
+  int _paintTimeUs = 0;
+  late DateTime _windowStart;
 
-  /// Last completed-window aggregate paint count, refreshed every time
-  /// the 1s VM window closes regardless of whether the count crossed
-  /// [paintFrequencyThreshold]. Capture-mode tooling reads this so a
-  /// sub-threshold leg's exported magnitude reflects what the detector
-  /// measured, not the operator's plan.
-  int _lastObservedPaintCount = 0;
+  /// Paint-time share of the most recently closed window (or the partial
+  /// window closed by [flushPaintEvaluation]), refreshed before the
+  /// threshold gate so a sub-threshold leg's exported magnitude reflects
+  /// what the detector measured, not the operator's plan.
+  double _lastObservedPaintPercent = 0;
 
-  /// Peak window aggregate paint count seen since the last
-  /// [resetCaptureState] call. Capture-mode operators export this as
-  /// the leg's magnitude so the value matches the audit gate's
-  /// `'max'` axis reduction across in-span emissions. Without peak
-  /// tracking, [_lastObservedPaintCount] alone reads the most-recent
-  /// (post-workload, near-idle) window and the exported magnitude
-  /// diverges from what the detector actually emitted.
-  int _peakObservedPaintCount = 0;
+  /// Peak paint-time share since the last [resetCaptureState]. Moves only
+  /// on the natural window-close path (elapsed ≥ 1 s), the same value the
+  /// emission stamps as `observedPaintPercent`.
+  double _peakObservedPaintPercent = 0;
 
-  /// Detector-measured paint count from the most recent completed 1s
-  /// window. Capture-mode operators export this for sub-threshold legs
-  /// where no `excessive_repaint` issue fires.
-  int get lastObservedPaintCount => _lastObservedPaintCount;
+  /// Share of UI-thread wall time, in percent, spent inside PAINT scopes
+  /// in the most recently closed window. Capture-mode operators export
+  /// this for sub-threshold legs where no `excessive_repaint` issue fires.
+  double get lastObservedPaintPercent => _lastObservedPaintPercent;
 
-  /// Peak detector-measured paint count seen across all 1s VM windows
-  /// since the last [resetCaptureState] call. Use for capture-mode
-  /// magnitude export so the value matches the audit gate's `'max'`
-  /// axis reduction. Returns 0 if no window has completed since reset.
-  int get peakObservedPaintCount => _peakObservedPaintCount;
+  /// Highest paint-time share seen across naturally closed ~1 s windows
+  /// since the last [resetCaptureState]. Use for capture-mode magnitude
+  /// export so the value matches the audit gate's `'max'` axis reduction.
+  /// Returns 0 if no window has closed since reset.
+  double get peakObservedPaintPercent => _peakObservedPaintPercent;
 
   // -- Staging fields (nullable = no fresh data) --
 
+  /// Paint-time share (percent) of the most recently closed VM window.
   /// null = no VM window completed since last evaluate.
-  int? _pendingVmWindowCount;
+  double? _pendingVmWindowPercent;
 
   /// null = no new snapshot delivered since last evaluate.
   DebugSnapshot? _pendingDebugSnapshot;
@@ -115,7 +132,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   /// across timeline ticks until the next 1s window completes.
   int _pendingEnrichedDirtyTotal = 0;
 
-  /// Enriched dirty count staged atomically with [_pendingVmWindowCount].
+  /// Enriched dirty count staged atomically with [_pendingVmWindowPercent].
   /// Consumed by [_evaluateVmData] and cleared unconditionally in [_evaluate].
   int? _stagedEnrichedDirtyTotal;
 
@@ -128,20 +145,22 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     final wasConnected = _vmConnected;
     _vmConnected = value;
     if (!value) {
-      _paintEventCount = 0;
-      _pendingVmWindowCount = null;
+      _paintTimeUs = 0;
+      _pendingVmWindowPercent = null;
       _pendingEnrichedDirtyTotal = 0;
       _stagedEnrichedDirtyTotal = null;
       // Capture-mode observables also clear on disconnect so a leg
       // straddling a VM disconnect cannot export a stale peak from
       // before the drop. Reconnected post-disconnect runs accumulate
       // a fresh peak from the new windows.
-      _lastObservedPaintCount = 0;
-      _peakObservedPaintCount = 0;
+      _lastObservedPaintPercent = 0;
+      _peakObservedPaintPercent = 0;
     } else if (!wasConnected) {
       // Reconnect: stage a fresh-zero so the next _evaluate() flushes
-      // stale debug issues that are incompatible with VM mode.
-      _pendingVmWindowCount = 0;
+      // stale debug issues that are incompatible with VM mode. The window
+      // restarts so its elapsed time excludes the disconnect.
+      _pendingVmWindowPercent = 0;
+      _windowStart = _clock();
     }
   }
 
@@ -157,16 +176,18 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   @override
   set isEnabled(bool value) => _isEnabled = value;
 
-  /// Process VM timeline data for paint event counts.
+  /// Process VM timeline data for PAINT scope time.
   ///
-  /// Accumulates counts and enriched dirty totals into pending buffers.
-  /// On 1s window completion, stages count + enrichment atomically
-  /// for [_evaluate].
+  /// Accumulates PAINT scope durations and enriched dirty totals into
+  /// pending buffers. When at least 1 s has elapsed on the detector clock,
+  /// the window closes: its paint time divided by the measured elapsed
+  /// time (windows close at poll arrival and can run 1.0–1.5 s) is staged
+  /// with the enrichment atomically for [_evaluate].
   @override
   void processTimelineData(ParsedTimelineData data) {
     if (!_isEnabled) return;
 
-    _paintEventCount += data.flushPaintDurations.length;
+    _paintTimeUs += data.totalFlushPaintUs;
 
     // Accumulate enriched dirty counts from this batch
     for (final event in data.phaseEvents) {
@@ -176,67 +197,71 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     }
 
     final now = _clock();
-    if (now.difference(_windowStart).inMilliseconds >= 1000) {
-      _pendingVmWindowCount = _paintEventCount;
-      // Refresh capture-mode observable on every window close — captured
-      // BEFORE _evaluateVmData's threshold guard so sub-threshold legs
-      // still expose a measurement to flushPaintEvaluation()/getter.
-      _lastObservedPaintCount = _paintEventCount;
-      if (_paintEventCount > _peakObservedPaintCount) {
-        _peakObservedPaintCount = _paintEventCount;
+    final elapsedUs = now.difference(_windowStart).inMicroseconds;
+    if (elapsedUs >= Duration.microsecondsPerSecond) {
+      // Clamped: a mis-paired or nested scope could otherwise credit more
+      // phase time than the window holds.
+      final percent = (_paintTimeUs / elapsedUs * 100).clamp(0.0, 100.0);
+      _pendingVmWindowPercent = percent;
+      // Refresh capture-mode observables on every window close — before
+      // _evaluateVmData's threshold guard so sub-threshold legs still
+      // expose a measurement. The emission for this window stamps the
+      // same value as `observedPaintPercent`.
+      _lastObservedPaintPercent = percent;
+      if (percent > _peakObservedPaintPercent) {
+        _peakObservedPaintPercent = percent;
       }
-      // Stage enrichment atomically with the window count
+      // Stage enrichment atomically with the window share
       _stagedEnrichedDirtyTotal = _pendingEnrichedDirtyTotal > 0
           ? _pendingEnrichedDirtyTotal
           : null;
       _pendingEnrichedDirtyTotal = 0;
-      _paintEventCount = 0;
+      _paintTimeUs = 0;
       _windowStart = now;
     }
   }
 
-  /// Forces an immediate close of the in-flight 1s VM window so capture
-  /// tooling can read [lastObservedPaintCount] without waiting for the
-  /// elapsed timer. Idempotent — re-running with no new paint events
-  /// preserves the prior values. Pure observable refresh; does NOT emit
+  /// Forces an immediate close of the in-flight VM window so capture
+  /// tooling can read [lastObservedPaintPercent] without waiting for the
+  /// window timer. The partial window's share is its paint time over its
+  /// own elapsed time. Idempotent — re-running with no new paint time
+  /// preserves the prior values. Pure observable refresh; does not emit
   /// issues (issue emission is owned by [_evaluateVmData], reached via
   /// [_evaluate], which only runs from the scan pipeline).
   ///
-  /// Updates only [_lastObservedPaintCount] — does NOT update
-  /// [_peakObservedPaintCount]. The peak observable is restricted to
-  /// counts from naturally-completed windows (those that flow through
-  /// [processTimelineData]'s window-close path AND therefore through
-  /// [_evaluate] → [_evaluateVmData] for issue emission). A capture
-  /// screen reading [peakObservedPaintCount] is guaranteed to read a
-  /// value that has a matching `extraTraceArgs.observedPaintCount` arg
-  /// on at least one in-span emission record (modulo threshold-gate
-  /// suppression for sub-threshold peaks). This keeps the audit-gate's
-  /// `observedAxisReduction: 'max'` cross-check on emission records
-  /// honest — the exported `expectedMagnitude.observed` cannot exceed
-  /// every emission's `observedPaintCount` arg.
+  /// Updates only [lastObservedPaintPercent], never
+  /// [peakObservedPaintPercent]. The peak is restricted to naturally
+  /// closed windows (elapsed ≥ 1 s), the ones whose value is stamped on
+  /// an emission as `observedPaintPercent`, so a short partial tail can
+  /// never become the exported magnitude and the audit gate's `'max'`
+  /// cross-check on emission records stays honest.
   void flushPaintEvaluation() {
-    if (_paintEventCount > 0) {
-      _pendingVmWindowCount = _paintEventCount;
-      _lastObservedPaintCount = _paintEventCount;
-      _stagedEnrichedDirtyTotal = _pendingEnrichedDirtyTotal > 0
-          ? _pendingEnrichedDirtyTotal
-          : null;
-      _pendingEnrichedDirtyTotal = 0;
-      _paintEventCount = 0;
-      _windowStart = _clock();
-    }
+    if (_paintTimeUs <= 0) return;
+    final now = _clock();
+    final elapsedUs = now.difference(_windowStart).inMicroseconds;
+    if (elapsedUs <= 0) return;
+    // The partial window refreshes the observable only; it is never
+    // staged for evaluation, so no emission can carry a value the peak
+    // did not see.
+    _lastObservedPaintPercent = (_paintTimeUs / elapsedUs * 100).clamp(
+      0.0,
+      100.0,
+    );
+    _pendingEnrichedDirtyTotal = 0;
+    _paintTimeUs = 0;
+    _windowStart = now;
   }
 
   /// Clears all per-leg accumulator state so capture screens can
   /// re-enter a fresh below/at/above leg without leakage from the
-  /// prior leg's paint counts, debug snapshot, or pending issues.
-  /// `_vmConnected` is owned by the controller and intentionally left
-  /// untouched.
+  /// prior leg's paint time, debug snapshot, or pending issues, and
+  /// restarts the window clock. `_vmConnected` is owned by the
+  /// controller and intentionally left untouched.
   void resetCaptureState() {
-    _paintEventCount = 0;
-    _pendingVmWindowCount = null;
-    _lastObservedPaintCount = 0;
-    _peakObservedPaintCount = 0;
+    _paintTimeUs = 0;
+    _pendingVmWindowPercent = null;
+    _lastObservedPaintPercent = 0;
+    _peakObservedPaintPercent = 0;
     _pendingEnrichedDirtyTotal = 0;
     _stagedEnrichedDirtyTotal = null;
     _pendingDebugSnapshot = null;
@@ -333,11 +358,11 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
   /// All staging is cleared up front to prevent stale data from a
   /// lower-priority source from overwriting on the next scan tick.
   void _evaluate() {
-    final vmWindowCount = _pendingVmWindowCount;
+    final vmWindowPercent = _pendingVmWindowPercent;
     final debugSnapshot = _pendingDebugSnapshot;
     final enrichedDirtyTotal = _stagedEnrichedDirtyTotal;
 
-    final hasFreshVm = _vmConnected && vmWindowCount != null;
+    final hasFreshVm = _vmConnected && vmWindowPercent != null;
     final hasFreshDebug = debugSnapshot != null;
 
     if (!hasFreshVm && !hasFreshDebug) return;
@@ -345,7 +370,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     _issues.clear();
 
     // Clear ALL staging regardless of which branch wins.
-    _pendingVmWindowCount = null;
+    _pendingVmWindowPercent = null;
     _pendingDebugSnapshot = null;
     // Unconditional clear — prevents enrichment leaking across branches.
     _stagedEnrichedDirtyTotal = null;
@@ -354,7 +379,7 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       // Per-widget debug path — best attribution.
       // If no individual type crosses the threshold, fall through.
       _evaluateDebugDataPerWidget(debugSnapshot);
-      if (_issues.isEmpty && hasFreshVm && vmWindowCount > 0) {
+      if (_issues.isEmpty && hasFreshVm && vmWindowPercent > 0) {
         // Gate B — suppress VM aggregate fallback when *every* per-widget
         // paint is animation-owned. Without this guard, an animation that
         // doesn't trip Gate A (sub-threshold per-widget rate but high
@@ -362,14 +387,14 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
         if (_allPaintsAnimationOwned(debugSnapshot)) {
           // Suppressed — all known activity is intentional animation work.
         } else {
-          _evaluateVmData(vmWindowCount, enrichedDirtyTotal);
+          _evaluateVmData(vmWindowPercent, enrichedDirtyTotal);
         }
       } else if (_issues.isEmpty && debugSnapshot.totalPaintCount > 0) {
         _evaluateDebugData(debugSnapshot);
       }
     } else if (hasFreshVm) {
-      if (vmWindowCount > 0) {
-        _evaluateVmData(vmWindowCount, enrichedDirtyTotal);
+      if (vmWindowPercent > 0) {
+        _evaluateVmData(vmWindowPercent, enrichedDirtyTotal);
       }
     } else if (hasFreshDebug) {
       if (debugSnapshot.totalPaintCount > 0) {
@@ -378,33 +403,38 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     }
   }
 
-  /// VM timeline path — exact paint event data.
+  /// VM timeline path — share of UI-thread time inside PAINT scopes.
   ///
   /// When [enrichedDirtyTotal] is available (from timeline enrichment args),
   /// appends dirty RenderObject count to the issue detail.
-  void _evaluateVmData(int paintCount, [int? enrichedDirtyTotal]) {
-    if (paintCount <= paintFrequencyThreshold) return;
+  void _evaluateVmData(double percent, [int? enrichedDirtyTotal]) {
+    if (percent <= paintTimePercentThreshold) return;
 
     final detailSuffix = enrichedDirtyTotal != null && enrichedDirtyTotal > 0
         ? '\n$enrichedDirtyTotal dirty RenderObjects '
               '(from timeline enrichment).'
         : '';
 
-    final (hint, effort) = FixHintBuilder.excessiveRepaintVm();
+    final formatted = percent.toStringAsFixed(1);
+    final (hint, effort) = FixHintBuilder.excessiveRepaintVm(
+      paintPercent: percent,
+    );
 
+    final threshold = _formatPercent(paintTimePercentThreshold);
     final detectedAt = DateTime.now();
     _issues.add(
       PerformanceIssue(
         stableId: 'excessive_repaint',
-        severity: paintCount > paintFrequencyThreshold * 2
+        severity: percent > paintTimePercentThreshold * 3
             ? IssueSeverity.critical
             : IssueSeverity.warning,
         category: IssueCategory.paint,
         confidence: IssueConfidence.confirmed,
-        title: 'Excessive Repainting: $paintCount paints/sec',
+        title: 'Excessive Repainting: paint phase $formatted% of UI time',
         detail:
-            '$paintCount paint events detected in 1 second. '
-            'Threshold: $paintFrequencyThreshold/sec.$detailSuffix',
+            'Painting (PAINT scopes on the UI thread) took $formatted% of '
+            'wall time in the last ~1 s window (threshold $threshold%).'
+            '$detailSuffix',
         fixHint: hint,
         fixEffort: effort,
         observationSource: ObservationSource.vmTimeline,
@@ -413,11 +443,15 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
         // this detector-side measurement so a regression in window
         // accounting cannot certify the wrong magnitude.
         dedupIdentityMicros: detectedAt.microsecondsSinceEpoch,
-        extraTraceArgs: {'observedPaintCount': paintCount.toString()},
-        confidenceReason: 'Measured directly from VM timeline paint events',
+        extraTraceArgs: {'observedPaintPercent': formatted},
+        confidenceReason: 'Measured directly from VM timeline PAINT durations',
       ),
     );
   }
+
+  static String _formatPercent(double value) => value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(1);
 
   /// Debug callback path — per-widget paint attribution.
   ///
@@ -568,30 +602,34 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
     tier: EvidenceTier.reproducerOnly,
     rationale:
         'Hybrid detector. All three families pinned: '
-        '`excessive_repaint` (>30 paints/sec aggregate), '
-        '`excessive_repaint_debug` (debug-callback corroborated '
-        'residual), and parametric `repaint_debug_<typeName>` '
-        '(per-widget attribution, declared via `parametricFamilies` '
-        'since v0.17.3 — concrete `repaint_debug_CustomPaint` credits '
-        'the family via the `_` separator matcher). VM → '
-        'TimelineParser → detector boundary exercised via '
-        'cross-harness reproducer (raw `List<TimelineEvent>` through '
-        '`parseAndAssertShape` + real `pumpWidget` for the debug + '
-        'structural legs). Animation-owner Gate B suppression pinned '
-        'with broad `expect(issues, isEmpty)` so a regression cannot '
-        'leak through any of the three emission paths. The VM-path '
-        '`excessive_repaint.warning` family is runtime-verified via '
-        '`additionalBrackets[0]` with three iPhone 12 / iOS 17.5 / '
-        'Flutter 3.41.4 captures driven by 32 distinct CustomPainter '
-        'types so the per-widget debug gate stays sub-threshold and '
-        'emission flows through the VM aggregate path; `peakObserved'
-        'PaintCount` populates `expectedMagnitude.observed` so the '
+        '`excessive_repaint` (share of UI-thread wall time spent inside '
+        'VM-timeline PAINT scopes over each ~1 s window, normalised by '
+        'the measured window length — warning at '
+        '`> paintTimePercentThreshold` default 10 %, critical at `> 3×` '
+        '= 30 %), `excessive_repaint_debug` (debug-callback aggregate '
+        'paint rate, animation-owned paints excluded), and parametric '
+        '`repaint_debug_<typeName>` (per-widget paints/sec against '
+        '`paintFrequencyThreshold`, declared via `parametricFamilies` — '
+        'concrete `repaint_debug_CustomPaint` credits the family via the '
+        '`_` separator matcher). VM → TimelineParser → detector boundary '
+        'exercised via cross-harness reproducer (raw '
+        '`List<TimelineEvent>` through `parseAndAssertShape` + real '
+        '`pumpWidget` for the debug + structural legs). Animation-owner '
+        'Gate B suppression pinned with broad `expect(issues, isEmpty)` '
+        'so a regression cannot leak through any of the three emission '
+        'paths. `excessive_repaint.warning` is runtimeVerified via three '
+        'iPhone 12 / iOS 17.5 / Flutter 3.47.x captures whose workload '
+        'varies paint cost per frame (32 distinct CustomPainter types '
+        'repainting through a shared per-frame notifier, so BUILD stays '
+        'flat and the per-widget debug gate stays sub-threshold) with a '
+        'calibration pre-pass that scales the paint operations to the leg '
+        'target. `peakObservedPaintPercent` moves only on natural window '
+        'closes and populates `expectedMagnitude.observed`, so the '
         'audit-gate `\'max\'` axis reduction matches the emitted '
-        'observedPaintCount. atTolerance 0.50 (at-band [30, 45]) '
-        'absorbs iOS animation-tick scheduler jitter at 60 Hz '
-        'mirroring the request_frequency tolerance. '
-        '`excessive_repaint_debug` and `repaint_debug_<typeName>` '
-        'remain reproducerOnly — no per-widget debug-path captures.',
+        '`observedPaintPercent`. atTolerance 0.5 and observedAxisTolerance '
+        '0.25 absorb thermal drift in paint duration across a leg. '
+        '`excessive_repaint_debug` and `repaint_debug_<typeName>` remain '
+        'reproducerOnly — no per-widget debug-path captures.',
     reproducerPath: 'test/validation/repaint_reproducer_test.dart',
     coveredStableIds: {'excessive_repaint', 'excessive_repaint_debug'},
     parametricFamilies: {'repaint_debug'},
@@ -602,14 +640,14 @@ class RepaintDetector extends BaseDetector with DetectorMetadataProvider {
       'test/validation/captures/repaint/excessive_repaint_at.json',
       'test/validation/captures/repaint/excessive_repaint_above.json',
     ],
-    bracketThreshold: 30,
-    bracketUnit: 'paints',
+    bracketThreshold: 10,
+    bracketUnit: 'percent',
     bracketStableId: 'excessive_repaint',
     bracketSeverityLabel: 'warning',
-    bracketAtTolerance: 0.50,
-    aboveCeilingMultiplier: 2.0,
-    observedAxisArgKey: 'observedPaintCount',
-    observedAxisTolerance: 0.15,
+    bracketAtTolerance: 0.5,
+    aboveCeilingMultiplier: 2.7,
+    observedAxisArgKey: 'observedPaintPercent',
+    observedAxisTolerance: 0.25,
     observedAxisReduction: 'max',
   );
 }

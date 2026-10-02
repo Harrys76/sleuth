@@ -1,12 +1,13 @@
 // Hermetic reproducer for `RepaintDetector`.
 //
 // Drives the detector at all three emission paths:
-//   VM aggregate (`excessive_repaint`) — feeds N PAINT events through
+//   VM aggregate (`excessive_repaint`) — feeds PAINT scopes whose
+//     durations sum to a chosen share of a 1 000 ms window through
 //     `TimelineParser.parse()` into `processTimelineData`, advances a fake
-//     clock past the 1s window so the count stages, then triggers
-//     `_evaluate` via `scanAndIssues`. Pins the strict-greater rate gate
-//     (`> paintFrequencyThreshold`, default 30) and 2× critical
-//     escalation (`> 60`).
+//     clock to close the window, then triggers `_evaluate` via
+//     `scanAndIssues`. Pins the strict-greater time-share gate
+//     (`> paintTimePercentThreshold`, default 10 %) and 3× critical
+//     escalation (`> 30 %`).
 //   Per-widget debug (`repaint_debug_<typeName>`) — supplies a
 //     `DebugSnapshot` with `paintCounts` keyed by widget type. Pins the
 //     residual-rate gate (`>= threshold`) on a triad: just-below /
@@ -24,7 +25,7 @@
 //
 // Reconnect-flush — disconnects then reconnects VM and asserts prior
 // issues are cleared on the first post-reconnect evaluate (cold-init
-// `vmConnected=false → true` transition stages `_pendingVmWindowCount=0`,
+// `vmConnected=false → true` transition stages `_pendingVmWindowPercent=0`,
 // causing the next `_evaluate` to clear and re-emit nothing).
 //
 // Highlights — pins per-type emission count and `_maxHighlightsPerType=3`
@@ -56,16 +57,17 @@ void main() {
     setUp(() {
       fakeNow = DateTime(2026, 1, 1, 0, 0, 0);
       detector = RepaintDetector(clock: () => fakeNow);
-      // Cold-init false → true stages a sentinel `_pendingVmWindowCount=0`
+      // Cold-init false → true stages a sentinel `_pendingVmWindowPercent=0`
       // that a subsequent `processTimelineData` overwrites.
       detector.vmConnected = true;
     });
 
     // -- Helpers ----------------------------------------------------------
 
-    List<TimelineEvent> paintEvents(int n) => List.generate(
+    List<TimelineEvent> paintEvents(int n, {int durUs = 100}) => List.generate(
       n,
-      (i) => buildEvent(name: 'PAINT', ph: 'X', dur: 100, ts: 1000 + i * 100),
+      (i) =>
+          buildEvent(name: 'PAINT', ph: 'X', dur: durUs, ts: 1000 + i * 30000),
     );
 
     /// PAINT events carrying `dirty count` enrichment in `args`.
@@ -80,8 +82,8 @@ void main() {
           (i) => buildEvent(
             name: 'PAINT',
             ph: 'X',
-            dur: 100,
-            ts: 1000 + i * 100,
+            dur: 4000,
+            ts: 1000 + i * 30000,
             args: {'dirty count': '$perEventDirty'},
           ),
         );
@@ -98,13 +100,14 @@ void main() {
       phaseEventCount: n,
     );
 
-    /// Stage a VM window with [paintCount] paint events. Advances the fake
-    /// clock past the 1s threshold first so the call stages atomically.
-    void primeVmWindow(int paintCount) {
-      fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
+    /// Stage a VM window whose PAINT time is [percent] % of a 1 000 ms
+    /// window (ten PAINT scopes). Advances the fake clock to exactly
+    /// 1 000 ms first so the call stages atomically.
+    void primeVmWindow(double percent) {
+      fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
       final parsed = parseAndAssertShape(
-        paintEvents(paintCount),
-        paintShape(paintCount),
+        paintEvents(10, durUs: (percent * 1000).round()),
+        paintShape(10),
       );
       detector.processTimelineData(parsed);
     }
@@ -142,15 +145,22 @@ void main() {
 
     // -- Group A: VM aggregate excessive_repaint triad --------------------
 
-    group('excessive_repaint VM triad (strict > 30)', () {
-      testWidgets('paintCount = 30 (boundary): no fire', (tester) async {
-        primeVmWindow(30);
+    group('excessive_repaint VM triad (strict > 10 %)', () {
+      testWidgets('9.5 % paint share: no fire', (tester) async {
+        primeVmWindow(9.5);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        expect(issues, isEmpty);
+        expect(detector.lastObservedPaintPercent, closeTo(9.5, 1e-9));
+      });
+
+      testWidgets('10.0 % paint share (boundary): no fire', (tester) async {
+        primeVmWindow(10);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, isEmpty);
       });
 
-      testWidgets('paintCount = 31: warning', (tester) async {
-        primeVmWindow(31);
+      testWidgets('10.5 % paint share: warning', (tester) async {
+        primeVmWindow(10.5);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, hasLength(1));
         final issue = issues.single;
@@ -158,15 +168,32 @@ void main() {
         expect(issue.severity, IssueSeverity.warning);
         expect(issue.confidence, IssueConfidence.confirmed);
         expect(issue.observationSource, ObservationSource.vmTimeline);
+        expect(issue.extraTraceArgs?['observedPaintPercent'], '10.5');
+        expect(detector.peakObservedPaintPercent, closeTo(10.5, 1e-9));
       });
 
-      testWidgets('paintCount = 61 (> 2× threshold): critical', (tester) async {
-        primeVmWindow(61);
+      testWidgets('31 % paint share (> 3× threshold): critical', (
+        tester,
+      ) async {
+        primeVmWindow(31);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, hasLength(1));
         final issue = issues.single;
         expect(issues, hasStableId('excessive_repaint'));
         expect(issue.severity, IssueSeverity.critical);
+        expect(issue.extraTraceArgs?['observedPaintPercent'], '31.0');
+      });
+
+      testWidgets('many cheap PAINT scopes stay silent (count is not cost)', (
+        tester,
+      ) async {
+        // 60 PAINT scopes of 100 µs in one second is 0.6 % of UI time.
+        fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
+        final parsed = parseAndAssertShape(paintEvents(60), paintShape(60));
+        detector.processTimelineData(parsed);
+        final issues = await scanAndIssues(tester, detector, const SizedBox());
+        expect(issues, isEmpty);
+        expect(detector.lastObservedPaintPercent, closeTo(0.6, 1e-9));
       });
 
       testWidgets(
@@ -177,7 +204,7 @@ void main() {
           // `_pendingEnrichedDirtyTotal` and stages atomically with the
           // window count. Without this fixture the enrichment branch
           // (`event.dirtyCount != null`) is never entered.
-          fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
+          fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
           final events = paintEventsWithDirty(31, perEventDirty: 5);
           final parsed = parseAndAssertShape(events, paintShape(31));
           // Sanity-check the parser actually populated dirtyCount on each
@@ -209,11 +236,14 @@ void main() {
       testWidgets(
         'exact 1000ms elapsed: window stages (gate is `>=` not `>`)',
         (tester) async {
-          // Pins `if (now.difference(_windowStart).inMilliseconds >= 1000)`.
-          // A regression flipping to strict `>` would only fail at exactly
-          // 1000ms; reproducer's 1100ms helper would still pass.
+          // Pins `elapsedUs >= Duration.microsecondsPerSecond`. A regression
+          // flipping to strict `>` would leave the window open at exactly
+          // 1000ms and emit nothing.
           fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
-          final parsed = parseAndAssertShape(paintEvents(31), paintShape(31));
+          final parsed = parseAndAssertShape(
+            paintEvents(11, durUs: 10000),
+            paintShape(11),
+          );
           detector.processTimelineData(parsed);
           final issues = await scanAndIssues(
             tester,
@@ -302,7 +332,7 @@ void main() {
       testWidgets(
         'all paints owned + VM count > threshold: issues empty (broad)',
         (tester) async {
-          // Stage a VM count that would normally fire excessive_repaint AND
+          // Stage a VM share that would normally fire excessive_repaint AND
           // a per-widget snapshot where every paint is owned. Gate B must
           // suppress the VM aggregate fallback so the issues list stays
           // empty across all three emission paths.
@@ -344,7 +374,7 @@ void main() {
       ) async {
         // Two types: Spinner fully owned (residual=0, skipped), Chart
         // unowned but residual rate (20/sec) below the per-widget gate
-        // (30). Per-widget produces no issues. Gate B's
+        // (30/sec). Per-widget produces no issues. Gate B's
         // `_allPaintsAnimationOwned` walks both: Spinner ok, Chart
         // owned=0 < total=20 → returns false → VM aggregate runs.
         //
@@ -352,7 +382,7 @@ void main() {
         // owned" (OR) would short-circuit on Spinner and incorrectly
         // suppress the VM fallback. Single-type Gate B fixture cannot
         // distinguish AND from OR.
-        primeVmWindow(31);
+        primeVmWindow(15);
         detector.updateDebugSnapshot(
           DebugSnapshot(
             rebuildCounts: const {},
@@ -392,7 +422,7 @@ void main() {
           detector.vmConnected = true;
 
           // Step 4: scan with NO new VM events. Reconnect-staged 0 makes
-          // hasFreshVm=true so _issues.clear() runs; vmWindowCount=0 means
+          // hasFreshVm=true so _issues.clear() runs; vmWindowPercent=0 means
           // _evaluateVmData is not invoked → issues list ends up empty.
           final secondIssues = await scanAndIssues(
             tester,
@@ -446,8 +476,11 @@ void main() {
     group('negative controls', () {
       testWidgets('disabled detector does not stage VM data', (tester) async {
         detector.isEnabled = false;
-        fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
-        final parsed = parseAndAssertShape(paintEvents(100), paintShape(100));
+        fakeNow = fakeNow.add(const Duration(milliseconds: 1000));
+        final parsed = parseAndAssertShape(
+          paintEvents(10, durUs: 50000),
+          paintShape(10),
+        );
         detector.processTimelineData(parsed);
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, isEmpty);

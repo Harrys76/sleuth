@@ -24,8 +24,9 @@ String _field(IssueExplanation e, _Field f) => switch (f) {
 ///
 /// Not covered because the constant is private: Wrap child threshold
 /// (>30), SliverToBoxAdapter child threshold (>50), request-frequency
-/// window (5 s), heap_growing sustain window (10 s), critical multipliers
-/// for rebuild_activity (3×) and heavy_compute (2×).
+/// window (5 s), heap_growing sustain window (10 s), critical multiplier
+/// for heavy_compute (2×). The 3× critical multiplier of rebuild_activity
+/// and excessive_repaint is pinned by the detector tests.
 void main() {
   const config = SleuthConfig();
   const thresholds = DetectorThresholds();
@@ -125,7 +126,24 @@ void main() {
     (
       'rebuild_activity',
       _Field.readingTheData,
-      '>${config.rebuildThreshold}/sec',
+      '>${thresholds.buildTimePercentThreshold.round()}% of UI-thread time '
+          '(warning)',
+    ),
+    (
+      'rebuild_activity',
+      _Field.readingTheData,
+      '>${(thresholds.buildTimePercentThreshold * 3).round()}% (critical)',
+    ),
+    (
+      'excessive_repaint',
+      _Field.readingTheData,
+      '>${thresholds.paintTimePercentThreshold.round()}% of UI-thread time '
+          '(warning)',
+    ),
+    (
+      'excessive_repaint',
+      _Field.readingTheData,
+      '>${(thresholds.paintTimePercentThreshold * 3).round()}% (critical)',
     ),
     (
       'heavy_compute',
@@ -190,6 +208,17 @@ void main() {
       'critical at ≥ ${image.criticalWastedBytes >> 20} MiB',
     ),
   ];
+
+  group('VM time-share entries', () {
+    for (final stableId in ['rebuild_activity', 'excessive_repaint']) {
+      test('$stableId reads as a share of UI-thread time', () {
+        final entry = IssueExplanationBuilder.explain(stableId)!;
+        expect(entry.readingTheData, contains('% of UI-thread time'));
+        expect(entry.readingTheData, isNot(contains('/sec')));
+        expect(entry.whatItIs, isNot(contains('/sec')));
+      });
+    }
+  });
 
   group('encyclopedia thresholds match detector defaults', () {
     for (final (stableId, field, expected) in rows) {

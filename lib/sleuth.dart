@@ -542,10 +542,11 @@ class Sleuth {
   }
 
   /// Public accessor for the [RebuildDetector] instance. Capture
-  /// screens read [RebuildDetector.lastObservedRebuildRate] after
+  /// screens read [RebuildDetector.peakObservedBuildPercent] (and
+  /// [RebuildDetector.lastObservedBuildPercent] for calibration) after
   /// driving a Ticker scenario and `await Sleuth.flushTimelineNow()`
-  /// so the wrapped magnitude reflects detector-measured rebuilds-per-
-  /// second rather than the operator's plan. Returns null when
+  /// so the wrapped magnitude reflects the detector-measured build-time
+  /// share rather than the operator's plan. Returns null when
   /// [Sleuth] has not been initialised or in release mode.
   static RebuildDetector? get rebuildDetector {
     if (kReleaseMode) return null;
@@ -553,11 +554,11 @@ class Sleuth {
   }
 
   /// Public accessor for the [RepaintDetector] instance. Capture
-  /// screens read [RepaintDetector.lastObservedPaintCount] after
-  /// driving a paint-heavy scenario and call
-  /// [RepaintDetector.flushPaintEvaluation] so the wrapped magnitude
-  /// reflects the detector-measured 1s-window paint count rather than
-  /// the operator's plan. Returns null when [Sleuth] has not been
+  /// screens read [RepaintDetector.peakObservedPaintPercent] (and
+  /// [RepaintDetector.lastObservedPaintPercent] for calibration) after
+  /// driving a paint-heavy scenario so the wrapped magnitude reflects
+  /// the detector-measured paint-time share rather than the operator's
+  /// plan. Returns null when [Sleuth] has not been
   /// initialised, in release mode, or when [DetectorType.repaint] was
   /// excluded from [SleuthConfig.enabledDetectors].
   static RepaintDetector? get repaintDetector {

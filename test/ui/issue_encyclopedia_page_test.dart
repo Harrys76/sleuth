@@ -407,23 +407,23 @@ void main() {
 
     test('substitute only applies to matching stableId (unit)', () {
       // Verify that substitute works correctly on the template level.
-      final template = IssueExplanationBuilder.explain('rebuild_activity')!;
+      final template = IssueExplanationBuilder.explain('non_lazy_list')!;
       // Raw template should contain placeholder.
       expect(template.whatItIs, contains('{count}'));
 
       // After substitution, placeholders are replaced.
       final issue = PerformanceIssue(
-        stableId: 'rebuild_activity',
-        title: '47 rebuilds detected',
+        stableId: 'non_lazy_list',
+        title: 'ListView with 47 children',
         detail: 'd',
         fixHint: 'f',
         severity: IssueSeverity.warning,
         category: IssueCategory.build,
-        confidence: IssueConfidence.confirmed,
+        confidence: IssueConfidence.possible,
         widgetName: 'MyWidget',
       );
       final substituted = IssueExplanationBuilder.substitute(template, issue);
-      expect(substituted.whatItIs, contains('47 build passes'));
+      expect(substituted.whatItIs, contains('47 children'));
       expect(substituted.whatItIs, contains('MyWidget'));
       // displayName is never substituted (no placeholders).
       expect(substituted.displayName, template.displayName);

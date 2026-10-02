@@ -211,7 +211,7 @@ Sleuth.track(
   config: SleuthConfig(
     fpsTarget: 60,                     // loosest frame budget + overlay FPS cap; the budget tightens to the measured rate
     autoFrameBudget: true,             // false: always judge frames against 1000 / fpsTarget ms
-    rebuildThreshold: 10,
+    rebuildThreshold: 10,              // per-widget rebuilds/sec (debug instrumentation)
     maxListChildren: 20,
     platformChannelLimit: 20,
     treeScanInterval: Duration(seconds: 1), // base tree-scan cadence; ticks costing > 4 ms stretch it (≤ 5 s); deferred ≤ 3 × 250 ms while scrolling
@@ -238,6 +238,8 @@ Sleuth.track(
       shaderJankMs: 50,              // shader compilation warning threshold
       heavyComputeGapMs: 8,          // BUILD-scope warning threshold, critical at 2×; omit for auto (8 ms at 60 Hz, half the frame budget above it)
       gpuPressureRatio: 1.5,         // raster/UI time ratio for GPU pressure
+      buildTimePercentThreshold: 10, // rebuild_activity: % of UI-thread time in BUILD, critical at 3×
+      paintTimePercentThreshold: 10, // excessive_repaint: % of UI-thread time in PAINT, critical at 3×
     ),
     customDetectors: [MyCustomDetector()], // plug in domain-specific detectors
     disabledCustomDetectorKeys: {'my_heavy_detector'}, // gate custom detectors by key

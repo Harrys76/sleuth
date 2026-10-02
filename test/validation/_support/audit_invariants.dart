@@ -1624,12 +1624,10 @@ List<String> checkCanonicalCoveredThresholdBacking({
 /// conflicting with the default 2.0× ceiling).
 ///
 /// Bounds:
-///   * `observedAxisTolerance`: `0 < x ≤ 0.65`. Schema default is 0.25;
-///     production max sits at 0.60 (`MemoryPressure.heap_growing` —
-///     iOS allocator overhead pushes detector slope above operator-
-///     measured allocation rate by up to ~56% on profile-mode
-///     captures). The 0.65 ceiling leaves small headroom and forces
-///     explicit review for any future widening.
+///   * `observedAxisTolerance`: `0 < x ≤ 0.25`. Schema default and
+///     production max sit at 0.25; capture-screen post-processing
+///     exports the detector's own axis value, so the cross-check holds
+///     by construction and widening past 0.25 needs explicit review.
 ///   * `atTolerance` (canonical or spec): `0 ≤ x ≤ 0.65`. Current
 ///     production max sits at 0.60 (heavy_compute critical); the bound
 ///     leaves small headroom and forces explicit review for any future

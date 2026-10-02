@@ -408,7 +408,7 @@ class MemoryPressureDetector extends BaseDetector
             dedupIdentityMicros: _sustainedGrowthStart!.microsecondsSinceEpoch,
             // Stringified per the wire-format contract for VM timeline args
             // (see also HeavyComputeDetector.observedDurationMs,
-            // RebuildDetector.observedRebuildRate). Schema's `args` parser
+            // RebuildDetector.observedBuildPercent). Schema's `args` parser
             // accepts both string and num and round-trips via num.tryParse.
             extraTraceArgs: {
               'observedSlopeBytesPerSec': slope.toStringAsFixed(0),

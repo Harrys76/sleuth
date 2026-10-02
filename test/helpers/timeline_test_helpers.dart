@@ -5,9 +5,29 @@ import 'package:sleuth/src/vm/timeline_parser.dart';
 /// Factory for empty timeline data (all zeros).
 ParsedTimelineData emptyTimelineData() => ParsedTimelineData();
 
-/// Factory for timeline data with only build event count.
-ParsedTimelineData highBuildActivityData({int buildCount = 25}) =>
-    ParsedTimelineData(buildEventCount: buildCount);
+/// Factory for timeline data carrying [scopes] BUILD scopes whose
+/// durations sum to exactly [buildTimeUs] (`totalBuildScopeUs`), with
+/// `buildEventCount == scopes`. Feeds the `rebuild_activity` time-share
+/// axis: over a 1 000 ms window, `buildTimeUs: 110000` is 11.0 %.
+ParsedTimelineData buildLoadData({required int buildTimeUs, int scopes = 60}) =>
+    ParsedTimelineData(
+      buildScopeDurations: _splitEvenly(buildTimeUs, scopes),
+      buildEventCount: scopes,
+    );
+
+/// Factory for timeline data carrying [frames] PAINT scopes whose
+/// durations sum to exactly [paintTimeUs] (`totalFlushPaintUs`). Feeds the
+/// `excessive_repaint` time-share axis.
+ParsedTimelineData paintLoadData({required int paintTimeUs, int frames = 60}) =>
+    ParsedTimelineData(flushPaintDurations: _splitEvenly(paintTimeUs, frames));
+
+/// Splits [total] into [parts] non-negative integers summing to [total].
+List<int> _splitEvenly(int total, int parts) {
+  assert(parts > 0 && total >= 0);
+  final base = total ~/ parts;
+  final remainder = total % parts;
+  return List.generate(parts, (i) => base + (i < remainder ? 1 : 0));
+}
 
 /// Factory for raster-dominant timeline data.
 ParsedTimelineData rasterDominantData({
@@ -21,12 +41,6 @@ ParsedTimelineData rasterDominantData({
   flushLayoutDurations: [layoutUs],
   flushPaintDurations: [paintUs],
 );
-
-/// Factory for timeline data with paint events only.
-ParsedTimelineData highPaintActivityData({int paintCount = 40}) =>
-    ParsedTimelineData(
-      flushPaintDurations: List.generate(paintCount, (_) => 1000),
-    );
 
 /// Factory for timeline data with GC events.
 ParsedTimelineData gcHeavyData({int gcCount = 10}) => ParsedTimelineData(
@@ -94,12 +108,15 @@ ParsedTimelineData enrichedPaintData({
   ),
 );
 
-/// Factory for build activity data with enriched dirty names.
+/// Factory for build activity data with enriched dirty names. The BUILD
+/// scope time ([buildTimeUs]) feeds the `rebuild_activity` time-share
+/// axis; the dirty-list phase event feeds attribution only.
 ParsedTimelineData enrichedBuildActivityData({
-  int buildCount = 25,
+  int buildTimeUs = 0,
   List<String>? dirtyList,
 }) => ParsedTimelineData(
-  buildEventCount: buildCount,
+  buildScopeDurations: buildTimeUs > 0 ? [buildTimeUs] : const [],
+  buildEventCount: buildTimeUs > 0 ? 1 : 0,
   phaseEvents: dirtyList != null
       ? [
           PhaseEvent(

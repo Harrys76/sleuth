@@ -957,8 +957,7 @@ class FrameTimingDetector extends BaseDetector with DetectorMetadataProvider {
     // (sliding 240-frame-window severeCount) cannot composably
     // bracket against operator-claimed K because ambient severe
     // frames accumulate in the same window. A future raise needs
-    // detector-level baseline subtraction (see
-    // `RebuildDetector.setBaseline(int)`).
+    // detector-level baseline subtraction.
     perStableIdTier: {'jank_detected': EvidenceTier.runtimeVerified},
     profileCapturePaths: [
       'test/validation/captures/frame_timing/jank_detected_below.json',

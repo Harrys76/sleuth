@@ -48,14 +48,19 @@ Drive on-device capture brackets for the audit gate.
 | Screen | Bracket |
 |--------|---------|
 | HeavyCompute | `heavy_compute` warning + critical |
-| RebuildActivity | `rebuild_activity` warning + critical |
+| RebuildActivity | `rebuild_activity` warning + critical (build-time share; legs via `ext.sleuthDemo.captureLeg`) |
 | FrameTiming (jank_detected) | `jank_detected` warning (60Hz) |
 | MemoryPressure | `heap_growing` warning |
 | NetworkMonitor | `slow_request` warning + critical |
 | PlatformChannel | `platform_channel_traffic` warning |
-| Repaint | `excessive_repaint` warning |
+| Repaint | `excessive_repaint` warning (paint-time share; legs via `ext.sleuthDemo.captureLeg`) |
 | StreamResource | `stream_resource_growth` warning |
 | TrackedResource | `tracked_resource_concurrent` warning + `tracked_resource_long_lived` warning |
+
+The RebuildActivity and Repaint screens calibrate their workload before
+each leg and publish results through `ext.sleuthDemo.captureResult`; see
+`doc/capture_procedure.md` ("RebuildActivity + Repaint time-share
+captures").
 
 Each demo includes `BAD:` and `FIX:` annotations explaining the anti-pattern and its fix.
 

@@ -505,18 +505,19 @@ void main() {
 
   group('rebuildActivity', () {
     test('returns medium effort', () {
-      final (_, effort) = FixHintBuilder.rebuildActivity(buildCount: 100);
+      final (_, effort) = FixHintBuilder.rebuildActivity(buildPercent: 12);
       expect(effort, FixEffort.medium);
     });
 
-    test('includes build count', () {
-      final (hint, _) = FixHintBuilder.rebuildActivity(buildCount: 150);
-      expect(hint, contains('150'));
+    test('includes the formatted build-time share', () {
+      final (hint, _) = FixHintBuilder.rebuildActivity(buildPercent: 18.24);
+      expect(hint, contains('18.2% of UI-thread time'));
+      expect(hint, isNot(contains('/sec')));
     });
 
     test('includes enriched names when provided', () {
       final (hint, _) = FixHintBuilder.rebuildActivity(
-        buildCount: 100,
+        buildPercent: 12,
         enrichedNames: ['WidgetA', 'WidgetB'],
       );
       expect(hint, contains('WidgetA'));
@@ -541,17 +542,24 @@ void main() {
   // -------------------------------------------------------------------------
   group('excessiveRepaintVm', () {
     test('returns quick effort', () {
-      final (_, effort) = FixHintBuilder.excessiveRepaintVm();
+      final (_, effort) = FixHintBuilder.excessiveRepaintVm(paintPercent: 12);
       expect(effort, FixEffort.quick);
     });
 
     test('mentions RepaintBoundary', () {
-      final (hint, _) = FixHintBuilder.excessiveRepaintVm();
+      final (hint, _) = FixHintBuilder.excessiveRepaintVm(paintPercent: 12);
       expect(hint, contains('RepaintBoundary'));
+    });
+
+    test('includes the formatted paint-time share', () {
+      final (hint, _) = FixHintBuilder.excessiveRepaintVm(paintPercent: 14);
+      expect(hint, contains('14.0% of UI-thread time'));
+      expect(hint, isNot(contains('/sec')));
     });
 
     test('includes scrolling context', () {
       final (hint, _) = FixHintBuilder.excessiveRepaintVm(
+        paintPercent: 12,
         interactionContext: InteractionContext.scrolling,
       );
       expect(hint, contains('scrolling'));

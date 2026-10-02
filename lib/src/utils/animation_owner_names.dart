@@ -34,7 +34,7 @@ import 'type_name_cache.dart';
 /// and survive in chains, so they belong here. They drive per-frame
 /// repaints during their tween window — e.g. a card that grows from
 /// 100x100 to 300x300 over 300ms paints ~18 frames in a row, comfortably
-/// over the 30/sec threshold. Without these entries, every implicit
+/// over the 30/sec per-widget debug paint threshold. Without these entries, every implicit
 /// animation in user code triggers a false `repaint_debug_*`.
 const Set<String> animationOwnerNames = <String>{
   // --- Material / Cupertino indeterminate progress indicators (4) ---
@@ -57,9 +57,10 @@ const Set<String> animationOwnerNames = <String>{
   // --- Implicit animation widgets (12) ---
   // Each runs an internal AnimationController to tween between old and
   // new property values. Tween durations of 100-300ms produce ~6-18
-  // consecutive paints, which trips the 30/sec threshold for the duration
-  // of the animation. Without these entries, every implicit animation in
-  // user code surfaces as a false `repaint_debug_*`.
+  // consecutive paints, which trips the 30/sec per-widget debug paint
+  // threshold for the duration of the animation. Without these entries,
+  // every implicit animation in user code surfaces as a false
+  // `repaint_debug_*`.
   'AnimatedContainer',
   'AnimatedRotation',
   'AnimatedScale',

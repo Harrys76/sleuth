@@ -50,12 +50,15 @@ import 'package:sleuth/sleuth.dart'
     show
         BracketSpec,
         DetectorMetadata,
+        DetectorThresholds,
         DetectorMetadataProvider,
         EvidenceTier,
         ProfileCaptureSchema;
 import 'package:sleuth/src/controller/sleuth_controller.dart';
 import 'package:sleuth/src/detectors/frame_timing_detector.dart';
 import 'package:sleuth/src/detectors/network_monitor_detector.dart';
+import 'package:sleuth/src/detectors/rebuild_detector.dart';
+import 'package:sleuth/src/detectors/repaint_detector.dart';
 import 'package:sleuth/src/models/base_detector.dart';
 
 import '_support/audit_invariants.dart';
@@ -155,15 +158,14 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
   // base reproducerOnly. See the dedicated `MemoryPressureDetector
   // pinned at runtimeVerified for heap_growing (v0.19.3)` anchor block
   // below for the per-family-tier invariants.
-  // RebuildDetector lifted out of the v0.17.4 reproducerOnly batch in
-  // v0.19.12 — `rebuild_activity` family raised to runtimeVerified via
-  // perStableIdTier with three on-device captures bracketing 11
-  // BUILDs/sec under baseline-subtraction (capture-mode operator
-  // measures ambient inline before each leg and calls
-  // `setBaseline(int)`). Other family `stateful_density` remains at
-  // base reproducerOnly. See the dedicated `RebuildDetector pinned at
-  // runtimeVerified for rebuild_activity (v0.19.12)` anchor block
-  // below for the per-family-tier + bracket-field invariants.
+  // RebuildDetector lifted out of the v0.17.4 reproducerOnly batch —
+  // `rebuild_activity` family raised to runtimeVerified via
+  // perStableIdTier with on-device capture triads bracketing the 10 %
+  // (warning) and 30 % (critical) build-time share. Other family
+  // `stateful_density` remains at base reproducerOnly. See the
+  // dedicated `RebuildDetector pinned at runtimeVerified for
+  // rebuild_activity` anchor block below for the per-family-tier +
+  // bracket-field invariants.
   DetectorType.gpuPressure: (
     'test/validation/gpu_pressure_reproducer_test.dart',
     {'raster_dominance', 'expensive_gpu_nodes'},
@@ -175,7 +177,7 @@ const _v0174Expectations = <DetectorType, (String, Set<String>, Set<String>?)>{
   // RepaintDetector lifted out of the v0.17.4 reproducerOnly batch:
   // base stays reproducerOnly but the `excessive_repaint.warning`
   // family is raised to runtimeVerified via perStableIdTier on top of
-  // an iPhone 12 / iOS 17.5 / Flutter 3.41.4 capture triad. The
+  // an iPhone 12 / iOS 17.5 / Flutter 3.47.x capture triad. The
   // remaining families (`excessive_repaint_debug`,
   // `repaint_debug_<typeName>`) stay reproducerOnly. See the dedicated
   // `RepaintDetector pinned at runtimeVerified for excessive_repaint`
@@ -1417,16 +1419,13 @@ void main() {
       );
     });
 
-    test('RebuildDetector pinned at runtimeVerified for rebuild_activity '
-        '(v0.19.12)', () {
+    test('RebuildDetector pinned at runtimeVerified for rebuild_activity', () {
       // Anti-tautology anchor: rebuild_activity raised from base
-      // reproducerOnly to runtimeVerified via perStableIdTier (warning
-      // tier, 11 BUILDs/sec under baseline-subtraction) backed by three
-      // on-device captures (iPhone 12 / iOS 17.5 / Flutter 3.41.x).
+      // reproducerOnly to runtimeVerified via perStableIdTier. The axis
+      // is the share of UI-thread wall time inside BUILD scopes per ~1 s
+      // window (`percent`), warning > 10 %, critical > 30 %, each backed
+      // by an on-device triad (iPhone 12 / iOS 17.5 / Flutter 3.47.x).
       // Other family `stateful_density` stays at base reproducerOnly.
-      // Captures use the detector's adjusted (raw - baseline) BUILD
-      // count so iOS profile-mode framework ambient (~10–15/sec from
-      // Material animations) does not inflate the magnitude.
       final BaseDetector? rb = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.rebuild)
           .cast<BaseDetector?>()
@@ -1449,10 +1448,6 @@ void main() {
       expect(
         meta.perStableIdTier?['rebuild_activity'],
         EvidenceTier.runtimeVerified,
-        reason:
-            'v0.19.12 raises rebuild_activity warning via on-device '
-            'captures; the raise lives in perStableIdTier so the audit '
-            'gate routes off effectiveMaxTier.',
       );
       expect(
         meta.effectiveTierFor('rebuild_activity'),
@@ -1474,89 +1469,52 @@ void main() {
       );
       expect(
         meta.bracketThreshold,
-        equals(11),
-        reason:
-            'Detector gate is `buildCount > 10` (default '
-            'rebuildsPerSecThreshold); first integer firing is 11.',
+        equals(10),
+        reason: 'Detector gate is `percent > buildTimePercentThreshold`.',
       );
-      expect(meta.bracketUnit, equals('rebuilds'));
+      expect(
+        meta.bracketThreshold,
+        equals(const DetectorThresholds().buildTimePercentThreshold),
+        reason:
+            'Bracket threshold must track the DetectorThresholds default '
+            'the controller wires into the detector.',
+      );
+      expect(
+        meta.bracketThreshold,
+        equals(RebuildDetector().buildTimePercentThreshold),
+      );
+      expect(meta.bracketUnit, equals('percent'));
       expect(meta.bracketStableId, equals('rebuild_activity'));
       expect(meta.bracketSeverityLabel, equals('warning'));
       expect(
         meta.bracketAtTolerance,
-        equals(0.65),
+        equals(0.5),
         reason:
-            'at-band [11, 18.15]; wider than v0.19.7 jank (0.50) '
-            'because Material framework noise plus baseline-subtraction '
-            'jitter widens variance even with `setBaseline` applied.',
+            'at-band [10, 15]; build duration drifts with device '
+            'temperature across a 6 s leg.',
       );
       expect(
         meta.aboveCeilingMultiplier,
         equals(2.7),
         reason:
-            'above-band ceiling 11 × 2.7 = 29.7 strictly under the '
-            '`> threshold * 3 = 30` critical-tier fire boundary so the '
-            'above leg cannot ambiently bracket critical. The 2.7 '
-            'multiplier (vs 2.5) gives re-record headroom: window '
-            'variance on this metric is ±3-4 units, so a tighter '
-            'ceiling rejects on day-to-day noise. 0.3 unit margin to '
-            'critical is intentional.',
+            'above-band ceiling 10 × 2.7 = 27 stays under the '
+            '`> threshold * 3 = 30` critical boundary so the above leg '
+            'emits warning only.',
       );
-      expect(
-        meta.observedAxisArgKey,
-        equals('observedRebuildRate'),
-        reason:
-            'Detector stamps `extraTraceArgs.observedRebuildRate` '
-            '(the adjusted, baseline-subtracted value) on every '
-            'rebuild_activity emission for the schema cross-check.',
-      );
-      expect(
-        meta.observedAxisReduction,
-        equals('max'),
-        reason:
-            'Multiple in-span emissions per leg (one per 1s window '
-            'crossing threshold); max-reduction picks the worst signal '
-            'rather than the tail-off final window.',
-      );
+      expect(meta.observedAxisArgKey, equals('observedBuildPercent'));
+      expect(meta.observedAxisTolerance, equals(0.25));
+      expect(meta.observedAxisReduction, equals('max'));
       expect(meta.bracketRequireUniqueDetectedAtMicros, isTrue);
       expect(
         meta.coveredThresholds,
         equals(const {'rebuild_activity.warning', 'rebuild_activity.critical'}),
-        reason:
-            'Warning covered by canonical bracket; critical covered '
-            'by additionalBrackets[0] (>30 BUILDs/sec) backed by a '
-            'dedicated capture triad under critical_*.json.',
       );
       expect(
         meta.coveredStableIds,
         equals(const {'stateful_density', 'rebuild_activity'}),
-        reason:
-            'Both layer-2 reproducer-covered families; '
-            'perStableIdTier raises only rebuild_activity.',
       );
-      expect(
-        meta.parametricFamilies,
-        equals(const {'rebuild_debug'}),
-        reason:
-            'Parametric `rebuild_debug_<typeName>` family '
-            'unchanged — debug-callback path stays at base '
-            'reproducerOnly.',
-      );
-      // Critical-tier bracket pin. additionalBrackets[0] adds the
-      // tier-stack raise without disturbing the canonical warning bracket.
-      expect(
-        meta.additionalBrackets,
-        isNotNull,
-        reason:
-            'additionalBrackets carries the critical tier raise; '
-            'a future PR removing it would silently drop critical '
-            'from audit coverage.',
-      );
-      // Look up by (stableId, severityLabel) so a future PR adding a
-      // second additionalBrackets entry (e.g. a different stableId
-      // raise) does not fail this anchor with a misleading length
-      // mismatch — the field-literal assertions below would be the
-      // real diagnostic surface.
+      expect(meta.parametricFamilies, equals(const {'rebuild_debug'}));
+      expect(meta.additionalBrackets, isNotNull);
       final critical = meta.additionalBrackets!.firstWhere(
         (b) =>
             b.stableId == 'rebuild_activity' && b.severityLabel == 'critical',
@@ -1566,21 +1524,23 @@ void main() {
           '${meta.additionalBrackets!.map((b) => "${b.stableId}.${b.severityLabel}").join(", ")}.',
         ),
       );
-      expect(critical.stableId, equals('rebuild_activity'));
-      expect(critical.severityLabel, equals('critical'));
       expect(
         critical.threshold,
-        equals(31),
-        reason:
-            'Detector gate is `adjusted > 30` (rebuildsPerSecThreshold '
-            '* 3); first integer firing critical is 31.',
+        equals(30),
+        reason: 'Detector gate is `percent > buildTimePercentThreshold * 3`.',
       );
-      expect(critical.unit, equals('rebuilds'));
-      expect(critical.atTolerance, equals(0.65));
+      expect(
+        critical.threshold,
+        equals(const DetectorThresholds().buildTimePercentThreshold * 3),
+      );
+      expect(critical.unit, equals('percent'));
+      expect(critical.atTolerance, equals(0.5));
       expect(critical.aboveCeilingMultiplier, equals(2.7));
-      expect(critical.observedAxisArgKey, equals('observedRebuildRate'));
+      expect(critical.observedAxisArgKey, equals('observedBuildPercent'));
+      expect(critical.observedAxisTolerance, equals(0.25));
       expect(critical.observedAxisReduction, equals('max'));
       expect(critical.requireUniqueDetectedAtMicros, isTrue);
+      expect(critical.requireDetectorTraceRecord, isTrue);
       expect(
         critical.coveredThresholds,
         equals(const {'rebuild_activity.critical'}),
@@ -1597,28 +1557,19 @@ void main() {
         critical.minInBandSamples,
         equals(2),
         reason:
-            'critical bracket requires >=2 in-band detector samples '
-            'per leg (at + above). iPhone thermal throttling on a 6 s '
-            'sustained leg routinely produces a mix of in-band + '
-            'sub-band emissions; opting in turns the redundancy '
-            'property of the committed capture into an enforced '
-            'contract — a future re-record with only one in-band peak '
-            'fails the audit gate instead of silently shipping fragile '
-            'evidence.',
+            'critical bracket requires >=2 in-band detector samples per '
+            'leg so a single in-band window cannot certify the bracket.',
       );
     });
 
-    test('RepaintDetector pinned at runtimeVerified for excessive_repaint '
-        '(v0.21.0)', () {
+    test('RepaintDetector pinned at runtimeVerified for excessive_repaint', () {
       // Anti-tautology anchor: excessive_repaint raised from base
-      // reproducerOnly to runtimeVerified via perStableIdTier (warning
-      // tier, > 30 paints/sec aggregate over a 1 s VM window) backed
-      // by three on-device captures (iPhone 12 / iOS 17.5 /
-      // Flutter 3.41.4). Other families `excessive_repaint_debug` and
-      // parametric `repaint_debug_<typeName>` stay at base
-      // reproducerOnly. Captures use a 32-distinct-CustomPainter
-      // workload so the per-widget debug gate stays sub-threshold and
-      // emission flows through the VM aggregate path.
+      // reproducerOnly to runtimeVerified via perStableIdTier. The axis
+      // is the share of UI-thread wall time inside PAINT scopes per ~1 s
+      // window (`percent`), warning > 10 %, backed by an on-device triad
+      // (iPhone 12 / iOS 17.5 / Flutter 3.47.x). Other families
+      // `excessive_repaint_debug` and parametric
+      // `repaint_debug_<typeName>` stay at base reproducerOnly.
       final BaseDetector? rp = controller.detectorsForAudit
           .where((d) => d.type == DetectorType.repaint)
           .cast<BaseDetector?>()
@@ -1630,21 +1581,10 @@ void main() {
       );
       expect(rp, isA<DetectorMetadataProvider>());
       final meta = (rp as DetectorMetadataProvider).validationMetadata;
-      expect(
-        meta.tier,
-        EvidenceTier.reproducerOnly,
-        reason:
-            'Base tier stays reproducerOnly — excessive_repaint raise '
-            'lives in perStableIdTier so the debug-path families are not '
-            'mechanically over-claimed at runtimeVerified.',
-      );
+      expect(meta.tier, EvidenceTier.reproducerOnly);
       expect(
         meta.perStableIdTier?['excessive_repaint'],
         EvidenceTier.runtimeVerified,
-        reason:
-            'v0.21.0 raises excessive_repaint warning via on-device '
-            'captures; the raise lives in perStableIdTier so the audit '
-            'gate routes off effectiveMaxTier.',
       );
       expect(
         meta.effectiveTierFor('excessive_repaint'),
@@ -1666,71 +1606,43 @@ void main() {
       );
       expect(
         meta.bracketThreshold,
-        equals(30),
-        reason:
-            'Detector gate is `paintCount > paintFrequencyThreshold` '
-            '(default 30); first integer firing is 31.',
+        equals(10),
+        reason: 'Detector gate is `percent > paintTimePercentThreshold`.',
       );
-      expect(meta.bracketUnit, equals('paints'));
+      expect(
+        meta.bracketThreshold,
+        equals(const DetectorThresholds().paintTimePercentThreshold),
+      );
+      expect(
+        meta.bracketThreshold,
+        equals(RepaintDetector().paintTimePercentThreshold),
+      );
+      expect(meta.bracketUnit, equals('percent'));
       expect(meta.bracketStableId, equals('excessive_repaint'));
       expect(meta.bracketSeverityLabel, equals('warning'));
-      expect(
-        meta.bracketAtTolerance,
-        equals(0.50),
-        reason:
-            'at-band [30, 45]; matches the 0.50 atTolerance used by '
-            'jank_detected and request_frequency. iOS 60Hz scheduler '
-            'jitter on staggered Timer ticks across 32 widget types '
-            'varies by ±10 paints/sec window-to-window — the band must '
-            'be wide enough to absorb that variance without overlapping '
-            'the above-band.',
-      );
+      expect(meta.bracketAtTolerance, equals(0.5));
       expect(
         meta.aboveCeilingMultiplier,
-        equals(2.0),
+        equals(2.7),
         reason:
-            'above-band ceiling 30 × 2.0 = 60 strictly under the '
-            '`> threshold * 2 = 60` critical-tier fire boundary; above '
-            'leg targets warning emissions in (45, 60) so the audit '
-            'sees pure warning evidence without ambient critical fire.',
+            'above-band ceiling 10 × 2.7 = 27 stays under the '
+            '`> threshold * 3 = 30` critical boundary.',
       );
-      expect(
-        meta.observedAxisArgKey,
-        equals('observedPaintCount'),
-        reason:
-            'Detector stamps `extraTraceArgs.observedPaintCount` (the '
-            '1 s window aggregate count) on every excessive_repaint '
-            'emission for the schema cross-check.',
-      );
-      expect(
-        meta.observedAxisReduction,
-        equals('max'),
-        reason:
-            'Multiple in-span emissions per leg (one per 1 s window '
-            'crossing threshold); max-reduction picks the worst signal '
-            'rather than the tail-off final window when widgets unmount.',
-      );
+      expect(meta.observedAxisArgKey, equals('observedPaintPercent'));
+      expect(meta.observedAxisTolerance, equals(0.25));
+      expect(meta.observedAxisReduction, equals('max'));
       expect(
         meta.coveredThresholds,
         equals(const {'excessive_repaint.warning'}),
         reason:
-            'Severity-scoped to warning only; critical (>60 paints/sec) '
-            'stays implicitly reproducerOnly.',
+            'Severity-scoped to warning only; critical (>30 % paint '
+            'share) stays implicitly reproducerOnly.',
       );
       expect(
         meta.coveredStableIds,
         equals(const {'excessive_repaint', 'excessive_repaint_debug'}),
-        reason:
-            'Both VM and debug-aggregate families exist on the '
-            'detector; perStableIdTier raises only excessive_repaint.',
       );
-      expect(
-        meta.parametricFamilies,
-        equals(const {'repaint_debug'}),
-        reason:
-            'Parametric `repaint_debug_<typeName>` family unchanged — '
-            'debug per-widget path stays at base reproducerOnly.',
-      );
+      expect(meta.parametricFamilies, equals(const {'repaint_debug'}));
     });
 
     test('StreamResourceDetector pinned at runtimeVerified for '

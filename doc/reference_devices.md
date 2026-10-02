@@ -12,7 +12,7 @@ that is aspirational.
 
 | Role | Device | SoC | OS | Flutter stable |
 |---|---|---|---|---|
-| Primary iOS | iPhone 12 | A14 | iOS 17.5 | 3.41.x |
+| Primary iOS | iPhone 12 | A14 | iOS 17.5 | 3.41.x or 3.47.x |
 
 Enforced programmatically in
 `lib/src/validation/profile_capture_schema.dart`:
@@ -22,7 +22,17 @@ static const Map<String, Set<String>> approvedDevicePairs = {
   'iPhone 12': {'iOS 17.5'},
 };
 static const String approvedFlutterMajorMinor = '3.41';
+static const Set<String> approvedFlutterMajorMinors = {
+  approvedFlutterMajorMinor,
+  '3.47',
+};
 ```
+
+A capture may be recorded on any member of `approvedFlutterMajorMinors`;
+the three legs of one bracket must share one exact `flutterVersion`
+(enforced by the bracket provenance check), so triads recorded on 3.41
+stay valid next to triads re-recorded on 3.47. The `rebuild_activity` and
+`excessive_repaint` triads are recorded on 3.47.6; the others on 3.41.4.
 
 ## Android coverage gap
 
@@ -59,14 +69,16 @@ environment. Detectors with iOS-only signal sources (e.g. Skia shader
 warmup on Metal) raise without requiring Android coverage. Detectors
 with Android-divergent behaviour must wait.
 
-## Why Flutter 3.41.x
+## Why Flutter 3.41 and 3.47
 
-3.41 is the current stable channel minor. Chosen over earlier minors
-because the example app's iOS bootstrap uses
-`FlutterImplicitEngineDelegate` / `FlutterSceneDelegate` bindings
-introduced in 3.41, and the `vm_service` patch level required by the
-validation harness ships on 3.41+. Downgrading to 3.40 would require
-reverting those bindings (multi-file compat regression).
+3.41 was the stable minor when most triads were recorded; the example
+app's iOS bootstrap uses `FlutterImplicitEngineDelegate` /
+`FlutterSceneDelegate` bindings introduced in 3.41, and the
+`vm_service` patch level required by the validation harness ships on
+3.41+. 3.47 is the development pin; the `rebuild_activity` and
+`excessive_repaint` triads were recorded on 3.47.6. A triad must use one
+exact version, and both minors stay accepted until every triad has been
+re-recorded on the newer one.
 
 The schema pins the full major.minor to surface a silent channel
 bump: a tier raise PR that captures on 3.42 will fail the gate until
@@ -78,8 +90,10 @@ The matrix rotates **once per calendar year**, in a dedicated release.
 Rotation releases update:
 
 1. `ProfileCaptureSchema.approvedDevicePairs`.
-2. `ProfileCaptureSchema.approvedFlutterMajorMinor` and the matching
-   regex `_flutterVersionPattern`.
+2. `ProfileCaptureSchema.approvedFlutterMajorMinors` (and the
+   `approvedFlutterMajorMinor` baseline member when the oldest pin
+   retires). The version validator checks set membership, so no regex
+   edit is needed.
 3. This document's Current matrix table.
 4. `test/validation/captures/README.md` recording instructions if the
    tooling changed (DevTools UI revision, export format migration).
@@ -103,7 +117,7 @@ nothing.
 ## Why rotations are deliberate, not silent
 
 A rotation changes the *meaning* of every prior `runtimeVerified` claim:
-"holds on Flutter 3.41.x / iPhone 12 iOS 17.5" is a specific statement.
+"holds on Flutter 3.41.x or 3.47.x / iPhone 12 iOS 17.5" is a specific statement.
 If we silently advanced the matrix to 3.34.x mid-year, every unexpired
 tier raise would start claiming something it was never validated
 against. Rotating in a dedicated release is the only way to say "we

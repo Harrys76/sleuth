@@ -4519,7 +4519,7 @@ void main() {
 
   group('checkMinInBandSamplesPerSpec', () {
     // Build a synthetic capture JSON file at the given path with a
-    // scenario span and N issue events whose `args.observedRebuildRate`
+    // scenario span and N issue events whose `args.observedBuildPercent`
     // values are taken from `rates`. Used to drive the invariant
     // through controlled in-band / sub-band counts. `findScenarioSpan`
     // requires exactly one scenario.begin + scenario.end pair.
@@ -4579,12 +4579,12 @@ void main() {
         stableId: 'rebuild_activity',
         severityLabel: severityLabel,
         threshold: threshold,
-        unit: 'rebuilds',
+        unit: 'percent',
         coveredThresholds: {'rebuild_activity.$severityLabel'},
         profileCapturePaths: capturePaths,
         atTolerance: atTolerance,
         aboveCeilingMultiplier: aboveCeilingMultiplier,
-        observedAxisArgKey: 'observedRebuildRate',
+        observedAxisArgKey: 'observedBuildPercent',
         observedAxisReduction: 'max',
         minInBandSamples: minInBandSamples,
       );
@@ -4598,14 +4598,14 @@ void main() {
         filePath: p.join(root.path, 'at.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [10, 20], // both below threshold 31
       );
       writeSyntheticCapture(
         filePath: p.join(root.path, 'above.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [10], // below threshold
       );
       final failures = checkMinInBandSamplesPerSpec(
@@ -4627,7 +4627,7 @@ void main() {
         filePath: p.join(root.path, 'at.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [40, 20, 25],
       );
       // above-leg: 1 in-band (70 ∈ (51,83]), 2 sub-band.
@@ -4635,7 +4635,7 @@ void main() {
         filePath: p.join(root.path, 'above.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [70, 30, 25],
       );
       final failures = checkMinInBandSamplesPerSpec(
@@ -4668,14 +4668,14 @@ void main() {
         filePath: p.join(root.path, 'at.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [35, 40], // exactly 2 in-band
       );
       writeSyntheticCapture(
         filePath: p.join(root.path, 'above.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [60, 70], // exactly 2 in-band
       );
       final failures = checkMinInBandSamplesPerSpec(
@@ -4699,14 +4699,14 @@ void main() {
         filePath: p.join(root.path, 'at.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [35, 40, 45, 50], // 4 in-band
       );
       writeSyntheticCapture(
         filePath: p.join(root.path, 'above.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [55, 60, 70, 80], // 4 in-band
       );
       final failures = checkMinInBandSamplesPerSpec(
@@ -4732,14 +4732,14 @@ void main() {
         filePath: p.join(root.path, 'at.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [40], // 1 in-band
       );
       writeSyntheticCapture(
         filePath: p.join(root.path, 'above.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [70], // 1 in-band
       );
       final failures = checkMinInBandSamplesPerSpec(
@@ -4764,7 +4764,7 @@ void main() {
         filePath: p.join(root.path, 'at.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [40, 45],
       );
       // above-leg: events fall in at-band [31, 51], NOT above-band
@@ -4773,7 +4773,7 @@ void main() {
         filePath: p.join(root.path, 'above.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [40, 45],
       );
       final failures = checkMinInBandSamplesPerSpec(
@@ -4799,14 +4799,14 @@ void main() {
         filePath: p.join(root.path, 'at.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [31, 32], // 31 == threshold; both in at-band
       );
       writeSyntheticCapture(
         filePath: p.join(root.path, 'above.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [60, 70],
       );
       final failures = checkMinInBandSamplesPerSpec(
@@ -4834,14 +4834,14 @@ void main() {
           filePath: p.join(root.path, 'at.json'),
           stableId: 'rebuild_activity',
           severityLabel: 'critical',
-          argKey: 'observedRebuildRate',
+          argKey: 'observedBuildPercent',
           rates: [51, 51], // both at upper boundary, in at-band
         );
         writeSyntheticCapture(
           filePath: p.join(root.path, 'above.json'),
           stableId: 'rebuild_activity',
           severityLabel: 'critical',
-          argKey: 'observedRebuildRate',
+          argKey: 'observedBuildPercent',
           rates: [52, 52], // both at first integer past upper, in above-band
         );
         final failures = checkMinInBandSamplesPerSpec(
@@ -4867,14 +4867,14 @@ void main() {
         filePath: p.join(root.path, 'at.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [40, 45],
       );
       writeSyntheticCapture(
         filePath: p.join(root.path, 'above.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [83, 84], // 83 in-band; 84 over-ceiling
       );
       final failures = checkMinInBandSamplesPerSpec(
@@ -4911,20 +4911,22 @@ void main() {
         markTestSkipped('critical_above.json not present');
         return;
       }
-      // Use the actual project root so the relative path resolves.
+      // Use the actual project root so the relative path resolves, and the
+      // production critical spec so the check runs against the shipped
+      // threshold, tolerances and arg key.
+      final production = RebuildDetector()
+          .validationMetadata
+          .additionalBrackets!
+          .singleWhere(
+            (b) =>
+                b.stableId == 'rebuild_activity' &&
+                b.severityLabel == 'critical',
+          );
+      expect(production.minInBandSamples, 2);
       final failures = checkMinInBandSamplesPerSpec(
         label: 'RebuildDetector',
         tier: EvidenceTier.runtimeVerified,
-        additionalBrackets: [
-          spec(
-            capturePaths: const [
-              'test/validation/captures/rebuild_detector/critical_below.json',
-              'test/validation/captures/rebuild_detector/critical_at.json',
-              'test/validation/captures/rebuild_detector/critical_above.json',
-            ],
-            minInBandSamples: 2,
-          ),
-        ],
+        additionalBrackets: [production],
         // No repoRoot override — uses Directory.current which the test
         // runner sets to the package root.
       );
@@ -4937,6 +4939,62 @@ void main() {
             'regressed below 2 in-band emissions or the invariant '
             'misclassifies real captures.',
       );
+    });
+
+    test('double-valued args are classified on the percent axis', () {
+      final root = makeRepoRoot();
+      addTearDown(() => root.deleteSync(recursive: true));
+      // threshold 30, atTolerance 0.5, ceiling 2.7:
+      // at [30, 45], above (45, 81].
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedBuildPercent',
+        rates: [30.4, 44.9, 12.3],
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedBuildPercent',
+        rates: [45.1, 80.9, 81.2],
+      );
+      List<String> run() => checkMinInBandSamplesPerSpec(
+        label: 'X',
+        tier: EvidenceTier.runtimeVerified,
+        additionalBrackets: [
+          spec(
+            capturePaths: ['below.json', 'at.json', 'above.json'],
+            minInBandSamples: 2,
+            threshold: 30,
+            atTolerance: 0.5,
+          ),
+        ],
+        repoRoot: root.path,
+      );
+      expect(run(), isEmpty);
+
+      // at-leg now has one in-band sample (29.9 is sub-band); the
+      // above-leg keeps two (45.0 belongs to the at-band, 81.2 is over
+      // the ceiling).
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'at.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedBuildPercent',
+        rates: [29.9, 30.0],
+      );
+      writeSyntheticCapture(
+        filePath: p.join(root.path, 'above.json'),
+        stableId: 'rebuild_activity',
+        severityLabel: 'critical',
+        argKey: 'observedBuildPercent',
+        rates: [45.0, 60.5, 70.0, 81.2],
+      );
+      final failures = run();
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('at-leg'));
     });
 
     test('skips when capture file missing (delegated to other invariants)', () {
@@ -4976,21 +5034,21 @@ void main() {
           filePath: p.join(root.path, 'below.json'),
           stableId: 'rebuild_activity',
           severityLabel: 'critical',
-          argKey: 'observedRebuildRate',
+          argKey: 'observedBuildPercent',
           rates: [20], // below-leg silent by convention.
         );
         writeSyntheticCapture(
           filePath: p.join(root.path, 'at.json'),
           stableId: 'rebuild_activity',
           severityLabel: 'critical',
-          argKey: 'observedRebuildRate',
+          argKey: 'observedBuildPercent',
           rates: [40, 20, 25], // 1 in-band (40 ∈ [31, 51]), needs 2.
         );
         writeSyntheticCapture(
           filePath: p.join(root.path, 'above.json'),
           stableId: 'rebuild_activity',
           severityLabel: 'critical',
-          argKey: 'observedRebuildRate',
+          argKey: 'observedBuildPercent',
           rates: [70, 30, 25], // 1 in-band (70 ∈ (51, 83]), needs 2.
         );
         final meta = DetectorMetadata(
@@ -5031,14 +5089,14 @@ void main() {
         filePath: p.join(root.path, 'at.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [10], // 0 in-band — would fail at runtimeVerified
       );
       writeSyntheticCapture(
         filePath: p.join(root.path, 'above.json'),
         stableId: 'rebuild_activity',
         severityLabel: 'critical',
-        argKey: 'observedRebuildRate',
+        argKey: 'observedBuildPercent',
         rates: [10],
       );
       final failures = checkMinInBandSamplesPerSpec(

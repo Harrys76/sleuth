@@ -520,9 +520,7 @@ void main() {
       final context = tester.element(find.byType(Directionality));
 
       controller.simulateVmStateChangeForTest(true);
-      controller.feedTimelineDataForTest(
-        highBuildActivityData(buildCount: 100),
-      );
+      controller.feedTimelineDataForTest(buildLoadData(buildTimeUs: 400000));
 
       // First tree scan
       controller.runTreeScanForTest(context);
@@ -765,9 +763,7 @@ void main() {
       controller.simulateVmStateChangeForTest(true);
 
       // Feed timeline data first
-      controller.feedTimelineDataForTest(
-        highBuildActivityData(buildCount: 100),
-      );
+      controller.feedTimelineDataForTest(buildLoadData(buildTimeUs: 400000));
 
       // Then run tree scan
       controller.runTreeScanForTest(context);

@@ -812,21 +812,23 @@ class IssueExplanationBuilder {
       displayName: 'Rebuild Activity',
       category: IssueCategory.build,
       whatItIs:
-          '{count} build passes were detected in a short time window '
-          'around {widgetName}. The framework is reconstructing widget '
-          'subtrees more frequently than expected for the current '
-          'interaction.',
+          'Rebuilding widgets is taking a large share of the UI thread. '
+          'The framework spends so much of each second reconstructing '
+          'widget subtrees that little time is left for layout, paint, '
+          'and your own code.',
       readingTheData:
           'Like a doorbell that rings 30 times a minute — each ring '
           'interrupts what you\'re doing, and at that rate you can\'t get '
           'anything else done.\n\n'
-          '• Builds/sec — In profile mode, BUILD scope events per second '
-          'from the VM timeline (build passes, not individual widgets). '
-          'Normal: <10/sec at idle. Alert: >10/sec (warning), >30/sec (critical) '
-          '(default, configurable).\n\n'
+          '• Build share — In profile mode, the share of UI-thread time '
+          'spent inside BUILD scopes per ~1 s window, measured from VM '
+          'timeline durations (so one small animated widget stays well '
+          'under 1%). Alert: >10% of UI-thread time (warning), >30% '
+          '(critical) (default, configurable via '
+          'DetectorThresholds.buildTimePercentThreshold).\n\n'
           '• Top dirty widgets — Widget types with most rebuilds '
           '(e.g. "MyWidget (47×)"). Focus on the top contributor.\n\n'
-          '• Source: VM Timeline buildScope events.',
+          '• Source: VM Timeline buildScope durations.',
       whyItMatters:
           'Each rebuild runs build() methods, diffs the widget tree, and '
           'potentially triggers layout and paint. Excessive rebuilds waste '
@@ -841,9 +843,10 @@ class IssueExplanationBuilder {
           'Use DevTools Widget Inspector to identify which widgets are '
           'rebuilding and trace the rebuild source.',
       whenToIgnore:
-          'High rebuild activity during animations is expected — '
-          'AnimationController drives 60 rebuilds/sec by design. Focus on '
-          'rebuilds during user interactions like typing or scrolling.',
+          'Animations rebuild every frame by design, but a small animated '
+          'subtree costs far less than the threshold. When an animation '
+          'does cross it, the animated subtree is too large: move static '
+          'content into the builder\'s child or behind const widgets.',
       relatedIssues: [
         'animated_builder_no_child',
         'heavy_compute',
@@ -932,18 +935,20 @@ class IssueExplanationBuilder {
       displayName: 'Excessive Repaints',
       category: IssueCategory.paint,
       whatItIs:
-          'The paint phase is being triggered at a high frequency. Regions '
-          'of the screen are being repainted more often than the content '
-          'is visually changing.',
+          'Painting is taking a large share of the UI thread. Regions of '
+          'the screen are re-recorded so often, or are so expensive to '
+          'record, that paint work crowds out the rest of the frame.',
       readingTheData:
           'Like repainting an entire room every time you move a picture '
           'frame — most of the wall hasn\'t changed but you\'re redoing '
           'all the work.\n\n'
-          '• Paints/sec — In profile mode, PAINT scope events per second '
-          'from the VM timeline (paint passes, not individual widgets). '
-          'Normal: <10/sec at idle. Alert: >30/sec (warning), >60/sec (critical) '
-          '(default, configurable).\n\n'
-          '• Source: VM Timeline paint-phase events.',
+          '• Paint share — In profile mode, the share of UI-thread time '
+          'spent inside PAINT scopes per ~1 s window, measured from VM '
+          'timeline durations (so a small animated layer stays well under '
+          '1%). Alert: >10% of UI-thread time (warning), >30% (critical) '
+          '(default, configurable via '
+          'DetectorThresholds.paintTimePercentThreshold).\n\n'
+          '• Source: VM Timeline paint-phase durations.',
       whyItMatters:
           'Excessive repainting wastes GPU resources. Each repaint records '
           'drawing commands and sends them to the raster thread. When '
@@ -977,12 +982,12 @@ class IssueExplanationBuilder {
           '(AnimatedBuilder, ValueListenableBuilder, TweenAnimationBuilder), '
           'every Animated* implicit-animation widget '
           '(AnimatedContainer, AnimatedOpacity, AnimatedSwitcher, etc.), '
-          'and Hero. Owned paints are subtracted from the aggregate before '
-          'the threshold check, so a spinning indicator or active implicit '
-          'animation in your app bar will not fire this issue. If you see '
-          'this fire near a busy animation that is not in that set, '
-          'consider wrapping the animation in a RepaintBoundary to '
-          'isolate it.',
+          'and Hero. That filter applies to the per-widget paint counts from '
+          'debug instrumentation; the UI-thread time share counts every '
+          'PAINT scope, so a spinning indicator costs what it costs. A '
+          'small animation stays far below 10 %. If the share climbs near '
+          'a busy animation, wrap it in a RepaintBoundary so the rest of '
+          'the screen stops repainting with it.',
       relatedIssues: [
         'always_repaint_painter',
         'animated_builder_no_child',
