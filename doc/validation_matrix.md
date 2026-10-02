@@ -182,7 +182,7 @@ Navigate to each demo screen and verify the expected detector fires in the Issue
 | ListView | Non-Lazy ListView | "Non-lazy list" with child count | |
 | LayoutBottleneck | IntrinsicHeight Abuse | "IntrinsicHeight" or layout issue | |
 | CustomPainter | Always-Repaint CustomPainter | "shouldRepaint returns true" | |
-| ImageMemory | Uncached Images | "Uncached image" or memory issue | |
+| ImageMemory | Uncached Images | "Oversized Images" with decoded vs shown size | |
 | HeavyCompute | CSV Import (VM+ only) | "Heavy computation" on main thread | |
 | KeepAlive | KeepAlive Overuse | "KeepAlive" overuse detected | |
 | FontLoading | Font Loading Stress | "Custom font families" count | |

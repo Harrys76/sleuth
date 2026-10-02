@@ -46,9 +46,8 @@
   `raster_dominance`.
 - Added edges: `uncached_images` → `native_memory_growing` (decoded bitmaps
   live in native memory); `large_response` → `heavy_compute`;
-  `excessive_repaint` → `raster_dominance`. 40 causal rules.
-- `uncached_images` is upgraded to `likely` when `heap_growing` or
-  `native_memory_growing` is present.
+  `excessive_repaint` → `raster_dominance`; `non_lazy_shrinkwrap` →
+  `jank_detected`. 41 causal rules.
 - `compare_snapshots` between a 0.36 and a 0.37 snapshot can show severity
   differences caused by the escalation removal, not by app changes.
 - Frame budget follows the measured frame rate. The vsync cadence (10th
@@ -102,9 +101,40 @@
   once; highlights go critical at the same > 3× threshold as the issue;
   `sliver_to_box_adapter_shrinkwrap` fires only when the child count is
   unbounded or above 20.
-- `CustomPainterDetector` and `RepaintBoundaryDetector` skip framework toggle
-  and scrollbar painters (`ToggleablePainter`, `ScrollbarPainter`: Checkbox,
-  Switch, Radio, CupertinoSwitch, Scrollbar).
+- `CustomPainterDetector` and `RepaintBoundaryDetector` skip framework
+  painters: toggle and scrollbar painters by type (`ToggleablePainter`,
+  `ScrollbarPainter`), and Material shape borders (Card, buttons, FAB),
+  input borders, TabBar indicator and divider, progress and activity
+  indicators, overscroll glow and stretch, AnimatedIcon, the dropdown menu,
+  Placeholder, and GridPaper by painter class name plus the owning widget
+  within a measured ancestor-hop budget. A user painter with the same class
+  name outside that owner is still reported. `RepaintBoundaryDetector` also
+  skips the `ClipPath` a transparency `Material` builds for itself.
+- `excessive_repaint_boundary` no longer counts the boundaries a default
+  `SliverList` / `SliverGrid` adds per child inside a `CustomScrollView`.
+  Boundary frames are keyed by the element that pushed them; any
+  `BoxScrollView` subclass is supported. User boundaries under a
+  `SliverToBoxAdapter` or an `addRepaintBoundaries: false` delegate still
+  count toward the enclosing scroll view.
+- `uncached_images` measures instead of pattern-matching: each `Image` is
+  paired with its decoded picture, and an image counts when its decode is at
+  least 1.5× the physical pixels its box needs on the smaller axis (box ×
+  device pixel ratio). The issue emits when counted images waste ≥ 1 MiB
+  in total, critical at ≥ 16 MiB, as `likely`; the title shows the worst
+  ratio and the wasted megabytes, the detail lists the top five. Skipped:
+  images not yet decoded, `ResizeImage` providers (`cacheWidth` /
+  `cacheHeight`), `BoxFit.none`, `centerSlice`, and `repeat`.
+  `BoxDecoration` images are no longer reported (their decode is not
+  reachable). The 50 dp small-image skip and the `> 5 images → critical`
+  rule are removed. Encyclopedia name: Oversized Images.
+- New `non_lazy_shrinkwrap` (ListView detector): a `ListView` / `GridView`
+  with `shrinkWrap: true` inside a `Column` / `Row` and more than 20
+  children (or an unbounded builder) is a `possible` warning, critical above
+  100. It replaces `non_lazy_listview` for the same list; inside a
+  `SliverToBoxAdapter`, `sliver_to_box_adapter_shrinkwrap` still wins.
+  Escalates to `likely` with jank like the other list ids.
+- `detectorHitRates` counts `non_lazy_sliver_list` and
+  `non_lazy_sliver_grid` toward the ListView detector (previously `custom`).
 - `missing_repaint_boundary` caps at `likely`: per-type paint rates cannot
   attribute to the specific unprotected widget.
 - `frequent_repaint_painter` and the `always_repaint_painter` upgrade use the
