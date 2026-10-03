@@ -685,6 +685,7 @@ class SleuthController {
       onConnectionChanged: _onVmConnectionChanged,
       onStartupTimelineEvents: _onStartupTimelineEvents,
       retainTimeline: config.captureMode,
+      readDispatchSegments: () => _lastDispatchSegments,
     );
     _vmClient = client;
 
@@ -3415,7 +3416,25 @@ class SleuthController {
     );
   }
 
+  /// Split of the most recent [_onTimelineData] call, read by the VM
+  /// client for [PollTimings].
+  DispatchSegments _lastDispatchSegments = (
+    detectors: 0,
+    correlate: 0,
+    aggregate: 0,
+  );
+
+  /// Split of the most recent timeline dispatch.
+  @visibleForTesting
+  DispatchSegments get lastDispatchSegmentsForTest => _lastDispatchSegments;
+
   void _onTimelineData(ParsedTimelineData data) {
+    _lastDispatchSegments = (detectors: 0, correlate: 0, aggregate: 0);
+    final segmentWatch = Stopwatch()..start();
+    var detectorsUs = 0;
+    var correlateUs = 0;
+    var aggregateUs = 0;
+
     // FrameTimingDetector uses custom method (not processTimelineData)
     _frameTiming.updateTimelineData(data);
 
@@ -3463,11 +3482,15 @@ class SleuthController {
         }
       }
 
+      detectorsUs = segmentWatch.elapsedMicroseconds;
       _recordIssuesForCapture(const <BaseDetector>{});
 
       // Invalidate _getAllIssues cache — detectors have fresh issues.
       _issueGeneration++;
 
+      segmentWatch
+        ..reset()
+        ..start();
       // Try correlated mode first: match events to specific frames by
       // timestamp. Falls back to legacy full mode if correlation fails.
       if (data.phaseEvents.isNotEmpty) {
@@ -3545,11 +3568,22 @@ class SleuthController {
         }
       }
 
+      correlateUs = segmentWatch.elapsedMicroseconds;
+
       // frameStatsNotifier is already updated by _onFrameStats callback
+      segmentWatch
+        ..reset()
+        ..start();
       _aggregateIssues();
+      aggregateUs = segmentWatch.elapsedMicroseconds;
     } finally {
       _isIteratingDetectors = false;
       _drainPendingDetectorMutations();
+      _lastDispatchSegments = (
+        detectors: detectorsUs,
+        correlate: correlateUs,
+        aggregate: aggregateUs,
+      );
     }
 
     // Capture AFTER aggregation so relatedIssues carry route/context tags.

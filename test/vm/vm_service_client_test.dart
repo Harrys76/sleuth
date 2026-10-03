@@ -248,6 +248,92 @@ void main() {
     });
   });
 
+  group('getCpuSamples rate limit', () {
+    test('a second request while one is in flight is not issued', () async {
+      final mock = _MockVmService()
+        ..cpuSamplesDelay = const Duration(milliseconds: 100);
+      final client = VmServiceClient(cpuSamplesMinInterval: Duration.zero);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      final first = client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1);
+      final second = await client.getCpuSamples(
+        timeOriginUs: 0,
+        timeExtentUs: 1,
+      );
+      expect(second, isNull);
+      expect(await first, isNotNull);
+      expect(mock.getCpuSamplesCallCount, 1);
+
+      // Once the first answered, the next request goes out.
+      expect(
+        await client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1),
+        isNotNull,
+      );
+      expect(mock.getCpuSamplesCallCount, 2);
+      client.dispose();
+    });
+
+    test('a timed-out request blocks the next one until the VM '
+        'answers', () async {
+      final mock = _MockVmService()
+        ..cpuSamplesDelay = const Duration(milliseconds: 800);
+      final client = VmServiceClient(cpuSamplesMinInterval: Duration.zero);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      expect(
+        await client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1),
+        isNull,
+      );
+      expect(
+        await client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1),
+        isNull,
+      );
+      expect(mock.getCpuSamplesCallCount, 1);
+
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      mock.cpuSamplesDelay = null;
+      expect(
+        await client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1),
+        isNotNull,
+      );
+      expect(mock.getCpuSamplesCallCount, 2);
+      client.dispose();
+    });
+
+    test('requests are spaced by the minimum interval', () async {
+      final mock = _MockVmService();
+      final client = VmServiceClient(
+        cpuSamplesMinInterval: const Duration(milliseconds: 200),
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      expect(
+        await client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1),
+        isNotNull,
+      );
+      expect(
+        await client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1),
+        isNull,
+      );
+      expect(mock.getCpuSamplesCallCount, 1);
+
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      expect(
+        await client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1),
+        isNotNull,
+      );
+      expect(mock.getCpuSamplesCallCount, 2);
+      client.dispose();
+    });
+
+    test('the default interval is 10 s', () {
+      expect(
+        VmServiceClient().cpuSamplesMinInterval,
+        const Duration(seconds: 10),
+      );
+    });
+  });
+
   // =========================================================================
   // 3b. getAllocationProfile
   // =========================================================================
@@ -744,6 +830,79 @@ void main() {
       expect(t.responseChars, greaterThan(5000));
       expect(client.maxPollRpcMicros, t.rpcMicros);
       expect(client.pollDuplicatesDropped, 0);
+      client.dispose();
+    });
+
+    test('the dispatch split comes from the callback owner and the rest '
+        'is other', () async {
+      final mock = _MockVmService()
+        ..timelineResult = Timeline(
+          traceEvents: [build(100000)],
+          timeOriginMicros: 0,
+          timeExtentMicros: 0,
+        );
+      final client = VmServiceClient(
+        onTimelineData: (_) {
+          final w = Stopwatch()..start();
+          while (w.elapsedMicroseconds < 3000) {}
+        },
+        readDispatchSegments: () =>
+            (detectors: 100, correlate: 200, aggregate: 300),
+      );
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+
+      final t = client.lastPollTimings!;
+      expect(t.dispatchMicros, greaterThanOrEqualTo(3000));
+      expect(t.dispatchDetectorsMicros, 100);
+      expect(t.dispatchCorrelateMicros, 200);
+      expect(t.dispatchAggregateMicros, 300);
+      expect(t.dispatchOtherMicros, t.dispatchMicros - 600);
+      client.dispose();
+    });
+
+    test('without a split reader the whole dispatch is other', () async {
+      final mock = _MockVmService()
+        ..timelineResult = Timeline(
+          traceEvents: [build(100000)],
+          timeOriginMicros: 0,
+          timeExtentMicros: 0,
+        );
+      final client = VmServiceClient(onTimelineData: (_) {});
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+
+      final t = client.lastPollTimings!;
+      expect(t.dispatchDetectorsMicros, 0);
+      expect(t.dispatchOtherMicros, t.dispatchMicros);
+      client.dispose();
+    });
+
+    test('the tail reports the memory await and the in-flight CPU '
+        'samples request it overlapped', () async {
+      final mock = _MockVmService()
+        ..memoryUsageDelay = const Duration(milliseconds: 40)
+        ..cpuSamplesDelay = const Duration(milliseconds: 300);
+      final client = VmServiceClient(onHeapSample: (_) {});
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      final cpu = client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1);
+      await client.pollTimelineSync();
+
+      final t = client.lastPollTimings!;
+      expect(t.tailMemoryMicros, greaterThanOrEqualTo(35000));
+      expect(t.tailMemoryMicros, lessThanOrEqualTo(t.tailMicros));
+      expect(t.tailCpuSamplesMicros, greaterThanOrEqualTo(35000));
+      expect(t.tailCpuSamplesMicros, lessThanOrEqualTo(t.tailMicros));
+      expect(t.tailAllocationProfileMicros, 0);
+      await cpu;
+
+      // A later poll that no request overlapped reports zero.
+      mock.memoryUsageDelay = null;
+      await client.pollTimelineSync();
+      expect(client.lastPollTimings!.tailCpuSamplesMicros, 0);
       client.dispose();
     });
 
@@ -1563,9 +1722,11 @@ class _MockVmService implements VmService {
   Object? getVMTimelineThrows;
   MemoryUsage? memoryUsageResult;
   Object? memoryUsageThrows;
+  Duration? memoryUsageDelay;
   CpuSamples? cpuSamplesResult;
   Object? cpuSamplesThrows;
   Duration? cpuSamplesDelay;
+  int getCpuSamplesCallCount = 0;
   AllocationProfile? allocationProfileResult;
   Object? allocationProfileThrows;
   Duration? allocationProfileDelay;
@@ -1660,6 +1821,9 @@ class _MockVmService implements VmService {
   @override
   Future<MemoryUsage> getMemoryUsage(String isolateId) async {
     getMemoryUsageCalled = true;
+    if (memoryUsageDelay != null) {
+      await Future<void>.delayed(memoryUsageDelay!);
+    }
     if (memoryUsageThrows != null) throw memoryUsageThrows!;
     return memoryUsageResult ?? MemoryUsage();
   }
@@ -1670,6 +1834,7 @@ class _MockVmService implements VmService {
     int timeOriginMicros,
     int timeExtentMicros,
   ) async {
+    getCpuSamplesCallCount++;
     if (cpuSamplesDelay != null) {
       await Future<void>.delayed(cpuSamplesDelay!);
     }

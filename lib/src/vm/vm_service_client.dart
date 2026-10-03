@@ -49,7 +49,25 @@ class VmServiceClient {
     this.onConnectionChanged,
     this.onStartupTimelineEvents,
     this.retainTimeline = false,
+    this.readDispatchSegments,
+    this.cpuSamplesMinInterval = const Duration(seconds: 10),
   });
+
+  /// Shortest gap between the starts of two [getCpuSamples] requests.
+  ///
+  /// The VM serves `getCpuSamples` on the target isolate's own thread:
+  /// it interrupts whatever Dart code is running there to build the
+  /// profile, and the response (several MB even for a one-frame window,
+  /// because it carries the function table) is decoded on the same
+  /// isolate. For the UI isolate that is a stall of tens of milliseconds
+  /// on desktop and hundreds on a phone, so requests are spaced by this
+  /// interval and never overlap.
+  final Duration cpuSamplesMinInterval;
+
+  /// Reads the split of the [onTimelineData] call that just returned, for
+  /// [PollTimings]. Null leaves the whole dispatch in
+  /// [PollTimings.dispatchOtherMicros].
+  final DispatchSegments Function()? readDispatchSegments;
 
   /// Whether a later [fetchRawTimelineEventsJson] export relies on the
   /// VM keeping already-polled events (capture mode).
@@ -590,7 +608,13 @@ class VmServiceClient {
     var rpcUs = 0;
     var parseUs = 0;
     var dispatchUs = 0;
+    DispatchSegments? segments;
     var tailUs = 0;
+    var memoryUs = 0;
+    final tailWindows = <(int, int)>[];
+    final pollStartUs = _rpcClockUs();
+    _cpuSpans.pruneBefore(pollStartUs);
+    _allocationSpans.pruneBefore(pollStartUs);
     var eventCount = 0;
     var duplicates = 0;
     var windowFallback = false;
@@ -613,8 +637,10 @@ class VmServiceClient {
           lastMaxTs - TimelineParser.maxReconstructedPhaseUs,
         );
         watch.start();
+        final clockReadStartUs = _rpcClockUs();
         final nowUs = await _readTimelineClock();
         tailUs += watch.elapsedMicroseconds;
+        tailWindows.add((clockReadStartUs, _rpcClockUs()));
         if (myGen != _sessionGeneration || _disposed) return;
         if (nowUs == null || nowUs < lastMaxTs) {
           // The clock read failed or is not on the event clock: read the
@@ -697,14 +723,17 @@ class VmServiceClient {
           parsed ?? TimelineParser.parse(const <TimelineEvent>[]),
         );
         dispatchUs = watch.elapsedMicroseconds;
+        segments = readDispatchSegments?.call();
       }
       watch
         ..reset()
         ..start();
+      final tailStartUs = _rpcClockUs();
       try {
-        await _pollTail(myGen);
+        memoryUs = await _pollTail(myGen);
       } finally {
         tailUs += watch.elapsedMicroseconds;
+        tailWindows.add((tailStartUs, _rpcClockUs()));
       }
     } catch (e) {
       // One failed RPC retries on the next tick; a run of failures means
@@ -718,12 +747,31 @@ class VmServiceClient {
       watch.stop();
       final responseChars = _takeTimelineResponseChars();
       if (myGen == _sessionGeneration && !_disposed) {
+        final detectorsUs = segments?.detectors ?? 0;
+        final correlateUs = segments?.correlate ?? 0;
+        final aggregateUs = segments?.aggregate ?? 0;
         _recordPollTimings(
           PollTimings(
             rpcMicros: rpcUs,
             parseMicros: parseUs,
             dispatchMicros: dispatchUs,
+            dispatchDetectorsMicros: detectorsUs,
+            dispatchCorrelateMicros: correlateUs,
+            dispatchAggregateMicros: aggregateUs,
+            dispatchOtherMicros: math.max(
+              0,
+              dispatchUs - detectorsUs - correlateUs - aggregateUs,
+            ),
             tailMicros: tailUs,
+            tailCpuSamplesMicros: math.min(
+              tailUs,
+              _cpuSpans.overlapWith(tailWindows),
+            ),
+            tailAllocationProfileMicros: math.min(
+              tailUs,
+              _allocationSpans.overlapWith(tailWindows),
+            ),
+            tailMemoryMicros: memoryUs,
             eventCount: eventCount,
             responseChars: responseChars,
             duplicatesDropped: duplicates,
@@ -767,35 +815,59 @@ class VmServiceClient {
     }
   }
 
-  /// The heap memory sample that follows each poll. Returns early when
-  /// the session moved on.
-  Future<void> _pollTail(int myGen) async {
+  /// The heap memory sample that follows each poll. Returns the
+  /// microseconds spent awaiting `getMemoryUsage` (0 when it did not
+  /// run). Drops the sample when the session moved on.
+  Future<int> _pollTail(int myGen) async {
     // Poll heap memory (piggybacked on timeline poll, near-zero cost)
-    if (_mainIsolateId != null && onHeapSample != null) {
-      try {
-        final mem = await _service!.getMemoryUsage(_mainIsolateId!);
-        if (myGen != _sessionGeneration || _disposed) return;
-        onHeapSample?.call(
-          HeapSample(
-            heapUsage: mem.heapUsage ?? 0,
-            heapCapacity: mem.heapCapacity ?? 0,
-            externalUsage: mem.externalUsage ?? 0,
-            timestamp: DateTime.now(),
-            rssBytes: _readRssBytes(),
-          ),
-        );
-      } on SentinelException {
-        // Isolate ID stale (e.g., after hot restart) — re-fetch, unless
-        // a reconnect replaced the service during the await.
-        final isolateId = await _resolveMainIsolateId();
-        if (myGen != _sessionGeneration || _disposed) return;
-        _mainIsolateId = isolateId;
-      } catch (_) {
-        // Memory poll failed but timeline poll succeeded — don't reconnect.
-        // Will retry on next poll cycle.
+    if (_mainIsolateId == null || onHeapSample == null) return 0;
+    final watch = Stopwatch()..start();
+    try {
+      final mem = await _service!.getMemoryUsage(_mainIsolateId!);
+      watch.stop();
+      if (myGen != _sessionGeneration || _disposed) {
+        return watch.elapsedMicroseconds;
       }
+      onHeapSample?.call(
+        HeapSample(
+          heapUsage: mem.heapUsage ?? 0,
+          heapCapacity: mem.heapCapacity ?? 0,
+          externalUsage: mem.externalUsage ?? 0,
+          timestamp: DateTime.now(),
+          rssBytes: _readRssBytes(),
+        ),
+      );
+    } on SentinelException {
+      watch.stop();
+      // Isolate ID stale (e.g., after hot restart) — re-fetch, unless
+      // a reconnect replaced the service during the await.
+      final isolateId = await _resolveMainIsolateId();
+      if (myGen != _sessionGeneration || _disposed) {
+        return watch.elapsedMicroseconds;
+      }
+      _mainIsolateId = isolateId;
+    } catch (_) {
+      watch.stop();
+      // Memory poll failed but timeline poll succeeded — don't reconnect.
+      // Will retry on next poll cycle.
     }
+    return watch.elapsedMicroseconds;
   }
+
+  /// Monotonic clock for [_cpuSpans] and [_allocationSpans].
+  final Stopwatch _rpcClock = Stopwatch()..start();
+  int _rpcClockUs() => _rpcClock.elapsedMicroseconds;
+
+  /// Start of the last `getCpuSamples` request on [_rpcClock].
+  int? _lastCpuSamplesRequestUs;
+
+  /// In-flight `getCpuSamples` requests, for
+  /// [PollTimings.tailCpuSamplesMicros].
+  late final RpcSpanTracker _cpuSpans = RpcSpanTracker(_rpcClockUs);
+
+  /// In-flight `getAllocationProfile` requests, for
+  /// [PollTimings.tailAllocationProfileMicros].
+  late final RpcSpanTracker _allocationSpans = RpcSpanTracker(_rpcClockUs);
 
   PollTimings? _lastPollTimings;
   final PollTimingsWindow _timingsWindow = PollTimingsWindow();
@@ -1037,6 +1109,9 @@ class VmServiceClient {
     _duplicatesDroppedTotal = 0;
     _windowFallbacks = 0;
     _lastMaxTs = null;
+    _cpuSpans.clear();
+    _allocationSpans.clear();
+    _lastCpuSamplesRequestUs = null;
     _sendSub?.cancel();
     _sendSub = null;
     _receiveSub?.cancel();
@@ -1073,7 +1148,10 @@ class VmServiceClient {
     _service = null;
   }
 
-  /// Query CPU samples for a time window. Returns null on error or timeout.
+  /// Query CPU samples for a time window. Returns null on error or
+  /// timeout, and without issuing the RPC while an earlier request is
+  /// still in flight (a timed-out request stays in flight until the VM
+  /// answers) or within [cpuSamplesMinInterval] of the previous request.
   ///
   /// Used by the controller to attribute jank frames to specific functions.
   /// Only called on-demand when a jank frame is detected — not continuous.
@@ -1084,10 +1162,18 @@ class VmServiceClient {
     final service = _service;
     final isolateId = _mainIsolateId;
     if (service == null || isolateId == null) return null;
+    if (_cpuSpans.openCount > 0) return null;
+    final nowUs = _rpcClockUs();
+    final lastUs = _lastCpuSamplesRequestUs;
+    if (lastUs != null &&
+        nowUs - lastUs < cpuSamplesMinInterval.inMicroseconds) {
+      return null;
+    }
+    _lastCpuSamplesRequestUs = nowUs;
 
     try {
-      return await service
-          .getCpuSamples(isolateId, timeOriginUs, timeExtentUs)
+      return await _cpuSpans
+          .track(service.getCpuSamples(isolateId, timeOriginUs, timeExtentUs))
           .timeout(const Duration(milliseconds: 500));
     } on SentinelException {
       // Isolate ID stale (e.g., after hot restart) — re-fetch
@@ -1113,8 +1199,8 @@ class VmServiceClient {
     if (service == null || isolateId == null) return null;
 
     try {
-      return await service
-          .getAllocationProfile(isolateId, reset: reset)
+      return await _allocationSpans
+          .track(service.getAllocationProfile(isolateId, reset: reset))
           .timeout(timeout);
     } on SentinelException {
       _mainIsolateId = await _resolveMainIsolateId();

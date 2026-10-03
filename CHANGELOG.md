@@ -307,7 +307,18 @@
   `lastPollTailMicros`, `lastPollEventCount`, `lastPollResponseChars`,
   `maxPollRpcMicros`, `maxPollParseMicros`, `maxPollDispatchMicros`
   (32-poll maxima), `pollDuplicatesDropped`, and `pollWindowFallbacks`.
-  Measured on the iPhone 12: <numbers>
+  Dispatch and tail are split further: `lastPollDispatch{Detectors,
+  Correlate,Aggregate,Other}Micros` (sum to the dispatch),
+  `lastPollTailMemoryMicros` (the `getMemoryUsage` await), and
+  `lastPollTail{CpuSamples,AllocationProfile}Micros` (tail time during
+  which such a request was in flight). Measured on the iPhone 12: <numbers>
+- `getCpuSamples` (jank-frame CPU attribution) is issued at most once per
+  10 s (`VmServiceClient.cpuSamplesMinInterval`) and never while an
+  earlier request, including one that timed out, is unanswered. The VM
+  builds the profile on the UI isolate's own thread and the response
+  (about 3.3 MB for a 60 ms window, mostly the function table) is decoded
+  there; issued on every poll with a jank verdict, it stalled the UI
+  isolate by about 20 ms + 95 ms per poll on an M1 Pro.
 - Debug instrumentation: the paint callback caches each element's ancestor
   chain and ancestor-owner verdict (recomputed when the parent, the depth,
   or the hot-reload epoch changes), and `SourceLocationCache` keys on the

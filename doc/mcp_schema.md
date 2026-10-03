@@ -50,7 +50,14 @@ Operational health snapshot. No args.
 | `lastPollRpcMicros` | int | yes | yes |
 | `lastPollParseMicros` | int | yes | yes |
 | `lastPollDispatchMicros` | int | yes | yes |
+| `lastPollDispatchDetectorsMicros` | int | yes | yes |
+| `lastPollDispatchCorrelateMicros` | int | yes | yes |
+| `lastPollDispatchAggregateMicros` | int | yes | yes |
+| `lastPollDispatchOtherMicros` | int | yes | yes |
 | `lastPollTailMicros` | int | yes | yes |
+| `lastPollTailMemoryMicros` | int | yes | yes |
+| `lastPollTailCpuSamplesMicros` | int | yes | yes |
+| `lastPollTailAllocationProfileMicros` | int | yes | yes |
 | `lastPollEventCount` | int | yes | yes |
 | `lastPollResponseChars` | int | yes | yes |
 | `maxPollRpcMicros` | int | yes | yes |
@@ -59,7 +66,7 @@ Operational health snapshot. No args.
 | `pollDuplicatesDropped` | int | yes | yes |
 | `pollWindowFallbacks` | int | yes | yes |
 
-The `*Poll*` keys describe the VM timeline poll loop (null until the first poll of the current VM session). `lastPoll*Micros` are the segments of the most recent poll: `Rpc` is the `getVMTimeline` await including the JSON decode, `Parse` the timeline parse and stale-begin sweep, `Dispatch` the detector callback, `Tail` the remaining RPCs. `lastPollEventCount` is the raw event count, `lastPollResponseChars` the raw response length (−1 when it could not be matched). `maxPoll*Micros` are maxima over the last 32 polls. `pollDuplicatesDropped` sums events skipped as already processed; `pollWindowFallbacks` counts polls that read the whole timeline buffer because the timeline clock could not bound a fetch window.
+The `*Poll*` keys describe the VM timeline poll loop (null until the first poll of the current VM session). `lastPoll*Micros` are the segments of the most recent poll: `Rpc` is the `getVMTimeline` await including the JSON decode, `Parse` the timeline parse and stale-begin sweep, `Dispatch` the detector callback, `Tail` the remaining RPCs. `lastPollDispatch{Detectors,Correlate,Aggregate,Other}Micros` split `Dispatch` (detector feed and evaluation; frame correlation and verdict; issue aggregation and ranking; the rest) and sum to it. `lastPollTailMemoryMicros` is the `getMemoryUsage` await inside `Tail`; `lastPollTail{CpuSamples,AllocationProfile}Micros` are the parts of `Tail` during which a `getCpuSamples` or `getAllocationProfile` request was in flight (these overlap each other and the memory await). `lastPollEventCount` is the raw event count, `lastPollResponseChars` the raw response length (−1 when it could not be matched). `maxPoll*Micros` are maxima over the last 32 polls. `pollDuplicatesDropped` sums events skipped as already processed; `pollWindowFallbacks` counts polls that read the whole timeline buffer because the timeline clock could not bound a fetch window.
 
 ### `ext.sleuth.snapshot`
 

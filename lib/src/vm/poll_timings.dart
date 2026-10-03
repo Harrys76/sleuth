@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 
 /// Cost of one VM timeline poll, split by segment.
@@ -20,6 +22,13 @@ class PollTimings {
     required this.duplicatesDropped,
     required this.completedAt,
     this.windowFallback = false,
+    this.dispatchDetectorsMicros = 0,
+    this.dispatchCorrelateMicros = 0,
+    this.dispatchAggregateMicros = 0,
+    this.dispatchOtherMicros = 0,
+    this.tailCpuSamplesMicros = 0,
+    this.tailAllocationProfileMicros = 0,
+    this.tailMemoryMicros = 0,
   });
 
   /// Await of the `getVMTimeline` RPC, including the JSON decode and the
@@ -58,6 +67,34 @@ class PollTimings {
   /// newest event already seen).
   final bool windowFallback;
 
+  /// Part of [dispatchMicros] spent feeding the batch to the detectors
+  /// (`processTimelineData` and `evaluateNow`).
+  final int dispatchDetectorsMicros;
+
+  /// Part of [dispatchMicros] spent matching the batch to frames and
+  /// building the frame verdict.
+  final int dispatchCorrelateMicros;
+
+  /// Part of [dispatchMicros] spent aggregating, ranking and publishing
+  /// the issue list.
+  final int dispatchAggregateMicros;
+
+  /// Rest of [dispatchMicros]: capture bookkeeping, the export buffers,
+  /// and issuing the jank frame's CPU-samples request. The four dispatch
+  /// parts sum to [dispatchMicros].
+  final int dispatchOtherMicros;
+
+  /// Part of [tailMicros] during which a `getCpuSamples` request (jank
+  /// frame attribution) was in flight. Overlaps the other tail parts.
+  final int tailCpuSamplesMicros;
+
+  /// Part of [tailMicros] during which a `getAllocationProfile` request
+  /// was in flight. Overlaps the other tail parts.
+  final int tailAllocationProfileMicros;
+
+  /// Await of the heap `getMemoryUsage` sample inside [tailMicros].
+  final int tailMemoryMicros;
+
   /// Sum of the four measured segments.
   int get totalMicros => rpcMicros + parseMicros + dispatchMicros + tailMicros;
 
@@ -72,12 +109,24 @@ class PollTimings {
     'duplicatesDropped': duplicatesDropped,
     'completedAtMicros': completedAt.microsecondsSinceEpoch,
     'windowFallback': windowFallback,
+    'dispatchDetectorsMicros': dispatchDetectorsMicros,
+    'dispatchCorrelateMicros': dispatchCorrelateMicros,
+    'dispatchAggregateMicros': dispatchAggregateMicros,
+    'dispatchOtherMicros': dispatchOtherMicros,
+    'tailCpuSamplesMicros': tailCpuSamplesMicros,
+    'tailAllocationProfileMicros': tailAllocationProfileMicros,
+    'tailMemoryMicros': tailMemoryMicros,
   };
 
   @override
   String toString() =>
       'PollTimings(rpc: $rpcMicros us, parse: $parseMicros us, '
-      'dispatch: $dispatchMicros us, tail: $tailMicros us, '
+      'dispatch: $dispatchMicros us (detectors $dispatchDetectorsMicros, '
+      'correlate $dispatchCorrelateMicros, '
+      'aggregate $dispatchAggregateMicros, other $dispatchOtherMicros), '
+      'tail: $tailMicros us (memory $tailMemoryMicros, '
+      'cpu samples $tailCpuSamplesMicros, '
+      'allocation profile $tailAllocationProfileMicros), '
       'events: $eventCount, chars: $responseChars, '
       'duplicates: $duplicatesDropped'
       '${windowFallback ? ', window fallback' : ''})';
@@ -131,4 +180,72 @@ class PollTimingsWindow {
 
   /// Largest [PollTimings.dispatchMicros] in the window; null when empty.
   int? get maxDispatchMicros => _max((t) => t.dispatchMicros);
+}
+
+/// Split of one timeline dispatch, reported by the dispatch callback
+/// owner and read by the poll right after the callback returns.
+typedef DispatchSegments = ({int detectors, int correlate, int aggregate});
+
+/// In-flight intervals of one RPC kind on a monotonic clock, so a poll
+/// can report how much of its tail overlapped requests it did not issue.
+class RpcSpanTracker {
+  /// Creates a tracker reading times from [clock] (microseconds).
+  RpcSpanTracker(this._clock);
+
+  final int Function() _clock;
+  final List<(int, int)> _spans = <(int, int)>[];
+  int _nextId = 0;
+  final Map<int, int> _openById = <int, int>{};
+
+  /// Requests still in flight.
+  int get openCount => _openById.length;
+
+  /// Intervals currently held (open or closed).
+  int get length => _spans.length + _openById.length;
+
+  /// Tracks [rpc] from now until it completes, then returns its result.
+  Future<T> track<T>(Future<T> rpc) {
+    final id = _nextId++;
+    _openById[id] = _clock();
+    return rpc.whenComplete(() {
+      final start = _openById.remove(id);
+      if (start != null) _spans.add((start, _clock()));
+    });
+  }
+
+  /// Drops closed intervals that ended before [micros].
+  void pruneBefore(int micros) {
+    _spans.removeWhere((s) => s.$2 < micros);
+  }
+
+  /// Drops every interval, open or closed.
+  void clear() {
+    _spans.clear();
+    _openById.clear();
+  }
+
+  /// Microseconds inside [windows] (each `(start, end)`) during which at
+  /// least one tracked request was in flight. Requests still open count
+  /// up to now.
+  int overlapWith(List<(int, int)> windows) {
+    if (windows.isEmpty || (_spans.isEmpty && _openById.isEmpty)) return 0;
+    final now = _clock();
+    final all = <(int, int)>[
+      ..._spans,
+      for (final start in _openById.values) (start, now),
+    ]..sort((a, b) => a.$1.compareTo(b.$1));
+    var total = 0;
+    for (final w in windows) {
+      var cursor = w.$1;
+      for (final s in all) {
+        final from = math.max(s.$1, cursor);
+        final to = math.min(s.$2, w.$2);
+        if (to > from) {
+          total += to - from;
+          cursor = to;
+        }
+      }
+    }
+    return total;
+  }
 }
