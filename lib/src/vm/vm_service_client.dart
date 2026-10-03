@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
 import '../models/heap_sample.dart';
+import 'poll_timings.dart';
 import 'timeline_parser.dart';
 
 /// Read current process RSS in bytes. Returns null on platforms where
@@ -139,6 +140,7 @@ class VmServiceClient {
   void setServiceForTest(VmService service, {String? isolateId}) {
     _service = service;
     _watchSocket(service);
+    _attachWireListeners(service);
     _mainIsolateId = isolateId;
     _connected = true;
   }
@@ -267,6 +269,7 @@ class VmServiceClient {
         }
         _service = connected;
         _watchSocket(connected);
+        _attachWireListeners(connected);
         if (_disposed) {
           _cleanup();
           return false;
@@ -558,14 +561,33 @@ class VmServiceClient {
     final myGen = _sessionGeneration;
     final completer = Completer<void>();
     _pollInFlightCompleter = completer;
+    // Per-segment timings. Each stopwatch covers one segment only; a
+    // segment that did not run stays 0.
+    var rpcUs = 0;
+    var parseUs = 0;
+    var dispatchUs = 0;
+    var tailUs = 0;
+    var eventCount = 0;
+    var duplicates = 0;
+    final watch = Stopwatch();
     try {
-      final timeline = await _service!.getVMTimeline();
+      final Timeline timeline;
+      watch.start();
+      try {
+        timeline = await _fetchTimeline();
+      } finally {
+        rpcUs = watch.elapsedMicroseconds;
+      }
       _consecutivePollFailures = 0;
       // Drop stale poll if reconnect/dispose ran during the await.
       if (myGen != _sessionGeneration || _disposed) return;
       final events = timeline.traceEvents;
+      eventCount = events?.length ?? 0;
       ParsedTimelineData? parsed;
       if (events != null && events.isNotEmpty) {
+        watch
+          ..reset()
+          ..start();
         // One-shot: extract engine startup events before clearing the buffer.
         // Must happen before clearVMTimeline() or the events are lost.
         if (!_startupEventsExtracted && onStartupTimelineEvents != null) {
@@ -586,11 +608,13 @@ class VmServiceClient {
           pendingChannelBegins: _pendingChannelBegins,
           cursorsByTid: _lastProcessedTsByTid,
         );
+        duplicates = parsed.duplicatesDropped;
         // Evict orphan begins (B with no matching E within the idle
         // window). Compares event-relative monotonic `ts` so the sweep
         // is drift-free across wall-clock skews. Skipped when the batch
         // has no anchor ts to measure against.
         _sweepStalePendingBegins(events);
+        parseUs = watch.elapsedMicroseconds;
       }
       // Dispatch every batch with data, and an empty batch once per
       // [idleHeartbeat] so window-based detectors keep evaluating while
@@ -602,46 +626,21 @@ class VmServiceClient {
           last == null ||
           dispatchAt.difference(last) >= idleHeartbeat) {
         _lastTimelineDispatchAt = dispatchAt;
+        watch
+          ..reset()
+          ..start();
         onTimelineData?.call(
           parsed ?? TimelineParser.parse(const <TimelineEvent>[]),
         );
+        dispatchUs = watch.elapsedMicroseconds;
       }
-      // Clear the VM's timeline ring buffer to avoid re-processing the
-      // same events on the next poll — unless capture mode wants them
-      // retained for a later Export.
-      //
-      // `_pendingBuildBegins` deliberately survives this clear: the
-      // matching E for a B observed in this batch is emitted by Flutter
-      // AFTER the clear call and lands in the next batch's fresh buffer,
-      // so the carry-over is required for cross-batch reconstruction in
-      // the default live-monitoring path. The age sweep above bounds the
-      // map's growth; `_cleanup()` clears it on dispose.
-      if (!retainTimeline) {
-        await _service!.clearVMTimeline();
-        if (myGen != _sessionGeneration || _disposed) return;
-      }
-
-      // Poll heap memory (piggybacked on timeline poll, near-zero cost)
-      if (_mainIsolateId != null && onHeapSample != null) {
-        try {
-          final mem = await _service!.getMemoryUsage(_mainIsolateId!);
-          if (myGen != _sessionGeneration || _disposed) return;
-          onHeapSample?.call(
-            HeapSample(
-              heapUsage: mem.heapUsage ?? 0,
-              heapCapacity: mem.heapCapacity ?? 0,
-              externalUsage: mem.externalUsage ?? 0,
-              timestamp: DateTime.now(),
-              rssBytes: _readRssBytes(),
-            ),
-          );
-        } on SentinelException {
-          // Isolate ID stale (e.g., after hot restart) — re-fetch
-          _mainIsolateId = await _resolveMainIsolateId();
-        } catch (_) {
-          // Memory poll failed but timeline poll succeeded — don't reconnect.
-          // Will retry on next poll cycle.
-        }
+      watch
+        ..reset()
+        ..start();
+      try {
+        await _pollTail(myGen);
+      } finally {
+        tailUs = watch.elapsedMicroseconds;
       }
     } catch (e) {
       // One failed RPC retries on the next tick; a run of failures means
@@ -652,9 +651,162 @@ class VmServiceClient {
         _handleConnectionLost();
       }
     } finally {
+      watch.stop();
+      final responseChars = _takeTimelineResponseChars();
+      if (myGen == _sessionGeneration && !_disposed) {
+        _recordPollTimings(
+          PollTimings(
+            rpcMicros: rpcUs,
+            parseMicros: parseUs,
+            dispatchMicros: dispatchUs,
+            tailMicros: tailUs,
+            eventCount: eventCount,
+            responseChars: responseChars,
+            duplicatesDropped: duplicates,
+            completedAt: DateTime.now(),
+          ),
+        );
+      }
       _pollInFlightCompleter = null;
       completer.complete();
     }
+  }
+
+  /// Issues the poll's `getVMTimeline` request with the raw-response
+  /// length capture armed (see [_attachWireListeners]).
+  Future<Timeline> _fetchTimeline() {
+    _timelineRequestId = null;
+    _timelineResponseChars = -1;
+    _armTimelineRequest = true;
+    try {
+      return _service!.getVMTimeline();
+    } finally {
+      _armTimelineRequest = false;
+    }
+  }
+
+  /// Timeline housekeeping and the heap memory sample that follow each
+  /// dispatched batch. Returns early when the session moved on.
+  Future<void> _pollTail(int myGen) async {
+    // Clear the VM's timeline ring buffer to avoid re-processing the
+    // same events on the next poll — unless capture mode wants them
+    // retained for a later Export.
+    //
+    // `_pendingBuildBegins` deliberately survives this clear: the
+    // matching E for a B observed in this batch is emitted by Flutter
+    // AFTER the clear call and lands in the next batch's fresh buffer,
+    // so the carry-over is required for cross-batch reconstruction in
+    // the default live-monitoring path. The age sweep above bounds the
+    // map's growth; `_cleanup()` clears it on dispose.
+    if (!retainTimeline) {
+      await _service!.clearVMTimeline();
+      if (myGen != _sessionGeneration || _disposed) return;
+    }
+
+    // Poll heap memory (piggybacked on timeline poll, near-zero cost)
+    if (_mainIsolateId != null && onHeapSample != null) {
+      try {
+        final mem = await _service!.getMemoryUsage(_mainIsolateId!);
+        if (myGen != _sessionGeneration || _disposed) return;
+        onHeapSample?.call(
+          HeapSample(
+            heapUsage: mem.heapUsage ?? 0,
+            heapCapacity: mem.heapCapacity ?? 0,
+            externalUsage: mem.externalUsage ?? 0,
+            timestamp: DateTime.now(),
+            rssBytes: _readRssBytes(),
+          ),
+        );
+      } on SentinelException {
+        // Isolate ID stale (e.g., after hot restart) — re-fetch
+        _mainIsolateId = await _resolveMainIsolateId();
+      } catch (_) {
+        // Memory poll failed but timeline poll succeeded — don't reconnect.
+        // Will retry on next poll cycle.
+      }
+    }
+  }
+
+  PollTimings? _lastPollTimings;
+  final PollTimingsWindow _timingsWindow = PollTimingsWindow();
+  int _duplicatesDroppedTotal = 0;
+
+  /// Timings of the most recent completed poll of this session; null
+  /// before the first poll.
+  PollTimings? get lastPollTimings => _lastPollTimings;
+
+  /// Largest RPC segment over the last 32 polls; null before the first.
+  int? get maxPollRpcMicros => _timingsWindow.maxRpcMicros;
+
+  /// Largest parse segment over the last 32 polls; null before the first.
+  int? get maxPollParseMicros => _timingsWindow.maxParseMicros;
+
+  /// Largest dispatch segment over the last 32 polls; null before the
+  /// first.
+  int? get maxPollDispatchMicros => _timingsWindow.maxDispatchMicros;
+
+  /// Events dropped as already processed, summed over this session's
+  /// polls; null before the first poll.
+  int? get pollDuplicatesDropped =>
+      _lastPollTimings == null ? null : _duplicatesDroppedTotal;
+
+  void _recordPollTimings(PollTimings timings) {
+    _lastPollTimings = timings;
+    _timingsWindow.add(timings);
+    _duplicatesDroppedTotal += timings.duplicatesDropped;
+  }
+
+  StreamSubscription<String>? _sendSub;
+  StreamSubscription<String>? _receiveSub;
+
+  /// True only while [_fetchTimeline] is issuing its request, so the
+  /// export fetch and other RPCs are never mistaken for the poll's.
+  bool _armTimelineRequest = false;
+
+  /// Request id of the poll's in-flight `getVMTimeline` call.
+  String? _timelineRequestId;
+
+  /// Length of the matched raw response; −1 until matched.
+  int _timelineResponseChars = -1;
+
+  static final RegExp _requestIdPattern = RegExp(r'"id":"([^"]*)"');
+
+  /// Listens to the service's raw wire traffic to measure the size of
+  /// each poll's timeline response. Request ids are private to
+  /// package:vm_service; `onSend` fires synchronously with the encoded
+  /// request (which carries the id) before it is written, and
+  /// `onReceive` fires with each raw response before it is decoded. The
+  /// listeners only read lengths and short substrings.
+  void _attachWireListeners(VmService service) {
+    _sendSub?.cancel();
+    _receiveSub?.cancel();
+    _sendSub = null;
+    _receiveSub = null;
+    try {
+      _sendSub = service.onSend.listen((message) {
+        if (!_armTimelineRequest ||
+            !message.contains('"method":"getVMTimeline"')) {
+          return;
+        }
+        _timelineRequestId = _requestIdPattern.firstMatch(message)?.group(1);
+      });
+      _receiveSub = service.onReceive.listen((message) {
+        final id = _timelineRequestId;
+        if (id == null) return;
+        if (message.lastIndexOf('"id":"$id"') < 0) return;
+        _timelineResponseChars = message.length;
+        _timelineRequestId = null;
+      });
+    } catch (_) {
+      // A test double without wire streams reports −1 for every poll.
+    }
+  }
+
+  int _takeTimelineResponseChars() {
+    final chars = _timelineResponseChars;
+    _timelineResponseChars = -1;
+    _timelineRequestId = null;
+    return chars;
   }
 
   /// Evict orphan begins from [_pendingBuildBegins] and (in non-capture
@@ -819,6 +971,14 @@ class VmServiceClient {
   void _cleanup() {
     _consecutivePollFailures = 0;
     _lastTimelineDispatchAt = null;
+    _timingsWindow.clear();
+    _duplicatesDroppedTotal = 0;
+    _sendSub?.cancel();
+    _sendSub = null;
+    _receiveSub?.cancel();
+    _receiveSub = null;
+    _timelineRequestId = null;
+    _timelineResponseChars = -1;
     // Bump generation before clearing so any in-flight `_pollTimeline`
     // detects the change at its next fence check and drops stale results.
     _sessionGeneration++;

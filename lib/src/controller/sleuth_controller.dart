@@ -68,6 +68,7 @@ import '../models/widget_highlight.dart';
 import '../network/http_monitor.dart';
 import '../ranking/issue_ranker.dart';
 import '../vm/cpu_sample_aggregator.dart';
+import '../vm/poll_timings.dart';
 import '../vm/service_extension_registry.dart';
 import '../vm/vm_service_client.dart';
 import '../utils/capture_helper.dart';
@@ -573,6 +574,24 @@ class SleuthController {
     }());
     return result;
   }
+
+  /// Timings of the VM client's most recent timeline poll; null before
+  /// the first poll or without a VM client.
+  PollTimings? get lastPollTimings => _vmClient?.lastPollTimings;
+
+  /// Largest RPC segment over the last 32 polls; null before the first.
+  int? get maxPollRpcMicros => _vmClient?.maxPollRpcMicros;
+
+  /// Largest parse segment over the last 32 polls; null before the first.
+  int? get maxPollParseMicros => _vmClient?.maxPollParseMicros;
+
+  /// Largest dispatch segment over the last 32 polls; null before the
+  /// first.
+  int? get maxPollDispatchMicros => _vmClient?.maxPollDispatchMicros;
+
+  /// Events the poll loop skipped as already processed, summed over the
+  /// current VM session; null before the first poll.
+  int? get pollDuplicatesDropped => _vmClient?.pollDuplicatesDropped;
 
   /// Whether VM service is connected.
   bool get isVmConnected =>

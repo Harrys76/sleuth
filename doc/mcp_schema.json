@@ -38,7 +38,17 @@
         "unboundExtensionNames": {"type": "List<String>", "required": true, "nullable": false},
         "effectiveFrameRateHz": {"type": "num", "required": true, "nullable": false},
         "frameBudgetUs": {"type": "int", "required": true, "nullable": false},
-        "frameRateSource": {"type": "String", "required": true, "nullable": false, "values": ["fixed", "display", "measured"]}
+        "frameRateSource": {"type": "String", "required": true, "nullable": false, "values": ["fixed", "display", "measured"]},
+        "lastPollRpcMicros": {"type": "int", "required": true, "nullable": true},
+        "lastPollParseMicros": {"type": "int", "required": true, "nullable": true},
+        "lastPollDispatchMicros": {"type": "int", "required": true, "nullable": true},
+        "lastPollTailMicros": {"type": "int", "required": true, "nullable": true},
+        "lastPollEventCount": {"type": "int", "required": true, "nullable": true},
+        "lastPollResponseChars": {"type": "int", "required": true, "nullable": true},
+        "maxPollRpcMicros": {"type": "int", "required": true, "nullable": true},
+        "maxPollParseMicros": {"type": "int", "required": true, "nullable": true},
+        "maxPollDispatchMicros": {"type": "int", "required": true, "nullable": true},
+        "pollDuplicatesDropped": {"type": "int", "required": true, "nullable": true}
       }
     },
     "ext.sleuth.snapshot": {

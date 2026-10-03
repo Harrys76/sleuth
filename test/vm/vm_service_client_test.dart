@@ -805,6 +805,116 @@ void main() {
     );
   });
 
+  group('Poll timings', () {
+    TimelineEvent build(int ts, {int tid = 1}) => TimelineEvent.parse({
+      'name': 'Build',
+      'cat': 'flutter',
+      'ph': 'X',
+      'dur': 100,
+      'ts': ts,
+      'pid': 1,
+      'tid': tid,
+    })!;
+
+    test('null before the first poll', () {
+      final client = VmServiceClient();
+      client.setServiceForTest(_MockVmService(), isolateId: 'isolate-1');
+      expect(client.lastPollTimings, isNull);
+      expect(client.maxPollRpcMicros, isNull);
+      expect(client.maxPollParseMicros, isNull);
+      expect(client.maxPollDispatchMicros, isNull);
+      expect(client.pollDuplicatesDropped, isNull);
+      client.dispose();
+    });
+
+    test('one poll records every segment, the event count, and the raw '
+        'response length', () async {
+      final mock = _MockVmService()
+        ..responsePadding = 5000
+        ..timelineResult = Timeline(
+          traceEvents: [build(100000), build(200000)],
+          timeOriginMicros: 0,
+          timeExtentMicros: 0,
+        );
+      final client = VmServiceClient(onTimelineData: (_) {});
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+
+      final t = client.lastPollTimings!;
+      expect(t.rpcMicros, greaterThanOrEqualTo(0));
+      expect(t.parseMicros, greaterThanOrEqualTo(0));
+      expect(t.dispatchMicros, greaterThanOrEqualTo(0));
+      expect(t.tailMicros, greaterThanOrEqualTo(0));
+      expect(t.eventCount, 2);
+      expect(t.duplicatesDropped, 0);
+      expect(t.responseChars, greaterThan(5000));
+      expect(client.maxPollRpcMicros, t.rpcMicros);
+      expect(client.pollDuplicatesDropped, 0);
+      client.dispose();
+    });
+
+    test('a response with another id is not attributed', () async {
+      final mock = _MockVmService()..responseIdOverride = 'other';
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+
+      expect(client.lastPollTimings!.responseChars, -1);
+      client.dispose();
+    });
+
+    test('a failed RPC still records timings with no events', () async {
+      final mock = _MockVmService()..getVMTimelineThrows = Exception('busy');
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+
+      final t = client.lastPollTimings!;
+      expect(t.rpcMicros, greaterThanOrEqualTo(0));
+      expect(t.eventCount, 0);
+      expect(t.parseMicros, 0);
+      expect(t.dispatchMicros, 0);
+      expect(t.responseChars, -1);
+      client.dispose();
+    });
+
+    test('re-read events count as duplicates, summed over polls', () async {
+      final mock = _MockVmService()
+        ..timelineResult = Timeline(
+          traceEvents: [build(100000), build(200000)],
+          timeOriginMicros: 0,
+          timeExtentMicros: 0,
+        );
+      final client = VmServiceClient(retainTimeline: true);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+
+      expect(client.lastPollTimings!.duplicatesDropped, 2);
+      expect(client.pollDuplicatesDropped, 4);
+      client.dispose();
+    });
+
+    test('the rolling maxima reset with the session', () async {
+      final mock = _MockVmService();
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+      await client.pollTimelineSync();
+      expect(client.maxPollRpcMicros, isNotNull);
+
+      client.dispose();
+
+      expect(client.maxPollRpcMicros, isNull);
+      expect(client.maxPollParseMicros, isNull);
+      expect(client.maxPollDispatchMicros, isNull);
+    });
+  });
+
   // =========================================================================
   // 5. Heap polling (piggybacked on timeline)
   // =========================================================================
@@ -1112,17 +1222,50 @@ class _MockVmService implements VmService {
   bool getAllocationProfileCalled = false;
   VM? vmResult;
 
+  /// Raw wire traffic, mirroring package:vm_service's sync broadcast
+  /// `onSend` / `onReceive` streams.
+  final StreamController<String> sendController =
+      StreamController<String>.broadcast(sync: true);
+  final StreamController<String> receiveController =
+      StreamController<String>.broadcast(sync: true);
+  int _nextRequestId = 0;
+
+  /// When set, the simulated timeline response carries this id instead
+  /// of the request's own.
+  String? responseIdOverride;
+
+  /// Raw size of the simulated timeline response body.
+  int responsePadding = 0;
+
+  @override
+  Stream<String> get onSend => sendController.stream;
+
+  @override
+  Stream<String> get onReceive => receiveController.stream;
+
   @override
   Future<Timeline> getVMTimeline({
     int? timeOriginMicros,
     int? timeExtentMicros,
-  }) async {
+  }) {
     getVMTimelineCalled = true;
     getVMTimelineCallCount++;
+    final id = '${_nextRequestId++}';
+    sendController.add(
+      '{"jsonrpc":"2.0","id":"$id","method":"getVMTimeline","params":{}}',
+    );
+    return _completeTimeline(id);
+  }
+
+  Future<Timeline> _completeTimeline(String id) async {
     if (getVMTimelineDelay != null) {
       await Future<void>.delayed(getVMTimelineDelay!);
     }
     if (getVMTimelineThrows != null) throw getVMTimelineThrows!;
+    receiveController.add(
+      '{"jsonrpc":"2.0","result":{"type":"Timeline","traceEvents":['
+      '${'x' * responsePadding}]},"id":"${responseIdOverride ?? id}"}',
+    );
     return timelineResult ??
         Timeline(traceEvents: [], timeOriginMicros: 0, timeExtentMicros: 0);
   }

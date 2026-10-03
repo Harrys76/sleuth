@@ -410,6 +410,7 @@ FutureOr<Map<String, Object?>> extDiagnoseHandler(
   SleuthController controller,
   Map<String, String> args,
 ) {
+  final timings = controller.lastPollTimings;
   return envelopeOk(
     controller: controller,
     data: <String, Object?>{
@@ -422,6 +423,16 @@ FutureOr<Map<String, Object?>> extDiagnoseHandler(
       'effectiveFrameRateHz': controller.effectiveFrameRateHz,
       'frameBudgetUs': controller.frameBudgetUs,
       'frameRateSource': controller.frameRateSource.name,
+      'lastPollRpcMicros': timings?.rpcMicros,
+      'lastPollParseMicros': timings?.parseMicros,
+      'lastPollDispatchMicros': timings?.dispatchMicros,
+      'lastPollTailMicros': timings?.tailMicros,
+      'lastPollEventCount': timings?.eventCount,
+      'lastPollResponseChars': timings?.responseChars,
+      'maxPollRpcMicros': controller.maxPollRpcMicros,
+      'maxPollParseMicros': controller.maxPollParseMicros,
+      'maxPollDispatchMicros': controller.maxPollDispatchMicros,
+      'pollDuplicatesDropped': controller.pollDuplicatesDropped,
     },
   );
 }

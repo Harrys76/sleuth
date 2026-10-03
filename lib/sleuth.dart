@@ -74,6 +74,7 @@ import 'src/models/route_session.dart';
 import 'src/models/session_snapshot.dart';
 import 'src/models/startup_metrics.dart';
 import 'src/ui/sleuth_overlay.dart';
+import 'src/vm/poll_timings.dart';
 import 'src/ui/sleuth_theme.dart';
 
 // Public API exports
@@ -98,6 +99,7 @@ export 'src/models/simple_structural_detector.dart';
 export 'src/vm/timeline_parser.dart'
     show ParsedTimelineData, PlatformChannelCall;
 export 'src/vm/connection_mode.dart' show ConnectionMode;
+export 'src/vm/poll_timings.dart' show PollTimings;
 export 'src/vm/service_extension_handlers.dart'
     show kMcpEnvelopeSchemaVersion, kSleuthPackageVersion;
 export 'src/vm/service_extension_registry.dart' show ServiceExtensionRegistry;
@@ -729,6 +731,16 @@ class Sleuth {
   static String? get lastCaptureExportFailure {
     if (kReleaseMode) return null;
     return _controller?.lastCaptureExportFailure;
+  }
+
+  /// Per-segment cost of the most recent VM timeline poll (RPC including
+  /// decode, parse, detector dispatch, remaining RPCs), with the raw
+  /// response size and the duplicate events the poll skipped. Null in
+  /// release mode, before [init], without a VM connection, or before the
+  /// first poll. The same values are served by `ext.sleuth.diagnose`.
+  static PollTimings? get lastPollTimings {
+    if (kReleaseMode) return null;
+    return _controller?.lastPollTimings;
   }
 
   /// Diagnostic snapshot of capture-mode preconditions. Capture screens

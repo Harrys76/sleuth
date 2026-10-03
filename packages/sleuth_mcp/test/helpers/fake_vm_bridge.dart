@@ -72,6 +72,16 @@ FakeVmBridge defaultFakeBridge() {
       'effectiveFrameRateHz': 60.0,
       'frameBudgetUs': 16667,
       'frameRateSource': 'fixed',
+      'lastPollRpcMicros': 1800,
+      'lastPollParseMicros': 420,
+      'lastPollDispatchMicros': 310,
+      'lastPollTailMicros': 250,
+      'lastPollEventCount': 575,
+      'lastPollResponseChars': 98000,
+      'maxPollRpcMicros': 4100,
+      'maxPollParseMicros': 900,
+      'maxPollDispatchMicros': 780,
+      'pollDuplicatesDropped': 0,
     },
   });
   bridge.setEnvelope('ext.sleuth.snapshot', {

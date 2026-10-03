@@ -6,6 +6,8 @@ import 'package:sleuth/src/models/base_detector.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/utils/issue_explanation_builder.dart';
 import 'package:sleuth/src/vm/service_extension_handlers.dart';
+import 'package:sleuth/src/vm/vm_service_client.dart';
+import 'package:vm_service/vm_service.dart';
 
 const _config = SleuthConfig(
   treeScanInterval: Duration(seconds: 1),
@@ -336,6 +338,45 @@ void main() {
       expect(data.containsKey('lastCaptureExportFailure'), isTrue);
       expect(env['sessionUuid'], c.sessionUuid);
     });
+
+    test('diagnose poll keys are null before the first poll and ints '
+        'after', () async {
+      const pollKeys = [
+        'lastPollRpcMicros',
+        'lastPollParseMicros',
+        'lastPollDispatchMicros',
+        'lastPollTailMicros',
+        'lastPollEventCount',
+        'lastPollResponseChars',
+        'maxPollRpcMicros',
+        'maxPollParseMicros',
+        'maxPollDispatchMicros',
+        'pollDuplicatesDropped',
+      ];
+      final c = _newController();
+      final client = VmServiceClient();
+      client.setServiceForTest(_TimelineOnlyService(), isolateId: 'i-1');
+      c.setVmClientForTest(client);
+
+      var data =
+          (await extDiagnoseHandler(c, const {}))['data']
+              as Map<String, Object?>;
+      for (final key in pollKeys) {
+        expect(data.containsKey(key), isTrue, reason: key);
+        expect(data[key], isNull, reason: key);
+      }
+
+      await client.pollTimelineSync();
+
+      data =
+          (await extDiagnoseHandler(c, const {}))['data']
+              as Map<String, Object?>;
+      for (final key in pollKeys) {
+        expect(data[key], isA<int>(), reason: key);
+      }
+      expect(data['lastPollEventCount'], 1);
+      expect(data['pollDuplicatesDropped'], 0);
+    });
   });
 
   group('handlers — JSON round-trip', () {
@@ -367,4 +408,38 @@ class _OversizedNonEncodable {
   final String payload;
   @override
   String toString() => payload;
+}
+
+/// Answers the timeline poll only; every other member is unimplemented.
+class _TimelineOnlyService implements VmService {
+  @override
+  Future<Timeline> getVMTimeline({
+    int? timeOriginMicros,
+    int? timeExtentMicros,
+  }) async => Timeline(
+    traceEvents: [
+      TimelineEvent.parse({
+        'name': 'Build',
+        'ph': 'X',
+        'dur': 100,
+        'ts': 1000,
+        'pid': 1,
+        'tid': 1,
+      })!,
+    ],
+    timeOriginMicros: 0,
+    timeExtentMicros: 0,
+  );
+
+  @override
+  Future<Success> clearVMTimeline() async => Success();
+
+  @override
+  Future<Timestamp> getVMTimelineMicros() async => Timestamp(timestamp: 5000);
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }

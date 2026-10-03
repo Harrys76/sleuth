@@ -15,6 +15,7 @@ class ParsedTimelineData {
     this.gcEvents = const [],
     this.buildEventCount = 0,
     this.phaseEvents = const [],
+    this.duplicatesDropped = 0,
   });
 
   /// Exact buildScope durations in microseconds.
@@ -52,6 +53,10 @@ class ParsedTimelineData {
   /// Each event carries its absolute monotonic timestamp and duration,
   /// allowing `FrameEventCorrelator` to match events to specific frames.
   final List<PhaseEvent> phaseEvents;
+
+  /// Events skipped because an earlier parse call already processed them
+  /// (per-thread cursor rejects). Diagnostic only; not part of [hasData].
+  final int duplicatesDropped;
 
   bool get hasData =>
       buildScopeDurations.isNotEmpty ||
@@ -366,6 +371,7 @@ class TimelineParser {
     final gcs = <TimelineEvent>[];
     final phaseEvents = <PhaseEvent>[];
     var buildCount = 0;
+    var duplicates = 0;
 
     for (final event in events) {
       final json = event.json;
@@ -395,9 +401,13 @@ class TimelineParser {
         final signature = '$ph|$name|${id ?? ''}';
         final cursor = cursors[tid];
         if (cursor != null) {
-          if (ts < cursor.lastTs) continue;
+          if (ts < cursor.lastTs) {
+            duplicates++;
+            continue;
+          }
           if (ts == cursor.lastTs &&
               cursor.seenSignatures.contains(signature)) {
+            duplicates++;
             continue;
           }
         }
@@ -683,6 +693,7 @@ class TimelineParser {
       gcEvents: gcs,
       buildEventCount: buildCount,
       phaseEvents: phaseEvents,
+      duplicatesDropped: duplicates,
     );
   }
 
