@@ -433,6 +433,7 @@ FutureOr<Map<String, Object?>> extDiagnoseHandler(
       'maxPollParseMicros': controller.maxPollParseMicros,
       'maxPollDispatchMicros': controller.maxPollDispatchMicros,
       'pollDuplicatesDropped': controller.pollDuplicatesDropped,
+      'pollWindowFallbacks': controller.pollWindowFallbacks,
     },
   );
 }

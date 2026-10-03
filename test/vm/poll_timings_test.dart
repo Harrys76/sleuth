@@ -72,6 +72,7 @@ void main() {
       'responseChars': 6,
       'duplicatesDropped': 7,
       'completedAtMicros': 8,
+      'windowFallback': false,
     });
   });
 }

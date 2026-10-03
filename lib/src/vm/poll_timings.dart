@@ -19,6 +19,7 @@ class PollTimings {
     required this.responseChars,
     required this.duplicatesDropped,
     required this.completedAt,
+    this.windowFallback = false,
   });
 
   /// Await of the `getVMTimeline` RPC, including the JSON decode and the
@@ -34,8 +35,8 @@ class PollTimings {
   /// issue aggregation). Zero when the batch was not dispatched.
   final int dispatchMicros;
 
-  /// Remaining RPCs of the poll (timeline housekeeping and the heap
-  /// memory sample).
+  /// Remaining RPCs of the poll (the timeline clock read that bounds the
+  /// fetch window and the heap memory sample).
   final int tailMicros;
 
   /// Raw events returned by the VM in this poll.
@@ -52,6 +53,11 @@ class PollTimings {
   /// Wall-clock time the poll finished.
   final DateTime completedAt;
 
+  /// Whether the poll read the whole timeline buffer because the timeline
+  /// clock could not bound a window (failed read, or a reading behind the
+  /// newest event already seen).
+  final bool windowFallback;
+
   /// Sum of the four measured segments.
   int get totalMicros => rpcMicros + parseMicros + dispatchMicros + tailMicros;
 
@@ -65,6 +71,7 @@ class PollTimings {
     'responseChars': responseChars,
     'duplicatesDropped': duplicatesDropped,
     'completedAtMicros': completedAt.microsecondsSinceEpoch,
+    'windowFallback': windowFallback,
   };
 
   @override
@@ -72,7 +79,8 @@ class PollTimings {
       'PollTimings(rpc: $rpcMicros us, parse: $parseMicros us, '
       'dispatch: $dispatchMicros us, tail: $tailMicros us, '
       'events: $eventCount, chars: $responseChars, '
-      'duplicates: $duplicatesDropped)';
+      'duplicates: $duplicatesDropped'
+      '${windowFallback ? ', window fallback' : ''})';
 }
 
 /// Rolling per-segment maximum over the most recent polls.

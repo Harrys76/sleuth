@@ -48,7 +48,8 @@
         "maxPollRpcMicros": {"type": "int", "required": true, "nullable": true},
         "maxPollParseMicros": {"type": "int", "required": true, "nullable": true},
         "maxPollDispatchMicros": {"type": "int", "required": true, "nullable": true},
-        "pollDuplicatesDropped": {"type": "int", "required": true, "nullable": true}
+        "pollDuplicatesDropped": {"type": "int", "required": true, "nullable": true},
+        "pollWindowFallbacks": {"type": "int", "required": true, "nullable": true}
       }
     },
     "ext.sleuth.snapshot": {

@@ -352,6 +352,7 @@ void main() {
         'maxPollParseMicros',
         'maxPollDispatchMicros',
         'pollDuplicatesDropped',
+        'pollWindowFallbacks',
       ];
       final c = _newController();
       final client = VmServiceClient();

@@ -16,6 +16,7 @@ class ParsedTimelineData {
     this.buildEventCount = 0,
     this.phaseEvents = const [],
     this.duplicatesDropped = 0,
+    this.maxTimestampUs = -1,
   });
 
   /// Exact buildScope durations in microseconds.
@@ -57,6 +58,10 @@ class ParsedTimelineData {
   /// Events skipped because an earlier parse call already processed them
   /// (per-thread cursor rejects). Diagnostic only; not part of [hasData].
   final int duplicatesDropped;
+
+  /// Largest `ts` among the events this call accepted (duplicates
+  /// excluded), or −1 when none carried a timestamp.
+  final int maxTimestampUs;
 
   bool get hasData =>
       buildScopeDurations.isNotEmpty ||
@@ -111,12 +116,49 @@ class PlatformChannelCall {
 ///
 /// Falls back to thread ID classification when names don't match known patterns.
 
-/// Per-tid cross-call dedup cursor for [TimelineParser.parse]. `lastTs`
-/// is the max `ts` observed for the thread in a prior call;
-/// `seenSignatures` holds the `(ph, name, id)` signatures of events at
-/// that exact `lastTs`, so distinct events sharing a microsecond are
-/// not conflated.
-typedef TimelineCursor = ({int lastTs, Set<String> seenSignatures});
+/// Per-tid cross-call dedup cursor for [TimelineParser.parse].
+///
+/// [lastTs] is the largest `ts` processed for the thread. Distinct events
+/// can share a microsecond, so the cursor also remembers the events at
+/// exactly [lastTs] by their `(ph, name, id)` signature. The signature is
+/// built only when a second event arrives at [lastTs]; an event with a
+/// larger `ts` resets the set, so its size is bounded by the events
+/// sharing one timestamp, never by session length.
+class TimelineCursor {
+  TimelineCursor._(this._lastTs, this._firstAtLastTs);
+
+  int _lastTs;
+
+  /// First event accepted at [lastTs], kept unsigned until a tie.
+  Map<String, dynamic>? _firstAtLastTs;
+
+  /// Signatures of the events at [lastTs]; null until a tie.
+  Set<String>? _signatures;
+
+  /// Largest `ts` processed for the thread.
+  int get lastTs => _lastTs;
+
+  /// Signatures of the events processed at exactly [lastTs].
+  Set<String> get seenSignatures =>
+      _signatures ?? {TimelineParser._signatureOf(_firstAtLastTs!)};
+
+  void _advance(int ts, Map<String, dynamic> json) {
+    _lastTs = ts;
+    _firstAtLastTs = json;
+    _signatures = null;
+  }
+
+  /// Records an event at exactly [lastTs]; false when already seen.
+  bool _acceptTie(Map<String, dynamic> json) {
+    var signatures = _signatures;
+    if (signatures == null) {
+      signatures = {TimelineParser._signatureOf(_firstAtLastTs!)};
+      _signatures = signatures;
+      _firstAtLastTs = null;
+    }
+    return signatures.add(TimelineParser._signatureOf(json));
+  }
+}
 
 class TimelineParser {
   TimelineParser._();
@@ -246,6 +288,10 @@ class TimelineParser {
   /// is dropped.
   static const int pendingChannelBeginsCap = 256;
 
+  /// Dedup signature `'$ph|$name|$id'` of an event.
+  static String _signatureOf(Map<String, dynamic> json) =>
+      '${json['ph'] ?? ''}|${json['name'] ?? ''}|${json['id'] ?? ''}';
+
   /// Push-or-pop a per-tid B/E begins stack for a phase event,
   /// invoking [onOutermost] only when the pop drains the stack EMPTY
   /// — i.e. the popped E closed the outermost scope on this thread.
@@ -330,9 +376,14 @@ class TimelineParser {
   /// [cursorsByTid] is a per-thread cross-call dedup cursor; events
   /// with `ts < cursor.lastTs`, or with `ts == cursor.lastTs` and a
   /// signature already in `cursor.seenSignatures`, are skipped.
-  /// Signature is `'$ph|$name|${id ?? ""}'`. Skipped for events without
-  /// `ts` (metadata `M` events). Null = fresh per call. Caller clears
-  /// the map on session reset.
+  /// Signature is `'$ph|$name|${id ?? ""}'`, built only for events at
+  /// exactly `cursor.lastTs`. Skipped for events without `ts` (metadata
+  /// `M` events). Null = fresh per call. Caller clears the map on
+  /// session reset.
+  ///
+  /// [minTimestampUs] skips every event with a smaller `ts` (counted in
+  /// [ParsedTimelineData.duplicatesDropped]); the poll loop sets it when
+  /// it had to read the whole buffer instead of a window.
   static ParsedTimelineData parse(
     List<TimelineEvent> events, {
     Map<int, List<Map<String, dynamic>>>? pendingBuildBegins,
@@ -342,6 +393,7 @@ class TimelineParser {
     Map<int, List<Map<String, dynamic>>>? pendingShaderBegins,
     Map<String, int>? pendingChannelBegins,
     Map<int, TimelineCursor>? cursorsByTid,
+    int minTimestampUs = 0,
   }) {
     final buildScopes = <int>[];
     final layouts = <int>[];
@@ -372,15 +424,13 @@ class TimelineParser {
     final phaseEvents = <PhaseEvent>[];
     var buildCount = 0;
     var duplicates = 0;
+    var maxTs = -1;
+    int? cachedTid;
+    TimelineCursor? cachedCursor;
 
     for (final event in events) {
       final json = event.json;
       if (json == null) continue;
-
-      final name = json['name'] as String? ?? '';
-      final ph = json['ph'] as String? ?? '';
-      final dur = json['dur'] as int?;
-      final cat = json['cat'] as String? ?? '';
 
       // Cross-call dedup: skip events already observed in a prior parse
       // call. Uses the event's own monotonic `ts` (microseconds since
@@ -390,33 +440,43 @@ class TimelineParser {
       // through every call but never accumulated into output buckets,
       // so re-processing is a no-op.
       //
-      // Signature uses `(ph, name, id)` so two distinct events sharing
-      // `(tid, ts)` (e.g. instant events with different names at the
-      // same microsecond, or async pairs with the same name but
-      // different `id`) are NOT conflated.
+      // The `ts` comparison runs before any other field is read, so a
+      // re-read event costs three map lookups and no allocation. The `(ph, name, id)`
+      // signature is built only for events at exactly `lastTs`, where
+      // two distinct events can share a microsecond (instant events with
+      // different names, async pairs with different `id`).
       final ts = json['ts'];
       if (ts is int) {
-        final tid = json['tid'] as int? ?? 0;
-        final id = json['id'];
-        final signature = '$ph|$name|${id ?? ''}';
-        final cursor = cursors[tid];
-        if (cursor != null) {
-          if (ts < cursor.lastTs) {
-            duplicates++;
-            continue;
-          }
-          if (ts == cursor.lastTs &&
-              cursor.seenSignatures.contains(signature)) {
-            duplicates++;
-            continue;
-          }
+        if (ts < minTimestampUs) {
+          duplicates++;
+          continue;
         }
-        if (cursor == null || ts > cursor.lastTs) {
-          cursors[tid] = (lastTs: ts, seenSignatures: {signature});
+        final rawTid = json['tid'];
+        final tid = rawTid is int ? rawTid : 0;
+        // Events arrive in per-thread blocks; reuse the previous lookup.
+        TimelineCursor? cursor;
+        if (tid == cachedTid) {
+          cursor = cachedCursor;
         } else {
-          cursor.seenSignatures.add(signature);
+          cursor = cursors[tid];
+          cachedTid = tid;
+          cachedCursor = cursor;
         }
+        if (cursor == null) {
+          cachedCursor = cursors[tid] = TimelineCursor._(ts, json);
+        } else if (ts > cursor._lastTs) {
+          cursor._advance(ts, json);
+        } else if (ts < cursor._lastTs || !cursor._acceptTie(json)) {
+          duplicates++;
+          continue;
+        }
+        if (ts > maxTs) maxTs = ts;
       }
+
+      final name = json['name'] as String? ?? '';
+      final ph = json['ph'] as String? ?? '';
+      final dur = json['dur'] as int?;
+      final cat = json['cat'] as String? ?? '';
 
       // Complete duration events (ph == 'X') have a 'dur' field
       if (ph == 'X' && dur != null) {
@@ -694,6 +754,7 @@ class TimelineParser {
       buildEventCount: buildCount,
       phaseEvents: phaseEvents,
       duplicatesDropped: duplicates,
+      maxTimestampUs: maxTs,
     );
   }
 

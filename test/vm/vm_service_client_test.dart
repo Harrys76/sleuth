@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
+import 'package:sleuth/src/analyzer/frame_event_correlator.dart';
+import 'package:sleuth/src/models/frame_stats.dart';
 import 'package:sleuth/src/models/heap_sample.dart';
+import 'package:sleuth/src/models/phase_event.dart';
 import 'package:sleuth/src/vm/timeline_parser.dart';
 import 'package:sleuth/src/vm/vm_service_client.dart';
 
@@ -358,11 +361,11 @@ void main() {
       // Timeline data should be parsed and forwarded
       // (may be empty if the mock event isn't recognized by TimelineParser)
       expect(mock.getVMTimelineCalled, isTrue);
-      expect(mock.clearVMTimelineCalled, isTrue);
+      expect(mock.clearVMTimelineCalled, isFalse);
       client.dispose();
     });
 
-    test('poll clears timeline buffer after reading', () async {
+    test('poll never clears the timeline buffer', () async {
       final mock = _MockVmService();
       mock.timelineResult = Timeline(
         traceEvents: [],
@@ -374,7 +377,8 @@ void main() {
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
       await client.pollTimelineSync();
-      expect(mock.clearVMTimelineCalled, isTrue);
+      await client.pollTimelineSync();
+      expect(mock.clearVMTimelineCalled, isFalse);
       client.dispose();
     });
 
@@ -430,16 +434,13 @@ void main() {
       },
     );
 
-    test('cross-batch BUILD reconstruction survives clearVMTimeline on '
-        'default !retainTimeline polling path', () async {
+    test('cross-batch BUILD reconstruction on the default polling '
+        'path', () async {
       // iOS profile mode emits BUILD as `ph: 'B'` / `ph: 'E'` pairs
       // instead of `ph: 'X'` complete-form. When a poll boundary falls
       // between the B and the E, the parser needs `_pendingBuildBegins`
       // to carry the unmatched B from batch N into batch N+1 so dur can
-      // be reconstructed. The matching E is emitted by Flutter AFTER
-      // `clearVMTimeline()` and lands in the next batch's fresh buffer
-      // — clearing `_pendingBuildBegins` on every poll would drop every
-      // poll-boundary BUILD silently.
+      // be reconstructed.
       final received = <ParsedTimelineData>[];
       final mock = _MockVmService();
       // Batch 1: BUILD begin only (no matching end in this batch).
@@ -463,8 +464,8 @@ void main() {
       await client.pollTimelineSync();
       expect(
         mock.clearVMTimelineCalled,
-        isTrue,
-        reason: 'Default !retainTimeline path must clear VM buffer.',
+        isFalse,
+        reason: 'The poll loop never clears the VM buffer.',
       );
       expect(
         received.expand((p) => p.buildScopeDurations),
@@ -500,8 +501,8 @@ void main() {
         reason:
             'Cross-batch reconstruction must emit dur = E.ts - B.ts '
             '(5000 us) on the default polling path. Wiping '
-            '_pendingBuildBegins on clearVMTimeline would silently '
-            'drop this BUILD.',
+            '_pendingBuildBegins between polls would silently drop '
+            'this BUILD.',
       );
       client.dispose();
     });
@@ -558,7 +559,7 @@ void main() {
       expect(
         mock.clearVMTimelineCalled,
         isFalse,
-        reason: 'retainTimeline=true must skip clearVMTimeline.',
+        reason: 'The poll loop never clears the VM buffer.',
       );
       // Aggregate across all onTimelineData callbacks.
       final allDurs = received.expand((p) => p.buildScopeDurations).toList();
@@ -586,91 +587,36 @@ void main() {
 
     test('cursor sweep evicts tids idle past the 30s ceiling so '
         'long-lived sessions with churning tids do not leak', () async {
-      // Behavioural check: an evicted cursor lets a low-ts event on
-      // that tid pass through (otherwise the watermark would skip it
-      // as ts < lastTs).
-      final received = <ParsedTimelineData>[];
       final mock = _MockVmService();
-      final client = VmServiceClient(onTimelineData: received.add);
+      final client = VmServiceClient();
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
       // Poll 1: tid=1 event at ts=1000. Cursor: tid=1 → lastTs=1000.
       mock.timelineResult = Timeline(
-        traceEvents: [
-          TimelineEvent.parse({
-            'name': 'Build',
-            'cat': 'flutter',
-            'ph': 'X',
-            'dur': 100,
-            'ts': 1000,
-            'pid': 1,
-            'tid': 1,
-          })!,
-        ],
-        timeOriginMicros: 1000,
-        timeExtentMicros: 100,
+        traceEvents: [_build(1000, tid: 1)],
+        timeOriginMicros: 0,
+        timeExtentMicros: 0,
       );
       await client.pollTimelineSync();
+      expect(client.cursorsForTest.keys, [1]);
 
       // Poll 2: tid=2 event at ts=31_000_001 (>30s past ts=1000).
       // Anchor=31_000_001 → cursor cutoff = 1_000_001 → tid=1 cursor
-      // (lastTs=1000) is evicted.
+      // (lastTs=1000) is evicted in both modes.
       mock.timelineResult = Timeline(
-        traceEvents: [
-          TimelineEvent.parse({
-            'name': 'Build',
-            'cat': 'flutter',
-            'ph': 'X',
-            'dur': 100,
-            'ts': 31000001,
-            'pid': 1,
-            'tid': 2,
-          })!,
-        ],
-        timeOriginMicros: 31000001,
-        timeExtentMicros: 100,
+        traceEvents: [_build(1000, tid: 1), _build(31000001, tid: 2)],
+        timeOriginMicros: 0,
+        timeExtentMicros: 0,
       );
       await client.pollTimelineSync();
-
-      // Poll 3: tid=1 event at ts=500 (LESS than the prior cursor's
-      // lastTs=1000). If the cursor was correctly evicted, this event
-      // passes through. If retained, the watermark skips it.
-      mock.timelineResult = Timeline(
-        traceEvents: [
-          TimelineEvent.parse({
-            'name': 'Build',
-            'cat': 'flutter',
-            'ph': 'X',
-            'dur': 50,
-            'ts': 500,
-            'pid': 1,
-            'tid': 1,
-          })!,
-        ],
-        timeOriginMicros: 500,
-        timeExtentMicros: 100,
-      );
-      await client.pollTimelineSync();
-
-      final allDurs = received.expand((p) => p.buildScopeDurations).toList();
-      expect(
-        allDurs,
-        contains(50),
-        reason:
-            'tid=1 cursor must be evicted by poll 2 sweep so the '
-            'tid=1 ts=500 event in poll 3 is not skipped as stale.',
-      );
+      expect(client.cursorsForTest.keys, [2]);
       client.dispose();
     });
 
-    test('capture mode (retainTimeline=true) does NOT evict cursors — '
-        'retained-buffer re-reads across 30s+ cross-tid gaps stay '
-        'deduped (no replay of old events)', () async {
-      // The cursor map is the dedup mechanism in capture mode because
-      // the VM buffer is intentionally re-read across polls. Evicting
-      // a cursor for a tid idle past the cursor TTL would let the next
-      // poll's re-read of that tid's old events pass through the
-      // parser, inflating buildEventCount and other accumulators.
+    test('capture mode: a retained buffer re-read after a 30 s gap does '
+        'not replay events of an evicted tid', () async {
+      // The fetch window starts 2 s before the newest event seen, so an
+      // evicted tid's old events are never read again.
       final received = <ParsedTimelineData>[];
       final mock = _MockVmService();
       final client = VmServiceClient(
@@ -681,84 +627,31 @@ void main() {
 
       // Poll 1: tid=1 BUILD at ts=1000.
       mock.timelineResult = Timeline(
-        traceEvents: [
-          TimelineEvent.parse({
-            'name': 'Build',
-            'cat': 'flutter',
-            'ph': 'X',
-            'dur': 100,
-            'ts': 1000,
-            'pid': 1,
-            'tid': 1,
-          })!,
-        ],
-        timeOriginMicros: 1000,
-        timeExtentMicros: 100,
+        traceEvents: [_build(1000, tid: 1)],
+        timeOriginMicros: 0,
+        timeExtentMicros: 0,
       );
       await client.pollTimelineSync();
-      expect(
-        mock.clearVMTimelineCalled,
-        isFalse,
-        reason: 'retainTimeline=true must not clear the VM buffer.',
-      );
 
-      // Poll 2: full retained buffer + new tid=2 event 31s later.
-      // anchorTs=31_000_001; cursorCutoff would be 1_000_001 if the
-      // sweep ran — would evict tid=1 cursor (lastTs=1000). Capture
-      // mode must NOT evict.
+      // Poll 2: retained buffer + a tid=2 event 31 s later. tid=1's
+      // cursor is evicted by this poll's sweep.
       mock.timelineResult = Timeline(
-        traceEvents: [
-          TimelineEvent.parse({
-            'name': 'Build',
-            'cat': 'flutter',
-            'ph': 'X',
-            'dur': 100,
-            'ts': 1000,
-            'pid': 1,
-            'tid': 1,
-          })!,
-          TimelineEvent.parse({
-            'name': 'Build',
-            'cat': 'flutter',
-            'ph': 'X',
-            'dur': 200,
-            'ts': 31000001,
-            'pid': 1,
-            'tid': 2,
-          })!,
-        ],
-        timeOriginMicros: 1000,
-        timeExtentMicros: 31000000,
+        traceEvents: [_build(1000, tid: 1), _build(31000001, tid: 2, dur: 200)],
+        timeOriginMicros: 0,
+        timeExtentMicros: 0,
       );
       await client.pollTimelineSync();
+      expect(client.cursorsForTest.containsKey(1), isFalse);
 
-      // Poll 3: same retained buffer once more. tid=1's cursor must
-      // still be present so the re-read of tid=1 ts=1000 stays deduped.
-      // Without the gate, the sweep evicted tid=1 in poll 2 and this
-      // poll re-emits tid=1's BUILD.
+      // Poll 3: same retained buffer once more.
       await client.pollTimelineSync();
 
       final allDurs = received.expand((p) => p.buildScopeDurations).toList()
         ..sort();
-      final totalBuildCount = received.fold<int>(
-        0,
-        (sum, p) => sum + p.buildEventCount,
-      );
-      expect(
-        allDurs,
-        equals([100, 200]),
-        reason:
-            'Each BUILD must appear exactly once across 3 polls of '
-            'retained buffer. Cursor eviction in capture mode would '
-            'replay tid=1 ts=1000 → [100, 100, 200] or similar.',
-      );
-      expect(
-        totalBuildCount,
-        2,
-        reason:
-            'buildEventCount must equal real BUILDs (2). '
-            'Replay would inflate to 3+.',
-      );
+      expect(allDurs, equals([100, 200]));
+      expect(received.fold<int>(0, (sum, p) => sum + p.buildEventCount), 2);
+      expect(mock.timelineWindows.last.$1, 31000001 - 2000000);
+      expect(mock.clearVMTimelineCalled, isFalse);
       client.dispose();
     });
 
@@ -912,6 +805,451 @@ void main() {
       expect(client.maxPollRpcMicros, isNull);
       expect(client.maxPollParseMicros, isNull);
       expect(client.maxPollDispatchMicros, isNull);
+    });
+  });
+
+  group('Incremental fetch', () {
+    TimelineEvent ev(
+      String name,
+      String ph,
+      int ts, {
+      int tid = 1,
+      int? dur,
+      String cat = 'flutter',
+    }) => TimelineEvent.parse({
+      'name': name,
+      'cat': cat,
+      'ph': ph,
+      'ts': ts,
+      'dur': ?dur,
+      'pid': 1,
+      'tid': tid,
+    })!;
+
+    Timeline buffer(List<TimelineEvent> events) =>
+        Timeline(traceEvents: events, timeOriginMicros: 0, timeExtentMicros: 0);
+
+    test('first poll reads the whole buffer, later polls a window from '
+        '2 s before the newest event to the clock plus 1 s', () async {
+      final mock = _MockVmService()
+        ..nowMicros = 9000000
+        ..timelineResult = buffer([_build(5000000), _build(7000000)]);
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+
+      expect(mock.timelineWindows, [
+        (null, null),
+        (5000000, 9000000 - 5000000 + 1000000),
+      ]);
+      expect(mock.getVMTimelineMicrosCallCount, 1);
+      expect(mock.clearVMTimelineCalled, isFalse);
+      expect(client.lastPollTimings!.windowFallback, isFalse);
+      expect(client.pollWindowFallbacks, 0);
+      client.dispose();
+    });
+
+    test('origin is clamped at zero', () async {
+      final mock = _MockVmService()
+        ..nowMicros = 3000000
+        ..timelineResult = buffer([_build(1500000)]);
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+
+      expect(mock.timelineWindows.last, (0, 3000000 + 1000000));
+      client.dispose();
+    });
+
+    test('an empty first poll keeps the next poll a full fetch', () async {
+      final mock = _MockVmService();
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+      mock.timelineResult = buffer([_build(5000000)]);
+      await client.pollTimelineSync();
+
+      expect(mock.timelineWindows, [(null, null), (null, null)]);
+      client.dispose();
+    });
+
+    test('a clock reading behind the newest event falls back to a full '
+        'read and drops events before the window', () async {
+      final received = <ParsedTimelineData>[];
+      final mock = _MockVmService()
+        ..timelineResult = buffer([_build(5000000, tid: 2), _build(9000000)]);
+      final client = VmServiceClient(onTimelineData: received.add);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+      await client.pollTimelineSync();
+
+      // tid 3 has no cursor; its event at 1 s is older than the window
+      // (9 s − 2 s) and must not be replayed by the full read.
+      mock
+        ..nowMicros = 100
+        ..timelineResult = buffer([
+          _build(1000000, tid: 3),
+          _build(5000000, tid: 2),
+          _build(9000000),
+          _build(9500000, dur: 300),
+        ]);
+      await client.pollTimelineSync();
+
+      expect(mock.timelineWindows.last, (null, null));
+      expect(client.lastPollTimings!.windowFallback, isTrue);
+      expect(client.pollWindowFallbacks, 1);
+      expect(received.last.buildScopeDurations, [300]);
+      expect(received.last.duplicatesDropped, 3);
+      client.dispose();
+    });
+
+    test('a failing clock read falls back to a full read', () async {
+      final mock = _MockVmService()..timelineResult = buffer([_build(5000)]);
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+      await client.pollTimelineSync();
+
+      mock.nowMicros = null;
+      await client.pollTimelineSync();
+
+      expect(mock.timelineWindows.last, (null, null));
+      expect(client.lastPollTimings!.windowFallback, isTrue);
+      expect(client.isConnected, isTrue);
+      client.dispose();
+    });
+
+    test('after a lost connection the next session starts with a full '
+        'fetch again', () async {
+      final mock = _MockVmService()..timelineResult = buffer([_build(5000)]);
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+      expect(mock.timelineWindows.last.$1, isNotNull);
+
+      // Three failures report the connection lost; the reconnect ladder
+      // cleans the session up.
+      mock.getVMTimelineThrows = Exception('gone');
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+      expect(client.isConnected, isFalse);
+
+      final fresh = _MockVmService()..timelineResult = buffer([_build(5000)]);
+      client.setServiceForTest(fresh, isolateId: 'isolate-1');
+      await client.pollTimelineSync();
+
+      expect(fresh.timelineWindows, [(null, null)]);
+      client.dispose();
+    });
+
+    test('a growing buffer read through overlapping windows yields the '
+        'same batches as non-overlapping reads', () async {
+      // 6 s of 60 Hz frames: BUILD X, LAYOUT B/E pairs on the UI thread,
+      // raster X on the raster thread. Polls every 500 ms; the
+      // non-overlapping run hands each poll only the events written
+      // since the previous one.
+      final all = <TimelineEvent>[];
+      final frames = <FrameStats>[];
+      for (var i = 0; i < 360; i++) {
+        final start = 1000000 + i * 16667;
+        all
+          ..add(ev('BUILD', 'X', start, dur: 3000))
+          ..add(ev('LAYOUT', 'B', start + 3100))
+          ..add(ev('LAYOUT', 'E', start + 4100))
+          ..add(
+            ev('GPURasterizer::Draw', 'X', start + 6000, tid: 2, dur: 4000),
+          );
+        frames.add(
+          FrameStats(
+            frameNumber: i,
+            uiDuration: const Duration(milliseconds: 5),
+            rasterDuration: const Duration(milliseconds: 4),
+            timestamp: DateTime(2026),
+            vsyncStartUs: start - 500,
+            buildStartUs: start,
+            buildFinishUs: start + 5000,
+            rasterStartUs: start + 5900,
+            rasterFinishUs: start + 10500,
+          ),
+        );
+      }
+      final pollTimes = [for (var t = 1500000; t <= 7500000; t += 500000) t];
+
+      Future<List<ParsedTimelineData>> run({required bool overlap}) async {
+        final received = <ParsedTimelineData>[];
+        final mock = _MockVmService();
+        final client = VmServiceClient(
+          onTimelineData: received.add,
+          idleHeartbeat: const Duration(hours: 1),
+        );
+        client.setServiceForTest(mock, isolateId: 'isolate-1');
+        var previous = 0;
+        for (final now in pollTimes) {
+          final written = [
+            for (final e in all)
+              if ((e.json!['ts'] as int) <= now) e,
+          ];
+          mock
+            ..nowMicros = now
+            ..timelineResult = buffer(
+              overlap
+                  ? written
+                  : [
+                      for (final e in written)
+                        if ((e.json!['ts'] as int) > previous) e,
+                    ],
+            );
+          previous = now;
+          await client.pollTimelineSync();
+        }
+        client.dispose();
+        return received;
+      }
+
+      final overlapped = await run(overlap: true);
+      final plain = await run(overlap: false);
+
+      List<int> builds(List<ParsedTimelineData> r) =>
+          r.expand((p) => p.buildScopeDurations).toList();
+      List<int> layouts(List<ParsedTimelineData> r) =>
+          r.expand((p) => p.flushLayoutDurations).toList();
+      List<int> rasters(List<ParsedTimelineData> r) =>
+          r.expand((p) => p.rasterDurations).toList();
+      List<(TimelinePhase, int, int)> phases(List<ParsedTimelineData> r) => [
+        for (final p in r)
+          for (final e in p.phaseEvents) (e.phase, e.timestampUs, e.durationUs),
+      ];
+
+      expect(builds(overlapped), hasLength(360));
+      expect(builds(overlapped), builds(plain));
+      expect(layouts(overlapped), layouts(plain));
+      expect(rasters(overlapped), rasters(plain));
+      expect(phases(overlapped), phases(plain));
+      expect(
+        overlapped.fold<int>(0, (s, p) => s + p.buildEventCount),
+        plain.fold<int>(0, (s, p) => s + p.buildEventCount),
+      );
+      expect(
+        overlapped.fold<int>(0, (s, p) => s + p.duplicatesDropped),
+        greaterThan(0),
+      );
+
+      Map<int, (int, int, int, int)> correlated(List<ParsedTimelineData> r) {
+        final correlator = FrameEventCorrelator();
+        final totals = <int, (int, int, int, int)>{};
+        for (final batch in r) {
+          final result = correlator.correlate(
+            recentFrames: frames,
+            phaseEvents: batch.phaseEvents,
+          );
+          for (final entry in result.entries) {
+            final d = entry.value;
+            final prev = totals[entry.key] ?? (0, 0, 0, 0);
+            totals[entry.key] = (
+              prev.$1 + d.matchedEventCount,
+              prev.$2 + d.buildScopeUs,
+              prev.$3 + d.flushLayoutUs,
+              prev.$4 + d.rasterUs,
+            );
+          }
+        }
+        return totals;
+      }
+
+      final a = correlated(overlapped);
+      final b = correlated(plain);
+      expect(a, b);
+      expect(a.values.fold<int>(0, (s, v) => s + v.$1), 360 * 3);
+    });
+
+    test('a begin before the window origin pairs with its end after it '
+        'exactly once', () async {
+      final received = <ParsedTimelineData>[];
+      final mock = _MockVmService()..nowMicros = 6000000;
+      final client = VmServiceClient(onTimelineData: received.add);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      // Poll 1 sees the begin on tid 1 and a later event on tid 2, so
+      // the next window starts at 3.5 s, after the begin.
+      mock.timelineResult = buffer([
+        ev('BUILD', 'B', 3000000),
+        _build(5500000, tid: 2),
+      ]);
+      await client.pollTimelineSync();
+
+      final withEnd = buffer([
+        ev('BUILD', 'B', 3000000),
+        _build(5500000, tid: 2),
+        ev('BUILD', 'E', 3600000),
+      ]);
+      mock.timelineResult = withEnd;
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+
+      expect(mock.timelineWindows[1].$1, 3500000);
+      expect(received.expand((p) => p.buildScopeDurations).toList(), [
+        100,
+        600000,
+      ]);
+      client.dispose();
+    });
+
+    test('an X event at exactly the window origin counts once', () async {
+      final received = <ParsedTimelineData>[];
+      final mock = _MockVmService()..nowMicros = 5000000;
+      final client = VmServiceClient(onTimelineData: received.add);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      mock.timelineResult = buffer([_build(3000000, tid: 2)]);
+      await client.pollTimelineSync();
+      // Written late, stamped exactly at the next origin (3 s − 2 s).
+      mock.timelineResult = buffer([
+        _build(1000000, dur: 700),
+        _build(3000000, tid: 2),
+      ]);
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+
+      expect(mock.timelineWindows[1].$1, 1000000);
+      expect(received.expand((p) => p.buildScopeDurations).toList(), [
+        100,
+        700,
+      ]);
+      client.dispose();
+    });
+
+    test('cursor signatures stay bounded by the events sharing the latest '
+        'ts', () async {
+      final mock = _MockVmService();
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+      final events = <TimelineEvent>[];
+      for (var poll = 0; poll < 10; poll++) {
+        final base = 1000000 + poll * 500000;
+        for (var i = 0; i < 20; i++) {
+          events.add(_build(base + i * 1000));
+        }
+        // Three distinct instants share the poll's newest ts.
+        for (final name in ['a', 'b', 'c']) {
+          events.add(ev(name, 'i', base + 30000));
+        }
+        mock
+          ..nowMicros = base + 40000
+          ..timelineResult = buffer(List.of(events));
+        await client.pollTimelineSync();
+        final cursor = client.cursorsForTest[1]!;
+        expect(cursor.lastTs, base + 30000);
+        expect(cursor.seenSignatures, hasLength(3));
+      }
+      client.dispose();
+    });
+
+    test('the SentinelException branch drops its isolate id when the '
+        'session moved on', () async {
+      final mock = _MockVmService()
+        ..memoryUsageThrows = SentinelException.parse('isolate-1', {
+          'type': 'Sentinel',
+          'kind': 'Collected',
+          'valueAsString': 'test',
+        })
+        ..getVMDelay = const Duration(milliseconds: 50)
+        ..vmResult = VM(
+          name: 'test',
+          architectureBits: 64,
+          hostCPU: 'x86',
+          operatingSystem: 'macos',
+          targetCPU: 'x86',
+          version: '1.0',
+          pid: 1,
+          startTime: 0,
+          isolates: [
+            IsolateRef(
+              id: 'isolate-2',
+              number: '2',
+              name: 'main',
+              isSystemIsolate: false,
+            ),
+          ],
+          isolateGroups: [],
+          systemIsolates: [],
+          systemIsolateGroups: [],
+        );
+      final client = VmServiceClient(onHeapSample: (_) {});
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      final poll = client.pollTimelineSync();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      client.dispose();
+      await poll;
+
+      expect(client.mainIsolateIdForTest, isNull);
+    });
+
+    test(
+      'the SentinelException branch re-resolves within one session',
+      () async {
+        final mock = _MockVmService()
+          ..memoryUsageThrows = SentinelException.parse('isolate-1', {
+            'type': 'Sentinel',
+            'kind': 'Collected',
+            'valueAsString': 'test',
+          })
+          ..vmResult = VM(
+            name: 'test',
+            architectureBits: 64,
+            hostCPU: 'x86',
+            operatingSystem: 'macos',
+            targetCPU: 'x86',
+            version: '1.0',
+            pid: 1,
+            startTime: 0,
+            isolates: [
+              IsolateRef(
+                id: 'isolate-2',
+                number: '2',
+                name: 'main',
+                isSystemIsolate: false,
+              ),
+            ],
+            isolateGroups: [],
+            systemIsolates: [],
+            systemIsolateGroups: [],
+          );
+        final client = VmServiceClient(onHeapSample: (_) {});
+        client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+        await client.pollTimelineSync();
+
+        expect(client.mainIsolateIdForTest, 'isolate-2');
+        client.dispose();
+      },
+    );
+
+    test('a pending begin older than 30 s is evicted using the batch max '
+        'ts', () async {
+      final received = <ParsedTimelineData>[];
+      final mock = _MockVmService();
+      final client = VmServiceClient(onTimelineData: received.add);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      mock.timelineResult = buffer([ev('BUILD', 'B', 1000, tid: 5)]);
+      await client.pollTimelineSync();
+      mock.timelineResult = buffer([_build(31000001)]);
+      await client.pollTimelineSync();
+      // A stray end on tid 5 finds no begin left to pair with.
+      mock.timelineResult = buffer([
+        _build(31000001),
+        ev('BUILD', 'E', 31000500, tid: 5),
+      ]);
+      await client.pollTimelineSync();
+
+      expect(received.expand((p) => p.buildScopeDurations).toList(), [100]);
+      client.dispose();
     });
   });
 
@@ -1189,6 +1527,17 @@ void main() {
   });
 }
 
+TimelineEvent _build(int ts, {int tid = 1, int dur = 100}) =>
+    TimelineEvent.parse({
+      'name': 'Build',
+      'cat': 'flutter',
+      'ph': 'X',
+      'dur': dur,
+      'ts': ts,
+      'pid': 1,
+      'tid': tid,
+    })!;
+
 // ---------------------------------------------------------------------------
 // Mock VmService
 // ---------------------------------------------------------------------------
@@ -1206,6 +1555,7 @@ class _MockVmService implements VmService {
   bool clearVMTimelineCalled = false;
   bool getMemoryUsageCalled = false;
   bool getVMCalled = false;
+  Duration? getVMDelay;
   int getVMTimelineCallCount = 0;
   Duration? getVMTimelineDelay;
 
@@ -1243,6 +1593,21 @@ class _MockVmService implements VmService {
   @override
   Stream<String> get onReceive => receiveController.stream;
 
+  /// Value served by `getVMTimelineMicros`; null makes the RPC throw.
+  int? nowMicros = 1 << 40;
+  int getVMTimelineMicrosCallCount = 0;
+
+  /// `(timeOriginMicros, timeExtentMicros)` of every `getVMTimeline` call.
+  final List<(int?, int?)> timelineWindows = [];
+
+  @override
+  Future<Timestamp> getVMTimelineMicros() async {
+    getVMTimelineMicrosCallCount++;
+    final now = nowMicros;
+    if (now == null) throw Exception('clock unavailable');
+    return Timestamp(timestamp: now);
+  }
+
   @override
   Future<Timeline> getVMTimeline({
     int? timeOriginMicros,
@@ -1250,6 +1615,7 @@ class _MockVmService implements VmService {
   }) {
     getVMTimelineCalled = true;
     getVMTimelineCallCount++;
+    timelineWindows.add((timeOriginMicros, timeExtentMicros));
     final id = '${_nextRequestId++}';
     sendController.add(
       '{"jsonrpc":"2.0","id":"$id","method":"getVMTimeline","params":{}}',
@@ -1266,8 +1632,23 @@ class _MockVmService implements VmService {
       '{"jsonrpc":"2.0","result":{"type":"Timeline","traceEvents":['
       '${'x' * responsePadding}]},"id":"${responseIdOverride ?? id}"}',
     );
-    return timelineResult ??
+    final window = timelineWindows.last;
+    final result =
+        timelineResult ??
         Timeline(traceEvents: [], timeOriginMicros: 0, timeExtentMicros: 0);
+    final origin = window.$1;
+    if (origin == null) return result;
+    // Windowed read, as the VM serves it: events whose `ts` lies inside
+    // [origin, origin + extent].
+    final end = origin + window.$2!;
+    return Timeline(
+      traceEvents: [
+        for (final e in result.traceEvents ?? const <TimelineEvent>[])
+          if (e.json?['ts'] case final int ts when ts >= origin && ts <= end) e,
+      ],
+      timeOriginMicros: origin,
+      timeExtentMicros: window.$2,
+    );
   }
 
   @override
@@ -1323,6 +1704,7 @@ class _MockVmService implements VmService {
   @override
   Future<VM> getVM() async {
     getVMCalled = true;
+    if (getVMDelay != null) await Future<void>.delayed(getVMDelay!);
     return vmResult ??
         VM(
           name: 'test',

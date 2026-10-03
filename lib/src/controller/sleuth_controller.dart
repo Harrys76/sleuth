@@ -593,6 +593,11 @@ class SleuthController {
   /// current VM session; null before the first poll.
   int? get pollDuplicatesDropped => _vmClient?.pollDuplicatesDropped;
 
+  /// Polls in the current VM session that read the whole timeline buffer
+  /// because the timeline clock could not bound a window; null before
+  /// the first poll.
+  int? get pollWindowFallbacks => _vmClient?.pollWindowFallbacks;
+
   /// Whether VM service is connected.
   bool get isVmConnected =>
       _vmConnectedOverride ?? _vmClient?.isConnected ?? false;
@@ -670,10 +675,9 @@ class SleuthController {
     // frames while the (potentially slow) VM connection is in progress.
     _frameTiming.start();
 
-    // Connect to VM service. Retain the trace buffer when capture
-    // mode is on so a later `exportCaptureJson` call can still see
-    // scenario-span events that the polling loop has already
-    // processed; production sessions clear after every poll.
+    // Connect to VM service. The poll loop never clears the VM
+    // timeline, so a later `exportCaptureJson` call still sees
+    // scenario-span events the loop has already processed.
     final client = VmServiceClient(
       onTimelineData: _onTimelineData,
       onGcEvent: _onGcEvent,

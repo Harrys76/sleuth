@@ -82,6 +82,7 @@ FakeVmBridge defaultFakeBridge() {
       'maxPollParseMicros': 900,
       'maxPollDispatchMicros': 780,
       'pollDuplicatesDropped': 0,
+      'pollWindowFallbacks': 0,
     },
   });
   bridge.setEnvelope('ext.sleuth.snapshot', {

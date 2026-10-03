@@ -266,6 +266,7 @@
         "maxPollParseMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
         "maxPollDispatchMicros": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
         "pollDuplicatesDropped": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
+        "pollWindowFallbacks": {"type": "int", "required": false, "nullable": true, "presence": "app sleuth >= 0.37.0"},
         "sidecarVersion": {"type": "String", "required": true, "nullable": false},
         "sidecarBuiltAgainstSleuth": {"type": "String", "required": true, "nullable": false},
         "launchModeAdvisory": {"type": "String", "required": false, "nullable": false, "presence": "when connectionMode is warmup/disconnected, or basic without a live VM self-connect (vmConnected false) — VM-only detectors degraded; nudges a --no-dds relaunch"}

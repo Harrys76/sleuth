@@ -120,4 +120,119 @@ void main() {
       });
     }
   });
+
+  group('timeline parser with cursors', () {
+    // One 60 Hz frame = BUILD X with args, LAYOUT and PAINT B/E pairs on
+    // the UI thread, raster X on the raster thread: 6 events.
+    List<TimelineEvent> frameEvents(int count) {
+      final events = <TimelineEvent>[];
+      var frame = 0;
+      while (events.length < count) {
+        final start = 1000000 + frame * 16667;
+        events.addAll([
+          TimelineEvent.parse({
+            'name': 'BUILD',
+            'ph': 'X',
+            'ts': start,
+            'dur': 3000,
+            'pid': 1,
+            'tid': 1,
+            'args': {
+              'build scope dirty count': '3',
+              'build scope dirty list': '[WidgetA, WidgetB, WidgetC]',
+            },
+          })!,
+          for (final (name, offset) in [('LAYOUT', 3100), ('PAINT', 4200)]) ...[
+            TimelineEvent.parse({
+              'name': name,
+              'ph': 'B',
+              'ts': start + offset,
+              'pid': 1,
+              'tid': 1,
+            })!,
+            TimelineEvent.parse({
+              'name': name,
+              'ph': 'E',
+              'ts': start + offset + 900,
+              'pid': 1,
+              'tid': 1,
+            })!,
+          ],
+          TimelineEvent.parse({
+            'name': 'GPURasterizer::Draw',
+            'ph': 'X',
+            'ts': start + 6000,
+            'dur': 4000,
+            'pid': 1,
+            'tid': 2,
+          })!,
+        ]);
+        frame++;
+      }
+      return events.sublist(0, count);
+    }
+
+    ParsedTimelineData parseWith(
+      List<TimelineEvent> events,
+      Map<int, TimelineCursor> cursors,
+    ) => TimelineParser.parse(
+      events,
+      pendingBuildBegins: {},
+      pendingLayoutBegins: {},
+      pendingPaintBegins: {},
+      pendingRasterBegins: {},
+      pendingShaderBegins: {},
+      pendingChannelBegins: {},
+      cursorsByTid: cursors,
+    );
+
+    // measured per event (serial, debug JIT, M1 Pro): 1k → 0.35 µs,
+    // 5k → 0.2 µs.
+    for (final count in [1000, 5000]) {
+      test('$count fresh events, B/E pairs, cursors', () {
+        final events = frameEvents(count);
+        final avgUs = benchmarkUs(
+          'parse $count fresh events with cursors',
+          () => parseWith(events, {}),
+        );
+        expect(avgUs / count, lessThan(3 * budgetMultiplier));
+      });
+    }
+
+    // A re-read event still costs three hash lookups (`ts`, `tid`, the
+    // cursor), so it cannot be free; the trim removes the per-event
+    // signature string. Measured (serial, debug JIT, M1 Pro): re-read
+    // 17 % of a fresh parse (before the trim: 37 %, with the fresh parse
+    // itself 40 % slower).
+    test('5000 already-seen events cost under 30 % of a fresh parse and '
+        'build one signature per thread', () {
+      final events = frameEvents(5000);
+      final fresh = benchmarkUs(
+        'parse 5000 fresh events',
+        () => parseWith(events, {}),
+        warmup: 200,
+        iterations: 100,
+      );
+      final cursors = <int, TimelineCursor>{};
+      parseWith(events, cursors);
+      late ParsedTimelineData last;
+      final reread = benchmarkUs(
+        're-read 5000 seen events',
+        () => last = parseWith(events, cursors),
+        warmup: 200,
+        iterations: 100,
+      );
+      // ignore: avoid_print
+      print(
+        '  re-read / fresh: ${(reread / fresh * 100).toStringAsFixed(1)} %',
+      );
+      expect(last.duplicatesDropped, 5000);
+      expect(last.hasData, isFalse);
+      expect(last.maxTimestampUs, -1);
+      for (final cursor in cursors.values) {
+        expect(cursor.seenSignatures, hasLength(1));
+      }
+      expect(reread, lessThan(fresh * 0.3));
+    });
+  });
 }

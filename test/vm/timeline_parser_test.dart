@@ -854,6 +854,78 @@ void main() {
     });
   });
 
+  group('TimelineParser single pass outputs', () {
+    TimelineEvent x(int ts, {int tid = 1, String name = 'BUILD'}) =>
+        TimelineEvent.parse({
+          'name': name,
+          'ph': 'X',
+          'dur': 10,
+          'ts': ts,
+          'tid': tid,
+          'pid': 1,
+        })!;
+
+    test('maxTimestampUs is the largest accepted ts, -1 when none', () {
+      expect(TimelineParser.parse(const []).maxTimestampUs, -1);
+      final cursors = <int, TimelineCursor>{};
+      final first = TimelineParser.parse([
+        x(300),
+        x(900, tid: 2),
+        x(100),
+      ], cursorsByTid: cursors);
+      expect(first.maxTimestampUs, 900);
+
+      // Re-read: everything is a duplicate, nothing accepted.
+      final again = TimelineParser.parse([
+        x(300),
+        x(900, tid: 2),
+      ], cursorsByTid: cursors);
+      expect(again.maxTimestampUs, -1);
+      expect(again.duplicatesDropped, 2);
+
+      final metadataOnly = TimelineParser.parse([
+        TimelineEvent.parse({'name': 'thread_name', 'ph': 'M', 'tid': 1})!,
+      ]);
+      expect(metadataOnly.maxTimestampUs, -1);
+    });
+
+    test('events below minTimestampUs are dropped as duplicates', () {
+      final data = TimelineParser.parse([
+        x(100),
+        x(200, tid: 2),
+        x(500),
+      ], minTimestampUs: 300);
+      expect(data.buildScopeDurations, [10]);
+      expect(data.duplicatesDropped, 2);
+      expect(data.maxTimestampUs, 500);
+    });
+
+    test('distinct timestamps build no signatures; a re-read builds one '
+        'per thread at its lastTs', () {
+      final cursors = <int, TimelineCursor>{};
+      final events = [for (var i = 0; i < 5000; i++) x(1000 + i * 10)];
+      TimelineParser.parse(events, cursorsByTid: cursors);
+      final again = TimelineParser.parse(events, cursorsByTid: cursors);
+      expect(again.duplicatesDropped, 5000);
+      expect(again.hasData, isFalse);
+      expect(cursors[1]!.lastTs, 1000 + 4999 * 10);
+      expect(cursors[1]!.seenSignatures, {'X|BUILD|'});
+    });
+
+    test('a later ts resets the tie set', () {
+      final cursors = <int, TimelineCursor>{};
+      TimelineParser.parse([
+        x(100),
+        x(100, name: 'LAYOUT'),
+        x(100, name: 'PAINT'),
+      ], cursorsByTid: cursors);
+      expect(cursors[1]!.seenSignatures, hasLength(3));
+      TimelineParser.parse([x(200)], cursorsByTid: cursors);
+      expect(cursors[1]!.lastTs, 200);
+      expect(cursors[1]!.seenSignatures, hasLength(1));
+    });
+  });
+
   group('TimelineParser reconstruction span cap', () {
     TimelineEvent be(String name, String ph, int ts, {int tid = 1}) =>
         TimelineEvent.parse({
