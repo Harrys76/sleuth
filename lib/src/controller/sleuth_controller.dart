@@ -4106,6 +4106,7 @@ class SleuthController {
     _unnamedIdByHash.clear();
     // Hot reload can redefine widget types; drop cached names.
     typeNameCache.clear();
+    _debugCoordinator?.invalidatePaintAttribution();
     _lastVisibleScaffoldHash = null;
     _currentVisibleScaffoldHash = null;
   }

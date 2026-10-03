@@ -110,6 +110,32 @@ class DebugInstrumentationCoordinator {
 
   String _typeName(Type type) => _typeNames[type] ??= type.toString();
 
+  /// Ancestor-derived paint attribution per painting [Element]: the
+  /// ancestor chain and whether an animation owner sits above the
+  /// element. A repainting widget paints every frame from the same
+  /// element; rebuilding the chain (string joins, source-location
+  /// lookups) and walking 16 ancestors each time was the dominant
+  /// debug-mode paint cost. Entries are stamped with the parent element,
+  /// the element's depth, and [_paintAttributionEpoch]; any change, or an
+  /// unmounted element, recomputes. Weakly keyed, so entries die with
+  /// their elements.
+  final Expando<_PaintAttribution> _paintAttribution =
+      Expando<_PaintAttribution>('SleuthPaintAttribution');
+
+  /// Bumped by [invalidatePaintAttribution]; stale stamps recompute.
+  int _paintAttributionEpoch = 0;
+
+  int _paintAttributionComputes = 0;
+
+  /// Number of paint attributions computed rather than served from the
+  /// per-element cache.
+  @visibleForTesting
+  int get paintAttributionComputeCount => _paintAttributionComputes;
+
+  /// Drops every cached paint attribution (hot reload can move widgets
+  /// without replacing their elements' parents).
+  void invalidatePaintAttribution() => _paintAttributionEpoch++;
+
   bool _rebuildInstalled = false;
   bool _paintInstalled = false;
   DateTime _lastSnapshotTime = DateTime.now();
@@ -378,6 +404,7 @@ class DebugInstrumentationCoordinator {
     _ancestorChains.clear();
     _animationOwnedPaintCounts.clear();
     _typeNames.clear();
+    _paintAttributionEpoch++;
     _paintCount = 0;
     _totalAnimationOwnedPaintCount = 0;
   }
@@ -644,46 +671,38 @@ class DebugInstrumentationCoordinator {
     }
     _paintCounts[typeName] = (_paintCounts[typeName] ?? 0) + 1;
 
-    // Build a fresh chain for THIS paint event. We must not reuse a
-    // chain cached by typeName for the ownership decision: two distinct
-    // widgets sharing the same `runtimeType.toString()` — e.g.
-    // CircularProgressIndicator's internal `CustomPaint` and a chart's
-    // bare `CustomPaint` — can have totally different owners. Per-paint
-    // attribution is the only correct path.
+    // The chain and the ancestor legs of the ownership check are judged
+    // per element, never per typeName: two distinct widgets sharing the
+    // same `runtimeType.toString()` — e.g. CircularProgressIndicator's
+    // internal `CustomPaint` and a chart's bare `CustomPaint` — can have
+    // totally different owners. The per-element cache keeps that
+    // property; it only skips recomputing for an element whose parent
+    // and depth are unchanged since its last paint.
     //
     // The chain cache (`_ancestorChains`) is still populated on first
     // occurrence per typeName for the source-location enrichment use
     // case, where the polymorphic collision is already accepted.
-    String? freshChain;
-    try {
-      freshChain = buildAncestorChain(element);
-    } catch (e, s) {
-      // Element may be deactivated mid-paint (rare but observed in
-      // teardown races). Continue with `freshChain == null`; the
-      // ownership check still has the descendant walk to fall back on.
-      assert(() {
-        debugPrint('Sleuth: paint ancestor chain failed: $e\n$s');
-        return true;
-      }());
+    final attribution = _attributionFor(element);
+    final chain = attribution.chain;
+    if (chain != null && !_ancestorChains.containsKey(typeName)) {
+      _ancestorChains[typeName] = chain;
     }
 
-    if (freshChain != null && !_ancestorChains.containsKey(typeName)) {
-      _ancestorChains[typeName] = freshChain;
-    }
-
-    // Per-paint animation-owned attribution. Wrapped because the
-    // descendant walk inside `isAnimationOwnedPaint` calls
-    // `Element.visitChildren` which can throw on deactivated elements
-    // during teardown — we never want a paint-callback exception to
-    // crash the host app.
-    var owned = false;
-    try {
-      owned = isAnimationOwnedPaint(element, freshChain);
-    } catch (e, s) {
-      assert(() {
-        debugPrint('Sleuth: animation-owned check failed: $e\n$s');
-        return true;
-      }());
+    // Per-paint animation-owned attribution. The descendant leg runs on
+    // every paint (a child can change without the element moving). It
+    // is wrapped because `Element.visitChildren` can throw on deactivated
+    // elements during teardown — we never want a paint-callback
+    // exception to crash the host app.
+    var owned = attribution.ancestorOwned;
+    if (!owned) {
+      try {
+        owned = hasAnimationOwnerDescendant(element);
+      } catch (e, s) {
+        assert(() {
+          debugPrint('Sleuth: animation-owned check failed: $e\n$s');
+          return true;
+        }());
+      }
     }
 
     if (owned) {
@@ -692,4 +711,88 @@ class DebugInstrumentationCoordinator {
       _totalAnimationOwnedPaintCount++;
     }
   }
+
+  /// Cached or freshly computed ancestor attribution for [element].
+  _PaintAttribution _attributionFor(Element element) {
+    Element? parent;
+    var cacheable = element.mounted;
+    if (cacheable) {
+      try {
+        element.visitAncestorElements((ancestor) {
+          parent = ancestor;
+          return false;
+        });
+      } catch (_) {
+        cacheable = false;
+      }
+    }
+    if (cacheable) {
+      final cached = _paintAttribution[element];
+      if (cached != null &&
+          cached.epoch == _paintAttributionEpoch &&
+          cached.depth == element.depth &&
+          identical(cached.parent?.target, parent)) {
+        return cached;
+      }
+    }
+
+    _paintAttributionComputes++;
+    String? chain;
+    try {
+      chain = buildAncestorChain(element);
+    } catch (e, s) {
+      // Element may be deactivated mid-paint (rare but observed in
+      // teardown races). Continue with `chain == null`; the ownership
+      // check still has the descendant walk to fall back on.
+      cacheable = false;
+      assert(() {
+        debugPrint('Sleuth: paint ancestor chain failed: $e\n$s');
+        return true;
+      }());
+    }
+    var ancestorOwned = false;
+    try {
+      ancestorOwned =
+          chainContainsAnimationOwner(chain) ||
+          hasAnimationOwnerAncestor(element);
+    } catch (e, s) {
+      cacheable = false;
+      assert(() {
+        debugPrint('Sleuth: animation-owned check failed: $e\n$s');
+        return true;
+      }());
+    }
+    final attribution = _PaintAttribution(
+      parent: parent == null ? null : WeakReference(parent!),
+      depth: cacheable ? element.depth : -1,
+      epoch: _paintAttributionEpoch,
+      chain: chain,
+      ancestorOwned: ancestorOwned,
+    );
+    if (cacheable) _paintAttribution[element] = attribution;
+    return attribution;
+  }
+}
+
+/// Ancestor-derived attribution of one painting element, stamped with the
+/// position it was computed at.
+class _PaintAttribution {
+  const _PaintAttribution({
+    required this.parent,
+    required this.depth,
+    required this.epoch,
+    required this.chain,
+    required this.ancestorOwned,
+  });
+
+  /// Parent element at computation time; weak so a reparented element's
+  /// cache entry does not keep its old parent alive.
+  final WeakReference<Element>? parent;
+  final int depth;
+  final int epoch;
+  final String? chain;
+
+  /// Chain contains an animation owner, or the bounded ancestor walk
+  /// reached one.
+  final bool ancestorOwned;
 }

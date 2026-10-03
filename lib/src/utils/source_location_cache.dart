@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-/// Bounded cache of widget type → abbreviated "file:line" source locations.
+/// Bounded cache of widget [Type] → abbreviated "file:line" source locations.
 ///
 /// Uses [InspectorSerializationDelegate.additionalNodeProperties] to access
 /// creation location data injected by `--track-widget-creation` (the default
@@ -8,13 +8,14 @@ import 'package:flutter/widgets.dart';
 ///
 /// Cache is bounded by [maxEntries] — when full, new types are not cached
 /// but existing lookups remain valid. Source locations are stable per widget
-/// type, so eviction is unnecessary.
+/// type, so eviction is unnecessary. Keyed by `widget.runtimeType` itself,
+/// so a lookup (hit or miss past the cap) allocates no type-name string.
 class SourceLocationCache {
   SourceLocationCache({this.maxEntries = 200});
 
   /// Maximum number of cached widget types.
   final int maxEntries;
-  final Map<String, String> _cache = {};
+  final Map<Type, String> _cache = {};
   bool? _trackingAvailable;
 
   /// Returns abbreviated "file:line" for the [element]'s widget, or null.
@@ -26,13 +27,14 @@ class SourceLocationCache {
         .isWidgetCreationTracked();
     if (!_trackingAvailable!) return null;
 
-    final typeName = element.widget.runtimeType.toString();
-    if (_cache.containsKey(typeName)) return _cache[typeName];
+    final type = element.widget.runtimeType;
+    final cached = _cache[type];
+    if (cached != null) return cached;
     if (_cache.length >= maxEntries) return null;
 
     final location = _resolve(element);
     if (location != null) {
-      _cache[typeName] = location;
+      _cache[type] = location;
     }
     return location;
   }
@@ -83,21 +85,20 @@ class SourceLocationCache {
         .isWidgetCreationTracked();
     if (!_trackingAvailable!) return null;
 
-    final typeName = element.widget.runtimeType.toString();
-    if (_structuredCache.containsKey(typeName)) {
-      return _structuredCache[typeName];
-    }
+    final type = element.widget.runtimeType;
+    final cached = _structuredCache[type];
+    if (cached != null) return cached;
     if (_cache.length >= maxEntries) return null;
 
     final location = _resolve(element);
     if (location == null) return null;
 
     // Also populate the string cache for backward compatibility.
-    _cache[typeName] = location;
+    _cache[type] = location;
 
     final result = _resolveStructured(element);
     if (result != null) {
-      _structuredCache[typeName] = result;
+      _structuredCache[type] = result;
     }
     return result;
   }
@@ -127,7 +128,7 @@ class SourceLocationCache {
     }
   }
 
-  final Map<String, ({String location, String? packageName})> _structuredCache =
+  final Map<Type, ({String location, String? packageName})> _structuredCache =
       {};
 
   /// Extracts the package name from a source file path.

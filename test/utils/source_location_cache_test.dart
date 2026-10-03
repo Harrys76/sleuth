@@ -101,6 +101,27 @@ void main() {
       expect(cache.length, 1);
     });
 
+    testWidgets('two widgets of the same type share one entry', (tester) async {
+      final cache = SourceLocationCache();
+
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(children: [_TestWidget(), _TestWidget()]),
+        ),
+      );
+
+      final elements = tester.elementList(find.byType(_TestWidget)).toList();
+      expect(elements, hasLength(2));
+      final first = cache.lookup(elements[0]);
+      final second = cache.lookup(elements[1]);
+
+      expect(first, isNotNull);
+      expect(second, first);
+      expect(cache.length, 1);
+      expect(cache.lookupStructured(elements[1])?.location, first);
+    });
+
     testWidgets('bounded at maxEntries', (tester) async {
       final cache = SourceLocationCache(maxEntries: 1);
 

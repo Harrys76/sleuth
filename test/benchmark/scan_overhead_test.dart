@@ -329,7 +329,80 @@ void main() {
       // measured: 6101 µs (serial, debug JIT, M1 Pro)
       expect(avgUs, lessThan(31000 * budgetMultiplier));
     });
+
+    testWidgets('1,000 paints of a 6-deep tree: cached attribution under '
+        '10 % of uncached', (tester) async {
+      debugOnProfilePaint = null;
+      debugOnRebuildDirtyWidget = null;
+      final repaint = ValueNotifier<int>(0);
+      addTearDown(repaint.dispose);
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: _Level(
+            depth: 6,
+            leaf: CustomPaint(
+              size: const Size(10, 2),
+              painter: _BenchPainter(repaint),
+            ),
+          ),
+        ),
+      );
+
+      final coordinator = DebugInstrumentationCoordinator(
+        installRebuild: false,
+      );
+      coordinator.install();
+      final renderObject = tester.renderObject(find.byType(CustomPaint));
+      final onPaint = debugOnProfilePaint!;
+
+      final uncached = benchmarkUs('1,000 paints, uncached attribution', () {
+        for (var i = 0; i < 1000; i++) {
+          coordinator.invalidatePaintAttribution();
+          onPaint(renderObject);
+        }
+        coordinator.snapshot();
+      });
+      final computesBefore = coordinator.paintAttributionComputeCount;
+      final cached = benchmarkUs('1,000 paints, cached attribution', () {
+        for (var i = 0; i < 1000; i++) {
+          onPaint(renderObject);
+        }
+        coordinator.snapshot();
+      });
+      final recomputed =
+          coordinator.paintAttributionComputeCount - computesBefore;
+      coordinator.dispose();
+
+      // ignore: avoid_print
+      print(
+        '  cached / uncached: '
+        '${(cached / uncached * 100).toStringAsFixed(1)} %',
+      );
+      // The uncached loop's last paint left a fresh entry; the cached
+      // loop never recomputes.
+      expect(recomputed, 0);
+      // measured: cached 2.3 % of uncached, 121 µs per 1,000 paints
+      // (serial, debug JIT, M1 Pro)
+      expect(cached, lessThan(uncached * 0.1));
+    });
   });
+}
+
+/// [depth] nested user widgets above [leaf].
+class _Level extends StatelessWidget {
+  const _Level({required this.depth, required this.leaf});
+
+  final int depth;
+  final Widget leaf;
+
+  @override
+  Widget build(BuildContext context) => depth == 0
+      ? leaf
+      : Padding(
+          padding: EdgeInsets.zero,
+          child: _Level(depth: depth - 1, leaf: leaf),
+        );
 }
 
 class _FortyIssueDetector extends BaseDetector {
