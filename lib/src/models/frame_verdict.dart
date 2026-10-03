@@ -82,7 +82,8 @@ class FrameVerdict {
   /// Whether this verdict used per-frame event correlation.
   final bool isCorrelated;
 
-  /// Fraction of batch events that matched this frame (null when not correlated).
+  /// Fraction of the timeline batch's events that matched any frame
+  /// (null when not correlated).
   final double? correlationCoverage;
 
   /// Top CPU-consuming functions during this frame (null when unavailable).

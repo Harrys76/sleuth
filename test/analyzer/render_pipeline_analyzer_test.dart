@@ -342,6 +342,7 @@ void main() {
           flushPaintUs: 2000,
           rasterUs: 5000,
           matchedEventCount: 5,
+          batchMatchedEventCount: 5,
           totalBatchEventCount: 5,
         ),
       );
@@ -363,6 +364,7 @@ void main() {
           flushPaintUs: 1000,
           rasterUs: 25000,
           matchedEventCount: 5,
+          batchMatchedEventCount: 5,
           totalBatchEventCount: 5,
         ),
       );
@@ -384,6 +386,7 @@ void main() {
           flushPaintUs: 1000,
           rasterUs: 4000,
           matchedEventCount: 4,
+          batchMatchedEventCount: 4,
           totalBatchEventCount: 4,
         ),
       );
@@ -397,6 +400,7 @@ void main() {
         correlation: const CorrelatedFrameData(
           buildScopeUs: 20000,
           matchedEventCount: 3,
+          batchMatchedEventCount: 3,
           totalBatchEventCount: 10,
         ),
       );
@@ -410,6 +414,7 @@ void main() {
         correlation: const CorrelatedFrameData(
           buildScopeUs: 20000,
           matchedEventCount: 5,
+          batchMatchedEventCount: 5,
           totalBatchEventCount: 5,
         ),
       );
@@ -423,6 +428,7 @@ void main() {
         correlation: const CorrelatedFrameData(
           buildScopeUs: 20000,
           matchedEventCount: 5,
+          batchMatchedEventCount: 5,
           totalBatchEventCount: 5,
         ),
       );
@@ -436,6 +442,7 @@ void main() {
         correlation: const CorrelatedFrameData(
           buildScopeUs: 20000,
           matchedEventCount: 3,
+          batchMatchedEventCount: 3,
           totalBatchEventCount: 10,
         ),
       );

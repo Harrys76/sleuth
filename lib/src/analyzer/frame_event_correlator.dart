@@ -10,6 +10,7 @@ class CorrelatedFrameData {
     this.rasterUs = 0,
     this.shaderCompileUs = 0,
     this.matchedEventCount = 0,
+    required this.batchMatchedEventCount,
     required this.totalBatchEventCount,
   });
 
@@ -23,16 +24,29 @@ class CorrelatedFrameData {
   /// How many events from the batch matched this frame.
   final int matchedEventCount;
 
+  /// How many events from the batch matched any frame in the batch.
+  ///
+  /// The same value on every [CorrelatedFrameData] from one
+  /// [FrameEventCorrelator.correlate] call.
+  final int batchMatchedEventCount;
+
   /// Total events in the batch (across all frames).
   final int totalBatchEventCount;
 
-  /// Fraction of batch events that correlated to ANY frame.
-  /// Low values suggest clock mismatch or sparse timeline data.
-  double get coverageRatio =>
-      totalBatchEventCount == 0 ? 0 : matchedEventCount / totalBatchEventCount;
+  /// [batchMatchedEventCount] / [totalBatchEventCount]: the fraction of the
+  /// batch's events that fell inside some frame's build or raster window
+  /// (0 for an empty batch).
+  ///
+  /// A batch-level value, not this frame's share: a batch spanning several
+  /// frames with full coverage reports 1.0 on each of them. Low values
+  /// suggest clock mismatch or sparse timeline data.
+  double get batchCoverageRatio => totalBatchEventCount == 0
+      ? 0
+      : batchMatchedEventCount / totalBatchEventCount;
 
-  /// Whether this correlation has enough data for a trustworthy verdict.
-  bool get isTrustworthy => matchedEventCount > 0 && coverageRatio >= 0.5;
+  /// Whether this frame matched at least one event and at least half of the
+  /// batch's events matched some frame ([batchCoverageRatio] >= 0.5).
+  bool get isTrustworthy => matchedEventCount > 0 && batchCoverageRatio >= 0.5;
 }
 
 /// Matches VM timeline events to specific frames by timestamp correlation.
@@ -120,6 +134,11 @@ class FrameEventCorrelator {
       }
     }
 
+    var batchMatched = 0;
+    for (final b in buckets.values) {
+      batchMatched += b.matchedCount;
+    }
+
     // Convert to immutable results
     final result = <int, CorrelatedFrameData>{};
     for (final entry in buckets.entries) {
@@ -131,6 +150,7 @@ class FrameEventCorrelator {
         rasterUs: b.rasterUs,
         shaderCompileUs: b.shaderCompileUs,
         matchedEventCount: b.matchedCount,
+        batchMatchedEventCount: batchMatched,
         totalBatchEventCount: totalEvents,
       );
     }

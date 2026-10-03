@@ -327,6 +327,15 @@
   or the hot-reload epoch changes), and `SourceLocationCache` keys on the
   widget `Type`. 1,000 paints of a repainting widget cost about 2 % of the
   uncached path.
+- Correlated verdicts are no longer suppressed when a poll batch spans
+  several frames. The trust check compared one frame's matched events
+  against the whole batch, so with three or more frames no frame reached
+  half and the verdict fell back to `full`. `CorrelatedFrameData` now
+  carries `batchMatchedEventCount` and `batchCoverageRatio` (events that
+  matched any frame); a frame is trusted when it matched at least one
+  event and the batch coverage is at least 0.5. `coverageRatio` is
+  removed, and `FrameVerdict.correlationCoverage` reports the batch
+  coverage.
 
 ### Testing
 

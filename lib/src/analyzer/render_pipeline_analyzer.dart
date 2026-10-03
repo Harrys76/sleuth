@@ -217,7 +217,7 @@ class RenderPipelineAnalyzer {
       relatedIssues: relatedIssues,
       isFullMode: true,
       isCorrelated: true,
-      correlationCoverage: correlation.coverageRatio,
+      correlationCoverage: correlation.batchCoverageRatio,
     );
 
     return _lastVerdict!;
@@ -245,7 +245,7 @@ class RenderPipelineAnalyzer {
     };
 
     // Confidence-dependent wording
-    if (correlation.coverageRatio >= 0.5) {
+    if (correlation.batchCoverageRatio >= 0.5) {
       buf.writeln(
         'Correlated to frame #${frameStats.frameNumber}: '
         '${phaseNames[suspected] ?? "UNKNOWN"}',
