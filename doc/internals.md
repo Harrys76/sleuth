@@ -15,6 +15,22 @@ Sleuth reports the frame total duration (build-to-raster span) from Flutter's `F
 
 The structural scan runs on a self-rescheduling timer whose callback scans in a post-frame callback, so a tick needs a frame to run. The interval starts at `treeScanInterval` (1 s). After three consecutive clean scans it doubles up to 2 s, never below the base. Each tick times its unified walk plus aggregation; a tick over 4 ms stretches the next interval to `treeScanInterval × ceil(cost / 4 ms)`, capped at 5 s and never below the back-off interval (capture mode disables the stretch). With `maxElementsPerScan > 0`, a walk over the cap skips the next tick once and schedules the following one at twice the interval; walks are never cut short and the previous issues stay visible. While the user is scrolling, a tick retries after 250 ms, at most three times in a row; a scroll with no start/update notification for 2 s is treated as ended. Scroll notifications only re-measure highlight rects from the render objects they were measured from; 300 ms after a scroll ends, one early tick runs. `issuesNotifier` fires only when a rendered field of the ranked list changes; `scanTickNotifier` pulses once per tick for panels that re-read live state (rebuild counts, recurrence badges).
 
+## VM poll pipeline
+
+With a VM connection, `VmServiceClient` polls every 500 ms on the UI isolate. One poll:
+
+1. **Window.** The first poll of a session (and the first after a reconnect) reads the whole timeline buffer, which still holds the engine startup events. Later polls first read the VM's timeline clock (`getVMTimelineMicros`, the clock event `ts` values use) and request `getVMTimeline(timeOriginMicros: max(0, newest − 2 s), timeExtentMicros: clock − origin + 1 s)`, where `newest` is the largest `ts` accepted so far and 2 s is `TimelineParser.maxReconstructedPhaseUs`, the longest begin/end span the parser pairs. The overlap lets a pair or an `X` event that straddles the previous fetch be read whole.
+2. **RPC.** package:vm_service decodes the JSON response and builds the `Timeline` on the UI isolate before the future completes, so this segment includes the decode.
+3. **Parse.** One pass. Each thread has a cursor (`lastTs` plus the signatures of the events at exactly `lastTs`); an event below its thread's cursor is dropped after three map lookups, and the `(ph, name, id)` signature string is built only for ties at `lastTs`. The pass returns the batch's largest accepted `ts`, which advances `newest` and anchors the sweep that evicts pending begins and idle cursors older than 30 s.
+4. **Dispatch.** `onTimelineData` fans the batch out to the VM detectors and re-aggregates issues; a quiet timeline still dispatches an empty batch once per second.
+5. **Tail.** The heap sample (`getMemoryUsage`).
+
+The VM timeline is never cleared: the ring buffer is bounded by the VM, so retaining it costs no app memory, events written between two polls are never lost, DevTools keeps its timeline, and capture export (`fetchRawTimelineEventsJson`, a separate full read) sees scenario markers in both modes. If the clock read fails or returns a value behind `newest`, the poll reads the whole buffer and drops every event before the window origin client side (`PollTimings.windowFallback`, `pollWindowFallbacks`).
+
+Every poll records a `PollTimings` (`Sleuth.lastPollTimings`): `rpcMicros`, `parseMicros`, `dispatchMicros`, `tailMicros` (the clock read plus the heap sample), the raw event count, the raw response length (matched to the request id through `VmService.onSend` / `onReceive`; −1 when unmatched), and the events dropped as duplicates. `ext.sleuth.diagnose` serves the same values plus 32-poll maxima of the RPC, parse, and dispatch segments.
+
+Measured on the iPhone 12: <numbers>
+
 ## Frame budget
 
 The jank budget is resolved from three inputs: `fpsTarget`, the display's reported refresh rate (`View.display.refreshRate`, read by the overlay), and the measured vsync cadence. `FrameTimingDetector` keeps the last 120 `vsyncStart` deltas (ignoring gaps longer than two `fpsTarget` frames) and, after 30 samples, estimates the cadence as `1e6 / p10(deltas)`. The 10th percentile, not the median: fast frames reveal the vsync period, while slow frames are what is being measured, and a median would fold steady jank into the cadence and loosen the budget. The estimate snaps to 30/60/90/120/144 Hz when within 8 %.

@@ -48,7 +48,7 @@ Sleuth is best used for **fast in-app triage** — catch the problem, understand
 Sleuth runs four layers of analysis:
 
 1. **Frame timing** (FrameTiming API) — per-frame build and raster duration, vsync overhead, cache stats. Works on every platform in debug and profile mode. This is the primary signal.
-2. **VM timeline** (vm_service) — when connected, provides sub-phase breakdowns (buildScope, flushLayout, flushPaint, raster). Best-effort; availability depends on platform and runtime environment.
+2. **VM timeline** (vm_service) — when connected, provides sub-phase breakdowns (buildScope, flushLayout, flushPaint, raster). Best-effort; availability depends on platform and runtime environment. Sleuth polls every 500 ms, fetching only the events written since the previous poll (plus a 2 s overlap it deduplicates) and never clearing the VM timeline, so DevTools keeps its view; each poll's own cost is reported by `Sleuth.lastPollTimings` and `ext.sleuth.diagnose`.
 3. **Widget tree scan** (post-frame walk, 1x/sec) — finds structural anti-patterns like non-lazy lists, oversized images, missing RepaintBoundary, and more.
 4. **Network monitoring** (HttpOverrides) — transparent HTTP interception that detects slow requests, frequency spikes, oversized responses, and HTTP error bursts without modifying app networking code. Only `dart:io` `HttpClient` traffic is observed; `cronet_http`, `cupertino_http`, and platform-SDK networking are invisible.
 

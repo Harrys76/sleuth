@@ -5,7 +5,9 @@ Pins sleuth 0.37.0; accepts the 0.36 lineage as the prior fallback.
 differences caused by sleuth 0.37 removing duration escalation, not by app
 changes.
 `diagnose` documents the passthrough keys `effectiveFrameRateHz`,
-`frameBudgetUs`, and `frameRateSource` (sleuth 0.37.0+).
+`frameBudgetUs`, `frameRateSource`, and the VM poll timings
+(`lastPoll*`, `maxPoll*`, `pollDuplicatesDropped`, `pollWindowFallbacks`)
+(sleuth 0.37.0+).
 
 ## 0.7.3
 

@@ -6,8 +6,8 @@ Runtime performance diagnostics package for Flutter mobile apps. 20 detectors ac
 
 ```bash
 # Always use fvm for all Flutter/Dart commands
-fvm flutter test --exclude-tags benchmark          # Default run (~3,549 tests; wall-clock benchmarks excluded)
-fvm flutter test --tags benchmark --concurrency=1  # Wall-clock benchmarks, serial (34 tests)
+fvm flutter test --exclude-tags benchmark          # Default run (~3,630 tests; wall-clock benchmarks excluded)
+fvm flutter test --tags benchmark --concurrency=1  # Wall-clock benchmarks, serial (38 tests)
 fvm flutter test test/detectors/    # Run detector tests only
 fvm flutter analyze                 # Static analysis (must be 0 issues)
 fvm flutter pub publish --dry-run   # Verify publish readiness
@@ -15,10 +15,10 @@ fvm flutter pub publish --dry-run   # Verify publish readiness
 # Example app
 cd example && fvm flutter run --profile   # Profile mode (recommended)
 cd example && fvm flutter run             # Debug mode
-cd example && fvm flutter test            # Cookbook smoke + demo widget tests (11 tests)
+cd example && fvm flutter test            # Cookbook smoke + demo widget tests (27 tests)
 
 # MCP sidecar (packages/sleuth_mcp/)
-cd packages/sleuth_mcp && dart test       # Sidecar tests (43 tests)
+cd packages/sleuth_mcp && dart test       # Sidecar tests (342 tests)
 cd packages/sleuth_mcp && dart analyze    # Sidecar static analysis
 ```
 
@@ -63,6 +63,8 @@ test/
 - Package is completely disabled in release mode (`kReleaseMode` guard).
 
 ## Current state
+
+**v0.37.0 VM poll pipeline** — `VmServiceClient._pollTimeline` never calls `clearVMTimeline`. First poll of a session (`_lastMaxTs == null`, reset in `_cleanup`) is a full fetch; later polls read `getVMTimelineMicros` and fetch `[max(0, lastMaxTs − TimelineParser.maxReconstructedPhaseUs), clock + 1 s]`; a failed or behind clock read falls back to a full read with `minTimestampUs` floor (`PollTimings.windowFallback`, diagnose `pollWindowFallbacks`). `TimelineCursor` is a class: `ts < lastTs` drops before any other field read, signatures built only for ties at `lastTs`; `ParsedTimelineData.maxTimestampUs` / `duplicatesDropped`; `_sweepStalePendingBegins(maxTs)` evicts idle cursors in both modes (`retainTimeline` only documents the export expectation). `PollTimings` (`lib/src/vm/poll_timings.dart`, exported) per poll: rpc (incl. decode) / parse / dispatch / tail µs, event count, raw response chars (request id from `onSend`, matched in `onReceive`), duplicates; `Sleuth.lastPollTimings` + 11 diagnose keys (`lastPoll*`, `maxPoll*` over 32 polls, `pollDuplicatesDropped`, `pollWindowFallbacks`). Debug paint attribution cached per Element (`Expando<_PaintAttribution>`, stamp = weak parent + depth + epoch; `invalidatePaintAttribution()` on hot reload; descendant leg still per paint); `SourceLocationCache` keyed by `Type`. Repaint capture leg 6 s, above 2.0×; `endScenarioInCleanup`; `vmAxes` reset busy guard; `checkBracketValidation` forwards `observedAxisReduction`.
 
 **v0.37.0 time-share axes** — `rebuild_activity` / `excessive_repaint` VM paths measure the share of UI-thread wall time inside BUILD / PAINT scopes per ~1 s window (`totalBuildScopeUs` / `totalFlushPaintUs` over the measured elapsed µs of the detector's monotonic clock, `utils/monotonic_clock.dart`); warning > 10 %, critical > 3× (`DetectorThresholds.buildTimePercentThreshold` / `paintTimePercentThreshold`, plumbed by the controller). `SleuthConfig.rebuildThreshold` and `RepaintDetector.paintFrequencyThreshold` gate only the debug count paths. Emissions stamp `observedBuildPercent` / `observedPaintPercent` (`toStringAsFixed(1)`); `last*Percent` tracks every closed window, rebuild peak moves in `_evaluateVmData`, repaint peak on natural window close (`flushPaintEvaluation` updates last only). `setBaseline` and the count observables are removed. Brackets `unit: 'percent'`, threshold 10 (warning, primary) / 30 (rebuild critical, `minInBandSamples: 2`), atTolerance 0.5, ceiling 2.7, observedAxisTolerance 0.25. Example capture screens use cost knobs (`CaptureBuildLoad(rows)`, `CapturePaintLoad.ops`) with a 3 s calibration pre-pass and a flush → reset → 1.5 s dwell boundary before `markScenarioBegin` (`example/lib/demos/capture_driver.dart`); hands-free via `ext.sleuthDemo.captureLeg` / `captureResult` / `vmAxes`.
 
@@ -122,7 +124,7 @@ test/
 
 ### Recent releases (one-line)
 
-- **v0.37.0** — Flutter 3.47 compatibility (scan root descends only into the selected `IndexedStack` child); floors Dart `^3.8.0` / Flutter `>=3.32.0`; text corrections. Evidence-tier ranking, duration escalation removed, possible-root causal guard, single-parent collapse requires parent severity ≥ child, 41 causal rules. Framework painters by name + owner, sliver boundary frames, measured image waste, `non_lazy_shrinkwrap`. Sidecar v0.8.0.
+- **v0.37.0** — Flutter 3.47 compatibility (scan root descends only into the selected `IndexedStack` child); floors Dart `^3.8.0` / Flutter `>=3.32.0`; text corrections. Evidence-tier ranking, duration escalation removed, possible-root causal guard, single-parent collapse requires parent severity ≥ child, 41 causal rules. Framework painters by name + owner, sliver boundary frames, measured image waste, `non_lazy_shrinkwrap`. Incremental VM timeline fetch (no clear), poll timings in `diagnose`, debug paint attribution cache. Sidecar v0.8.0.
 - **v0.35.0** — MCP snapshot projection + pagination. `ext.sleuth.snapshot` accepts optional `sections` / `maxIssueCount` / `maxRouteCount`; backward-compat (no args = full payload). New `SnapshotSection` enum (14 projectable keys, exported) + drift test vs `toJson` and `doc/mcp_schema.json`. Projected envelopes carry `_projectedSections` / `_projectionLimits` / `_projectionApplied`. Typed errors `arg_invalid_section` / `arg_invalid_int` / `arg_pagination_unused`. `kSleuthPackageVersion` 0.34.0 → 0.35.0. Sidecar v0.6.0: forwards args + `diskHandoff: bool` (temp-file pointer `{path, sizeBytes, sha256}`, cleaned on detach/shutdown/age-sweep); `compare_snapshots` `arg_section_mismatch` guard; `evaluateBudgets` `arg_missing_required_section`; `acceptedPriorLineages = {0.34}`.
 - **v0.34.0** — MCP snapshot deep-shape lock + sidecar tool-layer audit. `kSleuthPackageVersion` 0.33.0 → 0.34.0; envelope `schemaVersion` stays at `1`. Nested shapes for `recurrenceTrends`, `sessionSummary`, `routeSessions` derived from 6 on-device captures (real iPhone iOS 17.5) under `test/validation/captures/mcp_snapshots/`; see `doc/mcp_schema_derivation.md`. New `recordRecurrenceForTest` + `seedRouteHistoryForTest` seams + `checkSnapshotCapturesMatchSchema` invariant. Sidecar v0.4.0: `packages/sleuth_mcp/doc/mcp_tool_schema.{json,md}` + audit lock tool-call shapes for 9 first-class tools + 4 passthrough shims; `acceptedPriorLineages = {0.33}`.
 - **v0.33.0** — MCP wire-shape lock. `doc/mcp_schema.{json,md}` ship in pub archive; bidirectional key audit for 7 `ext.sleuth.*` handlers. `kSleuthPackageVersion` 0.32.0 → 0.33.0. `routeHealth` match-route now `{route: <session>}` for parity with `{routes: [...]}`; envelope `schemaVersion` stays at `1`. Sidecar v0.3.0 with `acceptedPriorLineages = {0.32}` one-cycle fallback + bridge-layer `versionSkewValidator` chokepoint (fail-closed on missing/non-String `packageVersion`); `get_route_health` normalizes legacy v0.32 inline shape.

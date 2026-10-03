@@ -283,6 +283,36 @@
 - Example: the RebuildActivity and Repaint capture screens vary build or
   paint cost per frame with a calibration pre-pass, and legs can be driven
   through `ext.sleuthDemo.captureLeg` / `captureResult` / `vmAxes`.
+  The repaint leg records 6 s (was 4 s) with the above leg aimed at 2.0×
+  the threshold; `vmAxes` refuses `reset=true` while a leg runs, and a
+  throwing scenario end in a leg's cleanup is logged instead of replacing
+  the leg's result.
+- The VM poll loop fetches incrementally and never clears the VM timeline.
+  The first poll of a session reads the whole buffer (startup events);
+  later polls read a window from 2 s before the newest event seen to the
+  VM's timeline clock plus 1 s, and per-thread cursors drop the overlap.
+  Capture mode no longer re-reads the retained ring buffer on every poll
+  (the source of two UI-isolate stalls per poll), live mode no longer
+  loses events written between the fetch and the clear, and DevTools
+  keeps its timeline. A clock read that fails or runs behind the newest
+  event falls back to a full read with a client-side floor.
+- Timeline parsing compares `ts` before reading any other field and builds
+  the `(ph, name, id)` dedup signature only for events at a cursor's
+  latest timestamp; `ParsedTimelineData` gains `maxTimestampUs` (used by
+  the stale-begin sweep instead of a second walk) and `duplicatesDropped`.
+- Poll cost is measured: `Sleuth.lastPollTimings` (`PollTimings`: RPC
+  including decode, parse, dispatch, tail RPCs, event count, raw response
+  length, duplicates dropped) and `ext.sleuth.diagnose` keys
+  `lastPollRpcMicros`, `lastPollParseMicros`, `lastPollDispatchMicros`,
+  `lastPollTailMicros`, `lastPollEventCount`, `lastPollResponseChars`,
+  `maxPollRpcMicros`, `maxPollParseMicros`, `maxPollDispatchMicros`
+  (32-poll maxima), `pollDuplicatesDropped`, and `pollWindowFallbacks`.
+  Measured on the iPhone 12: <numbers>
+- Debug instrumentation: the paint callback caches each element's ancestor
+  chain and ancestor-owner verdict (recomputed when the parent, the depth,
+  or the hot-reload epoch changes), and `SourceLocationCache` keys on the
+  widget `Type`. 1,000 paints of a repainting widget cost about 2 % of the
+  uncached path.
 
 ### Testing
 
@@ -290,6 +320,9 @@
   `flutter test --exclude-tags benchmark` for the default suite,
   `flutter test --tags benchmark --concurrency=1` for benchmarks. Budgets
   are about 5× the measured serial means, doubled on CI.
+- The audit forwards each detector's canonical `observedAxisReduction` to
+  bracket validation, so the `jank_detected` bracket is checked with
+  `last` as declared.
 
 `kSleuthPackageVersion` → 0.37.0. Sidecar sleuth_mcp 0.8.0 pins 0.37.0.
 
