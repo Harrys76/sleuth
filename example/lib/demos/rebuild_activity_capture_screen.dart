@@ -23,6 +23,8 @@
 // rescaled retries. Bands come from `timeShareBand`.
 // Legs are started from the buttons or from `ext.sleuthDemo.captureLeg`.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -139,7 +141,7 @@ class _RebuildActivityCaptureScreenState
 
   void _onRunLeg(String role) {
     if (!CaptureDriver.instance.begin('$_detectorKey/$_tier/$role')) return;
-    _runLeg(_tier, role);
+    unawaited(CaptureDriver.instance.runLeg(_runLeg, _tier, role));
   }
 
   @override

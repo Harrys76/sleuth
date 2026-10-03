@@ -327,6 +327,43 @@ void main() {
       client.dispose();
     });
 
+    test('an unanswered request older than the stale limit no longer '
+        'blocks the next one', () async {
+      final mock = _MockVmService()..cpuSamplesNeverCompletes = true;
+      var nowUs = 0;
+      final client = VmServiceClient(cpuSamplesMinInterval: Duration.zero)
+        ..rpcClockForTest = () => nowUs;
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      expect(
+        await client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1),
+        isNull,
+      );
+      expect(mock.getCpuSamplesCallCount, 1);
+
+      nowUs = VmServiceClient.cpuSamplesInFlightStaleAfter.inMicroseconds;
+      expect(
+        await client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1),
+        isNull,
+      );
+      expect(mock.getCpuSamplesCallCount, 1);
+
+      nowUs += 1;
+      expect(
+        await client.getCpuSamples(timeOriginUs: 0, timeExtentUs: 1),
+        isNull,
+      );
+      expect(mock.getCpuSamplesCallCount, 2);
+      client.dispose();
+    });
+
+    test('the stale limit is 30 s', () {
+      expect(
+        VmServiceClient.cpuSamplesInFlightStaleAfter,
+        const Duration(seconds: 30),
+      );
+    });
+
     test('the default interval is 10 s', () {
       expect(
         VmServiceClient().cpuSamplesMinInterval,
@@ -1014,6 +1051,92 @@ void main() {
       expect(client.lastPollTimings!.duplicatesDropped, 2);
       expect(client.pollDuplicatesDropped, 4);
       client.dispose();
+    });
+
+    test('a lost connection resets every poll reading to null until the '
+        'next session polls', () async {
+      final mock = _MockVmService()
+        ..timelineResult = Timeline(
+          traceEvents: [build(100000)],
+          timeOriginMicros: 0,
+          timeExtentMicros: 0,
+        );
+      final client = VmServiceClient(onTimelineData: (_) {});
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+      await client.pollTimelineSync();
+      expect(client.lastPollTimings, isNotNull);
+      expect(client.pollDuplicatesDropped, 0);
+      expect(client.pollWindowFallbacks, 0);
+
+      // Three failures report the connection lost; the reconnect ladder
+      // cleans the session up.
+      mock.getVMTimelineThrows = Exception('gone');
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+      await client.pollTimelineSync();
+      expect(client.isConnected, isFalse);
+
+      expect(client.lastPollTimings, isNull);
+      expect(client.maxPollRpcMicros, isNull);
+      expect(client.maxPollDecodeMicros, isNull);
+      expect(client.maxPollParseMicros, isNull);
+      expect(client.maxPollDispatchMicros, isNull);
+      expect(client.pollDuplicatesDropped, isNull);
+      expect(client.pollWindowFallbacks, isNull);
+
+      final fresh = _MockVmService()
+        ..timelineResult = Timeline(
+          traceEvents: [build(100000)],
+          timeOriginMicros: 0,
+          timeExtentMicros: 0,
+        );
+      client.setServiceForTest(fresh, isolateId: 'isolate-1');
+      await client.pollTimelineSync();
+
+      expect(client.lastPollTimings, isNotNull);
+      expect(client.lastPollTimings!.eventCount, 1);
+      expect(client.maxPollRpcMicros, isNotNull);
+      expect(client.pollDuplicatesDropped, 0);
+      expect(client.pollWindowFallbacks, 0);
+      client.dispose();
+    });
+
+    group('response id matching', () {
+      const id = '42';
+      final padding = 'x' * (2 * 1024 * 1024);
+
+      test('an id only in the middle of a large message does not '
+          'match', () {
+        final message =
+            '{"jsonrpc":"2.0","result":{"traceEvents":[$padding'
+            '{"id":"$id"}$padding]},"id":"7"}';
+        expect(VmServiceClient.responseCarriesId(message, id), isFalse);
+      });
+
+      test('a message ending with the id matches', () {
+        final message =
+            '{"jsonrpc":"2.0","result":{"traceEvents":[$padding]},'
+            '"id":"$id"}';
+        expect(VmServiceClient.responseCarriesId(message, id), isTrue);
+      });
+
+      test('a message starting with the id matches', () {
+        final message =
+            '{"id":"$id","jsonrpc":"2.0","result":{"traceEvents":'
+            '[$padding]}}';
+        expect(VmServiceClient.responseCarriesId(message, id), isTrue);
+      });
+
+      test('a short message is searched whole', () {
+        expect(
+          VmServiceClient.responseCarriesId('{"result":{},"id":"$id"}', id),
+          isTrue,
+        );
+        expect(
+          VmServiceClient.responseCarriesId('{"result":{},"id":"4"}', id),
+          isFalse,
+        );
+      });
     });
 
     test('the rolling maxima reset with the session', () async {
@@ -1848,6 +1971,9 @@ class _MockVmService implements VmService {
   CpuSamples? cpuSamplesResult;
   Object? cpuSamplesThrows;
   Duration? cpuSamplesDelay;
+
+  /// When true, `getCpuSamples` never answers.
+  bool cpuSamplesNeverCompletes = false;
   int getCpuSamplesCallCount = 0;
   AllocationProfile? allocationProfileResult;
   Object? allocationProfileThrows;
@@ -1967,6 +2093,7 @@ class _MockVmService implements VmService {
     int timeExtentMicros,
   ) async {
     getCpuSamplesCallCount++;
+    if (cpuSamplesNeverCompletes) return Completer<CpuSamples>().future;
     if (cpuSamplesDelay != null) {
       await Future<void>.delayed(cpuSamplesDelay!);
     }

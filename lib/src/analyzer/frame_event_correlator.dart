@@ -44,9 +44,15 @@ class CorrelatedFrameData {
       ? 0
       : batchMatchedEventCount / totalBatchEventCount;
 
-  /// Whether this frame matched at least one event and at least half of the
-  /// batch's events matched some frame ([batchCoverageRatio] >= 0.5).
-  bool get isTrustworthy => matchedEventCount > 0 && batchCoverageRatio >= 0.5;
+  /// Whether this frame matched at least [minTrustworthyEvents] events and
+  /// at least half of the batch's events matched some frame
+  /// ([batchCoverageRatio] >= 0.5). A single matched event describes one
+  /// phase at most, so it never drives a correlated verdict on its own.
+  bool get isTrustworthy =>
+      matchedEventCount >= minTrustworthyEvents && batchCoverageRatio >= 0.5;
+
+  /// Fewest matched events for [isTrustworthy].
+  static const int minTrustworthyEvents = 2;
 }
 
 /// Matches VM timeline events to specific frames by timestamp correlation.

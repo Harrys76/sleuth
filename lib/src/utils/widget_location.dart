@@ -77,7 +77,14 @@ const _frameworkNames = {
 ///   "NestedScrollDemo > Column > SingleChildScrollView (lib/screens/demo.dart:42)"
 /// Example output (profile mode or tracking unavailable):
 ///   "NestedScrollDemo > Column > SingleChildScrollView"
-String buildAncestorChain(Element element, {int maxDepth = 6}) {
+///
+/// When [visitedAncestors] is given, every ancestor the walk reads is
+/// appended to it, nearest first.
+String buildAncestorChain(
+  Element element, {
+  int maxDepth = 6,
+  List<Element>? visitedAncestors,
+}) {
   // Leaf element: always include, with source location if available.
   final leafName = typeNameCache.lookup(element.widget);
   final leafLoc = sourceLocationCache.lookup(element);
@@ -85,6 +92,7 @@ String buildAncestorChain(Element element, {int maxDepth = 6}) {
   final chain = <String>[leafEntry];
 
   element.visitAncestorElements((ancestor) {
+    visitedAncestors?.add(ancestor);
     final name = typeNameCache.lookup(ancestor.widget);
     // Skip private and known framework widgets
     if (name.startsWith('_') || _frameworkNames.contains(name)) {

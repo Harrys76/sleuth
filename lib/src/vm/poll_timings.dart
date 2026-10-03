@@ -244,6 +244,12 @@ class RpcSpanTracker {
     });
   }
 
+  /// Drops requests still open that started before [micros]. A dropped
+  /// request records no interval when it completes.
+  void abandonOpenBefore(int micros) {
+    _openById.removeWhere((_, start) => start < micros);
+  }
+
   /// Drops closed intervals that ended before [micros].
   void pruneBefore(int micros) {
     _spans.removeWhere((s) => s.$2 < micros);

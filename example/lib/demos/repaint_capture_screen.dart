@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:sleuth/sleuth.dart';
@@ -121,7 +123,7 @@ class _RepaintCaptureScreenState extends State<RepaintCaptureScreen> {
 
   void _onRunLeg(String role) {
     if (!CaptureDriver.instance.begin('$_detectorKey/warning/$role')) return;
-    _runLeg('warning', role);
+    unawaited(CaptureDriver.instance.runLeg(_runLeg, 'warning', role));
   }
 
   @override

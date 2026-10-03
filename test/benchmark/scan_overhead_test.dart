@@ -382,7 +382,7 @@ void main() {
       // The uncached loop's last paint left a fresh entry; the cached
       // loop never recomputes.
       expect(recomputed, 0);
-      // measured: cached 2.3 % of uncached, 121 µs per 1,000 paints
+      // measured: cached 5.1 % of uncached, 286 µs per 1,000 paints
       // (serial, debug JIT, M1 Pro)
       expect(cached, lessThan(uncached * 0.1));
     });

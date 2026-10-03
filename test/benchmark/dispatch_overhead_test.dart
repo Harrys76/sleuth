@@ -174,7 +174,7 @@ void main() {
     );
 
     // measured (serial, debug JIT, M1 Pro): about 130 us per batch.
-    expect(r.total, lessThan(2000 * budgetMultiplier));
+    expect(r.total, lessThan(1000 * budgetMultiplier));
   });
 
   // Each `getCpuSamples` request stalls the UI isolate: the VM builds the

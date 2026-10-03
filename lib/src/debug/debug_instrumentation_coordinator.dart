@@ -3,6 +3,8 @@
 // implement-only kind.
 // ignore_for_file: deprecated_member_use
 
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
@@ -115,10 +117,11 @@ class DebugInstrumentationCoordinator {
   /// element. A repainting widget paints every frame from the same
   /// element; rebuilding the chain (string joins, source-location
   /// lookups) and walking 16 ancestors each time was the dominant
-  /// debug-mode paint cost. Entries are stamped with the parent element,
-  /// the element's depth, and [_paintAttributionEpoch]; any change, or an
-  /// unmounted element, recomputes. Weakly keyed, so entries die with
-  /// their elements.
+  /// debug-mode paint cost. Entries are stamped with every ancestor the
+  /// chain and the ownership walk read, the element's depth, and
+  /// [_paintAttributionEpoch]; a different or unmounted ancestor at any
+  /// stamped position, any other change, or an unmounted element
+  /// recomputes. Weakly keyed, so entries die with their elements.
   final Expando<_PaintAttribution> _paintAttribution =
       Expando<_PaintAttribution>('SleuthPaintAttribution');
 
@@ -676,8 +679,8 @@ class DebugInstrumentationCoordinator {
     // same `runtimeType.toString()` — e.g. CircularProgressIndicator's
     // internal `CustomPaint` and a chart's bare `CustomPaint` — can have
     // totally different owners. The per-element cache keeps that
-    // property; it only skips recomputing for an element whose parent
-    // and depth are unchanged since its last paint.
+    // property; it only skips recomputing for an element whose
+    // ancestors and depth are unchanged since its last paint.
     //
     // The chain cache (`_ancestorChains`) is still populated on first
     // occurrence per typeName for the source-location enrichment use
@@ -712,34 +715,27 @@ class DebugInstrumentationCoordinator {
     }
   }
 
+  /// Ancestors read by the ownership walk ([hasAnimationOwnerAncestor]).
+  static const int _ownerAncestorDepth = 16;
+
   /// Cached or freshly computed ancestor attribution for [element].
   _PaintAttribution _attributionFor(Element element) {
-    Element? parent;
     var cacheable = element.mounted;
-    if (cacheable) {
-      try {
-        element.visitAncestorElements((ancestor) {
-          parent = ancestor;
-          return false;
-        });
-      } catch (_) {
-        cacheable = false;
-      }
-    }
     if (cacheable) {
       final cached = _paintAttribution[element];
       if (cached != null &&
           cached.epoch == _paintAttributionEpoch &&
           cached.depth == element.depth &&
-          identical(cached.parent?.target, parent)) {
+          _ancestorsUnchanged(element, cached.ancestors)) {
         return cached;
       }
     }
 
     _paintAttributionComputes++;
     String? chain;
+    final chainAncestors = <Element>[];
     try {
-      chain = buildAncestorChain(element);
+      chain = buildAncestorChain(element, visitedAncestors: chainAncestors);
     } catch (e, s) {
       // Element may be deactivated mid-paint (rare but observed in
       // teardown races). Continue with `chain == null`; the ownership
@@ -754,7 +750,7 @@ class DebugInstrumentationCoordinator {
     try {
       ancestorOwned =
           chainContainsAnimationOwner(chain) ||
-          hasAnimationOwnerAncestor(element);
+          hasAnimationOwnerAncestor(element, maxDepth: _ownerAncestorDepth);
     } catch (e, s) {
       cacheable = false;
       assert(() {
@@ -762,8 +758,16 @@ class DebugInstrumentationCoordinator {
         return true;
       }());
     }
+    var ancestors = const <WeakReference<Element>>[];
+    if (cacheable) {
+      try {
+        ancestors = _stampAncestors(element, chainAncestors.length);
+      } catch (_) {
+        cacheable = false;
+      }
+    }
     final attribution = _PaintAttribution(
-      parent: parent == null ? null : WeakReference(parent!),
+      ancestors: ancestors,
       depth: cacheable ? element.depth : -1,
       epoch: _paintAttributionEpoch,
       chain: chain,
@@ -772,22 +776,63 @@ class DebugInstrumentationCoordinator {
     if (cacheable) _paintAttribution[element] = attribution;
     return attribution;
   }
+
+  /// Weak references to the nearest ancestors of [element], as many as
+  /// the chain walk ([chainRead]) or the ownership walk read, whichever
+  /// is more. Each element has one parent, so the same objects at every
+  /// position mean the same ancestry up to the last one read.
+  static List<WeakReference<Element>> _stampAncestors(
+    Element element,
+    int chainRead,
+  ) {
+    final limit = math.max(chainRead, _ownerAncestorDepth);
+    final refs = <WeakReference<Element>>[];
+    element.visitAncestorElements((ancestor) {
+      refs.add(WeakReference(ancestor));
+      return refs.length < limit;
+    });
+    return refs;
+  }
+
+  /// Whether [element]'s nearest ancestors are still the mounted objects
+  /// in [stamp], position by position, and the walk ends where it ended.
+  static bool _ancestorsUnchanged(
+    Element element,
+    List<WeakReference<Element>> stamp,
+  ) {
+    var index = 0;
+    var same = true;
+    try {
+      element.visitAncestorElements((ancestor) {
+        if (index >= stamp.length) return false;
+        if (!identical(stamp[index].target, ancestor) || !ancestor.mounted) {
+          same = false;
+          return false;
+        }
+        index++;
+        return index < stamp.length;
+      });
+    } catch (_) {
+      return false;
+    }
+    return same && index == stamp.length;
+  }
 }
 
 /// Ancestor-derived attribution of one painting element, stamped with the
 /// position it was computed at.
 class _PaintAttribution {
   const _PaintAttribution({
-    required this.parent,
+    required this.ancestors,
     required this.depth,
     required this.epoch,
     required this.chain,
     required this.ancestorOwned,
   });
 
-  /// Parent element at computation time; weak so a reparented element's
-  /// cache entry does not keep its old parent alive.
-  final WeakReference<Element>? parent;
+  /// Nearest ancestors at computation time, nearest first; weak so a
+  /// moved element's cache entry does not keep its old ancestors alive.
+  final List<WeakReference<Element>> ancestors;
   final int depth;
   final int epoch;
   final String? chain;

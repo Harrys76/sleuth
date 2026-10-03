@@ -1,6 +1,8 @@
 // Time-share capture screens, their shared driver, and the hands-free
 // capture extensions' helpers.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -97,6 +99,94 @@ void main() {
         returnsNormally,
       );
       expect((driver.result()['log']! as List).last, contains('timeline gone'));
+    });
+
+    test('a runner that throws before its own error handling fails the '
+        'leg', () async {
+      final driver = CaptureDriver.instance;
+      driver.begin('repaint/warning/at');
+      Future<void> throwing(String tier, String role) =>
+          throw StateError('detector gone');
+      await driver.runLeg(throwing, 'warning', 'at');
+      expect(driver.isBusy, isFalse);
+      expect(driver.state, CaptureLegState.failed);
+      expect(driver.log.last, contains('detector gone'));
+    });
+
+    test('a runner that returns without a result fails the leg', () async {
+      final driver = CaptureDriver.instance;
+      driver.begin('rebuild/warning/at');
+      await driver.runLeg((_, _) async {}, 'warning', 'at');
+      expect(driver.state, CaptureLegState.failed);
+      expect(driver.log.last, contains('without a result'));
+    });
+
+    test('a completed leg keeps its result', () async {
+      final driver = CaptureDriver.instance;
+      driver.begin('rebuild/warning/at');
+      await driver.runLeg(
+        (_, _) async => driver.complete(observed: 9.0, json: '{}'),
+        'warning',
+        'at',
+      );
+      expect(driver.state, CaptureLegState.done);
+      expect(driver.json, '{}');
+    });
+
+    test('a VM call past its limit throws a named timeout', () async {
+      expect(kVmCallTimeout, const Duration(seconds: 10));
+      await expectLater(
+        withCallTimeout(
+          Completer<void>().future,
+          'exportCaptureJson',
+          timeout: const Duration(milliseconds: 10),
+        ),
+        throwsA(
+          isA<CaptureCallTimeout>().having(
+            (e) => e.toString(),
+            'message',
+            'exportCaptureJson timed out after 0.01 s',
+          ),
+        ),
+      );
+      expect(await withCallTimeout(Future.value(3), 'x'), 3);
+    });
+
+    test('a stream suspension that never answers fails the leg', () async {
+      final driver = CaptureDriver.instance;
+      driver.begin('repaint/warning/at');
+      var stops = 0;
+      var starts = 0;
+      await runTimeShareLeg(
+        leg: const TimeShareLeg(
+          detector: 'repaint',
+          stableId: 'excessive_repaint',
+          tier: 'warning',
+          role: 'at',
+          scenario: 'excessive_repaint_at',
+          tierThreshold: 10,
+          targetPercent: 12,
+          knobName: 'ops',
+          calibrationKnob: 10,
+          minKnob: 1,
+          maxKnob: 100,
+          workloadDuration: Duration(seconds: 6),
+        ),
+        startWorkload: (_) => starts++,
+        stopWorkload: () => stops++,
+        readPeak: () => 0,
+        resetDetector: () {},
+        isActive: () => true,
+        suspendStreams: () => Completer<void>().future,
+        callTimeout: const Duration(milliseconds: 20),
+      );
+      expect(driver.state, CaptureLegState.failed);
+      expect(
+        driver.log.last,
+        contains('suspendNonEssentialTimelineStreams timed out'),
+      );
+      expect(starts, 0);
+      expect(stops, greaterThan(0));
     });
 
     test('consume leaves a running leg untouched', () {

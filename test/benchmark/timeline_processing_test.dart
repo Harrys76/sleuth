@@ -232,7 +232,10 @@ void main() {
       for (final cursor in cursors.values) {
         expect(cursor.seenSignatures, hasLength(1));
       }
-      expect(reread, lessThan(fresh * 0.3));
+      // The two loops run back to back, but on a shared CI runner a
+      // neighbour's load can land on one of them only, so the ratio gets
+      // the same CI multiplier as the absolute budgets.
+      expect(reread, lessThan(fresh * 0.3 * budgetMultiplier));
     });
   });
 }

@@ -97,6 +97,76 @@ void main() {
       expect(after, isNot(contains('HolderA')));
     });
 
+    testWidgets('moving a keyed wrapper above the painter recomputes and '
+        'the ownership verdict follows the new location', (tester) async {
+      // The key sits on a wrapper above the painting widget, so the
+      // painter's direct parent stays the same object and its depth is
+      // unchanged; only an ancestor further up differs.
+      final key = GlobalKey();
+      final animation = ValueNotifier<int>(0);
+      addTearDown(animation.dispose);
+      final wrapper = _Wrapper(
+        key: key,
+        child: CustomPaint(size: const Size(10, 10), painter: _NoopPainter()),
+      );
+      Widget tree({required bool underA}) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: Column(
+          children: [
+            HolderA(child: underA ? wrapper : null),
+            AnimatedBuilder(
+              animation: animation,
+              builder: (_, child) =>
+                  SizedBox(height: 20, child: child ?? const SizedBox()),
+              child: underA ? null : wrapper,
+            ),
+          ],
+        ),
+      );
+      Element parentOf(Element element) {
+        late Element parent;
+        element.visitAncestorElements((a) {
+          parent = a;
+          return false;
+        });
+        return parent;
+      }
+
+      await tester.pumpWidget(tree(underA: true));
+      final coord = DebugInstrumentationCoordinator(installRebuild: false);
+      coord.install();
+      final onPaint = debugOnProfilePaint!;
+
+      final element = tester.element(find.byType(CustomPaint));
+      final parent = parentOf(element);
+      final depth = element.depth;
+      final ro = tester.renderObject(find.byType(CustomPaint));
+      onPaint(ro);
+      final computes = coord.paintAttributionComputeCount;
+      onPaint(ro);
+      final hitsOnly = coord.paintAttributionComputeCount == computes;
+      final before = coord.snapshot();
+
+      await tester.pumpWidget(tree(underA: false), phase: EnginePhase.build);
+      final movedElement = tester.element(find.byType(CustomPaint));
+      final movedParent = parentOf(movedElement);
+      final movedDepth = movedElement.depth;
+      final beforeMovePaint = coord.paintAttributionComputeCount;
+      onPaint(ro);
+      final recomputed = coord.paintAttributionComputeCount - beforeMovePaint;
+      final after = coord.snapshot();
+      coord.dispose();
+      await tester.pump();
+
+      expect(movedElement, same(element));
+      expect(movedParent, same(parent));
+      expect(movedDepth, depth);
+      expect(hitsOnly, isTrue);
+      expect(before.animationOwnedPaintCounts['CustomPaint'], isNull);
+      expect(recomputed, 1);
+      expect(after.animationOwnedPaintCounts['CustomPaint'], 1);
+    });
+
     test('unmounted elements are never cached', () {
       final coord = DebugInstrumentationCoordinator(installRebuild: false);
       coord.install();
@@ -186,6 +256,14 @@ class _Painted extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       CustomPaint(size: const Size(10, 10), painter: _NoopPainter());
+}
+
+class _Wrapper extends StatelessWidget {
+  const _Wrapper({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
 }
 
 class HolderA extends StatelessWidget {

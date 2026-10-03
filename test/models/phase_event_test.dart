@@ -106,6 +106,22 @@ void main() {
       expect(data.isTrustworthy, isFalse);
     });
 
+    test('isTrustworthy requires two matched events at full coverage', () {
+      const one = CorrelatedFrameData(
+        matchedEventCount: 1,
+        batchMatchedEventCount: 10,
+        totalBatchEventCount: 10,
+      );
+      const two = CorrelatedFrameData(
+        matchedEventCount: 2,
+        batchMatchedEventCount: 10,
+        totalBatchEventCount: 10,
+      );
+      expect(one.batchCoverageRatio, 1.0);
+      expect(one.isTrustworthy, isFalse);
+      expect(two.isTrustworthy, isTrue);
+    });
+
     test('isTrustworthy reads the batch coverage, not the frame share', () {
       const data = CorrelatedFrameData(
         matchedEventCount: 2,

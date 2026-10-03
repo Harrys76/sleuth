@@ -872,7 +872,19 @@ class VmServiceClient {
   /// Monotonic clock for [_cpuSpans], [_allocationSpans] and the decode
   /// stamp.
   final Stopwatch _rpcClock = Stopwatch()..start();
-  int _rpcClockUs() => _rpcClock.elapsedMicroseconds;
+  int _rpcClockUs() =>
+      _rpcClockOverride?.call() ?? _rpcClock.elapsedMicroseconds;
+
+  int Function()? _rpcClockOverride;
+
+  /// Test-only: replaces the monotonic RPC clock (microseconds).
+  @visibleForTesting
+  set rpcClockForTest(int Function() clock) => _rpcClockOverride = clock;
+
+  /// Age after which an unanswered `getCpuSamples` request no longer
+  /// blocks the next one. A VM that never answers while the socket stays
+  /// open would otherwise stop CPU attribution until a reconnect.
+  static const Duration cpuSamplesInFlightStaleAfter = Duration(seconds: 30);
 
   /// Start of the last `getCpuSamples` request on [_rpcClock].
   int? _lastCpuSamplesRequestUs;
@@ -968,7 +980,7 @@ class VmServiceClient {
       _receiveSub = service.onReceive.listen((message) {
         final id = _timelineRequestId;
         if (id == null) return;
-        if (message.lastIndexOf('"id":"$id"') < 0) return;
+        if (!responseCarriesId(message, id)) return;
         _timelineResponseReceivedUs = _rpcClockUs();
         _timelineResponseChars = message.length;
         _timelineRequestId = null;
@@ -976,6 +988,25 @@ class VmServiceClient {
     } catch (_) {
       // A test double without wire streams reports −1 for every poll.
     }
+  }
+
+  /// Characters at each end of a raw response searched for its id.
+  static const int _idSearchChars = 64;
+
+  /// Whether the raw JSON-RPC [message] is the response to request [id].
+  ///
+  /// A response object carries its id at its start or its end, so only
+  /// the first and last [_idSearchChars] characters are searched; ids
+  /// nested in the payload (trace event ids in a timeline export,
+  /// extension event data) cannot match, and a multi-MB response costs
+  /// two short scans.
+  @visibleForTesting
+  static bool responseCarriesId(String message, String id) {
+    final needle = '"id":"$id"';
+    final length = message.length;
+    if (length <= 2 * _idSearchChars) return message.contains(needle);
+    return message.substring(0, _idSearchChars).contains(needle) ||
+        message.substring(length - _idSearchChars).contains(needle);
   }
 
   int _takeTimelineResponseChars() {
@@ -1134,6 +1165,7 @@ class VmServiceClient {
   void _cleanup() {
     _consecutivePollFailures = 0;
     _lastTimelineDispatchAt = null;
+    _lastPollTimings = null;
     _timingsWindow.clear();
     _duplicatesDroppedTotal = 0;
     _windowFallbacks = 0;
@@ -1180,7 +1212,8 @@ class VmServiceClient {
   /// Query CPU samples for a time window. Returns null on error or
   /// timeout, and without issuing the RPC while an earlier request is
   /// still in flight (a timed-out request stays in flight until the VM
-  /// answers) or within [cpuSamplesMinInterval] of the previous request.
+  /// answers or [cpuSamplesInFlightStaleAfter] passes) or within
+  /// [cpuSamplesMinInterval] of the previous request.
   ///
   /// Used by the controller to attribute jank frames to specific functions.
   /// Only called on-demand when a jank frame is detected — not continuous.
@@ -1191,8 +1224,11 @@ class VmServiceClient {
     final service = _service;
     final isolateId = _mainIsolateId;
     if (service == null || isolateId == null) return null;
-    if (_cpuSpans.openCount > 0) return null;
     final nowUs = _rpcClockUs();
+    _cpuSpans.abandonOpenBefore(
+      nowUs - cpuSamplesInFlightStaleAfter.inMicroseconds,
+    );
+    if (_cpuSpans.openCount > 0) return null;
     final lastUs = _lastCpuSamplesRequestUs;
     if (lastUs != null &&
         nowUs - lastUs < cpuSamplesMinInterval.inMicroseconds) {

@@ -109,6 +109,20 @@ class CaptureDriver extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Runs [runner] for a leg [begin] has started. A throw from the
+  /// runner, including one before its own error handling, and a runner
+  /// that returns without a result both end the leg as failed, so the
+  /// driver never stays busy.
+  Future<void> runLeg(CaptureLegRunner runner, String tier, String role) async {
+    try {
+      await runner(tier, role);
+    } catch (e) {
+      if (isBusy) fail('$e');
+      return;
+    }
+    if (isBusy) fail('leg ended without a result');
+  }
+
   /// Finishes the running leg with a failure [reason].
   void fail(String reason, {double? observed}) {
     _observed = observed;
@@ -251,6 +265,36 @@ const int kMaxLegAttempts = 5;
 /// Dwell after `markScenarioEnd` before the trace is exported.
 const Duration kPostScenarioEndDwell = Duration(milliseconds: 800);
 
+/// Longest wait for a Sleuth call that talks to the VM service
+/// (stream flags, the capture export) before the leg fails.
+const Duration kVmCallTimeout = Duration(seconds: 10);
+
+/// A Sleuth call of a capture leg that did not finish in time.
+class CaptureCallTimeout implements Exception {
+  const CaptureCallTimeout(this.call, this.timeout);
+
+  /// Name of the call.
+  final String call;
+
+  /// The limit it ran past.
+  final Duration timeout;
+
+  @override
+  String toString() =>
+      '$call timed out after ${timeout.inMilliseconds / 1000} s';
+}
+
+/// [future] limited to [timeout]; past it, throws [CaptureCallTimeout]
+/// naming [call].
+Future<T> withCallTimeout<T>(
+  Future<T> future,
+  String call, {
+  Duration timeout = kVmCallTimeout,
+}) => future.timeout(
+  timeout,
+  onTimeout: () => throw CaptureCallTimeout(call, timeout),
+);
+
 /// Reference device and toolchain the time-share captures are recorded on.
 const String kCaptureDevice = 'iPhone 12';
 const String kCaptureDeviceOs = 'iOS 17.5';
@@ -304,6 +348,10 @@ int? retryKnob({
 /// pre-pass work out of every in-span window. A peak outside the band
 /// gets further measured spans at knobs rescaled by [retryKnob]; the
 /// export reads the latest span of the scenario.
+///
+/// Stream suspension, resumption and the export each fail the leg when
+/// they take longer than [callTimeout]. [suspendStreams] stands in for
+/// `Sleuth.suspendNonEssentialTimelineStreams` in tests.
 Future<void> runTimeShareLeg({
   required TimeShareLeg leg,
   required void Function(int knob) startWorkload,
@@ -311,6 +359,9 @@ Future<void> runTimeShareLeg({
   required double Function() readPeak,
   required void Function() resetDetector,
   required bool Function() isActive,
+  Future<void> Function() suspendStreams =
+      Sleuth.suspendNonEssentialTimelineStreams,
+  Duration callTimeout = kVmCallTimeout,
 }) async {
   final driver = CaptureDriver.instance;
   final label = '${leg.tier}/${leg.role}';
@@ -318,8 +369,13 @@ Future<void> runTimeShareLeg({
   var streamsSuspended = false;
   var scenarioOpen = false;
   try {
-    await Sleuth.suspendNonEssentialTimelineStreams();
+    // Marked first: a suspend that times out may still land later.
     streamsSuspended = true;
+    await withCallTimeout(
+      suspendStreams(),
+      'suspendNonEssentialTimelineStreams',
+      timeout: callTimeout,
+    );
 
     // Calibration pre-pass.
     resetDetector();
@@ -438,7 +494,11 @@ Future<void> runTimeShareLeg({
         return driver.fail('screen closed before the retry scenario');
       }
     }
-    await Sleuth.resumeAllTimelineStreams();
+    await withCallTimeout(
+      Sleuth.resumeAllTimelineStreams(),
+      'resumeAllTimelineStreams',
+      timeout: callTimeout,
+    );
     streamsSuspended = false;
 
     if (observed <= 0) {
@@ -451,21 +511,25 @@ Future<void> runTimeShareLeg({
         observed: observed,
       );
     }
-    final json = await Sleuth.exportCaptureJson(
-      scenario: leg.scenario,
-      role: leg.role,
-      magnitudeMin: band.min,
-      magnitudeObserved: observed,
-      magnitudeMax: band.max,
-      unit: 'percent',
-      device: kCaptureDevice,
-      deviceOsVersion: kCaptureDeviceOs,
-      flutterVersion: kCaptureFlutterVersion,
-      captureCommand: kCaptureCommand,
-      // Detector-measured magnitude; no timeline event to derive it from.
-      magnitudeSourceEventName: '',
-      bracketStableId: leg.stableId,
-      bracketSeverityLabel: leg.tier,
+    final json = await withCallTimeout(
+      Sleuth.exportCaptureJson(
+        scenario: leg.scenario,
+        role: leg.role,
+        magnitudeMin: band.min,
+        magnitudeObserved: observed,
+        magnitudeMax: band.max,
+        unit: 'percent',
+        device: kCaptureDevice,
+        deviceOsVersion: kCaptureDeviceOs,
+        flutterVersion: kCaptureFlutterVersion,
+        captureCommand: kCaptureCommand,
+        // Detector-measured magnitude; no timeline event to derive it from.
+        magnitudeSourceEventName: '',
+        bracketStableId: leg.stableId,
+        bracketSeverityLabel: leg.tier,
+      ),
+      'exportCaptureJson',
+      timeout: callTimeout,
     );
     if (json == null) {
       return driver.fail(

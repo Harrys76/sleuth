@@ -790,7 +790,7 @@ Future<Map<String, Object?>> startCaptureLeg({
     if (runner == null) return {'error': 'screen_not_ready'};
   }
   if (!driver.begin('$detector/$tier/$role')) return {'error': 'busy'};
-  unawaited(runner(tier, role));
+  unawaited(driver.runLeg(runner, tier, role));
   return {'started': true, 'leg': '$detector/$tier/$role'};
 }
 

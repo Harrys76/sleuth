@@ -547,6 +547,20 @@ void main() {
       expect(sparse[1]!.isTrustworthy, isFalse);
     });
 
+    test('a frame with one matched event is not trustworthy at full batch '
+        'coverage', () {
+      final result = FrameEventCorrelator().correlate(
+        recentFrames: threeFrames(),
+        phaseEvents: [buildIn(0), rasterIn(0), buildIn(1)],
+      );
+
+      expect(result[1]!.matchedEventCount, 2);
+      expect(result[1]!.isTrustworthy, isTrue);
+      expect(result[2]!.matchedEventCount, 1);
+      expect(result[2]!.batchCoverageRatio, 1.0);
+      expect(result[2]!.isTrustworthy, isFalse);
+    });
+
     test('a frame with no matched events is not trustworthy at full batch '
         'coverage', () {
       final result = FrameEventCorrelator().correlate(
