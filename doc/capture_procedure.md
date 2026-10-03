@@ -898,7 +898,7 @@ leg; build and paint durations drift with temperature.
    `{started: true}` at once, or `{error: busy | not_capture_mode |
    vm_disconnected | bad_args | screen_not_ready}`.
 2. Poll `ext.sleuthDemo.captureResult` every 2 s until `state` is `done`
-   or `failed` (a leg takes about 12 s for rebuild, 10 s for repaint,
+   or `failed` (a leg takes about 12 s for rebuild, 14 s for repaint,
    up to five times that with retries). The payload carries `leg`,
    `observed`, `attempts` (measured spans run, 1 to 5), `log`, and on
    success the wrapped capture in `json`. Pass `consume=true` on the final read to

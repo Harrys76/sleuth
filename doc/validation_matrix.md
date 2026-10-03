@@ -198,10 +198,11 @@ Navigate to each demo screen and verify the expected detector fires in the Issue
 
 ## Self-Overhead Checks
 
-Verified automatically by `test/benchmark/` suite (29 tests). Run before release:
+Verified automatically by 41 tests under `test/benchmark/` (37 tagged `benchmark`, plus the 4 untagged memory footprint tests); 3 more `benchmark`-tagged tests sit beside the code they time, for 40 wall-clock benchmarks in all. Run before release:
 
 ```bash
-fvm flutter test test/benchmark/
+fvm flutter test --tags benchmark --concurrency=1
+fvm flutter test test/benchmark/memory_footprint_test.dart
 ```
 
 | Check | Budget | Automated |
@@ -212,6 +213,9 @@ fvm flutter test test/benchmark/
 | Timeline processing < 20ms (500 events) | 20ms | Yes |
 | Buffer bounds enforced | Capacity | Yes |
 | Issue/highlight counts bounded | <50/<100 | Yes |
+| Dispatch of an 1,800-event batch (device capture replay) | 1,000 µs | Yes |
+| Parse re-read of 5,000 already-seen events vs. a fresh parse | < 30 % | Yes |
+| Debug paint attribution, cached vs. uncached (1,000 paints) | < 10 % | Yes |
 
 ---
 

@@ -32,14 +32,14 @@ What it does better than DevTools:
 - **Per-route health scores**: passive route detection (no NavigatorObserver) with per-route FPS, jank ratio, issue aggregation, composite health score
 - **Network monitoring**: slow requests, request floods, oversized responses, HTTP error spikes, high-frequency same-path bursts (≥3 GET/HEAD/OPTIONS to one endpoint within 500 ms), network-to-frame correlation
 - **Heap trend monitoring**: sustained memory growth + near-capacity detection without heap snapshots
-- **CPU attribution on jank frames**: top-5 functions by CPU time per jank frame — no manual profiling session
+- **CPU attribution on jank frames**: top-5 functions by CPU time for a jank frame, requested at most once per 10 s — no manual profiling session
 - **Issue Encyclopedia**: in-app deep-dives for every issue type the detectors emit (entries for detectors removed in 0.20.0 are labelled legacy), searchable + cross-referenced
 - **Contextual AI Chat**: per-issue AI assistant with streaming responses + starter questions — bring your own provider
 
 What DevTools still does better:
 
 - **Heap snapshots & object graph**: DevTools can browse every object in the heap, inspect retention paths, and track individual allocations. Sleuth monitors heap trends and GC pressure but cannot drill into specific objects.
-- **Full flame chart & call tree**: DevTools provides zoomable, interactive per-frame timelines with complete call tree visualization. Sleuth shows phase breakdowns with top-5 function attribution per jank frame.
+- **Full flame chart & call tree**: DevTools provides zoomable, interactive per-frame timelines with complete call tree visualization. Sleuth shows phase breakdowns with top-5 function attribution for jank frames (at most one request per 10 s).
 
 Sleuth is best used for **fast in-app triage** — catch the problem, understand the category, then use DevTools when you need deeper investigation.
 

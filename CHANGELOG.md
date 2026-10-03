@@ -314,7 +314,10 @@
   `maxPollParseMicros`, `maxPollDispatchMicros` (32-poll maxima),
   `pollDuplicatesDropped`, and `pollWindowFallbacks`. The decode runs
   from the arrival of the matched raw response (`VmService.onReceive`) to
-  the completed await; −1 when the response was not matched.
+  the completed await; −1 when the response was not matched. The response
+  is matched by request id within its first and last 64 characters, so ids
+  nested in a payload cannot match. Every reading is null after a
+  reconnect until the new session's first poll.
   Dispatch and tail are split further: `lastPollDispatch{Detectors,
   Correlate,Aggregate,Other}Micros` (sum to the dispatch),
   `lastPollTailMemoryMicros` (the `getMemoryUsage` await), and
@@ -324,31 +327,36 @@
   screen went from 117 ms RPC / 7.6 ms parse / 3.7 MB / 23.8k events to
   6.6 ms / 0.3 ms / 38 KB / 278 events, flat over five minutes; live mode on
   the idle home screen stays at 6.4 ms RPC with parse down from 1.5 ms to
-  0.3 ms; on the FPS stress screen the dispatch segment fell from 211–238 ms
-  to 0.2 ms and the tail from 808–847 ms to 27 ms once CPU-sample requests
-  were spaced, and the verdict mode is `correlated` again. The UI-isolate
+  0.3 ms; on the live-mode FPS stress screen the dispatch segment fell from 211 ms
+  median / 238 ms max to 0.2 ms and the tail from 808 ms median / 847 ms
+  max to 27 ms once CPU-sample requests were spaced, and the verdict mode is `correlated` again. The UI-isolate
   decode is 1.0 ms per poll on the idle home screen and 21–29 ms on the
   FPS stress screen (1.5–1.7 MB per poll), so decode, parse and dispatch
-  together block the UI isolate for about 1.2 ms per 500 ms at idle.
+  together block the UI isolate for about 1.5 ms per 500 ms at idle.
 - `getCpuSamples` (jank-frame CPU attribution) is issued at most once per
   10 s (`VmServiceClient.cpuSamplesMinInterval`) and never while an
-  earlier request, including one that timed out, is unanswered. The VM
+  earlier request, including one that timed out, is unanswered; a request
+  left unanswered for 30 s (`cpuSamplesInFlightStaleAfter`) stops
+  blocking. The VM
   builds the profile on the UI isolate's own thread and the response
   (about 3.3 MB for a 60 ms window, mostly the function table) is decoded
   there; issued on every poll with a jank verdict, it stalled the UI
   isolate by about 20 ms + 95 ms per poll on an M1 Pro.
 - Debug instrumentation: the paint callback caches each element's ancestor
-  chain and ancestor-owner verdict (recomputed when the parent, the depth,
-  or the hot-reload epoch changes), and `SourceLocationCache` keys on the
-  widget `Type`. 1,000 paints of a repainting widget cost about 2 % of the
+  chain and ancestor-owner verdict (recomputed when any ancestor either
+  walk read is a different or unmounted element, or when the depth or the
+  hot-reload epoch changes), and `SourceLocationCache` keys on the widget
+  `Type`. 1,000 paints of a repainting widget cost about 5 % of the
   uncached path.
 - Correlated verdicts are no longer suppressed when a poll batch spans
   several frames. The trust check compared one frame's matched events
   against the whole batch, so with three or more frames no frame reached
   half and the verdict fell back to `full`. `CorrelatedFrameData` now
   carries `batchMatchedEventCount` and `batchCoverageRatio` (events that
-  matched any frame); a frame is trusted when it matched at least one
-  event and the batch coverage is at least 0.5. `coverageRatio` is
+  matched any frame); a frame is trusted when it matched at least two
+  events (`CorrelatedFrameData.minTrustworthyEvents`), so a single phase
+  cannot drive a correlated verdict, and the batch coverage is at least
+  0.5. `coverageRatio` is
   removed, and `FrameVerdict.correlationCoverage` reports the batch
   coverage.
 
