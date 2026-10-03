@@ -5,15 +5,25 @@ import 'package:flutter/foundation.dart';
 /// Cost of one VM timeline poll, split by segment.
 ///
 /// All durations are wall-clock microseconds measured on the UI isolate.
+/// Two kinds of segment:
+///
+/// * UI-isolate CPU: [decodeMicros], [parseMicros] and [dispatchMicros]
+///   run synchronously on the UI isolate and hold off frame work for
+///   their whole length. [uiBlockingMicros] is their sum.
+/// * Wall time across awaits: [rpcMicros] and [tailMicros] include the
+///   VM-side work and the transport. The UI isolate is free for most of
+///   it, except the part of [rpcMicros] that is [decodeMicros].
+///
 /// Read through `Sleuth.lastPollTimings` or the `lastPoll*` keys of
 /// `ext.sleuth.diagnose`.
 @immutable
 class PollTimings {
   /// Creates a timings record. Durations and counts are non-negative,
-  /// except [responseChars], which is −1 when the raw response could not
-  /// be matched to the timeline request.
+  /// except [responseChars] and [decodeMicros], which are −1 when the raw
+  /// response could not be matched to the timeline request.
   const PollTimings({
     required this.rpcMicros,
+    this.decodeMicros = -1,
     required this.parseMicros,
     required this.dispatchMicros,
     required this.tailMicros,
@@ -31,10 +41,16 @@ class PollTimings {
     this.tailMemoryMicros = 0,
   });
 
-  /// Await of the `getVMTimeline` RPC, including the JSON decode and the
-  /// `Timeline` construction that package:vm_service runs on the UI
-  /// isolate before the future completes.
+  /// Await of the `getVMTimeline` RPC: wall time covering the VM-side
+  /// serialization, the transport, and [decodeMicros].
   final int rpcMicros;
+
+  /// Part of [rpcMicros] spent on the UI isolate after the raw response
+  /// arrived: the JSON decode and `Timeline` construction that
+  /// package:vm_service runs before the future completes, plus the
+  /// resumption of the await. −1 when the raw response could not be
+  /// matched to the request (no wire streams, or a failed RPC).
+  final int decodeMicros;
 
   /// Timeline parse plus the stale-begin sweep (and, on the first poll of
   /// a session, startup-event extraction).
@@ -95,12 +111,22 @@ class PollTimings {
   /// Await of the heap `getMemoryUsage` sample inside [tailMicros].
   final int tailMemoryMicros;
 
-  /// Sum of the four measured segments.
+  /// Sum of the four top-level segments ([decodeMicros] is inside
+  /// [rpcMicros]).
   int get totalMicros => rpcMicros + parseMicros + dispatchMicros + tailMicros;
+
+  /// Time the poll held the UI isolate: [decodeMicros] (when measured)
+  /// plus [parseMicros] and [dispatchMicros]. Excludes the awaited RPC
+  /// and tail time, during which the isolate can run frames. A frame
+  /// that needs the isolate during this time is delayed by up to this
+  /// much.
+  int get uiBlockingMicros =>
+      (decodeMicros >= 0 ? decodeMicros : 0) + parseMicros + dispatchMicros;
 
   /// JSON-encodable form.
   Map<String, Object?> toJson() => <String, Object?>{
     'rpcMicros': rpcMicros,
+    'decodeMicros': decodeMicros,
     'parseMicros': parseMicros,
     'dispatchMicros': dispatchMicros,
     'tailMicros': tailMicros,
@@ -120,7 +146,8 @@ class PollTimings {
 
   @override
   String toString() =>
-      'PollTimings(rpc: $rpcMicros us, parse: $parseMicros us, '
+      'PollTimings(rpc: $rpcMicros us (decode $decodeMicros), '
+      'parse: $parseMicros us, '
       'dispatch: $dispatchMicros us (detectors $dispatchDetectorsMicros, '
       'correlate $dispatchCorrelateMicros, '
       'aggregate $dispatchAggregateMicros, other $dispatchOtherMicros), '
@@ -174,6 +201,10 @@ class PollTimingsWindow {
 
   /// Largest [PollTimings.rpcMicros] in the window; null when empty.
   int? get maxRpcMicros => _max((t) => t.rpcMicros);
+
+  /// Largest [PollTimings.decodeMicros] in the window (−1 when no poll
+  /// in it was matched); null when empty.
+  int? get maxDecodeMicros => _max((t) => t.decodeMicros);
 
   /// Largest [PollTimings.parseMicros] in the window; null when empty.
   int? get maxParseMicros => _max((t) => t.parseMicros);

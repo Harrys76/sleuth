@@ -303,13 +303,18 @@
   the `(ph, name, id)` dedup signature only for events at a cursor's
   latest timestamp; `ParsedTimelineData` gains `maxTimestampUs` (used by
   the stale-begin sweep instead of a second walk) and `duplicatesDropped`.
-- Poll cost is measured: `Sleuth.lastPollTimings` (`PollTimings`: RPC
-  including decode, parse, dispatch, tail RPCs, event count, raw response
-  length, duplicates dropped) and `ext.sleuth.diagnose` keys
-  `lastPollRpcMicros`, `lastPollParseMicros`, `lastPollDispatchMicros`,
-  `lastPollTailMicros`, `lastPollEventCount`, `lastPollResponseChars`,
-  `maxPollRpcMicros`, `maxPollParseMicros`, `maxPollDispatchMicros`
-  (32-poll maxima), `pollDuplicatesDropped`, and `pollWindowFallbacks`.
+- Poll cost is measured: `Sleuth.lastPollTimings` (`PollTimings`: RPC,
+  the UI-isolate decode inside it, parse, dispatch, tail RPCs, event
+  count, raw response length, duplicates dropped; `uiBlockingMicros` sums
+  the UI-isolate segments decode, parse and dispatch, while RPC and tail
+  are wall time including VM-side work) and `ext.sleuth.diagnose` keys
+  `lastPollRpcMicros`, `lastPollDecodeMicros`, `lastPollParseMicros`,
+  `lastPollDispatchMicros`, `lastPollTailMicros`, `lastPollEventCount`,
+  `lastPollResponseChars`, `maxPollRpcMicros`, `maxPollDecodeMicros`,
+  `maxPollParseMicros`, `maxPollDispatchMicros` (32-poll maxima),
+  `pollDuplicatesDropped`, and `pollWindowFallbacks`. The decode runs
+  from the arrival of the matched raw response (`VmService.onReceive`) to
+  the completed await; −1 when the response was not matched.
   Dispatch and tail are split further: `lastPollDispatch{Detectors,
   Correlate,Aggregate,Other}Micros` (sum to the dispatch),
   `lastPollTailMemoryMicros` (the `getMemoryUsage` await), and

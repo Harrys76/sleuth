@@ -801,6 +801,7 @@ void main() {
       client.setServiceForTest(_MockVmService(), isolateId: 'isolate-1');
       expect(client.lastPollTimings, isNull);
       expect(client.maxPollRpcMicros, isNull);
+      expect(client.maxPollDecodeMicros, isNull);
       expect(client.maxPollParseMicros, isNull);
       expect(client.maxPollDispatchMicros, isNull);
       expect(client.pollDuplicatesDropped, isNull);
@@ -915,6 +916,67 @@ void main() {
       await client.pollTimelineSync();
 
       expect(client.lastPollTimings!.responseChars, -1);
+      expect(client.lastPollTimings!.decodeMicros, -1);
+      expect(client.maxPollDecodeMicros, -1);
+      client.dispose();
+    });
+
+    test('decode runs from the raw response to the completed await and '
+        'lies inside the RPC', () async {
+      final mock = _MockVmService()
+        ..getVMTimelineDelay = const Duration(milliseconds: 20)
+        ..decodeDelay = const Duration(milliseconds: 3);
+      final client = VmServiceClient(onTimelineData: (_) {});
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+
+      final t = client.lastPollTimings!;
+      expect(t.decodeMicros, greaterThanOrEqualTo(3000));
+      expect(t.decodeMicros, lessThanOrEqualTo(t.rpcMicros));
+      // The VM-side wait before the response arrived is not decode.
+      expect(t.rpcMicros - t.decodeMicros, greaterThanOrEqualTo(15000));
+      expect(
+        t.uiBlockingMicros,
+        t.decodeMicros + t.parseMicros + t.dispatchMicros,
+      );
+      client.dispose();
+    });
+
+    test('decode without a measured delay is non-negative', () async {
+      final mock = _MockVmService();
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+
+      final t = client.lastPollTimings!;
+      expect(t.decodeMicros, greaterThanOrEqualTo(0));
+      expect(t.decodeMicros, lessThanOrEqualTo(t.rpcMicros));
+      client.dispose();
+    });
+
+    test('the decode maximum spans the window, skipping unmatched '
+        'polls', () async {
+      final mock = _MockVmService()
+        ..decodeDelay = const Duration(milliseconds: 6);
+      final client = VmServiceClient();
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      await client.pollTimelineSync();
+      final slow = client.lastPollTimings!.decodeMicros;
+      expect(slow, greaterThanOrEqualTo(6000));
+
+      mock
+        ..decodeDelay = null
+        ..responseIdOverride = 'other';
+      await client.pollTimelineSync();
+      expect(client.lastPollTimings!.decodeMicros, -1);
+      mock.responseIdOverride = null;
+      await client.pollTimelineSync();
+      expect(client.lastPollTimings!.decodeMicros, lessThan(slow));
+
+      expect(client.maxPollDecodeMicros, slow);
       client.dispose();
     });
 
@@ -931,6 +993,7 @@ void main() {
       expect(t.parseMicros, 0);
       expect(t.dispatchMicros, 0);
       expect(t.responseChars, -1);
+      expect(t.decodeMicros, -1);
       client.dispose();
     });
 
@@ -963,6 +1026,7 @@ void main() {
       client.dispose();
 
       expect(client.maxPollRpcMicros, isNull);
+      expect(client.maxPollDecodeMicros, isNull);
       expect(client.maxPollParseMicros, isNull);
       expect(client.maxPollDispatchMicros, isNull);
     });
@@ -1806,6 +1870,11 @@ class _MockVmService implements VmService {
   /// Raw size of the simulated timeline response body.
   int responsePadding = 0;
 
+  /// Synchronous work after the raw response is emitted on `onReceive`
+  /// and before the future completes, standing in for the JSON decode
+  /// and `Timeline` construction package:vm_service runs there.
+  Duration? decodeDelay;
+
   @override
   Stream<String> get onSend => sendController.stream;
 
@@ -1851,6 +1920,11 @@ class _MockVmService implements VmService {
       '{"jsonrpc":"2.0","result":{"type":"Timeline","traceEvents":['
       '${'x' * responsePadding}]},"id":"${responseIdOverride ?? id}"}',
     );
+    final decode = decodeDelay;
+    if (decode != null) {
+      final w = Stopwatch()..start();
+      while (w.elapsed < decode) {}
+    }
     final window = timelineWindows.last;
     final result =
         timelineResult ??

@@ -343,6 +343,7 @@ void main() {
         'after', () async {
       const pollKeys = [
         'lastPollRpcMicros',
+        'lastPollDecodeMicros',
         'lastPollParseMicros',
         'lastPollDispatchMicros',
         'lastPollDispatchDetectorsMicros',
@@ -356,6 +357,7 @@ void main() {
         'lastPollEventCount',
         'lastPollResponseChars',
         'maxPollRpcMicros',
+        'maxPollDecodeMicros',
         'maxPollParseMicros',
         'maxPollDispatchMicros',
         'pollDuplicatesDropped',
@@ -384,6 +386,9 @@ void main() {
       }
       expect(data['lastPollEventCount'], 1);
       expect(data['pollDuplicatesDropped'], 0);
+      // This double has no wire streams, so the response is unmatched.
+      expect(data['lastPollDecodeMicros'], -1);
+      expect(data['maxPollDecodeMicros'], -1);
     });
   });
 

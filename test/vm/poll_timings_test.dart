@@ -3,8 +3,14 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/vm/poll_timings.dart';
 
-PollTimings _t({int rpc = 0, int parse = 0, int dispatch = 0}) => PollTimings(
+PollTimings _t({
+  int rpc = 0,
+  int decode = -1,
+  int parse = 0,
+  int dispatch = 0,
+}) => PollTimings(
   rpcMicros: rpc,
+  decodeMicros: decode,
   parseMicros: parse,
   dispatchMicros: dispatch,
   tailMicros: 0,
@@ -19,6 +25,7 @@ void main() {
     test('empty window has no maxima', () {
       final w = PollTimingsWindow();
       expect(w.maxRpcMicros, isNull);
+      expect(w.maxDecodeMicros, isNull);
       expect(w.maxParseMicros, isNull);
       expect(w.maxDispatchMicros, isNull);
     });
@@ -30,6 +37,19 @@ void main() {
       expect(w.maxRpcMicros, 9);
       expect(w.maxParseMicros, 50);
       expect(w.maxDispatchMicros, 7);
+    });
+
+    test('decode maximum skips unmatched polls and is -1 when none '
+        'matched', () {
+      final w = PollTimingsWindow()
+        ..add(_t())
+        ..add(_t());
+      expect(w.maxDecodeMicros, -1);
+      w
+        ..add(_t(decode: 40))
+        ..add(_t(decode: 12))
+        ..add(_t());
+      expect(w.maxDecodeMicros, 40);
     });
 
     test('holds the last 32 polls', () {
@@ -56,6 +76,7 @@ void main() {
   test('totalMicros sums the four segments and toJson is complete', () {
     final t = PollTimings(
       rpcMicros: 1,
+      decodeMicros: 1,
       parseMicros: 2,
       dispatchMicros: 3,
       tailMicros: 4,
@@ -72,8 +93,10 @@ void main() {
       tailMemoryMicros: 15,
     );
     expect(t.totalMicros, 10);
+    expect(t.uiBlockingMicros, 1 + 2 + 3);
     expect(t.toJson(), {
       'rpcMicros': 1,
+      'decodeMicros': 1,
       'parseMicros': 2,
       'dispatchMicros': 3,
       'tailMicros': 4,
@@ -90,6 +113,13 @@ void main() {
       'tailAllocationProfileMicros': 14,
       'tailMemoryMicros': 15,
     });
+  });
+
+  test('uiBlockingMicros leaves out an unmeasured decode', () {
+    final t = _t(rpc: 900, parse: 20, dispatch: 30);
+    expect(t.decodeMicros, -1);
+    expect(t.uiBlockingMicros, 50);
+    expect(_t(rpc: 900, decode: 0, parse: 20).uiBlockingMicros, 20);
   });
 
   group('RpcSpanTracker', () {

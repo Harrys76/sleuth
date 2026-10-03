@@ -616,6 +616,7 @@ class VmServiceClient {
     // Per-segment timings. Each stopwatch covers one segment only; a
     // segment that did not run stays 0.
     var rpcUs = 0;
+    var decodeUs = -1;
     var parseUs = 0;
     var dispatchUs = 0;
     DispatchSegments? segments;
@@ -667,9 +668,14 @@ class VmServiceClient {
         ..start();
       try {
         timeline = await _fetchTimeline(originUs, extentUs);
+        final receivedUs = _timelineResponseReceivedUs;
+        if (receivedUs >= 0) decodeUs = _rpcClockUs() - receivedUs;
       } finally {
         rpcUs = watch.elapsedMicroseconds;
       }
+      // Both readings come from monotonic clocks started at different
+      // instants; the decode lies inside the await by construction.
+      if (decodeUs > rpcUs) decodeUs = rpcUs;
       _consecutivePollFailures = 0;
       // Drop stale poll if reconnect/dispose ran during the await.
       if (myGen != _sessionGeneration || _disposed) return;
@@ -760,6 +766,7 @@ class VmServiceClient {
         _recordPollTimings(
           PollTimings(
             rpcMicros: rpcUs,
+            decodeMicros: decodeUs,
             parseMicros: parseUs,
             dispatchMicros: dispatchUs,
             dispatchDetectorsMicros: detectorsUs,
@@ -798,6 +805,7 @@ class VmServiceClient {
   Future<Timeline> _fetchTimeline(int? originUs, int? extentUs) {
     _timelineRequestId = null;
     _timelineResponseChars = -1;
+    _timelineResponseReceivedUs = -1;
     _armTimelineRequest = true;
     try {
       return originUs == null
@@ -861,7 +869,8 @@ class VmServiceClient {
     return watch.elapsedMicroseconds;
   }
 
-  /// Monotonic clock for [_cpuSpans] and [_allocationSpans].
+  /// Monotonic clock for [_cpuSpans], [_allocationSpans] and the decode
+  /// stamp.
   final Stopwatch _rpcClock = Stopwatch()..start();
   int _rpcClockUs() => _rpcClock.elapsedMicroseconds;
 
@@ -886,6 +895,10 @@ class VmServiceClient {
 
   /// Largest RPC segment over the last 32 polls; null before the first.
   int? get maxPollRpcMicros => _timingsWindow.maxRpcMicros;
+
+  /// Largest decode segment over the last 32 polls (−1 when none of them
+  /// matched its raw response); null before the first poll.
+  int? get maxPollDecodeMicros => _timingsWindow.maxDecodeMicros;
 
   /// Largest parse segment over the last 32 polls; null before the first.
   int? get maxPollParseMicros => _timingsWindow.maxParseMicros;
@@ -924,6 +937,12 @@ class VmServiceClient {
   /// Length of the matched raw response; −1 until matched.
   int _timelineResponseChars = -1;
 
+  /// [_rpcClock] reading when the matched raw response arrived; −1 until
+  /// matched. package:vm_service decodes the response and builds the
+  /// `Timeline` on this isolate after `onReceive` fires, so the time
+  /// from here to the completed await is the decode.
+  int _timelineResponseReceivedUs = -1;
+
   static final RegExp _requestIdPattern = RegExp(r'"id":"([^"]*)"');
 
   /// Listens to the service's raw wire traffic to measure the size of
@@ -931,7 +950,8 @@ class VmServiceClient {
   /// package:vm_service; `onSend` fires synchronously with the encoded
   /// request (which carries the id) before it is written, and
   /// `onReceive` fires with each raw response before it is decoded. The
-  /// listeners only read lengths and short substrings.
+  /// listeners only read lengths and short substrings, and stamp the
+  /// arrival time of the poll's response.
   void _attachWireListeners(VmService service) {
     _sendSub?.cancel();
     _receiveSub?.cancel();
@@ -949,6 +969,7 @@ class VmServiceClient {
         final id = _timelineRequestId;
         if (id == null) return;
         if (message.lastIndexOf('"id":"$id"') < 0) return;
+        _timelineResponseReceivedUs = _rpcClockUs();
         _timelineResponseChars = message.length;
         _timelineRequestId = null;
       });
@@ -960,6 +981,7 @@ class VmServiceClient {
   int _takeTimelineResponseChars() {
     final chars = _timelineResponseChars;
     _timelineResponseChars = -1;
+    _timelineResponseReceivedUs = -1;
     _timelineRequestId = null;
     return chars;
   }

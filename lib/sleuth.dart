@@ -733,9 +733,10 @@ class Sleuth {
     return _controller?.lastCaptureExportFailure;
   }
 
-  /// Per-segment cost of the most recent VM timeline poll (RPC including
-  /// decode, parse, detector dispatch, remaining RPCs), with the raw
-  /// response size and the duplicate events the poll skipped. Null in
+  /// Per-segment cost of the most recent VM timeline poll (RPC with the
+  /// decode inside it, parse, detector dispatch, remaining RPCs), with
+  /// the time it held the UI isolate, the raw response size and the
+  /// duplicate events the poll skipped. Null in
   /// release mode, before [init], without a VM connection, or before the
   /// first poll. The same values are served by `ext.sleuth.diagnose`.
   static PollTimings? get lastPollTimings {
