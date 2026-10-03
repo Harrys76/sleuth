@@ -21,10 +21,12 @@ import 'capture_driver.dart';
 //
 // Each leg runs a 3 s calibration pre-pass at a known `ops`, reads the
 // detector's measured share, scales `ops` to the leg target (below
-// 0.5 t, at 1.25 t, above 2.1 t of the live threshold t =
+// 0.5 t, at 1.25 t, above 2.0 t of the live threshold t =
 // `paintTimePercentThreshold`, default 10 %), stops, drains the
-// timeline, resets the detector, idles 1.5 s, and records a 4 s scenario;
-// a peak outside the band gets up to four rescaled retries.
+// timeline, resets the detector, idles 1.5 s, and records a 6 s scenario;
+// a peak outside the band gets up to four rescaled retries. The above
+// target sits mid-band (15–27 %) so the peak window keeps headroom under
+// the ceiling.
 // Legs are started from the buttons or from `ext.sleuthDemo.captureLeg`.
 
 /// Number of distinct widget runtime types (`_PT00`..`_PT31`) the
@@ -36,7 +38,7 @@ const int _kTileCount = 32;
 const Map<String, double> _legFactors = {
   'below': 0.5,
   'at': 1.25,
-  'above': 2.1,
+  'above': 2.0,
 };
 
 /// `ops` the calibration pre-pass runs at (one layout per tile).
@@ -46,7 +48,7 @@ const int _calibrationOps = 32;
 const int _minOps = 1;
 const int _maxOps = 131072;
 
-const Duration _workloadDuration = Duration(seconds: 4);
+const Duration _workloadDuration = Duration(seconds: 6);
 
 /// Driver key for this screen.
 const String _detectorKey = 'repaint';

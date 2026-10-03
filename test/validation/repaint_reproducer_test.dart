@@ -38,6 +38,8 @@
 // before each `processTimelineData` call closes the 1s window in a
 // single call (no helper needed beyond the inline pattern).
 
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
@@ -50,6 +52,8 @@ import '_helpers/structural_reproducer_harness.dart';
 import '_helpers/vm_reproducer_harness.dart';
 
 void main() {
+  _captureScreenGuards();
+
   group('RepaintDetector reproducer', () {
     late RepaintDetector detector;
     late DateTime fakeNow;
@@ -490,6 +494,46 @@ void main() {
         final issues = await scanAndIssues(tester, detector, const SizedBox());
         expect(issues, isEmpty);
       });
+    });
+  });
+}
+
+// Producer-wiring guard for the repaint capture screen: the leg targets
+// and the scenario length the committed triad is recorded with.
+void _captureScreenGuards() {
+  group('repaint capture screen', () {
+    final screenFile = File('example/lib/demos/repaint_capture_screen.dart');
+
+    test('legs target 0.5 / 1.25 / 2.0 x the threshold over a 6 s '
+        'scenario, inside each role band', () {
+      expect(screenFile.existsSync(), isTrue);
+      final src = screenFile.readAsStringSync();
+      final start = src.indexOf('const Map<String, double> _legFactors = {');
+      expect(start, greaterThanOrEqualTo(0));
+      final block = src.substring(start, src.indexOf('};', start));
+      final factors = {
+        for (final m in RegExp(r"'(\w+)':\s*([0-9.]+)").allMatches(block))
+          m.group(1)!: double.parse(m.group(2)!),
+      };
+      expect(factors, {'below': 0.5, 'at': 1.25, 'above': 2.0});
+      expect(
+        src,
+        contains('const Duration _workloadDuration = Duration(seconds: 6);'),
+      );
+      expect(
+        src,
+        contains('readPeak: () => detector.peakObservedPaintPercent'),
+      );
+      expect(src, contains('detector.paintTimePercentThreshold'));
+
+      final meta = RepaintDetector().validationMetadata;
+      final t = meta.bracketThreshold!.toDouble();
+      final at = meta.bracketAtTolerance!;
+      final ceiling = meta.aboveCeilingMultiplier!;
+      expect(factors['below']! * t, lessThan(t));
+      expect(factors['at']! * t, inInclusiveRange(t, t * (1 + at)));
+      expect(factors['above']! * t, greaterThan(t * (1 + at)));
+      expect(factors['above']! * t, lessThanOrEqualTo(t * ceiling));
     });
   });
 }

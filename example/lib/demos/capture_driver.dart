@@ -479,8 +479,24 @@ Future<void> runTimeShareLeg({
     driver.fail('$e');
   } finally {
     stopWorkload();
-    if (scenarioOpen) Sleuth.markScenarioEnd(leg.scenario);
+    if (scenarioOpen) endScenarioInCleanup(leg.scenario, label);
     if (streamsSuspended) unawaited(Sleuth.resumeAllTimelineStreams());
+  }
+}
+
+/// Closes [scenario] from a leg's cleanup path. A throw is logged under
+/// [label] and swallowed, so it cannot replace the leg's own outcome or
+/// skip the rest of the cleanup.
+@visibleForTesting
+void endScenarioInCleanup(
+  String scenario,
+  String label, {
+  void Function(String scenario) markEnd = Sleuth.markScenarioEnd,
+}) {
+  try {
+    markEnd(scenario);
+  } catch (e) {
+    CaptureDriver.instance.addLog('[$label] markScenarioEnd on cleanup: $e');
   }
 }
 

@@ -58,7 +58,8 @@ Drive on-device capture brackets for the audit gate.
 | TrackedResource | `tracked_resource_concurrent` warning + `tracked_resource_long_lived` warning |
 
 The RebuildActivity and Repaint screens calibrate their workload before
-each leg and publish results through `ext.sleuthDemo.captureResult`; see
+each leg, record a 6 s scenario, and publish results through
+`ext.sleuthDemo.captureResult`; see
 `doc/capture_procedure.md` ("RebuildActivity + Repaint time-share
 captures").
 

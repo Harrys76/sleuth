@@ -2813,6 +2813,7 @@ List<String> checkBracketValidation({
   bool requireUniqueDetectedAtMicros = false,
   String? observedAxisArgKey,
   double observedAxisTolerance = 0.25,
+  String observedAxisReduction = 'max',
   String? repoRoot,
 }) {
   if (tier != EvidenceTier.runtimeVerified &&
@@ -2889,6 +2890,7 @@ List<String> checkBracketValidation({
       requireUniqueDetectedAtMicros: requireUniqueDetectedAtMicros,
       observedAxisArgKey: observedAxisArgKey,
       observedAxisTolerance: observedAxisTolerance,
+      observedAxisReduction: observedAxisReduction,
       stableId: bracketStableId,
       severityLabel: bracketSeverityLabel,
     );
@@ -2962,6 +2964,7 @@ List<String> runRuntimeTierAudit({
       requireUniqueDetectedAtMicros: meta.bracketRequireUniqueDetectedAtMicros,
       observedAxisArgKey: meta.observedAxisArgKey,
       observedAxisTolerance: meta.observedAxisTolerance,
+      observedAxisReduction: meta.observedAxisReduction,
       repoRoot: repoRoot,
     ),
   );

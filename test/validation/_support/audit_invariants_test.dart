@@ -37,6 +37,8 @@ import 'package:sleuth/sleuth.dart'
         EvidenceTier,
         NetworkMonitorDetector,
         RebuildDetector;
+import 'package:sleuth/src/detectors/frame_timing_detector.dart'
+    show FrameTimingDetector;
 import 'package:sleuth/src/detectors/heavy_compute_detector.dart'
     show HeavyComputeDetector;
 
@@ -5111,6 +5113,82 @@ void main() {
         repoRoot: root.path,
       );
       expect(failures, isEmpty);
+    });
+  });
+
+  group('checkBracketValidation forwards observedAxisReduction', () {
+    // jank_detected's canonical bracket reduces its observed axis with
+    // 'last'. A copy of the committed triad whose at-leg carries an early
+    // spike (max 40 %) but ends at 24 % against an observed 20 %: only
+    // the 'last' reduction stays inside the ±25 % band.
+    late Directory tmp;
+    late List<String> paths;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('sleuth_reduction_');
+      final dir = Directory(p.join(tmp.path, 'frame_timing'))..createSync();
+      paths = [
+        for (final role in ['below', 'at', 'above'])
+          p.join(dir.path, 'jank_detected_$role.json'),
+      ];
+      for (final (i, role) in ['below', 'at', 'above'].indexed) {
+        final source = File(
+          'test/validation/captures/frame_timing/jank_detected_$role.json',
+        );
+        final capture =
+            jsonDecode(source.readAsStringSync()) as Map<String, dynamic>;
+        if (role == 'at') {
+          final events = capture['traceEvents'] as List;
+          final records = [
+            for (final e in events)
+              if (e is Map &&
+                  (e['name'] as String? ?? '').startsWith(
+                    'sleuth.issue.jank_detected.warning',
+                  ))
+                e,
+          ]..sort((a, b) => (a['ts'] as num).compareTo(b['ts'] as num));
+          final first = records.first['args'] as Map;
+          first['observedJankPercent'] = '40.00';
+        }
+        File(paths[i]).writeAsStringSync(jsonEncode(capture));
+      }
+    });
+
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    List<String> run(String reduction) {
+      final meta = FrameTimingDetector().validationMetadata;
+      return checkBracketValidation(
+        label: 'FrameTimingDetector',
+        tier: EvidenceTier.runtimeVerified,
+        capturePaths: paths,
+        bracketThreshold: meta.bracketThreshold,
+        bracketUnit: meta.bracketUnit,
+        aboveCeilingMultiplier: meta.aboveCeilingMultiplier,
+        bracketAtTolerance: meta.bracketAtTolerance,
+        bracketStableId: meta.bracketStableId,
+        bracketSeverityLabel: meta.bracketSeverityLabel,
+        requireTraceRecord: true,
+        requireUniqueDetectedAtMicros:
+            meta.bracketRequireUniqueDetectedAtMicros,
+        observedAxisArgKey: meta.observedAxisArgKey,
+        observedAxisTolerance: meta.observedAxisTolerance,
+        observedAxisReduction: reduction,
+      );
+    }
+
+    test('the canonical last reduction passes', () {
+      expect(
+        FrameTimingDetector().validationMetadata.observedAxisReduction,
+        'last',
+      );
+      expect(run('last'), isEmpty);
+    });
+
+    test('a max reduction picks the spike and fails', () {
+      final failures = run('max');
+      expect(failures, hasLength(1));
+      expect(failures.single, contains('observed axis cross-check failed'));
     });
   });
 }

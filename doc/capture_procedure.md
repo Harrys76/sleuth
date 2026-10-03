@@ -924,10 +924,10 @@ current tick, so every layout is new PAINT work rather than raster work.
 Each leg runs a 3 s calibration pre-pass at a known knob (`work` 4000
 for rebuild, `ops` 32 for repaint), reads the detector's
 `lastObserved*Percent`, and scales the knob to the leg target (warning
-0.5 / 1.25 / 2.1 × the threshold; rebuild critical 0.8 / 1.23 / 2.0 ×
-3× the threshold). It then stops, flushes the timeline, resets the
-detector, idles 1.5 s so the idle heartbeat closes an empty window, and
-records the scenario (6 s rebuild, 4 s repaint). `observed` is the
+0.5 / 1.25 / 2.1 × the threshold for rebuild, 0.5 / 1.25 / 2.0 × for
+repaint; rebuild critical 0.8 / 1.23 / 2.0 × 3× the threshold). It then
+stops, flushes the timeline, resets the detector, idles 1.5 s so the
+idle heartbeat closes an empty window, and records a 6 s scenario. `observed` is the
 detector peak rounded to one decimal; `expectedMagnitude` bands are
 warning below [0.5, t], critical below [0.65 t, t], at [t, 1.5 t], above
 [1.5 t, 2.7 t]. When the peak lands outside its band the leg runs once
@@ -940,7 +940,8 @@ attempts stop and look at `log` instead of widening tolerances.
 
 `ext.sleuthDemo.vmAxes` (`reset=true|false`) returns `buildLast`,
 `buildPeak`, `paintLast`, `paintPeak` and `vmConnected` for calibration
-walks on other screens.
+walks on other screens. A reset while a leg runs returns
+`{"error": "busy"}` and leaves the leg's peak untouched.
 
 ### Validate
 

@@ -795,9 +795,12 @@ Future<Map<String, Object?>> startCaptureLeg({
 }
 
 /// Detector last/peak time shares for `ext.sleuthDemo.vmAxes`. With
-/// [reset] both detectors' capture state is cleared after the read.
+/// [reset] both detectors' capture state is cleared after the read; a
+/// reset while a capture leg runs returns `{error: busy}` and leaves the
+/// leg's peak alone.
 @visibleForTesting
 Map<String, Object?> readVmAxes({bool reset = false}) {
+  if (reset && CaptureDriver.instance.isBusy) return {'error': 'busy'};
   final rebuild = Sleuth.rebuildDetector;
   final repaint = Sleuth.repaintDetector;
   final axes = <String, Object?>{

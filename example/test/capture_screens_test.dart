@@ -86,6 +86,19 @@ void main() {
       expect(driver.state, CaptureLegState.idle);
     });
 
+    test('a throwing scenario end on cleanup is logged, not rethrown', () {
+      final driver = CaptureDriver.instance;
+      expect(
+        () => endScenarioInCleanup(
+          'excessive_repaint_at',
+          'warning/at',
+          markEnd: (_) => throw StateError('timeline gone'),
+        ),
+        returnsNormally,
+      );
+      expect((driver.result()['log']! as List).last, contains('timeline gone'));
+    });
+
     test('consume leaves a running leg untouched', () {
       final driver = CaptureDriver.instance;
       driver.begin('rebuild/warning/below');
@@ -103,6 +116,12 @@ void main() {
         'paintPeak': 0.0,
         'vmConnected': false,
       });
+    });
+
+    test('vmAxes refuses a reset while a leg runs', () {
+      CaptureDriver.instance.begin('repaint/warning/above');
+      expect(readVmAxes(reset: true), {'error': 'busy'});
+      expect(readVmAxes(), containsPair('paintPeak', 0.0));
     });
 
     test('captureLeg refuses outside capture mode and on bad args', () async {
