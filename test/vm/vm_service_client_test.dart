@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vm_service/vm_service.dart';
@@ -701,8 +702,8 @@ void main() {
 
     test('capture mode: a retained buffer re-read after a 30 s gap does '
         'not replay events of an evicted tid', () async {
-      // The fetch window starts 2 s before the newest event seen, so an
-      // evicted tid's old events are never read again.
+      // The fetch window starts 500 ms before the newest event seen, so
+      // an evicted tid's old events are never read again.
       final received = <ParsedTimelineData>[];
       final mock = _MockVmService();
       final client = VmServiceClient(
@@ -736,7 +737,7 @@ void main() {
         ..sort();
       expect(allDurs, equals([100, 200]));
       expect(received.fold<int>(0, (sum, p) => sum + p.buildEventCount), 2);
-      expect(mock.timelineWindows.last.$1, 31000001 - 2000000);
+      expect(mock.timelineWindows.last.$1, 31000001 - 500000);
       expect(mock.clearVMTimelineCalled, isFalse);
       client.dispose();
     });
@@ -989,7 +990,7 @@ void main() {
         Timeline(traceEvents: events, timeOriginMicros: 0, timeExtentMicros: 0);
 
     test('first poll reads the whole buffer, later polls a window from '
-        '2 s before the newest event to the clock plus 1 s', () async {
+        '500 ms before the newest event to the clock plus 1 s', () async {
       final mock = _MockVmService()
         ..nowMicros = 9000000
         ..timelineResult = buffer([_build(5000000), _build(7000000)]);
@@ -1001,7 +1002,7 @@ void main() {
 
       expect(mock.timelineWindows, [
         (null, null),
-        (5000000, 9000000 - 5000000 + 1000000),
+        (6500000, 9000000 - 6500000 + 1000000),
       ]);
       expect(mock.getVMTimelineMicrosCallCount, 1);
       expect(mock.clearVMTimelineCalled, isFalse);
@@ -1013,7 +1014,7 @@ void main() {
     test('origin is clamped at zero', () async {
       final mock = _MockVmService()
         ..nowMicros = 3000000
-        ..timelineResult = buffer([_build(1500000)]);
+        ..timelineResult = buffer([_build(300000)]);
       final client = VmServiceClient();
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
@@ -1047,7 +1048,7 @@ void main() {
       await client.pollTimelineSync();
 
       // tid 3 has no cursor; its event at 1 s is older than the window
-      // (9 s − 2 s) and must not be replayed by the full read.
+      // (9 s − 0.5 s) and must not be replayed by the full read.
       mock
         ..nowMicros = 100
         ..timelineResult = buffer([
@@ -1109,9 +1110,11 @@ void main() {
     test('a growing buffer read through overlapping windows yields the '
         'same batches as non-overlapping reads', () async {
       // 6 s of 60 Hz frames: BUILD X, LAYOUT B/E pairs on the UI thread,
-      // raster X on the raster thread. Polls every 500 ms; the
-      // non-overlapping run hands each poll only the events written
-      // since the previous one.
+      // raster X on the raster thread. Polls every 500 ms. The full run
+      // serves the whole buffer, so each poll reads the client's window
+      // (500 ms before the newest event); the 100 ms run re-serves only
+      // the last 100 ms before the previous poll; the non-overlapping run
+      // hands each poll only the events written since the previous one.
       final all = <TimelineEvent>[];
       final frames = <FrameStats>[];
       for (var i = 0; i < 360; i++) {
@@ -1139,7 +1142,8 @@ void main() {
       }
       final pollTimes = [for (var t = 1500000; t <= 7500000; t += 500000) t];
 
-      Future<List<ParsedTimelineData>> run({required bool overlap}) async {
+      // [servedOverlapUs] null serves the whole buffer.
+      Future<List<ParsedTimelineData>> run({int? servedOverlapUs}) async {
         final received = <ParsedTimelineData>[];
         final mock = _MockVmService();
         final client = VmServiceClient(
@@ -1148,30 +1152,38 @@ void main() {
         );
         client.setServiceForTest(mock, isolateId: 'isolate-1');
         var previous = 0;
+        int? newest;
         for (final now in pollTimes) {
           final written = [
             for (final e in all)
               if ((e.json!['ts'] as int) <= now) e,
           ];
+          final from = servedOverlapUs == null
+              ? null
+              : previous - servedOverlapUs;
           mock
             ..nowMicros = now
-            ..timelineResult = buffer(
-              overlap
-                  ? written
-                  : [
-                      for (final e in written)
-                        if ((e.json!['ts'] as int) > previous) e,
-                    ],
-            );
+            ..timelineResult = buffer([
+              for (final e in written)
+                if (from == null || (e.json!['ts'] as int) > from) e,
+            ]);
           previous = now;
           await client.pollTimelineSync();
+          if (newest != null) {
+            expect(mock.timelineWindows.last.$1, newest - 500000);
+          }
+          newest = written.fold<int>(
+            newest ?? 0,
+            (m, e) => math.max(m, e.json!['ts'] as int),
+          );
         }
         client.dispose();
         return received;
       }
 
-      final overlapped = await run(overlap: true);
-      final plain = await run(overlap: false);
+      final overlapped = await run();
+      final short = await run(servedOverlapUs: 100000);
+      final plain = await run(servedOverlapUs: 0);
 
       List<int> builds(List<ParsedTimelineData> r) =>
           r.expand((p) => p.buildScopeDurations).toList();
@@ -1185,18 +1197,21 @@ void main() {
       ];
 
       expect(builds(overlapped), hasLength(360));
-      expect(builds(overlapped), builds(plain));
-      expect(layouts(overlapped), layouts(plain));
-      expect(rasters(overlapped), rasters(plain));
-      expect(phases(overlapped), phases(plain));
-      expect(
-        overlapped.fold<int>(0, (s, p) => s + p.buildEventCount),
-        plain.fold<int>(0, (s, p) => s + p.buildEventCount),
-      );
-      expect(
-        overlapped.fold<int>(0, (s, p) => s + p.duplicatesDropped),
-        greaterThan(0),
-      );
+      for (final run in [overlapped, short]) {
+        expect(builds(run), builds(plain));
+        expect(layouts(run), layouts(plain));
+        expect(rasters(run), rasters(plain));
+        expect(phases(run), phases(plain));
+        expect(
+          run.fold<int>(0, (s, p) => s + p.buildEventCount),
+          plain.fold<int>(0, (s, p) => s + p.buildEventCount),
+        );
+        expect(
+          run.fold<int>(0, (s, p) => s + p.duplicatesDropped),
+          greaterThan(0),
+        );
+      }
+      expect(plain.fold<int>(0, (s, p) => s + p.duplicatesDropped), 0);
 
       Map<int, (int, int, int, int)> correlated(List<ParsedTimelineData> r) {
         final correlator = FrameEventCorrelator();
@@ -1223,6 +1238,7 @@ void main() {
       final a = correlated(overlapped);
       final b = correlated(plain);
       expect(a, b);
+      expect(correlated(short), b);
       expect(a.values.fold<int>(0, (s, v) => s + v.$1), 360 * 3);
     });
 
@@ -1234,26 +1250,26 @@ void main() {
       client.setServiceForTest(mock, isolateId: 'isolate-1');
 
       // Poll 1 sees the begin on tid 1 and a later event on tid 2, so
-      // the next window starts at 3.5 s, after the begin.
+      // the next window starts at 5 s, after the begin.
       mock.timelineResult = buffer([
-        ev('BUILD', 'B', 3000000),
+        ev('BUILD', 'B', 4000000),
         _build(5500000, tid: 2),
       ]);
       await client.pollTimelineSync();
 
       final withEnd = buffer([
-        ev('BUILD', 'B', 3000000),
+        ev('BUILD', 'B', 4000000),
         _build(5500000, tid: 2),
-        ev('BUILD', 'E', 3600000),
+        ev('BUILD', 'E', 5100000),
       ]);
       mock.timelineResult = withEnd;
       await client.pollTimelineSync();
       await client.pollTimelineSync();
 
-      expect(mock.timelineWindows[1].$1, 3500000);
+      expect(mock.timelineWindows[1].$1, 5000000);
       expect(received.expand((p) => p.buildScopeDurations).toList(), [
         100,
-        600000,
+        1100000,
       ]);
       client.dispose();
     });
@@ -1266,18 +1282,60 @@ void main() {
 
       mock.timelineResult = buffer([_build(3000000, tid: 2)]);
       await client.pollTimelineSync();
-      // Written late, stamped exactly at the next origin (3 s − 2 s).
+      // Written late, stamped exactly at the next origin (3 s − 0.5 s).
       mock.timelineResult = buffer([
-        _build(1000000, dur: 700),
+        _build(2500000, dur: 700),
         _build(3000000, tid: 2),
       ]);
       await client.pollTimelineSync();
       await client.pollTimelineSync();
 
-      expect(mock.timelineWindows[1].$1, 1000000);
+      expect(mock.timelineWindows[1].$1, 2500000);
       expect(received.expand((p) => p.buildScopeDurations).toList(), [
         100,
         700,
+      ]);
+      client.dispose();
+    });
+
+    test('a begin whose end arrives 1.5 s later pairs through the pending '
+        'map once the begin is outside the window', () async {
+      final received = <ParsedTimelineData>[];
+      final mock = _MockVmService();
+      final client = VmServiceClient(onTimelineData: received.add);
+      client.setServiceForTest(mock, isolateId: 'isolate-1');
+
+      // Poll 1: the begin. Poll 2: unrelated work on tid 2 moves the
+      // window origin to 1.3 s, past the begin. Poll 3: the end, 1.5 s
+      // after the begin (beyond the overlap, inside the phase cap).
+      final events = [ev('BUILD', 'B', 1000000)];
+      mock
+        ..nowMicros = 1100000
+        ..timelineResult = buffer(List.of(events));
+      await client.pollTimelineSync();
+      events.add(_build(1800000, tid: 2));
+      mock
+        ..nowMicros = 1900000
+        ..timelineResult = buffer(List.of(events));
+      await client.pollTimelineSync();
+      events.add(ev('BUILD', 'E', 2500000));
+      mock
+        ..nowMicros = 2600000
+        ..timelineResult = buffer(List.of(events));
+      await client.pollTimelineSync();
+
+      expect(mock.timelineWindows[2].$1, 1300000);
+      expect(
+        2500000 - 1000000,
+        allOf(
+          greaterThan(VmServiceClient.fetchOverlapMicros),
+          lessThanOrEqualTo(TimelineParser.maxReconstructedPhaseUs),
+        ),
+      );
+      expect(received.map((p) => p.buildScopeDurations).toList(), [
+        <int>[],
+        [100],
+        [1500000],
       ]);
       client.dispose();
     });

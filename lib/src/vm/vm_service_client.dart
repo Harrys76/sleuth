@@ -73,9 +73,8 @@ class VmServiceClient {
   /// VM keeping already-polled events (capture mode).
   ///
   /// The poll loop never clears the VM timeline: after the first poll of
-  /// a session it fetches only a window that starts
-  /// [TimelineParser.maxReconstructedPhaseUs] before the newest event it
-  /// has seen, so the retained buffer is not re-read and the VM's
+  /// a session it fetches only a window that starts [fetchOverlapMicros]
+  /// before the newest event it has seen, so the retained buffer is not re-read and the VM's
   /// bounded ring buffer costs no app memory. The flag therefore only
   /// records the export expectation. The ring buffer still drops its
   /// oldest events under load (Dart trace buffer default ~5 MB), so
@@ -550,8 +549,8 @@ class VmServiceClient {
   /// sessions with churning thread ids (worker isolates, GC helper
   /// threads) would otherwise grow the map indefinitely. Eviction is
   /// safe because a windowed fetch never returns events older than
-  /// [TimelineParser.maxReconstructedPhaseUs] before the newest event
-  /// seen, far inside this age.
+  /// [fetchOverlapMicros] before the newest event seen, far inside this
+  /// age.
   ///
   /// Sweep runs only on polls with at least one accepted event (the
   /// anchor `ts` is the batch max); fully idle polling sessions retain
@@ -575,6 +574,17 @@ class VmServiceClient {
   /// full fetch (startup events, first session after a reconnect).
   /// Reset in `_cleanup()`.
   int? _lastMaxTs;
+
+  /// How far before the newest event seen a windowed fetch starts: one
+  /// poll interval.
+  ///
+  /// Covers events a thread appends with a timestamp older than another
+  /// thread's newest event. A begin/end pair that straddles a fetch is
+  /// joined by the pending-begin maps, not by re-fetching the begin, so
+  /// the overlap does not need to span
+  /// [TimelineParser.maxReconstructedPhaseUs]. The per-thread cursors drop
+  /// the events the overlap reads again.
+  static const int fetchOverlapMicros = 500000;
 
   /// Margin added past the VM's current timeline clock reading so events
   /// stamped between the clock read and the fetch are included.
@@ -621,21 +631,18 @@ class VmServiceClient {
     final watch = Stopwatch();
     try {
       // Fetch window: the whole buffer on the first poll of a session,
-      // otherwise from `maxReconstructedPhaseUs` before the newest event
-      // seen up to the VM's current clock plus slack. The overlap lets a
-      // begin/end pair or an `X` event that straddles the previous fetch
-      // be read whole; the per-tid cursors drop what was already
-      // processed. Nothing is cleared, so events written between two
+      // otherwise from `fetchOverlapMicros` before the newest event seen
+      // up to the VM's current clock plus slack. The overlap picks up
+      // events a thread wrote late with an older `ts`; a begin/end pair
+      // split across fetches is joined by the pending-begin maps. The
+      // per-tid cursors drop what was already processed. Nothing is cleared, so events written between two
       // fetches are never lost and DevTools keeps its timeline.
       final lastMaxTs = _lastMaxTs;
       int? originUs;
       int? extentUs;
       var floorUs = 0;
       if (lastMaxTs != null) {
-        originUs = math.max(
-          0,
-          lastMaxTs - TimelineParser.maxReconstructedPhaseUs,
-        );
+        originUs = math.max(0, lastMaxTs - fetchOverlapMicros);
         watch.start();
         final clockReadStartUs = _rpcClockUs();
         final nowUs = await _readTimelineClock();

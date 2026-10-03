@@ -289,8 +289,11 @@
   the leg's result.
 - The VM poll loop fetches incrementally and never clears the VM timeline.
   The first poll of a session reads the whole buffer (startup events);
-  later polls read a window from 2 s before the newest event seen to the
-  VM's timeline clock plus 1 s, and per-thread cursors drop the overlap.
+  later polls read a window from 500 ms (one poll interval,
+  `VmServiceClient.fetchOverlapMicros`) before the newest event seen to
+  the VM's timeline clock plus 1 s, and per-thread cursors drop the
+  overlap. Begin/end pairs split across fetches pair through the
+  pending-begin maps.
   Capture mode no longer re-reads the retained ring buffer on every poll
   (the source of two UI-isolate stalls per poll), live mode no longer
   loses events written between the fetch and the clear, and DevTools
