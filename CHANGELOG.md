@@ -319,7 +319,17 @@
   Correlate,Aggregate,Other}Micros` (sum to the dispatch),
   `lastPollTailMemoryMicros` (the `getMemoryUsage` await), and
   `lastPollTail{CpuSamples,AllocationProfile}Micros` (tail time during
-  which such a request was in flight). Measured on the iPhone 12: <numbers>
+  which such a request was in flight). Measured on the iPhone 12 (iOS 17.5,
+  profile, 500 ms polls, median per poll): capture mode on the idle home
+  screen went from 117 ms RPC / 7.6 ms parse / 3.7 MB / 23.8k events to
+  6.6 ms / 0.3 ms / 38 KB / 278 events, flat over five minutes; live mode on
+  the idle home screen stays at 6.4 ms RPC with parse down from 1.5 ms to
+  0.3 ms; on the FPS stress screen the dispatch segment fell from 211–238 ms
+  to 0.2 ms and the tail from 808–847 ms to 27 ms once CPU-sample requests
+  were spaced, and the verdict mode is `correlated` again. The UI-isolate
+  decode is 1.0 ms per poll on the idle home screen and 21–29 ms on the
+  FPS stress screen (1.5–1.7 MB per poll), so decode, parse and dispatch
+  together block the UI isolate for about 1.2 ms per 500 ms at idle.
 - `getCpuSamples` (jank-frame CPU attribution) is issued at most once per
   10 s (`VmServiceClient.cpuSamplesMinInterval`) and never while an
   earlier request, including one that timed out, is unanswered. The VM

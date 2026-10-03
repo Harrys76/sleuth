@@ -33,7 +33,20 @@ Decode, parse and dispatch run synchronously on the UI isolate and delay any fra
 
 The detectors' own work is small: an 1,800-event batch replayed from a device capture (230 phase events, 74 janky frames) dispatches in about 0.13 ms on an M1 Pro (`test/benchmark/dispatch_overhead_test.dart`). Isolate RPCs are not: the VM serves them on the target isolate's thread, interrupting whatever Dart code runs there. `getCpuSamples` builds the profile there and returns about 3.3 MB for a 60 ms window (the function table), decoded on the same isolate; on an M1 Pro one request costs about 20 ms in the code it interrupts plus 95 ms before the next response. Requests are therefore spaced by `VmServiceClient.cpuSamplesMinInterval` (10 s) and never overlap, and a request that timed out client side still counts as in flight until the VM answers.
 
-Measured on the iPhone 12: <numbers>
+Measured on the iPhone 12 (iOS 17.5, Flutter 3.47.6, profile, 500 ms polls; median / max per poll over a walk of the idle home screen, the tabbed shell, the FPS stress screen and a five-minute idle hold):
+
+| mode, screen | RPC ms | parse ms | dispatch ms | tail ms | events | response |
+|---|---|---|---|---|---|---|
+| capture, idle home, before | 117 / 128 | 7.6 / 9.4 | 0.1 / 0.2 | 0.5 | 23.8k | 3.7 MB |
+| capture, idle home, after | 6.6 / 7.5 | 0.3 / 0.6 | 0.0 / 0.4 | 2.8 | 278 | 38 KB |
+| capture, FPS stress, before | 154 / 154 | 15 / 21 | 282 / 311 | 616 / 747 | 28.7k | 4.7 MB |
+| capture, FPS stress, after | 13.7 / 41 | 1.1 / 5.0 | 0.2 / 0.2 | 26.5 / 32 | 3.7k | 530 KB |
+| live, idle home, before | 6.6 / 10.1 | 1.5 / 2.4 | 0.3 / 0.6 | 3.7 / 714 | 170 | 23 KB |
+| live, idle home, after | 6.4 / 8.6 | 0.3 / 0.5 | 0.2 / 0.3 | 2.5 / 3.0 | 271 | 37 KB |
+| live, FPS stress, before | 33 / 39 | 1.5 / 3.3 | 211 / 238 | 808 / 847 | 1.8k | 293 KB |
+| live, FPS stress, after | 67 / 70 | 2.6 / 2.6 | 0.2 / 0.2 | 27 / 30 | 9.6k | 1.6 MB |
+
+"Before" is the build with timings only; "after" is this release. The capture-mode stall was the whole-buffer re-read. The FPS stress dispatch and tail were the per-poll `getCpuSamples` request. The live FPS stress RPC grew because the old fetch-then-clear sequence, stretched to over a second by that request, silently dropped most of that screen's events; the incremental window now returns all of them (about 9.6k per 500 ms on that screen), so the remaining cost there is event volume, not Sleuth's processing. The 714 ms tail spike at idle was an allocation-profile request overlapping the poll. Decode measured separately on the release build: 1.0 ms per poll on the idle home screen (144 events, 18 KB), 5–10 ms in the first polls after launch while the startup burst drains, and 21–29 ms per poll on the FPS stress screen (9–10k events, 1.5–1.7 MB). With parse and dispatch that is about 1.2 ms of UI-isolate time per 500 ms at idle and about 32 ms per 500 ms on the stress screen. A helper isolate for decode and parse was considered and not built: at idle it would save about a millisecond per poll, and on the stress screen the lever is the event volume of the Embedder stream (raster events at 20 fps), not where the decode runs; narrowing that stream in live mode is the follow-up.
 
 ## Frame budget
 
