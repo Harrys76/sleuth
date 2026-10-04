@@ -67,119 +67,131 @@ class _GuidePageState extends State<GuidePage>
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
 
-    return Material(
-      color: theme.pageBackground,
-      child: SafeArea(
-        child: Column(
-          children: [
-            // Header
-            FadeTransition(
-              opacity: _staggered(0),
-              child: Padding(
-                padding: EdgeInsets.all(theme.spacingMd),
-                child: Row(
-                  children: [
-                    GestureDetector(
-                      onTap: widget.onClose,
-                      behavior: HitTestBehavior.opaque,
-                      child: SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: Center(
-                          child: Icon(
-                            Icons.arrow_back,
-                            color: theme.textPrimary,
-                            size: 22,
+    // Route semantics: screen readers announce the page name and keep
+    // focus inside the page.
+    return Semantics(
+      scopesRoute: true,
+      namesRoute: true,
+      explicitChildNodes: true,
+      label: 'Sleuth Guide',
+      child: Material(
+        color: theme.pageBackground,
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              FadeTransition(
+                opacity: _staggered(0),
+                child: Padding(
+                  padding: EdgeInsets.all(theme.spacingMd),
+                  child: Row(
+                    children: [
+                      Semantics(
+                        label: 'Back',
+                        button: true,
+                        child: GestureDetector(
+                          onTap: widget.onClose,
+                          behavior: HitTestBehavior.opaque,
+                          child: SizedBox(
+                            width: 48,
+                            height: 48,
+                            child: Center(
+                              child: Icon(
+                                Icons.arrow_back,
+                                color: theme.textPrimary,
+                                size: 22,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    Icon(
-                      Icons.pets,
-                      size: theme.fontXl,
-                      color: theme.textPrimary,
-                    ),
-                    SizedBox(width: theme.spacingXs),
-                    Expanded(
-                      child: Text(
-                        'Sleuth Guide',
-                        style: TextStyle(
-                          color: theme.textPrimary,
-                          fontSize: theme.fontXl,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                      Icon(
+                        Icons.pets,
+                        size: theme.fontXl,
+                        color: theme.textPrimary,
                       ),
-                    ),
-                  ],
+                      SizedBox(width: theme.spacingXs),
+                      Expanded(
+                        child: Text(
+                          'Sleuth Guide',
+                          style: TextStyle(
+                            color: theme.textPrimary,
+                            fontSize: theme.fontXl,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            Divider(color: theme.border, height: 1),
+              Divider(color: theme.border, height: 1),
 
-            // Scrollable sections
-            Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  theme.spacingXl,
-                  theme.spacingLg,
-                  theme.spacingXl,
-                  24,
-                ),
-                child: Column(
-                  children: [
-                    _section(
-                      index: 0,
-                      icon: Icons.rocket_launch_outlined,
-                      title: 'Quick Start',
-                      accent: theme.categoryBuild,
-                      theme: theme,
-                      child: _quickStartContent(),
-                    ),
-                    const SizedBox(height: 10),
-                    _section(
-                      index: 1,
-                      icon: Icons.dashboard_customize_outlined,
-                      title: 'Understanding the Card',
-                      accent: theme.categoryMemory,
-                      theme: theme,
-                      child: _cardExplanation(theme),
-                    ),
-                    const SizedBox(height: 10),
-                    _section(
-                      index: 2,
-                      icon: Icons.palette_outlined,
-                      title: 'Color Legend',
-                      accent: theme.severityOk,
-                      theme: theme,
-                      child: _colorLegend(theme),
-                    ),
-                    const SizedBox(height: 10),
-                    _section(
-                      index: 3,
-                      icon: Icons.tips_and_updates_outlined,
-                      title: 'Tips & Tricks',
-                      accent: theme.severityWarning,
-                      theme: theme,
-                      child: _tipsContent(theme),
-                    ),
-                    const SizedBox(height: 20),
-                    FadeTransition(
-                      opacity: _staggered(4),
-                      child: Text(
-                        'Sleuth',
-                        style: TextStyle(
-                          color: theme.textQuaternary,
-                          fontSize: theme.fontSm,
+              // Scrollable sections
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(
+                    theme.spacingXl,
+                    theme.spacingLg,
+                    theme.spacingXl,
+                    24,
+                  ),
+                  child: Column(
+                    children: [
+                      _section(
+                        index: 0,
+                        icon: Icons.rocket_launch_outlined,
+                        title: 'Quick Start',
+                        accent: theme.categoryBuild,
+                        theme: theme,
+                        child: _quickStartContent(),
+                      ),
+                      const SizedBox(height: 10),
+                      _section(
+                        index: 1,
+                        icon: Icons.dashboard_customize_outlined,
+                        title: 'Understanding the Card',
+                        accent: theme.categoryMemory,
+                        theme: theme,
+                        child: _cardExplanation(theme),
+                      ),
+                      const SizedBox(height: 10),
+                      _section(
+                        index: 2,
+                        icon: Icons.palette_outlined,
+                        title: 'Color Legend',
+                        accent: theme.severityOk,
+                        theme: theme,
+                        child: _colorLegend(theme),
+                      ),
+                      const SizedBox(height: 10),
+                      _section(
+                        index: 3,
+                        icon: Icons.tips_and_updates_outlined,
+                        title: 'Tips & Tricks',
+                        accent: theme.severityWarning,
+                        theme: theme,
+                        child: _tipsContent(theme),
+                      ),
+                      const SizedBox(height: 20),
+                      FadeTransition(
+                        opacity: _staggered(4),
+                        child: Text(
+                          'Sleuth',
+                          style: TextStyle(
+                            color: theme.textQuaternary,
+                            fontSize: theme.fontSm,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -214,46 +226,54 @@ class _GuidePageState extends State<GuidePage>
           child: Column(
             children: [
               // Header — tappable to expand/collapse
-              GestureDetector(
+              Semantics(
+                container: true,
+                button: true,
+                expanded: isExpanded,
+                label: title,
                 onTap: () => _toggleSection(index),
-                behavior: HitTestBehavior.opaque,
-                child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: theme.spacingLg,
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: accent.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(theme.radiusLg),
+                excludeSemantics: true,
+                child: GestureDetector(
+                  onTap: () => _toggleSection(index),
+                  behavior: HitTestBehavior.opaque,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: theme.spacingLg,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: accent.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(theme.radiusLg),
+                          ),
+                          child: Icon(icon, color: accent, size: 16),
                         ),
-                        child: Icon(icon, color: accent, size: 16),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: TextStyle(
-                            color: theme.textPrimary,
-                            fontSize: theme.fontLg,
-                            fontWeight: FontWeight.w600,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: TextStyle(
+                              color: theme.textPrimary,
+                              fontSize: theme.fontLg,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
-                      ),
-                      AnimatedRotation(
-                        turns: isExpanded ? 0.5 : 0,
-                        duration: const Duration(milliseconds: 200),
-                        child: Icon(
-                          Icons.expand_more,
-                          color: theme.textQuaternary,
-                          size: 20,
+                        AnimatedRotation(
+                          turns: isExpanded ? 0.5 : 0,
+                          duration: const Duration(milliseconds: 200),
+                          child: Icon(
+                            Icons.expand_more,
+                            color: theme.textQuaternary,
+                            size: 20,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -411,7 +431,9 @@ class _GuidePageState extends State<GuidePage>
         children: [
           SizedBox(
             width: 22,
-            child: Text(emoji, style: TextStyle(fontSize: theme.fontLg)),
+            child: ExcludeSemantics(
+              child: Text(emoji, style: TextStyle(fontSize: theme.fontLg)),
+            ),
           ),
           Expanded(
             child: Column(
@@ -1022,7 +1044,7 @@ class _GuideStep extends StatelessWidget {
             child: Text(
               step,
               style: TextStyle(
-                color: theme.textPrimary,
+                color: SleuthThemeData.onColor(theme.guideStepAccent),
                 fontSize: theme.fontMd,
                 fontWeight: FontWeight.bold,
               ),
@@ -1072,7 +1094,9 @@ class _LegendRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 3),
       child: Row(
         children: [
-          Text(icon, style: TextStyle(fontSize: theme.fontSm)),
+          ExcludeSemantics(
+            child: Text(icon, style: TextStyle(fontSize: theme.fontSm)),
+          ),
           SizedBox(width: theme.spacingSm),
           Expanded(
             child: Text(

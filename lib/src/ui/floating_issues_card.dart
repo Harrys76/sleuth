@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart';
 
 import '../../sleuth.dart' show Sleuth;
@@ -1061,34 +1062,85 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     double maxAllowedHeight,
     SleuthThemeData theme,
   ) {
+    void resizeBy(double dw, double dh) {
+      setState(() {
+        _cardWidth = (_cardWidth + dw).clamp(
+          _minCardWidth,
+          math.max(_minCardWidth, screenSize.width - clamped.dx),
+        );
+        _cardHeight = (cardHeight + dh).clamp(minHeight, maxAllowedHeight);
+      });
+      _commitGeometry();
+    }
+
+    // 48 x 48 hit box; the grip dots keep their corner position. Screen
+    // readers resize through the custom actions in 48 px steps.
     return Positioned(
       right: 0,
       bottom: 0,
-      width: 32,
-      height: 32,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.resizeDownRight,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanUpdate: (details) {
-            setState(() {
-              _cardWidth = (_cardWidth + details.delta.dx).clamp(
-                _minCardWidth,
-                math.max(_minCardWidth, screenSize.width - clamped.dx),
-              );
-              _cardHeight = (cardHeight + details.delta.dy).clamp(
-                minHeight,
-                maxAllowedHeight,
-              );
-            });
-          },
-          onPanEnd: (_) => _commitGeometry(),
-          child: CustomPaint(
-            painter: _CornerGripPainter(gripColor: theme.gripDots),
+      width: 48,
+      height: 48,
+      child: Semantics(
+        label: 'Resize card',
+        customSemanticsActions: {
+          const CustomSemanticsAction(label: 'Taller'): () =>
+              resizeBy(0, _a11yStep),
+          const CustomSemanticsAction(label: 'Shorter'): () =>
+              resizeBy(0, -_a11yStep),
+          const CustomSemanticsAction(label: 'Wider'): () =>
+              resizeBy(_a11yStep, 0),
+          const CustomSemanticsAction(label: 'Narrower'): () =>
+              resizeBy(-_a11yStep, 0),
+        },
+        child: MouseRegion(
+          cursor: SystemMouseCursors.resizeDownRight,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanUpdate: (details) {
+              setState(() {
+                _cardWidth = (_cardWidth + details.delta.dx).clamp(
+                  _minCardWidth,
+                  math.max(_minCardWidth, screenSize.width - clamped.dx),
+                );
+                _cardHeight = (cardHeight + details.delta.dy).clamp(
+                  minHeight,
+                  maxAllowedHeight,
+                );
+              });
+            },
+            onPanEnd: (_) => _commitGeometry(),
+            child: CustomPaint(
+              painter: _CornerGripPainter(gripColor: theme.gripDots),
+            ),
           ),
         ),
       ),
     );
+  }
+
+  /// Step of the move and resize custom semantics actions.
+  static const double _a11yStep = 48;
+
+  /// Moves the card by [delta], kept inside the safe area.
+  void _moveCardBy(Offset delta) {
+    setState(() {
+      _cardOffset = (_cardOffset ?? Offset.zero) + delta;
+      _cardOffset = _clampOffset(
+        MediaQuery.sizeOf(context),
+        _cachedSafePadding,
+        _cachedEffectiveWidth,
+        _cachedKeyboardHeight,
+      );
+    });
+    _commitGeometry();
+  }
+
+  /// Moves the card to the top-left corner of the safe area.
+  void _moveCardToCorner() {
+    setState(() {
+      _cardOffset = Offset(_cachedSafePadding.left, _cachedSafePadding.top);
+    });
+    _commitGeometry();
   }
 
   // ─── Header ──────────────────────────────────────────────────────────
@@ -1102,142 +1154,167 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final isNormal = _windowState == CardWindowState.normal;
     // Only show window controls when the card is wide enough to avoid overflow.
     final showWindowControls = effectiveWidth >= 280 || !isNormal;
-    return GestureDetector(
-      onPanUpdate: (details) {
-        setState(() {
-          _cardOffset = (_cardOffset ?? Offset.zero) + details.delta;
-          _cardOffset = _clampOffset(
-            screenSize,
-            _cachedSafePadding,
-            _cachedEffectiveWidth,
-            _cachedKeyboardHeight,
-          );
-        });
+    // The header is the drag handle; screen readers move the card through
+    // the custom actions in 48 px steps.
+    return Semantics(
+      container: true,
+      explicitChildNodes: true,
+      label: 'Sleuth',
+      customSemanticsActions: {
+        const CustomSemanticsAction(label: 'Move up'): () =>
+            _moveCardBy(const Offset(0, -_a11yStep)),
+        const CustomSemanticsAction(label: 'Move down'): () =>
+            _moveCardBy(const Offset(0, _a11yStep)),
+        const CustomSemanticsAction(label: 'Move left'): () =>
+            _moveCardBy(const Offset(-_a11yStep, 0)),
+        const CustomSemanticsAction(label: 'Move right'): () =>
+            _moveCardBy(const Offset(_a11yStep, 0)),
+        const CustomSemanticsAction(label: 'Move to corner'): _moveCardToCorner,
       },
-      onPanEnd: (_) => _commitGeometry(),
-      behavior: HitTestBehavior.opaque,
-      child: SleuthTextScaleClamp(
-        maxScaleFactor: kChromeMaxTextScale,
-        child: Padding(
-          padding: EdgeInsets.only(left: 10, right: theme.spacingXs),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: _controlRowHeight),
-            child: Row(
-              children: [
-                Icon(Icons.pets, size: 14, color: theme.textPrimary),
-                SizedBox(width: theme.spacingXs),
-                // The title gives way first: it ellipsizes before any
-                // control loses its 48 px height.
-                Expanded(
-                  child: Text(
-                    'Sleuth',
-                    style: TextStyle(
-                      color: theme.textPrimary,
-                      fontSize: theme.fontBase,
-                      fontWeight: FontWeight.bold,
+      child: GestureDetector(
+        onPanUpdate: (details) {
+          setState(() {
+            _cardOffset = (_cardOffset ?? Offset.zero) + details.delta;
+            _cardOffset = _clampOffset(
+              screenSize,
+              _cachedSafePadding,
+              _cachedEffectiveWidth,
+              _cachedKeyboardHeight,
+            );
+          });
+        },
+        onPanEnd: (_) => _commitGeometry(),
+        behavior: HitTestBehavior.opaque,
+        child: SleuthTextScaleClamp(
+          maxScaleFactor: kChromeMaxTextScale,
+          child: Padding(
+            padding: EdgeInsets.only(left: 10, right: theme.spacingXs),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: _controlRowHeight),
+              child: Row(
+                children: [
+                  Icon(Icons.pets, size: 14, color: theme.textPrimary),
+                  SizedBox(width: theme.spacingXs),
+                  // The title gives way first: it ellipsizes before any
+                  // control loses its 48 px height. The header node carries
+                  // the name.
+                  Expanded(
+                    child: ExcludeSemantics(
+                      child: Text(
+                        'Sleuth',
+                        style: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: theme.fontBase,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                // Issue count badge (visible when minimized so user sees at a glance)
-                if (isMinimized)
-                  ValueListenableBuilder<List<PerformanceIssue>>(
-                    valueListenable: widget.controller.issuesNotifier,
-                    builder: (_, issues, _) => _ui.visibleIssues(issues).isEmpty
-                        ? const SizedBox.shrink()
-                        : DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: theme.badgeFill(theme.severityWarning),
-                              borderRadius: BorderRadius.circular(
-                                theme.radiusLg,
+                  // Issue count badge (visible when minimized so user sees at a glance)
+                  if (isMinimized)
+                    ValueListenableBuilder<List<PerformanceIssue>>(
+                      valueListenable: widget.controller.issuesNotifier,
+                      builder: (_, issues, _) =>
+                          _ui.visibleIssues(issues).isEmpty
+                          ? const SizedBox.shrink()
+                          : DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: theme.badgeFill(theme.severityWarning),
+                                borderRadius: BorderRadius.circular(
+                                  theme.radiusLg,
+                                ),
+                                border: Border.all(
+                                  color: theme.severityWarning,
+                                ),
                               ),
-                              border: Border.all(color: theme.severityWarning),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 1,
-                              ),
-                              child: Text(
-                                '${_ui.visibleIssues(issues).length}',
-                                style: TextStyle(
-                                  color: theme.badgeTextOn(
-                                    theme.severityWarning,
-                                    tinted: theme.severityWarningText,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 1,
+                                ),
+                                child: Text(
+                                  '${_ui.visibleIssues(issues).length}',
+                                  style: TextStyle(
+                                    color: theme.badgeTextOn(
+                                      theme.severityWarning,
+                                      tinted: theme.severityWarningText,
+                                    ),
+                                    fontSize: theme.fontXs,
+                                    fontWeight: FontWeight.bold,
                                   ),
-                                  fontSize: theme.fontXs,
-                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
-                          ),
-                  ),
-                // Highlight overlay toggle (hidden when minimized)
-                if (!isMinimized)
-                  ValueListenableBuilder<bool>(
-                    valueListenable: widget.controller.highlightEnabledNotifier,
-                    builder: (_, enabled, _) => _compactHeaderButton(
-                      icon: enabled ? Icons.layers : Icons.layers_outlined,
-                      color: enabled
-                          ? theme.checkboxActive
-                          : theme.textTertiary,
-                      onTap: () {
-                        final newValue = !enabled;
-                        widget.controller.highlightEnabledNotifier.value =
-                            newValue;
-                        if (!newValue) {
-                          widget.controller.clearSelectedHighlight();
-                        }
-                      },
-                      tooltip: enabled ? 'Hide overlay' : 'Show overlay',
                     ),
-                  ),
-                // Theme toggle: System -> Light -> Dark (hidden when minimized).
-                if (!isMinimized)
-                  _compactHeaderButton(
-                    icon: _ui.themeMode == SleuthThemeMode.system
-                        ? Icons.brightness_auto
-                        : theme.brightness == Brightness.dark
-                        ? Icons.dark_mode
-                        : Icons.light_mode,
+                  // Highlight overlay toggle (hidden when minimized)
+                  if (!isMinimized)
+                    ValueListenableBuilder<bool>(
+                      valueListenable:
+                          widget.controller.highlightEnabledNotifier,
+                      builder: (_, enabled, _) => _compactHeaderButton(
+                        icon: enabled ? Icons.layers : Icons.layers_outlined,
+                        color: enabled
+                            ? theme.checkboxActive
+                            : theme.textTertiary,
+                        onTap: () {
+                          final newValue = !enabled;
+                          widget.controller.highlightEnabledNotifier.value =
+                              newValue;
+                          if (!newValue) {
+                            widget.controller.clearSelectedHighlight();
+                          }
+                        },
+                        tooltip: enabled ? 'Hide overlay' : 'Show overlay',
+                      ),
+                    ),
+                  // Theme toggle: System -> Light -> Dark (hidden when minimized).
+                  if (!isMinimized)
+                    _compactHeaderButton(
+                      icon: _ui.themeMode == SleuthThemeMode.system
+                          ? Icons.brightness_auto
+                          : theme.brightness == Brightness.dark
+                          ? Icons.dark_mode
+                          : Icons.light_mode,
+                      color: theme.textTertiary,
+                      onTap: _cycleThemeMode,
+                      tooltip: 'Toggle theme',
+                      value: _themeModeLabel(_ui.themeMode),
+                      hint: 'Changes theme',
+                    ),
+                  // Window controls. Hidden at narrow widths (<280px) so the
+                  // title keeps some room.
+                  if (showWindowControls && isNormal)
+                    _compactHeaderButton(
+                      icon: Icons.minimize,
+                      color: theme.textTertiary,
+                      onTap: _minimize,
+                      tooltip: 'Minimize',
+                    ),
+                  if (showWindowControls && isNormal)
+                    _compactHeaderButton(
+                      icon: Icons.crop_square,
+                      color: theme.textTertiary,
+                      onTap: () => _maximize(context),
+                      tooltip: 'Maximize',
+                    ),
+                  if (showWindowControls && !isNormal)
+                    _compactHeaderButton(
+                      icon: Icons.filter_none,
+                      color: theme.textTertiary,
+                      onTap: _restore,
+                      tooltip: 'Restore',
+                    ),
+                  // Close button
+                  _headerIconButton(
+                    icon: Icons.close,
                     color: theme.textTertiary,
-                    onTap: _cycleThemeMode,
-                    tooltip: 'Toggle theme',
-                    value: _themeModeLabel(_ui.themeMode),
-                    hint: 'Changes theme',
+                    onTap: widget.onClose,
+                    tooltip: 'Close Sleuth',
                   ),
-                // Window controls. Hidden at narrow widths (<280px) so the
-                // title keeps some room.
-                if (showWindowControls && isNormal)
-                  _compactHeaderButton(
-                    icon: Icons.minimize,
-                    color: theme.textTertiary,
-                    onTap: _minimize,
-                    tooltip: 'Minimize',
-                  ),
-                if (showWindowControls && isNormal)
-                  _compactHeaderButton(
-                    icon: Icons.crop_square,
-                    color: theme.textTertiary,
-                    onTap: () => _maximize(context),
-                    tooltip: 'Maximize',
-                  ),
-                if (showWindowControls && !isNormal)
-                  _compactHeaderButton(
-                    icon: Icons.filter_none,
-                    color: theme.textTertiary,
-                    onTap: _restore,
-                    tooltip: 'Restore',
-                  ),
-                // Close button
-                _headerIconButton(
-                  icon: Icons.close,
-                  color: theme.textTertiary,
-                  onTap: widget.onClose,
-                  tooltip: 'Close Sleuth',
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1980,7 +2057,9 @@ class _WarningBanners extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Text('⚠️', style: TextStyle(fontSize: theme.fontBase)),
+                ExcludeSemantics(
+                  child: Text('⚠️', style: TextStyle(fontSize: theme.fontBase)),
+                ),
                 SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
@@ -2009,7 +2088,9 @@ class _WarningBanners extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Text('🔬', style: TextStyle(fontSize: theme.fontBase)),
+                ExcludeSemantics(
+                  child: Text('🔬', style: TextStyle(fontSize: theme.fontBase)),
+                ),
                 SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
@@ -2070,7 +2151,8 @@ class _CardFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: theme.spacingMd),
+      // The right inset leaves the corner to the 48 px resize handle.
+      padding: EdgeInsets.only(left: theme.spacingMd, right: 48),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: theme.border, width: 1)),
       ),

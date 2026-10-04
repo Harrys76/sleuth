@@ -695,9 +695,15 @@ class SleuthThemeData {
   /// whichever contrasts more, over an opaque fill.
   Color badgeTextOn(Color accent, {Color? tinted}) {
     if (badgeFillAlpha < 1) return tinted ?? textPrimary;
+    return onColor(accent);
+  }
+
+  /// Black or white, whichever contrasts more with the opaque [fill]
+  /// (at least 4.58:1 for any colour).
+  static Color onColor(Color fill) {
     const black = Color(0xFF000000);
     const white = Color(0xFFFFFFFF);
-    return contrastRatio(black, accent) >= contrastRatio(white, accent)
+    return contrastRatio(black, fill) >= contrastRatio(white, fill)
         ? black
         : white;
   }

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 
 import '../models/frame_stats.dart';
 import '../models/performance_issue.dart';
@@ -212,6 +213,19 @@ class _TriggerButtonState extends State<TriggerButton> {
     setState(() => _dragPosition = bounds.clampLoose(current + details.delta));
   }
 
+  /// Snaps the button to [edge], keeping its vertical position. The
+  /// screen-reader alternative to dragging.
+  void _moveToEdge(TriggerEdge edge) {
+    final bounds = _currentBounds();
+    final topLeft = _currentTopLeft();
+    final fraction =
+        _state.triggerAnchor?.fraction ??
+        (bounds != null && topLeft != null
+            ? bounds.anchorFor(topLeft).fraction
+            : 0.0);
+    _state.triggerAnchor = (edge: edge, fraction: fraction);
+  }
+
   void _onPanEnd() {
     final drop = _dragPosition;
     final bounds = _currentBounds();
@@ -254,6 +268,12 @@ class _TriggerButtonState extends State<TriggerButton> {
                   'Open Sleuth, ${visible.length} '
                   '${visible.length == 1 ? 'issue' : 'issues'}',
               onTap: widget.onTap,
+              customSemanticsActions: {
+                const CustomSemanticsAction(label: 'Move to left edge'): () =>
+                    _moveToEdge(TriggerEdge.left),
+                const CustomSemanticsAction(label: 'Move to right edge'): () =>
+                    _moveToEdge(TriggerEdge.right),
+              },
               container: true,
               excludeSemantics: true,
               // The count and FPS text grow up to 1.3x with the system

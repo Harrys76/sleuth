@@ -188,19 +188,25 @@ class _AiChatPageState extends State<AiChatPage>
     // A Material surface: the TextField needs a Material ancestor, and ink
     // and text selection paint on it. The page is a sibling of the card's
     // Material, not a descendant.
-    return FadeTransition(
-      opacity: _entranceCurve,
-      child: Material(
-        color: theme.pageBackground,
-        child: Padding(
-          padding: EdgeInsets.only(bottom: keyboardHeight),
-          child: Column(
-            children: [
-              _buildHeader(theme),
-              _buildIssueContext(theme),
-              Expanded(child: _buildMessageArea(theme)),
-              _buildInputBar(theme),
-            ],
+    return Semantics(
+      scopesRoute: true,
+      namesRoute: true,
+      explicitChildNodes: true,
+      label: 'Ask AI',
+      child: FadeTransition(
+        opacity: _entranceCurve,
+        child: Material(
+          color: theme.pageBackground,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: keyboardHeight),
+            child: Column(
+              children: [
+                _buildHeader(theme),
+                _buildIssueContext(theme),
+                Expanded(child: _buildMessageArea(theme)),
+                _buildInputBar(theme),
+              ],
+            ),
           ),
         ),
       ),
@@ -229,8 +235,8 @@ class _AiChatPageState extends State<AiChatPage>
               onTap: widget.onClose,
               behavior: HitTestBehavior.opaque,
               child: SizedBox(
-                width: 36,
-                height: 36,
+                width: 48,
+                height: 48,
                 child: Center(
                   child: Icon(
                     Icons.arrow_back,
@@ -262,8 +268,8 @@ class _AiChatPageState extends State<AiChatPage>
               onTap: _messages.isEmpty ? null : _copyConversation,
               behavior: HitTestBehavior.opaque,
               child: SizedBox(
-                width: 36,
-                height: 36,
+                width: 48,
+                height: 48,
                 child: Center(
                   child: Icon(
                     Icons.copy_all_outlined,
@@ -398,7 +404,6 @@ class _AiChatPageState extends State<AiChatPage>
           ),
           Wrap(
             spacing: theme.spacingXs,
-            runSpacing: theme.spacingXs,
             children: questions
                 .map((q) => _StarterChip(text: q, onTap: () => _sendMessage(q)))
                 .toList(),
@@ -540,18 +545,22 @@ class _AiChatPageState extends State<AiChatPage>
                   ),
                 ),
                 SizedBox(width: theme.spacingMd),
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => _copy(msg.text, 'Copied'),
-                  child: SizedBox(
-                    width: 36,
-                    height: 24,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Icon(
-                        Icons.copy,
-                        color: theme.textTertiary,
-                        size: 12,
+                Semantics(
+                  label: 'Copy message',
+                  button: true,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _copy(msg.text, 'Copied'),
+                    child: SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Icon(
+                          Icons.copy,
+                          color: theme.textTertiary,
+                          size: 12,
+                        ),
                       ),
                     ),
                   ),
@@ -642,6 +651,8 @@ class _AiChatPageState extends State<AiChatPage>
                 fontSize: theme.fontMd,
               ),
               decoration: InputDecoration(
+                // 48 px tall tap target.
+                constraints: const BoxConstraints(minHeight: 48),
                 hintText: 'Ask about this issue...',
                 hintStyle: TextStyle(
                   color: theme.textTertiary,
@@ -671,27 +682,40 @@ class _AiChatPageState extends State<AiChatPage>
             ),
           ),
           SizedBox(width: theme.spacingMd),
-          GestureDetector(
-            onTap: _isStreaming
-                ? null
-                : () => _sendMessage(_inputController.text),
-            child: SizedBox(
-              width: 32,
-              height: 32,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: _isStreaming
-                      ? theme.textQuaternary
-                      : theme.aiChatUserBubbleBg,
-                  shape: BoxShape.circle,
-                ),
+          Semantics(
+            label: 'Send',
+            button: true,
+            enabled: !_isStreaming,
+            child: GestureDetector(
+              onTap: _isStreaming
+                  ? null
+                  : () => _sendMessage(_inputController.text),
+              behavior: HitTestBehavior.opaque,
+              // 48 x 48 hit box around the 32 px button.
+              child: SizedBox(
+                width: 48,
+                height: 48,
                 child: Center(
-                  child: Icon(
-                    Icons.send,
-                    color: _isStreaming
-                        ? theme.cardBackground
-                        : theme.aiChatUserBubbleText,
-                    size: 14,
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: _isStreaming
+                            ? theme.textQuaternary
+                            : theme.aiChatUserBubbleBg,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Icon(
+                          Icons.send,
+                          color: _isStreaming
+                              ? theme.cardBackground
+                              : theme.aiChatUserBubbleText,
+                          size: 14,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -720,24 +744,35 @@ class _StarterChipState extends State<_StarterChip> {
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
+    // 48 px tall hit box around the pill.
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: widget.onTap,
       onTapDown: (_) => setState(() => _pressed = true),
       onTapUp: (_) => setState(() => _pressed = false),
       onTapCancel: () => setState(() => _pressed = false),
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: theme.spacingLg,
-          vertical: theme.spacingSm,
-        ),
-        decoration: BoxDecoration(
-          color: _pressed ? theme.border : theme.sectionBackground,
-          borderRadius: BorderRadius.circular(theme.radiusFull),
-          border: Border.all(color: theme.border, width: 0.5),
-        ),
-        child: Text(
-          widget.text,
-          style: TextStyle(color: theme.textSecondary, fontSize: theme.fontSm),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
+        child: Align(
+          widthFactor: 1,
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: theme.spacingLg,
+              vertical: theme.spacingSm,
+            ),
+            decoration: BoxDecoration(
+              color: _pressed ? theme.border : theme.sectionBackground,
+              borderRadius: BorderRadius.circular(theme.radiusFull),
+              border: Border.all(color: theme.border, width: 0.5),
+            ),
+            child: Text(
+              widget.text,
+              style: TextStyle(
+                color: theme.textSecondary,
+                fontSize: theme.fontSm,
+              ),
+            ),
+          ),
         ),
       ),
     );

@@ -49,151 +49,159 @@ class HiddenIssuesPage extends StatelessWidget {
     final keys = hiddenKeys.reversed.toList();
     final patterns = configSuppressions.toList()..sort();
 
-    return Material(
-      color: theme.pageBackground,
-      child: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: EdgeInsets.all(theme.spacingMd),
-              child: Row(
-                children: [
-                  Semantics(
-                    label: 'Back',
-                    button: true,
-                    child: GestureDetector(
-                      onTap: onClose,
-                      behavior: HitTestBehavior.opaque,
-                      child: SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: Center(
-                          child: Icon(
-                            Icons.arrow_back,
-                            color: theme.textPrimary,
-                            size: 22,
+    // Route semantics: screen readers announce the page name and keep
+    // focus inside the page.
+    return Semantics(
+      scopesRoute: true,
+      namesRoute: true,
+      explicitChildNodes: true,
+      label: 'Hidden issues',
+      child: Material(
+        color: theme.pageBackground,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: EdgeInsets.all(theme.spacingMd),
+                child: Row(
+                  children: [
+                    Semantics(
+                      label: 'Back',
+                      button: true,
+                      child: GestureDetector(
+                        onTap: onClose,
+                        behavior: HitTestBehavior.opaque,
+                        child: SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Center(
+                            child: Icon(
+                              Icons.arrow_back,
+                              color: theme.textPrimary,
+                              size: 22,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  Icon(
-                    Icons.visibility_off_outlined,
-                    color: theme.textTertiary,
-                    size: 18,
-                  ),
-                  SizedBox(width: theme.spacingXs),
-                  Expanded(
-                    child: Text(
-                      'Hidden issues',
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: theme.fontXl,
-                        fontWeight: FontWeight.bold,
+                    Icon(
+                      Icons.visibility_off_outlined,
+                      color: theme.textTertiary,
+                      size: 18,
+                    ),
+                    SizedBox(width: theme.spacingXs),
+                    Expanded(
+                      child: Text(
+                        'Hidden issues',
+                        style: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: theme.fontXl,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  if (keys.isNotEmpty)
-                    _TextAction(
-                      label: 'Restore all',
-                      semanticsLabel: 'Restore all hidden issues',
-                      onTap: onRestoreAll,
-                    ),
-                ],
-              ),
-            ),
-            Divider(color: theme.border, height: 1),
-            Expanded(
-              child: ListView(
-                padding: EdgeInsets.fromLTRB(
-                  theme.spacingXl,
-                  theme.spacingLg,
-                  theme.spacingXl,
-                  theme.spacingXl,
+                    if (keys.isNotEmpty)
+                      _TextAction(
+                        label: 'Restore all',
+                        semanticsLabel: 'Restore all hidden issues',
+                        onTap: onRestoreAll,
+                      ),
+                  ],
                 ),
-                children: [
-                  _sectionTitle('Hidden in the overlay', theme),
-                  Padding(
-                    padding: EdgeInsets.only(bottom: theme.spacingSm),
-                    child: Text(
-                      'Only the overlay hides these. Exports, snapshots and '
-                      'budgets still include them.',
-                      style: TextStyle(
-                        color: theme.textTertiary,
-                        fontSize: theme.fontSm,
-                      ),
-                    ),
-                  ),
-                  if (keys.isEmpty)
-                    _emptyLine('Nothing hidden.', theme)
-                  else
-                    for (final key in keys)
-                      _HiddenRow(
-                        title: byKey[key]?.title ?? key,
-                        subtitle: byKey[key] == null
-                            ? 'Not detected right now'
-                            : key,
-                        onRestore: () => onRestore(key),
-                      ),
-                  SizedBox(height: theme.spacingXl),
-                  _sectionTitle('Suppressed in SleuthConfig', theme),
-                  Padding(
-                    padding: EdgeInsets.only(bottom: theme.spacingSm),
-                    child: Text(
-                      suppressedCount == 0
-                          ? 'Removed before ranking. Set in SleuthConfig.'
-                          : '$suppressedCount removed before ranking. '
-                                'Set in SleuthConfig.',
-                      style: TextStyle(
-                        color: theme.textTertiary,
-                        fontSize: theme.fontSm,
-                      ),
-                    ),
-                  ),
-                  if (patterns.isEmpty)
-                    _emptyLine('No suppression patterns.', theme)
-                  else
-                    for (final p in patterns)
-                      Padding(
-                        padding: EdgeInsets.symmetric(
-                          vertical: theme.spacingXs,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.lock_outline,
-                              color: theme.textQuaternary,
-                              size: 14,
-                            ),
-                            SizedBox(width: theme.spacingSm),
-                            Expanded(
-                              child: Text(
-                                p,
-                                style: TextStyle(
-                                  color: theme.textSecondary,
-                                  fontSize: theme.fontMd,
-                                ),
-                              ),
-                            ),
-                            SizedBox(width: theme.spacingSm),
-                            Flexible(
-                              child: Text(
-                                'set in SleuthConfig',
-                                style: TextStyle(
-                                  color: theme.textQuaternary,
-                                  fontSize: theme.fontXs,
-                                ),
-                                textAlign: TextAlign.right,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                ],
               ),
-            ),
-          ],
+              Divider(color: theme.border, height: 1),
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.fromLTRB(
+                    theme.spacingXl,
+                    theme.spacingLg,
+                    theme.spacingXl,
+                    theme.spacingXl,
+                  ),
+                  children: [
+                    _sectionTitle('Hidden in the overlay', theme),
+                    Padding(
+                      padding: EdgeInsets.only(bottom: theme.spacingSm),
+                      child: Text(
+                        'Only the overlay hides these. Exports, snapshots and '
+                        'budgets still include them.',
+                        style: TextStyle(
+                          color: theme.textTertiary,
+                          fontSize: theme.fontSm,
+                        ),
+                      ),
+                    ),
+                    if (keys.isEmpty)
+                      _emptyLine('Nothing hidden.', theme)
+                    else
+                      for (final key in keys)
+                        _HiddenRow(
+                          title: byKey[key]?.title ?? key,
+                          subtitle: byKey[key] == null
+                              ? 'Not detected right now'
+                              : key,
+                          onRestore: () => onRestore(key),
+                        ),
+                    SizedBox(height: theme.spacingXl),
+                    _sectionTitle('Suppressed in SleuthConfig', theme),
+                    Padding(
+                      padding: EdgeInsets.only(bottom: theme.spacingSm),
+                      child: Text(
+                        suppressedCount == 0
+                            ? 'Removed before ranking. Set in SleuthConfig.'
+                            : '$suppressedCount removed before ranking. '
+                                  'Set in SleuthConfig.',
+                        style: TextStyle(
+                          color: theme.textTertiary,
+                          fontSize: theme.fontSm,
+                        ),
+                      ),
+                    ),
+                    if (patterns.isEmpty)
+                      _emptyLine('No suppression patterns.', theme)
+                    else
+                      for (final p in patterns)
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            vertical: theme.spacingXs,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.lock_outline,
+                                color: theme.textQuaternary,
+                                size: 14,
+                              ),
+                              SizedBox(width: theme.spacingSm),
+                              Expanded(
+                                child: Text(
+                                  p,
+                                  style: TextStyle(
+                                    color: theme.textSecondary,
+                                    fontSize: theme.fontMd,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: theme.spacingSm),
+                              Flexible(
+                                child: Text(
+                                  'set in SleuthConfig',
+                                  style: TextStyle(
+                                    color: theme.textQuaternary,
+                                    fontSize: theme.fontXs,
+                                  ),
+                                  textAlign: TextAlign.right,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

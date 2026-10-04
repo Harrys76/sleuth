@@ -52,72 +52,80 @@ class _StartupMetricsPageState extends State<StartupMetricsPage>
     final theme = SleuthTheme.of(context);
     final metrics = Sleuth.startupMetrics;
 
-    return Material(
-      color: theme.pageBackground,
-      child: SafeArea(
-        child: Column(
-          children: [
-            // Header
-            FadeTransition(
-              opacity: _staggered(0),
-              child: Padding(
-                padding: EdgeInsets.all(theme.spacingMd),
-                child: Row(
-                  children: [
-                    Semantics(
-                      label: 'Back',
-                      button: true,
-                      child: GestureDetector(
-                        onTap: widget.onClose,
-                        behavior: HitTestBehavior.opaque,
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Center(
-                            child: Icon(
-                              Icons.arrow_back,
-                              color: theme.textPrimary,
-                              size: 22,
+    // Route semantics: screen readers announce the page name and keep
+    // focus inside the page.
+    return Semantics(
+      scopesRoute: true,
+      namesRoute: true,
+      explicitChildNodes: true,
+      label: 'Startup metrics',
+      child: Material(
+        color: theme.pageBackground,
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              FadeTransition(
+                opacity: _staggered(0),
+                child: Padding(
+                  padding: EdgeInsets.all(theme.spacingMd),
+                  child: Row(
+                    children: [
+                      Semantics(
+                        label: 'Back',
+                        button: true,
+                        child: GestureDetector(
+                          onTap: widget.onClose,
+                          behavior: HitTestBehavior.opaque,
+                          child: SizedBox(
+                            width: 48,
+                            height: 48,
+                            child: Center(
+                              child: Icon(
+                                Icons.arrow_back,
+                                color: theme.textPrimary,
+                                size: 22,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    Icon(
-                      Icons.rocket_launch_outlined,
-                      color: theme.categoryStartup,
-                      size: 18,
-                    ),
-                    SizedBox(width: theme.spacingXs),
-                    Text(
-                      'Startup Metrics',
-                      style: TextStyle(
-                        color: theme.textPrimary,
-                        fontSize: theme.fontXl,
-                        fontWeight: FontWeight.bold,
+                      Icon(
+                        Icons.rocket_launch_outlined,
+                        color: theme.categoryStartup,
+                        size: 18,
                       ),
-                    ),
-                  ],
+                      SizedBox(width: theme.spacingXs),
+                      Text(
+                        'Startup Metrics',
+                        style: TextStyle(
+                          color: theme.textPrimary,
+                          fontSize: theme.fontXl,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            Divider(color: theme.border, height: 1),
+              Divider(color: theme.border, height: 1),
 
-            // Content
-            Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  theme.spacingXl,
-                  theme.spacingLg,
-                  theme.spacingXl,
-                  24,
+              // Content
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(
+                    theme.spacingXl,
+                    theme.spacingLg,
+                    theme.spacingXl,
+                    24,
+                  ),
+                  child: metrics == null
+                      ? _noDataMessage(theme)
+                      : _buildContent(metrics, theme),
                 ),
-                child: metrics == null
-                    ? _noDataMessage(theme)
-                    : _buildContent(metrics, theme),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

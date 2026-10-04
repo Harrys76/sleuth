@@ -190,42 +190,58 @@ class _IssueCardState extends State<IssueCard> {
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
     final issue = widget.issue;
-    return Card(
-      color: widget.jankFlash
-          ? theme.cardJankFlash
-          : widget.highlighted
-          ? theme.cardHighlighted
-          : theme.cardDefault,
-      margin: EdgeInsets.only(bottom: theme.spacingSm),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(theme.radiusXl),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: _toggle,
-        borderRadius: BorderRadius.circular(theme.radiusXl),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border(
-              left: BorderSide(
-                color: theme.sourceAccentColor(issue.observationSource),
-                width: theme.sourceAccentWidth,
+    // One button node per card, labelled with the title: tap toggles,
+    // long press copies. Children (badges, checkbox, actions) keep their
+    // own nodes.
+    return Semantics(
+      container: true,
+      button: true,
+      expanded: _expanded,
+      label: issue.title,
+      onTap: _toggle,
+      onLongPress: widget.onCopy,
+      onLongPressHint: widget.onCopy == null ? null : 'Copy details',
+      explicitChildNodes: true,
+      child: Card(
+        color: widget.jankFlash
+            ? theme.cardJankFlash
+            : widget.highlighted
+            ? theme.cardHighlighted
+            : theme.cardDefault,
+        margin: EdgeInsets.only(bottom: theme.spacingSm),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(theme.radiusXl),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: _toggle,
+          // The card's Semantics node carries the tap.
+          excludeFromSemantics: true,
+          borderRadius: BorderRadius.circular(theme.radiusXl),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            decoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(
+                  color: theme.sourceAccentColor(issue.observationSource),
+                  width: theme.sourceAccentWidth,
+                ),
               ),
             ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: LayoutBuilder(
-              builder: (context, constraints) => _buildBody(
-                context,
-                theme,
-                issue,
-                // The category and confidence badges sit beside the title
-                // while there is room; with large text or a narrow card
-                // they move to the badge line.
-                inlineBadges:
-                    textScaleOf(context) <= kChromeMaxTextScale &&
-                    constraints.maxWidth >= 260,
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: LayoutBuilder(
+                builder: (context, constraints) => _buildBody(
+                  context,
+                  theme,
+                  issue,
+                  // The category and confidence badges sit beside the title
+                  // while there is room; with large text or a narrow card
+                  // they move to the badge line.
+                  inlineBadges:
+                      textScaleOf(context) <= kChromeMaxTextScale &&
+                      constraints.maxWidth >= 260,
+                ),
               ),
             ),
           ),
@@ -255,17 +271,23 @@ class _IssueCardState extends State<IssueCard> {
             Expanded(
               child: GestureDetector(
                 onLongPress: widget.onCopy,
-                child: Text(
-                  issue.title,
-                  style: TextStyle(
-                    color: theme.textPrimary,
-                    fontSize: theme.fontBase,
-                    fontWeight: FontWeight.w600,
+                excludeFromSemantics: true,
+                // The card's label is the title.
+                child: ExcludeSemantics(
+                  child: Text(
+                    issue.title,
+                    style: TextStyle(
+                      color: theme.textPrimary,
+                      fontSize: theme.fontBase,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    // Two lines once the text is large enough that
+                    // one line shows only a few words.
+                    maxLines: textScaleOf(context) > kChromeMaxTextScale
+                        ? 2
+                        : 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  // Two lines once the text is large enough that
-                  // one line shows only a few words.
-                  maxLines: textScaleOf(context) > kChromeMaxTextScale ? 2 : 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ),
@@ -641,7 +663,12 @@ class _IssueCardState extends State<IssueCard> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('\u{1F4A1}', style: TextStyle(fontSize: theme.fontBase)),
+                ExcludeSemantics(
+                  child: Text(
+                    '\u{1F4A1}',
+                    style: TextStyle(fontSize: theme.fontBase),
+                  ),
+                ),
                 SizedBox(width: theme.spacingSm),
                 Expanded(
                   child: Text(
@@ -951,27 +978,22 @@ class _IssueCardState extends State<IssueCard> {
     );
   }
 
+  /// Severity dot. Announced as the severity name; the emoji is not read.
   Widget _severityIcon(IssueSeverity severity, SleuthThemeData theme) {
-    switch (severity) {
-      case IssueSeverity.critical:
-        return Text(
-          '\u{1F534}',
-          style: TextStyle(fontSize: theme.fontBase),
-          textScaler: _badgeScaler(context),
-        );
-      case IssueSeverity.warning:
-        return Text(
-          '\u{1F7E1}',
-          style: TextStyle(fontSize: theme.fontBase),
-          textScaler: _badgeScaler(context),
-        );
-      case IssueSeverity.ok:
-        return Text(
-          '\u{1F7E2}',
-          style: TextStyle(fontSize: theme.fontBase),
-          textScaler: _badgeScaler(context),
-        );
-    }
+    final (glyph, name) = switch (severity) {
+      IssueSeverity.critical => ('\u{1F534}', 'critical'),
+      IssueSeverity.warning => ('\u{1F7E1}', 'warning'),
+      IssueSeverity.ok => ('\u{1F7E2}', 'ok'),
+    };
+    return Semantics(
+      label: name,
+      excludeSemantics: true,
+      child: Text(
+        glyph,
+        style: TextStyle(fontSize: theme.fontBase),
+        textScaler: _badgeScaler(context),
+      ),
+    );
   }
 
   /// Renders the "Seen X/Y · {label}" recurrence badge.
