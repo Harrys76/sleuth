@@ -6,6 +6,8 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RendererBinding;
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart' show Clipboard;
 import 'package:sleuth/sleuth.dart';
 
@@ -49,6 +51,7 @@ import 'file_state_store.dart';
 
 void main() {
   Sleuth.init();
+  _countOverflowErrors();
   _registerDemoExtensions();
   // Capture mode gated behind a dart-define so ordinary profile-mode runs
   // see no extra Timeline.instantSync traffic. Flip on for the
@@ -768,8 +771,9 @@ void _registerDemoExtensions() {
   });
   // Drives the overlay through its state: `action` = open | close | hide |
   // undo | restoreAll | toggleSeverity (with `severity` = critical |
-  // warning | ok). `hide` hides the first visible card; `undo` restores
-  // the most recently hidden key.
+  // warning | ok) | setTheme (with `preset` = hc_dark | hc_light |
+  // seed:<hex> | none). `hide` hides the first visible card; `undo`
+  // restores the most recently hidden key.
   developer.registerExtension('ext.sleuthDemo.overlay', (method, params) async {
     final state = Sleuth.overlayUiState;
     if (state == null) return _demoError({'error': 'no_controller'});
@@ -795,6 +799,18 @@ void _registerDemoExtensions() {
         result['restored'] = key;
       case 'restoreAll':
         state.restoreAll();
+      case 'setTheme':
+        final preset = params['preset'] ?? '';
+        if (preset == 'none') {
+          Sleuth.updateTheme(null);
+        } else {
+          final theme = _themePreset(preset);
+          if (theme == null) {
+            return _demoError({'error': 'bad_preset', 'preset': preset});
+          }
+          Sleuth.updateTheme(theme);
+        }
+        result['preset'] = preset;
       case 'toggleSeverity':
         final severity = IssueSeverity.values
             .where((s) => s.name == params['severity'])
@@ -814,6 +830,46 @@ void _registerDemoExtensions() {
       jsonEncode({...result, ..._overlayStateJson(state)}),
     );
   });
+  // Theme mode as the header toggle sets it: `mode` = system | light |
+  // dark.
+  developer.registerExtension('ext.sleuthDemo.theme', (method, params) async {
+    final state = Sleuth.overlayUiState;
+    if (state == null) return _demoError({'error': 'no_controller'});
+    final mode = SleuthThemeMode.values
+        .where((m) => m.name == params['mode'])
+        .firstOrNull;
+    if (mode == null) {
+      return _demoError({'error': 'bad_mode', 'mode': params['mode']});
+    }
+    Sleuth.updateTheme(null);
+    state.themeMode = mode;
+    await WidgetsBinding.instance.endOfFrame;
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({'themeMode': state.themeMode.name}),
+    );
+  });
+  // Accessibility state for the device pass: platform settings, the text
+  // scale the overlay uses, overflow reports since launch, and every
+  // labelled or actionable semantics node with its size and actions.
+  developer.registerExtension('ext.sleuthDemo.a11y', (method, params) async {
+    _semanticsHandle ??= SemanticsBinding.instance.ensureSemantics();
+    await WidgetsBinding.instance.endOfFrame;
+    final dispatcher = WidgetsBinding.instance.platformDispatcher;
+    final features = dispatcher.accessibilityFeatures;
+    return developer.ServiceExtensionResponse.result(
+      jsonEncode({
+        'textScale': dispatcher.textScaleFactor,
+        'overlayTextScale':
+            _textScaleAt('FloatingIssuesCard') ?? _textScaleAt('TriggerButton'),
+        'highContrast': features.highContrast,
+        'disableAnimations': features.disableAnimations,
+        'boldText': features.boldText,
+        'accessibleNavigation': features.accessibleNavigation,
+        'overflowErrors': _overflowErrors,
+        'semantics': _semanticsNodes(),
+      }),
+    );
+  });
   developer.registerExtension('ext.sleuthDemo.overlayState', (
     method,
     params,
@@ -825,6 +881,108 @@ void _registerDemoExtensions() {
     );
   });
 }
+
+/// RenderFlex overflow reports seen since launch, for
+/// `ext.sleuthDemo.a11y`. Overflow reports are assert-gated, so only debug
+/// builds count them.
+int _overflowErrors = 0;
+
+/// Counts overflow reports, then hands every error to the previous
+/// handler.
+void _countOverflowErrors() {
+  final previous = FlutterError.onError;
+  FlutterError.onError = (details) {
+    if (details.summary.toString().contains('overflowed')) _overflowErrors++;
+    (previous ?? FlutterError.presentError)(details);
+  };
+}
+
+SemanticsHandle? _semanticsHandle;
+
+/// Text scale at the first element whose widget type is [typeName]
+/// (an overlay widget), or null when none is mounted.
+double? _textScaleAt(String typeName) {
+  double? found;
+  void visit(Element element) {
+    if (found != null) return;
+    if (element.widget.runtimeType.toString() == typeName) {
+      final scaler = MediaQuery.maybeTextScalerOf(element);
+      found = scaler == null ? null : scaler.scale(10) / 10;
+      return;
+    }
+    element.visitChildren(visit);
+  }
+
+  WidgetsBinding.instance.rootElement?.visitChildren(visit);
+  return found;
+}
+
+/// Labelled or actionable semantics nodes with their logical size.
+List<Map<String, Object?>> _semanticsNodes() {
+  final nodes = <Map<String, Object?>>[];
+  for (final view in RendererBinding.instance.renderViews) {
+    final root = view.owner?.semanticsOwner?.rootSemanticsNode;
+    if (root == null) continue;
+    final dpr = view.flutterView.devicePixelRatio;
+    void visit(SemanticsNode node) {
+      final data = node.getSemanticsData();
+      final actions = [
+        for (final action in SemanticsAction.values)
+          if (data.hasAction(action) && action != SemanticsAction.customAction)
+            action.name,
+        for (final id in data.customSemanticsActionIds ?? const <int>[])
+          ?CustomSemanticsAction.getAction(id)?.label,
+      ];
+      if (!node.isMergedIntoParent &&
+          (data.label.isNotEmpty || actions.isNotEmpty)) {
+        var rect = node.rect;
+        for (SemanticsNode? n = node; n != null; n = n.parent) {
+          final t = n.transform;
+          if (t != null) rect = MatrixUtils.transformRect(t, rect);
+        }
+        nodes.add({
+          'label': data.label,
+          'value': data.value,
+          'w': double.parse((rect.width / dpr).toStringAsFixed(1)),
+          'h': double.parse((rect.height / dpr).toStringAsFixed(1)),
+          'button': data.flagsCollection.isButton,
+          'actions': actions,
+        });
+      }
+      node.visitChildren((child) {
+        visit(child);
+        return true;
+      });
+    }
+
+    visit(root);
+  }
+  return nodes;
+}
+
+/// `SleuthThemeData` for `ext.sleuthDemo.overlay action=setTheme`:
+/// `hc_dark`, `hc_light`, `seed:<hex>` (e.g. `seed:0xFF00838F`) or
+/// `none` (clears the override).
+SleuthThemeData? _themePreset(String preset) {
+  if (preset == 'hc_dark') return const SleuthThemeData.highContrastDark();
+  if (preset == 'hc_light') return const SleuthThemeData.highContrastLight();
+  if (preset.startsWith('seed:')) {
+    final value = int.tryParse(preset.substring(5));
+    if (value == null) return null;
+    return _seedThemes.putIfAbsent(
+      value,
+      () => SleuthThemeData.fromSeed(
+        Color(value | 0xFF000000),
+        brightness:
+            WidgetsBinding.instance.platformDispatcher.platformBrightness,
+      ),
+    );
+  }
+  return null;
+}
+
+/// Built once per seed: the overlay compares themes by identity.
+final Map<int, SleuthThemeData> _seedThemes = {};
 
 developer.ServiceExtensionResponse _demoError(Map<String, Object?> body) =>
     developer.ServiceExtensionResponse.error(

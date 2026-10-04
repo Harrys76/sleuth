@@ -284,7 +284,7 @@ Sleuth reads the store once at startup (the trigger appears when the read finish
 
 **Debug callbacks note:** `enableDebugCallbacks` installs `debugOnRebuildDirtyWidget` and `debugOnProfilePaint` hooks. These conflict with DevTools "Track Widget Rebuilds" — only one can be active at a time. Default `false` to avoid surprising DevTools users.
 
-**Overlay theming:** The overlay auto-detects light/dark backgrounds. A built-in toggle in the overlay header lets you switch themes at runtime. You can also override programmatically:
+**Overlay theming:** the overlay follows the platform brightness and switches to a high-contrast preset when the platform asks for high contrast (iOS Increase Contrast). The header toggle cycles System → Light → Dark and remembers the choice (`OverlayUiState.themeMode`, persisted with the rest of the overlay state). Precedence: `Sleuth.updateTheme` > the toggle's Light or Dark > `SleuthConfig.theme` > auto. Choosing Light or Dark replaces a configured theme with the Sleuth preset; System restores it.
 
 ```dart
 // Static config at initialization
@@ -298,10 +298,31 @@ Sleuth.track(
   ),
 );
 
-// Runtime toggle (from anywhere in your app)
-Sleuth.updateTheme(const SleuthThemeData.light()); // force light
-Sleuth.updateTheme(null);                          // revert to auto-detect
+// Surfaces and text from your app's colour scheme (severity, category,
+// confidence and source colours stay Sleuth's). Build it once: the overlay
+// compares themes by identity.
+final sleuthTheme = SleuthThemeData.fromColorScheme(Theme.of(context).colorScheme);
+final seeded = SleuthThemeData.fromSeed(Colors.teal, brightness: Brightness.dark);
+
+// Runtime override (from anywhere in your app)
+Sleuth.updateTheme(const SleuthThemeData.light());             // force light
+Sleuth.updateTheme(const SleuthThemeData.highContrastDark());  // e.g. on Android
+Sleuth.updateTheme(null);                                       // back to the toggle / config / auto
 ```
+
+`fromColorScheme` checks every text token against every surface for 4.5:1; when the scheme's text fails, the whole text group falls back to the Sleuth preset that matches the scheme's surface brightness.
+
+## Accessibility
+
+The overlay is a developer tool drawn over a live app; it is built to be usable with the platform's accessibility settings on.
+
+- **Screen readers:** every control has a label. An issue card is one button named by its title (double tap expands, long press copies; the expanded state is announced). Full-screen pages announce their name. Dragging has alternatives: the card header offers Move up / down / left / right and Move to corner, the resize grip offers Taller / Shorter / Wider / Narrower (48 px steps), and the trigger offers Move to left edge / right edge. Toasts are live regions and stay three times longer while a screen reader is on.
+- **Text size:** overlay text follows the system setting between 0.8× and 2.0×; the app below keeps its own scale. The chrome (card header, status row, summary bar, footer, badges, trigger) stops growing at 1.3× so the issue list stays visible; issue titles take two lines and detail text wraps above that. Fixed heights grow with the chrome, and the status row and banners scroll when they would squeeze the list. The smallest text is 10 px.
+- **Touch targets:** controls are at least 48 × 48 dp. The card header's compact controls (highlight, theme, minimize, maximize, restore) are 36 × 48 so they fit the 220 dp minimum card width; that is above the WCAG 2.5.8 minimum of 24 dp. Close is 48 × 48.
+- **Contrast:** text tokens meet WCAG AA (4.5:1) on every overlay surface in the dark, light and high-contrast themes. Badges draw primary text on a light tint of their colour with a 1 px border in that colour.
+- **High contrast:** `SleuthThemeData.highContrastDark()` / `highContrastLight()` raise secondary text, strengthen borders, make badge fills opaque and widen the source accent. They are picked automatically when `MediaQuery.highContrastOf` is true (reported on iOS) and no theme is set; on other platforms pass one to `Sleuth.updateTheme`.
+- **Reduced motion:** animations run at the platform's reduced duration; the Ask AI shimmer stops.
+- **Keyboard:** Escape closes the open page, then the dashboard. A focused text field in your app keeps its Escape.
 
 ## AI Chat
 

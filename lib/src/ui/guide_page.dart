@@ -25,7 +25,7 @@ class _GuidePageState extends State<GuidePage>
   late final AnimationController _entranceController;
 
   /// All sections start expanded so content is immediately discoverable.
-  final _expanded = <int>{0, 1, 2, 3};
+  final _expanded = <int>{0, 1, 2, 3, 4};
 
   @override
   void initState() {
@@ -175,9 +175,18 @@ class _GuidePageState extends State<GuidePage>
                         theme: theme,
                         child: _tipsContent(theme),
                       ),
+                      const SizedBox(height: 10),
+                      _section(
+                        index: 4,
+                        icon: Icons.accessibility_new,
+                        title: 'Accessibility',
+                        accent: theme.categoryChannel,
+                        theme: theme,
+                        child: _accessibilityContent(theme),
+                      ),
                       const SizedBox(height: 20),
                       FadeTransition(
-                        opacity: _staggered(4),
+                        opacity: _staggered(5),
                         child: Text(
                           'Sleuth',
                           style: TextStyle(
@@ -343,7 +352,8 @@ class _GuidePageState extends State<GuidePage>
           theme,
           '\u{1F4CA}',
           'FPS Display',
-          'The number on the trigger button and card header. Color-coded '
+          'The number on the trigger button and the card status row. '
+              'Color-coded '
               'against your target frame rate: green at or above about 83%, '
               'amber at or above 50%, red below that.',
         ),
@@ -983,6 +993,39 @@ class _GuidePageState extends State<GuidePage>
           theme,
           Icons.speed,
           'Always profile (not debug) for accurate frame timings. Debug overhead skews results.',
+        ),
+      ],
+    );
+  }
+
+  // ─── Section 4: Accessibility ─────────────────────────────────────────
+
+  Widget _accessibilityContent(SleuthThemeData theme) {
+    return Column(
+      children: [
+        _tipRow(
+          theme,
+          Icons.record_voice_over_outlined,
+          'Screen readers: drag the card header, resize grip or trigger '
+          'through their actions menu (Move up, Taller, Move to left '
+          'edge and so on).',
+        ),
+        _tipRow(
+          theme,
+          Icons.format_size,
+          'Text follows the system size up to 2x; the header, counts and '
+          'badges stop at 1.3x so the issue list keeps its room.',
+        ),
+        _tipRow(
+          theme,
+          Icons.contrast,
+          'The theme button cycles System, Light and Dark. Increase '
+          'Contrast picks the high-contrast theme.',
+        ),
+        _tipRow(
+          theme,
+          Icons.keyboard_outlined,
+          'Escape closes the open page, then the card.',
         ),
       ],
     );

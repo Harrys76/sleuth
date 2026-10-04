@@ -33,7 +33,7 @@ Release readiness is evaluated against this written matrix, not ad hoc spot chec
 1. Launch the example app. Verify it boots without crash.
 2. Tap the dog button. Verify the dashboard opens and is interactive.
 3. Navigate to the "Live" tab. Verify frame bars appear and FPS counter updates.
-4. Check the mode badge in the dashboard header (VM+ or FRAME).
+4. Check the mode badge in the dashboard status row, next to the FPS (VM+ or FRAME).
 5. Navigate to the "Issues" tab. Note which issues appear (structural detectors should always fire).
 6. Open a jank-producing demo (e.g., "Heavy Compute"). Return to the dashboard and check verdict.
 7. If in debug mode and enableDebugCallbacks is true, verify "DBG" badge appears.
