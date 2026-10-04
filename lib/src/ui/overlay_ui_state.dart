@@ -281,8 +281,9 @@ class OverlayUiState extends ChangeNotifier {
   // ── Theme ─────────────────────────────────────────────────────────────
 
   /// Theme mode chosen with the header toggle. [SleuthThemeMode.light] and
-  /// [SleuthThemeMode.dark] take precedence over `SleuthConfig.theme`; a
-  /// `Sleuth.updateTheme` override takes precedence over both.
+  /// [SleuthThemeMode.dark] take precedence over a `Sleuth.updateTheme`
+  /// override and `SleuthConfig.theme`; `Sleuth.updateTheme` with a theme
+  /// sets [SleuthThemeMode.system].
   SleuthThemeMode get themeMode => _themeMode;
   set themeMode(SleuthThemeMode value) {
     if (_themeMode == value) return;

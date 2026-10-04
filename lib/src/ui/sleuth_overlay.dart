@@ -32,10 +32,10 @@ import 'text_scale_clamp.dart';
 ///
 /// Text in the overlay follows the system text scale between 0.8x and
 /// 2.0x; the app below keeps the unclamped scale. The theme resolves in
-/// this order: `Sleuth.updateTheme`, the header toggle's light or dark
-/// [OverlayUiState.themeMode], `SleuthConfig.theme`, then the platform
-/// brightness, with the high-contrast presets when the platform asks for
-/// high contrast.
+/// this order: the header toggle's light or dark
+/// [OverlayUiState.themeMode], `Sleuth.updateTheme`, `SleuthConfig.theme`,
+/// then the platform brightness, with the high-contrast presets when the
+/// platform asks for high contrast.
 class SleuthOverlay extends StatefulWidget {
   const SleuthOverlay({
     super.key,
@@ -342,14 +342,13 @@ class _SleuthOverlayState extends State<SleuthOverlay>
         child: child,
       );
 
-  /// `Sleuth.updateTheme` override, then the toggle's light or dark mode,
-  /// then `SleuthConfig.theme`, then the platform brightness. High
-  /// contrast picks the high-contrast preset of the chosen brightness.
-  /// Returns const presets (or the instances the app passed), so the
-  /// [SleuthTheme] identity only changes when the choice does.
+  /// The toggle's light or dark mode, then the `Sleuth.updateTheme`
+  /// override, then `SleuthConfig.theme`, then the platform brightness.
+  /// High contrast picks the high-contrast preset of the chosen
+  /// brightness for the toggle and auto cases. Returns const presets (or
+  /// the instances the app passed), so the [SleuthTheme] identity only
+  /// changes when the choice does.
   SleuthThemeData _resolveTheme(BuildContext context) {
-    final override = widget.controller.themeOverride.value;
-    if (override != null) return override;
     final highContrast = MediaQuery.maybeHighContrastOf(context) ?? false;
     switch (widget.controller.overlayUiState.themeMode) {
       case SleuthThemeMode.light:
@@ -363,6 +362,8 @@ class _SleuthOverlayState extends State<SleuthOverlay>
       case SleuthThemeMode.system:
         break;
     }
+    final override = widget.controller.themeOverride.value;
+    if (override != null) return override;
     final configured = widget.controller.config.theme;
     if (configured != null) return configured;
     final light =

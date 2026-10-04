@@ -46,7 +46,7 @@
 ///
 /// // Toggle at runtime (e.g. from app code)
 /// Sleuth.updateTheme(const SleuthThemeData.light());
-/// Sleuth.updateTheme(null); // revert to auto-detect
+/// Sleuth.updateTheme(null); // revert to the config theme or auto-detect
 /// ```
 ///
 /// See [SleuthThemeData] for all available tokens (colors, spacing,
@@ -955,11 +955,13 @@ class Sleuth {
 
   /// Update the overlay theme at runtime.
   ///
-  /// Passing a [SleuthThemeData] overrides the header toggle's theme mode,
-  /// the config theme and auto-detection until the header toggle is
-  /// tapped. Passing `null` reverts to the theme mode, the config theme or
-  /// auto-detection. Pass the same instance on every call (a const preset
-  /// or a theme built once): the overlay compares themes by identity.
+  /// Passing a [SleuthThemeData] overrides the config theme and
+  /// auto-detection, and sets the header toggle to System so the theme
+  /// shows. Picking Light or Dark in the header takes precedence over it;
+  /// picking System shows it again. Passing `null` reverts to the config
+  /// theme or auto-detection. Pass the same instance on every call (a
+  /// const preset or a theme built once): the overlay compares themes by
+  /// identity.
   ///
   /// ```dart
   /// Sleuth.updateTheme(const SleuthThemeData.light());

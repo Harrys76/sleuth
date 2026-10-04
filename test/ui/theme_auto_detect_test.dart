@@ -142,9 +142,8 @@ void main() {
       );
     });
 
-    testWidgets('updateTheme wins over themeMode and config.theme', (
-      tester,
-    ) async {
+    testWidgets('Light or Dark wins over updateTheme and config.theme; '
+        'updateTheme sets System', (tester) async {
       final controller = await pumpOverlay(
         tester,
         config: SleuthConfig(theme: configured),
@@ -152,6 +151,7 @@ void main() {
       );
       controller.updateTheme(const SleuthThemeData.highContrastDark());
       await tester.pump();
+      expect(controller.overlayUiState.themeMode, SleuthThemeMode.system);
       expect(
         identical(
           _overlayTheme(tester),
@@ -159,12 +159,16 @@ void main() {
         ),
         isTrue,
       );
-      controller.updateTheme(null);
+      controller.overlayUiState.themeMode = SleuthThemeMode.light;
       await tester.pump();
       expect(
         identical(_overlayTheme(tester), const SleuthThemeData.light()),
         isTrue,
       );
+      controller.overlayUiState.themeMode = SleuthThemeMode.system;
+      controller.updateTheme(null);
+      await tester.pump();
+      expect(identical(_overlayTheme(tester), configured), isTrue);
     });
 
     testWidgets('a themeMode change rebuilds the theme with the dashboard '

@@ -361,8 +361,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
   }
 
   /// Escape closes the innermost layer, then the card. Runs before focus
-  /// dispatch, so no focus is taken from the app; a focused text field
-  /// outside the card keeps its Escape.
+  /// dispatch, so no focus is taken from the app. The key event still
+  /// reaches the focused widget afterwards, so Escape is left to the app
+  /// when its focus is in a text field or in a dismissible route (a
+  /// dialog or sheet closes on Escape through `DismissIntent`).
   bool _onKeyEvent(KeyEvent event) {
     if (!mounted ||
         event is! KeyDownEvent ||
@@ -372,9 +374,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final focusContext = FocusManager.instance.primaryFocus?.context;
     if (focusContext != null &&
         focusContext.mounted &&
-        focusContext.findAncestorWidgetOfExactType<EditableText>() != null &&
         focusContext.findAncestorStateOfType<_FloatingIssuesCardState>() !=
-            this) {
+            this &&
+        (focusContext.findAncestorWidgetOfExactType<EditableText>() != null ||
+            (ModalRoute.of(focusContext)?.barrierDismissible ?? false))) {
       return false;
     }
     if (!closeInnermostLayer()) widget.onClose();
@@ -547,15 +550,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     SleuthThemeMode.dark => 'Dark',
   };
 
-  /// Header theme toggle: System -> Light -> Dark -> System. Clears a
-  /// `Sleuth.updateTheme` override so the choice is visible.
+  /// Header theme toggle: System -> Light -> Dark -> System. Light and
+  /// Dark take precedence over a `Sleuth.updateTheme` override, which
+  /// shows again on System.
   void _cycleThemeMode() {
     final next = switch (_ui.themeMode) {
       SleuthThemeMode.system => SleuthThemeMode.light,
       SleuthThemeMode.light => SleuthThemeMode.dark,
       SleuthThemeMode.dark => SleuthThemeMode.system,
     };
-    widget.controller.updateTheme(null);
     _ui.themeMode = next;
     _toast.show('Theme: ${_themeModeLabel(next)}');
   }
@@ -1298,16 +1301,15 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                   // Theme toggle: System -> Light -> Dark (hidden when minimized).
                   if (!isMinimized)
                     _compactHeaderButton(
-                      icon: _ui.themeMode == SleuthThemeMode.system
-                          ? Icons.brightness_auto
-                          : theme.brightness == Brightness.dark
-                          ? Icons.dark_mode
-                          : Icons.light_mode,
+                      icon: switch (_ui.themeMode) {
+                        SleuthThemeMode.system => Icons.brightness_auto,
+                        SleuthThemeMode.light => Icons.light_mode,
+                        SleuthThemeMode.dark => Icons.dark_mode,
+                      },
                       color: theme.textTertiary,
                       onTap: _cycleThemeMode,
                       tooltip: 'Toggle theme',
                       value: _themeModeLabel(_ui.themeMode),
-                      hint: 'Changes theme',
                     ),
                   // Window controls. Hidden at narrow widths (<280px) so the
                   // title keeps some room.
@@ -1382,12 +1384,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     required Color color,
     String? tooltip,
     String? value,
-    String? hint,
   }) {
     return Semantics(
       label: tooltip,
       value: value,
-      hint: hint,
       button: true,
       child: GestureDetector(
         onTap: onTap,

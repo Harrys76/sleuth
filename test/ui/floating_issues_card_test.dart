@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -1392,7 +1393,11 @@ void main() {
       await tester.tap(toggle);
       await tester.pump();
       expect(controller.overlayUiState.themeMode, SleuthThemeMode.light);
-      expect(controller.themeOverride.value, isNull);
+      // The override stays; Light takes precedence over it.
+      expect(
+        controller.themeOverride.value,
+        same(const SleuthThemeData.highContrastLight()),
+      );
       expect(identical(theme(tester), const SleuthThemeData.light()), isTrue);
       expect(find.text('Theme: Light'), findsOneWidget);
       expect(tester.getSemantics(toggle).value, 'Light');
@@ -1407,11 +1412,90 @@ void main() {
       await tester.pump();
       expect(controller.overlayUiState.themeMode, SleuthThemeMode.system);
       expect(find.text('Theme: System'), findsOneWidget);
+      // System shows the app's override again.
+      expect(
+        identical(theme(tester), const SleuthThemeData.highContrastLight()),
+        isTrue,
+      );
 
       await tester.tap(toggle);
       await tester.pump(const Duration(seconds: 3));
       final saved = jsonDecode(store.json!) as Map<String, Object?>;
       expect(saved['themeMode'], 'light');
+    });
+  });
+
+  group('Header theme toggle precedence', () {
+    SleuthThemeData theme(WidgetTester tester) =>
+        tester.widget<SleuthTheme>(find.byType(SleuthTheme)).data;
+
+    testWidgets('Light then System brings the override back', (tester) async {
+      const override = SleuthThemeData.highContrastDark();
+      final controller = await pumpOverlay(
+        tester,
+        platformBrightness: Brightness.light,
+      );
+      await openDashboard(tester, controller);
+      controller.updateTheme(override);
+      await tester.pump();
+      expect(identical(theme(tester), override), isTrue);
+
+      final toggle = find.bySemanticsLabel('Toggle theme');
+      await tester.tap(toggle);
+      await tester.pump();
+      expect(controller.overlayUiState.themeMode, SleuthThemeMode.light);
+      expect(identical(theme(tester), const SleuthThemeData.light()), isTrue);
+
+      // Light -> Dark -> System.
+      await tester.tap(toggle);
+      await tester.pump();
+      await tester.tap(toggle);
+      await tester.pump();
+      expect(controller.overlayUiState.themeMode, SleuthThemeMode.system);
+      expect(identical(theme(tester), override), isTrue);
+    });
+
+    testWidgets('updateTheme while Dark switches the toggle to System', (
+      tester,
+    ) async {
+      const override = SleuthThemeData.highContrastLight();
+      final controller = await pumpOverlay(
+        tester,
+        platformBrightness: Brightness.dark,
+        themeMode: SleuthThemeMode.dark,
+      );
+      await openDashboard(tester, controller);
+      expect(identical(theme(tester), const SleuthThemeData()), isTrue);
+
+      controller.updateTheme(override);
+      await tester.pump();
+      expect(controller.overlayUiState.themeMode, SleuthThemeMode.system);
+      expect(identical(theme(tester), override), isTrue);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Toggle theme')).value,
+        'System',
+      );
+      // The icon follows the mode, not the theme's brightness.
+      expect(find.byIcon(Icons.brightness_auto), findsOneWidget);
+
+      // Clearing the override leaves the mode alone.
+      controller.updateTheme(null);
+      await tester.pump();
+      expect(controller.overlayUiState.themeMode, SleuthThemeMode.system);
+      expect(identical(theme(tester), const SleuthThemeData()), isTrue);
+    });
+
+    testWidgets('the toggle icon follows the mode', (tester) async {
+      final controller = await pumpOverlay(
+        tester,
+        platformBrightness: Brightness.dark,
+        themeMode: SleuthThemeMode.light,
+      );
+      await openDashboard(tester, controller);
+      expect(find.byIcon(Icons.light_mode), findsOneWidget);
+      controller.overlayUiState.themeMode = SleuthThemeMode.dark;
+      await tester.pump();
+      expect(find.byIcon(Icons.dark_mode), findsOneWidget);
     });
   });
 
@@ -1456,6 +1540,62 @@ void main() {
       await tester.pumpAndSettle();
       expect(controller.overlayUiState.dashboardOpen, isTrue);
       expect(focus.hasFocus, isTrue);
+    });
+
+    testWidgets('an open app dialog takes Escape', (tester) async {
+      final navigatorKey = GlobalKey<NavigatorState>();
+      final controller = await pumpOverlay(
+        tester,
+        app: MaterialApp(
+          navigatorKey: navigatorKey,
+          home: const Scaffold(body: Text('app')),
+        ),
+      );
+      await openDashboard(tester, controller);
+      unawaited(
+        showDialog<void>(
+          context: navigatorKey.currentContext!,
+          builder: (_) => const AlertDialog(content: Text('host dialog')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('host dialog'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('host dialog'), findsNothing);
+      expect(controller.overlayUiState.dashboardOpen, isTrue);
+    });
+
+    testWidgets('a plain app page route leaves Escape to Sleuth', (
+      tester,
+    ) async {
+      final navigatorKey = GlobalKey<NavigatorState>();
+      final controller = await pumpOverlay(
+        tester,
+        app: MaterialApp(
+          navigatorKey: navigatorKey,
+          home: const Scaffold(body: Text('app')),
+        ),
+      );
+      unawaited(
+        navigatorKey.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('second page')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await openDashboard(tester, controller);
+      await tester.tap(find.bySemanticsLabel('Guide'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sleuth Guide'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('Sleuth Guide'), findsNothing);
+      expect(controller.overlayUiState.dashboardOpen, isTrue);
+      expect(find.text('second page'), findsOneWidget);
     });
   });
 

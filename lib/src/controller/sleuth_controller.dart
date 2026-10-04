@@ -431,7 +431,8 @@ class SleuthController {
       ValueNotifier(null);
 
   /// Runtime theme override. Takes precedence over [config.theme] and
-  /// auto-detection when non-null.
+  /// auto-detection when non-null; the header toggle's Light or Dark
+  /// takes precedence over it.
   final ValueNotifier<SleuthThemeData?> _themeOverride =
       ValueNotifier<SleuthThemeData?>(null);
 
@@ -439,10 +440,12 @@ class SleuthController {
   /// auto-detect.
   ValueListenable<SleuthThemeData?> get themeOverride => _themeOverride;
 
-  /// Update the overlay theme at runtime. Pass `null` to revert to the
-  /// header toggle's theme mode, the config theme or auto-detection. The
-  /// header toggle clears the override.
+  /// Update the overlay theme at runtime. A non-null [theme] also sets the
+  /// header toggle to System so the theme shows; picking Light or Dark
+  /// in the header afterwards takes precedence until System is picked
+  /// again. Pass `null` to revert to the config theme or auto-detection.
   void updateTheme(SleuthThemeData? theme) {
+    if (theme != null) overlayUiState.themeMode = SleuthThemeMode.system;
     _themeOverride.value = theme;
   }
 
@@ -5170,10 +5173,10 @@ class SleuthConfig {
   /// brightness when `MediaQuery.highContrastOf` is true. If no
   /// [MediaQuery] is available (rare), defaults to dark.
   ///
-  /// Precedence: `Sleuth.updateTheme` > the header toggle's Light or Dark
-  /// mode (`OverlayUiState.themeMode`) > this theme > auto-selection.
-  /// Choosing Light or Dark in the header replaces this theme with the
-  /// Sleuth preset; choosing System restores it.
+  /// Precedence: the header toggle's Light or Dark mode
+  /// (`OverlayUiState.themeMode`) > `Sleuth.updateTheme` > this theme >
+  /// auto-selection. Choosing Light or Dark in the header replaces this
+  /// theme with the Sleuth preset; choosing System restores it.
   ///
   /// ```dart
   /// // Force light theme

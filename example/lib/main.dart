@@ -831,7 +831,7 @@ void _registerDemoExtensions() {
     );
   });
   // Theme mode as the header toggle sets it: `mode` = system | light |
-  // dark.
+  // dark. An `updateTheme` override is kept and shows under System.
   developer.registerExtension('ext.sleuthDemo.theme', (method, params) async {
     final state = Sleuth.overlayUiState;
     if (state == null) return _demoError({'error': 'no_controller'});
@@ -841,7 +841,6 @@ void _registerDemoExtensions() {
     if (mode == null) {
       return _demoError({'error': 'bad_mode', 'mode': params['mode']});
     }
-    Sleuth.updateTheme(null);
     state.themeMode = mode;
     await WidgetsBinding.instance.endOfFrame;
     return developer.ServiceExtensionResponse.result(
