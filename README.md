@@ -260,6 +260,9 @@ Sleuth.track(
 **Overlay state:** trigger position, card position and size, window state, hidden cards and the severity filter (the tappable counts in the summary bar) survive closing the dashboard and hot reload. To keep them across restarts, pass a `SleuthStateStore`; the package ships no persistent store, so it adds no storage dependency:
 
 ```dart
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sleuth/sleuth.dart';
+
 class PrefsStateStore implements SleuthStateStore {
   @override
   Future<String?> read() async =>
@@ -273,7 +276,7 @@ class PrefsStateStore implements SleuthStateStore {
 Sleuth.track(child: MyApp(), config: SleuthConfig(stateStore: PrefsStateStore()));
 ```
 
-Sleuth reads the store once at startup (the trigger appears when the read finishes, after at most 2 s) and writes at most every 500 ms after a change; failures fall back to defaults and never reach the UI. `InMemorySleuthStateStore` suits tests. The example app ships a file-backed store (`example/lib/file_state_store.dart`).
+Sleuth reads the store once at startup (the trigger appears when the read finishes, after at most 2 s; changes made meanwhile are kept) and writes after a trailing 500 ms debounce, one write in flight at a time, with a pending change written on dispose. A read that times out turns writes off for that session; other failures fall back to defaults and never reach the UI. `InMemorySleuthStateStore` suits tests. The example app ships a file-backed store (`example/lib/file_state_store.dart`).
 
 **System back:** with the dashboard open, the system back gesture or button closes the innermost overlay layer — a focused text field, then a full-screen page (encyclopedia, guide, AI chat, Hidden list), then the dashboard — before the app's own navigation sees it. With the dashboard closed, back goes to the app unchanged. On Android, predictive back swipes are claimed while a layer is open; on Flutter versions that offer the swipe to every listener, an app route that can pop may pop as well.
 

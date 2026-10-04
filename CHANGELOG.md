@@ -38,9 +38,12 @@
   window state no longer reset when the dashboard closes or on hot reload.
 - `SleuthConfig.stateStore` (`SleuthStateStore`: `read` / `write` of a JSON
   string) persists that state across restarts. Read once at startup (2 s
-  timeout; the trigger appears when it finishes), written at most every
-  500 ms; errors fall back to defaults. `InMemorySleuthStateStore` for
-  tests; the example app ships a file-backed store.
+  timeout; the trigger appears when it finishes); changes made before the
+  read finishes are kept. Writes use a trailing 500 ms debounce; one write
+  in flight at a time; a pending change is written on dispose. A read that
+  times out leaves defaults and turns writes off for the session; other
+  errors fall back to defaults. `InMemorySleuthStateStore` for tests; the
+  example app ships a file-backed store.
 - Hide: an expanded card's Hide action removes it from the overlay, with a
   4 s Undo; collapsed effects go with their root. The footer reads
   `N hidden · M suppressed` and opens a Hidden list (restore one, restore
@@ -54,9 +57,15 @@
   (`PerformanceIssue.toClipboardText()`), with a "Copied" or
   "Couldn't copy" confirmation.
 - The summary bar's severity counts toggle that severity (one always stays
-  on); a filtered or hidden list reads "Showing X of Y", and empty lists
-  explain why (no issues / none match the filter, with Reset / all hidden,
-  with Show hidden).
+  on); when fewer cards show than with no filter and nothing hidden, the
+  bar reads "Showing X of Y", and empty lists explain why (no issues / none
+  match the filter, with Reset / all hidden, with Show hidden). The bar
+  takes 36 px; its chips keep 48 dp hit boxes.
+- The card's minimum height is 300 px (was 250) so two collapsed issue rows
+  fit under the summary bar.
+- A card's "Caused by" list reads "(+N not shown)" (was "(+N suppressed)")
+  for parents the ranker left out, so it is not confused with
+  `suppressedIssues`.
 - The trigger and card stay inside the view padding and above the keyboard;
   a dragged trigger snaps to the nearest side and keeps its side and
   vertical fraction through rotation. `triggerButtonAlignment` /
@@ -67,8 +76,14 @@
   `ScaffoldMessenger`). Toasts sit above the keyboard and are announced to
   screen readers.
 - Screen-reader labels for the trigger (`Open Sleuth, N issues`), the
-  highlight checkbox, the Close button and the new actions; new controls
-  have 48 dp targets.
+  highlight checkbox, the Close button, the severity chips and the card
+  actions (Copy, Hide, Learn more, Ask AI); these controls have 48 dp
+  targets.
+- The overlay builds its listeners, animations, semantics groups and
+  trigger layout from Sleuth-named classes, so the profile-mode rebuild
+  filter never drops app-owned `ListenableBuilder`, `AnimatedContainer`,
+  `AnimatedSwitcher`, `MergeSemantics` or `CustomSingleChildLayout`
+  rebuilds.
 
 ### Behavior changes
 
