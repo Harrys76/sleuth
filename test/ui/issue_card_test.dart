@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/models/recurrence_trend.dart';
@@ -389,8 +390,9 @@ void main() {
       // the pin icon's rect is fully contained inside its ancestor Card.
       // That's the pin-specific invariant v0.15.5 is responsible for.
       //
-      // The confidence badge sits beside the title and JANK / downstream
-      // badges wrap on the badge line, so the header never overflows.
+      // The category and confidence badges sit beside the title only
+      // while the title keeps its minimum width; JANK / downstream badges
+      // wrap on the badge line, so the header never overflows.
       final rootIssue = _testIssue(
         title:
             'Excessive rebuilds detected in a very long widget path that '
@@ -480,6 +482,78 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.binding.hasScheduledFrame, isFalse);
       expect(find.text('Ask AI about this issue'), findsOneWidget);
+    });
+  });
+
+  group('Inline category and confidence badges', () {
+    Widget cards(double width, List<PerformanceIssue> issues) => MediaQuery(
+      data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
+      child: MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: width,
+              child: Column(
+                children: [
+                  for (final issue in issues)
+                    IssueCard(issue: issue, locatable: true),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    testWidgets('keep their intrinsic width and a fixed right column', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        cards(480, [
+          _testIssue(title: 'Short'),
+          _testIssue(
+            title:
+                'A much longer title that has to ellipsize before the '
+                'badges give way',
+          ),
+        ]),
+      );
+      expect(tester.takeException(), isNull);
+      final confirmed = find.text('CONFIRMED');
+      expect(confirmed, findsNWidgets(2));
+      for (final element in confirmed.evaluate()) {
+        final paragraph = element.renderObject! as RenderParagraph;
+        expect(paragraph.didExceedMaxLines, isFalse);
+      }
+      // Same right edge on both cards: the title takes the slack.
+      expect(
+        tester.getTopRight(confirmed.at(0)).dx,
+        tester.getTopRight(confirmed.at(1)).dx,
+      );
+      // Beside the title.
+      final title = find.text('Short');
+      expect(
+        (tester.getCenter(confirmed.at(0)).dy - tester.getCenter(title).dy)
+            .abs(),
+        lessThan(4),
+      );
+    });
+
+    testWidgets('move to the badge line when the title would get narrow', (
+      tester,
+    ) async {
+      await tester.pumpWidget(cards(300, [_testIssue(title: 'Short')]));
+      expect(tester.takeException(), isNull);
+      final confirmed = find.text('CONFIRMED');
+      expect(
+        tester.getTopLeft(confirmed).dy,
+        greaterThan(tester.getBottomLeft(find.text('Short')).dy),
+      );
+      final paragraph = tester.renderObject<RenderParagraph>(confirmed);
+      expect(paragraph.didExceedMaxLines, isFalse);
     });
   });
 }

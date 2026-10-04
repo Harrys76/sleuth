@@ -3,7 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart' show CustomSemanticsAction;
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../../sleuth.dart' show Sleuth;
@@ -257,6 +257,12 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
   /// Height of a header or footer control row.
   static const double _controlRowHeight = 48;
+
+  /// Height of the card header.
+  static const double _headerHeight = _controlRowHeight;
+
+  /// Height of the card footer: a control row and its top border.
+  static const double _footerHeight = _controlRowHeight + 1;
 
   // ─── Window state (M2) ─────────────────────────────────────────────
   CardWindowState _windowState = CardWindowState.normal;
@@ -786,25 +792,35 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     final safe = MediaQuery.viewPaddingOf(context);
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
     // Chrome grows with the text inside it (up to 1.3x); the minimum
-    // heights grow with it. The stored height is left alone, so the card
+    // height grows with it but never past the screen's usable height
+    // (a landscape phone). The stored height is left alone, so the card
     // returns to it at 1.0x.
     final chromeScale = chromeScaleOf(context);
-    final minHeight = _minCardHeight * chromeScale;
-    final maxAllowedHeight = math.max(
-      minHeight,
-      screenSize.height - safe.top - math.max(safe.bottom, 20),
+    final available = screenSize.height - safe.top - math.max(safe.bottom, 20);
+    final minHeight = math.min(
+      _minCardHeight * chromeScale,
+      math.max(_minCardHeight, available),
     );
+    final maxAllowedHeight = math.max(minHeight, available);
     final isMinimized = _windowState == CardWindowState.minimized;
 
-    // When maximized, dynamically track keyboard so the card shrinks.
+    final double cardHeight;
     if (_windowState == CardWindowState.maximized) {
+      // Tracks the keyboard so the card shrinks above it, down to the
+      // header, the summary bar and the footer.
       _cardHeight = _maximizedHeight(screenSize, safe, keyboardHeight);
+      cardHeight = math.max(
+        _cardHeight!,
+        _headerHeight +
+            _footerHeight +
+            _IssuesSummaryBar.hitHeightFor(chromeScale),
+      );
+    } else {
+      cardHeight = (_cardHeight ?? screenSize.height * 0.55).clamp(
+        isMinimized ? _minimizedHeight * chromeScale : minHeight,
+        maxAllowedHeight,
+      );
     }
-
-    final cardHeight = (_cardHeight ?? screenSize.height * 0.55).clamp(
-      isMinimized ? _minimizedHeight * chromeScale : minHeight,
-      maxAllowedHeight,
-    );
     final effectiveWidth = _cardWidth
         .clamp(_minCardWidth, math.max(_minCardWidth, screenSize.width))
         .toDouble();
@@ -855,7 +871,6 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
                     screenSize,
                     clamped,
                     cardHeight,
-                    minHeight,
                     maxAllowedHeight,
                     theme,
                   ),
@@ -1008,9 +1023,7 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     // half of the space between header and footer and leave the list less
     // than the summary bar plus about two collapsed cards (large text, a
     // short card, an open FPS explainer).
-    const headerHeight = _controlRowHeight;
-    const footerHeight = _controlRowHeight + 1;
-    final middle = math.max(0.0, cardHeight - headerHeight - footerHeight);
+    final middle = math.max(0.0, cardHeight - _headerHeight - _footerHeight);
     final minList = _IssuesSummaryBar.hitHeightFor(chromeScale) + 96;
     final bannersMaxHeight = math.max(middle * 0.5, middle - minList);
     return ConstrainedBox(
@@ -1087,55 +1100,62 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
     Size screenSize,
     Offset clamped,
     double cardHeight,
-    double minHeight,
     double maxAllowedHeight,
     SleuthThemeData theme,
   ) {
+    // The stored height keeps the unscaled minimum: the scaled floor
+    // (large text) is display-only, so the card returns to its own height
+    // at 1.0x. Growing starts from the shown height; shrinking from the
+    // stored one while the floor holds the shown height up.
     void resizeBy(double dw, double dh) {
-      setState(() {
-        _cardWidth = (_cardWidth + dw).clamp(
-          _minCardWidth,
-          math.max(_minCardWidth, screenSize.width - clamped.dx),
-        );
-        _cardHeight = (cardHeight + dh).clamp(minHeight, maxAllowedHeight);
-      });
+      _cardWidth = (_cardWidth + dw).clamp(
+        _minCardWidth,
+        math.max(_minCardWidth, screenSize.width - clamped.dx),
+      );
+      final stored = _cardHeight ?? cardHeight;
+      final base = dh < 0 ? math.min(stored, cardHeight) : cardHeight;
+      _cardHeight = (base + dh).clamp(
+        math.min(_minCardHeight, maxAllowedHeight),
+        maxAllowedHeight,
+      );
+    }
+
+    void resizeAndCommit(double dw, double dh) {
+      setState(() => resizeBy(dw, dh));
       _commitGeometry();
     }
 
     // 48 x 48 hit box; the grip dots keep their corner position. Screen
-    // readers resize through the custom actions in 48 px steps.
+    // readers resize through the custom actions in 48 px steps, offered
+    // only in the normal window state (a maximized card's size follows
+    // the screen).
+    final isNormal = _windowState == CardWindowState.normal;
     return Positioned(
       right: 0,
       bottom: 0,
       width: 48,
       height: 48,
       child: Semantics(
+        container: true,
         label: 'Resize card',
-        customSemanticsActions: {
-          const CustomSemanticsAction(label: 'Taller'): () =>
-              resizeBy(0, _a11yStep),
-          const CustomSemanticsAction(label: 'Shorter'): () =>
-              resizeBy(0, -_a11yStep),
-          const CustomSemanticsAction(label: 'Wider'): () =>
-              resizeBy(_a11yStep, 0),
-          const CustomSemanticsAction(label: 'Narrower'): () =>
-              resizeBy(-_a11yStep, 0),
-        },
+        customSemanticsActions: isNormal
+            ? {
+                const CustomSemanticsAction(label: 'Taller'): () =>
+                    resizeAndCommit(0, _a11yStep),
+                const CustomSemanticsAction(label: 'Shorter'): () =>
+                    resizeAndCommit(0, -_a11yStep),
+                const CustomSemanticsAction(label: 'Wider'): () =>
+                    resizeAndCommit(_a11yStep, 0),
+                const CustomSemanticsAction(label: 'Narrower'): () =>
+                    resizeAndCommit(-_a11yStep, 0),
+              }
+            : null,
         child: MouseRegion(
           cursor: SystemMouseCursors.resizeDownRight,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onPanUpdate: (details) {
-              setState(() {
-                _cardWidth = (_cardWidth + details.delta.dx).clamp(
-                  _minCardWidth,
-                  math.max(_minCardWidth, screenSize.width - clamped.dx),
-                );
-                _cardHeight = (cardHeight + details.delta.dy).clamp(
-                  minHeight,
-                  maxAllowedHeight,
-                );
-              });
+              setState(() => resizeBy(details.delta.dx, details.delta.dy));
             },
             onPanEnd: (_) => _commitGeometry(),
             child: CustomPaint(
@@ -1217,7 +1237,10 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
         child: SleuthTextScaleClamp(
           maxScaleFactor: kChromeMaxTextScale,
           child: Padding(
-            padding: EdgeInsets.only(left: 10, right: theme.spacingXs),
+            padding: EdgeInsets.only(
+              left: theme.spacingMd,
+              right: theme.spacingXs,
+            ),
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: _controlRowHeight),
               child: Row(
@@ -1693,6 +1716,160 @@ class _FloatingIssuesCardState extends State<FloatingIssuesCard>
 
 // ─── Status Row ─────────────────────────────────────────────────────────
 
+enum _LineSlot { lead, trail }
+
+/// [lead] at the start and [trail] at the end of one line, vertically
+/// centred; when they do not fit side by side, [trail] moves below
+/// [lead] and stays at the end.
+class _LeadTrailLine
+    extends SlottedMultiChildRenderObjectWidget<_LineSlot, RenderBox> {
+  const _LeadTrailLine({
+    required this.lead,
+    required this.trail,
+    required this.gap,
+  });
+
+  final Widget lead;
+  final Widget trail;
+
+  /// Smallest horizontal gap between [lead] and [trail] on one line.
+  final double gap;
+
+  @override
+  Iterable<_LineSlot> get slots => _LineSlot.values;
+
+  @override
+  Widget? childForSlot(_LineSlot slot) => switch (slot) {
+    _LineSlot.lead => lead,
+    _LineSlot.trail => trail,
+  };
+
+  @override
+  _RenderLeadTrailLine createRenderObject(BuildContext context) =>
+      _RenderLeadTrailLine(gap);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderLeadTrailLine renderObject,
+  ) {
+    renderObject.gap = gap;
+  }
+}
+
+class _RenderLeadTrailLine extends RenderBox
+    with SlottedContainerRenderObjectMixin<_LineSlot, RenderBox> {
+  _RenderLeadTrailLine(this._gap);
+
+  double _gap;
+  set gap(double value) {
+    if (value == _gap) return;
+    _gap = value;
+    markNeedsLayout();
+  }
+
+  RenderBox? get _lead => childForSlot(_LineSlot.lead);
+  RenderBox? get _trail => childForSlot(_LineSlot.trail);
+
+  Size _layout(
+    BoxConstraints constraints,
+    ChildLayouter layoutChild, {
+    bool position = false,
+  }) {
+    final lead = _lead;
+    final trail = _trail;
+    final loose = constraints.loosen();
+    final leadSize = lead == null ? Size.zero : layoutChild(lead, loose);
+    final trailSize = trail == null ? Size.zero : layoutChild(trail, loose);
+    final oneLineWidth = leadSize.width + _gap + trailSize.width;
+    final width = constraints.hasBoundedWidth
+        ? constraints.maxWidth
+        : oneLineWidth;
+    final oneLine = oneLineWidth <= width;
+    final height = oneLine
+        ? math.max(leadSize.height, trailSize.height)
+        : leadSize.height + trailSize.height;
+    if (position) {
+      final trailX = math.max(0.0, width - trailSize.width);
+      if (lead != null) {
+        (lead.parentData! as BoxParentData).offset = Offset(
+          0,
+          oneLine ? (height - leadSize.height) / 2 : 0,
+        );
+      }
+      if (trail != null) {
+        (trail.parentData! as BoxParentData).offset = Offset(
+          trailX,
+          oneLine ? (height - trailSize.height) / 2 : leadSize.height,
+        );
+      }
+    }
+    return constraints.constrain(Size(width, height));
+  }
+
+  @override
+  Size computeDryLayout(covariant BoxConstraints constraints) =>
+      _layout(constraints, ChildLayoutHelper.dryLayoutChild);
+
+  @override
+  void performLayout() {
+    size = _layout(constraints, ChildLayoutHelper.layoutChild, position: true);
+  }
+
+  @override
+  double computeMinIntrinsicWidth(double height) => math.max(
+    _lead?.getMinIntrinsicWidth(height) ?? 0,
+    _trail?.getMinIntrinsicWidth(height) ?? 0,
+  );
+
+  @override
+  double computeMaxIntrinsicWidth(double height) =>
+      (_lead?.getMaxIntrinsicWidth(height) ?? 0) +
+      _gap +
+      (_trail?.getMaxIntrinsicWidth(height) ?? 0);
+
+  double _intrinsicHeight(double width, bool max) {
+    double h(RenderBox? box) => box == null
+        ? 0
+        : max
+        ? box.getMaxIntrinsicHeight(width)
+        : box.getMinIntrinsicHeight(width);
+    final fits = computeMaxIntrinsicWidth(double.infinity) <= width;
+    return fits ? math.max(h(_lead), h(_trail)) : h(_lead) + h(_trail);
+  }
+
+  @override
+  double computeMinIntrinsicHeight(double width) =>
+      _intrinsicHeight(width, false);
+
+  @override
+  double computeMaxIntrinsicHeight(double width) =>
+      _intrinsicHeight(width, true);
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    for (final child in children) {
+      final parentData = child.parentData! as BoxParentData;
+      context.paintChild(child, offset + parentData.offset);
+    }
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    for (final child in children) {
+      final parentData = child.parentData! as BoxParentData;
+      final hit = result.addWithPaintOffset(
+        offset: parentData.offset,
+        position: position,
+        hitTest: (result, transformed) =>
+            child.hitTest(result, position: transformed),
+      );
+      if (hit) return true;
+    }
+    return false;
+  }
+}
+
 class _StatusRow extends StatefulWidget {
   const _StatusRow({required this.controller});
 
@@ -1717,8 +1894,8 @@ class _StatusRowState extends State<_StatusRow> {
   @override
   Widget build(BuildContext context) {
     final theme = SleuthTheme.of(context);
-    // The FPS group, the VM+/FRAME and DBG badges and the issue count wrap
-    // onto a second line when they do not fit.
+    // The FPS group and the VM+/FRAME and DBG badges wrap; the issue count
+    // stays at the right edge, below them when it does not fit beside.
     return SleuthTextScaleClamp(
       maxScaleFactor: kChromeMaxTextScale,
       child: Column(
@@ -1726,31 +1903,19 @@ class _StatusRowState extends State<_StatusRow> {
         children: [
           Padding(
             padding: EdgeInsets.symmetric(horizontal: theme.spacingLg),
-            child: SizedBox(
-              width: double.infinity,
-              child: Wrap(
-                alignment: WrapAlignment.spaceBetween,
+            child: _LeadTrailLine(
+              gap: theme.spacingXs,
+              lead: Wrap(
                 crossAxisAlignment: WrapCrossAlignment.center,
                 spacing: theme.spacingXs,
                 children: [
-                  Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: theme.spacingXs,
-                    children: [
-                      _fpsGroup(theme),
-                      _modeBadge(theme),
-                      if (kDebugMode && controller.isDebugCallbacksActive)
-                        _badge(
-                          theme,
-                          'DBG',
-                          theme.badgeDbgBg,
-                          theme.badgeDbgText,
-                        ),
-                    ],
-                  ),
-                  _issueCount(theme),
+                  _fpsGroup(theme),
+                  _modeBadge(theme),
+                  if (kDebugMode && controller.isDebugCallbacksActive)
+                    _badge(theme, 'DBG', theme.badgeDbgBg, theme.badgeDbgText),
                 ],
               ),
+              trail: _issueCount(theme),
             ),
           ),
           if (_infoExpanded) ...[
@@ -2442,6 +2607,7 @@ class _IssuesSummaryBar extends StatelessWidget {
                             fontSize: theme.fontSm,
                           ),
                           textAlign: TextAlign.right,
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),

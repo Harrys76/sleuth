@@ -167,6 +167,57 @@ class _IssueCardState extends State<IssueCard> {
 
   void _toggleAbout() => setState(() => _aboutExpanded = !_aboutExpanded);
 
+  /// Narrowest title that keeps the category and confidence badges beside
+  /// it.
+  static const double _minInlineTitleWidth = 96;
+
+  /// Width the title row takes besides the title when the category and
+  /// confidence badges are inline: the measured badges and severity
+  /// glyph, the pin (reserved while collapsed so expanding does not move
+  /// the badges), the highlight checkbox and the gaps.
+  double _inlineBadgesWidth(BuildContext context, SleuthThemeData theme) {
+    final scaler = _badgeScaler(context);
+    final base = DefaultTextStyle.of(context).style;
+    double measure(String text, TextStyle style) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: base.merge(style)),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final width = painter.width;
+      painter.dispose();
+      return width;
+    }
+
+    final badgeStyle = TextStyle(
+      fontSize: theme.fontXxs,
+      fontWeight: FontWeight.bold,
+    );
+    final issue = widget.issue;
+    // Text plus padding and the 1 px border on each side.
+    final category =
+        measure(_categoryLabel(issue.category), badgeStyle) +
+        2 * theme.spacingXs +
+        2;
+    final confidence =
+        measure(_confidenceLabel(issue.confidence), badgeStyle) +
+        2 * theme.spacingSm +
+        2;
+    final glyph = measure('\u{1F534}', TextStyle(fontSize: theme.fontBase));
+    const pin = 14.0;
+    final checkbox = widget.locatable ? 48 + theme.spacingXs : 0.0;
+    return glyph +
+        theme.spacingXs +
+        category +
+        theme.spacingXs +
+        theme.spacingXs +
+        confidence +
+        theme.spacingXs +
+        pin +
+        checkbox;
+  }
+
   /// Toggle expansion and notify the host.
   ///
   /// **Invariant:** every mutation of [_expanded] must route through this
@@ -236,11 +287,13 @@ class _IssueCardState extends State<IssueCard> {
                   theme,
                   issue,
                   // The category and confidence badges sit beside the title
-                  // while there is room; with large text or a narrow card
-                  // they move to the badge line.
+                  // while the title keeps its minimum width; with large
+                  // text or a narrow card they move to the badge line.
                   inlineBadges:
                       textScaleOf(context) <= kChromeMaxTextScale &&
-                      constraints.maxWidth >= 260,
+                      constraints.maxWidth -
+                              _inlineBadgesWidth(context, theme) >=
+                          _minInlineTitleWidth,
                 ),
               ),
             ),
@@ -292,14 +345,12 @@ class _IssueCardState extends State<IssueCard> {
               ),
             ),
             if (inlineBadges)
-              Flexible(
-                child: Padding(
-                  padding: EdgeInsets.only(left: theme.spacingXs),
-                  child: _confidenceBadge(
-                    issue.confidence,
-                    theme,
-                    issue.confidenceReason,
-                  ),
+              Padding(
+                padding: EdgeInsets.only(left: theme.spacingXs),
+                child: _confidenceBadge(
+                  issue.confidence,
+                  theme,
+                  issue.confidenceReason,
                 ),
               ),
             // Freeze-above pin indicator (v0.15.5). The icon only
@@ -956,24 +1007,30 @@ class _IssueCardState extends State<IssueCard> {
   List<(String, String)> _aboutContent(PerformanceIssue issue) =>
       IssueMetadataBuilder.entries(issue);
 
-  Widget _categoryBadge(IssueCategory category, SleuthThemeData theme) {
-    final color = theme.categoryColor(category);
-    final label = switch (category) {
-      IssueCategory.build => 'BUILD',
-      IssueCategory.layout => 'LAYOUT',
-      IssueCategory.paint => 'PAINT',
-      IssueCategory.raster => 'RASTER',
-      IssueCategory.memory => 'MEMORY',
-      IssueCategory.channel => 'CHANNEL',
-      IssueCategory.font => 'FONT',
-      IssueCategory.network => 'NETWORK',
-      IssueCategory.startup => 'STARTUP',
-    };
+  static String _categoryLabel(IssueCategory category) => switch (category) {
+    IssueCategory.build => 'BUILD',
+    IssueCategory.layout => 'LAYOUT',
+    IssueCategory.paint => 'PAINT',
+    IssueCategory.raster => 'RASTER',
+    IssueCategory.memory => 'MEMORY',
+    IssueCategory.channel => 'CHANNEL',
+    IssueCategory.font => 'FONT',
+    IssueCategory.network => 'NETWORK',
+    IssueCategory.startup => 'STARTUP',
+  };
 
+  static String _confidenceLabel(IssueConfidence confidence) =>
+      switch (confidence) {
+        IssueConfidence.confirmed => 'CONFIRMED',
+        IssueConfidence.likely => 'LIKELY',
+        IssueConfidence.possible => 'POSSIBLE',
+      };
+
+  Widget _categoryBadge(IssueCategory category, SleuthThemeData theme) {
     return _badge(
       theme: theme,
-      accent: color,
-      label: label,
+      accent: theme.categoryColor(category),
+      label: _categoryLabel(category),
       textScaler: _badgeScaler(context),
     );
   }
@@ -1106,11 +1163,7 @@ class _IssueCardState extends State<IssueCard> {
     String? reason,
   ) {
     final color = theme.confidenceColor(confidence);
-    final label = switch (confidence) {
-      IssueConfidence.confirmed => 'CONFIRMED',
-      IssueConfidence.likely => 'LIKELY',
-      IssueConfidence.possible => 'POSSIBLE',
-    };
+    final label = _confidenceLabel(confidence);
 
     final badge = _badge(
       theme: theme,

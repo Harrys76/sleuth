@@ -159,4 +159,143 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(controller.overlayUiState.dashboardOpen, isTrue);
   });
+
+  group('card geometry at 1.3x', () {
+    Future<SleuthController> pumpView(
+      WidgetTester tester,
+      Size size, {
+      double keyboard = 0,
+      Offset offset = const Offset(40, 0),
+      double? height,
+      CardWindowState windowState = CardWindowState.normal,
+    }) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+      addTearDown(tester.view.reset);
+      final controller = await pumpOverlay(
+        tester,
+        textScale: 1.3,
+        config: const SleuthConfig(treeScanInterval: Duration(hours: 1)),
+      );
+      controller.overlayUiState.setCardGeometry(
+        offset: offset,
+        width: 300,
+        height: height,
+        windowState: windowState,
+      );
+      controller.issuesNotifier.value = mixedOverlayIssues();
+      await openDashboard(tester, controller);
+      return controller;
+    }
+
+    double cardHeight(WidgetTester tester) => tester
+        .getSize(
+          find.byWidgetPredicate((w) => w is Material && w.elevation == 8),
+        )
+        .height;
+
+    testWidgets('a landscape phone keeps the footer and grip on screen', (
+      tester,
+    ) async {
+      await pumpView(tester, const Size(640, 360));
+      expect(tester.takeException(), isNull);
+      expect(cardHeight(tester), lessThanOrEqualTo(340));
+      expect(
+        tester.getRect(find.bySemanticsLabel('Guide')).bottom,
+        lessThanOrEqualTo(360),
+      );
+      expect(
+        tester.getRect(find.bySemanticsLabel('Resize card')).bottom,
+        lessThanOrEqualTo(360),
+      );
+    });
+
+    testWidgets('a maximized card stays above a 260 px keyboard', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        const Size(360, 647),
+        keyboard: 260,
+        windowState: CardWindowState.maximized,
+      );
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.getRect(find.bySemanticsLabel('Guide')).bottom,
+        lessThanOrEqualTo(647 - 260),
+      );
+    });
+
+    testWidgets('a maximized card keeps header, summary bar and footer', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        const Size(360, 400),
+        keyboard: 260,
+        windowState: CardWindowState.maximized,
+      );
+      expect(tester.takeException(), isNull);
+      // Header 48 + footer 49 + the summary bar's 48 px hit height.
+      expect(cardHeight(tester), 48 + 49 + 48);
+    });
+
+    testWidgets('resizing stores the unscaled minimum', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = await pumpView(
+        tester,
+        const Size(400, 800),
+        height: 400,
+      );
+      final resize = find.bySemanticsLabel('Resize card');
+      // Shown at the scaled floor of 390.
+      expect(cardHeight(tester), 400);
+      await performCustomAction(tester, resize, 'Shorter');
+      expect(controller.overlayUiState.cardHeight, 352);
+      expect(cardHeight(tester), 390);
+      await performCustomAction(tester, resize, 'Shorter');
+      expect(controller.overlayUiState.cardHeight, 304);
+      await performCustomAction(tester, resize, 'Shorter');
+      expect(controller.overlayUiState.cardHeight, 300);
+      expect(cardHeight(tester), 390);
+      // Growing starts from the shown height.
+      await performCustomAction(tester, resize, 'Taller');
+      expect(controller.overlayUiState.cardHeight, 390 + 48);
+      expect(tester.takeException(), isNull);
+      handle.dispose();
+    });
+
+    testWidgets('a maximized card offers no resize actions', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpView(
+        tester,
+        const Size(400, 800),
+        windowState: CardWindowState.maximized,
+      );
+      final data = tester
+          .getSemantics(find.bySemanticsLabel('Resize card'))
+          .getSemanticsData();
+      expect(data.customSemanticsActionIds ?? const <int>[], isEmpty);
+      handle.dispose();
+    });
+
+    testWidgets('the issue count stays at the right edge of the status row', (
+      tester,
+    ) async {
+      await _pumpSmall(tester, 1.3);
+      final count = find.text('${mixedOverlayIssues().length} issues');
+      final card = tester.getRect(
+        find.byWidgetPredicate((w) => w is Material && w.elevation == 8),
+      );
+      // The count does not fit beside the FPS group and the mode badge.
+      expect(
+        tester.getTopLeft(count).dy,
+        greaterThan(tester.getBottomLeft(find.text('FRAME')).dy),
+      );
+      // Status row padding is 12.
+      expect(tester.getRect(count).right, closeTo(card.right - 12, 0.5));
+      expect(tester.takeException(), isNull);
+    });
+  });
 }

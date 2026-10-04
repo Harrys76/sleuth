@@ -6,6 +6,7 @@ import 'package:sleuth/src/models/performance_issue.dart';
 import 'package:sleuth/src/ui/floating_issues_card.dart';
 import 'package:sleuth/src/ui/hidden_issues_page.dart';
 import 'package:sleuth/src/ui/issue_card.dart';
+import 'package:sleuth/src/ui/overlay_ui_state.dart';
 
 PerformanceIssue _issue(
   String id, {
@@ -313,6 +314,15 @@ void main() {
       controller.issuesNotifier.value = [
         for (final id in ['a', 'b', 'c', 'd', 'e']) _issue(id),
       ];
+      // Wide enough for the category and confidence badges to sit beside
+      // the title (the test font is wider than platform fonts), so the
+      // rows are single-line collapsed rows.
+      controller.overlayUiState.setCardGeometry(
+        offset: null,
+        width: 480,
+        height: null,
+        windowState: CardWindowState.normal,
+      );
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
